@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { APP_ROOT_ENV, CONFIG_DIR_ENV, DB_PATH_ENV, WORK_DIR_ENV } from '../src/lib/config/paths';
 
-export interface CliInstallation { node: string; cli: string; root: string; server: string }
+export interface CliInstallation { node: string; cli: string; root: string; server: string; launcher?: string }
 export const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 export function terminalCommand(options: CliInstallation) {
@@ -14,8 +14,8 @@ export function terminalCommand(options: CliInstallation) {
     `unset ${DB_PATH_ENV} ${CONFIG_DIR_ENV} ${WORK_DIR_ENV} NODE_OPTIONS ELECTRON_RUN_AS_NODE`,
     `export RI_DESKTOP=1 NEXT_DIST_DIR=.next-desktop`,
     `export RI_DESKTOP_REPO=${shellQuote(options.server)}`,
-    `cd ${shellQuote(options.server)} || exit 1`,
-    `exec ${shellQuote(options.node)} ${shellQuote(options.cli)} "$@"`,
+    ...(options.launcher ? [] : [`cd ${shellQuote(options.server)} || exit 1`]),
+    options.launcher ? `exec ${shellQuote(options.launcher)} cli "$@"` : `exec ${shellQuote(options.node)} ${shellQuote(options.cli)} "$@"`,
     '',
   ].join('\n');
 }

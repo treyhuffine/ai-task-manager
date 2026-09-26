@@ -1,6 +1,6 @@
 import { connectMcpClient, finishMcpOAuth } from '@connectors/engine/mcp';
 import type { McpServerEntry } from './mcp-servers';
-import { desktopEnabled, desktopOAuth, desktopRelayFor, type DesktopOAuthFlow } from './desktop-oauth';
+import { isDesktopRequest, desktopOAuth, desktopRelayFor, type DesktopOAuthFlow } from './desktop-oauth';
 import { getConnectorRuntime, getMcpServerStore, invalidateConnectorRuntime, mcpOAuthProviderFor, MCP_TIMEOUT_MS, withTimeout } from './runtime';
 
 export async function completeMcpAuthorization(entry: McpServerEntry, code: string, state: string, provider = mcpOAuthProviderFor(entry)) {
@@ -12,11 +12,11 @@ export async function completeMcpAuthorization(entry: McpServerEntry, code: stri
   await getConnectorRuntime();
 }
 
-export async function beginMcpAuthorization(entry: McpServerEntry) {
+export async function beginMcpAuthorization(entry: McpServerEntry, request?: Request) {
   let flow: DesktopOAuthFlow | undefined;
   let authUrl: string | undefined;
   try {
-    if (desktopEnabled()) flow = await desktopOAuth().begin(`mcp:${entry.id}`, { relayUrl: desktopRelayFor('mcp', true) });
+    if (request && isDesktopRequest(request)) flow = await desktopOAuth().begin(`mcp:${entry.id}`, { relayUrl: desktopRelayFor('mcp', true) });
     const provider = mcpOAuthProviderFor(entry, (url) => { authUrl = url.href; }, { redirectUri: flow?.redirectUri, interactive: true });
     try {
       const client = await withTimeout(connectMcpClient({ url: entry.url, name: entry.slug, authProvider: provider }), MCP_TIMEOUT_MS, 'authorize');

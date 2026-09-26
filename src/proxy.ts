@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { hashToken } from '@/lib/auth/tokens';
 import { findApiKeyByHash, touchApiKey } from '@/lib/db/queries';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
+import { permitsCookieMutation } from '@/lib/auth/request-origin';
 
 export const config = {
   matcher: ['/api/:path*'],
@@ -50,7 +51,14 @@ function extractToken(request: NextRequest): string | null {
 }
 
 export function proxy(request: NextRequest) {
+  if (process.env.NODE_ENV === 'production' &&
+      /^\/api\/(dev|playground|benchmark)(\/|$)/.test(request.nextUrl.pathname)) {
+    return NextResponse.json({ error: 'not found' }, { status: 404 });
+  }
   if (PUBLIC_PATHS.has(request.nextUrl.pathname)) {
+    if (request.nextUrl.pathname === '/api/session' && !permitsCookieMutation(request)) {
+      return NextResponse.json({ error: 'request origin is not allowed' }, { status: 403 });
+    }
     return NextResponse.next();
   }
 
@@ -84,6 +92,10 @@ export function proxy(request: NextRequest) {
   // needing the user's long-lived account token.
   if (request.nextUrl.pathname.startsWith('/api/takeover/')) {
     return NextResponse.next();
+  }
+
+  if (request.cookies.get(SESSION_COOKIE_NAME)?.value && !permitsCookieMutation(request)) {
+    return NextResponse.json({ error: 'request origin is not allowed' }, { status: 403 });
   }
 
   const token = extractToken(request);

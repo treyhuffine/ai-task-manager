@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { transcribe, getProviderStatus } from '@/lib/stt/transcribe';
 import { withCompression } from '@/lib/api/compression';
+import { readLimitedFormData, RequestBodyTooLargeError } from '@/lib/api/limited-body';
 
 /**
  * POST /api/transcribe
@@ -9,9 +10,9 @@ import { withCompression } from '@/lib/api/compression';
  */
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
+    const formData = await readLimitedFormData(request);
     const file = formData.get('file') as Blob | null;
-    if (!file) {
+    if (!(file instanceof Blob) || file.size === 0) {
       return Response.json({ error: 'No file provided' }, { status: 400 });
     }
 
@@ -21,6 +22,7 @@ export async function POST(request: NextRequest) {
     const provider = voiceModel.split('/')[0];
     return Response.json({ text, provider });
   } catch (err) {
+    if (err instanceof RequestBodyTooLargeError) return Response.json({ error: err.message }, { status: 413 });
     console.error('[POST /api/transcribe]', err);
     const message = err instanceof Error ? err.message : String(err);
 

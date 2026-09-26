@@ -26,6 +26,7 @@
 import { NextRequest } from 'next/server';
 import { findTriggerByWebhookPublicId } from '@/lib/db/queries';
 import { dispatchRun } from '@/lib/runs/dispatch';
+import { readLimitedRequestBody, RequestBodyTooLargeError } from '@/lib/webhooks/read-limited-body';
 import {
   verifyWebhookRequest,
   WEBHOOK_BODY_MAX_BYTES,
@@ -41,19 +42,22 @@ export async function POST(request: NextRequest, ctx: RouteContext) {
     return Response.json({ error: 'missing public id' }, { status: 404 });
   }
 
-  // Read raw bytes BEFORE parsing — HMAC is over the original buffer,
-  // not a re-serialized JSON.
-  const rawBuffer = Buffer.from(await request.arrayBuffer());
-  if (rawBuffer.byteLength > WEBHOOK_BODY_MAX_BYTES) {
-    return Response.json(
-      { error: 'body too large', maxBytes: WEBHOOK_BODY_MAX_BYTES },
-      { status: 413 },
-    );
-  }
-
   const trigger = findTriggerByWebhookPublicId(publicId);
   if (!trigger || !trigger.enabled || !trigger.webhookSecretHash) {
     return Response.json({ error: 'not found' }, { status: 404 });
+  }
+
+  if (!request.headers.get('x-webhook-secret') || !request.headers.get('x-signature')) {
+    return Response.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  let rawBuffer: Buffer;
+  try {
+    rawBuffer = Buffer.from(await readLimitedRequestBody(request, WEBHOOK_BODY_MAX_BYTES));
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return Response.json({ error: 'body too large', maxBytes: WEBHOOK_BODY_MAX_BYTES }, { status: 413 });
+    }
+    return Response.json({ error: 'could not read request body' }, { status: 400 });
   }
 
   const auth = verifyWebhookRequest({

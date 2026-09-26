@@ -35,6 +35,7 @@ import { transcribe, resolveVoiceModel } from '@/lib/stt/transcribe';
 import { extractImageContent } from '@/lib/capture/extract-image';
 import { onStreamCaptured } from '@/lib/stream-triage/triggers';
 import type { Attachment } from '@/db/types';
+import { readLimitedFormData, readLimitedJson, RequestBodyTooLargeError } from '@/lib/api/limited-body';
 
 /** Save an audio blob through the attachments system and build an inline
  *  reference that the stream's `rawText` can carry. */
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
     let attachment: Attachment | undefined;
 
     if (contentType.includes('multipart/form-data')) {
-      const formData = await request.formData();
+      const formData = await readLimitedFormData(request);
       const files = formData.getAll('file').filter(f => f instanceof Blob && f.size > 0) as Blob[];
       const text = formData.get('text') as string | null;
 
@@ -180,12 +181,12 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // ── JSON text path ──
-      const body = await request.json();
-      if (!body.text?.trim()) {
+      const body = await readLimitedJson(request) as { text?: unknown; source?: unknown };
+      if (!body || typeof body.text !== 'string' || !body.text.trim()) {
         return Response.json({ error: '`text` is required' }, { status: 400 });
       }
       rawText = body.text.trim();
-      source = body.source ?? 'capture';
+      source = body.source === 'chat' ? 'chat' : 'capture';
     }
 
     const row = createStream({
@@ -198,6 +199,8 @@ export async function POST(request: NextRequest) {
 
     return Response.json({ item: row }, { status: 201 });
   } catch (err) {
+    if (err instanceof RequestBodyTooLargeError) return Response.json({ error: err.message }, { status: 413 });
+    if (err instanceof SyntaxError) return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     console.error('[POST /api/capture]', err);
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: message }, { status: 500 });

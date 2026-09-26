@@ -62,7 +62,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'not an OAuth server' }, { status: 400 });
   }
   try {
-    return NextResponse.json(await beginMcpAuthorization(entry));
+    return NextResponse.json(await beginMcpAuthorization(entry, _request));
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Could not start authorization.' }, { status: 400 });
   }

@@ -17,7 +17,8 @@
 
 import { APP_SHORT_ID } from '@/constants/app';
 import { getTunnelName, setRemoteBaseUrl } from '@/lib/auth/bootstrap';
-import { beamdCheck, beamdOpen } from '@/lib/preview/beamd/cli';
+import { beamdCheck } from '@/lib/preview/beamd/cli';
+import { openOwnedTunnel } from '@/lib/preview/beamd/ownership';
 import { isValidPreviewLabel, previewName } from '@/lib/preview/preview-name';
 
 export interface BeamdBaseUrlResult {
@@ -83,7 +84,7 @@ export async function openAndSaveBeamdBaseUrl(
 ): Promise<BeamdBaseUrlResult> {
   const name = opts.name ?? appBeamdTunnelName();
   await beamdCheck();
-  const opened = await beamdOpen(port, name);
+  const opened = await openOwnedTunnel(port, name);
   const url = setRemoteBaseUrl(opened.url);
   return { url, name, port };
 }

@@ -21,6 +21,7 @@ import { APP_NAME } from '@/constants/app';
 import { DEFAULT_PORT, DEV_PORT, getRunningPort } from '@/lib/auth/port';
 import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
 import { probeHealth } from '../lib/server';
+import { serviceStatus, stopService } from '@/lib/service/client';
 import {
   clearServerRuntimeIfOwned,
   isProcessAlive,
@@ -44,6 +45,13 @@ export async function stopCommand(opts: StopOptions) {
   // getRunningPort(), which reads config.json from whatever root is active.
   if (opts.dev && !process.env[APP_ROOT_ENV]) {
     process.env[APP_ROOT_ENV] = getDevAppRoot();
+  }
+
+  const service = await serviceStatus();
+  if (service && (!opts.port || Number(opts.port) === Number(new URL(service.origin ?? 'https://localhost').port))) {
+    await stopService();
+    outro('Stopped the background service. Data was retained.');
+    return;
   }
 
   // Prefer the managed-instance record for this root: it carries the actual

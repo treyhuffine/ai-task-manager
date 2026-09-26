@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsup';
 
-export default defineConfig({
+export default defineConfig([{
   entry: ['src/cli/index.ts'],
   outDir: 'dist/cli',
   format: ['esm'],
@@ -13,4 +13,9 @@ export default defineConfig({
   // Source file's `#!/usr/bin/env node` is preserved automatically.
   // Resolve `@/*` aliases the same way tsconfig does.
   tsconfig: 'tsconfig.json',
-});
+}, {
+  entry: ['src/service/main.ts', 'src/service/watchdog.ts', 'src/service/http-server.ts', 'src/service/handoff.ts', 'src/service/runtime-job.ts'],
+  outDir: 'dist/service', format: ['cjs'], target: 'node22',
+  outExtension: () => ({ js: '.cjs' }), clean: true, splitting: false, shims: true,
+  noExternal: [/^@connectors\/engine(?:\/.*)?$/], tsconfig: 'tsconfig.json',
+}]);

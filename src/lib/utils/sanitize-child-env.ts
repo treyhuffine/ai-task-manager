@@ -40,6 +40,7 @@ const STATIC_DROP = new Set<string>([
   // child Next dev server.
   'TURBOPACK',
   'NEXT_RUNTIME',
+  'NEXT_DIST_DIR',
   'NEXT_PRIVATE_WORKER',
   'NEXT_PRIVATE_TRACE_ID',
   'NEXT_DEPLOYMENT_ID',

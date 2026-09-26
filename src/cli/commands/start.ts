@@ -3,6 +3,8 @@ import nodeTls from 'node:tls';
 import { intro, outro, log, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import getPort from 'get-port';
+import { acquireServiceOwner } from '@/lib/service/owner';
+import { serviceRequest, serviceStatus, type ServiceSession } from '@/lib/service/client';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import {
   ensureLocalToken,
@@ -87,6 +89,25 @@ function resolvePortless(opt: StartOptions['portless']): PortlessConfig | null {
 }
 
 export async function startCommand(opts: StartOptions) {
+  if (opts.dev && !process.env[APP_ROOT_ENV]) process.env[APP_ROOT_ENV] = getDevAppRoot();
+  const service = await serviceStatus();
+  if (service) {
+    if (service.phase !== 'running') throw new Error(`Ri service is ${service.phase}. Use ri service status for details.`);
+    const session = await serviceRequest<ServiceSession>('/session');
+    if (opts.open) await openBrowser(buildPairingUrl(session.token, session.origin));
+    log.success(`Using the background service at ${session.origin}. It continues after this terminal closes.`);
+    return;
+  }
+  const live = readLiveServerRuntime();
+  if (live) {
+    log.info(`A foreground Ri launcher is already running at ${live.publicBaseUrl}. Use it or stop it before changing launch mode.`);
+    return;
+  }
+  const release = acquireServiceOwner();
+  try { await startForegroundCommand(opts); } finally { release(); }
+}
+
+async function startForegroundCommand(opts: StartOptions) {
   // Isolate dev data from prod. When --dev is passed and the user hasn't
   // already pinned a root via the standard env override, route this process
   // (and any child processes we spawn — Next, voice, CLI subcommands) to the

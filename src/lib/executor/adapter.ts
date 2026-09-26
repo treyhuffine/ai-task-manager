@@ -31,6 +31,7 @@
  *   - MCP elicitation.
  */
 
+import { withActivity, readMaintenance } from '@/lib/service/maintenance';
 import { existsSync } from 'node:fs';
 import { uuidv7 } from 'uuidv7';
 import { getProvider, commandInventoryFromEvent } from '@agentex/agent';
@@ -642,6 +643,10 @@ export async function dispatch(
   writer: EventWriter = localEventWriter,
   options: DispatchOptions = {},
 ): Promise<void> {
+  return withActivity(() => dispatchAdmitted(chatSessionId, userMessage, writer, options));
+}
+
+async function dispatchAdmitted(chatSessionId: string, userMessage: string, writer: EventWriter, options: DispatchOptions): Promise<void> {
   const session = getChatSessionWithExecution(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
   // An import nobody has taken over has no session to resume. A send would
@@ -1986,4 +1991,18 @@ export function resolveCwd(session: {
   // running the agent in the shared source checkout.
   if (workspace.isGit) return null;
   return workspace.cwd ?? null;
+}
+
+/** Called only after the service closes admission. Cached idle harnesses can
+ * resume from their native histories after an update. Busy turns, tasks and
+ * permission waits are never interrupted by maintenance. */
+export async function closeIdleHarnessesForMaintenance(): Promise<void> {
+  if (readMaintenance()?.phase !== 'draining') throw new Error('Maintenance admission must be closed first');
+  const { listSessionsWithPending } = await import('./pending-input');
+  const pending = new Set(listSessionsWithPending());
+  await Promise.all([...harnessSessions.keys()].map(async id => {
+    if (isRunning(id) || hasBackgroundTasks(id) || pending.has(id)) return;
+    const result = await close(id);
+    if (!result.closed) throw new Error('An idle harness did not close. The update will wait.');
+  }));
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { retainActiveInput } from '@/lib/client/active-input';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getVoiceProvider, DEFAULT_VOICE_MODEL } from '@/constants/voice-models';
 import { useUserState } from '@/hooks/use-user-state';
@@ -72,9 +73,12 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
   const statusRef = useRef<VoiceStatus>('idle');
   const [status, _unsafeSetStatus] = useState<VoiceStatus>('idle');
   const setVoiceStatus = useCallback((next: VoiceStatus) => {
+    retainActiveInput(statusRef, !['idle', 'error'].includes(next));
     statusRef.current = next;
     _unsafeSetStatus(next);
   }, []);
+
+  useEffect(() => () => { retainActiveInput(statusRef, false); }, []);
 
   const [transcript, setTranscript] = useState('');
   const [provider, setProvider] = useState<VoiceProvider>(null);
@@ -168,7 +172,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
         provider: null,
         mode: null,
         reason:
-          'No speech-to-text provider available. Run `pnpm dev:stt` to start Parakeet, or configure GROQ_API_KEY.',
+          'No speech provider is available. Configure a local Parakeet service or a Groq key in Settings.',
       };
     }
 
@@ -226,7 +230,8 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
       setStream(mic);
 
       chunksRef.current = [];
-      const recorder = new MediaRecorder(mic, { mimeType: 'audio/webm;codecs=opus' });
+      const mimeType = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus'].find(type => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(mic, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (e) => {
@@ -234,7 +239,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
       };
 
       recorder.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
         chunksRef.current = [];
         mediaRecorderRef.current = null;
 
@@ -257,7 +262,8 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
 
         try {
           const form = new FormData();
-          form.append('file', blob, 'recording.webm');
+          const extension = recorder.mimeType.includes('mp4') ? 'm4a' : recorder.mimeType.includes('ogg') ? 'ogg' : 'webm';
+          form.append('file', blob, `recording.${extension}`);
           if (voiceModelRef.current) {
             form.append('voiceModel', voiceModelRef.current);
           }

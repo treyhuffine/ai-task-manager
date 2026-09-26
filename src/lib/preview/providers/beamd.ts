@@ -15,7 +15,8 @@
 
 import type { PreviewProvider } from './types';
 import { PreviewProviderError } from './types';
-import { beamdOpen, beamdClose, beamdList, beamdConnectedServer, BeamdCliError } from '../beamd/cli';
+import { openOwnedTunnel, closeOwnedTunnel } from '../beamd/ownership';
+import { beamdConnectedServer, BeamdCliError } from '../beamd/cli';
 
 export const beamdProvider: PreviewProvider = {
   id: 'beamd',
@@ -30,14 +31,8 @@ export const beamdProvider: PreviewProvider = {
     // use the same cwd so reuse + teardown hit that same scope.
     const cwd = ctx.cwd;
     try {
-      // Reuse a live tunnel if one already exists for this name (idempotent
-      // bring-up across resolves and network blips).
-      const existing = (await beamdList({ cwd })).find((t) => t.name === name);
-      if (existing?.url) {
-        return { url: existing.url, stop: () => closeQuietly(name, cwd) };
-      }
-      const opened = await beamdOpen(ctx.port, name, { cwd });
-      return { url: opened.url, stop: () => closeQuietly(name, cwd) };
+      const opened = await openOwnedTunnel(ctx.port, name, cwd);
+      return { url: opened.url, stop: () => closeQuietly(ctx.port, name, cwd) };
     } catch (err) {
       if (err instanceof BeamdCliError) {
         // Not-connected is the common first-run case — surface the connect CTA.
@@ -55,9 +50,9 @@ export const beamdProvider: PreviewProvider = {
   },
 };
 
-async function closeQuietly(name: string, cwd?: string): Promise<void> {
+async function closeQuietly(port: number, name: string, cwd?: string): Promise<void> {
   try {
-    await beamdClose(name, { cwd });
+    await closeOwnedTunnel(port, name, cwd);
   } catch {
     // Tear-down is best-effort; a dangling tunnel self-expires and `close`
     // is idempotent on the next attempt.

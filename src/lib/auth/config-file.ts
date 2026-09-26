@@ -7,6 +7,7 @@
 
 import fs from 'node:fs';
 import { ensureConfigDir, getConfigPath, getConfigDir } from '@/lib/config/paths';
+import { atomicWriteFile, withFileLock } from '@/lib/config/atomic-file';
 
 export interface AuthConfig {
   version: 1;
@@ -93,6 +94,18 @@ export function readAuthConfig(): AuthConfig | null {
 
 export function writeAuthConfig(config: Partial<AuthConfig>): AuthConfig {
   ensureConfigDir();
+  return withFileLock(getAuthConfigPath(), () => writeLockedConfig(config));
+}
+
+function writeLockedConfig(config: Partial<AuthConfig>): AuthConfig {
+  // Refuse to erase a corrupt file or silently discard fields from a newer
+  // client. Readers can show recovery UI, but writes must preserve the source.
+  const file = getAuthConfigPath();
+  const original: Record<string, unknown> = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+  if (!original || typeof original !== 'object' || Array.isArray(original) ||
+      (original.version !== undefined && original.version !== 1)) {
+    throw new Error('Unsupported config file. Preserve it and repair the configuration before saving.');
+  }
 
   const existing = readAuthConfig();
 
@@ -120,13 +133,7 @@ export function writeAuthConfig(config: Partial<AuthConfig>): AuthConfig {
     browserDefaultProfile: pick('browserDefaultProfile'),
   };
 
-  const p = getAuthConfigPath();
-  fs.writeFileSync(p, JSON.stringify(next, null, 2) + '\n', { mode: 0o600 });
-  try {
-    fs.chmodSync(p, 0o600);
-  } catch {
-    // Best-effort.
-  }
+  atomicWriteFile(file, JSON.stringify({ ...original, ...next }, null, 2) + '\n');
 
   return next;
 }

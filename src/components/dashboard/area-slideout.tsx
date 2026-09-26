@@ -22,6 +22,7 @@ import {
 import { NoteIcon } from '@/components/shared/note-icon'
 import { coverAttachmentUrl } from '@/lib/attachments/view'
 import { cn } from '@/lib/utils'
+import { useDocumentAutosave } from '@/hooks/use-document-autosave'
 import { formatLocalDate, isPastDate } from '@/lib/dates'
 
 const DEFAULT_WIDTH = 640
@@ -42,6 +43,7 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
   const { data: notes = [] } = useNotes(areaId ? { areaId: areaId } : { areaId: '__none__' })
   const { openTask, openNote } = useDashboard()
   const updateArea = useUpdateArea()
+  const autosave = useDocumentAutosave('areas', areaId, area, updateArea.mutateAsync)
   const createTask = useCreateTask()
   const lifecycle = useTaskLifecycle()
   const createNote = useCreateNote()
@@ -56,8 +58,6 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
   const [addingNote, setAddingNote] = useState(false)
   const [newNoteTitle, setNewNoteTitle] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
-  const nameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const descTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const taskInputRef = useRef<HTMLInputElement>(null)
   const noteInputRef = useRef<HTMLInputElement>(null)
 
@@ -113,28 +113,24 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
   const saveName = useCallback(
     (value: string) => {
       setNameValue(value)
-      if (nameTimerRef.current) clearTimeout(nameTimerRef.current)
-      nameTimerRef.current = setTimeout(() => {
-        const trimmed = value.trim()
-        if (trimmed && areaId && trimmed !== area?.name) {
-          updateArea.mutate({ id: areaId, name: trimmed })
-        }
-      }, 500)
+
+      const trimmed = value.trim()
+      if (trimmed && areaId && trimmed !== area?.name) {
+        autosave({ name: trimmed })
+      }
     },
-    [areaId, area?.name, updateArea]
+    [areaId, area?.name, autosave]
   )
 
   const saveDescription = useCallback(
     (value: string) => {
       setDescValue(value)
-      if (descTimerRef.current) clearTimeout(descTimerRef.current)
-      descTimerRef.current = setTimeout(() => {
-        if (areaId && value !== (area?.description ?? '')) {
-          updateArea.mutate({ id: areaId, description: value || undefined })
-        }
-      }, 500)
+
+      if (areaId && value !== (area?.description ?? '')) {
+        autosave({ description: value || null })
+      }
     },
-    [areaId, area?.description, updateArea]
+    [areaId, area?.description, autosave]
   )
 
   const handleArchive = useCallback(() => {
@@ -169,12 +165,6 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
   }, [newNoteTitle, areaId, createNote])
 
   // Cleanup
-  useEffect(() => {
-    return () => {
-      if (nameTimerRef.current) clearTimeout(nameTimerRef.current)
-      if (descTimerRef.current) clearTimeout(descTimerRef.current)
-    }
-  }, [])
 
   const isArchived = area?.status === 'archived'
   const activeTasks = tasks.filter((t) => t.status !== 'archived')

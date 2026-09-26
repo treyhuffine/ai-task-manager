@@ -14,6 +14,7 @@ import { bundledCliCommand, demoEnvironment } from './config';
 import { mockMcp } from './mock-mcp';
 import { installTerminalCommand, removeTerminalCommand } from './cli-install';
 import { isProcessAlive, readServerRuntime } from '../src/lib/server-runtime/record';
+import { stopService } from '../src/lib/service/client';
 
 const repo = path.resolve(__dirname, '..');
 const artifacts = path.join(repo, '.electron-demo');
@@ -23,10 +24,10 @@ const packageSource = process.env.RI_DESKTOP_PACKAGE;
 let packaged: string | undefined;
 if (packageSource) {
   packaged = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ri-relocated-')), 'Ri.app');
-  fs.cpSync(path.resolve(packageSource), packaged, { recursive: true, verbatimSymlinks: true });
+  fs.cpSync(path.resolve(packageSource), packaged, { recursive: true, verbatimSymlinks: true, mode: fs.constants.COPYFILE_FICLONE });
 }
 const mode = packaged || process.env.RI_DESKTOP_MODE === 'production' ? 'production' : 'development';
-const env = demoEnvironment(repo, { ...process.env, RI_DESKTOP_ROOT: root }, mode);
+const env = demoEnvironment(repo, { ...process.env, RI_DESKTOP_ROOT: root, RI_INSTALL_ROOT: path.join(root, '..', 'smoke-runtime') }, mode);
 for (const key of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR']) delete process.env[key];
 Object.assign(process.env, env);
 const launch = () => _electron.launch({ executablePath: packaged ? path.join(packaged, 'Contents/MacOS/Ri') : electron as unknown as string, args: packaged ? [] : [path.join(repo, 'dist/desktop/main.cjs')], cwd: packaged ? os.tmpdir() : repo,
@@ -35,6 +36,16 @@ let app: ElectronApplication | undefined;
 let rogue: https.Server | undefined;
 let oauthFixture: Awaited<ReturnType<typeof mockMcp>> | undefined;
 const protocols = new Set<string>();
+
+async function quitDesktop(instance: ElectronApplication) {
+  // Playwright's app.close() begins closing the browser context before our
+  // asynchronous save handshake. Simulate the real native Quit command while
+  // keeping the renderer and inspector alive until Ri finishes the handshake.
+  await Promise.all([
+    instance.waitForEvent('close', { timeout: 30_000 }),
+    instance.evaluate(({ app }) => { app.quit(); }),
+  ]);
+}
 
 function portIsClosed(port: number) {
   return new Promise<boolean>((resolve) => {
@@ -193,24 +204,48 @@ try {
     removeTerminalCommand(command, installation);
     assert(!fs.existsSync(command));
   }
+  const svg = await page.evaluate(async () => {
+    const form = new FormData();
+    form.set('file', new Blob(['<svg xmlns="http://www.w3.org/2000/svg"><script>window.riUntrustedScriptRan=true</script><rect width="20" height="20" fill="red"/></svg>'], { type: 'image/svg+xml' }), 'probe.svg');
+    return (await (await fetch('/api/attachments', { method: 'POST', body: form })).json()).fileName as string;
+  });
+  await page.goto(`${origin}/api/attachments/${svg}`);
+  assert.equal(await page.evaluate(() => (window as unknown as { riUntrustedScriptRan?: boolean }).riUntrustedScriptRan), undefined, 'Uploaded SVG executed as an app document');
+  await page.goto(`${origin}/note/${noteId}`);
+  const title = page.locator('textarea.note-title');
+  if (!await title.count()) {
+    const editor = page.getByRole('button', { name: /document|editor/i });
+    if (await editor.count()) await editor.first().click();
+  }
+  await title.waitFor();
   // Reset only the disposable fixture's onboarding gate for the relaunch helper.
   await page.evaluate(async () => fetch('/api/user-state', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ onboardedAt: null }) }));
+  await title.fill('Last keystrokes survive immediate quit');
   const runtime = readServerRuntime();
   assert(runtime, 'The demo did not publish its managed server record');
-  await app.close();
+  console.info('[smoke] Quitting immediately after an edit');
+  await quitDesktop(app);
   app = undefined;
-  assert(await portIsClosed(runtime.publicPort), 'The gateway still listens after quitting');
-  assert(await portIsClosed(Number(new URL(runtime.privateUpstreams.next).port)), 'Next still listens after quitting');
-  assert(!isProcessAlive(runtime.launcherPid), 'The backend process survived quitting');
-  assert.equal(readServerRuntime(), null, 'The runtime record survived quitting');
+  assert(!(await portIsClosed(runtime.publicPort)), 'The gateway stopped when only the GUI quit');
+  assert(!(await portIsClosed(Number(new URL(runtime.privateUpstreams.next).port))), 'Next stopped when only the GUI quit');
+  assert(isProcessAlive(runtime.launcherPid), 'The service did not survive quitting');
+  assert.equal(readServerRuntime()?.runId, runtime.runId, 'The running service identity changed');
+  console.info('[smoke] Reopening the existing service');
+  const reopenStarted = Date.now();
   app = await launch();
   const reopened = await ready(app);
+  const reopenMs = Date.now() - reopenStarted;
+  assert(reopenMs < 30_000, `Reattaching to the existing service took ${reopenMs}ms`);
+  assert.equal(new URL(reopened.url()).origin, origin, 'Reopening changed the storage origin');
+  assert.equal(readServerRuntime()?.runId, runtime.runId, 'Reopening launched a second service');
+  assert.equal(await reopened.evaluate(async id => (await (await fetch(`/api/notes/${id}`)).json()).title, noteId), 'Last keystrokes survive immediate quit');
   assert.equal(await reopened.evaluate(async (id) => (await (await fetch(`/api/notes/${id}`)).json()).body, noteId), 'Electron demo persistence smoke check.');
-  await app.close();
+  await quitDesktop(app);
   app = undefined;
-  console.info(JSON.stringify({ ok: true, mode, packaged: packaged ?? false, oauthPkceVerified: true, protocols: [...protocols], streams, wrongCertificateRejected: rejected, ordinaryTrustRejected: normalNodeRejected, persistedAfterRelaunch: true, screenshot, dataRoot: root }, null, 2));
+  console.info(JSON.stringify({ ok: true, mode, packaged: packaged ?? false, oauthPkceVerified: true, protocols: [...protocols], streams, wrongCertificateRejected: rejected, ordinaryTrustRejected: normalNodeRejected, persistedAfterRelaunch: true, reopenMs, screenshot, dataRoot: root }, null, 2));
 } finally {
-  await app?.close().catch(() => {});
+  if (app) await quitDesktop(app).catch(() => { app?.process().kill('SIGKILL'); });
+  await stopService();
   rogue?.closeAllConnections();
   rogue?.close();
   oauthFixture?.close();

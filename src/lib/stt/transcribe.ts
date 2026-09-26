@@ -80,7 +80,7 @@ export async function transcribe(
   switch (provider) {
     case 'local': {
       const available = await isLocalAvailable();
-      if (!available) throw new Error('Local STT unavailable. Run: pnpm dev:stt');
+      if (!available) throw new Error('Local speech recognition is unavailable. Start the configured Parakeet server or choose Groq in Voice settings.');
       const res = await fetch(`${LOCAL_STT_URL}/v1/audio/transcriptions`, {
         method: 'POST',
         body: form,

@@ -116,6 +116,21 @@ describe('readAuthConfig', () => {
 });
 
 describe('writeAuthConfig', () => {
+  it('preserves unknown fields from other clients', () => {
+    fs.mkdirSync(getAuthConfigDir(), { recursive: true });
+    fs.writeFileSync(getAuthConfigPath(), JSON.stringify({ version: 1, future: { enabled: true } }));
+    writeAuthConfig({ voiceEnabled: true });
+    expect(JSON.parse(fs.readFileSync(getAuthConfigPath(), 'utf8')).future).toEqual({ enabled: true });
+  });
+
+  it('refuses to overwrite corrupt or future configuration', () => {
+    fs.mkdirSync(getAuthConfigDir(), { recursive: true });
+    for (const original of ['broken', 'null', '{"version":2}']) {
+      fs.writeFileSync(getAuthConfigPath(), original);
+      expect(() => writeAuthConfig({ voiceEnabled: true })).toThrow();
+      expect(fs.readFileSync(getAuthConfigPath(), 'utf8')).toBe(original);
+    }
+  });
   it('creates the auth dir and the config file if missing', () => {
     writeAuthConfig({ localToken: 'tok-1' });
     expect(fs.existsSync(getAuthConfigDir())).toBe(true);

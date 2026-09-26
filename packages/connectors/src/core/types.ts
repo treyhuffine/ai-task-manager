@@ -348,6 +348,7 @@ export type AuthIntent = 'new_connection' | 'add_scopes';
 
 /** Short-lived OAuth state persisted across the redirect (§9). */
 export interface AuthRequest {
+  callbackChannel?: 'web' | 'desktop';
   state: string;
   ownerId: string;
   providerId: string;
@@ -633,6 +634,7 @@ export type OnActionRun = (event: ActionRunEvent) => void;
 // ───────────────────────────── Runtime ──────────────────────────────────────
 
 export interface BeginAuthOptions {
+  callbackChannel?: 'web' | 'desktop';
   ownerId?: string;
   /** Scopes to request; defaults to the provider identity scopes plus the toolkit bundle. */
   scopes?: string[];
@@ -715,7 +717,8 @@ export interface ConnectionTestResult {
 
 export interface ConnectorRuntime {
   beginAuth(providerId: string, opts: BeginAuthOptions): Promise<BeginAuthResult>;
-  completeAuth(p: { code: string; state: string; params?: Record<string, string> }): Promise<Connection>;
+  completeAuth(p: { code: string; state: string; params?: Record<string, string>; expectedRedirectUri?: string; expectedChannel?: 'web' | 'desktop' }): Promise<Connection>;
+  cancelAuth(state: string, expectedChannel: 'web' | 'desktop'): Promise<boolean>;
   /** Connect a non-OAuth provider from a directly-supplied credential (§ direct strategies). */
   connectDirect(providerId: string, opts: ConnectDirectOptions): Promise<Connection>;
   listConnections(filter?: { ownerId?: string; providerId?: string }): Promise<Connection[]>;

@@ -6,15 +6,155 @@ Quick navigation: [Status](#status-and-landing-boundary), [Run the demo](#what-i
 
 ## Status and landing boundary
 
-**Land this as an opt-in developer demo and implementation foundation. Do not treat landing on main as a production desktop release or a migration of the current Home.** The standard web/CLI launch commands remain the default. Desktop starts only through explicit desktop commands or the packaged app. There is no new schema migration, service registration, automatic data adoption, public callback deployment, or production cutover in this change.
+**The standalone implementation is now built on the desktop branch, based on main `e7a4520`.** It adds a shared background service, staged runtimes, safe update/migration coordination, persistent setup, and the security/save fixes described below. This is an unsigned local beta candidate, not a published or qualified production release. No production home, OS login service, live tunnel, provider account, or public release was changed by implementation tests.
 
-The foundation landed on main as `3c5a95f`. The update/migration design added on 26 September is a build requirement, not an implemented updater. No live database migration was performed while writing it. Since the original multi-device review, P2.7, P2.8 and P2.9 have been committed on the Homes branch as `57d22b2`, `0000739` and `ad07376`. Those changes are not yet in the main checkout inspected for this update, which is at `48ccc69`. The older phase table below remains a dated review record.
+The earlier demo foundation (`3c5a95f`) and update design are already on main. The implementation here deliberately avoids experimental Home/team schemas and execution placement. The original audit and phase snapshots later in this document are dated evidence. The current implementation matrix below supersedes their statements about what was missing.
 
-The demo is deliberately separate from the existing CLI data home. It is not yet the final shared-service design. Do not point `RI_DESKTOP_ROOT` at a production Home, enable it as the phone's dependable host, or distribute the unsigned bundle as a supported release. Immediate quit can lose pending edits, desktop-hosted remote OAuth is incomplete, and closing the GUI stops its backend. The full security and durability findings below remain open unless explicitly marked otherwise.
+Source and packaged launches still default to isolated desktop homes. Sharing an existing CLI home requires an explicit root selection and stopping any older foreground launcher first. The GUI now attaches to a separately owned service, and quitting Electron leaves it running. Incompatible migration history is refused before initialization. Production adoption still requires a backup and the release qualification listed below.
 
-Landing order: preserve this foundation on main, finish and land the existing multi-device/teams work against its own contract, then implement the combined service/desktop release work here. Integrate with the existing Home role, worker protocol and P5.4 companion layer. Do not create a competing service/identity architecture. Shared web security defects can be fixed independently and need not wait for packaging. Landing this branch does not mark any Homes phase complete.
+**Revised delivery decision, 26 September 2026:** build the standalone desktop release from main independently of the experimental Homes branch. Its multi-machine design is not yet a product commitment. Electron connects to a backend, while local service management separately starts, supervises and updates that backend. The CLI and desktop can explicitly select the same local data root. Do not import experimental schemas, enrollment, execution placement or team semantics as a prerequisite. If that experiment is adopted, integrate its connection and worker behavior at this boundary. The multi-machine sections below describe conditional integration requirements, not blockers for a standalone release.
+
+### Standalone implementation checklist
+
+Implementation is based on main `e7a4520` in the desktop worktree. Keep changes to shared startup, authentication and DB initialization narrow, and review the Homes branch before changing these boundaries. A service owns process lifetime, not execution placement. No production data adoption, service installation or public release is performed as a side effect of development tests.
+
+- [x] S1: Harden untrusted attachment delivery, bounded request ingestion, cookie mutation origins, atomic configuration writes and schema-history validation, with regression tests.
+- [x] S2: Add one local service lifecycle shared by CLI and Electron, verified root/process ownership, stable endpoint, race-safe start/attach, authenticated control, and explicit status/stop behavior.
+- [x] S3: Add launchd/systemd installation adapters, stable versioned runtime staging outside the app bundle, isolated headless packaging and service environment discovery. GUI quit leaves the service running.
+- [x] S4: Preserve pending edits and drafts on navigation, window close, quit, renderer failure and update. Validate storage identity across reconnects.
+- [x] S5: Separate local desktop OAuth initiation from browser/phone initiation, preserve tool reconnect flows, and harden tunnel destination ownership and local native capabilities.
+- [x] S6: Implement the local update coordinator, release verification, maintenance admission, complete checkpoint, exclusive migration/bootstrap, validation, crash recovery and in-app/CLI controls. Preserve new writes across failed updates.
+- [x] S7: Complete release configuration, desktop diagnostics/permissions/window behavior, optional voice configuration, and documented operator setup. Actual publisher signing, provider registrations and public hosting require their real external configuration.
+- [x] S8: Reconcile this checklist with the full document, run application/desktop/connector checks and isolated package/service/update smoke tests, and record platform or live-provider checks that require external hardware/accounts.
+
+Managed speech downloads remain the separately identified optional voice product. Remote worker and Teams integration (D13 and the corresponding parts of D1/D9/D14 and U4) is conditional on adopting the experimental design. Standalone implementation must remain useful without that branch.
 
 The reviewed desktop source began at `dc318c5` on `ai-task-manager/session-ca52f4`. The related multi-machine implementation was reviewed at `183391a` on `ai-task-manager/session-e4aa22`. Landing preparation also adopts its `@agentex/workspace` 0.0.5 dependency fix and repairs a pre-existing connector-test typecheck error. Its results are identified separately from tests run here. These are dated snapshots, not claims about the future state of either branch.
+
+The other execution worktree was rechecked at `29205f0` (P4.1/P4.4, with additional uncommitted owner Git work). Main remained `e7a4520`. Its changes since the common ancestor overlap this implementation in `instrumentation.ts`, `package.json`, `pnpm-lock.yaml`, `src/app/layout.tsx`, `src/cli/commands/start.ts`, `src/cli/index.ts`, `src/hooks/use-voice-input.ts`, `src/lib/db/index.ts`, `src/lib/executor/adapter.ts` and `src/proxy.ts`. Its branch predates the desktop foundation, so a direct tip-to-tip diff misleadingly shows desktop files as absent. Use a normal three-way merge, not that diff as a patch.
+
+The desktop implementation does not modify the experimental schemas or transfer semantics. The maintenance wrapper and idle-session closer in `adapter.ts` are a deliberate shared integration point. Role selection must run before local service/DB startup if Homes is adopted. Review those ten files for both behavior and textual conflicts. There is no dependency on that branch landing first, and no promise of a conflict-free merge.
+
+### Current implementation and remaining qualification
+
+| Requirement | Implemented boundary and evidence | Remaining qualification or conditional work |
+| --- | --- | --- |
+| S1, F01/F11/F12, D5 | Attachment documents are sandboxed, ingestion is bounded before parsing, cookie mutations require the exact origin, production dev APIs are gated, configuration writes merge under an interprocess lock, and migration history is checked before writes. | Public-edge resource limits still belong to the deployed proxy. |
+| S2/S3, F03, D2/D3/D4 | `src/service/main.ts` owns one root under an OS-released SQLite lock. CLI and Electron attach through a private per-user Unix socket and verify the canonical root/config/work/DB identity. GUI exit does not stop it. Runtime and launcher are staged outside the movable app. launchd and systemd user adapters are implemented. | Real login/logout/reboot and Linux host qualification. Start at login is opt-in and is not unattended encrypted boot. Home/worker role negotiation remains conditional. |
+| S4, F02/F06, D6 | Serial document saves retain drafts synchronously before debouncing. Native close/navigation/update waits for writes. Chat drafts persist synchronously. Failed saves remain recoverable with conflict choice. Stable endpoint and per-root Electron profile prevent ordinary restart/port fallback draft loss. Recording blocks automatic renderer reload. | Real IME/accessibility/mobile crash cases. Changing a data root or its saved port deliberately is an origin/profile migration, not automatic draft transfer. Team revision conflicts must be integrated if adopted. |
+| S5, F04/F05/F07, D7/D8 | Native capability is delivered over the private socket and injected only by the trusted Electron main frame. Web/phone callbacks remain web callbacks, state is bound to its channel, and tool reauth uses common initiation. Tunnel operations are serialized and refuse a conflicting destination. TLS renews with session pin refresh. | Real provider registrations/consent, Beamd edge streaming/reconnect, phone devices and certificate-expiry soak. |
+| S6, F08/F13, U1/U2 | Service-owned coordinator verifies Ed25519 metadata, platform/protocol/config compatibility, monotonic sequence, expiry/withdrawal, artifact size/hash, archive paths and the complete runtime inventory. It drains admitted work, stops Next, excludes DB openers, verifies a full checkpoint, boots migrations without effects, then commits and hands off to the new controller. | Linux and actual power-loss qualification. No released-history squash is accepted as an unattended upgrade. |
+| S6/S7, U3/U4 | Settings and CLI expose check/download/apply/when-idle/later/status. Approval and maintenance windows persist. Shell updates use the platform updater with artifact metadata checked against the signed publisher envelope. Runtime and GUI can update independently. | Publisher key/feed, Apple identity/notarization, signed clean install and actual shell installer round trip. Remote worker/team compatibility remains conditional. |
+| S7, F09/F14, D9/D11 | Private persistent executable paths, speech URL and encrypted API keys, common tool discovery, service menu controls, diagnostics, window restoration, renderer crash recovery, camera/microphone descriptions, and native save handshakes. | Each real harness from Finder/SSH, OS permissions, notifications, every shortcut, multiple displays and accessibility. |
+| Optional F10/D10 | Existing private Parakeet service or Groq can be configured without a source checkout. Browser recording chooses supported WebM, MP4 or Ogg formats. | Managed model/helper download, benchmarks, platform-specific conversion and live phone recording remain the separately scoped optional voice product. |
+| D1/D13 and multi-machine portions of D9/D14/U4 | No experimental schema, worker enrollment or execution-placement behavior was imported. The backend connection/lifecycle boundary is ready for subsequent integration. | Decide whether to adopt Homes/Teams, then implement and qualify its semantics with that agent. |
+
+The service's private control socket is local to the OS account. HTTP update/configuration actions require the installation's original owner credential, not a paired-device, harness or future team token. No renderer-controlled artifact URL, shell command or signing key is accepted. Diagnostic clipboard output contains status and paths, not logs or credentials. Logs redact known service credentials, bearer headers and OAuth URL parameters, rotate locally, and are never uploaded automatically. Logs may still contain user content from dependencies, so inspect them before sharing.
+
+The service checkpoint includes SQLite plus the selected root/config/work files, attachments, encryption keys and unpublished working files. Links are saved as links rather than following external folders. Recovery storage must be outside these roots. The live Electron profile (`.config/electron-demo`) is excluded from this service checkpoint because Chromium keeps its databases open. It remains in place, including durable drafts, and is never rolled back. Quit all desktop windows before making a separate cold profile backup. External reference folders are also not rolled back. Before commit, only the candidate SQLite changes are restored automatically. At or after the durable commit, the new database is retained even if startup fails. The private recovery surface stays available, avoiding an automatic rollback or restart loop.
+
+### Shared desktop and headless operation
+
+Packaged Electron stages its runtime and starts or attaches to the local service. **Tools > Start at Login** installs supervision. **Quit Desktop** closes the GUI and connection helper. **Stop Background Service** is a separate explicit action and disconnects phone/browser clients too. An unsupervised detached service survives GUI closure but needs a subsequent launch after a machine restart. A launchd user agent starts at login, not before FileVault unlock. A systemd user service needs user-manager availability or deliberately enabled linger for boot/logout operation.
+
+Reopening a viewer checks the private service identity and active runtime selection first. It attaches directly when both match an already running service. Full runtime inventory verification and staging happen when starting an installation, rather than rescanning the whole bundle on every window reopen. First installation still includes substantial file verification and is not a measured cold-start performance guarantee.
+
+The matching terminal command follows the stable launcher. To share data intentionally, select the same `RI_DESKTOP_ROOT` for Electron and `RI_ROOT` for the CLI. Stop an older `ri start` launcher before first handoff. Desktop currently uses root-relative DB/config/work paths and deliberately clears advanced overrides. Installations using separate DB/config/work overrides should use the CLI service with those explicit settings until desktop association supports them. This is an explicit adoption boundary, not a second silently created authority.
+
+From a trusted matching headless runtime archive on macOS or Linux:
+
+```sh
+# Run these from the extracted runtime directory. No global Node/pnpm is needed.
+export RI_ROOT="$HOME/ri-headless"
+./node/bin/node server/dist/cli/index.mjs service stage "$PWD"
+./node/bin/node server/dist/cli/index.mjs service install --dry-run
+./node/bin/node server/dist/cli/index.mjs service install
+./node/bin/node server/dist/cli/index.mjs service status
+```
+
+The archive contains the CLI and service but no Electron GUI. Its contents must be obtained from the trusted publisher and checked against that publisher's authenticated release metadata before executing bundled code. Linux requires the normal native runtime dependencies plus `lsof`, `ps`, `tar`, and the chosen harness/tool executables. Installation is per user, never an implicit root service. `service uninstall` removes only the matching owned job and retains data, staged versions and recovery material. Removing the GUI alone does not uninstall an independently staged backend.
+
+Use `service configure --file /absolute/path/settings.json` for headless setup, or Settings > Updates > Runtime setup. Supported values are absolute `CLAUDE_COMMAND`, `CODEX_COMMAND`, `CURSOR_COMMAND`, `OPENCODE_COMMAND`, optional PATH directories (`paths`), `LOCAL_SPEECH_TO_TEXT_URL`, `GROQ_API_KEY`, and the embeddings-only `OPENAI_API_KEY`. Secrets are encrypted with a private machine configuration key. Settings and that key are included in the checkpoint. Restart the service after changing environment settings. Harness subscription authentication remains on the execution host under the same OS user. SSH Claude sign-in can use the vendor's copied URL/returned-code flow. Connector consent runs in the phone/browser with a reachable registered callback to the host.
+
+Phone availability requires a running service, an awake/reachable host, and a public HTTPS tunnel or an equivalent reachable endpoint. Local Electron h2 certificate pinning is separate from the phone's normal HTTPS trust. Use the existing Remote Access/pairing settings. The service validates tunnel destinations rather than taking over another instance's named tunnel. No automatic sleep-prevention, high availability, unattended encrypted reboot or offline database replication is promised.
+
+### Update operation and publishing
+
+```sh
+ri update check
+ri update download
+ri update when-idle
+# Or allow the already approved update in a local 03:00-05:00 window:
+ri update when-idle --hour 3 --hours 2 --timezone America/Denver
+ri update status
+ri update later
+# After fixing the reported issue in a stopped recovery state:
+ri update recover
+ri service start
+```
+
+`apply` also waits for a safe point and never forces active work to stop. The idle check includes executions, background tasks, pending permissions, owned child processes and admitted HTTP/CLI work. Cached idle harness sessions are closed only after admission closes. Downloads may happen automatically with a configured policy, but do not approve activation. Metered mode disables automatic downloads. Polling is bounded to hours with jitter rather than an offline retry loop. A permanently busy host can remain on its current release indefinitely with a visible reason. If final eligibility verification fails, approval is cancelled and the owner must check and approve again. Hashing, unpacking, staging and checkpoint work run in an ordinary Node helper so the controller remains responsive.
+
+Renderer reload follows the changed backend only after local edits and recording/transcription finish. A reconnect banner keeps the interruption visible. A service update restarts the controller under the selected runtime's own Node, rather than retaining the old controller/native ABI. The GUI process remains separate. A shell-only update saves the current renderer before permitting the native installer to restart it.
+
+Native quit keeps the window alive through the save acknowledgement and connection-helper shutdown, then destroys it. A real macOS quit probe caught and fixed a hang when that last window was destroyed before waiting for the helper's exit.
+
+Release builds use `pnpm desktop:release` (macOS DMG/ZIP or Linux AppImage). `pnpm runtime:package` builds the display-free archive. The build pins ordinary Node 26.5.0, Electron 44.4.5, electron-builder 26.17.0 and electron-updater 6.8.9 through package/lock configuration. The desktop workflow builds and tests native macOS/Linux jobs without public publication.
+
+Publisher configuration consists of `RI_RELEASE_FEED` (HTTPS), `RI_RELEASE_PUBLIC_KEY_FILE` (Ed25519 PUBLIC PEM), and optional `RI_RELEASE_CHANNEL=stable|beta`. macOS releases additionally require the actual Developer ID identity in `CSC_NAME` and the notarization credentials supported by electron-builder. Native Node/addon bytes are signed before the immutable manifest is computed, excluded from subsequent re-signing, and verified after outer-app signing. No signing private key belongs in the application or runtime archive.
+
+After building, sign exact artifact metadata offline:
+
+```sh
+node desktop/sign-release.mjs \
+  --resources /path/to/extracted-runtime \
+  --runtime /path/to/runtime.tar.gz \
+  --runtime-url https://YOUR-RELEASE-HOST/runtime.tar.gz \
+  --shell /path/to/Ri.zip \
+  --shell-url https://YOUR-RELEASE-HOST/Ri.zip \
+  --sequence 1 --private-key /private/path/publisher.pem \
+  --out /path/to/release.json
+```
+
+Use the platform's ZIP/AppImage shell artifact and matching electron-builder metadata. Version numbers and publisher sequence must advance. Publish immutable artifacts and platform metadata first, then the short-lived signed envelope. The signing script never uploads. The package command uses `publish: never`. Keep expired/withdrawn releases unavailable for new activation. A changed publisher key requires an explicit trusted policy/bridge update, not accepting an arbitrary key from the feed. Ordinary unsigned local builds have no configured feed and clearly report that updates are unavailable.
+
+Do not run `db:push`, a baseline rebuild or an older legacy binary against an updating installation. Cooperative CLI DB connections hold a shared access lease, and migration waits for all of them. `lsof` blocks activation when an older uncooperative process still has the database open. These are operational fences, not protection from an administrator manually replacing files.
+
+
+### Standalone verification, 26 September 2026
+
+| Check | Result |
+| --- | --- |
+| Application suite | 2,284 passed and 25 existing skips across 249 files, including withdrawal, fast-download progress and live-profile checkpoint regressions. |
+| Desktop suite | 28 passed across 9 files. |
+| Connector engine suite | 301 passed across 49 files, including web/desktop channel binding and replay/denial checks. |
+| Root and connector TypeScript | Passed. |
+| Production frontend, CLI, controller and shell builds | Passed. |
+| Runtime packaging | Native SQLite/vector/PTY and bundled CLI probes pass. Complete runtime manifests and 3,924 portable dependency links verified. |
+| Packaged native lifecycle | Real immediate-edit quit and reopen passed after correcting macOS shutdown order. Reattachment took 385 ms in the final local fixture. The same controller/run ID and origin remain, and the final title/body persist. h2, eight open SSE streams with a 3 ms API request, wrong-certificate rejection, mock OAuth/PKCE, replay rejection, uploaded-SVG prevention and bundled CLI also pass. These timings are local observations, not performance guarantees. |
+| Signed runtime update rehearsal | Passed headlessly and with the packaged GUI open: real HTTPS feed and Ed25519 envelope, a downloaded 410 MB runtime archive, appended SQLite migration, full verified checkpoint, new controller PID/run ID, stable origin, retained prior version, preserved note/unpublished file and successful post-update writes. The final GUI run exercised Settings Check/Download, automatic page reload and return to the same edited note. No OS CA installation. |
+| Fault/security regressions | Changed/ahead migration histories, unauthorized installation credentials, untrusted attachment execution, bounded reads, wrong-origin mutations, concurrent configuration writers, busy/racing admission, corrupt/oversized archives/downloads, withdrawn metadata and recovery before/after commit are covered. |
+| Lint | New modules introduce no lint errors. Changed-file lint still reports six existing `react-hooks/set-state-in-effect` errors in four editor/slideout files and eight warnings. All six errors were reproduced from main `e7a4520` using the same ESLint configuration. Broad baseline lint is not a clean release gate. |
+| Isolation | No production data migrated, login job installed, real provider consent granted, live Beamd destination changed or public release published. The experimental worktree and main were not edited. |
+
+Reproduce using disposable homes:
+
+```sh
+pnpm test
+pnpm desktop:test
+pnpm --filter @connectors/engine test
+pnpm ts
+pnpm --filter @connectors/engine typecheck
+pnpm desktop:package
+RI_DESKTOP_PACKAGE=release/desktop/mac-arm64/Ri.app pnpm desktop:smoke
+pnpm exec tsx desktop/update-smoke.ts
+# macOS: keep the actual desktop open through that same update
+RI_UPDATE_SMOKE_GUI=release/desktop/mac-arm64/Ri.app pnpm exec tsx desktop/update-smoke.ts
+```
+
+The updater rehearsal creates its own publisher key and process-local CA trust, never production keys or OS trust. Its fixtures deliberately use a real appended SQL migration. Generated artifacts and homes are ignored by Git. The older audit probe is retained as historical evidence, not used as a passing release gate.
+
+**Remaining release gates:** actual Apple signing/notarization and shell installer update, a real publisher feed/key, Linux/Intel/clean-machine service qualification, login/logout/reboot/sleep behavior, live provider and Beamd flows, phone recording/push, accessibility and long-running resource budgets. Automated crash-phase recovery tests are not a physical power-loss certification. Managed speech downloads and Homes/Teams are separate conditional scopes. No automatic force-update or silent rollback after new writes is enabled.
 
 ## Framework decision and delivered assets
 
@@ -22,7 +162,7 @@ Keep **Electron**. The existing application depends on Next request-time routes,
 
 Tauri's strongest benefit would be avoiding bundled Chromium and using the OS webview, potentially reducing shell size and resource use. It would still need this Node backend as a sidecar, or a substantial backend rewrite. It introduces WebKit/WebView differences across systems. A static Next export would remove required server functionality. There is no measured whole-app memory or performance win here, and switching shells would not fix the audit findings. [Tauri Node sidecars](https://v2.tauri.app/learn/sidecar-nodejs/), [Next integration](https://v2.tauri.app/start/frontend/nextjs/), [WebView versions](https://v2.tauri.app/reference/webview-versions/), [Electron process model](https://www.electronjs.org/docs/latest/tutorial/process-model).
 
-The implementation keeps one React/Next application and its query layer. Electron owns the window, menus, narrow native bridge and demo backend lifetime. A separately bundled ordinary Node runs the backend, so SQLite/vector/PTY modules use that Node ABI rather than Electron's ABI. The current packager stages production dependencies and Next output explicitly. It does not depend on a static export or require a Rust backend.
+The implementation keeps one React/Next application and its query layer. Electron owns the window, menus and narrow native bridge. The ordinary Node service owns backend lifetime independently of the GUI. A separately bundled ordinary Node runs the backend, so SQLite/vector/PTY modules use that Node ABI rather than Electron's ABI. The current packager stages production dependencies and Next output explicitly. It does not depend on a static export or require a Rust backend.
 
 Branding is already on main. [The asset guide](../assets/brand/README.md) and [preview](../assets/brand/preview.png) cover the supplied logo's path-based SVG trace, tightly cropped mark with no square image padding, color variants, browser/touch assets, and desktop icon sizes including ICNS/ICO. Runtime assets live in `public/brand`, and source/packaging assets live in `assets/brand`. The mark is used sparingly in onboarding and desktop startup. No website-style branding expansion is required.
 
@@ -30,7 +170,7 @@ Branding is already on main. [The asset guide](../assets/brand/README.md) and [p
 
 ### Run from this checkout
 
-Building from source requires pnpm and Node 22.12 or later for the pinned Electron tooling. The dependency build allowlist includes Electron's runtime download. End users of the packaged app need neither Node nor pnpm.
+Release builds require pnpm and pinned Node 26.5.0 so native modules match the bundled runtime. The dependency build allowlist includes Electron's runtime download. End users of the packaged app need neither Node nor pnpm.
 
 ```sh
 pnpm desktop:demo                       # Build the shell and production Next, then open
@@ -40,28 +180,29 @@ pnpm desktop:dev                        # Development server with hot reload
 
 These commands must run in the worktree containing `desktop/`. Source runs default to `.electron-demo/home`. An explicit `RI_DESKTOP_ROOT` chooses another desktop home. Other database/config/work path overrides are cleared, so the normal CLI home is not silently inherited.
 
-The server prefers `https://localhost:42242`, choosing a free port if occupied. It uses `.next-desktop` or `.next-desktop-dev`, separate from ordinary web development. The existing authentication cookie is established before the page loads. The renderer has no Node access and receives only a platform string and an origin-checked system-browser opener through preload.
+The first service start prefers `https://localhost:42242` and records an available public and private port. Later starts reuse those ports and report collisions instead of silently changing the origin. It uses `.next-desktop` or `.next-desktop-dev`, separate from ordinary web development. The existing authentication cookie is established before the page loads. The renderer has no Node access and receives a narrow platform/browser and save-handshake bridge through preload.
 
 ### Standalone macOS app
 
 ```sh
 pnpm desktop:package
-# Output: release/Ri-darwin-arm64/Ri.app
+# macOS output: release/desktop/mac-arm64/Ri.app
+# Headless output: release/ri-runtime-0.1.0-darwin-arm64.tar.gz
 ```
 
-The first package target is macOS arm64. The app carries Electron, an official portable Node distribution matching the build machine's Node version, production dependencies, Next output, matching Ri CLI, migrations, icons, and shipped skills. Node downloads are checked against the official SHA-256 checksum. All packaged dependency links are rebased and checked to resolve inside the bundle before the temporary build folder is removed. SQLite, sqlite-vec, node-pty, and the CLI are checked during packaging. pnpm deploy creates a self-contained dependency tree without copying local `.env` files or data homes. File-tracing reports and build caches are excluded.
+Packaging supports matching macOS/Linux x64/arm64 build hosts. macOS arm64 is the locally exercised target. Linux builds and OS service adapters need their CI/host qualification. The app carries Electron, an official portable Node 26.5.0 distribution, production dependencies, Next output, matching Ri CLI, migrations, icons, and shipped skills. Node downloads are checked against the official SHA-256 checksum. All packaged dependency links are rebased and checked to resolve inside the bundle before the temporary build folder is removed. SQLite, sqlite-vec, node-pty, and the CLI are checked during packaging. pnpm deploy creates a self-contained dependency tree without copying local `.env` files or data homes. File-tracing reports and build caches are excluded.
 
-Move `Ri.app` to its lasting location before installing the optional terminal command. A source checkout, pnpm, and a system Node installation are not needed to run the package. Harness executables and their account logins remain user-provided, as in the CLI app. Docker STT is still optional and is not included. This development package keeps the complete production dependency tree. The audited bundle measured approximately 2.1 GiB with `du`, before speech models.
+The app stages its Node/server runtime outside the bundle under a per-root installation directory. Moving or replacing the app does not move a running backend or break its stable launcher. A source checkout, pnpm, and a system Node installation are not needed to run the package. Harness executables and their account logins remain user-provided, as in the CLI app. Docker STT is still optional and is not included. The package keeps the production dependency tree. The earlier audited bundle was approximately 2.1 GiB before speech models. The standalone runtime also needs installation and checkpoint disk space.
 
-The packaged app defaults to `~/Library/Application Support/Ri/home`. `RI_DESKTOP_ROOT` can select an existing desktop demo home when launching the app executable from a terminal. The CLI's normal home and any separately running CLI instance remain separate. Closing the last window or choosing Quit stops the backend owned by the desktop app.
+The packaged app defaults to `~/Library/Application Support/Ri/home`. `RI_DESKTOP_ROOT` can select an existing desktop demo home when launching the app executable from a terminal. The CLI's normal home and any separately running CLI instance remain separate. Closing the last window or choosing Quit leaves the shared background service running. Stop Service is a separate explicit action.
 
-This is a local unsigned build. Public distribution still needs developer signing, notarization, an update policy, and validation on the additional operating systems/architectures you intend to support.
+This is a local unsigned build. Public distribution still needs developer signing, notarization, configured publisher credentials/feed, and validation on the additional operating systems/architectures you intend to support.
 
 ### Matching CLI and agent setup
 
 The app includes its matching `dist/cli/index.mjs` and Node executable. App-generated harness instructions name those exact paths and the desktop data root. Database migrations resolve from the bundled server even when an agent invokes the CLI from another folder.
 
-Use **Tools > Install Terminal Command…** to install an optional command. The suggested name is `ri-desktop` in `~/.local/bin`. You can choose another location or name, including `ri`, if it is free. An existing file or symlink is never overwritten. Add the chosen directory to PATH if needed. **Tools > Remove Terminal Command…** removes only the exact command this app installed. Reinstall it after moving the app. The command uses this desktop home's data, so ordinary `ri` continues to target its existing installation.
+Use **Tools > Install Terminal Command…** to install an optional command. The suggested name is `ri-desktop` in `~/.local/bin`. You can choose another location or name, including `ri`, if it is free. An existing file or symlink is never overwritten. Add the chosen directory to PATH if needed. **Tools > Remove Terminal Command…** removes only the exact command this app installed. The installed command follows the stable runtime launcher across app moves and service updates. The command uses this desktop home's data, so ordinary `ri` continues to target its existing installation.
 
 Desktop onboarding installs shipped skills only inside the desktop home. The global skill setting is disabled in the desktop UI, and that API cannot install/remove global skills or clean other project links in desktop mode. Existing global harness logins and executables are still shared system resources.
 
@@ -114,11 +255,11 @@ Existing application hotkeys and the standard Electron editing/window menus rema
 
 ### Code footprint and isolation
 
-Most new code is in `desktop/`: launcher, backend process, certificate policy, preload, OAuth event handling, CLI installer, packager, relay and probes. Shared changes add connector/MCP initiation and state validation, desktop-only authenticated API endpoints, skill/onboarding isolation, drag regions, and packaged migration-resource lookup. The task/note domain model and database schema remain unchanged.
+Most new implementation is in `desktop/`, `src/service/` and `src/lib/service/`: shell, lifecycle, release verification, staging, checkpoint/recovery, packaging and probes. Shared changes add connector/MCP initiation and state validation, desktop-only authenticated API endpoints, skill/onboarding isolation, drag regions, and packaged migration-resource lookup. The task/note domain model and database schema remain unchanged.
 
-The initial audit counted 22 modified shared `src/` files, 226 added and 94 removed lines, excluding new files and build configuration. This is a historical size reference, not the total final diff. The release work will also touch shared attachment/auth boundaries, editor save lifecycle, OAuth initiation, voice configuration, and remote-client behavior. It cannot all be implemented inside a window wrapper.
+The initial audit counted 22 modified shared `src/` files, 226 added and 94 removed lines, excluding new files and build configuration. This is a historical size reference, not the total final diff. The standalone implementation also changes shared attachment/auth boundaries, editor save lifecycle, OAuth initiation, voice configuration and remote-client behavior. It cannot all be implemented inside a window wrapper.
 
-Desktop endpoint handlers return 404 when desktop mode is off. The renderer remains sandboxed with Node integration off, context isolation on, and no webview tag. The native opener verifies the sender, main frame, app origin and allowed HTTP(S) scheme. Electron's embedded Chromium does not replace the separately discovered agent automation browser.
+Desktop endpoint handlers remain gated to desktop-capable backends. Native callback initiation additionally requires the verified per-client capability. The renderer remains sandboxed with Node integration off, context isolation on, and no webview tag. The native opener verifies the sender, main frame, app origin and allowed HTTP(S) scheme. Electron's embedded Chromium does not replace the separately discovered agent automation browser.
 
 ## Home, worker, service and team architecture
 
@@ -165,7 +306,7 @@ Use the same installed runtime from both UI and CLI. The CLI is a way to install
 
 The branch already has the long-running `ri worker run` entry point and its shutdown behavior. Its connected `ri start` checks/opens the saved Home address. Inspecting the function body shows that it does not yet start a supervised worker, despite a forward-looking comment. Neither branch currently implements a Home/worker service installer for launchd or systemd.
 
-A proposed shared management surface could be `ri service install`, `status`, `start`, `stop`, `logs` and `uninstall`, with the installation's Home/worker role resolved explicitly. These are proposed commands, not commands available today. The GUI should invoke the same lifecycle layer. Ordinary window close and Quit Desktop must not silently mean Stop Home. Stopping local execution on a worker must not stop the Home or executions on other computers.
+The standalone management commands `ri service install`, `status`, `start`, `stop`, `logs` and `uninstall` now exist. Home/worker role resolution remains conditional on the experimental branch. The GUI should invoke the same lifecycle layer. Ordinary window close and Quit Desktop must not silently mean Stop Home. Stopping local execution on a worker must not stop the Home or executions on other computers.
 
 **Mac and Linux need different service adapters, with the same Node runtime and protocol.**
 
@@ -244,7 +385,7 @@ Shared-body autosave requires content revisions, ordered writes, retained drafts
 
 Use one initiation service for settings, reconnect, expired credentials, tool-generated links and incremental consent. Persist the initiating surface, provider/client and validated return target with state, PKCE, expiry and single-use completion. Public/native registrations, provider-specific redirect rules and confidential clients are different cases. A fixed hosted exchange may be required for particular providers. Device authorization exists only where the provider supports it, and human browser consent can still be required. [Native OAuth](https://www.rfc-editor.org/rfc/rfc8252), [device authorization](https://www.rfc-editor.org/rfc/rfc8628), [server-side browser authorization](https://developers.google.com/identity/protocols/oauth2/web-server).
 
-Do not promise all existing flows already work. The current Claude login route launches a command expecting a browser on the server, and desktop callback selection is backend-wide. These need explicit headless and cross-device paths. Real provider consent, account switching, refresh, scope escalation, revocation, cancellation, simultaneous flows and restart recovery are release acceptance, not inferred from mock tests.
+Callback selection is now per initiating client. Native browser-launching Claude login is restricted to the verified local desktop. Remote callers get terminal/SSH instructions and can retry after authenticating the execution host. Claude supports copying the sign-in URL and pasting a returned code when a remote browser cannot reach its loopback callback. This is a vendor CLI workflow, not a new Ri device grant. [Claude authentication](https://code.claude.com/docs/en/authentication). Real provider consent, account switching, refresh, scope escalation, revocation, cancellation, simultaneous flows and restart recovery are release acceptance, not inferred from mock tests.
 
 ## Application updates and SQLite migrations
 
@@ -254,7 +395,7 @@ Design review: 26 September 2026. **Download ahead of time, install at an agreed
 
 Check for releases periodically with backoff and jitter, and expose Check for updates in Settings. Download and verify eligible updates in the background, subject to metered-network and disk-space settings. Downloads do not change running code or data. Offer **Update when idle**, **Restart and update**, and **Later**, with a short release summary and a visible waiting reason such as “Waiting for 2 executions to finish.” Remember the user's choice across GUI/service restarts.
 
-For the first supported release, background download is automatic, but activating a Home update requires a user-approved pending update or an explicitly enabled maintenance-window policy. A permanently open Mini therefore still updates without the user having to quit Electron. A Linux Home uses the same policy with proposed `ri update check`, `status`, `download`, `apply` and scheduling controls. These commands do not exist yet. Do not silently add a periodic restart merely because automatic checking was enabled.
+For the first supported release, background download is automatic, but activating a Home update requires a user-approved pending update or an explicitly enabled maintenance-window policy. A permanently open Mini therefore still updates without the user having to quit Electron. A headless installation uses `ri update check`, `status`, `download`, `apply`, `when-idle`, `later` and `recover`. These commands are implemented. Do not silently add a periodic restart merely because automatic checking was enabled.
 
 An update to a remote Home must name the computer and its impact: “Update Ri on Mini. Phone access will briefly reconnect.” Restarting a laptop's Electron UI must not restart its remote Home. A headless Home may be controlled from an authorized owner UI, but ordinary team membership, a session token, or worker enrollment cannot authorize software installation. A team host gets its own administrator-controlled maintenance policy and member notification.
 
@@ -324,10 +465,10 @@ Keep schema/data initialization and service readiness explicit. An HTTP process 
 **Required for managed updates:**
 
 - Run migration once per authoritative data root under exclusive lifecycle ownership, using the target runtime and its shipped migration files. A connected viewer/worker must never create or migrate a personal Home DB. A team authority migrates its own DB, under its own administrator's update policy.
-- Add a compatibility preflight before any schema-changing boot. Validate the entire applied migration sequence and hashes against the release's expected history. The current runner selects pending files by latest timestamp and returns success when none are newer. It does **not** reject an ahead-of-binary database or verify all previously applied hashes. Never let an older CLI or service silently write a newer/unknown schema.
+- Add a compatibility preflight before any schema-changing boot. Validate the entire applied migration sequence and hashes against the release's expected history. The hardened runner now validates every applied timestamp/hash against the exact target prefix, including unknown/ahead, changed and missing history. Never let an older CLI or service silently write a newer/unknown schema.
 - Publish forward, append-only migrations for supported released databases. Do not squash a published baseline into a normal unattended update. The existing `MigrationHistoryError` and rowid-preserving [rebuild script](../scripts/db-rebuild.ts) handle a development history collapse, but their current source-checkout command is not a packaged recovery UX. A necessary legacy conversion needs a shipped, versioned conversion path, backup, verification and an explicit supported source range. Otherwise offer the required intermediate release without touching the DB.
 - Use the application's runner, never `drizzle-kit migrate`, `db:push`, or destructive reset commands. Preserve rowids and validate FTS relationships when a table must be rebuilt. Existing policy-default and migration rules still apply.
-- Include everything in `initDatabase`, not just the numbered SQL: FTS tables/triggers, vector index conversion, seed rows and entity-link backfills. These currently execute in separate stages and are not one atomic transaction together. Make every stage safely repeatable and record/check completion. A failed initializer must close and discard partially initialized cached connections.
+- Include everything in `initDatabase`, not just the numbered SQL: FTS tables/triggers, vector index conversion, seed rows and entity-link backfills. Derived initialization now runs transactionally after the numbered migrations, and failed initialization closes/discards the candidate connection. The service remains in validation mode with public requests and background effects disabled until the coordinator commits.
 - Report pre-existing integrity problems separately. The current runner permits foreign-key violations that predate an upgrade. That avoids mislabeling old damage as a new migration bug, but is not a clean bill of health. Define which preflight problems block unattended updates and preserve the original for repair.
 - Check disk space for the download, prior runtime, backup and migration working space. A failed backup, full disk, unreadable key/config file or unsupported history must leave the prior service/data usable or enter a truthful recovery state. Never delete user content to make an update fit.
 
@@ -361,9 +502,11 @@ The Homes portable backup deliberately excludes machine-local identity, worker j
 - [ ] U3: Build signed release payloads/metadata and the platform installer adapters, then connect them to the shared durable coordinator. Verify installed-app behavior, not only a development mock.
 - [ ] U4: Expose in-app/headless update controls and opt-in maintenance scheduling, implement UI/worker compatibility handling, and pass the fault matrix before unattended activation is enabled.
 
-Planning allowance: approximately 5-9 engineer-days after the service/backup foundation is stable for the coordinator, migration/recovery hardening, UI and Mac/Linux update adapters, including focused failure tests. This overlaps D4/D6/D12 and the existing release estimate, so do not add the full amount again. Signing/account setup and support for additional installer formats can add elapsed time. This review defines the design and verifies the current migration runner, it does not implement the updater or run a migration against the user's Home.
+Planning allowance: approximately 5-9 engineer-days after the service/backup foundation is stable for the coordinator, migration/recovery hardening, UI and Mac/Linux update adapters, including focused failure tests. This overlaps D4/D6/D12 and the existing release estimate, so do not add the full amount again. Signing/account setup and support for additional installer formats can add elapsed time. This was the original planning allowance. The standalone coordinator is now implemented. No migration was run against the user's production home.
 
 ## Open findings and implementation requirements
+
+**Historical audit, before the standalone implementation.** The following reproductions and line references describe the original demo. Use the current implementation matrix above for resolution status. Retained acceptance requirements still apply to real providers, hardware and the conditional multi-machine product.
 
 The audit inventoried **252 API route files**, traced the desktop-sensitive subsystems, ran all three JavaScript test suites, checked both TypeScript projects, inspected packaging and upstream documentation, and exercised the real packaged application. This is broad architectural, code, and targeted runtime coverage. It is not a claim that every route, provider account, operating system, accessibility interaction, or failure condition has passed end-to-end certification. The coverage table below identifies those limits.
 
@@ -565,7 +708,7 @@ These desktop estimates were produced before the multi-machine integration revie
 
 ## Build checklist after the multi-device/teams work
 
-Unchecked items are requirements, not implemented features. The Homes spec controls phase ownership and acceptance when work overlaps.
+This is the original combined Home/team acceptance checklist. It remains unchecked where it includes conditional multi-machine behavior or external qualification. Standalone code completion is tracked by S1-S8 and the implementation matrix above. The Homes spec controls its own phase ownership.
 
 - [ ] D1: Resolve Home/connected/viewer roles before any DB initialization. Adopt an existing installation only through explicit verified ownership and the existing stopped migration/recovery flow. Keep development profiles explicit.
 - [ ] D2: Extract one lifecycle API used by GUI and CLI. Install/status/start/stop/logs/uninstall services without requiring a separate CLI download. Package Home/worker runtime independently of Electron for Mac and Linux.
@@ -605,6 +748,8 @@ The original packaged smoke demonstrated h2, eight SSE streams, certificate reje
 
 ## Landing verification
 
+**Historical foundation landing.** This table records the earlier demo landing, not the new standalone implementation. Fresh standalone verification is recorded near the top of this document.
+
 The landing change adds generated desktop directories to ESLint's ignore list, labels the README entry as an experimental isolated demo, adopts the existing upstream `@agentex/workspace` 0.0.5 fix, and corrects a test-only array-index type assertion in the connector suite. Three new real-SDK/mock-provider web callback regressions cover successful state/PKCE completion, foreign state/replay, denial, and expiry. They establish web-mode compatibility of the shared MCP changes, separately from live provider certification.
 
 The current local main (`c42e77d`) was merged into the desktop worktree without conflicts before these checks. The unrelated untracked `docs/execution-ui-proposal.md` in the main checkout is outside this change. No production service, home data, or multi-device worktree was modified.
@@ -633,7 +778,7 @@ pnpm --filter @connectors/engine test
 pnpm ts
 pnpm --filter @connectors/engine typecheck
 pnpm desktop:package
-RI_DESKTOP_PACKAGE=release/Ri-darwin-arm64/Ri.app pnpm desktop:smoke
+RI_DESKTOP_PACKAGE=release/desktop/mac-arm64/Ri.app pnpm desktop:smoke
 ```
 
 Tests must use disposable app homes. The Vitest setup supplies a temporary root when no explicit root is set. For landing verification, explicit separate temporary roots were used, with advanced database/config/work overrides unset. Build/runtime probes used `.electron-demo` and relocated temporary bundles. A sandbox may need permission to bind local fixture servers, launch Electron, or fetch build assets. The audit probe intentionally demonstrates unresolved defects and is not a passing release-security gate.

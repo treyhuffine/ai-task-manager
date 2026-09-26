@@ -1,4 +1,5 @@
 'use client';
+import { useDocumentAutosave } from '@/hooks/use-document-autosave';
 
 import { use, useEffect, useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -59,6 +60,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const { data: task } = useTask(taskId);
   const { data: parentTask } = useTask(task?.parentId ?? null);
   const updateTask = useUpdateTask();
+  const autosave = useDocumentAutosave('tasks', taskId, task, updateTask.mutateAsync);
   const deleteTask = useDeleteTask();
   const lifecycle = useTaskLifecycle();
   const chat = useDocumentChat('task', task ?? null);
@@ -74,9 +76,6 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const [editingDeadline, setEditingDeadline] = useState(false);
   const [editingBoomerang, setEditingBoomerang] = useState(false);
   const { ref: titleRef, resize: resizeTitle } = useAutosizeTextarea();
-  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const foldedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAttachmentsRef = useRef<Attachment[]>([]);
 
   const handleAttachment = useCallback((attachment: Attachment) => {
@@ -113,12 +112,10 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
     (e: React.FormEvent<HTMLTextAreaElement>) => {
       const target = e.currentTarget;
       resizeTitle();
-      if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
-      titleTimerRef.current = setTimeout(() => {
-        saveField('title', target.value.trim());
-      }, 500);
+
+      autosave({ title: target.value.trim() });
     },
-    [saveField, resizeTitle],
+    [autosave, resizeTitle],
   );
 
   const handleTitleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -135,30 +132,23 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const handleBodyChange = useCallback(
     (markdown: string) => {
       if (!taskId) return;
-      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current);
-      bodyTimerRef.current = setTimeout(() => {
-        const attachments = pendingAttachmentsRef.current;
-        updateTask.mutate({
-          id: taskId,
-          body: markdown || null,
-          ...(attachments.length > 0 ? { attachments } : {}),
-        } as Parameters<typeof updateTask.mutate>[0]);
-      }, 500);
+
+      const attachments = pendingAttachmentsRef.current;
+      autosave({
+        body: markdown || null,
+        ...(attachments.length > 0 ? { attachments } : {}),
+      });
     },
-    [taskId, updateTask],
+    [taskId, autosave],
   );
 
   const handleFoldedHeadingsChange = useCallback(
     (folded: string[]) => {
       if (!taskId) return;
-      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
-      foldedTimerRef.current = setTimeout(() => {
-        updateTask.mutate({ id: taskId, foldedHeadings: folded } as Parameters<
-          typeof updateTask.mutate
-        >[0]);
-      }, 400);
+
+      autosave({ foldedHeadings: folded });
     },
-    [taskId, updateTask],
+    [taskId, autosave],
   );
 
   // Open-children and running-workstream confirmations are enforced server-side
@@ -180,13 +170,6 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
     router.push('/');
   }, [taskId, deleteTask, router]);
 
-  useEffect(() => {
-    return () => {
-      if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
-      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current);
-      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
-    };
-  }, []);
 
   const isDone = task?.status === 'done';
 

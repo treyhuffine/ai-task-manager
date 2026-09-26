@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { isDesktopRequest } from '@/lib/connectors/desktop-oauth';
 import {
   startClaudeLogin,
   waitForClaudeLogin,
@@ -25,10 +26,11 @@ import {
  * credentials per-request, so the user just re-sends their failed
  * message and it goes through.
  */
-export async function POST(_request: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
     const initial = await getClaudeAuthStatus();
     if (!initial.loggedIn) {
+      if (!isDesktopRequest(request)) return Response.json({ ok: false, error: 'Sign in on the computer running Ri: run claude auth login --claudeai in its terminal or SSH session, follow the sign-in link, then retry here.' }, { status: 409 });
       startClaudeLogin();
     }
     const status = initial.loggedIn ? initial : await waitForClaudeLogin();

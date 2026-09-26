@@ -1,3 +1,4 @@
+import { documentSaves } from '@/lib/client/document-saves';
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { tasksApi } from '@/lib/api/tasks';
@@ -119,7 +120,10 @@ export function useDeleteTask() {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: TASKS_KEY,
-    mutationFn: (id: string) => tasksApi.delete(id),
+    mutationFn: async (id: string) => {
+      await documentSaves.flush(`tasks:${id}`);
+      return tasksApi.delete(id);
+    },
     onMutate: async (id) => ({ snapshot: await optimisticRemove(qc, 'tasks', id) }),
     onError: (_err, _id, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);

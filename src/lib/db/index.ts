@@ -5,13 +5,15 @@ import fs from 'fs';
 import path from 'path';
 import { getDbPath, ensureBrainDir, DB_PATH_ENV } from '@/lib/config/paths';
 import * as schema from './schema';
-import { runMigrations } from './migrate';
+import { runMigrations, inspectMigrationHistory } from './migrate';
+import { acquireDatabaseAccess } from '@/lib/service/maintenance';
 
 export type DB = BetterSQLite3Database<typeof schema>;
 
 let dbInstance: DB | null = null;
 let rawInstance: Database.Database | null = null;
 let currentPath: string | null = null;
+let releaseAccess: (() => void) | null = null;
 
 export function getDefaultDbPath(): string {
   return getDbPath();
@@ -24,6 +26,8 @@ export function resetDb(): void {
     dbInstance = null;
     currentPath = null;
   }
+  releaseAccess?.();
+  releaseAccess = null;
 }
 
 const EMBEDDINGS_VEC_DEFINITION = 'embedding float[1536] distance_metric=cosine';
@@ -304,9 +308,13 @@ function ensureEntityLinksBackfill(sqlite: Database.Database): void {
  */
 export function initDatabase(sqlite: Database.Database, migrationsFolder: string): void {
   runMigrations(sqlite, migrationsFolder);
-  sqlite.exec(EXTRA_SQL);
-  ensureCosineEmbeddingIndex(sqlite);
-  ensureEntityLinksBackfill(sqlite);
+  // Derived schema is one repeatable transaction. Failed boot never exposes
+  // half-installed triggers/backfills through a cached connection.
+  sqlite.transaction(() => {
+    sqlite.exec(EXTRA_SQL);
+    ensureCosineEmbeddingIndex(sqlite);
+    ensureEntityLinksBackfill(sqlite);
+  }).immediate();
 }
 
 export function getDb(dbPath?: string): DB {
@@ -316,6 +324,8 @@ export function getDb(dbPath?: string): DB {
   if (dbInstance && currentPath === resolvedPath) {
     if (!fs.existsSync(resolvedPath)) {
       rawInstance?.close();
+      releaseAccess?.();
+      releaseAccess = null;
       rawInstance = null;
       dbInstance = null;
       currentPath = null;
@@ -336,20 +346,29 @@ export function getDb(dbPath?: string): DB {
     ensureBrainDir();
   }
 
-  const sqlite = new Database(resolvedPath);
-  sqliteVec.load(sqlite);
-  sqlite.pragma('journal_mode = WAL');
-
-  rawInstance = sqlite;
-  dbInstance = drizzle(sqlite, { schema, casing: 'snake_case' });
-
-  // Desktop harness commands run in the agent's folder, outside the shipped app.
-  const assetsRoot = process.env.RI_DESKTOP === '1' && process.env.RI_DESKTOP_REPO
-    ? process.env.RI_DESKTOP_REPO : process.cwd();
-  initDatabase(sqlite, path.resolve(assetsRoot, 'drizzle'));
-
-  currentPath = resolvedPath;
-  return dbInstance;
+  const access = acquireDatabaseAccess(resolvedPath);
+  let sqlite: Database.Database;
+  try { sqlite = new Database(resolvedPath); } catch (error) { access(); throw error; }
+  try {
+    sqliteVec.load(sqlite);
+    // Packaged harness commands run in the agent's folder, outside the app.
+    const assetsRoot = process.env.RI_RUNTIME_REPO ??
+      (process.env.RI_DESKTOP === '1' ? process.env.RI_DESKTOP_REPO : undefined) ?? process.cwd();
+    inspectMigrationHistory(sqlite, path.resolve(assetsRoot, 'drizzle'));
+    sqlite.pragma('journal_mode = WAL');
+    initDatabase(sqlite, path.resolve(assetsRoot, 'drizzle'));
+    releaseAccess?.();
+    releaseAccess = access;
+    rawInstance?.close();
+    rawInstance = sqlite;
+    dbInstance = drizzle(sqlite, { schema, casing: 'snake_case' });
+    currentPath = resolvedPath;
+    return dbInstance;
+  } catch (error) {
+    sqlite.close();
+    access();
+    throw error;
+  }
 }
 
 export function getRawDb(dbPath?: string): Database.Database {

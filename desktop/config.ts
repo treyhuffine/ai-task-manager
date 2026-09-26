@@ -28,9 +28,12 @@ export function bundledCliCommand(node: string, repo: string, root: string) {
 
 export interface BackendReady {
   type: 'ready';
+  serviceRunId?: string;
+  desktopClient?: string;
+  runtime?: { repo: string; node: string; launcher: string };
   origin: string;
   certificate: string;
   token: string;
 }
 
-export type BackendMessage = BackendReady | { type: 'error'; message: string };
+export type BackendMessage = BackendReady | { type: 'certificate'; origin: string; certificate: string } | { type: 'error'; message: string };

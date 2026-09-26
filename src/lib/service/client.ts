@@ -1,0 +1,97 @@
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { serviceIdentity, servicePaths } from './paths';
+
+export interface ServiceStatus {
+  protocol: 1;
+  identity: ReturnType<typeof serviceIdentity>;
+  runId: string;
+  pid: number;
+  phase: 'starting' | 'running' | 'stopping' | 'failed' | 'updating';
+  version: string;
+  repo: string;
+  origin?: string;
+  error?: string;
+}
+
+export interface ServiceSession extends ServiceStatus { origin: string; certificate: string; token: string; desktopClient: string }
+
+export async function serviceRequest<T>(route: string, method = 'GET', timeoutMs = 3000, body?: unknown): Promise<T> {
+  const paths = servicePaths();
+  return new Promise((resolve, reject) => {
+    const request = http.request({ socketPath: paths.socket, path: route, method }, response => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      response.on('data', chunk => {
+        size += chunk.length;
+        if (size > 1024 * 1024) request.destroy(new Error('Invalid service response size'));
+        else chunks.push(chunk);
+      });
+      response.on('end', () => {
+        try {
+          const value = JSON.parse(Buffer.concat(chunks).toString());
+          if (response.statusCode !== 200) throw new Error(value.error ?? `Service returned ${response.statusCode}`);
+          if (value.protocol !== 1 || JSON.stringify(value.identity) !== JSON.stringify(paths.identity)) {
+            throw new Error('Service identity or control protocol does not match this installation');
+          }
+          resolve(value as T);
+        } catch (error) { reject(error); }
+      });
+      response.on('error', reject);
+    });
+    request.setTimeout(timeoutMs, () => request.destroy(new Error('Service control request timed out')));
+    request.on('error', reject);
+    request.end(body === undefined ? undefined : JSON.stringify(body));
+  });
+}
+
+export async function serviceStatus(): Promise<ServiceStatus | null> {
+  try { return await serviceRequest<ServiceStatus>('/status'); } catch (error) {
+    if (['ENOENT', 'ECONNREFUSED'].includes((error as NodeJS.ErrnoException).code ?? '')) return null;
+    throw error;
+  }
+}
+
+export async function ensureService(options: { repo: string; node: string; env?: NodeJS.ProcessEnv; timeoutMs?: number }): Promise<ServiceSession> {
+  const paths = servicePaths();
+  let status = await serviceStatus();
+  if (!status && !(await (await import('./install')).startInstalledService())) {
+    const entry = path.join(options.repo, 'dist/service/main.cjs');
+    if (!fs.existsSync(entry)) throw new Error('Build the Ri runtime before starting its service (pnpm cli:build).');
+    fs.mkdirSync(path.dirname(paths.log), { recursive: true, mode: 0o700 });
+    const log = fs.openSync(paths.log, 'a', 0o600);
+    try {
+      const child = spawn(options.node, [entry], {
+        cwd: options.repo, detached: true, stdio: ['ignore', log, log],
+        env: { ...options.env ?? process.env, RI_RUNTIME_REPO: options.repo },
+      });
+      await new Promise<void>((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
+      child.unref();
+    } finally { fs.closeSync(log); }
+  }
+  const deadline = Date.now() + (options.timeoutMs ?? 180_000);
+  while (Date.now() < deadline) {
+    status = await serviceStatus();
+    if (status?.phase === 'running') return serviceRequest<ServiceSession>('/session');
+    if (status?.phase === 'failed') throw new Error(status.error ?? 'Service failed to start');
+    if (status?.phase === 'stopping') throw new Error('The service is stopping. Wait for it to stop before reopening.');
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw new Error(`The service did not start. Read ${paths.log} for diagnostics.`);
+}
+
+export async function stopService(): Promise<void> {
+  const status = await serviceStatus();
+  if (!status) return;
+  await serviceRequest('/stop', 'POST');
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const next = await serviceStatus();
+    if (!next) return;
+    if (next.runId !== status.runId) throw new Error('A new service started while stopping. It was left running.');
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error('Service is still stopping. Inspect its status and log before retrying.');
+}

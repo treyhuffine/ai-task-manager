@@ -1,3 +1,4 @@
+import { documentSaves } from '@/lib/client/document-saves';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { notesApi } from '@/lib/api/notes';
@@ -62,7 +63,10 @@ export function useDeleteNote() {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: NOTES_KEY,
-    mutationFn: (id: string) => notesApi.delete(id),
+    mutationFn: async (id: string) => {
+      await documentSaves.flush(`notes:${id}`);
+      return notesApi.delete(id);
+    },
     onMutate: async (id) => ({ snapshot: await optimisticRemove(qc, 'notes', id) }),
     onError: (_err, _id, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);

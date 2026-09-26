@@ -1,6 +1,8 @@
 export interface RiDesktop {
   platform: string;
   openExternal(url: string): Promise<void>;
+  onResume(callback: () => void): () => void;
+  onPrepareClose(callback: () => Promise<boolean>): () => void;
 }
 
 declare global { interface Window { riDesktop?: RiDesktop } }

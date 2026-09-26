@@ -84,6 +84,12 @@ export interface ConnectorRuntimeOptions {
   defaultOwnerId?: string;
   authRequestTtlMs?: number;
   refreshSkewMs?: number;
+  /** Host-owned landing page for tool-requested reconnect/incremental consent.
+   * The person opens it in their current client, then beginAuth selects that
+   * client's callback. No pending OAuth state is minted by a background tool. */
+  authorizationRequired?: (request: {
+    providerId: string; scopes: string[]; authConfigId?: string; existingConnectionId?: string;
+  }) => string;
 }
 
 /** The flow purposes the §8 status table gates. */
@@ -344,6 +350,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
     scopes: string[];
     redirectUri: string;
     intent: AuthRequest['intent'];
+    callbackChannel?: 'web' | 'desktop';
     existingConnectionId?: string;
     label?: string;
   }): Promise<BeginAuthResult> {
@@ -370,6 +377,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       scopes: input.scopes,
       redirectUri: input.redirectUri,
       intent: input.intent,
+      ...(input.callbackChannel ? { callbackChannel: input.callbackChannel } : {}),
       ...(input.existingConnectionId ? { existingConnectionId: input.existingConnectionId } : {}),
       ...(input.authConfigId !== undefined ? { authConfigId: input.authConfigId } : {}),
       ...(input.label ? { label: input.label } : {}),
@@ -398,6 +406,14 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       );
     }
     return uri;
+  }
+
+  async function buildActionAuthorization(input: Parameters<typeof buildAuthorization>[0]) {
+    if (opts.authorizationRequired) return { authorizationUrl: opts.authorizationRequired({
+      providerId: input.provider.id, scopes: input.scopes,
+      authConfigId: input.authConfigId, existingConnectionId: input.existingConnectionId,
+    }) };
+    return buildAuthorization(input);
   }
 
   // ── Public: beginAuth / completeAuth ──────────────────────────────────────
@@ -429,6 +445,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
         ownerId,
         scopes: requested,
         redirectUri: resolveRedirect(config, options.redirectUri),
+        callbackChannel: options.callbackChannel,
         intent: 'add_scopes',
         existingConnectionId: options.existingConnectionId,
         ...(options.label ? { label: options.label } : {}),
@@ -472,15 +489,22 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       ownerId,
       scopes: uniqueScopes(provider.identityScopes, base),
       redirectUri: resolveRedirect(config, options.redirectUri),
+        callbackChannel: options.callbackChannel,
       intent: 'new_connection',
       ...(options.label ? { label: options.label } : {}),
     });
   }
 
-  async function completeAuth(p: { code: string; state: string; params?: Record<string, string> }): Promise<Connection> {
+  async function completeAuth(p: { code: string; state: string; params?: Record<string, string>; expectedRedirectUri?: string; expectedChannel?: 'web' | 'desktop' }): Promise<Connection> {
     const req = await authRequests.take(p.state);
     if (!req) throw new ConnectorError('invalid_input', 'unknown or expired auth state');
     if (req.expiresAt < clock.now()) throw new ConnectorError('invalid_input', 'auth request expired');
+    if (p.expectedChannel && (req.callbackChannel ?? 'web') !== p.expectedChannel) {
+      throw new ConnectorError('invalid_input', 'auth request belongs to a different client');
+    }
+    if (p.expectedRedirectUri !== undefined && req.redirectUri !== p.expectedRedirectUri) {
+      throw new ConnectorError('invalid_input', 'auth request belongs to a different callback');
+    }
 
     const provider = requireProvider(req.providerId);
     const flow = provider.auth.oauth;
@@ -826,7 +850,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
         switch (cr.kind) {
           case 'resolved': {
             const scopes = uniqueScopes(provider.identityScopes, action.scopes);
-            const { authorizationUrl } = await buildAuthorization({
+            const { authorizationUrl } = await buildActionAuthorization({
               provider,
               config: cr.config,
               authConfigId: cr.authConfigId,
@@ -891,7 +915,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
           finish('error', { connectionId: connection.id, status: 'error', errorCode: 'provider_not_configured' });
           return fail('provider_not_configured', `no auth client configured for "${provider.id}"`);
         }
-        const { authorizationUrl } = await buildAuthorization({
+        const { authorizationUrl } = await buildActionAuthorization({
           provider,
           config: connConfig,
           authConfigId: connection.authConfigId,
@@ -939,7 +963,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
           // No client to rebuild the URL with — surface provider_not_configured instead of a dead URL.
           return fail('provider_not_configured', `no auth client configured for "${provider.id}"`);
         }
-        const { authorizationUrl } = await buildAuthorization({
+        const { authorizationUrl } = await buildActionAuthorization({
           provider,
           config: connConfig,
           authConfigId: connection.authConfigId,
@@ -1156,6 +1180,10 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
   return {
     beginAuth,
     completeAuth,
+    async cancelAuth(state: string, expectedChannel: 'web' | 'desktop'): Promise<boolean> {
+      const req = await authRequests.take(state);
+      return !!req && req.expiresAt >= clock.now() && (req.callbackChannel ?? 'web') === expectedChannel;
+    },
     connectDirect,
     listConnections: (filter) => store.list(filter),
     listAccountChoices,

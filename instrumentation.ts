@@ -5,6 +5,8 @@
 
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+  const { validationBoot } = await import('@/lib/service/validation-boot');
+  if (validationBoot()) return;
 
   // Layout migration is NOT automatic — run `pnpm migrate:layout` once on an
   // existing install to move into the home + .config + .work shape. Fresh

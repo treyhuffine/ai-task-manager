@@ -612,6 +612,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       // Pre-hydration empty `onUpdate` (the populate-time race) → leave
       // storage untouched so the restore effect can still read the draft.
       if (action === 'skip') return;
+      // Retain the current draft before yielding to the network/render loop.
+      // Process destruction does not guarantee a debounce or unmount callback.
+      if (action === 'save') writeDraftSync(key);
       // Empty editor → remove immediately so the post-send clear is
       // visible even if the user navigates away inside the debounce
       // window. Saves are debounced; deletes are not.

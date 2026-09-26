@@ -17,7 +17,15 @@ export interface DesktopOAuthFlow {
   cancel(notify?: boolean): void;
 }
 
-export function desktopEnabled() { return process.env.RI_DESKTOP === '1'; }
+export function desktopEnabled() { return process.env.RI_DESKTOP === '1' || !!process.env.RI_DESKTOP_CLIENT_SECRET; }
+
+/** The local controller gives this capability only over its private OS socket.
+ * A phone's ordinary owner token does not accidentally select a Mac callback. */
+export function isDesktopRequest(request: Request) {
+  const expected = process.env.RI_DESKTOP_CLIENT_SECRET;
+  const supplied = request.headers.get('x-ri-desktop-client');
+  return !!expected && !!supplied && sameState(expected, supplied);
+}
 
 export function safeReturnPath(raw?: string | null) {
   if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\')) return '/?settings=connectors';

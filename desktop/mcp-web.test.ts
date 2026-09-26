@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({ store: vi.fn(), rebuild: vi.fn(), invalidate: 
 const webOrigin = 'https://home.example';
 vi.mock('@/lib/connectors/runtime', () => ({
   getMcpServerStore: mocks.store,
+  getMcpOAuthRedirectUrl: (sid: string) => `${webOrigin}/api/connectors/mcp-oauth/${sid}`,
   getConnectorRuntime: mocks.rebuild,
   invalidateConnectorRuntime: mocks.invalidate,
   MCP_TIMEOUT_MS: 5000,
@@ -34,7 +35,8 @@ let dir: string;
 let store: McpServerStore;
 let provider: Awaited<ReturnType<typeof mockMcp>>;
 beforeEach(async () => {
-  vi.stubEnv('RI_DESKTOP', '');
+  vi.stubEnv('RI_DESKTOP', '1');
+  vi.stubEnv('RI_DESKTOP_CLIENT_SECRET', 'native-client-only');
   vi.clearAllMocks();
   // This fixture checks callback/SDK behavior, not encrypted storage.
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-mcp-web-'));

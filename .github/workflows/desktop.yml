@@ -1,0 +1,45 @@
+name: Desktop and headless runtime
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'src/lib/service/**'
+      - 'src/service/**'
+      - '.github/workflows/desktop.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.5.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm ts
+      - run: pnpm test
+      - run: pnpm desktop:test
+      - run: pnpm --filter @connectors/engine test
+      - run: pnpm desktop:package
+      - run: pnpm exec tsx desktop/update-smoke.ts
+      - run: tar -czf "release/ri-desktop-${RUNNER_OS}-${RUNNER_ARCH}.tar.gz" -C release/desktop .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ri-unsigned-${{ runner.os }}-${{ runner.arch }}
+          path: release/*.tar.gz
+          retention-days: 7
+      # Signing/notarization and public upload are separate publisher operations.
+      # This workflow never publishes an unsigned build as an eligible release.

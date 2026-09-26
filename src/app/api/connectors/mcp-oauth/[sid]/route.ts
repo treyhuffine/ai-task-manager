@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withCompression } from '@/lib/api/compression';
 import {
-  getMcpServerStore,
+  getMcpServerStore, getMcpOAuthRedirectUrl,
 } from '@/lib/connectors/runtime';
 import { completeMcpAuthorization } from '@/lib/connectors/mcp-authorization';
-import { desktopEnabled } from '@/lib/connectors/desktop-oauth';
 
 /**
  * OAuth redirect target for an MCP server (public — see proxy PUBLIC_PATHS). The authorization
@@ -18,7 +17,6 @@ import { desktopEnabled } from '@/lib/connectors/desktop-oauth';
 export const GET = withCompression(handleGET);
 
 async function handleGET(request: NextRequest, { params }: { params: Promise<{ sid: string }> }) {
-  if (desktopEnabled()) return new Response('Use the desktop sign-in callback', { status: 404 });
   const { sid } = await params;
   const url = new URL(request.url);
   const back = new URL('/?settings=connectors', url.origin);
@@ -27,6 +25,10 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ s
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
   const entry = getMcpServerStore().get(sid);
+  const saved = await getMcpServerStore().getOAuthState(sid);
+  if (saved?.redirectUri && saved.redirectUri !== getMcpOAuthRedirectUrl(sid)) {
+    return new Response('This authorization belongs to the desktop callback', { status: 400 });
+  }
 
   if (error) {
     if (!state || !await getMcpServerStore().consumeOAuthState(sid, state)) {

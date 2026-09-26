@@ -12,9 +12,10 @@ afterEach(() => { desktopOAuth().close(); vi.unstubAllEnvs(); });
 
 it('connects through the real engine using the temporary redirect and matching PKCE verifier', async () => {
   vi.stubEnv('RI_DESKTOP', '1');
+  vi.stubEnv('RI_DESKTOP_CLIENT_SECRET', 'native-fixture-capability');
   const harness = makeHarness(); mocked.runtime.mockResolvedValue(harness.runtime);
   const response = await POST(new NextRequest('https://localhost/api/connectors/connect', {
-    method: 'POST', body: JSON.stringify({ providerId: 'google', scopes: ['openid', 'email'], returnTo: '/welcome' }),
+    method: 'POST', headers: { 'x-ri-desktop-client': 'native-fixture-capability' }, body: JSON.stringify({ providerId: 'google', scopes: ['openid', 'email'], returnTo: '/welcome' }),
   }));
   expect(response.status).toBe(200);
   const result = await response.json();
@@ -44,4 +45,17 @@ it('preserves the normal web callback and return cookie outside desktop', async 
   expect(response.status).toBe(200);
   expect(result.desktopFlowId).toBeUndefined();
   expect(response.headers.get('set-cookie')).toContain('connector_return_to');
+});
+
+it('uses the web callback for a phone on a desktop-capable backend', async () => {
+  vi.stubEnv('RI_DESKTOP', '1');
+  vi.stubEnv('RI_DESKTOP_CLIENT_SECRET', 'native-fixture-capability');
+  const harness = makeHarness(); mocked.runtime.mockResolvedValue(harness.runtime);
+  const response = await POST(new NextRequest('https://home.example/api/connectors/connect', {
+    method: 'POST', headers: { 'x-ri-desktop-client': 'untrusted-claim' }, body: JSON.stringify({ providerId: 'google', returnTo: '/welcome' }),
+  }));
+  const result = await response.json();
+  expect(response.status).toBe(200);
+  expect(result.desktopFlowId).toBeUndefined();
+  expect(new URL(result.authorizationUrl).searchParams.get('redirect_uri')).toBe('http://127.0.0.1:0/callback');
 });

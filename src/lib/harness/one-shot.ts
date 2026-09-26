@@ -39,6 +39,7 @@ import type { z } from 'zod';
 import { CHEAPEST_MODEL } from '@/lib/executor/harness';
 import { modelBelongsToProvider, type ProviderId } from '@/lib/harness/options';
 import { runtimeContextForHarness } from '@/lib/harness/runtime';
+import { withActivity } from '@/lib/service/maintenance';
 import { getAppRoot } from '@/lib/config/paths';
 import { getUserState } from '@/lib/db/queries';
 
@@ -110,7 +111,11 @@ export function backgroundModelFor(providerType: ProviderId, tier: ModelTier): s
 }
 
 /** Run one bounded harness call and return its final text. Throws on failure. */
-export async function runHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneShotResult> {
+export function runHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneShotResult> {
+  return withActivity(() => executeHarnessText(opts));
+}
+
+async function executeHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneShotResult> {
   const providerType = resolveBackgroundHarness();
   const model = opts.model ?? backgroundModelFor(providerType, opts.tier ?? 'fast');
   const cwd = opts.cwd ?? getAppRoot();

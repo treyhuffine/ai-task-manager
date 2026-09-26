@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { serviceEnvironment } from '@/lib/service/environment';
+import { beginActivity } from '@/lib/service/maintenance';
 import { Command } from 'commander';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { startCommand } from './commands/start';
@@ -17,6 +19,8 @@ import { registerTakeoverCommand } from './commands/takeover';
 import { registerResumeCommand } from './commands/resume';
 import { registerBrowserCommands } from './commands/browser';
 import { registerTlsCommand } from './commands/tls';
+import { registerUpdateCommand } from './commands/update';
+import { registerServiceCommand } from './commands/service';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -28,6 +32,17 @@ program
   .name(APP_SHORT_ID)
   .description(`${APP_NAME}: productivity for humans and agents`)
   .version('0.0.1');
+
+let releaseCommand: (() => void) | undefined;
+program.hook('preAction', (_program, action) => {
+  let command = action;
+  while (command.parent && command.parent !== program) command = command.parent;
+  if (!['service', 'update', 'start', 'stop'].includes(command.name())) {
+    Object.assign(process.env, serviceEnvironment(process.execPath));
+    releaseCommand = beginActivity();
+  }
+});
+program.hook('postAction', () => { releaseCommand?.(); releaseCommand = undefined; });
 
 program
   .command('start', { isDefault: true })
@@ -95,6 +110,8 @@ registerTakeoverCommand(program);
 registerResumeCommand(program);
 registerBrowserCommands(program);
 registerTlsCommand(program);
+registerServiceCommand(program);
+registerUpdateCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);

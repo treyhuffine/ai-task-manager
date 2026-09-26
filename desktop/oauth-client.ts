@@ -17,8 +17,8 @@ export function resultLocation(origin: string, result: DesktopOAuthResult) {
 }
 
 /** The stream is authenticated by the existing Electron session cookie. */
-export async function watchOAuthResults(ses: Session, origin: string, signal: AbortSignal, onResult: (result: DesktopOAuthResult) => void) {
-  let cursor = 0;
+export async function watchOAuthResults(ses: Session, origin: string, signal: AbortSignal, onResult: (result: DesktopOAuthResult) => void, initialCursor = 0) {
+  let cursor = initialCursor;
   while (!signal.aborted) {
     try {
       const response = await ses.fetch(`${origin}/api/desktop/oauth/events?after=${cursor}`, { signal });

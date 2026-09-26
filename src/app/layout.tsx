@@ -25,8 +25,8 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} dark`}>
       <body className="antialiased">
-        <DesktopChrome />
         <QueryProvider>
+          <DesktopChrome />
           <PairingBootstrap />
           <TooltipProvider>
             <ConfirmProvider>

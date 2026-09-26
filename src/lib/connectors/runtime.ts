@@ -127,9 +127,9 @@ export interface ProviderStatus extends ProviderCatalogEntry {
  * client, or a user's BYO config in the home store. API-key/custom providers are always ready
  * (the key is pasted at connect).
  */
-export async function getProviderStatuses(): Promise<ProviderStatus[]> {
+export async function getProviderStatuses(nativeDesktop = false): Promise<ProviderStatus[]> {
   const admin = await getConnectorAdmin();
-  const providers = desktopEnabled() ? (await getConnectorRuntime()).getProviders() : [];
+  const providers = nativeDesktop && desktopEnabled() ? (await getConnectorRuntime()).getProviders() : [];
   return Promise.all(
     PROVIDER_CATALOG.map(async (entry) => {
       let configured = entry.method !== 'oauth2';
@@ -339,6 +339,14 @@ async function build(): Promise<Built> {
     registry,
     store,
     authRequests: store,
+    authorizationRequired: request => {
+      const url = new URL('/connect', getRemoteBaseUrl() ?? getLocalBaseUrl());
+      url.searchParams.set('provider', request.providerId);
+      url.searchParams.set('scopes', JSON.stringify(request.scopes));
+      if (request.authConfigId) url.searchParams.set('client', request.authConfigId);
+      if (request.existingConnectionId) url.searchParams.set('connection', request.existingConnectionId);
+      return url.href;
+    },
     secretBox,
     lock,
     redactor: createRedactor(),

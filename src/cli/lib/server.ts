@@ -7,6 +7,7 @@
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 
@@ -20,6 +21,10 @@ export interface StartServerOptions {
   /** Bind address for Next (`next -H <hostname>`). Used by the HTTP/2 gateway
    *  to keep the Next upstream loopback-only on a private port. */
   hostname?: string;
+  supervised?: boolean;
+  node?: string;
+  repo?: string;
+  env?: NodeJS.ProcessEnv;
 }
 
 export function startNextServer(opts: StartServerOptions): ChildProcess {
@@ -40,6 +45,11 @@ export function startNextServer(opts: StartServerOptions): ChildProcess {
   }
 
   const args = [nextBin, subcommand, '-p', String(opts.port)];
+  if (opts.supervised) {
+    return spawn(opts.node ?? process.execPath, [path.join(opts.repo ?? process.env.RI_RUNTIME_REPO ?? process.cwd(), 'dist/service/http-server.cjs')], {
+      cwd: opts.repo, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: { ...process.env, ...opts.env, PORT: String(opts.port) },
+    });
+  }
   if (opts.hostname) args.push('-H', opts.hostname);
   return spawn(process.execPath, args, {
     stdio: ['ignore', 'inherit', 'inherit'],

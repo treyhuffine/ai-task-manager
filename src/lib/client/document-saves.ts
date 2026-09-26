@@ -1,0 +1,90 @@
+type Patch = Record<string, unknown>;
+export interface DocumentDraft { patch: Patch; base: Patch }
+interface PendingSave extends DocumentDraft {
+  writer: (patch: Patch) => Promise<unknown>;
+  timer?: ReturnType<typeof setTimeout>;
+  running?: Promise<void>;
+  inFlight?: Patch;
+}
+const prefix = 'ri:document-draft:v1:';
+
+/** One serial writer per document, shared across page and slideout mounts.
+ * Drafts are retained synchronously before the network debounce begins. */
+export class DocumentSaveQueue {
+  private pending = new Map<string, PendingSave>();
+  constructor(private storage: () => Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>) {}
+
+  draft(key: string): DocumentDraft | null {
+    const text = this.storage().getItem(prefix + key);
+    if (!text) return null;
+    const value = JSON.parse(text) as DocumentDraft;
+    if (!value.patch || !value.base || typeof value.patch !== 'object' || typeof value.base !== 'object') throw new Error('Invalid retained draft');
+    return value;
+  }
+
+  discard(key: string) { this.storage().removeItem(prefix + key); }
+  has(key?: string) { return key ? this.pending.has(key) : this.pending.size > 0; }
+
+  schedule(key: string, patch: Patch, base: Patch, writer: PendingSave['writer']) {
+    let state = this.pending.get(key);
+    if (!state) {
+      state = { patch: {}, base: {}, writer };
+      this.pending.set(key, state);
+    }
+    for (const field of Object.keys(patch)) {
+      if (!(field in state.base)) state.base[field] = base[field] ?? null;
+    }
+    Object.assign(state.patch, patch);
+    state.writer = writer;
+    this.persist(key, state);
+    clearTimeout(state.timer);
+    state.timer = setTimeout(() => { void this.flush(key).catch(() => {}); }, 500);
+  }
+
+  private persist(key: string, state: PendingSave) {
+    this.storage().setItem(prefix + key, JSON.stringify({ patch: { ...state.inFlight, ...state.patch }, base: state.base }));
+  }
+
+  async flush(key: string): Promise<void> {
+    const state = this.pending.get(key);
+    if (!state) return;
+    clearTimeout(state.timer);
+    if (state.running) return state.running;
+    state.running = (async () => {
+      while (Object.keys(state.patch).length) {
+        const patch = state.patch;
+        state.patch = {};
+        state.inFlight = patch;
+        try {
+          await state.writer(patch);
+        } catch (error) {
+          state.patch = { ...patch, ...state.patch };
+          state.inFlight = undefined;
+          this.persist(key, state);
+          throw error;
+        }
+        state.inFlight = undefined;
+        Object.assign(state.base, patch);
+        if (Object.keys(state.patch).length) this.persist(key, state);
+      }
+      this.discard(key);
+      this.pending.delete(key);
+    })();
+    try { await state.running; } finally { state.running = undefined; }
+  }
+
+  async flushAll() {
+    const results = await Promise.allSettled([...this.pending.keys()].map(key => this.flush(key)));
+    if (results.some(result => result.status === 'rejected')) throw new Error('Some edits could not be saved. Keep this window open and retry.');
+  }
+}
+
+export const documentSaves = new DocumentSaveQueue(() => window.localStorage);
+
+export function draftDisposition(draft: DocumentDraft, current: Patch): 'saved' | 'retry' | 'conflict' {
+  const equal = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const fields = Object.keys(draft.patch);
+  if (fields.every(field => equal(current[field], draft.patch[field]))) return 'saved';
+  if (fields.every(field => equal(current[field], draft.base[field]) || equal(current[field], draft.patch[field]))) return 'retry';
+  return 'conflict';
+}
