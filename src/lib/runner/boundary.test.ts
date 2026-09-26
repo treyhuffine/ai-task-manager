@@ -49,8 +49,15 @@ function runtimeImports(file: string): { local: string[]; packages: string[] } {
   return { local, packages };
 }
 
+/**
+ * What a worker must never load on top of that (P3.6, spec §7): the home is
+ * the one scheduler and the one deck generator, so a connected computer
+ * reaches neither the scheduler nor the deck and its AI pipeline.
+ */
+const WORKER_FORBIDDEN_PATHS = ['lib/scheduler/', 'lib/deck/', 'lib/ai/', 'lib/runs/'].map((p) => path.join(SRC, p));
+
 /** Every forbidden module the file reaches, with the chain that reaches it. */
-function violations(entry: string): string[] {
+function violations(entry: string, forbidden: string[] = FORBIDDEN_PATHS): string[] {
   const found: string[] = [];
   const seen = new Set<string>();
   const queue: { file: string; chain: string[] }[] = [{ file: entry, chain: [entry] }];
@@ -65,7 +72,7 @@ function violations(entry: string): string[] {
       }
     }
     for (const next of local) {
-      if (FORBIDDEN_PATHS.some((p) => next.startsWith(p))) {
+      if (forbidden.some((p) => next.startsWith(p))) {
         found.push([...chain, next].map((f) => path.relative(SRC, f)).join(' → '));
         continue;
       }
@@ -100,6 +107,13 @@ describe('the runner boundary', () => {
   it.each(workerFiles.map((f) => [path.relative(path.join(SRC, 'lib'), f), f]))('worker module %s reaches none either', (_name, file) => {
     expect(violations(file)).toEqual([]);
   });
+
+  it.each(workerFiles.map((f) => [path.relative(path.join(SRC, 'lib'), f), f]))(
+    'worker module %s reaches no scheduler, deck, AI pipeline or scheduled run (P3.6)',
+    (_name, file) => {
+      expect(violations(file, WORKER_FORBIDDEN_PATHS)).toEqual([]);
+    },
+  );
 
   it('catches a module that crosses the line', () => {
     // The walker itself: the home's sink writes the database, so it must fail.
