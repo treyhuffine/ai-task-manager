@@ -13,7 +13,7 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
  * so the server's locality gate agrees with the client instead of rejecting
  * a legitimately-claimed host.
  */
-function clientIsHost(): boolean {
+export function clientIsHost(): boolean {
   if (typeof window === 'undefined') return false;
   const h = window.location.hostname;
   return LOOPBACK_HOSTS.has(h) || isHostnameClaimed(h);

@@ -55,7 +55,9 @@ export function toChatEventDTO(row: ChatEventRecord): ChatEventDTO {
   const raw = asRecord(row.raw);
   return {
     ...row,
-    raw: decodeBackgroundTaskEvent(row.raw) ? row.raw : null,
+    // Kept for a background task's rows, and for a continuation's, whose
+    // handoff is shown under "Continued on MacBook" (P4.3).
+    raw: decodeBackgroundTaskEvent(row.raw) || row.source === 'continuation' ? row.raw : null,
     rawSubtype: str(raw?.subtype),
     rawModel: str(raw?.model),
     rawUsage: raw?.usage ?? null,

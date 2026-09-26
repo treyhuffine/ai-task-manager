@@ -10,6 +10,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { openInTarget, type OpenTarget } from '@/lib/fs/open-target';
 import { listInstalledApps } from '@/lib/fs/installed-apps';
+import { getWorkDir } from '@/lib/config/paths';
+import { reviewPathFor } from '@/lib/transfer/git-checkpoint';
 import type { OpenHereRequest } from '@/lib/workers/protocol';
 import type { ReadAnswer } from '@/lib/workspaces/execution-reads';
 import type { CommandJournal } from './command-journal';
@@ -30,7 +32,11 @@ export async function openHere(request: OpenHereRequest, options: OpenHereOption
   if (!TARGETS.has(request.target)) return { status: 400, body: { error: 'invalid target' } };
 
   let folder: string | null;
-  if (request.folder.kind === 'agent') {
+  if (request.folder.kind === 'review') {
+    // This computer's own review checkout of the execution (P4.1).
+    folder = reviewPathFor(getWorkDir(), request.folder.workspaceSlug, request.folder.executionId);
+    if (!fs.existsSync(folder)) return { status: 409, body: { error: 'not_reviewed', message: "There's no review checkout of it on this computer." } };
+  } else if (request.folder.kind === 'agent') {
     folder = options.agentFolder(request.folder.agentId);
     if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this computer." } };
   } else {

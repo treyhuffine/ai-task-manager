@@ -5,8 +5,7 @@ import {
   ChevronRight, AlertTriangle, RefreshCw, Sparkles,
   ShieldCheck, ShieldAlert, HelpCircle, LogIn, Loader2,
   FileText, Pencil, FilePlus, Terminal, Search, Globe, Boxes, ListTodo, Wrench,
-  ClipboardList, SquareTerminal, ArrowUpRight, Bot, CheckCircle2, XCircle, CircleSlash,
-} from 'lucide-react';
+  ClipboardList, SquareTerminal, ArrowUpRight, Bot, CheckCircle2, XCircle, CircleSlash, ArrowRightLeft } from 'lucide-react';
 import { describeToolCall, describeToolResult, fileTargetPath, isSubagentTool, type ToolGlyph } from '@/lib/executions/tool-display';
 import { computeEditDiff } from '@/lib/executions/edit-diff';
 import { extractPullRequestUrl } from '@/lib/executions/pr-link';
@@ -420,6 +419,31 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
             </div>
           )}
         </button>
+      );
+    }
+
+    case 'continuation': {
+      // Continued on another computer (P4.3): once in the chat, with the
+      // handoff the fresh session there started from.
+      const info = (event.raw ?? {}) as { from?: string; checkpoint?: { sha?: string }; handoff?: string };
+      return (
+        <div className="my-2 text-[11px] text-muted-foreground">
+          <button type="button" onClick={() => setExpanded((v) => !v)} className="flex w-full items-center gap-2">
+            <div className="h-px flex-1 bg-border/60" />
+            <span className="inline-flex items-center gap-1.5 font-medium text-foreground/80">
+              <ArrowRightLeft size={11} />
+              {event.content}
+            </span>
+            {info.from && <span className="text-muted-foreground/70">from {info.from}</span>}
+            {info.checkpoint?.sha && <span className="font-mono text-muted-foreground/60">{info.checkpoint.sha.slice(0, 7)}</span>}
+            <div className="h-px flex-1 bg-border/60" />
+          </button>
+          {expanded && info.handoff && (
+            <div className="mx-auto mt-1.5 max-w-2xl whitespace-pre-wrap break-words rounded-md border border-border/60 px-3 py-2 text-[11.5px] text-muted-foreground/90">
+              {info.handoff}
+            </div>
+          )}
+        </div>
       );
     }
 

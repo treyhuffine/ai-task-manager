@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, Eye, EyeOff, Pin, PinOff, Laptop } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, Eye, EyeOff, Pin, PinOff } from 'lucide-react';
 import { locationLabel, preparedFolder } from '@/lib/executions/location';
 import { useComputer, useRunsOnSeveralComputers } from '@/hooks/use-computers';
 import { Popover as PopoverPrimitive } from 'radix-ui';
@@ -26,6 +26,7 @@ import { ResyncMenuItem } from './resync-menu-item';
 import { RestartMenuItem } from './restart-menu-item';
 import { deriveExecutionHeaderStatus, describeChatStatus, type ChatStatusTone } from './execution-header-status';
 import { useSteadyRunning } from './steady-running';
+import { LocationMenu } from './transfer/location-menu';
 import { ExecutionTaskChips } from './execution-task-chips';
 import { resumeCommandForHarness } from '@/lib/harness/registry';
 import { isSessionUnread } from '@/lib/utils/session-sort';
@@ -173,7 +174,8 @@ export function ExecutionHeader({
   // home, and at home only when there are other computers to tell it from.
   const severalComputers = useRunsOnSeveralComputers();
   const where = locationLabel(session, severalComputers);
-  const locationChip = where ? <LocationChip name={where} /> : null;
+  // The chip opens the moves this screen can make (P4.2).
+  const locationChip = where ? <LocationMenu session={session} workspace={workspace} name={where} /> : null;
 
   // Away from the home, what its computer is doing shapes the status: a
   // message waiting for it, or a turn under way when it lost contact (P3.2).
@@ -702,18 +704,6 @@ function LiveBadge({ branch }: { branch: string | null }) {
   );
 }
 
-/** The computer an execution runs on, by the name the person gave it (P3.1). */
-function LocationChip({ name }: { name: string }) {
-  return (
-    <span
-      title={`Runs on ${name}`}
-      className="inline-flex min-w-0 flex-shrink items-center gap-1 rounded px-1.5 py-0.5 bg-muted/60 text-[10px] font-medium text-muted-foreground cursor-default"
-    >
-      <Laptop size={9} className="flex-shrink-0" />
-      <span className="truncate max-w-[9rem]">{name}</span>
-    </span>
-  );
-}
 
 /**
  * "Reveal in Finder" / "Open in editor" links scoped to the worktree

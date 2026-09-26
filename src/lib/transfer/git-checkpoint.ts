@@ -286,6 +286,11 @@ export async function worktreeAtCheckpoint(args: {
   return { path: args.path, branch, sha };
 }
 
+/** Where this computer keeps its review checkout of an execution: its own folder, never one the home names. */
+export function reviewPathFor(workDir: string, workspaceSlug: string, executionId: string): string {
+  return path.join(workDir, 'reviews', `${workspaceSlug}-${executionId.slice(-8)}`);
+}
+
 /**
  * A review checkout of a published commit (P4.1): detached at the commit, in
  * its own folder, never on the execution's branch, so it can't publish to it

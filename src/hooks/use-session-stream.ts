@@ -184,8 +184,28 @@ export function useSessionStream(sessionId: string | null): void {
       }
     };
 
+    // Where a move between computers stands (P4.2). When ownership changes,
+    // where the execution runs, its folder and its messages all change too.
+    const transferKey = ['session', sessionId, 'transfer'] as const;
+    const handleTransfer = (raw: MessageEvent) => {
+      try {
+        const data = JSON.parse(raw.data) as { transfer: { state: string; ownershipChanged: boolean } | null };
+        const prev = queryClient.getQueryData<{ state: string; ownershipChanged: boolean } | null>(transferKey);
+        queryClient.setQueryData(transferKey, data.transfer);
+        if (data.transfer && (data.transfer.ownershipChanged !== prev?.ownershipChanged || data.transfer.state !== prev?.state)) {
+          queryClient.invalidateQueries({ queryKey: ['session', sessionId], exact: true });
+          queryClient.invalidateQueries({ queryKey: deliveriesKey });
+          queryClient.invalidateQueries({ queryKey: treeKey() });
+          invalidateRail();
+        }
+      } catch (err) {
+        console.error('[useSessionStream] malformed transfer frame:', err);
+      }
+    };
+
     source.addEventListener('chat_event', handleChatEvent);
     source.addEventListener('delivery', handleDelivery);
+    source.addEventListener('transfer', handleTransfer);
     source.addEventListener('runtime', handleRuntime);
     source.addEventListener('background_tasks', handleBackgroundTasks);
     source.addEventListener('pending_input', handlePendingInput);
@@ -215,6 +235,7 @@ export function useSessionStream(sessionId: string | null): void {
     return () => {
       source.removeEventListener('chat_event', handleChatEvent);
       source.removeEventListener('delivery', handleDelivery);
+      source.removeEventListener('transfer', handleTransfer);
       source.removeEventListener('runtime', handleRuntime);
       source.removeEventListener('background_tasks', handleBackgroundTasks);
       source.removeEventListener('pending_input', handlePendingInput);

@@ -9,6 +9,27 @@ import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { SessionRuntimeStatus } from '@/lib/executor/runtime-status';
 import type { MessageDelivery } from '@/lib/workers/delivery';
+import type { TransferView } from '@/lib/transfer/view';
+import type { WorkingState } from '@/lib/transfer/git-checkpoint';
+import { clientIsHost, type OpenTarget } from './fs';
+
+/** A review checkout on the viewer's computer (P4.1). */
+export interface ReviewState {
+  viewer: { id: string; name: string } | null;
+  review: {
+    path: string;
+    sha: string;
+    branch: string;
+    dirty: boolean;
+    source: { computerId: string; name: string } | null;
+    updatedAt: string;
+  } | null;
+}
+
+/** The home's own browser says so, as it does to open apps: the review is then on the home. */
+function hostHeaders(): Record<string, string> | undefined {
+  return clientIsHost() ? { 'x-ri-host': '1' } : undefined;
+}
 
 // ─── Pending-input wire types ─────────────────────────────────
 //
@@ -589,6 +610,37 @@ export const sessionsApi = {
   /** Withdraw a message still waiting in its computer's queue. */
   cancelDelivery(id: string, eventId: string): Promise<MessageDelivery> {
     return api.post<MessageDelivery>(`/sessions/${id}/deliveries/${eventId}/cancel`);
+  },
+
+  /** The execution's latest move between computers (P4.2). */
+  transfer(id: string, opts: { signal?: AbortSignal } = {}): Promise<{ transfer: TransferView | null }> {
+    return api.get<{ transfer: TransferView | null }>(`/sessions/${id}/transfer`, { signal: opts.signal });
+  },
+  /** What a move would take from its worktree, read where it runs. */
+  workingState(id: string, opts: { signal?: AbortSignal } = {}): Promise<WorkingState | null> {
+    return api.get<WorkingState | null>(`/sessions/${id}/transfer/working-state`, { signal: opts.signal });
+  },
+  startTransfer(id: string, body: { toComputerId: string; includeUntracked: string[] }): Promise<{ transfer: TransferView }> {
+    return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer`, body);
+  },
+  resumeTransfer(id: string): Promise<{ transfer: TransferView }> {
+    return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer/resume`);
+  },
+  finishTransfer(id: string): Promise<{ transfer: TransferView }> {
+    return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer/finish`);
+  },
+
+  /** Open code here (P4.1): this computer's review checkout of the execution, if any. */
+  review(id: string, opts: { signal?: AbortSignal } = {}): Promise<ReviewState> {
+    return api.get<ReviewState>(`/sessions/${id}/review`, { signal: opts.signal, headers: hostHeaders() });
+  },
+  /** Make or refresh it: refreshed only while it has no edits. */
+  openCodeHere(id: string): Promise<ReviewState & { created: boolean; refreshed: boolean }> {
+    return api.post<ReviewState & { created: boolean; refreshed: boolean }>(`/sessions/${id}/review`, {}, { headers: hostHeaders() });
+  },
+  /** Open it in an app on this computer, through its worker. */
+  openReview(id: string, target: OpenTarget): Promise<{ ok: boolean; reason?: string; message?: string }> {
+    return api.post(`/sessions/${id}/review/open`, { op: 'open', path: null, target });
   },
 
   needsReview(opts: { signal?: AbortSignal } = {}): Promise<ChatSessionWithExecution[]> {

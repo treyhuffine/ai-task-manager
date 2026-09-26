@@ -760,6 +760,73 @@ export function useCancelDelivery(sessionId: string) {
   });
 }
 
+// ─── Continue here (P4.2) ─────────────────────────────────────
+
+/** The execution's latest move between computers: fetched, then kept current by the session stream. */
+export function useTransfer(sessionId: string | null) {
+  return useQuery({
+    queryKey: ['session', sessionId, 'transfer'],
+    queryFn: async ({ signal }) => (await sessionsApi.transfer(sessionId!, { signal })).transfer,
+    enabled: !!sessionId,
+    staleTime: 30_000,
+  });
+}
+
+/** What a move would take, read where the execution runs, when the dialog opens. */
+export function useWorkingState(sessionId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['session', sessionId, 'working-state'],
+    queryFn: ({ signal }) => sessionsApi.workingState(sessionId!, { signal }),
+    enabled: !!sessionId && enabled,
+    staleTime: 0,
+  });
+}
+
+export function useStartTransfer(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { toComputerId: string; includeUntracked: string[] }) => sessionsApi.startTransfer(sessionId, body),
+    onSuccess: ({ transfer }) => qc.setQueryData(['session', sessionId, 'transfer'], transfer),
+  });
+}
+
+export function useResumeTransfer(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.resumeTransfer(sessionId),
+    onSuccess: ({ transfer }) => qc.setQueryData(['session', sessionId, 'transfer'], transfer),
+    onError: (err) => toast.error("Couldn't resume it", { description: apiErrorText(err) }),
+  });
+}
+
+export function useFinishTransfer(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.finishTransfer(sessionId),
+    onSuccess: ({ transfer }) => qc.setQueryData(['session', sessionId, 'transfer'], transfer),
+    onError: (err) => toast.error("Couldn't finish the move", { description: apiErrorText(err) }),
+  });
+}
+
+/** Open code here (P4.1): this computer's review checkout of the execution. */
+export function useReview(sessionId: string | null) {
+  return useQuery({
+    queryKey: ['session', sessionId, 'review'],
+    queryFn: ({ signal }) => sessionsApi.review(sessionId!, { signal }),
+    enabled: !!sessionId,
+    staleTime: 15_000,
+  });
+}
+
+/** Make or refresh the review checkout here. */
+export function useOpenCodeHere(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.openCodeHere(sessionId),
+    onSuccess: (state) => qc.setQueryData(['session', sessionId, 'review'], { viewer: state.viewer, review: state.review }),
+  });
+}
+
 export function useSendMessage(id: string) {
   const qc = useQueryClient();
   const eventsKey = ['session', id, 'events'] as const;

@@ -46,6 +46,7 @@ export type WorkerRequestKind =
   | 'read_agent_folder'
   | 'terminal'
   | 'open_here'
+  | 'review_checkout'
   | 'list_history'
   | 'read_history';
 
@@ -96,7 +97,11 @@ export type OpenHereRequest =
   | { op: 'apps' }
   | {
       op: 'open';
-      folder: { kind: 'execution'; executionId: string; generation: number } | { kind: 'agent'; agentId: string };
+      folder:
+        | { kind: 'execution'; executionId: string; generation: number }
+        | { kind: 'agent'; agentId: string }
+        /** This computer's review checkout of an execution (P4.1). */
+        | { kind: 'review'; executionId: string; workspaceSlug: string };
       /** Inside the folder, or null for the folder itself. */
       path: string | null;
       target: import('@/lib/fs/open-target').OpenTarget;
@@ -104,6 +109,24 @@ export type OpenHereRequest =
       column?: number;
       reveal?: boolean;
     };
+
+/**
+ * Open code here (P4.1): a review checkout of an execution's latest
+ * published commit on this computer, from its own clone of the agent's
+ * repository, in a folder of its own. Refreshed only while clean.
+ */
+export interface ReviewCheckoutRequest {
+  executionId: string;
+  workspace: { id: string; slug: string };
+  branch: string;
+  /** The computer the work runs on, for what's said when nothing is published yet. */
+  sourceName: string;
+}
+
+/** What a review checkout request found or made. */
+export type ReviewCheckoutAnswer =
+  | { ok: true; path: string; sha: string; created: boolean; refreshed: boolean; dirty: boolean }
+  | { ok: false; code: 'not_set_up' | 'not_published' | 'failed'; message: string };
 
 /**
  * Whose shells a terminal request addresses (P3.5, spec §5.6): an

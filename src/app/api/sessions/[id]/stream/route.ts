@@ -92,6 +92,7 @@ export async function GET(
           case 'delivery':
             enqueue(sse('delivery', { eventId: message.eventId, delivery: message.delivery }));
             break;
+          case 'transfer': enqueue(sse('transfer', { transfer: message.transfer })); break;
           case 'session_updated': break;
           case 'computer_updated': break;
         }

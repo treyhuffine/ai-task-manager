@@ -17,6 +17,8 @@ export interface TransferView {
   failedStage: TransferStage | null;
   error: string | null;
   heldCount: number;
+  /** The untracked files chosen to go along, for Try again. */
+  includeUntracked: string[];
   checkpoint: { branch: string; sha: string } | null;
   createdAt: string;
   finishedAt: string | null;
@@ -37,6 +39,7 @@ export function transferView(
     failedStage: transfer.failedStage,
     error: transfer.error,
     heldCount: transfer.heldEventIds.length,
+    includeUntracked: transfer.includeUntracked,
     checkpoint: transfer.branch && transfer.checkpointSha ? { branch: transfer.branch, sha: transfer.checkpointSha } : null,
     createdAt: transfer.createdAt,
     finishedAt: transfer.finishedAt,

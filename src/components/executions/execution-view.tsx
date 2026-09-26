@@ -36,6 +36,8 @@ import { BackgroundTasksBar } from './background-tasks-bar';
 import { PendingInputArea } from './pending-input-overlay';
 import { SyncingPill } from './syncing-pill';
 import { WipHandoffBanner } from './wip-handoff-banner';
+import { TransferProgress } from './transfer/transfer-progress';
+import { ReviewBar } from './transfer/review-bar';
 import { sessionFolder } from '@/lib/folders/source';
 import { useOpenFileListener, toWorktreeRelative } from '@/lib/entity-refs/open-file-event';
 import { useFileHistory } from '@/hooks/use-file-history';
@@ -626,6 +628,11 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             work as a strip attached to the top of the composer. No rule
             above it, so it reads as one piece with the conversation. */}
         <div className={cn('flex-shrink-0 bg-background', clearBox)}>
+          {/* A move to another computer, while it runs or once it stopped (P4.2). */}
+          <div className="space-y-1.5 px-3 pt-2 empty:hidden">
+            <TransferProgress sessionId={session.id} />
+            <ReviewBar sessionId={session.id} ownerComputerId={session.location?.computerId ?? null} />
+          </div>
           <PendingInputArea sessionId={session.id} />
           {isMirroredImport && (
             <ImportedTakeoverBar

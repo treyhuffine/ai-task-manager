@@ -22,7 +22,7 @@ import { harnessDefinition } from '@/lib/harness/registry';
 import { ExecutorError } from '@/lib/runner/errors';
 import * as runner from '@/lib/runner/local-runner';
 import type { SessionSpec } from '@/lib/runner/types';
-import { HOME_ADDRESS_SCHEME, type OpenHereRequest, type ReadAgentFolderRequest, type ReadExecutionRequest, type SendPayload, type WorkerCommand, type WorkerCommandAckBody, type WriteExecutionRequest } from '@/lib/workers/protocol';
+import { HOME_ADDRESS_SCHEME, type OpenHereRequest, type ReviewCheckoutRequest, type ReadAgentFolderRequest, type ReadExecutionRequest, type SendPayload, type WorkerCommand, type WorkerCommandAckBody, type WriteExecutionRequest } from '@/lib/workers/protocol';
 import { readExecution, type ExecutionLocation } from '@/lib/workspaces/execution-reads';
 import { writeExecution } from '@/lib/workspaces/execution-writes';
 import { readAgentFolder } from '@/lib/workspaces/agent-folder-reads';
@@ -34,6 +34,7 @@ import type { EventJournal } from './event-journal';
 import { CheckpointError, saveCheckpoint, worktreeAtCheckpoint } from '@/lib/transfer/git-checkpoint';
 import { hasBackgroundTasks, isRunning } from '@/lib/runner/live-state';
 import { openHere } from './open-here';
+import { reviewHere } from '@/lib/transfer/review';
 import { fetchInputFiles, inputFilesDir, placeInputFiles } from './input-files';
 import { UnsupportedRequestError, type RequestHandler } from './run';
 
@@ -244,6 +245,16 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
       }
       const location = locate(request);
       return location ? writeExecution(location, request.write) : notPrepared;
+    }
+    if (kind === 'review_checkout') {
+      const request = payload as ReviewCheckoutRequest;
+      return reviewHere({
+        repo: agentFolderHere(homeId, request.workspace.id),
+        executionId: request.executionId,
+        workspaceSlug: request.workspace.slug,
+        branch: request.branch,
+        sourceName: request.sourceName,
+      });
     }
     if (kind === 'open_here') {
       return openHere(payload as OpenHereRequest, { journal, agentFolder: (agentId) => agentFolderHere(homeId, agentId) });
