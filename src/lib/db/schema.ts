@@ -108,13 +108,14 @@ export const userState = sqliteTable('user_state', {
   defaultHarness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }),
   defaultModel: text(),
   defaultEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
-  // Which brain powers the dashboard orchestrator chat:
-  //   legacy         — hand-rolled streamText agent (src/lib/ai/chat-tools.ts)
+  // Which surface powers the dashboard orchestrator chat:
   //   harness_skills — harness session (cwd = data root), actions via CLI/skills
   //   harness_mcp    — harness session with the orchestrator MCP attached
+  //   legacy         — the retired built-in chat (its /api/chat is gone),
+  //                    kept in the enum so old rows still parse
   // Harness sessions read this at spawn; switching modes starts a new chat.
-  // Null → the UI falls back to 'legacy' and dispatch resolves 'harness_mcp'
-  // (resolveOrchestratorMode), matching pre-cleanup behavior exactly.
+  // Null and 'legacy' run as 'harness_mcp' in the UI and at dispatch alike
+  // (resolveOrchestratorMode, src/lib/orchestrator/mode.ts).
   // See docs/orchestrator-harness.md.
   orchestratorMode: text({ enum: ['legacy', 'harness_skills', 'harness_mcp'] }),
   // Monthly spend ceiling in USD for scheduled + manual runs combined.

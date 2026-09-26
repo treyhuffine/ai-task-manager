@@ -2,12 +2,11 @@
 
 import { cn } from '@/lib/utils';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
-import type { OrchestratorMode } from '@/hooks/use-orchestrator-chat';
+import { resolveOrchestratorMode, type OrchestratorChatMode } from '@/lib/orchestrator/mode';
 import { HarnessSettingsPanel } from '@/components/settings/harness-settings-panel';
 import { BillingSection } from './billing-section';
 
-const ORCHESTRATOR_MODES: { id: OrchestratorMode; label: string; description: string }[] = [
-  { id: 'legacy', label: 'Classic', description: 'Built-in chat agent, no harness.' },
+const ORCHESTRATOR_MODES: { id: OrchestratorChatMode; label: string; description: string }[] = [
   { id: 'harness_skills', label: 'Skills', description: 'Harness session, actions via CLI + skills.' },
   { id: 'harness_mcp', label: 'MCP', description: 'Harness session, actions via MCP tools.' },
 ];
@@ -21,7 +20,7 @@ const ORCHESTRATOR_MODES: { id: OrchestratorMode; label: string; description: st
 export function ModelsSection() {
   const { data: userState } = useUserState();
   const update = useUpdateUserState();
-  const mode: OrchestratorMode = userState?.orchestratorMode ?? 'legacy';
+  const mode = resolveOrchestratorMode(userState?.orchestratorMode);
 
   return (
     <div className="space-y-7">

@@ -60,8 +60,8 @@ import {
   connectorsMcpServer,
   browserMcpServer,
   renderContentFocusPrompt,
-  type OrchestratorMode,
 } from '@/lib/orchestrator/harness-surface';
+import { resolveOrchestratorMode } from '@/lib/orchestrator/mode';
 import { isBrowserEnabled } from '@/lib/browser/config';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
 import { prepareAgentMainChatSpawn, skillDirsWriteIntoCwd, withFirstTurnPreamble } from './agent-main-chat';
@@ -999,18 +999,6 @@ interface EnsureArgs {
   writer: EventWriter;
 }
 
-/**
- * Which orchestrator surface an orchestration-type session gets. The
- * dashboard toggle (`user_state.orchestratorMode`) wins when it names a
- * harness mode; `legacy` (the hand-rolled chat agent) still needs scheduled
- * orchestrator fires to work, and those are harness sessions by
- * construction — they default to the MCP surface, the most robust path.
- */
-function resolveOrchestratorMode(): Exclude<OrchestratorMode, 'legacy'> {
-  const mode = getUserState()?.orchestratorMode;
-  return mode === 'harness_skills' || mode === 'harness_mcp' ? mode : 'harness_mcp';
-}
-
 async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
   const cached = harnessSessions.get(args.chatSessionId);
   if (cached) {
@@ -1102,7 +1090,8 @@ async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
       console.warn(`[executor] agent main chat on provider "${providerType}": ${warning}.`);
     }
   } else if (args.sessionType === 'orchestration' || args.sessionType === 'content') {
-    const orchestratorMode = resolveOrchestratorMode();
+    // Resolves by the same rule the UI uses (lib/orchestrator/mode.ts).
+    const orchestratorMode = resolveOrchestratorMode(getUserState()?.orchestratorMode);
     try {
       await installOrchestratorSurface(orchestratorMode);
       Object.assign(config, orchestratorSessionConfig(orchestratorMode, { sessionId: args.chatSessionId }));
