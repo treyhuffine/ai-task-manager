@@ -779,6 +779,8 @@ export const WORKER_COMMAND_KINDS = [
   'run_script',
   'write_setup',
   'git',
+  // Stop everything an execution runs there, for a transfer (P4.2).
+  'quiesce',
 ] as const;
 
 export const WORKER_COMMAND_STATES = ['queued', 'sent', 'delivered', 'failed', 'cancelled', 'uncertain', 'stale'] as const;

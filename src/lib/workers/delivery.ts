@@ -11,6 +11,8 @@
  *   not_delivered  failed, withdrawn, or the execution moved first
  *   uncertain      it may or may not have reached the harness, and the
  *                  worker couldn't tell from the native history
+ *   held           saved while the execution moves to another computer
+ *                  (P4.2), and sent once, where it ends up
  *
  * Every change is announced on the chat's stream after it commits, from the
  * places a send changes state: queued by dispatch, streamed to the worker,
@@ -20,11 +22,11 @@
  */
 
 import type { WorkerCommandRecord } from '@/db/types';
-import { getComputer, getWorkerCommand, listOpenSendsForComputer, listSendsForChat } from '@/lib/db/queries';
+import { getChatEventById, getChatSession, getComputer, getWorkerCommand, heldMessages, listOpenSendsForComputer, listSendsForChat } from '@/lib/db/queries';
 import { publishDelivery } from '@/lib/realtime/bus';
 import { isComputerConnected } from './hub';
 
-export type DeliveryState = 'waiting' | 'sending' | 'delivered' | 'not_delivered' | 'uncertain';
+export type DeliveryState = 'waiting' | 'sending' | 'delivered' | 'not_delivered' | 'uncertain' | 'held';
 
 export interface MessageDelivery {
   state: DeliveryState;
@@ -69,14 +71,47 @@ export function deliveryOf(command: WorkerCommandRecord): MessageDelivery | null
   }
 }
 
-/** Every message the chat sent to a computer elsewhere, by its chat event id. */
+/** Every message the chat sent to a computer elsewhere, or that a move holds, by its chat event id. */
 export function deliveriesForChat(chatSessionId: string): Record<string, MessageDelivery> {
   const out: Record<string, MessageDelivery> = {};
   for (const command of listSendsForChat(chatSessionId)) {
     const delivery = command.sourceEventId ? deliveryOf(command) : null;
     if (delivery) out[command.sourceEventId!] = delivery;
   }
+  const executionId = getChatSession(chatSessionId)?.executionId;
+  if (executionId) {
+    for (const [eventId, { transfer }] of heldMessages(executionId)) {
+      if (getChatEventById(eventId)?.sessionId !== chatSessionId) continue;
+      out[eventId] = heldDelivery(transfer);
+    }
+  }
   return out;
+}
+
+/** A message a move holds (P4.2). If the move stopped, why, and it waits for Try again or Resume. */
+function heldDelivery(transfer: { toComputerId: string; fromComputerId: string; state: string; toGeneration: number | null }): MessageDelivery {
+  const to = getComputer(transfer.toComputerId)?.name ?? 'the other computer';
+  const from = getComputer(transfer.fromComputerId)?.name ?? 'the other computer';
+  return {
+    state: 'held',
+    computerId: transfer.toComputerId,
+    computerName: to,
+    connected: isComputerConnected(transfer.toComputerId),
+    reason:
+      transfer.state === 'failed'
+        ? transfer.toGeneration === null
+          ? `The move to ${to} stopped. Try again, or resume on ${from}.`
+          : `The move to ${to} stopped after it arrived. Deliver it there to finish.`
+        : null,
+    cancellable: false,
+  };
+}
+
+/** A message a move just took (P4.2). */
+export function announceHeld(chatSessionId: string, eventId: string): void {
+  const executionId = getChatSession(chatSessionId)?.executionId;
+  const held = executionId ? heldMessages(executionId).get(eventId) : undefined;
+  if (held) publishDelivery(chatSessionId, eventId, heldDelivery(held.transfer));
 }
 
 /** Announce a send's state on its chat's stream. Call after the change commits. */

@@ -71,7 +71,7 @@ export interface WorkerRunOptions {
   /** What this computer can run. Defaults to probing its harness runtimes. */
   describe?: () => Promise<WorkerHarnessReport[]>;
   /** How each kind of command runs and recovers here, given this worker's command journal. */
-  handlers?: CommandHandlers | ((journal: CommandJournal) => CommandHandlers);
+  handlers?: CommandHandlers | ((journal: CommandJournal, extras: WorkerHandlerExtras) => CommandHandlers);
   /** The journals, when a test supplies its own. Otherwise this computer's, under its work folder. */
   journals?: { commands: CommandJournal; events: EventJournal };
   /** Where this worker records the processes it starts. Defaults to its work directory. */
@@ -87,6 +87,13 @@ export interface WorkerRunOptions {
   backoffMaxMs?: number;
   /** How long the stream may stay silent before it counts as dropped. */
   staleAfterMs?: number;
+}
+
+/** What a worker's command handlers can reach beyond the journal (P4.2). */
+export interface WorkerHandlerExtras {
+  terminals: WorkerTerminals;
+  events: EventJournal;
+  flushEvents: () => void;
 }
 
 export class UnsupportedRequestError extends Error {
@@ -238,9 +245,6 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
   // computer's runner reports, both on disk before the home hears of them.
   const commandJournal = options.journals?.commands ?? new CommandJournal(target.homeId);
   const eventJournal = options.journals?.events ?? new EventJournal(target.homeId);
-  const handlers = typeof options.handlers === 'function' ? options.handlers(commandJournal) : options.handlers ?? {};
-  const builtIn = defaultRequestHandler(options.describe);
-  const extra = options.requests?.(commandJournal);
   // In-app terminals here (P3.5): shells in the worktrees this computer
   // prepared and the agent folders set up here, their output posted home.
   const terminals = new WorkerTerminals({
@@ -251,6 +255,13 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
       if (!res.ok) throw new WorkerNetworkError(`${target.homeName} answered with HTTP ${res.status}.`);
     },
   });
+  const poster = new EventPoster(target, eventJournal);
+  const handlers =
+    typeof options.handlers === 'function'
+      ? options.handlers(commandJournal, { terminals, events: eventJournal, flushEvents: () => void poster.kick() })
+      : options.handlers ?? {};
+  const builtIn = defaultRequestHandler(options.describe);
+  const extra = options.requests?.(commandJournal);
   // Each read goes to the one that knows it: the supplied handler first, then the built-in ones.
   const handleRequest: RequestHandler = async (kind, payload) => {
     if (kind === 'terminal') return terminals.handle(payload as TerminalRequest);
@@ -263,7 +274,6 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
     }
     return builtIn(kind, payload);
   };
-  const poster = new EventPoster(target, eventJournal);
   // What this worker starts, written down so a successor can stop it after a
   // crash (leftovers.ts): after each command, and on each heartbeat.
   const recordProcesses = processRecorder(options.processRecordFile);

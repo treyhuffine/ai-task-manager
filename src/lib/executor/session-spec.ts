@@ -46,6 +46,8 @@ import { prepareAgentMainChatSpawn, skillDirsWriteIntoCwd } from './agent-main-c
 import { planSessionInstructions } from './session-instructions';
 import { renderAgentInstructionsPrompt } from './prompts/agent-instructions';
 import { harnessCapabilitiesOn } from './computers';
+import { pendingHandoff } from '@/lib/transfer/continue';
+import { handoffPreamble } from '@/lib/transfer/handoff';
 
 /** Where the session will run. The home's own computer unless a placement says otherwise. */
 export type SpecTarget = Pick<ChatPlacement, 'computerId' | 'isHome'> & { generation?: number | null };
@@ -388,6 +390,10 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     if (plan.text) spec.instructions = plan.text;
     if (workspace && args.executionId) {
       spec.environment = expectedEnvironment({ workspace, executionId: args.executionId, args, target, usable: refs, servers: spec.mcpServers });
+      // Continued from another computer (P4.3): the fresh session there starts
+      // from the handoff, on its first message.
+      const handoff = pendingHandoff(args.executionId, args.existingExternalSessionId);
+      if (handoff) spec.firstTurnPreamble = [spec.firstTurnPreamble, handoffPreamble(handoff)].filter(Boolean).join('\n\n');
     }
     // Reference folders report their own delivery above. Agent instructions
     // are reported here, and the same way: a total loss, not a degradation.

@@ -38,6 +38,9 @@ const body = z.object({
 
 function recordPrepared(command: WorkerCommandRecord, after: { tasks: Array<() => void> }): void {
   if (!command.executionId || command.generation === null) return;
+  // A transfer's preparation is the transfer's to act on (P4.2), not the
+  // execution's: it still runs where it did until ownership changes.
+  if ((command.payload as PreparePayload).transfer) return;
   if (command.state !== 'delivered') {
     recordExecutionSetupError(command.executionId, command.error ?? 'The computer could not prepare this execution.');
     return;
@@ -72,6 +75,7 @@ function recordPrepared(command: WorkerCommandRecord, after: { tasks: Array<() =
 
 function recordSetupScript(command: WorkerCommandRecord): void {
   if (!command.executionId || (command.payload as { script?: string } | null)?.script !== 'setup') return;
+  if ((command.payload as { transferId?: string }).transferId) return;
   if (command.state === 'delivered') {
     const outcome = command.result as { ok: boolean; output: string };
     setExecutionSetupScript(command.executionId, outcome.ok ? 'done' : 'failed', outcome.ok ? null : outcome.output);

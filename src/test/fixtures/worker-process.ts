@@ -72,7 +72,7 @@ async function main(): Promise<void> {
     version: 'test',
     signal: controller.signal,
     onSink: installRunnerSink,
-    handlers: (journal) => executionHandlers({ journal }),
+    handlers: (journal, extras) => executionHandlers({ journal, ...extras }),
     requests: (journal) => executionRequests({ journal, homeId }),
     describe: async () => [
       {

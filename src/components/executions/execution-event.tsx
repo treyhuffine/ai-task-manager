@@ -826,6 +826,11 @@ function DeliveryLine({
       text = `Delivery to ${name} couldn't be confirmed.${delivery.reason ? ` ${delivery.reason}` : ''} Check whether it answered before sending again.`;
       tone = 'warn';
       break;
+    case 'held':
+      // Moving to another computer (P4.2): it goes there once it arrives.
+      text = delivery.reason ?? `Held while this moves to ${name}. It goes there once it arrives.`;
+      if (delivery.reason) tone = 'warn';
+      break;
   }
 
   const again = delivery.state === 'not_delivered' || delivery.state === 'uncertain';

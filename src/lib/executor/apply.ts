@@ -30,6 +30,9 @@ import {
   sendForTurn,
   setAckedEventSeq,
   updateChatSession,
+  getOpenPlacement,
+  getHome,
+  recordNativeSession,
 } from '@/lib/db/queries';
 import { publishBackgroundTaskActivity, publishPendingInput, publishRuntime } from '@/lib/realtime/bus';
 import { queueNeedsInput } from '@/lib/notifications/emit';
@@ -89,6 +92,20 @@ export function applyRunnerSignal(
       const session = getChatSession(chatSessionId);
       if (session && session.externalSessionId !== signal.nativeSessionId) {
         updateChatSession(chatSessionId, { externalSessionId: signal.nativeSessionId });
+      }
+      // And its history, with where it ran (P4.3): a continuation starts a
+      // fresh session elsewhere, and the earlier ones are kept.
+      if (session) {
+        after.tasks.push(() => {
+          const open = session.executionId ? getOpenPlacement(session.executionId) : null;
+          recordNativeSession({
+            chatSessionId,
+            harness: session.harness,
+            nativeSessionId: signal.nativeSessionId,
+            computerId: from?.computerId ?? getHome()?.hostComputerId ?? null,
+            placementId: open?.id ?? null,
+          });
+        });
       }
       return;
     }

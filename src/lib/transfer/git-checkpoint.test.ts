@@ -135,6 +135,33 @@ describe('the destination', () => {
   });
 });
 
+describe('moving back to a computer that ran it before', () => {
+  it('reuses its old worktree, moved forward, and stops at uncommitted changes there', async () => {
+    write(worktree, 'A.md', 'a\n');
+    const first = await saveCheckpoint({ worktree, message: 'first', includeUntracked: ['A.md'] });
+    const back = path.join(root, 'mini-worktrees', 'demo-1');
+    await worktreeAtCheckpoint({ repo: mini, path: back, checkpoint: first });
+    // More work on the laptop, then the move back to the mini.
+    write(worktree, 'B.md', 'b\n');
+    const second = await saveCheckpoint({ worktree, message: 'second', includeUntracked: ['B.md'] });
+    expect(await worktreeAtCheckpoint({ repo: mini, path: back, checkpoint: second })).toEqual({ path: back, branch: 'demo/fix-login', sha: second.sha });
+    expect(fs.existsSync(path.join(back, 'B.md'))).toBe(true);
+    // An untracked file left there doesn't stop it, and stays.
+    write(back, 'LEFT.md', 'left behind\n');
+    write(worktree, 'C.md', 'c\n');
+    const third = await saveCheckpoint({ worktree, message: 'third', includeUntracked: ['C.md'] });
+    expect((await worktreeAtCheckpoint({ repo: mini, path: back, checkpoint: third })).sha).toBe(third.sha);
+    expect(fs.readFileSync(path.join(back, 'LEFT.md'), 'utf8')).toBe('left behind\n');
+    // An uncommitted edit to a tracked file does, with nothing touched.
+    write(back, 'A.md', 'edited there\n');
+    write(worktree, 'D.md', 'd\n');
+    const fourth = await saveCheckpoint({ worktree, message: 'fourth', includeUntracked: ['D.md'] });
+    await expect(worktreeAtCheckpoint({ repo: mini, path: back, checkpoint: fourth })).rejects.toMatchObject({ code: 'dirty_target' });
+    expect(fs.readFileSync(path.join(back, 'A.md'), 'utf8')).toBe('edited there\n');
+    expect(git(back, 'rev-parse', 'HEAD')).toBe(third.sha);
+  });
+});
+
 describe('a review checkout', () => {
   it('opens the published commit on its own, refreshes while clean, and keeps edits', async () => {
     const first = await saveCheckpoint({ worktree, message: 'one', includeUntracked: [] });

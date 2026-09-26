@@ -19,7 +19,7 @@
 
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { chatPlacement, getOpenPlacement, recordWorkerHeartbeat } from '@/lib/db/queries';
+import { chatPlacement, getOpenPlacement, recordWorkerHeartbeat, transferReservation } from '@/lib/db/queries';
 import { clearComputerMirror, replaceComputerMirror, type WorkerLiveSnapshot } from '@/lib/executor/remote-live';
 import type { WorkerHeartbeatReply } from '@/lib/workers/protocol';
 import { readWorkerBody, requireWorker } from '@/lib/workers/route-auth';
@@ -96,6 +96,9 @@ export async function POST(request: NextRequest) {
   else if (report.state === 'stopped') clearComputerMirror(computer.id);
   const release: WorkerHeartbeatReply['release'] = [];
   for (const held of placements ?? []) {
+    // A transfer preparing the work here holds its next generation for it (P4.2).
+    const reserved = transferReservation(held.executionId);
+    if (reserved?.computerId === computer.id && reserved.generation === held.generation) continue;
     const open = getOpenPlacement(held.executionId);
     if (!open || open.computerId !== computer.id || open.generation !== held.generation) {
       release.push({ executionId: held.executionId, generation: held.generation, chatSessionIds: held.chatSessionIds });

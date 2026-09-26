@@ -30,6 +30,8 @@ import {
   listMainChats,
   createRun as createRunRow,
   markRunStarted as markRunStartedRow,
+  getActiveTransfer,
+  holdForTransfer,
 } from '@/lib/db/queries';
 import { getAppRoot } from '@/lib/config/paths';
 import type { Attachment, PermissionMode, WorkerCommandActor } from '@/db/types';
@@ -41,7 +43,7 @@ import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
 import { isHarnessEnabled } from '@/lib/harness/registry';
 import { ExecutorError } from '@/lib/runner/errors';
 import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
-import { announceDelivery } from '@/lib/workers/delivery';
+import { announceDelivery, announceHeld } from '@/lib/workers/delivery';
 import {
   beginDispatchPreparation,
   endDispatchPreparation,
@@ -199,6 +201,24 @@ export async function dispatch(
   // start a blank one under a transcript it never saw, on whichever computer
   // the import came from, whoever is sending.
   if (isImportMirror(session)) throw new ExecutorError('invalid_state', IMPORT_MIRROR_REFUSAL);
+
+  // Moving to another computer (P4.2): the message is saved and held, and
+  // goes once to wherever the work ends up. Nothing reaches the source while
+  // it's being stopped and saved.
+  if (session.executionId) {
+    const moving = getActiveTransfer(session.executionId);
+    if (moving && moving.toGeneration === null) {
+      if (!options.sourceEventId) {
+        throw new ExecutorError('invalid_state', 'This execution is moving to another computer. Send again once it has arrived.');
+      }
+      const held = holdForTransfer(session.executionId, options.sourceEventId);
+      if (held) {
+        options.onQueued?.();
+        announceHeld(chatSessionId, options.sourceEventId);
+        return;
+      }
+    }
+  }
 
   // Where the chat runs. A chat on a connected computer runs in its folder
   // there, which the home never looks for on its own disk (P2.4).

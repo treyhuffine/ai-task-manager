@@ -168,7 +168,7 @@ async function run(): Promise<void> {
     signal: controller.signal,
     // This computer's runner reports to the worker's journal.
     onSink: installRunnerSink,
-    handlers: (journal) => executionHandlers({ journal }),
+    handlers: (journal, extras) => executionHandlers({ journal, ...extras }),
     requests: (journal) => executionRequests({ journal, homeId: target.homeId }),
     onStatus: (status) => {
       const at = new Date().toLocaleTimeString();

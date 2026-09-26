@@ -35,6 +35,7 @@ export class CheckpointError extends Error {
       | 'divergent_branch'
       | 'branch_in_use'
       | 'target_exists'
+      | 'dirty_target'
       | 'invalid_untracked',
     message: string,
   ) {
@@ -219,12 +220,41 @@ export async function worktreeAtCheckpoint(args: {
   const { remote, branch, sha } = checkpoint;
   await fetchCheckpoint(repo, checkpoint);
 
-  // Retried after a crash: the worktree it made is the one it wants.
+  // The worktree this computer had for the work when it ran it before, or
+  // the one a retry already made: reused on the branch, moved forward to the
+  // checkpoint when it's behind and clean. Uncommitted changes there, or
+  // commits the checkpoint doesn't have, stop the step with nothing touched.
   if (fs.existsSync(args.path)) {
     const head = await git(args.path, ['rev-parse', 'HEAD'], { allowFail: true });
     const on = await git(args.path, ['branch', '--show-current'], { allowFail: true });
-    if (head.ok && head.stdout === sha && on.stdout === branch) return { path: args.path, branch, sha };
-    throw new CheckpointError('target_exists', `${args.path} already exists and isn't this checkpoint. Nothing was changed in it.`);
+    if (!head.ok || on.stdout !== branch) {
+      throw new CheckpointError('target_exists', `${args.path} already exists and isn't on ${branch}. Nothing was changed in it.`);
+    }
+    // Uncommitted changes to tracked files stop it. Untracked files stay as
+    // they are: moving forward never touches them, and Git refuses if the
+    // checkpoint would overwrite one.
+    const status = (await git(args.path, ['status', '--porcelain', '--untracked-files=no'], { allowFail: true })).stdout;
+    if (status) {
+      throw new CheckpointError(
+        'dirty_target',
+        `${args.path} has changes that aren't committed. Nothing was changed: commit or clear them there, then continue again.`,
+      );
+    }
+    if (head.stdout !== sha) {
+      const behind = await git(args.path, ['merge-base', '--is-ancestor', head.stdout, sha], { allowFail: true });
+      if (!behind.ok) {
+        throw new CheckpointError(
+          'divergent_branch',
+          `${branch} in ${args.path} has commits that aren't in the checkpoint. Nothing was changed: merge them there, then continue again.`,
+        );
+      }
+      const merged = await git(args.path, ['merge', '--ff-only', sha], { allowFail: true });
+      if (!merged.ok) {
+        throw new CheckpointError('dirty_target', `${args.path} couldn't move forward to the checkpoint: ${merged.stderr || merged.stdout}`);
+      }
+    }
+    await git(args.path, ['branch', `--set-upstream-to=${remote}/${branch}`], { allowFail: true });
+    return { path: args.path, branch, sha };
   }
 
   const existing = await git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { allowFail: true });

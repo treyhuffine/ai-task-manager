@@ -12,6 +12,7 @@ import { FileReadError, readBaseFile, readWorkspaceFile } from './read-file';
 import { fileErrorAnswer } from './file-http';
 import { readWorktreeDiffStats } from './diff-stats';
 import { detectSourceWip } from './wip';
+import { workingState } from '@/lib/transfer/git-checkpoint';
 
 /** Where an execution's files are on the computer answering. */
 export interface ExecutionLocation {
@@ -30,7 +31,9 @@ export type ExecutionRead =
   | { kind: 'diff'; file: string | null }
   | { kind: 'status' }
   | { kind: 'diff_stats' }
-  | { kind: 'wip' };
+  | { kind: 'wip' }
+  /** What a checkpoint would take, and what stays behind (P4.2). */
+  | { kind: 'working_state' };
 
 /** An answer as the route gives it: its HTTP status and JSON body. */
 export interface ReadAnswer {
@@ -87,6 +90,10 @@ export async function readExecution(location: ExecutionLocation, read: Execution
     case 'wip': {
       if (!location.isGit || location.worktreePath === location.source) return ok(null);
       return ok(await detectSourceWip(location.source, location.filesToCopy));
+    }
+    case 'working_state': {
+      if (!location.isGit) return ok(null);
+      return ok(await workingState(location.worktreePath, location.filesToCopy));
     }
   }
 }

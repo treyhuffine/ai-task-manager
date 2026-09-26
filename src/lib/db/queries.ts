@@ -10,7 +10,7 @@ import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
-  home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, agentSetups,
+  home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, agentSetups,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -34,7 +34,7 @@ import type {
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
   HomeRecord, HomeKind, ComputerRecord, CreateComputerInput, UpdateComputerInput,
   ComputerGrantRecord, ComputerGrantKind, WorkerEnrollmentRecord, WorkerReportedState, WorkerHarnessReport,
-  WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord,
+  WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord, ExecutionTransferRecord, NativeSessionRecord, ReviewCheckoutRecord,
   AgentSetupRecord, SetupReferenceReport,
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
@@ -4908,7 +4908,11 @@ export function staleQueuedCommands(computerId: string): WorkerCommandRecord[] {
     let current: boolean;
     if (command.executionId) {
       const placement = placementOf(command.executionId);
-      current = placement?.computerId === computerId && placement.generation === command.generation;
+      const reserved = transferReservation(command.executionId);
+      current =
+        (placement?.computerId === computerId && placement.generation === command.generation) ||
+        // A transfer preparing it here, at the generation it will have (P4.2).
+        (reserved?.computerId === computerId && reserved.generation === command.generation);
     } else if (command.chatSessionId) {
       current = chatPlacement(command.chatSessionId)?.computerId === computerId;
     } else {
@@ -5134,6 +5138,360 @@ export function createPlacement(input: {
       .returning()
       .get();
   }, { behavior: 'immediate' });
+}
+
+// ─── Transfers (P4.2) ─────────────────────────────────────────
+
+/** Another transfer of this execution is under way. */
+export class TransferConflictError extends Error {
+  constructor(readonly transfer: ExecutionTransferRecord) {
+    super('This execution is already moving to another computer.');
+    this.name = 'TransferConflictError';
+  }
+}
+
+/**
+ * Start a transfer: its record, and the lock. One active transfer per
+ * execution, enforced by a partial unique index, so two starting at once
+ * can't both hold it.
+ */
+export function createTransfer(input: {
+  executionId: string;
+  fromComputerId: string;
+  toComputerId: string;
+  fromGeneration: number;
+  includeUntracked: string[];
+  heldEventIds?: string[];
+  requestedByApiKeyId: string | null;
+}): ExecutionTransferRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const active = tx
+      .select()
+      .from(executionTransfers)
+      .where(and(eq(executionTransfers.executionId, input.executionId), eq(executionTransfers.state, 'active')))
+      .get();
+    if (active) throw new TransferConflictError(active);
+    const now = new Date().toISOString();
+    return tx
+      .insert(executionTransfers)
+      .values({
+        id: uuidv7(),
+        createdAt: now,
+        updatedAt: now,
+        executionId: input.executionId,
+        fromComputerId: input.fromComputerId,
+        toComputerId: input.toComputerId,
+        fromGeneration: input.fromGeneration,
+        stage: 'preparing',
+        state: 'active',
+        includeUntracked: input.includeUntracked,
+        heldEventIds: input.heldEventIds ?? [],
+        requestedByApiKeyId: input.requestedByApiKeyId,
+      })
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
+}
+
+export function getTransfer(id: string): ExecutionTransferRecord | null {
+  return getDb().select().from(executionTransfers).where(eq(executionTransfers.id, id)).get() ?? null;
+}
+
+export function getActiveTransfer(executionId: string): ExecutionTransferRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(executionTransfers)
+      .where(and(eq(executionTransfers.executionId, executionId), eq(executionTransfers.state, 'active')))
+      .get() ?? null
+  );
+}
+
+/** The execution's most recent transfer, whatever became of it. */
+export function latestTransfer(executionId: string): ExecutionTransferRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(executionTransfers)
+      .where(eq(executionTransfers.executionId, executionId))
+      .orderBy(desc(executionTransfers.id))
+      .limit(1)
+      .get() ?? null
+  );
+}
+
+export function updateTransfer(
+  id: string,
+  patch: Partial<Omit<ExecutionTransferRecord, 'id' | 'createdAt' | 'executionId'>>,
+): ExecutionTransferRecord | null {
+  return (
+    getDb()
+      .update(executionTransfers)
+      .set({ ...patch, updatedAt: new Date().toISOString() })
+      .where(eq(executionTransfers.id, id))
+      .returning()
+      .get() ?? null
+  );
+}
+
+/**
+ * Hold a message for the execution's transfer, if one is under way: it's
+ * delivered once, where the work ends up. Returns the transfer holding it,
+ * or null when nothing is. Idempotent.
+ */
+export function holdForTransfer(executionId: string, eventId: string): ExecutionTransferRecord | null {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const active = tx
+      .select()
+      .from(executionTransfers)
+      .where(and(eq(executionTransfers.executionId, executionId), eq(executionTransfers.state, 'active')))
+      .get();
+    // Once the destination owns the work, messages go straight there.
+    if (!active || active.toGeneration !== null) return null;
+    if (active.heldEventIds.includes(eventId)) return active;
+    return tx
+      .update(executionTransfers)
+      .set({ heldEventIds: [...active.heldEventIds, eventId], updatedAt: new Date().toISOString() })
+      .where(eq(executionTransfers.id, active.id))
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
+}
+
+/** Messages a transfer holds that haven't been delivered or let go of, by chat. */
+export function heldMessages(executionId: string): Map<string, { transfer: ExecutionTransferRecord }> {
+  const out = new Map<string, { transfer: ExecutionTransferRecord }>();
+  const transfer = latestTransfer(executionId);
+  if (!transfer || (transfer.state !== 'active' && transfer.state !== 'failed')) return out;
+  for (const id of transfer.heldEventIds) out.set(id, { transfer });
+  return out;
+}
+
+/**
+ * The generation a transfer is preparing on its destination, before it owns
+ * the work (P4.2). Commands for it there aren't stale, and the destination
+ * isn't told to let go of it, while the transfer is active.
+ */
+export function transferReservation(executionId: string): { computerId: string; generation: number } | null {
+  const active = getActiveTransfer(executionId);
+  return active ? { computerId: active.toComputerId, generation: active.fromGeneration + 1 } : null;
+}
+
+/**
+ * The ownership change of a transfer, in one transaction (§8.2 step 9): the
+ * source's placement ends as transferred and the destination's opens at the
+ * next generation from the checkpoint. Each chat's native session ends as
+ * continued and its binding is cleared, so the destination starts a fresh
+ * one. The execution's worktree path is the home's own and follows the work:
+ * set when it arrives here, cleared when it leaves.
+ */
+export function continueOwnership(input: {
+  transferId: string;
+  worktreePath: string;
+  checkpointSha: string;
+  branch: string;
+}): { placement: ExecutionPlacementRecord; transfer: ExecutionTransferRecord } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const transfer = tx.select().from(executionTransfers).where(eq(executionTransfers.id, input.transferId)).get();
+    if (!transfer || transfer.state !== 'active') throw new Error('The transfer is no longer under way.');
+    const now = new Date().toISOString();
+    const open = tx
+      .select()
+      .from(executionPlacements)
+      .where(and(eq(executionPlacements.executionId, transfer.executionId), isNull(executionPlacements.endedAt)))
+      .get();
+    const currentGeneration = open?.generation ?? 1;
+    if (currentGeneration !== transfer.fromGeneration) throw new Error('The execution moved while this transfer ran.');
+    if (open) {
+      tx.update(executionPlacements)
+        .set({ endedAt: now, endReason: 'transferred', updatedAt: now })
+        .where(eq(executionPlacements.id, open.id))
+        .run();
+    } else {
+      // Work that began on the home before placements had no row: its first
+      // placement is recorded now, ended, with the worktree it had there, so
+      // a later move back finds it.
+      const execution = tx.select({ worktreePath: executions.worktreePath }).from(executions).where(eq(executions.id, transfer.executionId)).get();
+      tx.insert(executionPlacements)
+        .values({
+          id: uuidv7(),
+          executionId: transfer.executionId,
+          computerId: transfer.fromComputerId,
+          generation: transfer.fromGeneration,
+          worktreePath: execution?.worktreePath ?? null,
+          startReason: 'created',
+          endedAt: now,
+          endReason: 'transferred',
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+    const placement = tx
+      .insert(executionPlacements)
+      .values({
+        id: uuidv7(),
+        executionId: transfer.executionId,
+        computerId: transfer.toComputerId,
+        generation: transfer.fromGeneration + 1,
+        worktreePath: input.worktreePath,
+        checkpointSha: input.checkpointSha,
+        startReason: 'continued',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    const chats = tx.select({ id: chatSessions.id }).from(chatSessions).where(eq(chatSessions.executionId, transfer.executionId)).all();
+    const chatIds = chats.map((c) => c.id);
+    if (chatIds.length > 0) {
+      tx.update(nativeSessions)
+        .set({ endedAt: now, endReason: 'continued', updatedAt: now })
+        .where(and(inArray(nativeSessions.chatSessionId, chatIds), isNull(nativeSessions.endedAt)))
+        .run();
+      tx.update(chatSessions).set({ externalSessionId: null, updatedAt: now }).where(inArray(chatSessions.id, chatIds)).run();
+    }
+    const host = tx.select({ hostComputerId: home.hostComputerId }).from(home).get()?.hostComputerId ?? null;
+    tx.update(executions)
+      .set({
+        worktreePath: transfer.toComputerId === host ? input.worktreePath : null,
+        branchName: input.branch,
+        updatedAt: now,
+      })
+      .where(eq(executions.id, transfer.executionId))
+      .run();
+    const updated = tx
+      .update(executionTransfers)
+      .set({ toGeneration: placement.generation, stage: 'continuing', targetWorktreePath: input.worktreePath, updatedAt: now })
+      .where(eq(executionTransfers.id, transfer.id))
+      .returning()
+      .get();
+    return { placement, transfer: updated };
+  }, { behavior: 'immediate' });
+}
+
+/** An execution's chats, oldest first. */
+export function listExecutionChatIds(executionId: string): string[] {
+  return getDb()
+    .select({ id: chatSessions.id })
+    .from(chatSessions)
+    .where(eq(chatSessions.executionId, executionId))
+    .orderBy(asc(chatSessions.id))
+    .all()
+    .map((r) => r.id);
+}
+
+/** The newest event across an execution's chats: a transfer's conversation checkpoint. */
+export function latestChatEventForExecution(executionId: string): string | null {
+  return (
+    getDb()
+      .select({ id: chatEvents.id })
+      .from(chatEvents)
+      .innerJoin(chatSessions, eq(chatSessions.id, chatEvents.sessionId))
+      .where(eq(chatSessions.executionId, executionId))
+      .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id))
+      .limit(1)
+      .get()?.id ?? null
+  );
+}
+
+/** The worktree an execution last had on a computer, from its placement history: where a move back goes. */
+export function previousWorktreeOn(executionId: string, computerId: string): string | null {
+  return (
+    getDb()
+      .select({ worktreePath: executionPlacements.worktreePath })
+      .from(executionPlacements)
+      .where(and(eq(executionPlacements.executionId, executionId), eq(executionPlacements.computerId, computerId), isNotNull(executionPlacements.worktreePath)))
+      .orderBy(desc(executionPlacements.generation))
+      .limit(1)
+      .get()?.worktreePath ?? null
+  );
+}
+
+// ─── Native sessions (P4.3) ───────────────────────────────────
+
+/**
+ * Record the harness session now behind a chat. A different one than the
+ * open record ends that record as replaced. The chat's own binding
+ * (`external_session_id`) is set by the caller, as before.
+ */
+export function recordNativeSession(input: {
+  chatSessionId: string;
+  harness: string;
+  nativeSessionId: string;
+  computerId: string | null;
+  placementId: string | null;
+}): NativeSessionRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const now = new Date().toISOString();
+    const open = tx
+      .select()
+      .from(nativeSessions)
+      .where(and(eq(nativeSessions.chatSessionId, input.chatSessionId), isNull(nativeSessions.endedAt)))
+      .get();
+    if (open?.nativeSessionId === input.nativeSessionId) return open;
+    if (open) {
+      tx.update(nativeSessions).set({ endedAt: now, endReason: 'replaced', updatedAt: now }).where(eq(nativeSessions.id, open.id)).run();
+    }
+    return tx
+      .insert(nativeSessions)
+      .values({ id: uuidv7(), createdAt: now, updatedAt: now, startedAt: now, ...input })
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
+}
+
+export function listNativeSessions(chatSessionId: string): NativeSessionRecord[] {
+  return getDb()
+    .select()
+    .from(nativeSessions)
+    .where(eq(nativeSessions.chatSessionId, chatSessionId))
+    .orderBy(asc(nativeSessions.id))
+    .all();
+}
+
+// ─── Review checkouts (P4.1) ──────────────────────────────────
+
+export function getReviewCheckout(executionId: string, computerId: string): ReviewCheckoutRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(reviewCheckouts)
+      .where(and(eq(reviewCheckouts.executionId, executionId), eq(reviewCheckouts.computerId, computerId)))
+      .get() ?? null
+  );
+}
+
+export function saveReviewCheckout(input: {
+  executionId: string;
+  computerId: string;
+  sourceComputerId: string | null;
+  path: string;
+  branch: string;
+  commitSha: string;
+  dirty: boolean;
+}): ReviewCheckoutRecord {
+  const now = new Date().toISOString();
+  return getDb()
+    .insert(reviewCheckouts)
+    .values({ id: uuidv7(), createdAt: now, updatedAt: now, ...input })
+    .onConflictDoUpdate({
+      target: [reviewCheckouts.executionId, reviewCheckouts.computerId],
+      set: {
+        sourceComputerId: input.sourceComputerId,
+        path: input.path,
+        branch: input.branch,
+        commitSha: input.commitSha,
+        dirty: input.dirty,
+        updatedAt: now,
+      },
+    })
+    .returning()
+    .get();
 }
 
 export function setPlacementWorktree(placementId: string, worktreePath: string, checkpointSha: string | null = null): void {

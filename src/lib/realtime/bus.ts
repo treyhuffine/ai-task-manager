@@ -26,7 +26,7 @@ export type GlobalSessionStreamMessage =
   | {
       kind: 'session_updated';
       sessionId: string;
-      reason: 'outcome' | 'runtime' | 'background_task' | 'pending_input' | 'reconcile' | 'delivery';
+      reason: 'outcome' | 'runtime' | 'background_task' | 'pending_input' | 'reconcile' | 'delivery' | 'transfer';
     }
   /**
    * A computer's worker connected, dropped, or reported a new state (awake,
@@ -53,6 +53,8 @@ export type SessionStreamMessage =
    * delivery module's (`src/lib/workers/delivery.ts`).
    */
   | { kind: 'delivery'; eventId: string; delivery: unknown }
+  /** Where a Continue here stands (P4.2), as `src/lib/transfer/view.ts` shows it. */
+  | { kind: 'transfer'; transfer: unknown }
   | GlobalSessionStreamMessage;
 
 type Listener = (message: SessionStreamMessage) => void;
@@ -111,6 +113,14 @@ function publishGlobal(message: GlobalSessionStreamMessage): void {
 
 export function publishComputerUpdated(computerId: string): void {
   publishGlobal({ kind: 'computer_updated', computerId });
+}
+
+/** A transfer moved on (P4.2): each of its chats hears it, and every screen refreshes where the work is. */
+export function publishTransfer(chatSessionIds: string[], transfer: unknown): void {
+  for (const sessionId of chatSessionIds) {
+    publish(sessionChannel(sessionId), { kind: 'transfer', transfer });
+    publishGlobal({ kind: 'session_updated', sessionId, reason: 'transfer' });
+  }
 }
 
 /**

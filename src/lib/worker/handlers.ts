@@ -11,11 +11,12 @@
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import type { UserInputResponse } from '@agentex/agent';
 import type { WorkspaceRecord } from '@/db/types';
 import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
-import { createWorktreeForSession, fetchPrHead, runWorktreeScript } from '@/lib/workspaces/index';
+import { archiveSessionWorktree, buildWorktreeLeaf, createWorktreeForSession, defaultWorktreeRoot, fetchPrHead, openWorktreeHandle, runWorktreeScript } from '@/lib/workspaces/index';
 import { getClaudeTranscriptPath } from '@agentex/agent';
 import { harnessDefinition } from '@/lib/harness/registry';
 import { ExecutorError } from '@/lib/runner/errors';
@@ -28,6 +29,10 @@ import { readAgentFolder } from '@/lib/workspaces/agent-folder-reads';
 import type { CommandJournal } from './command-journal';
 import type { CommandContext, CommandHandlers, CommandKindHandler } from './commands';
 import { agentFolderHere } from './agent-folder';
+import type { WorkerTerminals } from './terminals';
+import type { EventJournal } from './event-journal';
+import { CheckpointError, saveCheckpoint, worktreeAtCheckpoint } from '@/lib/transfer/git-checkpoint';
+import { hasBackgroundTasks, isRunning } from '@/lib/runner/live-state';
 import { openHere } from './open-here';
 import { fetchInputFiles, inputFilesDir, placeInputFiles } from './input-files';
 import { UnsupportedRequestError, type RequestHandler } from './run';
@@ -43,6 +48,29 @@ export interface PreparePayload {
   prNumber: number | null;
   /** Work in the agent's folder itself, on whatever it has checked out. */
   live: boolean;
+  /**
+   * Continue here (P4.2): prepare at a published checkpoint for a transfer,
+   * on its branch at its exact commit, rather than start a new branch. The
+   * home keeps what comes of it to the transfer, not the execution.
+   */
+  transfer?: { id: string; checkpoint: { remote: string; branch: string; sha: string } };
+}
+
+/**
+ * A Git operation on an execution's worktree here (P4.2, P4.5): the
+ * checkpoint a transfer publishes, a push, bringing in the base branch, or
+ * removing the worktree when the execution is archived.
+ */
+export type GitPayload =
+  | { op: 'checkpoint'; message: string; includeUntracked: string[]; filesToCopy: string[]; transferId?: string }
+  | { op: 'push' }
+  | { op: 'pull_base'; strategy: 'merge' | 'rebase'; workspaceId: string }
+  | { op: 'archive_worktree'; force: boolean; teardownCommand: string | null; workspaceId: string };
+
+/** Stopping everything an execution runs here, for a transfer (P4.2). */
+export interface QuiescePayload {
+  chatSessionIds: string[];
+  transferId: string;
 }
 
 export interface PrepareResult {
@@ -97,6 +125,14 @@ function tail(text: string, lines = 40): string {
 
 export interface ExecutionHandlerOptions {
   journal: CommandJournal;
+  /** This worker's terminals, which a transfer stops with the rest (P4.2). */
+  terminals?: Pick<WorkerTerminals, 'releaseExecution'>;
+  /** Where this worker's event journal stands, so a stop reports only once the home has everything. */
+  events?: Pick<EventJournal, 'lastPosition' | 'ackedPosition'>;
+  /** Post pending events now. */
+  flushEvents?: () => void;
+  /** How long a stop waits for its last events to reach the home. */
+  flushTimeoutMs?: number;
   /** Whether the chat's native history holds this message. Defaults to reading Claude's transcript. */
   findInHistory?: (spec: SessionSpec, message: string) => Promise<'found' | 'missing' | 'unknown'>;
 }
@@ -348,7 +384,17 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       try {
         const noted = journal.get(command.id)?.notes as Partial<PrepareResult> | undefined;
         let result: PrepareResult;
-        if (noted?.worktreePath && fs.existsSync(noted.worktreePath)) {
+        if (payload.transfer) {
+          // Continue here: the checkpoint's branch at its exact commit, in the
+          // worktree this computer already had for the execution when it ran
+          // it before, or a new one.
+          const earlier = command.target.executionId ? journal.preparedWorktree(command.target.executionId) : null;
+          const target =
+            noted?.worktreePath ??
+            (earlier && earlier !== source ? earlier : path.join(ws.worktreeRoot ?? defaultWorktreeRoot(ws.slug), buildWorktreeLeaf(ws.slug, payload.chatSessionId)));
+          const made = await worktreeAtCheckpoint({ repo: source, path: target, checkpoint: payload.transfer.checkpoint });
+          result = { worktreePath: made.path, branchName: made.branch, baseSha: made.sha, warning: null, isolated: true };
+        } else if (noted?.worktreePath && fs.existsSync(noted.worktreePath)) {
           result = {
             worktreePath: noted.worktreePath,
             branchName: noted.branchName ?? null,
@@ -385,6 +431,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
         if (result.isolated) await copyFilesToWorktree(source, result.worktreePath, ws.filesToCopy);
         return { state: 'delivered', result };
       } catch (err) {
+        if (err instanceof CheckpointError) return { state: 'failed', error: err.message, result: { code: err.code } };
         return { state: 'failed', error: `${err instanceof Error ? err.name : 'Error'}: ${err instanceof Error ? err.message : String(err)}` };
       }
     },
@@ -417,9 +464,96 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
     },
   };
 
+  /**
+   * Stop everything an execution runs here, for a transfer (P4.2, spec
+   * §8.2 step 3 and 4): each chat's harness closed and confirmed gone, its
+   * background tasks with it, and its terminals. Acknowledged only once
+   * everything its sessions reported has reached the home, so the home's
+   * conversation checkpoint is complete. Safe to run again.
+   */
+  const quiesce: CommandKindHandler = {
+    async run(command, ctx) {
+      if (fenced(journal, command)) return stale(command);
+      const payload = command.payload as QuiescePayload;
+      ctx.markStarted();
+      const problems: string[] = [];
+      for (const chat of payload.chatSessionIds) {
+        const report = await runner.close(chat);
+        if (!report.closed && report.error) problems.push(report.error);
+        if (runner.isHarnessSessionAlive(chat) || isRunning(chat) || hasBackgroundTasks(chat)) {
+          problems.push('A session there is still running.');
+        }
+      }
+      const terminals = command.target.executionId ? await options.terminals?.releaseExecution(command.target.executionId) ?? 0 : 0;
+      if (problems.length > 0) return { state: 'failed', error: `It couldn't be stopped there: ${[...new Set(problems)].join(' ')}` };
+      const upTo = options.events?.lastPosition() ?? 0;
+      options.flushEvents?.();
+      const deadline = Date.now() + (options.flushTimeoutMs ?? 30_000);
+      while ((options.events?.ackedPosition() ?? upTo) < upTo) {
+        if (Date.now() > deadline) return { state: 'failed', error: "Its last events didn't reach the home in time." };
+        await new Promise((r) => setTimeout(r, 100));
+        options.flushEvents?.();
+      }
+      return { state: 'delivered', result: { closed: payload.chatSessionIds, terminals, eventPosition: upTo } };
+    },
+    recover: (command, _stage, ctx) => quiesce.run(command, ctx),
+  };
+
+  /** Git on an execution's worktree here (P4.2, P4.5). Refused once its placement has moved on. */
+  const gitCommand: CommandKindHandler = {
+    async run(command, ctx) {
+      if (fenced(journal, command)) return stale(command);
+      const payload = command.payload as GitPayload;
+      const executionId = command.target.executionId;
+      const worktree = executionId ? journal.preparedWorktree(executionId) : null;
+      if (!worktree || !fs.existsSync(worktree)) return { state: 'failed', error: "This execution's worktree isn't on this computer." };
+      ctx.markStarted();
+      try {
+        switch (payload.op) {
+          case 'checkpoint':
+            return {
+              state: 'delivered',
+              result: await saveCheckpoint({ worktree, message: payload.message, includeUntracked: payload.includeUntracked, filesToCopy: payload.filesToCopy }),
+            };
+          case 'push': {
+            const handle = await openWorktreeHandle({ worktreePath: worktree }, worktree);
+            if (!handle || handle.kind !== 'git') return { state: 'failed', error: "The worktree isn't a Git repository." };
+            return { state: 'delivered', result: await handle.git.push() };
+          }
+          case 'pull_base': {
+            const source = agentFolderHere(ctx.target.homeId, payload.workspaceId) ?? worktree;
+            const handle = await openWorktreeHandle({ worktreePath: worktree }, source);
+            if (!handle || handle.kind !== 'git') return { state: 'failed', error: "The worktree isn't a Git repository." };
+            return { state: 'delivered', result: await handle.git.pullLatestBase({ strategy: payload.strategy }) };
+          }
+          case 'archive_worktree': {
+            const source = agentFolderHere(ctx.target.homeId, payload.workspaceId) ?? worktree;
+            if (worktree === source) return { state: 'delivered', result: { removed: false } };
+            await archiveSessionWorktree({
+              session: { worktreePath: worktree },
+              teardownCommand: payload.teardownCommand,
+              sourceCheckoutPath: source,
+              force: payload.force,
+            });
+            return { state: 'delivered', result: { removed: true } };
+          }
+        }
+      } catch (err) {
+        const code = err instanceof CheckpointError ? err.code : (err as { name?: string }).name;
+        return { state: 'failed', error: err instanceof Error ? err.message : String(err), result: { code } };
+      }
+    },
+    // Each is safe to repeat: a checkpoint finds its commit, a push has
+    // nothing left, a merged base has nothing to bring in, and a removed
+    // worktree is gone.
+    recover: (command, _stage, ctx) => gitCommand.run(command, ctx),
+  };
+
   return {
     send,
     prepare,
+    quiesce,
+    git: gitCommand,
     run_script: runScript,
     interrupt: repeatable(async (command) => {
       await runner.abort(chatOf(command));
