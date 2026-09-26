@@ -1,6 +1,6 @@
 # One Ri: build specification
 
-**Status:** build contract. Updated 2026-09-24.
+**Status:** build contract. Updated 2026-09-26.
 
 **Product promise:** Open Ri anywhere and return to the same work. Use the computer that fits the work without managing separate Ri lives.
 
@@ -16,7 +16,7 @@ Later, deliberately move the home to a Mini or server for always-on availability
 
 An agent remains the same agent on both computers. Its folders do not have to match. The app remembers the association and prepares the correct environment.
 
-Joining a team adds shared tasks and notes. It does not give the team access to personal conversations, files, or execution controls. A teammate can use the team product without installing Ri locally, connecting AI, or creating a personal home.
+My Ri is the place to do personal work and handle relevant shared work across teams. Joining a team brings assigned tasks into that view and adds a team space for browsing all of its shared tasks, notes, and Areas. It does not import the team's organization into personal Areas or require choosing an agent. The team receives no access to personal conversations, files, or execution controls. A teammate can use the team product without installing Ri locally, connecting AI, or creating a personal home.
 
 The UI centers on the work:
 
@@ -59,8 +59,8 @@ The home runs its own execution code in-process through the same execution contr
 | Information | Authority |
 | --- | --- |
 | Personal tasks, notes, agent purpose/instructions, executions, Ri conversation history | Home |
-| Shared tasks, notes, assignments, published output, membership | Owning team space |
-| Private planning and context attached to shared work | Personal home |
+| Shared tasks, notes, team Areas and their record associations, assignments, published output, membership | Owning team space |
+| Personal Areas, private organization and context attached to shared work, saved shared references, personal agent/execution links | Personal home |
 | Agent-to-folder associations and connected-folder paths on a computer | Local project configuration on that computer |
 | Setup availability and reported paths shown in the UI | Home's observed index of worker reports |
 | Working files, toolchains, local environment, native harness resume files | Executing computer |
@@ -73,7 +73,7 @@ The home can index a local setup without owning its configuration. There is one 
 
 Build shared identity and conversation access, local execution, deliberate Git-based continuation, and team tasks/notes.
 
-Do not build personal database replication, continuous filesystem sync, automatic execution failover, an arbitrary remote shell service, universal transcript portability, or a laptop mesh. Non-Git work can run on its configured computer but does not transfer through Ri in this release.
+Do not build personal database replication, continuous filesystem sync, automatic execution failover, a general remote-machine shell service, universal transcript portability, or a laptop mesh. Terminals scoped to Ri executions and configured agent folders are included, as defined in section 5.6. Non-Git work can run on its configured computer but does not transfer through Ri in this release.
 
 Team execution infrastructure, offline collaborative editing, granular per-item permissions, and automatic comment-driven orchestration are outside this build.
 
@@ -97,13 +97,21 @@ A small desktop companion supplies worker installation, start at login, reconnec
 
 ### 3.2 Navigation
 
-Keep the primary navigation about the deck, tasks, notes, and agents. Show team context through a space selector and source labels. An aggregate view is All. Personal means private personal work.
+Keep the primary navigation about the deck, tasks, notes, and agents. The default space is My Ri, which gathers the person's work across sources. The space selector lists My Ri and connected teams by name, such as Acme and Family. Do not call the combined view Personal or add a second All space. A private-only filter may narrow My Ri, but is not another home or space.
 
-Opening a team on the phone must not navigate the laptop away from its execution. Filters, panels, scroll, and focus belong to the viewing surface. Task state and review state belong to the shared work.
+| My Ri | A team space, such as Acme |
+| --- | --- |
+| Private tasks, assigned shared tasks, and shared tasks explicitly added to personal work | All of that team's shared tasks and assignments |
+| Private notes and deliberately saved references to shared notes | The team's shared notes |
+| Personal Areas | The team's own Areas |
+| Personal agents and executions | Deliberately published results, with no team-owned agents or executions in this release |
+| The person's Deck | Ordinary shared task and note views, with no personal Deck |
 
-An agent appears once in the rail regardless of how many computers have its folder. Setup lists the available computers and gaps.
+Keep a shared item's team label visible in My Ri, regardless of its personal Area. Source filters let the person see all their Acme work without creating an Acme Area. Joining a team does not create personal Areas, clone its Area tree, or ask for Area or agent mappings. Section 9 defines personal organization and shared record identity.
 
-Hide agent/execution controls on a team that has no execution capability.
+Selecting a team changes browsing context only. It never stops or relocates personal executions or changes their control targets. Opening a team on the phone must not navigate the laptop away from its execution. Filters, panels, scroll, and focus belong to the viewing surface. Task state and review state belong to the shared work.
+
+An agent appears once in the personal rail regardless of how many computers have its folder or which team's tasks it helps with. Setup lists the available computers and gaps. Team-only participants see useful shared work without empty agent/execution setup. A connected personal user can choose Work with agent on a shared task without exposing personal agents as team-owned resources.
 
 ### 3.3 Starting and replying
 
@@ -135,6 +143,8 @@ On a laptop-owned execution, Continue on Mac Mini uses the same transfer operati
 When local execution is not installed, the action leads to companion setup. When the project is not set up, offer Use existing folder and Clone repository. Attach the result to the existing agent, not a new agent.
 
 A phone can follow, reply to, interrupt, and answer an execution on any connected personal computer. It does not offer Open code here or claim to execute code.
+
+The in-app terminal follows the execution. A laptop viewing a Home-owned execution controls a terminal on Home in that execution's folder. After Continue here succeeds, opening the terminal creates a fresh shell in the laptop's destination worktree. Shell processes do not migrate, and opening a review checkout does not move the execution's terminal. There is no separate global terminal computer toggle. Show the terminal's computer and working folder.
 
 ### 3.5 Connection and delivery states
 
@@ -267,7 +277,7 @@ Extend existing records rather than create a parallel execution product.
 | Command | Stable command ID, actor, target, ownership generation, payload, delivery state |
 | Worker event | Stable event identity, placement/generation, source sequence and revision where a provider part is cumulative |
 | Space connection | Space ID, member credential, assigned-work cursor/freshness, external record identity |
-| Private overlay | Personal fields associated with a shared task's space ID and task ID |
+| Shared reference and private overlay | Space ID, record kind, and source record ID, with personal inclusion, organization, context, and personal work links kept separately from cached shared fields |
 
 Preserve the existing Ri execution and conversation identities across placement changes. Record native-session binding history, rather than losing the old binding when a new harness session starts.
 
@@ -281,7 +291,7 @@ The worker opens an authenticated outbound SSE command connection to its home an
 
 Use HTTPS for remote addresses. Local development can use loopback HTTP. No inbound laptop service exposed to the network and no laptop-to-laptop connection is required.
 
-The home can send only defined operations against enrolled setups and owned executions. Do not add arbitrary-path filesystem or arbitrary shell endpoints. Starting an execution or a configured project script remains subject to that setup's execution authorization.
+The home can send only defined operations against enrolled setups and owned executions. Do not add arbitrary-path filesystem endpoints or a generic remote run-shell action. Execution-scoped and agent-folder terminals use the same authenticated owner routing, as defined in section 5.6. Starting an execution, a terminal, or a configured project script remains subject to that setup's execution authorization.
 
 Protocol versions must be checked before dispatch. An incompatible worker shows Update Ri on MacBook rather than receiving a command it cannot interpret.
 
@@ -324,6 +334,18 @@ Selection is explicit. Do not automatically upload all local history. Qualify di
 
 Show an imported chat's source computer and read-only state. Reading it on a phone does not enable sending into its terminal or move its native session. Unavailability retains the last imported history and its freshness. Do not edit native files/indexes, move transcripts, or make arbitrary local file paths downloadable. Preserve existing supported adoption on the home, without extending that authority implicitly to connected terminal sessions.
 
+### 5.6 In-app terminals and CLI location
+
+Reuse the existing terminal panel and PTY implementation. Execution terminals run on the execution's owner computer in its working folder. Agent-folder terminals run on the agent's configured computer in its resolved source folder. Resolve the folder on that computer from the owned execution or enabled setup, never from a caller-supplied arbitrary path or the home's compatibility cwd.
+
+Keep Home-owned terminals working from any authorized personal viewing surface. Add terminal creation, listing, input, output, resize, and close through the connected worker for worker-owned work. Use the existing authenticated home/worker association, with no inbound laptop service or general SSH client. Check terminal identity, computer, and current ownership on control operations. A scoped terminal is still a trusted shell, not a promise of filesystem confinement.
+
+Opening the UI elsewhere does not create another shell or change its machine. Reuse existing terminal lifetime and bounded output replay across view changes and reconnects. Terminal input is live interaction, not an offline command queue. Disable input while disconnected and do not replay unconfirmed keystrokes automatically. An unavailable worker shows a location-specific unavailable state, never a fallback shell on Home. Permanent lack of worker-terminal support does not satisfy this requirement.
+
+Continuation stops the source execution's terminals and their owned processes before checkpointing, along with its other writers. The destination offers a fresh terminal after ownership changes. Do not route an old terminal ID to a new shell or carry its pending input forward. Agent-folder terminals remain bound to their own configured folder and do not move with one of the agent's executions.
+
+An ordinary terminal command runs on the machine hosting that shell. Supported Ri CLI data actions reach the connected home API, execution controls target the execution's owner, and local setup actions operate on the invoking computer's configuration. The CLI's connection to Home does not turn the surrounding laptop shell into a Home shell. Imported independent terminal chats remain governed by section 5.5 and are not made controllable by this terminal feature.
+
 ## 6. Trust without a permission platform
 
 The initial security model has a personal owner, enrolled computers, authenticated sessions, and team owner/member roles. It does not introduce a custom policy language or folder-by-folder enterprise ACL system.
@@ -342,7 +364,7 @@ A folder mapping describes the environment. It is not a filesystem sandbox. Pres
 
 Treat task bodies, comments, connector content, and other agents' messages as content with an identified source. Filtering dangerous phrases is not the enforcement mechanism.
 
-Expose only execution-scoped file/diff views to remote clients. Keep local native-editor opening in the companion. Existing preview support must preserve authentication and browser-origin boundaries, and must never advertise a worker's localhost URL as reachable from a phone. A new terminal or preview tunneling platform is outside this build.
+Expose only execution-scoped file/diff views to remote clients. Keep local native-editor opening in the companion. Provide the scoped in-app terminals in section 5.6 through personal authorization, never team membership. Existing preview support must preserve authentication and browser-origin boundaries, and must never advertise a worker's localhost URL as reachable from a phone. A general remote-machine shell service and a new preview tunneling platform remain outside this build.
 
 ## 7. Persona, orchestration, and schedules
 
@@ -392,14 +414,14 @@ The operation is:
 
 1. Validate the destination's local configuration, harness, permissions, Git access, and project recipe.
 2. Acquire a transfer lock for the current ownership generation. Hold new messages at the home.
-3. Stop the source and confirm the harness and its owned tool processes have stopped.
+3. Stop the source and confirm the harness, execution terminals, and their owned tool processes have stopped. Keep unrelated terminals and processes running.
 4. Flush final events and record the acknowledged conversation checkpoint and source Git state.
 5. Prepare a Git checkpoint. Include tracked changes. Surface untracked files for explicit inclusion and exclude ignored/local configuration and secrets. Publish through the configured remote without force-pushing.
 6. Fetch on the destination and verify the exact commit. A matching branch name is insufficient.
 7. Prepare an isolated target worktree, local files, connected folders, and setup scripts.
 8. Create the handoff described below.
 9. Atomically assign the next ownership generation to the destination. Old-generation commands are invalid.
-10. Start the destination session, record the new native binding, append a continuation event, and deliver held messages once.
+10. Start the destination session, record the new native binding, append a continuation event, and deliver held messages once. The terminal now opens a fresh shell in the destination worktree. Source terminal IDs and pending input cannot control it.
 
 Show progress in one surface: Preparing, Saving work, Setting up MacBook, Continuing.
 
@@ -436,7 +458,7 @@ After actual use, test native transfer on two real computers if handoff quality 
 
 ### 9.1 Standalone team product
 
-A team space uses the same application with a separate shared authority and member identities. Its first release includes tasks, notes, assignment, keyword search, attachments, activity attribution, invitations, and supported connector use.
+A team space uses the same application with a separate shared authority and member identities. Its first release includes tasks, notes, shared Areas, assignment, keyword search, attachments, activity attribution, invitations, and supported connector use. Reuse the existing Area concept for organization within the team. Areas do not introduce a new permissions boundary.
 
 Create a new space with its own data root. Do not turn an existing personal home into a team by flipping a flag over private data.
 
@@ -448,7 +470,7 @@ Initial roles are:
 | Role | Authority |
 | --- | --- |
 | Owner | Membership, invitations, space settings, connector administration, and ordinary shared work |
-| Member | Read shared content, create/edit tasks and notes, assign work, change task status, and use explicitly published connector features |
+| Member | Read shared content, create/edit tasks, notes and team Areas, organize shared records, assign work, change task status, and use explicitly published connector features |
 
 All published team records are visible to members in this release. Private per-item sharing and corporate device compliance are outside scope.
 
@@ -476,9 +498,11 @@ The connection is explicitly for shared use. Credentials stay on the space host.
 
 A personal home connects to the space as a member. The space receives no credential for the personal home.
 
-Cache the person's assigned shared tasks with source identity and freshness. Use the stable pair of space ID and external task ID, with a separate local identity where the current task model requires it. Do not merge by title.
+Assigned shared tasks appear automatically in My Ri. A person can also choose Add to my work on a shared task, including one that is unassigned. This saves a reference for personal planning without duplicating the shared task, changing its assignment, or dispatching an agent. Removing an explicitly added reference does not delete the team task or hide an obligation still assigned to the person.
 
-Poll for changes and refresh on focus. A team task appears in the personal deck with its source label and can be handled through ordinary personal planning.
+Cache relevant shared-task projections in the personal home's database with source identity, revision, and freshness. Use the stable pair of space ID and source task ID, with a separate local identity only where the current task model requires it. Distinguish assignment-driven inclusion from an explicitly saved reference. Private overlays and personal links remain separate from cached shared fields. Opening a task through My Ri, a team view, search, or a saved link resolves to the same shared record, with the same shared-field write behavior. Do not merge by title or copy an entire team database into the home.
+
+Poll for changes and refresh on focus. Assigned and deliberately selected shared tasks participate in ordinary personal planning and are eligible for the Deck under its existing rules. An assignment does not automatically put a task on today's Deck or imply a commitment for today. Keep the source team label visible wherever the task appears in My Ri.
 
 Edits to shared fields are online commands to the space. Use idempotency keys and revision checks. If a request conflicts, preserve the person's draft and show the source's current value. If the outcome is unknown, reconcile using the same command ID before retrying. Do not build an offline write outbox.
 
@@ -486,26 +510,40 @@ For shared task/note bodies, keep autosave and add an expected content revision 
 
 On conflict, stop that editor's automatic saves, preserve its local draft, and show that the shared version changed. Offer comparison and an explicit choice to use the shared version or apply the retained draft against the newly acknowledged revision. Never replace a focused editor with a server echo or retry the stale body silently. The same write check applies to human and agent edits, including the direct team UI. Reuse existing version history for comparison/recovery. Presence locks, live co-editing, and automatic text merging are not needed for this initial behavior.
 
-Read/search team notes through the space's authorized API. AI is not the only route to team knowledge.
+The named team view provides ordinary human browsing, filtering, and search of all authorized shared tasks, notes, and team Areas through the space's API. It is a first-class team UI, not an import screen or an agent-only query tool. Browsing does not automatically add records to My Ri. A person can save a shared note reference alongside personal notes without creating a second editable copy. Its team label and shared editing destination remain visible. Bounded read caches follow the same freshness and revocation rules as shared tasks.
 
 ### 9.4 Private and shared fields
 
 | Shared, owned by space | Private, owned by personal home |
 | --- | --- |
-| Title, body, assignment, status, hard deadline, published attachments and results | Area, ordering, energy/effort, snooze, reminders, private context, personal subtasks, linked private notes |
+| Title, body, team Area, assignment, status, hard deadline, published attachments and results | Personal Area, ordering, energy/effort, snooze, reminders, private context, personal subtasks, linked private notes, and personal agent/execution associations |
 | A deliberately published summary or PR link | Raw execution conversation, persona, local paths, personal connector credentials |
+
+Team Areas and personal Areas are independent identities. A shared task may belong to Acme's Engineering Area while the person organizes it under Work in My Ri. The shared Area remains source metadata, and the personal Area belongs to the private overlay. Matching names never merge identities, and renaming or changing the personal Area never changes the team's organization. The person may use one personal Area for a whole team, several Areas, an existing Work Area, or none. Joining a team requires none of these choices. Do not build automatic Area replication or team-to-personal Area mapping rules for this release.
+
+The task surface identifies the shared audience and separates shared content from private planning. Label the private section Only you and the personal Area control Organize for me, distinct from the team's Area. These private fields are visible only through the person's home, not to teammates. A shared edit made from My Ri is still an edit to the team's record, using the same autosave and conflict behavior as the team view. Clear persistent labels should make this understandable without a confirmation dialog for each ordinary edit.
 
 The shared task's body must not absorb private triage context. Shared completion does not publish personal annotations or silently complete private subtasks.
 
-Reassignment or deletion removes the shared obligation from the active projection while retaining private additions with a clear source state. Membership removal blocks new fetches/writes and clears shared-content caches. Preserve private material separately. Revocation cannot erase exports a member already made.
+Reassignment removes assignment-driven inclusion as an obligation. An explicitly saved reference may remain with its current assignee and source state, without continuing to present it as assigned to the person. Deletion removes the active shared obligation and identifies retained private additions or references as source unavailable. Membership removal blocks new fetches/writes and clears shared-content caches, including saved shared-note content. Preserve private material separately. Revocation cannot erase exports a member already made.
 
 ### 9.5 Personal execution and publication
 
-Receiving an assignment never dispatches a personal execution by itself. The person or their explicitly authorized personal automation chooses the agent and computer.
+Receiving an assignment never dispatches a personal execution by itself. Tasks do not have to belong to an agent, and connecting a team requires no agent mapping. Work with agent on a shared task chooses an existing personal agent, suggests one only when there is a reliable association, and otherwise asks the person. Use the agent's normal saved computer default and existing Run on control. The person or their explicitly authorized personal automation chooses the agent and computer.
+
+Link the resulting personal execution to the shared task without duplicating either. An agent helping with Acme work remains one personal agent in the rail, and can help with other work too. Team naming, task linkage, personal Area membership, or computer selection never changes the agent or execution's ownership or visibility. The team UI presents shared work and published results, not personal agent inventories or execution transcripts. A team-only participant needs no agent to complete the same task manually.
 
 Team text, connector results, and future comments are data. They cannot address a personal worker command endpoint or grant execution rights.
 
 When the work is ready, Publish result selects the summary, PR link, or attachment to share and shows the audience. Changing shared task status is also an authorized space command. Do not automatically share the transcript or mark a team task done merely because a personal execution ended.
+
+The everyday acceptance journey is:
+
+1. A teammate assigns Fix the login loop to the person in Acme.
+2. It appears in My Ri with the Acme source label, without an import or organization step.
+3. The person reads the shared description and adds Try the smaller fix first under Only you, optionally organizing it in a personal Area.
+4. Work with agent starts a linked execution with the chosen personal agent and its ordinary computer default.
+5. The person reviews the work, publishes the chosen PR link or summary to Acme, and updates shared status. The teammate sees the shared update, and the private conversation and planning remain private.
 
 ### 9.6 Discussions
 
@@ -618,7 +656,7 @@ Passed on 2026-09-25 with the real MacBook and iPhone against the dev home. Ther
 - [ ] P3.2 Add saved/waiting/delivered/uncertain states and cancellation at the correct delivery boundary.
 - [ ] P3.3 Keep per-screen navigation independent and execution controls tied to the owner.
 - [ ] P3.4 Keep personal orchestration/scheduling on the home and pin agent main chats to their configured computer. Preserve the current overdue-trigger behavior and show when a laptop-hosted schedule can run.
-- [ ] P3.5 Route existing diffs/files/previews safely. Provide local editor opening through the companion and truthful unavailable states.
+- [ ] P3.5 Route existing diffs/files/previews safely. Reuse the terminal panel and PTY implementation for Home and worker-owned execution/agent-folder terminals, including authenticated creation, listing, input/output, resize and close. Show the computer/folder, preserve the shell across viewing changes, reject stale ownership, and handle disconnect without replaying unconfirmed input or falling back to Home. Provide local editor opening through the companion. Truthful unavailable states cover actual outages or unsupported preview access, not omission of worker terminals.
 - [ ] P3.6 Preserve existing deck completion, daily generation, morning-trigger settings, and refresh behavior. Verify that connected screens do not introduce a second scheduler or daily generation authority.
 - [ ] P3.7 Exercise the full flow at phone and laptop widths, with keyboard, voice, and structured pending-input controls.
 
@@ -627,8 +665,8 @@ Passed on 2026-09-25 with the real MacBook and iPhone against the dev home. Ther
 ### P4. Review and continue local work
 
 - [ ] P4.1 Use published Git commits for review worktrees, local setup, checkpoint labels, refresh, and dirty-checkout protection. Do not capture unfinished files while the agent is editing them.
-- [ ] P4.2 Implement the transfer lock, confirmed source stop including owned background tools and preview processes, final event checkpoint, ordinary Git commit/push, destination verification, and generation change. Reuse existing close/stop and preview supervision.
-- [ ] P4.3 Implement fresh-session handoff, prior-history access, native-binding history, and a visible continuation event.
+- [ ] P4.2 Implement the transfer lock, confirmed source stop including execution terminals and owned background tools and preview processes, final event checkpoint, ordinary Git commit/push, destination verification, and generation change. Reuse existing close/stop and preview supervision.
+- [ ] P4.3 Implement fresh-session handoff, prior-history access, native-binding history, and a visible continuation event. Open a fresh terminal in the destination worktree, with no migration of shell processes or reuse of source terminal IDs/input.
 - [ ] P4.4 Preserve held messages, source artifacts, and recovery actions across every failure stage.
 - [ ] P4.5 Route existing commit/PR/restart/archive helpers through ownership checks and retire only the takeover paths replaced by this flow.
 - [ ] P4.6 Test unavailable source, push rejection, untracked work, divergent/stale branches, failed setup, changed references, and failure before/after ownership changes. Include the P2 re-review's placement probe: a command streamed before a disconnect, for a placement changed since, never runs when resent ([recorded](homes-build.md#p4-acceptance-recorded)).
@@ -649,7 +687,7 @@ Passed on 2026-09-25 with the real MacBook and iPhone against the dev home. Ther
 ### P6. A standalone team without AI
 
 - [ ] P6.1 Add space/member identity, owner/member authorization, invitations, revocation, assignment, and actor-attributed history. Host the space with the existing server/address setup and an independent data root.
-- [ ] P6.2 Build shared tasks, notes, keyword search, attachments, and first-run UI without a personal home or harness requirement.
+- [ ] P6.2 Build shared tasks, notes, team Areas, keyword search, attachments, and first-run UI without a personal home or harness requirement. Reuse Areas for shared organization without per-Area permissions. Team views browse all authorized shared work and published results, with no empty personal Deck or agent/execution setup.
 - [ ] P6.3 Enforce AI-disabled behavior across automatic dispatch, embeddings, background jobs, and model setup. Keep execution/host-command routes unavailable to the team surface.
 - [ ] P6.4 Add atomic content-revision checks to shared-body writes, ordered autosaves, retained drafts, and explicit conflict resolution in the direct team UI and agent actions. Reuse version history, without presence locks or live co-editing.
 - [ ] P6.5 Test invitation expiry/reuse, removal, forged actors, attachment access, simultaneous edits, and zero model calls with an ambient API key present. Verify member and human/agent attribution for local and remote changes.
@@ -661,14 +699,14 @@ Passed on 2026-09-25 with the real MacBook and iPhone against the dev home. Ther
 
 ### P7. Shared obligations inside personal Ri
 
-- [ ] P7.1 Connect as a space member without granting access back into the personal home.
-- [ ] P7.2 Implement assignment projections, stable source identity, freshness, private overlays, and reassignment/deletion handling.
-- [ ] P7.3 Implement online shared-field commands with idempotency and the same content-revision checks, ordered autosaves, conflict comparison, and draft preservation as the direct team UI.
-- [ ] P7.4 Include assigned work in the personal deck and provide ordinary human browsing/search of shared notes.
-- [ ] P7.5 Implement deliberate result publication with audience selection and no implicit transcript sharing.
-- [ ] P7.6 Test membership revocation, source outages, competing edits, unknown command outcomes, private subtasks, and incoming team content that requests personal execution.
+- [ ] P7.1 Connect as a space member without granting access back into the personal home. Add the My Ri / named-team space selector and persistent source labels. My Ri is the combined personal work view. Context changes never move or stop executions or navigate another device, and joining asks for no Area or agent mapping.
+- [ ] P7.2 Implement assignment projections in the home database, stable source identity, freshness, private overlays, and reassignment/deletion handling. Add explicit Add to my work references without changing assignment or duplicating the source task. Keep team Areas separate from optional personal Area organization, with no automatic copying, name-based merging, or mapping system.
+- [ ] P7.3 Implement online shared-field commands with idempotency and the same content-revision checks, ordered autosaves, conflict comparison, and draft preservation as the direct team UI. Every entry point opens the same shared task. Show its team audience and separate Only you planning and Organize for me controls without adding routine confirmation dialogs.
+- [ ] P7.4 Make assigned and explicitly selected shared work eligible for the Deck under its existing rules, without automatic placement on today's Deck. Provide team browsing/search of tasks, notes and Areas, source filtering in My Ri, and saved shared-note references. Browsing does not import everything or require an agent.
+- [ ] P7.5 Implement Work with agent using an existing personal agent and its normal computer default, keeping the task/execution link private. Preserve one personal agent identity across team work. Implement deliberate result publication with audience selection and no implicit transcript sharing or task completion.
+- [ ] P7.6 Test membership revocation, source outages, competing edits, unknown command outcomes, private subtasks, and incoming team content that requests personal execution. Verify no duplicate task across views, no imported Area tree, independent team/personal Area edits, Add to my work without assignment changes, saved-note identity, and no personal agent/execution exposure in team views.
 
-**Gate:** handle a team assignment in personal Ri, publish its chosen result, and update shared status without leaking private context or granting the team personal-worker authority.
+**Gate:** dogfood the five-step journey in section 9.5 with one teammate who uses no AI. They assign shared work, the person handles it from My Ri with private planning and a personal agent, then deliberately publishes a result and updates shared status. Neither maintains a second task or organization system. Verify that opening the same task in either view stays consistent, unrelated team Areas never enter personal navigation, and no private context or personal-worker authority reaches the team.
 
 ## 12. Dogfood decisions and release acceptance
 
@@ -701,6 +739,10 @@ Do not turn these questions into speculative backlog checkboxes. Record the prob
 | Home or worker loses contact | Honest availability and delivery state, no automatic reassignment |
 | Laptop-hosted home sleeps with a Mini worker connected | Home remains on the laptop and is shown unavailable. Connecting the Mini did not imply automatic relocation |
 | Selected laptop terminal history is imported | Read-only, correctly attributed to that computer, deduplicated, with no upload of unselected sessions |
+| Laptop UI opens a Home execution's terminal | The existing shell runs on Home in that execution's folder, visibly labeled, and survives a viewing-device change |
+| UI opens a worker-owned terminal | The shell runs on the owner computer in the execution or configured agent folder. Input/output, resize and close work through authenticated routing |
+| Terminal connection drops or worker is unavailable | No fallback shell or replay of unconfirmed input. Reconnect recovers the existing terminal and its available output |
+| Continue here succeeds | Source execution terminals and their owned writers are stopped before checkpointing. A fresh destination shell opens in the local worktree, and stale terminal controls cannot reach it |
 | Replayed command/event | No duplicate turn or stale cumulative update |
 | Permission answer arrives after placement changes | Rejected as stale |
 | Personal worker is revoked | New control is denied and stale queued authority cannot resume |
@@ -709,7 +751,14 @@ Do not turn these questions into speculative backlog checkboxes. Record the prob
 | Continue here with owned background tools or a preview | Source processes are confirmed stopped before publication and ownership changes. Unrelated processes stay running |
 | Transfer fails at any stage | One clear owner, preserved code/history, safe retry/resume |
 | Persona changes at home | Applied on a new/explicitly refreshed personal session, no independent replica |
-| No-AI team has no harness and an API key in its environment | CRUD/search works with zero model calls before connectors are added. The later connector slice meets the same no-AI requirement |
+| No-AI team has no harness and an API key in its environment | Task/note/Area CRUD and search work with zero model calls before connectors are added. The later connector slice meets the same no-AI requirement |
+| Person joins a team with many Areas | Assigned work enters My Ri with team labels. No personal Areas or agents are created, and no mapping is required |
+| Same shared task opens from My Ri and its team | One shared identity and consistent shared edits, with private planning visible only to its owner |
+| Person organizes Acme / Engineering under personal Work | Team Area stays unchanged. Renaming either Area does not rename or merge the other |
+| Person adds an unassigned task to My Ri | One saved reference, unchanged team assignment, no automatic execution or commitment on today's Deck |
+| Person browses a team and saves a note reference | All authorized shared work is browsable without AI or bulk import. The saved note retains its source and shared editing destination |
+| Person chooses Work with agent | One existing personal agent and a linked private execution use the normal computer default. Team views expose only deliberately published output |
+| Person switches spaces on one screen | Other screens keep their navigation and running work keeps its owner and terminal |
 | Two clients or agents edit a shared body | Stale revision rejected, local draft retained, autosave paused, explicit resolution available in direct team and personal views |
 | A member or their agent changes shared work | History identifies the member and human/agent actor on local and remote paths without publishing private session contents |
 | Shared content contains instructions to run personal commands | No direct dispatch or authority expansion |
