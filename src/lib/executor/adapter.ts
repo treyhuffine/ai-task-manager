@@ -31,6 +31,7 @@ import {
   createRun as createRunRow,
   markRunStarted as markRunStartedRow,
   getActiveTransfer,
+  heldMessages,
   holdForTransfer,
 } from '@/lib/db/queries';
 import { getAppRoot } from '@/lib/config/paths';
@@ -187,16 +188,6 @@ export async function dispatch(
 ): Promise<void> {
   const session = getChatSessionWithExecution(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
-  // Someone took this over to work on it locally. Nothing sends into it
-  // until they hand it back, whichever path is sending: the composer, a
-  // commit or PR helper, the scheduler, a coalesced trigger, or a health
-  // re-fire (docs/homes-build.md, P0.4 gap 3).
-  if (session.takeoverStartedAt) {
-    throw new ExecutorError(
-      'invalid_state',
-      'Session is being worked on locally. Run `ri resume` or click Done in the takeover banner before sending more messages.',
-    );
-  }
   // An import nobody has taken over has no session to resume. A send would
   // start a blank one under a transcript it never saw, on whichever computer
   // the import came from, whoever is sending.
@@ -217,6 +208,14 @@ export async function dispatch(
         announceHeld(chatSessionId, options.sourceEventId);
         return;
       }
+    }
+    // Held by a move, one that stopped or one delivering where it arrived
+    // (P4.4): it goes with Resume, Try again or that delivery, never on its
+    // own. A health re-fire on opening the chat, or a retry, finds it here.
+    if (options.sourceEventId && heldMessages(session.executionId).has(options.sourceEventId)) {
+      options.onQueued?.();
+      announceHeld(chatSessionId, options.sourceEventId);
+      return;
     }
   }
 

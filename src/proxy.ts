@@ -87,7 +87,7 @@ export function proxy(request: NextRequest) {
   // A root whose data came from another computer serves nothing until it is
   // claimed, so two copies never act as one home (docs/homes-spec.md §10.3).
   // Checked before the routes that carry their own credentials (webhooks,
-  // OAuth callbacks, takeover), since those can start work too.
+  // OAuth callbacks), since those can start work too.
   if (!isHomeActive()) {
     return NextResponse.json(
       {
@@ -119,16 +119,6 @@ export function proxy(request: NextRequest) {
     return nextWithoutKeyHeaders(request);
   }
 
-  // `/api/takeover/<token>/...` is the CLI surface for "Take over locally."
-  // The `token` in the path IS the auth — handlers validate it against
-  // `chat_sessions.takeoverToken` and its `_expires_at`. Tokens are
-  // single-purpose, scoped to one session, and rotate on every new
-  // takeover so they're a strictly weaker credential than the bearer
-  // key. Exempted here so the CLI can reach the endpoints without
-  // needing the user's long-lived account token.
-  if (request.nextUrl.pathname.startsWith('/api/takeover/')) {
-    return nextWithoutKeyHeaders(request);
-  }
 
   // Redeeming an enroll grant is how a computer gets its first worker key, so
   // the grant in the body is the credential: short-lived, single-use, and

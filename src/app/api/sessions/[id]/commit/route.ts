@@ -1,8 +1,8 @@
 import type { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
-import { openWorktreeHandle } from '@/lib/workspaces';
 import { buildCommitPrompt } from '@/lib/executor/prompts/commit';
 import * as executor from '@/lib/executor/adapter';
+import { executionDiff, executionFolder } from '@/lib/executor/owner-files';
 
 /**
  * Commit surface for the execution view's action bar.
@@ -33,7 +33,8 @@ export async function POST(
         { status: 409 },
       );
     }
-    if (!session.workspaceId || !session.worktreePath || !session.branchName) {
+    // Its worktree wherever it runs (P4.5).
+    if (!session.workspaceId || !executionFolder(id) || !session.branchName) {
       return Response.json(
         { error: 'noWorktree', message: 'No worktree or branch on this session.' },
         { status: 400 },
@@ -42,24 +43,22 @@ export async function POST(
 
     const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
-
-    const handle = await openWorktreeHandle(session, ws.cwd);
-    if (!handle || handle.kind !== 'git') {
-      return Response.json({ error: 'Not a git workspace' }, { status: 400 });
-    }
+    if (!ws.isGit) return Response.json({ error: 'Not a git workspace' }, { status: 400 });
 
     // Diff against the workspace's base sha — superset of the
     // uncommitted changes (also includes already-committed work on this
     // branch). Agent runs `git status` + `git diff` itself before
-    // composing the message; the summary just anchors the scope.
-    const diff = await handle.git.diff('base');
+    // composing the message; the summary just anchors the scope. Read
+    // where the worktree is.
+    const read = await executionDiff(id);
+    if (!read.ok) return read.response;
     const prompt = buildCommitPrompt({
       branch: session.branchName,
-      diff,
+      diff: read.diff as Parameters<typeof buildCommitPrompt>[0]['diff'],
       andPush,
     });
 
-    insertChatEvent({
+    const event = insertChatEvent({
       sessionId: id,
       role: 'user',
       source: 'user',
@@ -67,7 +66,9 @@ export async function POST(
       createdAt: new Date().toISOString(),
     });
 
-    executor.dispatch(id, prompt).catch((err) => {
+    // Tied to its event: it reaches the harness once wherever the execution
+    // runs, and a move in progress holds it (P4.5).
+    executor.dispatch(id, prompt, { sourceEventId: event?.id ?? null }).catch((err) => {
       console.error(`[POST /api/sessions/:id/commit] dispatch failed for ${id}:`, err);
     });
 

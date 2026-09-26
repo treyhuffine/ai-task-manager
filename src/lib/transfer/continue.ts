@@ -35,8 +35,11 @@ import {
   getComputer,
   getExecution,
   getHome,
+  getNote,
+  getTask,
   getTransfer,
-  getWorkerCommand,
+  listSessionRefs,
+  targetGenerationOf,
   getWorkspace,
   insertChatEvent,
   latestChatEventForExecution,
@@ -52,6 +55,7 @@ import {
   updateTransfer,
 } from '@/lib/db/queries';
 import { isComputerConnected, wakeComputer } from '@/lib/workers/hub';
+import { awaitWorkerCommand, CommandFailedError } from '@/lib/workers/await-command';
 import { publishTransfer } from '@/lib/realtime/bus';
 import { runOnFor } from '@/lib/setups/run-on';
 import { saveCheckpoint, worktreeAtCheckpoint, type SavedCheckpoint } from './git-checkpoint';
@@ -181,16 +185,11 @@ class StepFailed extends Error {}
 
 /** Wait for a command to reach a final state. Its result when delivered, or the step fails with its reason. */
 async function awaitCommand(commandId: string, timeoutMs: number, what: string): Promise<unknown> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const command = getWorkerCommand(commandId);
-    if (!command) throw new StepFailed(`${what} was lost.`);
-    if (command.state === 'delivered') return command.result;
-    if (command.state === 'failed' || command.state === 'stale' || command.state === 'cancelled' || command.state === 'uncertain') {
-      throw new StepFailed(command.error ?? `${what} didn't finish.`);
-    }
-    if (Date.now() > deadline) throw new StepFailed(`${what} didn't finish in time on ${computerName(command.computerId)}.`);
-    await new Promise((r) => setTimeout(r, 250));
+  try {
+    return await awaitWorkerCommand(commandId, timeoutMs, what);
+  } catch (err) {
+    if (err instanceof CommandFailedError) throw new StepFailed(err.message);
+    throw err;
   }
 }
 
@@ -273,7 +272,7 @@ async function prepareDestination(
 ): Promise<string> {
   const execution = getExecution(transfer.executionId)!;
   const workspace = getWorkspace(execution.workspaceId)!;
-  const generation = transfer.fromGeneration + 1;
+  const generation = targetGenerationOf(transfer);
   const host = getHome()?.hostComputerId ?? null;
   const to = computerName(transfer.toComputerId);
   const setup = workspace.setupCommand?.trim() || null;
@@ -325,6 +324,21 @@ async function prepareDestination(
   return made.path;
 }
 
+/** The tasks and notes the execution's chats link to, once each, for the handoff (§8.3). */
+function linkedEntities(chats: string[]): HandoffInput['links'] {
+  const seen = new Set<string>();
+  const links: HandoffInput['links'] = [];
+  for (const chat of chats) {
+    for (const ref of listSessionRefs(chat)) {
+      if ((ref.entityType !== 'task' && ref.entityType !== 'note') || seen.has(ref.entityId)) continue;
+      seen.add(ref.entityId);
+      const entity = ref.entityType === 'task' ? getTask(ref.entityId) : getNote(ref.entityId);
+      if (entity) links.push({ kind: ref.entityType, id: ref.entityId, title: entity.title ?? 'Untitled note' });
+    }
+  }
+  return links.slice(0, 20);
+}
+
 async function writeHandoff(transfer: ExecutionTransferRecord, checkpoint: SavedCheckpoint, target: string, chats: string[]): Promise<string> {
   const execution = getExecution(transfer.executionId)!;
   const workspace = getWorkspace(execution.workspaceId)!;
@@ -340,6 +354,7 @@ async function writeHandoff(transfer: ExecutionTransferRecord, checkpoint: Saved
     messages,
     chatSessionIds: chats,
     targetWorktree: target,
+    links: linkedEntities(chats),
   };
   const fixed = deterministicHandoff(input);
   let summary: string | null = null;

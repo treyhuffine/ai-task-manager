@@ -42,7 +42,6 @@ import { sessionFolder } from '@/lib/folders/source';
 import { useOpenFileListener, toWorktreeRelative } from '@/lib/entity-refs/open-file-event';
 import { useFileHistory } from '@/hooks/use-file-history';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
-import { TakeoverBanner } from './takeover/takeover-banner';
 import { ImportedTakeoverBar } from './imported-takeover-bar';
 import { providerLabel as importedProviderLabel } from './setup-card';
 import { ExecutionSkeleton } from './execution-skeleton';
@@ -631,7 +630,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           {/* A move to another computer, while it runs or once it stopped (P4.2). */}
           <div className="space-y-1.5 px-3 pt-2 empty:hidden">
             <TransferProgress sessionId={session.id} />
-            <ReviewBar sessionId={session.id} ownerComputerId={session.location?.computerId ?? null} />
+            <ReviewBar session={session} workspace={workspace} />
           </div>
           <PendingInputArea sessionId={session.id} />
           {isMirroredImport && (
@@ -720,7 +719,6 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             onOpenTools={() => setToolsSheetOpen(true)}
             toolsBadgeClass={runDot}
           />
-          <TakeoverBanner session={session} />
           {isGitWorktree && workspace && (
             // `empty:hidden`: the chip renders nothing in some states (a clean
             // worktree with no branch commits), and the row goes with it.
@@ -775,7 +773,6 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             panelLabel: PANEL_VIEW_LABELS[wb.last],
           }}
         />
-        <TakeoverBanner session={session} />
         <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col">
           <div ref={rowRef} className={cn('relative flex min-h-0 flex-1', terminalMax && 'hidden')}>
             {maximized && (

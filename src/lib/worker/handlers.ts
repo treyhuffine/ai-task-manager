@@ -16,7 +16,7 @@ import { promisify } from 'node:util';
 import type { UserInputResponse } from '@agentex/agent';
 import type { WorkspaceRecord } from '@/db/types';
 import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
-import { archiveSessionWorktree, buildWorktreeLeaf, createWorktreeForSession, defaultWorktreeRoot, fetchPrHead, openWorktreeHandle, runWorktreeScript } from '@/lib/workspaces/index';
+import { archiveSessionWorktree, buildWorktreeLeaf, createWorktreeForSession, defaultWorktreeRoot, fetchPrHead, openWorktreeHandle, resumeWorktreeForSession, runWorktreeScript } from '@/lib/workspaces/index';
 import { getClaudeTranscriptPath } from '@agentex/agent';
 import { harnessDefinition } from '@/lib/harness/registry';
 import { ExecutorError } from '@/lib/runner/errors';
@@ -35,6 +35,9 @@ import { CheckpointError, saveCheckpoint, worktreeAtCheckpoint } from '@/lib/tra
 import { hasBackgroundTasks, isRunning } from '@/lib/runner/live-state';
 import { openHere } from './open-here';
 import { reviewHere } from '@/lib/transfer/review';
+import { runGithub, type GithubRequest } from '@/lib/github/execution-github';
+import { pullBaseInto, pushExecutionBranch } from '@/lib/workspaces/branch-sync';
+import { looksLikeNonFastForward } from '@/lib/workspaces/git-errors';
 import { fetchInputFiles, inputFilesDir, placeInputFiles } from './input-files';
 import { UnsupportedRequestError, type RequestHandler } from './run';
 
@@ -55,6 +58,11 @@ export interface PreparePayload {
    * home keeps what comes of it to the transfer, not the execution.
    */
   transfer?: { id: string; checkpoint: { remote: string; branch: string; sha: string } };
+  /**
+   * Reopened after it was archived (P4.5): its worktree again, on its own
+   * branch, where it was, as the home does for its own.
+   */
+  resume?: { branch: string; baseSha: string | null };
 }
 
 /**
@@ -65,7 +73,7 @@ export interface PreparePayload {
 export type GitPayload =
   | { op: 'checkpoint'; message: string; includeUntracked: string[]; filesToCopy: string[]; transferId?: string }
   | { op: 'push' }
-  | { op: 'pull_base'; strategy: 'merge' | 'rebase'; workspaceId: string }
+  | { op: 'pull_base'; strategy: 'merge' | 'rebase'; workspaceId: string; baseBranch?: string | null }
   | { op: 'archive_worktree'; force: boolean; teardownCommand: string | null; workspaceId: string };
 
 /** Stopping everything an execution runs here, for a transfer (P4.2). */
@@ -246,6 +254,12 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
       const location = locate(request);
       return location ? writeExecution(location, request.write) : notPrepared;
     }
+    if (kind === 'github') {
+      const { workspaceId, request } = payload as { workspaceId: string; request: GithubRequest };
+      const folder = agentFolderHere(homeId, workspaceId);
+      if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this computer." } };
+      return runGithub(folder, request);
+    }
     if (kind === 'review_checkout') {
       const request = payload as ReviewCheckoutRequest;
       return reviewHere({
@@ -405,6 +419,14 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
             (earlier && earlier !== source ? earlier : path.join(ws.worktreeRoot ?? defaultWorktreeRoot(ws.slug), buildWorktreeLeaf(ws.slug, payload.chatSessionId)));
           const made = await worktreeAtCheckpoint({ repo: source, path: target, checkpoint: payload.transfer.checkpoint });
           result = { worktreePath: made.path, branchName: made.branch, baseSha: made.sha, warning: null, isolated: true };
+        } else if (payload.resume && !noted?.worktreePath) {
+          const earlier = command.target.executionId ? journal.preparedWorktree(command.target.executionId) : null;
+          const target = earlier && earlier !== source ? earlier : path.join(ws.worktreeRoot ?? defaultWorktreeRoot(ws.slug), buildWorktreeLeaf(ws.slug, payload.chatSessionId));
+          const resumed = fs.existsSync(target)
+            ? { path: target, branch: payload.resume.branch, baseSha: payload.resume.baseSha ?? '', warning: null }
+            : await resumeWorktreeForSession({ ws, worktreePath: target, branch: payload.resume.branch, baseSha: payload.resume.baseSha ?? '', sessionId: payload.chatSessionId });
+          const made = resumed ?? (await createWorktreeForSession({ ws, sessionId: payload.chatSessionId, sessionLabel: payload.label, baseBranchOverride: payload.baseBranch }));
+          result = { worktreePath: made.path, branchName: made.branch, baseSha: made.baseSha || null, warning: made.warning, isolated: true };
         } else if (noted?.worktreePath && fs.existsSync(noted.worktreePath)) {
           result = {
             worktreePath: noted.worktreePath,
@@ -529,13 +551,15 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
           case 'push': {
             const handle = await openWorktreeHandle({ worktreePath: worktree }, worktree);
             if (!handle || handle.kind !== 'git') return { state: 'failed', error: "The worktree isn't a Git repository." };
-            return { state: 'delivered', result: await handle.git.push() };
+            await pushExecutionBranch(handle);
+            return { state: 'delivered', result: { pushed: true } };
           }
           case 'pull_base': {
             const source = agentFolderHere(ctx.target.homeId, payload.workspaceId) ?? worktree;
             const handle = await openWorktreeHandle({ worktreePath: worktree }, source);
             if (!handle || handle.kind !== 'git') return { state: 'failed', error: "The worktree isn't a Git repository." };
-            return { state: 'delivered', result: await handle.git.pullLatestBase({ strategy: payload.strategy }) };
+            await pullBaseInto(handle, { strategy: payload.strategy, baseBranch: payload.baseBranch ?? null });
+            return { state: 'delivered', result: { pulled: true } };
           }
           case 'archive_worktree': {
             const source = agentFolderHere(ctx.target.homeId, payload.workspaceId) ?? worktree;
@@ -550,7 +574,16 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
           }
         }
       } catch (err) {
-        const code = err instanceof CheckpointError ? err.code : (err as { name?: string }).name;
+        const code =
+          err instanceof CheckpointError
+            ? err.code
+            : payload.op === 'push' && looksLikeNonFastForward(err)
+              ? 'non_fast_forward'
+              : payload.op === 'pull_base' && (err as { name?: string }).name === 'MergeConflictError'
+                ? 'merge_conflict'
+                : payload.op === 'archive_worktree' && (err as { name?: string }).name === 'DirtyWorktreeError'
+                  ? 'dirty_worktree'
+                  : (err as { name?: string }).name;
         return { state: 'failed', error: err instanceof Error ? err.message : String(err), result: { code } };
       }
     },

@@ -23,36 +23,30 @@ import { useComputers } from '@/hooks/use-computers';
 import { useThisComputer } from '@/hooks/use-opener';
 import { useClientLocation } from '@/hooks/use-client-location';
 import { useRunOn } from '@/hooks/use-workspaces';
-import { useOpenCodeHere, useTransfer } from '@/hooks/use-execution';
-import { apiErrorText } from '@/lib/api/client';
+import { useCommit, useOpenCodeHere, useTransfer } from '@/hooks/use-execution';
+import { ApiError, apiErrorText } from '@/lib/api/client';
 import { useOpenReview } from './review-bar';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { ContinueDialog } from './continue-dialog';
 
-interface Move {
-  key: string;
+export interface Move {
+  key: 'here' | 'home';
   label: string;
   to: { computerId: string; name: string };
   problem: string | null;
 }
 
-export function LocationMenu({
-  session,
-  workspace,
-  name,
-}: {
-  session: ChatSessionWithExecution;
-  workspace: WorkspaceRecord | null | undefined;
-  name: string;
-}) {
+/**
+ * The moves on offer for an execution, from this browser: to the computer
+ * it's on, and to the home. Each carries why it can't happen yet, if so.
+ * Also the computer this browser is on, for Open code here.
+ */
+export function useMoves(session: ChatSessionWithExecution, workspace: WorkspaceRecord | null | undefined) {
   const { data: computers } = useComputers();
   const thisComputer = useThisComputer();
   const client = useClientLocation();
   const { data: runOn } = useRunOn(workspace?.id ?? null);
   const { data: transfer } = useTransfer(session.id);
-  const [moving, setMoving] = useState<Move | null>(null);
-  const openCode = useOpenCodeHere(session.id);
-  const openReview = useOpenReview(session.id);
 
   const owner = session.location;
   const homeComputer = computers?.find((c) => c.isHome) ?? null;
@@ -92,6 +86,36 @@ export function LocationMenu({
   // Not on a phone, which follows the work rather than runs it.
   const canReview = !!owner && !!viewer && viewer.id !== owner.computerId && !!workspace?.isGit;
   const reviewProblem = canReview ? (runOn?.choices.some((c) => c.computerId === viewer!.id) ? null : `${workspace!.name} isn't set up on ${viewer!.name}.`) : null;
+
+  return { owner, viewer, moves, canReview, reviewProblem };
+}
+
+export function LocationMenu({
+  session,
+  workspace,
+  name,
+}: {
+  session: ChatSessionWithExecution;
+  workspace: WorkspaceRecord | null | undefined;
+  name: string;
+}) {
+  const { owner, viewer, moves, canReview, reviewProblem } = useMoves(session, workspace);
+  const [moving, setMoving] = useState<Move | null>(null);
+  const openCode = useOpenCodeHere(session.id);
+  const openReview = useOpenReview(session.id);
+  const commit = useCommit(session.id);
+
+  // Nothing published yet (§8.1): the ordinary commit and push on the
+  // source, which waits for a turn in flight rather than commit under it.
+  const commitAndPush = () =>
+    commit.mutate(
+      { andPush: true },
+      {
+        onSuccess: () => toast.success(`Asked the agent on ${owner?.name} to commit and push`, { description: 'Open code here again once it has.' }),
+        onError: (err) => toast.error("Couldn't ask for a commit", { description: apiErrorText(err) }),
+      },
+    );
+
   const openCodeHere = () =>
     openCode.mutate(undefined, {
       onSuccess: (state) => {
@@ -101,7 +125,13 @@ export function LocationMenu({
         });
         openReview(state.review.path);
       },
-      onError: (err) => toast.error("Couldn't open it here", { description: apiErrorText(err) }),
+      onError: (err) => {
+        const unpublished = err instanceof ApiError && (err.body as { error?: string } | null)?.error === 'not_published';
+        toast.error("Couldn't open it here", {
+          description: apiErrorText(err),
+          action: unpublished && owner ? { label: `Commit and push on ${owner.name}`, onClick: commitAndPush } : undefined,
+        });
+      },
     });
 
   const chip = (

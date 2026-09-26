@@ -8,8 +8,10 @@
  * unconfirmed rather than retried.
  */
 
+import { existsSync } from 'node:fs';
 import { chatPlacement, getChatSessionWithExecution, getComputer, getWorkspace } from '@/lib/db/queries';
 import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
+import { refuseWhileMoving } from '@/lib/transfer/moving';
 import type { ReadExecutionRequest, WriteExecutionRequest } from '@/lib/workers/protocol';
 import type { ExecutionRead, ReadAnswer } from '@/lib/workspaces/execution-reads';
 import type { ExecutionWrite } from '@/lib/workspaces/execution-writes';
@@ -58,6 +60,9 @@ async function askOwner(computerId: string, executionId: string, chatSessionId: 
  * edit is live work, not something to queue for later.
  */
 export async function writeOnOwner(chatSessionId: string, write: ExecutionWrite): Promise<Response | null> {
+  // Wherever it runs, nothing changes its files while it moves (P4.5).
+  const moving = refuseWhileMoving(chatSessionId);
+  if (moving) return moving;
   const placement = chatPlacement(chatSessionId);
   if (!placement || placement.isHome || !placement.executionId) return null;
   const session = getChatSessionWithExecution(chatSessionId);
@@ -91,4 +96,34 @@ export async function writeOnOwner(chatSessionId: string, write: ExecutionWrite)
     }
     throw err;
   }
+}
+
+/**
+ * The execution's diff against its base, from wherever its worktree is
+ * (P4.5): the commit, PR and conflict helpers build their prompt from it.
+ */
+export async function executionDiff(chatSessionId: string): Promise<{ ok: true; diff: unknown } | { ok: false; response: Response }> {
+  const remote = await readAnswerOnOwner(chatSessionId, { kind: 'diff', file: null });
+  if (remote) {
+    if (remote.status !== 200 || !remote.body) {
+      return { ok: false, response: Response.json(remote.body ?? { error: 'Worktree unavailable' }, { status: remote.status === 200 ? 404 : remote.status }) };
+    }
+    return { ok: true, diff: remote.body };
+  }
+  const session = getChatSessionWithExecution(chatSessionId);
+  const ws = session?.workspaceId ? getWorkspace(session.workspaceId) : null;
+  if (!session || !ws) return { ok: false, response: Response.json({ error: 'Session not found' }, { status: 404 }) };
+  const { openWorktreeHandle } = await import('@/lib/workspaces');
+  const handle = await openWorktreeHandle(session, ws.cwd);
+  if (!handle || handle.kind !== 'git') return { ok: false, response: Response.json({ error: 'Worktree unavailable' }, { status: 404 }) };
+  return { ok: true, diff: await handle.git.diff('base') };
+}
+
+/** The execution's folder wherever it runs (P4.5): the worktree here, or the one its computer prepared. */
+export function executionFolder(chatSessionId: string): string | null {
+  const placement = chatPlacement(chatSessionId);
+  if (placement && !placement.isHome) return placement.worktreePath;
+  // Here, only a worktree that's still on disk.
+  const here = getChatSessionWithExecution(chatSessionId)?.worktreePath ?? null;
+  return here && existsSync(here) ? here : null;
 }

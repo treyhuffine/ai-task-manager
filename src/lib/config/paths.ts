@@ -13,12 +13,12 @@
  *   ├── .gitignore             ships excluding .config/ .work/ + db sidecars
  *   ├── .config/               precious-local, NEVER sync: config.json (token), preview.json
  *   └── .work/                 regenerable scratch, NEVER sync, safe to delete:
- *                                clones/ worktrees/ tmp/ backups/ preview/ icons/
+ *                                worktrees/ tmp/ backups/ preview/ icons/
  *
  * The split is by two axes — *don't-sync* AND *don't-lose*. `.config` is
  * machine-local but precious (you'd hate to lose the token/settings);
  * `.work` is machine-local and disposable (worktrees rebuild from the git
- * remote, clones re-clone, icons re-fetch). Point your sync (git
+ * remote, icons re-fetch). Point your sync (git
  * recommended) at the home; the dotfolders are pre-excluded by the shipped
  * `.gitignore` and are conventionally ignored by sync tools.
  *
@@ -166,7 +166,7 @@ export function getSetupRegistryPath(): string {
 
 // ─── .work — regenerable scratch (don't sync, safe to delete) ─────
 
-/** Machine-local scratch: worktrees, clones, tmp, backups, pids, icons. */
+/** Machine-local scratch: worktrees, tmp, backups, pids, icons. */
 export function getWorkDir(): string {
   const override = process.env[WORK_DIR_ENV];
   if (override) return override;
@@ -175,20 +175,6 @@ export function getWorkDir(): string {
 
 export function ensureWorkDir(): string {
   const dir = getWorkDir();
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  return dir;
-}
-
-/**
- * Where `<cli> takeover` clones workspaces. Per-workspace dir; branches
- * multiplex over one clone. Regenerable runtime state → `.work/clones`.
- */
-export function getClonesDir(): string {
-  return path.join(getWorkDir(), 'clones');
-}
-
-export function ensureClonesDir(): string {
-  const dir = getClonesDir();
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
@@ -348,7 +334,7 @@ const CONTENT_ENTRIES = [
  * uncommitted work or be open in an editor — moving them would break the
  * references and disrupt live sessions. They're regenerable, so existing
  * ones stay put (DB stays valid) and only NEW ones are created under
- * `.work/` (see `getClonesDir` / `defaultWorktreeRoot`); both legacy root
+ * `.work/` (see `defaultWorktreeRoot`); both legacy root
  * locations are gitignored so they still don't sync.
  */
 const WORK_ENTRIES = ['tmp', 'backups', 'preview', 'icons'];

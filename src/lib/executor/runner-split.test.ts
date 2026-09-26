@@ -475,15 +475,27 @@ describe('who may answer a prompt (P2.6)', () => {
 });
 
 describe('the P0.4 gaps closed with P2.4', () => {
-  it('refuses to send into a chat someone took over, from any path', async () => {
+  it('sends nothing to the source while the work moves, from any path', async () => {
     home = await createTestHome({ prefix: 'ri-runner-split-' });
     fake = installFakeHarness('claude');
     const q = await import('@/lib/db/queries');
-    const ws = q.createWorkspace({ name: 'Taken', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+    const identity = await import('@/lib/home/identity');
+    identity.resetHomeIdentityCache();
+    const hostId = identity.ensureHomeIdentity().home.hostComputerId;
+    const laptop = q.createComputer({ name: 'Laptop', platform: 'darwin', hostname: 'laptop' });
+    const ws = q.createWorkspace({ name: 'Moving', cwd: home.root, isGit: true, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
     const { execution, session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'work' });
-    q.updateExecution(execution.id, { takeoverStartedAt: new Date().toISOString() });
+    q.createTransfer({ executionId: execution.id, fromComputerId: hostId, toComputerId: laptop.id, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
     const { dispatch } = await import('./adapter');
-    await expect(dispatch(session.id, 'from a commit helper')).rejects.toThrow(/worked on locally/);
+
+    // A helper with no saved message to hold (a commit or PR prompt) is refused.
+    await expect(dispatch(session.id, 'from a commit helper')).rejects.toThrow(/moving to another computer/);
+    // A saved message is held for wherever the work arrives.
+    const saved = q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'from the composer', createdAt: new Date().toISOString() })!;
+    let queued = false;
+    await dispatch(session.id, 'from the composer', { sourceEventId: saved.id, onQueued: () => (queued = true) });
+    expect(queued).toBe(true);
+    expect(q.getActiveTransfer(execution.id)!.heldEventIds).toEqual([saved.id]);
     expect(fake!.sessions).toHaveLength(0);
     expect(q.listRuns({}).filter((r) => r.chatSessionId === session.id)).toHaveLength(0);
   });

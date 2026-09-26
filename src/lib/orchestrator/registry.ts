@@ -2757,6 +2757,9 @@ const archive_execution_action = defineAction({
         body: JSON.stringify({ force: force === true }),
       });
     } catch (err) {
+      if (err instanceof ServerResponseError && err.status === 409 && err.json()?.code === 'moving') {
+        throw new ActionError('conflict', String(err.json()?.message ?? 'It is moving to another computer.'), 'Archive it once it has arrived.');
+      }
       if (err instanceof ServerResponseError && err.status === 409 && err.json()?.code === 'dirty_worktree') {
         const detail = err.json()?.message;
         throw new ActionError(

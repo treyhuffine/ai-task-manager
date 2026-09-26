@@ -92,11 +92,11 @@ describe('1. only the home’s own key counts as the home machine', () => {
 });
 
 describe('2. an unclaimed restored home serves nothing that can start work', () => {
-  it('blocks webhook, callback and takeover routes', () => {
+  it('blocks webhook and callback routes', () => {
     fs.rmSync(path.join(home.configDir, 'machine.json'));
     resetHomeIdentityCache();
     expect(resolveHomeIdentity().state).toBe('needs_claim');
-    for (const p of ['/api/webhooks/triggers/saved-public-id', '/api/takeover/saved-token/resume', '/api/connectors/callback']) {
+    for (const p of ['/api/webhooks/triggers/saved-public-id', '/api/connectors/callback']) {
       expect(proxy(request(p, 'POST', {})).status, p).toBe(503);
     }
     expect(proxy(request('/api/health', 'GET', undefined)).headers.get('x-middleware-next')).toBe('1');

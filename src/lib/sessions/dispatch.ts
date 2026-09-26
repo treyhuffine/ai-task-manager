@@ -50,6 +50,7 @@ import {
   clearExecutionSetupError,
   getOpenPlacement,
   listWorkerCommands,
+  clearPlacementWorktree,
 } from '@/lib/db/queries';
 import type { CreateWorktreeForSessionResult } from '@/lib/workspaces';
 import {
@@ -66,10 +67,11 @@ import { terminalOwnerId } from '@/lib/terminal/owner';
 import { invalidateHarnessSession, close as closeHarnessSession } from '@/lib/executor/adapter';
 import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord, WorkerCommandActor } from '@/db/types';
 import type { PreparePayload } from '@/lib/worker/handlers';
-import { wakeComputer } from '@/lib/workers/hub';
+import { isComputerConnected, wakeComputer } from '@/lib/workers/hub';
 import { notReady, runOnFor } from '@/lib/setups/run-on';
 import { requireHarnessId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
+import { ExecutionMovingError, movingTo } from '@/lib/transfer/moving';
 
 const execFileAsync = promisify(execFile);
 
@@ -666,6 +668,18 @@ export async function archiveExecutionSession(
 ): Promise<ChatSessionWithExecution | null> {
   const session = getChatSessionWithExecution(args.sessionId);
   if (!session) return null;
+  // Not while it moves: its source is being saved (P4.5).
+  const movingToName = movingTo(session.executionId);
+  if (movingToName) throw new ExecutionMovingError(movingToName);
+
+  // On another computer (P4.5): stop it there (its sessions and terminals),
+  // then remove its worktree there, refused when it has work that isn't
+  // committed, as here. A computer that's away does both when it's back,
+  // and a worktree it finds dirty then is left as it is.
+  const elsewhere = session.executionId ? getPlacementElsewhere(session.executionId) : null;
+  if (elsewhere && session.executionId && session.workspaceId) {
+    await archiveOnOwner(session, elsewhere, args.force ?? false);
+  }
 
   // Workspace lookup is best-effort — a workspace can be deleted out from
   // under sessions, but we still want to be able to archive the row.
@@ -700,8 +714,7 @@ export async function archiveExecutionSession(
   //   - node-pty terminals belong to the execution, so one call covers
   //     every shell any of its chats opened
   //   - the cached agent CLI subprocess is per chat, and archiving an
-  //     execution cascades to all of them (takeover chats included), so
-  //     enumerate and close each
+  //     execution cascades to all of them, so enumerate and close each
   // We just tore down the worktree above; without closing the agent, its
   // Claude/Codex subprocess keeps running against a now-deleted cwd until
   // the server restarts. Both reapers are no-ops when nothing's live, so
@@ -713,6 +726,44 @@ export async function archiveExecutionSession(
   await Promise.all(reapSessionIds.map((id) => closeHarnessSession(id)));
 
   return getChatSessionWithExecution(args.sessionId);
+}
+
+/** A worktree with work that isn't committed, on another computer (P4.5): archiving it would lose that. */
+export class RemoteDirtyWorktreeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DirtyWorktreeError';
+  }
+}
+
+async function archiveOnOwner(
+  session: ChatSessionWithExecution,
+  placement: NonNullable<ReturnType<typeof getPlacementElsewhere>>,
+  force: boolean,
+): Promise<void> {
+  const executionId = session.executionId!;
+  const ws = getWorkspace(session.workspaceId!);
+  const chats = listChatSessions({ executionId }).map((s) => s.id);
+  const base = { computerId: placement.computerId, actor: { source: 'human' as const }, executionId, chatSessionId: session.id, generation: placement.generation };
+  const quiesce = queueWorkerCommand({ ...base, kind: 'quiesce', payload: { chatSessionIds: chats, transferId: '' } });
+  const remove = queueWorkerCommand({
+    ...base,
+    kind: 'git',
+    payload: { op: 'archive_worktree', force, teardownCommand: ws?.teardownCommand ?? null, workspaceId: session.workspaceId! },
+  });
+  wakeComputer(placement.computerId);
+  if (!isComputerConnected(placement.computerId)) return;
+  const { awaitWorkerCommand, CommandFailedError } = await import('@/lib/workers/await-command');
+  try {
+    await awaitWorkerCommand(quiesce.id, 60_000, 'Stopping it');
+    await awaitWorkerCommand(remove.id, 120_000, 'Removing its worktree');
+  } catch (err) {
+    if (err instanceof CommandFailedError && (err.result as { code?: string } | null)?.code === 'dirty_worktree') {
+      throw new RemoteDirtyWorktreeError(err.message);
+    }
+    // Anything else leaves the worktree where it is. The record is archived all the same.
+    console.warn(`[archive] ${executionId} on ${getComputer(placement.computerId)?.name}:`, err instanceof Error ? err.message : err);
+  }
 }
 
 export interface ContinueExecutionSessionArgs {
@@ -771,7 +822,34 @@ export async function continueExecutionSession(
   // there, and only its worker prepares one. Rebuilding it on the home would
   // put work that runs elsewhere in a folder here (P2.7 to P2.9 re-check).
   // Routing a continuation to its computer is P4.5.
-  if (!ws || !ws.isGit || session.surfaceKind === 'imported_agent' || getPlacementElsewhere(session.executionId)) {
+  // An execution on another computer comes back there (P4.5): reopened, its
+  // computer rebuilds its worktree on its own branch, as the home would.
+  const elsewhere = getPlacementElsewhere(session.executionId);
+  if (elsewhere && ws?.isGit && session.surfaceKind !== 'imported_agent' && session.status === 'archived' && session.branchName) {
+    unarchiveExecution(session.executionId);
+    clearPlacementWorktree(elsewhere.id);
+    markExecutionSetupStarted(session.executionId);
+    queueWorkerCommand({
+      computerId: elsewhere.computerId,
+      kind: 'prepare',
+      payload: {
+        workspace: ws,
+        chatSessionId: session.id,
+        label: session.label ?? null,
+        baseBranch: ws.baseBranch,
+        prNumber: null,
+        live: false,
+        resume: { branch: session.branchName, baseSha: session.baseSha ?? null },
+      } satisfies PreparePayload,
+      actor: { source: 'human' },
+      executionId: session.executionId,
+      chatSessionId: session.id,
+      generation: elsewhere.generation,
+    });
+    wakeComputer(elsewhere.computerId);
+    return getChatSessionWithExecution(args.sessionId);
+  }
+  if (!ws || !ws.isGit || session.surfaceKind === 'imported_agent' || elsewhere) {
     if (session.status === 'archived') unarchiveExecution(session.executionId);
     return getChatSessionWithExecution(args.sessionId);
   }

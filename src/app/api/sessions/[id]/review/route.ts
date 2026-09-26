@@ -2,8 +2,9 @@
  * Open code here (docs/homes-spec.md §8.1, P4.1): a review checkout of the
  * execution's latest published commit on the viewer's own computer, a
  * browser linked to it or the home's own browser. The execution keeps
- * running where it is. GET says what this computer has, POST makes or
- * refreshes it (refreshed only while clean: edits there are kept).
+ * running where it is. GET says what this computer has (or, with
+ * `?computer=`, what that one has, for Continue there to mention), POST
+ * makes or refreshes it (refreshed only while clean: edits there are kept).
  */
 
 import type { NextRequest } from 'next/server';
@@ -52,9 +53,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const ctx = context(id);
   if (!ctx) return Response.json({ error: 'Session not found' }, { status: 404 });
   const viewer = viewerComputer(request);
+  const on = new URL(request.url).searchParams.get('computer') ?? viewer?.id ?? null;
   return Response.json({
     viewer,
-    review: viewer ? view(getReviewCheckout(ctx.executionId, viewer.id)) : null,
+    review: on ? view(getReviewCheckout(ctx.executionId, on)) : null,
   });
 }
 
@@ -74,7 +76,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return Response.json({ error: 'not_git', message: "Work that isn't in a Git repository can't be opened on another computer." }, { status: 409 });
   }
   const branch = ctx.session.branchName;
-  if (!branch) return Response.json({ error: 'not_published', message: `It has no branch yet on ${sourceName}.` }, { status: 409 });
+  if (!branch) return Response.json({ error: 'no_branch', message: `It has no branch yet on ${sourceName}.` }, { status: 409 });
 
   const host = getHome()?.hostComputerId ?? null;
   let answer: ReviewCheckoutAnswer;

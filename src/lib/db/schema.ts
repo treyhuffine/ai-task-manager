@@ -1277,19 +1277,11 @@ export const executions = sqliteTable(
     setupScriptStatus: text({ enum: ['running', 'done', 'failed'] }),
     setupScriptError: text(),
 
-    // "Take over locally" lifecycle — lifted from chat_sessions. In takeover
-    // iff `takeover_started_at IS NOT NULL`; all six clear together on
-    // resume/cancel. The token authenticates the local CLI without the bearer
-    // token and expires after one hour.
-    //
-    // `takeoverChatSessionId` records the chat that initiated the takeover
-    // so the resume handoff lands in the exact chat the user started in —
-    // a workspace execution can have multiple sibling chats (scheduled
-    // fires accumulate them) and "most-recently-active" can pick the
-    // wrong one once that happens. ON DELETE SET NULL keeps the
-    // execution-side state valid if the initiating chat is ever hard-
-    // deleted. Legacy executions with NULL fall back to the old "most-
-    // recent active chat" heuristic in `findChatSessionByTakeoverToken`.
+    // Retired: "take over locally" (P4.5, docs/homes-spec.md §8.2). Continue
+    // here replaced it, and nothing reads or writes these now. They stay
+    // until the next baseline squash drops them: SQLite can't drop a
+    // foreign-key column in place, so dropping them now means rebuilding
+    // `executions`, which this history doesn't need.
     takeoverStartedAt: text(),
     takeoverBaseSha: text(),
     takeoverBranch: text(),
@@ -1468,7 +1460,7 @@ export const previewTargets = sqliteTable(
 // One row per chat thread. `type` discriminates: orchestration (main thread),
 // content (scoped to a task/note), execution (CLI-backed work). Execution
 // chats carry workspace_id and point at an `execution_id`; the durable
-// git/worktree/PR/takeover state lives on the `executions` row, read back
+// git/worktree/PR state lives on the `executions` row, read back
 // through `getChatSessionWithExecution`. They may carry external_session_id
 // when bound to a CLI session.
 

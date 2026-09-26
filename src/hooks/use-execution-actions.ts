@@ -9,6 +9,7 @@ import {
   usePullBase,
   useRetrySetup,
   useSessionStatus,
+  useTransfer,
   useWorktreeScope,
   worktreeScopeFromCache,
 } from '@/hooks/use-execution';
@@ -52,10 +53,10 @@ export type ActionState =
    *  fetch + create flow once the user fixes the underlying cause. */
   | { kind: 'setupFailed'; error: string; prNumber: number | null }
   | { kind: 'noWorktree' }
-  /** User pulled this session locally via the takeover flow. The host's
-   *  agent is paused; commit/push/PR actions are meaningless until the
-   *  user runs `ri resume` or clicks Done in the takeover banner. */
-  | { kind: 'takenOver'; takeoverToken: string; startedAt: string };
+  /** Moving to another computer, which doesn't have it yet (P4.5). The
+   *  move's progress replaces the bar: a commit, push or merge would race
+   *  the save, and the server refuses them until it arrives. */
+  | { kind: 'moving'; to: string };
 
 /**
  * GitHub PR for the session's branch. `null` when no PR exists yet
@@ -170,6 +171,7 @@ export function useExecutionActions(
   const id = session?.id ?? '';
   const { data: status } = useSessionStatus(id || null);
   const { data: prResp } = useSessionPr(id || null);
+  const { data: transfer } = useTransfer(id || null);
   const commit = useCommit(id);
   const push = usePush(id);
   const pullBase = usePullBase(id);
@@ -192,15 +194,10 @@ export function useExecutionActions(
   const state = useMemo<ActionState>(() => {
     if (!session) return { kind: 'noWorktree' };
     if (session.status === 'archived') return { kind: 'archived' };
-    // Takeover supersedes every other state — while the user owns the
-    // work locally, we don't want the action bar to suggest commits or
-    // pushes that race with their laptop's branch.
-    if (session.takeoverStartedAt && session.takeoverToken) {
-      return {
-        kind: 'takenOver',
-        takeoverToken: session.takeoverToken,
-        startedAt: session.takeoverStartedAt,
-      };
+    // A move supersedes every other state until the destination has the
+    // work: its source is being stopped and saved.
+    if (transfer?.state === 'active' && !transfer.ownershipChanged) {
+      return { kind: 'moving', to: transfer.to.name };
     }
     // Failed-setup wins over noWorktree so the user gets the retry
     // affordance instead of an empty pill while sitting on a stuck row.
@@ -297,7 +294,7 @@ export function useExecutionActions(
     }
 
     return { kind: 'cleanNoBranch' };
-  }, [session, workspaceIsGit, prResp, status, pushNonFastForward]);
+  }, [session, workspaceIsGit, prResp, status, pushNonFastForward, transfer]);
 
   return { state, commit, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts };
 }

@@ -4,14 +4,15 @@
  * Continue on MacBook (docs/homes-spec.md §8.2, P4.2): what the move does,
  * what it takes, and the one choice it asks for. Tracked changes always go,
  * committed and pushed with Git. Untracked files go only when chosen. Local
- * setup and secrets never do.
+ * setup and secrets never do. A review checkout already there (§8.1) stays
+ * as it is, apart from the work, and the dialog says so.
  */
 
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useStartTransfer, useWorkingState } from '@/hooks/use-execution';
+import { useReviewOn, useStartTransfer, useWorkingState } from '@/hooks/use-execution';
 import { apiErrorText } from '@/lib/api/client';
 
 export function ContinueDialog({
@@ -28,6 +29,8 @@ export function ContinueDialog({
   from: string;
 }) {
   const { data: state, isLoading, error } = useWorkingState(sessionId, open);
+  const { data: there } = useReviewOn(sessionId, to.computerId, open);
+  const review = there?.review ?? null;
   const start = useStartTransfer(sessionId);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const toggle = (file: string) =>
@@ -82,6 +85,13 @@ export function ContinueDialog({
                   </div>
                   <p className="text-[11px] text-muted-foreground/80">Files you leave unchecked stay on {from}.</p>
                 </fieldset>
+              )}
+              {review && (
+                <p className="rounded-md border border-border bg-muted/40 px-2.5 py-2 text-[11.5px] text-muted-foreground">
+                  Your review checkout of <span className="font-mono">{review.sha.slice(0, 7)}</span> on {to.name}
+                  {review.dirty ? ' has your edits. It' : ''} stays as it is, apart from this work, which continues in a clean
+                  worktree of its own there. {review.dirty ? 'Nothing in it is added to the move. Resolve those edits first if you meant them for this work.' : ''}
+                </p>
               )}
               {state.localOnly.length > 0 && (
                 <p className="text-[11px] text-muted-foreground/80">

@@ -47,6 +47,7 @@ export type WorkerRequestKind =
   | 'terminal'
   | 'open_here'
   | 'review_checkout'
+  | 'github'
   | 'list_history'
   | 'read_history';
 

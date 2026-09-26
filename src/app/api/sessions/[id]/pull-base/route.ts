@@ -1,10 +1,13 @@
 import type { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
+import { gitOnOwner } from '@/lib/executor/owner-git';
+import { pullBaseInto } from '@/lib/workspaces/branch-sync';
+import { actorFromRequest } from '@/lib/auth/actor';
 
 /**
- * `ws.git.pullLatestBase({strategy})` — fetch the workspace's base
- * branch from origin and merge (or rebase) it into this worktree. Library
+ * `pullBaseInto` — fetch the worktree's base branch from its remote and
+ * merge (or rebase) it into this worktree. Library
  * throws `MergeConflictError` on conflict; we return 409 with code so the
  * UI can offer "ask agent to resolve."
  */
@@ -19,10 +22,26 @@ export async function POST(
 
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
+    const ws = session.workspaceId ? getWorkspace(session.workspaceId) : null;
+    // On the computer it runs on (P4.5), in order with its other work there.
+    if (session.workspaceId) {
+      const there = await gitOnOwner(
+        id,
+        { op: 'pull_base', strategy, workspaceId: session.workspaceId, baseBranch: ws?.baseBranch ?? null },
+        { timeoutMs: 180_000, what: 'Bringing in the base branch', actor: actorFromRequest(request.headers) },
+      );
+      if (there) {
+        if (there.ok) return Response.json({ ok: true });
+        const failed = (await there.response.json()) as { error: string; message: string };
+        if (failed.error === 'merge_conflict') {
+          return Response.json({ error: 'MergeConflictError', code: 'merge_conflict', message: failed.message }, { status: 409 });
+        }
+        return Response.json(failed, { status: 409 });
+      }
+    }
     if (!session.worktreePath || !session.workspaceId) {
       return Response.json({ error: 'Session has no worktree' }, { status: 400 });
     }
-    const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
 
     const handle = await openWorktreeHandle(session, ws.cwd);
@@ -30,7 +49,7 @@ export async function POST(
       return Response.json({ error: 'Not a git workspace' }, { status: 400 });
     }
 
-    await handle.git.pullLatestBase({ strategy });
+    await pullBaseInto(handle, { strategy, baseBranch: ws.baseBranch });
     return Response.json({ ok: true });
   } catch (err) {
     if (err instanceof Error && err.name === 'MergeConflictError') {

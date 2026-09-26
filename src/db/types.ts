@@ -306,8 +306,8 @@ export type UpdateExternalSessionImportInput = Partial<Omit<CreateExternalSessio
 
 /**
  * A chat_session joined to its execution, with the execution's durable
- * git/worktree/PR/takeover state flattened onto the top level. This is the
- * read shape every consumer of worktree/branch/PR/takeover state uses
+ * git/worktree/PR state flattened onto the top level. This is the read
+ * shape every consumer of worktree/branch/PR state uses
  * (`getChatSessionWithExecution`).
  */
 export type ChatSessionWithExecution = ChatSessionRecord & {
@@ -321,11 +321,6 @@ export type ChatSessionWithExecution = ChatSessionRecord & {
   setupWarning: string | null;
   setupScriptStatus: 'running' | 'done' | 'failed' | null;
   setupScriptError: string | null;
-  takeoverStartedAt: string | null;
-  takeoverBaseSha: string | null;
-  takeoverBranch: string | null;
-  takeoverToken: string | null;
-  takeoverTokenExpiresAt: string | null;
   /** Where the execution runs. Null for a chat with no execution. */
   location: ExecutionLocation | null;
 };

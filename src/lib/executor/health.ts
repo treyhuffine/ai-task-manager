@@ -204,7 +204,7 @@ export async function healthCheckSession(
     // A chat still mirroring an import is disqualified outright, whatever the
     // row looks like. It has no provider session to resume, so a dispatch
     // would spawn a fresh agent with none of the context the transcript
-    // shows — the exact silent fork the takeover gate exists to prevent, and
+    // shows — the exact silent fork the import gate exists to prevent, and
     // an automated trigger must not walk through that gate on the user's
     // behalf.
     const isMirroredImport = isImportMirror(session);

@@ -5270,13 +5270,38 @@ export function heldMessages(executionId: string): Map<string, { transfer: Execu
 }
 
 /**
+ * The generation a transfer prepares its destination at: one past its
+ * source's, and past every earlier attempt from that source. A computer
+ * that was given a generation by an attempt that stopped may have let go
+ * of it since, and a let-go generation is never taken up again, so Try
+ * again never reuses one. Attempts run one at a time, so these only grow.
+ */
+export function targetGenerationOf(
+  transfer: Pick<ExecutionTransferRecord, 'id' | 'executionId' | 'fromGeneration'>,
+  db: Pick<ReturnType<typeof getDb>, 'select'> = getDb(),
+): number {
+  const earlier = db
+    .select({ n: sql<number>`count(*)` })
+    .from(executionTransfers)
+    .where(
+      and(
+        eq(executionTransfers.executionId, transfer.executionId),
+        eq(executionTransfers.fromGeneration, transfer.fromGeneration),
+        lt(executionTransfers.id, transfer.id),
+      ),
+    )
+    .get();
+  return transfer.fromGeneration + 1 + (earlier?.n ?? 0);
+}
+
+/**
  * The generation a transfer is preparing on its destination, before it owns
  * the work (P4.2). Commands for it there aren't stale, and the destination
  * isn't told to let go of it, while the transfer is active.
  */
 export function transferReservation(executionId: string): { computerId: string; generation: number } | null {
   const active = getActiveTransfer(executionId);
-  return active ? { computerId: active.toComputerId, generation: active.fromGeneration + 1 } : null;
+  return active ? { computerId: active.toComputerId, generation: targetGenerationOf(active) } : null;
 }
 
 /**
@@ -5336,7 +5361,7 @@ export function continueOwnership(input: {
         id: uuidv7(),
         executionId: transfer.executionId,
         computerId: transfer.toComputerId,
-        generation: transfer.fromGeneration + 1,
+        generation: targetGenerationOf(transfer, tx),
         worktreePath: input.worktreePath,
         checkpointSha: input.checkpointSha,
         startReason: 'continued',
@@ -5492,6 +5517,15 @@ export function saveReviewCheckout(input: {
     })
     .returning()
     .get();
+}
+
+/** A placement's worktree is gone (archived) until its computer prepares it again (P4.5). */
+export function clearPlacementWorktree(placementId: string): void {
+  getDb()
+    .update(executionPlacements)
+    .set({ worktreePath: null, updatedAt: new Date().toISOString() })
+    .where(eq(executionPlacements.id, placementId))
+    .run();
 }
 
 export function setPlacementWorktree(placementId: string, worktreePath: string, checkpointSha: string | null = null): void {
@@ -6414,9 +6448,9 @@ export function withTriggerProvider<T extends TriggerRecord>(row: T): T & { prov
 }
 
 // ─── Executions ───────────────────────────────────────────────
-// A durable work artifact (worktree + branch + PR + takeover state)
-// anchored to a workspace. Chats point at it via executionId. The
-// git/worktree/PR/takeover columns were lifted off chat_sessions; reads
+// A durable work artifact (worktree + branch + PR state) anchored to a
+// workspace. Chats point at it via executionId. The git/worktree/PR
+// columns were lifted off chat_sessions; reads
 // flow through `getChatSessionWithExecution` (flattened) and writes go
 // through the named helpers below. See docs/executions-spec.md.
 
@@ -6571,83 +6605,6 @@ export function setExecutionLabel(executionId: string, label: string | null): Ex
   return updateExecution(executionId, { label: label?.trim() || null });
 }
 
-// ── Takeover lifecycle (all five columns move together) ───────
-
-export function startExecutionTakeover(
-  executionId: string,
-  params: {
-    token: string;
-    branch: string;
-    baseSha: string;
-    expiresAt: string;
-    /** Chat session that initiated the takeover. Optional for backward
-     *  compat with legacy callers; new callers should pass it so the
-     *  resume handoff lands in the exact chat under multi-chat
-     *  executions. */
-    chatSessionId?: string | null;
-  },
-): ExecutionRecord | null {
-  return updateExecution(executionId, {
-    takeoverStartedAt: new Date().toISOString(),
-    takeoverBaseSha: params.baseSha,
-    takeoverBranch: params.branch,
-    takeoverToken: params.token,
-    takeoverTokenExpiresAt: params.expiresAt,
-    takeoverChatSessionId: params.chatSessionId ?? null,
-  });
-}
-
-export function clearExecutionTakeover(executionId: string): ExecutionRecord | null {
-  return updateExecution(executionId, {
-    takeoverStartedAt: null,
-    takeoverBaseSha: null,
-    takeoverBranch: null,
-    takeoverToken: null,
-    takeoverTokenExpiresAt: null,
-    takeoverChatSessionId: null,
-  });
-}
-
-/**
- * Token-based lookup for the takeover CLI/browser flow. The token lives
- * on the execution now; we return the execution's primary chat (most
- * recently active, non-archived) flattened with execution state so the
- * resume/cancel routes can dispatch a handoff message into it. Returns
- * undefined when the token is unknown or already cleared. Expiry is
- * enforced at the route layer so callers can distinguish "expired" from
- * "not found."
- */
-export function findChatSessionByTakeoverToken(token: string): ChatSessionWithExecution | undefined {
-  const db = getDb();
-  const exec = db.select().from(executions).where(eq(executions.takeoverToken, token)).get();
-  if (!exec) return undefined;
-  // Prefer the chat that initiated the takeover (recorded on the
-  // execution at startExecutionTakeover time). This is the only correct
-  // target once executions accumulate multiple chats — scheduled
-  // recurring fires now spawn sibling chats against the same execution,
-  // and "most-recently-active" can resolve to a chat that wasn't part
-  // of the takeover at all.
-  if (exec.takeoverChatSessionId) {
-    const initiating = db
-      .select()
-      .from(chatSessions)
-      .where(eq(chatSessions.id, exec.takeoverChatSessionId))
-      .get();
-    if (initiating) return flattenSessionExecution({ ...initiating, execution: exec });
-    // Initiating chat was hard-deleted while takeover was live (rare,
-    // but the cascade is SET NULL on chat_sessions). Fall through to
-    // the legacy heuristic so the user can still resume *somewhere*.
-  }
-  const chat = db
-    .select()
-    .from(chatSessions)
-    .where(and(eq(chatSessions.executionId, exec.id), eq(chatSessions.status, 'active')))
-    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
-    .get();
-  if (!chat) return undefined;
-  return flattenSessionExecution({ ...chat, execution: exec });
-}
-
 /**
  * Executions whose worktree provisioning began but never completed and
  * never failed cleanly — silent hangs the cold-start reaper marks with a
@@ -6750,7 +6707,7 @@ export function unarchiveExecution(executionId: string): ExecutionRecord | null 
 /**
  * Normalize a chat row left-joined to executions into the flattened
  * `ChatSessionWithExecution` shape: the execution's durable git/worktree/
- * PR/takeover state hoisted to the top level under the field names the
+ * PR state hoisted to the top level under the field names the
  * columns used to have on chat_sessions. The execution is the sole source
  * of truth. Drizzle returns an all-null object (not null) for an unmatched
  * left join, so we coalesce on the execution's id to decide whether it's
@@ -6775,11 +6732,6 @@ function flattenSessionExecution<T extends ChatSessionRecord>(
     setupWarning: e?.setupWarning ?? null,
     setupScriptStatus: e?.setupScriptStatus ?? null,
     setupScriptError: e?.setupScriptError ?? null,
-    takeoverStartedAt: e?.takeoverStartedAt ?? null,
-    takeoverBaseSha: e?.takeoverBaseSha ?? null,
-    takeoverBranch: e?.takeoverBranch ?? null,
-    takeoverToken: e?.takeoverToken ?? null,
-    takeoverTokenExpiresAt: e?.takeoverTokenExpiresAt ?? null,
     location: e ? executionLocation(e.id) : null,
   } as T & ChatSessionWithExecution;
 }
@@ -6798,10 +6750,10 @@ export function executionLocation(executionId: string): ExecutionLocation | null
 }
 
 /**
- * Single chat session with its execution's git/worktree/PR/takeover state
+ * Single chat session with its execution's git/worktree/PR state
  * flattened on top. Drop-in replacement for `getChatSession` at every
  * call site that reads worktreePath / branchName / baseSha / prNumber
- * / setup_* / takeover_*. Returns null for unknown ids. Synchronous, like
+ * / setup_*. Returns null for unknown ids. Synchronous, like
  * the rest of this layer.
  */
 export function getChatSessionWithExecution(id: string): ChatSessionWithExecution | null {
@@ -7202,7 +7154,7 @@ export function unarchiveChatSession(id: string): ChatSessionRecord | null {
  *
  * Safe as a hard delete: FK enforcement is ON, so the only children an
  * empty chat could have (chat_events, chat_refs, external_session_imports)
- * cascade, and the SET-NULL refs (execution takeover pointer, runs,
+ * cascade, and the SET-NULL refs (the retired execution takeover pointer, runs,
  * entity_versions) detach cleanly. Chat sessions carry no embedding or
  * markdown mirror, so there's nothing else to reap.
  */
@@ -7216,11 +7168,6 @@ export function deleteChatSessionIfEmpty(id: string): boolean {
   if ((row?.n ?? 0) > 0) return false;
   return db.delete(chatSessions).where(eq(chatSessions.id, id)).run().changes > 0;
 }
-
-// Takeover lifecycle moved to the execution: see `startExecutionTakeover`,
-// `clearExecutionTakeover`, and `findChatSessionByTakeoverToken` in the
-// Executions section above. The token + branch + baseSha now live on the
-// `executions` row, not chat_sessions.
 
 /**
  * Atomically create an execution artifact and its first chat (the chat

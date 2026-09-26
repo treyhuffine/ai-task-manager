@@ -818,6 +818,16 @@ export function useReview(sessionId: string | null) {
   });
 }
 
+/** The review checkout another computer has of it, if any: Continue there says it stays apart. */
+export function useReviewOn(sessionId: string | null, computerId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['session', sessionId, 'review', computerId],
+    queryFn: ({ signal }) => sessionsApi.review(sessionId!, { signal, computerId: computerId! }),
+    enabled: enabled && !!sessionId && !!computerId,
+    staleTime: 15_000,
+  });
+}
+
 /** Make or refresh the review checkout here. */
 export function useOpenCodeHere(sessionId: string) {
   const qc = useQueryClient();

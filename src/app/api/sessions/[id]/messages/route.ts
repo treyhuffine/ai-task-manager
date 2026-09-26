@@ -86,16 +86,6 @@ export async function POST(
       // catch it on the next refetch.
       return Response.json({ error: 'Cannot send to an archived session' }, { status: 400 });
     }
-    if (session.takeoverStartedAt) {
-      return Response.json(
-        {
-          error: 'session_in_takeover',
-          message:
-            'Session is being worked on locally. Run `ri resume` or click Done in the takeover banner before sending more messages.',
-        },
-        { status: 409 },
-      );
-    }
     // Before the message is saved, so a refused send leaves nothing behind.
     if (isImportMirror(session)) {
       return Response.json({ error: 'session_is_import', message: IMPORT_MIRROR_REFUSAL }, { status: 409 });

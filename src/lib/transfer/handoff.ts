@@ -19,6 +19,8 @@ export interface HandoffInput {
   messages: Array<Pick<ChatEventRecord, 'role' | 'source' | 'content' | 'sessionId' | 'createdAt'>>;
   chatSessionIds: string[];
   targetWorktree: string;
+  /** Tasks and notes the execution's chats link to. */
+  links: Array<{ kind: 'task' | 'note'; id: string; title: string }>;
 }
 
 const MESSAGE_CHARS = 600;
@@ -58,10 +60,16 @@ export function deterministicHandoff(input: HandoffInput): string {
     lines.push('The latest messages:');
     for (const line of recent) lines.push(`- ${line}`);
   }
+  if (input.links.length > 0) {
+    lines.push('');
+    lines.push('Linked tasks and notes (read them with get_task and get_note):');
+    for (const link of input.links) lines.push(`- ${link.kind} ${link.id}: ${clip(link.title, 120)}`);
+  }
   lines.push('');
   lines.push(
     `The earlier conversation: read it with the get_session_messages action for chat ${input.chatSessionIds.join(', ')}.`,
   );
+  lines.push(`What ${input.toComputer} has, its environment and tools, is in your instructions for this session.`);
   return lines.join('\n');
 }
 

@@ -21,7 +21,6 @@ import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
-import { TakeoverButton } from './takeover/takeover-button';
 import { ResyncMenuItem } from './resync-menu-item';
 import { RestartMenuItem } from './restart-menu-item';
 import { deriveExecutionHeaderStatus, describeChatStatus, type ChatStatusTone } from './execution-header-status';
@@ -321,8 +320,6 @@ export function ExecutionHeader({
   const openFolder = preparedFolder(session);
   const worktreeLinks = openFolder ? <WorktreeDeepLinks sessionId={session.id} worktreePath={openFolder} /> : null;
 
-  const takeoverMenuItem = <TakeoverButton session={session} workspace={workspace} />;
-
   // Detect Live mode: git workspace whose session points at the
   // workspace's own cwd instead of a per-session worktree. Non-git
   // workspaces also run in cwd by default but that's not "Live mode"
@@ -372,9 +369,6 @@ export function ExecutionHeader({
               <div className="p-1.5">{worktreeLinks}</div>
             </>
           )}
-
-          <div className="h-px bg-border" />
-          <div className="p-1">{takeoverMenuItem}</div>
 
           <div className="h-px bg-border" />
           <div className="p-2">
@@ -707,9 +701,8 @@ function LiveBadge({ branch }: { branch: string | null }) {
 
 /**
  * "Reveal in Finder" / "Open in editor" links scoped to the worktree
- * root. Both hide when the browser is on a remote client because the
- * worktree path doesn't exist on the user's laptop. Cross-machine work
- * goes through the takeover flow (separate UI surface).
+ * root, opened on the computer it's on for a browser there (P3.5).
+ * Moving the work to another computer goes through the location menu.
  */
 function WorktreeDeepLinks({ sessionId, worktreePath }: { sessionId: string; worktreePath: string }) {
   const { opener } = useOpener(sessionFolder(sessionId), worktreePath);

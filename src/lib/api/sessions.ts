@@ -270,31 +270,6 @@ export interface WipMoveResult {
 
 export type WipApplyResult = WipCopyResult | WipMoveResult;
 
-// ─── Takeover wire types ─────────────────────────────────
-//
-// Mirrors the route response shapes. Server source of truth:
-// `src/app/api/sessions/[id]/takeover/route.ts` and
-// `src/app/api/takeover/[token]/resume/route.ts`.
-
-export interface TakeoverResponse {
-  token: string;
-  expiresAt: string;
-  cliCommand: string;
-  fallbackCommand: string;
-  branch: string;
-  baseSha: string;
-  remoteUrl: string;
-  workspaceId: string;
-  startedAt: string;
-}
-
-export interface ResumeFromTakeoverResponse {
-  ok: true;
-  filesChanged: number;
-  shortstat: string;
-  sessionId: string;
-}
-
 
 /**
  * Wire shape of a rail session row — flattened chat_session + execution
@@ -631,8 +606,9 @@ export const sessionsApi = {
   },
 
   /** Open code here (P4.1): this computer's review checkout of the execution, if any. */
-  review(id: string, opts: { signal?: AbortSignal } = {}): Promise<ReviewState> {
-    return api.get<ReviewState>(`/sessions/${id}/review`, { signal: opts.signal, headers: hostHeaders() });
+  review(id: string, opts: { signal?: AbortSignal; computerId?: string } = {}): Promise<ReviewState> {
+    const on = opts.computerId ? `?computer=${encodeURIComponent(opts.computerId)}` : '';
+    return api.get<ReviewState>(`/sessions/${id}/review${on}`, { signal: opts.signal, headers: hostHeaders() });
   },
   /** Make or refresh it: refreshed only while it has no edits. */
   openCodeHere(id: string): Promise<ReviewState & { created: boolean; refreshed: boolean }> {
@@ -842,26 +818,5 @@ export const sessionsApi = {
 
   applyWip(id: string, action: 'copy' | 'move'): Promise<WipApplyResult> {
     return api.post<WipApplyResult>(`/sessions/${id}/wip`, { action });
-  },
-
-  takeover(id: string): Promise<TakeoverResponse> {
-    return api.post<TakeoverResponse>(`/sessions/${id}/takeover`);
-  },
-
-  cancelTakeover(id: string): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/takeover-cancel`);
-  },
-
-  /**
-   * Resume from a browser-initiated "Done — pull my changes" click.
-   * The CLI calls the same endpoint (different transport, same token
-   * in path), but goes through `/api/takeover/<token>/resume` to bypass
-   * bearer-token middleware. The browser sends bearer auth as usual.
-   */
-  resumeFromTakeover(token: string): Promise<ResumeFromTakeoverResponse> {
-    return api.post<ResumeFromTakeoverResponse>(`/takeover/${token}/resume`, undefined, {
-      // The api client sets `baseUrl='/api'` so the URL becomes
-      // `/api/takeover/<token>/resume`. No special-casing needed.
-    });
   },
 };
