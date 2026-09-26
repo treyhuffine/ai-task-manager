@@ -149,7 +149,7 @@ export async function saveCheckpoint(args: {
     if (/\[rejected\]|non-fast-forward|fetch first|stale info/i.test(text)) {
       throw new CheckpointError(
         'push_rejected',
-        `${remote}/${branch} has commits this worktree doesn't. Nothing was forced: bring them in on this computer, then continue again.`,
+        `${remote}/${branch} has commits this work doesn't have. Nothing was forced. Bring them into its branch, then continue again.`,
       );
     }
     throw new CheckpointError('push_failed', `Git couldn't push ${branch} to ${remote}: ${pushed.stderr || pushed.stdout}`);

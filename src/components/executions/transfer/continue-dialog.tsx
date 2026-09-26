@@ -53,7 +53,7 @@ export function ContinueDialog({
         <DialogHeader>
           <DialogTitle>Continue on {to.name}</DialogTitle>
           <DialogDescription>
-            The agent stops on {from}. Its work is committed and pushed with Git, and the same execution continues on {to.name}
+            The agent stops on {from}. Its work is committed and pushed with Git, and the same execution continues on {to.name}{' '}
             in a fresh session that starts from a handoff. The chat stays as it is, and {from} keeps its folder.
           </DialogDescription>
         </DialogHeader>
@@ -70,7 +70,7 @@ export function ContinueDialog({
               <p className="text-muted-foreground">
                 {state.changed.length > 0
                   ? `${state.changed.length} changed ${state.changed.length === 1 ? 'file goes' : 'files go'} along, on ${state.branch ?? 'its branch'}.`
-                  : `No uncommitted changes. ${state.branch ?? 'Its branch'} goes as it is.`}
+                  : `No tracked file has changed since its last commit. ${state.branch ?? 'Its branch'} goes as it is.`}
               </p>
               {state.untracked.length > 0 && (
                 <fieldset className="space-y-1.5">

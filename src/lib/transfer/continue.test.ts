@@ -372,7 +372,7 @@ describe('when a move stops', () => {
     const held = await sendMessage(chatId, 'while it tried');
     const transfer = await finished(executionId);
     expect(transfer).toMatchObject({ state: 'failed', failedStage: 'saving', toGeneration: null, heldEventIds: [held.id] });
-    expect(transfer.error).toMatch(/Nothing was forced/);
+    expect(transfer.error).toBe("Its branch on the remote has commits the work on Mini doesn't have. Nothing was forced. Resume on Mini, bring them in, then continue again.");
     expect(git(remote, 'log', '--format=%s', '-1', `refs/heads/${branch}`)).toBe('theirs');
     expect(await owner(executionId)).toBe(hostId);
     const { deliveriesForChat } = await import('@/lib/workers/delivery');

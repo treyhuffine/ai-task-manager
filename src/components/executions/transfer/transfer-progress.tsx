@@ -93,7 +93,7 @@ function Stopped({ sessionId, transfer, onDismiss }: { sessionId: string; transf
       <p className="mt-1.5 text-[11px] text-muted-foreground/80">
         {transfer.ownershipChanged
           ? `${transfer.to.name} has the work now.`
-          : `${transfer.from.name} still has the work, stopped. Nothing was lost: its folder${transfer.checkpoint ? ` and ${transfer.checkpoint.branch}` : ''} are as they were.`}
+          : `${transfer.from.name} still has the work, stopped. Nothing was lost: ${transfer.checkpoint ? `its folder and ${transfer.checkpoint.branch} are as they were` : 'its folder is as it was'}.`}
       </p>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {transfer.ownershipChanged ? (

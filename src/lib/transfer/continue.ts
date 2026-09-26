@@ -58,7 +58,7 @@ import { isComputerConnected, wakeComputer } from '@/lib/workers/hub';
 import { awaitWorkerCommand, CommandFailedError } from '@/lib/workers/await-command';
 import { publishTransfer } from '@/lib/realtime/bus';
 import { runOnFor } from '@/lib/setups/run-on';
-import { saveCheckpoint, worktreeAtCheckpoint, type SavedCheckpoint } from './git-checkpoint';
+import { CheckpointError, saveCheckpoint, worktreeAtCheckpoint, type SavedCheckpoint } from './git-checkpoint';
 import { composeHandoff, deterministicHandoff, summaryPrompt, type HandoffInput } from './handoff';
 import { transferView, type TransferView } from './view';
 import type { PreparePayload, GitPayload, QuiescePayload, SetupScriptPayload, PrepareResult } from '@/lib/worker/handlers';
@@ -233,7 +233,7 @@ async function stopSource(transfer: ExecutionTransferRecord, chats: string[], ac
   killAllForOwner(transfer.executionId);
   const { stopPreview } = await import('@/lib/preview/service');
   await stopPreview(transfer.executionId);
-  if (problems.length > 0) throw new StepFailed(`It couldn't be stopped here: ${[...new Set(problems)].join(' ')}`);
+  if (problems.length > 0) throw new StepFailed(`It couldn't be stopped on ${computerName(host)}: ${[...new Set(problems)].join(' ')}`);
 }
 
 async function saveOnSource(transfer: ExecutionTransferRecord, actor?: WorkerCommandActor): Promise<SavedCheckpoint> {
@@ -241,6 +241,12 @@ async function saveOnSource(transfer: ExecutionTransferRecord, actor?: WorkerCom
   const workspace = getWorkspace(execution.workspaceId)!;
   const message = `Checkpoint: continuing on ${computerName(transfer.toComputerId)}`;
   const host = getHome()?.hostComputerId ?? null;
+  const from = computerName(transfer.fromComputerId);
+  // Said from wherever it's read: which computer has to bring the commits in.
+  const rejected = (code: string | undefined) =>
+    code === 'push_rejected'
+      ? new StepFailed(`Its branch on the remote has commits the work on ${from} doesn't have. Nothing was forced. Resume on ${from}, bring them in, then continue again.`)
+      : null;
   if (transfer.fromComputerId !== host) {
     const payload: GitPayload = {
       op: 'checkpoint',
@@ -250,11 +256,20 @@ async function saveOnSource(transfer: ExecutionTransferRecord, actor?: WorkerCom
       transferId: transfer.id,
     };
     const command = queueOn(transfer.fromComputerId, 'git', payload, transfer, transfer.fromGeneration, null, actor);
-    return (await awaitCommand(command.id, STEP_TIMEOUTS_MS.checkpoint, `Saving the work on ${computerName(transfer.fromComputerId)}`)) as SavedCheckpoint;
+    try {
+      return (await awaitWorkerCommand(command.id, STEP_TIMEOUTS_MS.checkpoint, `Saving the work on ${from}`)) as SavedCheckpoint;
+    } catch (err) {
+      if (!(err instanceof CommandFailedError)) throw err;
+      throw rejected((err.result as { code?: string } | null)?.code) ?? new StepFailed(err.message);
+    }
   }
   const worktree = placementOf(execution.id)?.worktreePath ?? execution.worktreePath;
-  if (!worktree || !fs.existsSync(worktree)) throw new StepFailed("Its worktree isn't on this computer.");
-  return saveCheckpoint({ worktree, message, includeUntracked: transfer.includeUntracked, filesToCopy: workspace.filesToCopy ?? [] });
+  if (!worktree || !fs.existsSync(worktree)) throw new StepFailed(`Its worktree isn't on ${from}.`);
+  try {
+    return await saveCheckpoint({ worktree, message, includeUntracked: transfer.includeUntracked, filesToCopy: workspace.filesToCopy ?? [] });
+  } catch (err) {
+    throw (err instanceof CheckpointError ? rejected(err.code) : null) ?? err;
+  }
 }
 
 /** The folder this home keeps an agent in: its setup here, or its folder from before setups. */

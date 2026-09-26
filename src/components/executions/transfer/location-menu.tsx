@@ -57,7 +57,9 @@ export function useMoves(session: ChatSessionWithExecution, workspace: Workspace
   const problemFor = (computerId: string, computerName: string): string | null => {
     if (!workspace?.isGit) return "Work that isn't in a Git repository runs on its own computer, and doesn't move through Ri yet.";
     if (transfer?.state === 'active') return `It's already moving to ${transfer.to.name}.`;
-    const choice = runOn?.choices.find((c) => c.computerId === computerId);
+    // Not judged before it's known: a menu opened early said "isn't set up".
+    if (!runOn) return 'Checking where it can run…';
+    const choice = runOn.choices.find((c) => c.computerId === computerId);
     if (!choice) return `${workspace.name} isn't set up on ${computerName}.`;
     if (!choice.ready) return choice.problem ?? `${computerName} can't take this work yet.`;
     if (!choice.connected) return `${computerName} isn't connected.`;
@@ -85,7 +87,13 @@ export function useMoves(session: ChatSessionWithExecution, workspace: Workspace
   // Open code here (P4.1): its published commit on this computer, for review.
   // Not on a phone, which follows the work rather than runs it.
   const canReview = !!owner && !!viewer && viewer.id !== owner.computerId && !!workspace?.isGit;
-  const reviewProblem = canReview ? (runOn?.choices.some((c) => c.computerId === viewer!.id) ? null : `${workspace!.name} isn't set up on ${viewer!.name}.`) : null;
+  const reviewProblem = !canReview
+    ? null
+    : !runOn
+      ? 'Checking where it can run…'
+      : runOn.choices.some((c) => c.computerId === viewer!.id)
+        ? null
+        : `${workspace!.name} isn't set up on ${viewer!.name}.`;
 
   return { owner, viewer, moves, canReview, reviewProblem };
 }

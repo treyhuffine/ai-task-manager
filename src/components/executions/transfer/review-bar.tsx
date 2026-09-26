@@ -55,7 +55,10 @@ export function ReviewBar({ session, workspace }: { session: ChatSessionWithExec
           title={review.dirty ? "It has your edits, so Refresh leaves it as it is." : 'Bring the latest published commit'}
           onClick={() =>
             refresh.mutate(undefined, {
-              onSuccess: (s) => toast.success(s.refreshed ? `Now at ${s.review?.sha.slice(0, 7)}` : 'Already the latest published commit'),
+              onSuccess: (s) =>
+                s.review?.dirty
+                  ? toast.message('It has your edits, so it stayed as it was')
+                  : toast.success(s.refreshed ? `Now at ${s.review?.sha.slice(0, 7)}` : 'Already the latest published commit'),
               onError: (err) => toast.error("Couldn't refresh it", { description: apiErrorText(err) }),
             })
           }

@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { sessionsApi, type MergeRequestBody, type AutoMergeRequestBody } from '@/lib/api/sessions';
+import { sessionsApi, type MergeRequestBody, type AutoMergeRequestBody, type PrInfo, type WorktreeStatus } from '@/lib/api/sessions';
 import {
   useCommit,
   usePush,
@@ -14,6 +14,8 @@ import {
   worktreeScopeFromCache,
 } from '@/hooks/use-execution';
 import type { ChatSessionWithExecution } from '@/db/types';
+import type { TransferView } from '@/lib/transfer/view';
+import { preparedFolder } from '@/lib/executions/location';
 
 /** PR context that travels with worktree-state variants when present. */
 export interface PrContext {
@@ -191,110 +193,128 @@ export function useExecutionActions(
     return body?.code === 'non_fast_forward';
   }, [push.error]);
 
-  const state = useMemo<ActionState>(() => {
-    if (!session) return { kind: 'noWorktree' };
-    if (session.status === 'archived') return { kind: 'archived' };
-    // A move supersedes every other state until the destination has the
-    // work: its source is being stopped and saved.
-    if (transfer?.state === 'active' && !transfer.ownershipChanged) {
-      return { kind: 'moving', to: transfer.to.name };
-    }
-    // Failed-setup wins over noWorktree so the user gets the retry
-    // affordance instead of an empty pill while sitting on a stuck row.
-    if (!session.worktreePath && workspaceIsGit && session.setupError) {
-      return {
-        kind: 'setupFailed',
-        error: session.setupError,
-        prNumber: session.prNumber ?? null,
-      };
-    }
-    if (!session.worktreePath || !workspaceIsGit) return { kind: 'noWorktree' };
-
-    // Push rejection overrides every "normal" downstream state so the
-    // user always sees the resolve affordance until they act on it.
-    if (pushNonFastForward) {
-      return { kind: 'localDiverged' };
-    }
-
-    const pr = prResp?.pr;
-
-    if (status) {
-      const stagedCount = status.staged.length;
-      const unstagedCount = status.modified.length;
-      const untrackedCount = status.untracked.length;
-      const isDirty = stagedCount + unstagedCount + untrackedCount > 0;
-      const ahead = status.ahead;
-      const behind = status.behind;
-
-      if (isDirty) {
-        return {
-          kind: 'dirty',
-          staged: stagedCount,
-          unstaged: unstagedCount,
-          untracked: untrackedCount,
-          // Carry PR context through so the narrative chip can still
-          // show the link even when dirty — losing the PR identity to
-          // a transient uncommitted state was too jarring.
-          pr: pr
-            ? (pr.state === 'OPEN'
-              ? { prNumber: pr.number, prUrl: pr.url }
-              : undefined)
-            : undefined,
-        };
-      }
-
-      if (pr) {
-        if (pr.state === 'MERGED') {
-          return { kind: 'prMerged', prNumber: pr.number, prUrl: pr.url };
-        }
-        if (pr.state === 'CLOSED') {
-          return { kind: 'prClosed', prNumber: pr.number, prUrl: pr.url };
-        }
-        // GitHub says the PR can't merge cleanly into its base. Override
-        // the behind/ahead branches below — the next step here is "ask
-        // the agent to resolve" (pull base, fix markers, push), not
-        // "merge" or "push more commits."
-        if (pr.mergeable === 'CONFLICTING') {
-          return {
-            kind: 'prConflictingWithBase',
-            prNumber: pr.number,
-            prUrl: pr.url,
-            behind,
-          };
-        }
-        if (behind > 0) {
-          return {
-            kind: 'prOpenBehindBase',
-            prNumber: pr.number,
-            prUrl: pr.url,
-            behind,
-          };
-        }
-        if (ahead > 0) {
-          return {
-            kind: 'prOpenAhead',
-            prNumber: pr.number,
-            prUrl: pr.url,
-            ahead,
-          };
-        }
-        // Open and in sync — show Merge.
-        return { kind: 'prOpenInSync', prNumber: pr.number, prUrl: pr.url };
-      }
-
-      // Clean, no PR — pick the next-step affordance based on
-      // ahead/behind. Pre-PR `behindBase` is a recent addition; the
-      // original machine left clean-but-behind branches with no button.
-      if (behind > 0) {
-        return { kind: 'behindBase', behind };
-      }
-      if (ahead > 0) {
-        return { kind: 'aheadNoPr', ahead };
-      }
-    }
-
-    return { kind: 'cleanNoBranch' };
-  }, [session, workspaceIsGit, prResp, status, pushNonFastForward, transfer]);
+  const state = useMemo<ActionState>(
+    () => deriveActionState({ session, workspaceIsGit, transfer, pushNonFastForward, status, pr: prResp?.pr }),
+    [session, workspaceIsGit, prResp, status, pushNonFastForward, transfer],
+  );
 
   return { state, commit, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts };
+}
+
+export interface ActionStateInput {
+  session: ChatSessionWithExecution | undefined;
+  workspaceIsGit: boolean | null | undefined;
+  /** The execution's move, if any (P4.2). */
+  transfer: Pick<TransferView, 'state' | 'ownershipChanged' | 'to'> | null | undefined;
+  pushNonFastForward: boolean;
+  status: WorktreeStatus | null | undefined;
+  pr: PrInfo | null | undefined;
+}
+
+/** The action bar's state, from the session, its worktree status and its PR. Pure, for tests. */
+export function deriveActionState({ session, workspaceIsGit, transfer, pushNonFastForward, status, pr }: ActionStateInput): ActionState {
+  if (!session) return { kind: 'noWorktree' };
+  if (session.status === 'archived') return { kind: 'archived' };
+  // A move supersedes every other state until the destination has the
+  // work: its source is being stopped and saved.
+  if (transfer?.state === 'active' && !transfer.ownershipChanged) {
+    return { kind: 'moving', to: transfer.to.name };
+  }
+  // Its worktree wherever it runs (P3.3, P4.5): the home's own path, or
+  // the folder on the computer it runs on. Every control on the bar goes
+  // to that computer.
+  const folder = preparedFolder(session);
+  // Failed-setup wins over noWorktree so the user gets the retry
+  // affordance instead of an empty pill while sitting on a stuck row.
+  if (!folder && workspaceIsGit && session.setupError) {
+    return {
+      kind: 'setupFailed',
+      error: session.setupError,
+      prNumber: session.prNumber ?? null,
+    };
+  }
+  if (!folder || !workspaceIsGit) return { kind: 'noWorktree' };
+
+  // Push rejection overrides every "normal" downstream state so the
+  // user always sees the resolve affordance until they act on it.
+  if (pushNonFastForward) {
+    return { kind: 'localDiverged' };
+  }
+
+  if (status) {
+    const stagedCount = status.staged.length;
+    const unstagedCount = status.modified.length;
+    const untrackedCount = status.untracked.length;
+    const isDirty = stagedCount + unstagedCount + untrackedCount > 0;
+    const ahead = status.ahead;
+    const behind = status.behind;
+
+    if (isDirty) {
+      return {
+        kind: 'dirty',
+        staged: stagedCount,
+        unstaged: unstagedCount,
+        untracked: untrackedCount,
+        // Carry PR context through so the narrative chip can still
+        // show the link even when dirty — losing the PR identity to
+        // a transient uncommitted state was too jarring.
+        pr: pr
+          ? (pr.state === 'OPEN'
+            ? { prNumber: pr.number, prUrl: pr.url }
+            : undefined)
+          : undefined,
+      };
+    }
+
+    if (pr) {
+      if (pr.state === 'MERGED') {
+        return { kind: 'prMerged', prNumber: pr.number, prUrl: pr.url };
+      }
+      if (pr.state === 'CLOSED') {
+        return { kind: 'prClosed', prNumber: pr.number, prUrl: pr.url };
+      }
+      // GitHub says the PR can't merge cleanly into its base. Override
+      // the behind/ahead branches below — the next step here is "ask
+      // the agent to resolve" (pull base, fix markers, push), not
+      // "merge" or "push more commits."
+      if (pr.mergeable === 'CONFLICTING') {
+        return {
+          kind: 'prConflictingWithBase',
+          prNumber: pr.number,
+          prUrl: pr.url,
+          behind,
+        };
+      }
+      if (behind > 0) {
+        return {
+          kind: 'prOpenBehindBase',
+          prNumber: pr.number,
+          prUrl: pr.url,
+          behind,
+        };
+      }
+      if (ahead > 0) {
+        return {
+          kind: 'prOpenAhead',
+          prNumber: pr.number,
+          prUrl: pr.url,
+          ahead,
+        };
+      }
+      // Open and in sync — show Merge.
+      return { kind: 'prOpenInSync', prNumber: pr.number, prUrl: pr.url };
+    }
+
+    // Clean, no PR — pick the next-step affordance based on
+    // ahead/behind. Pre-PR `behindBase` is a recent addition; the
+    // original machine left clean-but-behind branches with no button.
+    if (behind > 0) {
+      return { kind: 'behindBase', behind };
+    }
+    if (ahead > 0) {
+      return { kind: 'aheadNoPr', ahead };
+    }
+  }
+
+  return { kind: 'cleanNoBranch' };
 }

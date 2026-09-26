@@ -64,6 +64,15 @@ function toPrInfo(pr: PrLike, status: PrStatus | null): PrInfo {
 
 export const MERGE_METHODS: readonly MergeMethod[] = ['squash', 'merge', 'rebase'];
 
+/**
+ * gh refusing because the repository has no remote, or none on GitHub
+ * ("none of the git remotes configured for this repository point to a
+ * known GitHub host"): such a repository simply has no pull requests.
+ */
+export function notOnGithub(err: unknown): boolean {
+  return err instanceof Error && err.name === 'GhCommandError' && /no git remotes|none of the git remotes/i.test(err.message);
+}
+
 export type GithubRequest =
   | { op: 'pr'; prNumber: number | null; branchName: string }
   | { op: 'merge'; prNumber: number | null; branchName: string; method?: MergeMethod; deleteBranch?: boolean }
@@ -135,9 +144,8 @@ export async function runGithub(cwd: string, request: GithubRequest): Promise<Gi
     if (err instanceof NotInstalledError) return request.op === 'pr' ? { status: 200, body: { pr: null, ghStatus: 'not_installed' } } : { status: 412, body: { error: err.message } };
     if (err instanceof NotAuthenticatedError) return request.op === 'pr' ? { status: 200, body: { pr: null, ghStatus: 'not_authenticated' } } : { status: 412, body: { error: err.message } };
     // A local-only repo, or one whose remote isn't on GitHub, has no PR.
-    const notOnGithub = err instanceof GhCommandError && /no git remotes|none of the git remotes/i.test(err.message);
-    if (request.op === 'pr' && (notOnGithub || err instanceof RepoNotFoundError)) return { status: 200, body: { pr: null } };
-    if (notOnGithub) return { status: 409, body: { error: 'not_on_github', message: "This repository isn't on GitHub, so it has no pull request." } };
+    if (request.op === 'pr' && (notOnGithub(err) || err instanceof RepoNotFoundError)) return { status: 200, body: { pr: null } };
+    if (notOnGithub(err)) return { status: 409, body: { error: 'not_on_github', message: "This repository isn't on GitHub, so it has no pull request." } };
     throw err;
   }
 }
