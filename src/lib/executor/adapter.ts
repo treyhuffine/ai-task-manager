@@ -80,14 +80,46 @@ if (!startingRef[STARTING_KEY]) startingRef[STARTING_KEY] = new Map();
 const startingSends = startingRef[STARTING_KEY]!;
 
 /**
- * Messages being sent to a connected computer right now, by their chat
- * event. A second dispatch of one returns rather than making a run of its
- * own. On globalThis for the same reason.
+ * What became of an attempt to send a message: its harness or its
+ * computer's queue has it; it was held, or the work changed hands, so it
+ * starts over; or it failed before anything took it.
+ */
+type SendAttempt = { kind: 'accepted' } | { kind: 'again' } | { kind: 'failed'; error: unknown };
+
+interface Sending {
+  settled: Promise<SendAttempt>;
+  settle(attempt: SendAttempt): void;
+}
+
+/**
+ * Messages being sent right now, here or to a connected computer, by their
+ * chat event, with what became of the attempt once it's known. A second
+ * dispatch of one waits for that rather than making a run of its own:
+ * being prepared isn't being accepted (P4 final re-check). On globalThis
+ * for the same reason.
  */
 const SENDING_KEY = Symbol.for('@ri/executor-sending-events');
-const sendingRef = globalThis as unknown as { [SENDING_KEY]?: Set<string> };
-if (!sendingRef[SENDING_KEY]) sendingRef[SENDING_KEY] = new Set();
+const sendingRef = globalThis as unknown as { [SENDING_KEY]?: Map<string, Sending> };
+if (!(sendingRef[SENDING_KEY] instanceof Map)) sendingRef[SENDING_KEY] = new Map();
 const sendingEvents = sendingRef[SENDING_KEY]!;
+
+function reserveSending(eventId: string): Sending {
+  let resolve!: (attempt: SendAttempt) => void;
+  let done = false;
+  const sending: Sending = {
+    settled: new Promise<SendAttempt>((r) => (resolve = r)),
+    settle(attempt) {
+      if (done) return;
+      done = true;
+      // Only an accepted one keeps its place (a later dispatch of it returns
+      // at once). One that wasn't lets the next attempt take over.
+      if (attempt.kind !== 'accepted' && sendingEvents.get(eventId) === sending) sendingEvents.delete(eventId);
+      resolve(attempt);
+    },
+  };
+  sendingEvents.set(eventId, sending);
+  return sending;
+}
 
 function releaseStartingSend(chatSessionId: string): void {
   const next = (startingSends.get(chatSessionId) ?? 1) - 1;
@@ -177,8 +209,12 @@ export interface DispatchOptions {
   heldFor?: string;
 }
 
-/** The work changed hands while a send was being prepared: it starts over, for the new owner. */
-class PlacementChanged extends Error {}
+/**
+ * The send starts over: the work changed hands while it was being prepared
+ * (it goes to the new owner), or another attempt at the same message was
+ * held (it's held again, or its delivery sends it).
+ */
+class StartOver extends Error {}
 
 /**
  * Dispatch a user message into the agent. Fire-and-forget from the
@@ -207,7 +243,7 @@ export async function dispatch(
     try {
       return await dispatchOnce(chatSessionId, userMessage, options);
     } catch (err) {
-      if (err instanceof PlacementChanged && attempt < 2) continue;
+      if (err instanceof StartOver && attempt < 2) continue;
       throw err;
     }
   }
@@ -232,7 +268,6 @@ async function dispatchOnce(
   if (session.executionId) {
     if (holdingTransfer(session.executionId) && holdHere(chatSessionId, session.executionId, options)) {
       options.onQueued?.();
-      options.onAccepted?.();
       return;
     }
     // Held by a move, one that stopped or one delivering where it arrived
@@ -258,16 +293,33 @@ async function dispatchOnce(
   // are in the same tick, so overlapping dispatches can't both pass (P2 and
   // P4 review fixes).
   const sourceEventId = options.sourceEventId ?? null;
-  if (sourceEventId && (sendingEvents.has(sourceEventId) || (remote && getSendForEvent(sourceEventId)))) {
-    options.onAccepted?.();
-    return;
+  if (sourceEventId) {
+    const other = sendingEvents.get(sourceEventId);
+    if (other) {
+      // That attempt's reservation isn't acceptance: wait for what became of it.
+      const attempt = await other.settled;
+      if (attempt.kind === 'accepted') {
+        options.onAccepted?.();
+        return;
+      }
+      if (attempt.kind === 'failed') throw attempt.error;
+      throw new StartOver();
+    }
+    if (remote && getSendForEvent(sourceEventId)) {
+      options.onAccepted?.();
+      return;
+    }
   }
-  if (sourceEventId) sendingEvents.add(sourceEventId);
+  const sending = sourceEventId ? reserveSending(sourceEventId) : null;
   try {
-    await dispatchTo(chatSessionId, userMessage, options, session, remote, placement);
+    await dispatchTo(chatSessionId, userMessage, options, session, remote, placement, (attempt) => sending?.settle(attempt));
+  } catch (err) {
+    sending?.settle(err instanceof StartOver ? { kind: 'again' } : { kind: 'failed', error: err });
+    throw err;
   } finally {
     // Once this dispatch ends, the queue itself answers for the message.
-    if (sourceEventId) sendingEvents.delete(sourceEventId);
+    sending?.settle({ kind: 'again' });
+    if (sourceEventId && sendingEvents.get(sourceEventId) === sending) sendingEvents.delete(sourceEventId);
   }
 }
 
@@ -312,6 +364,7 @@ async function dispatchTo(
   session: NonNullable<ReturnType<typeof getChatSessionWithExecution>>,
   remote: ChatPlacement | null,
   placement: ChatPlacement | null,
+  settle: (attempt: SendAttempt) => void,
 ): Promise<void> {
   let cwd: string | null;
   let preparing: string | null = null;
@@ -422,11 +475,19 @@ async function dispatchTo(
     releaseStartingSend(chatSessionId);
     endDispatchPreparation(chatSessionId, preparation);
   }
+  // Another dispatch of this message waiting on this one learns what became of it.
+  settle(delivered.outcome === 'held' ? { kind: 'again' } : { kind: 'accepted' });
   // Said once the chat no longer reads as busy with this dispatch: a message
-  // waiting in a queue, or held by a move, isn't the chat working.
+  // waiting in a queue, or held by a move, isn't the chat working. Accepted
+  // only when something took it, never when it was held.
   if (delivered.outcome !== 'sent') options.onQueued?.();
-  if (delivered.outcome !== 'sent' || delivered.acceptsMore) options.onAccepted?.();
-  await delivered.turn;
+  if (delivered.outcome === 'queued' || (delivered.outcome === 'sent' && delivered.acceptsMore)) options.onAccepted?.();
+  try {
+    await delivered.turn;
+  } finally {
+    // A harness that takes one message at a time: the next can follow once this turn is over.
+    if (delivered.outcome === 'sent' && !delivered.acceptsMore) options.onAccepted?.();
+  }
 }
 
 /**
@@ -486,11 +547,11 @@ async function deliver(
     if (holdHere(chatSessionId, session.executionId, options)) return held;
   }
   const now = chatPlacement(chatSessionId);
-  if (now?.computerId !== placement?.computerId || now?.generation !== placement?.generation) throw new PlacementChanged();
+  if (now?.computerId !== placement?.computerId || now?.generation !== placement?.generation) throw new StartOver();
   const admitted = admitSend(session.executionId);
   if (!admitted) {
     if (session.executionId && holdHere(chatSessionId, session.executionId, options)) return held;
-    throw new PlacementChanged();
+    throw new StartOver();
   }
   try {
     const sent = await sendAdmitted(chatSessionId, userMessage, options, session, remote, spec, files, attachments, buildSpec);

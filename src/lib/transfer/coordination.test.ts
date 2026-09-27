@@ -234,6 +234,72 @@ describe('delivering what a move held, in order (P4 re-check)', () => {
   });
 });
 
+describe('a delivery that finds the message already on its way (P4 final re-check)', () => {
+  it('waits for that attempt, and takes the message off the list only once its harness has it', async () => {
+    const q = await import('@/lib/db/queries');
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    fake.onTurn(async (turn) => {
+      await gate;
+      await turn.say(`done: ${turn.message}`);
+    });
+    const executor = await import('@/lib/executor/adapter');
+    const event = await saved('already on its way');
+    const first = executor.dispatch(chatId, event.content!, { sourceEventId: event.id });
+    await until(() => fake.sessions.flatMap((s) => s.messages).length === 1, 'the harness to have it');
+    // Its turn still running, a stopped move holds the same message (a health re-fire), then Resume.
+    const transfer = await moveRecord();
+    q.updateTransfer(transfer.id, { state: 'failed', failedStage: 'saving', error: 'push rejected' });
+    q.holdForTransfer(executionId, event.id);
+    const { resumeOnSource } = await import('./continue');
+    await expect(resumeOnSource(executionId)).resolves.toMatchObject({ heldEventIds: [], error: null });
+    open();
+    await first;
+    expect(fake.sessions.flatMap((s) => s.messages)).toEqual(['already on its way']);
+  });
+
+  it('sends it itself when that attempt was held instead', async () => {
+    const q = await import('@/lib/db/queries');
+    const models = await import('@/lib/harness/model-discovery');
+    const original = models.getHarnessModelCatalog;
+    let release!: () => void;
+    let entered!: () => void;
+    const paused = new Promise<void>((resolve) => (release = resolve));
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    vi.spyOn(models, 'getHarnessModelCatalog').mockImplementationOnce(async (...args) => {
+      entered();
+      await paused;
+      return original(...args);
+    });
+    const executor = await import('@/lib/executor/adapter');
+    const event = await saved('held on the way');
+    const first = executor.dispatch(chatId, event.content!, { sourceEventId: event.id });
+    await reached;
+    const transfer = await moveRecord();
+    q.updateTransfer(transfer.id, { state: 'failed', failedStage: 'saving', error: 'push rejected' });
+    q.holdForTransfer(executionId, event.id);
+    const { resumeOnSource } = await import('./continue');
+    // Resume's delivery reaches the same message while the first attempt is still paused.
+    let joined!: () => void;
+    const delivering = new Promise<void>((resolve) => (joined = resolve));
+    const dispatch = executor.dispatch;
+    vi.spyOn(executor, 'dispatch').mockImplementation((...args) => {
+      const pending = dispatch(...args);
+      if (args[2]?.heldFor === transfer.id) joined();
+      return pending;
+    });
+    const resuming = resumeOnSource(executionId);
+    await delivering;
+    // The first attempt goes on, reaches the send, and is held behind the delivery: the delivery sends it.
+    release();
+    await Promise.all([first, resuming]);
+    await until(() => fake.sessions.flatMap((s) => s.messages).length === 1, 'the message');
+    expect(q.getTransfer(transfer.id)!.heldEventIds).toEqual([]);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(fake.sessions.flatMap((s) => s.messages)).toEqual(['held on the way']);
+  });
+});
+
 describe('when the home restarts', () => {
   it('stops an interrupted move and withdraws the commands no computer took yet', async () => {
     const q = await import('@/lib/db/queries');

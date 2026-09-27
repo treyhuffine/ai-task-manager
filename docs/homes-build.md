@@ -1220,6 +1220,10 @@ The held-message probe was adapted to the fix the review asked for (delivery sto
 
 Live on the dev home with the stand-in's worker restarted on this code: a fresh execution went to the stand-in from its browser, with a message typed mid-move held and then answered there once from the handoff, and came back to Mac Mini with the stand-in's change and chosen new file, the home's unchosen file still in place.
 
+### Final re-check at 3fb2d87
+
+The Git fixes held. One delivery race remained, with a probe kept in `src/test/regressions/homes-p4-final-recheck.test.ts`: a message still being prepared by another dispatch was taken as accepted, so Resume took it off the held list, and when that preparation failed it reached no harness and had no retry left. A second dispatch of a message under way now waits for what became of that attempt: accepted, and it's accepted; failed, and it fails the same way, so the delivery keeps the message and offers Send them again; held, or the work changed hands, and it starts over (held again, or sent by the delivery). Only a harness or a computer's queue taking a message counts as accepted, never a hold, and a dispatch that ends without anything taking it keeps the message. Tests: the review's four probes, plus the other two outcomes (the first attempt accepted, and the first attempt held). Full suite: 2,771 passed. Live on the dev home, a message to an execution at home and one on the stand-in were each answered once.
+
 ## P0.3 Records and the runner boundary
 
 ### Principles

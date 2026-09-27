@@ -27,13 +27,15 @@ export async function redispatchStoredMessage(
   const expanded = await expandMarkers(expandEntityMarkers(event.content, event.sessionId), attachments);
   // Resolves once the harness (or its computer's queue) has it, not when the
   // turn is over: messages delivered one after another keep their order
-  // without each waiting on the last one's whole turn. Rejects when nothing
-  // took it, so the caller keeps it (P4 re-check).
+  // without each waiting on the last one's whole turn. Only `onAccepted`
+  // says it was taken. A dispatch that failed, or ended without anything
+  // taking it, rejects, so the caller keeps it (P4 re-check and final
+  // re-check).
   await new Promise<void>((resolve, reject) => {
-    let accepted = false;
+    let settled = false;
     const accept = () => {
-      if (accepted) return;
-      accepted = true;
+      if (settled) return;
+      settled = true;
       opts.onAccepted?.();
       resolve();
     };
@@ -45,13 +47,20 @@ export async function redispatchStoredMessage(
         heldFor: opts.heldFor,
         onAccepted: accept,
       })
-      .then(accept, (err: unknown) => {
-        if (!accepted) {
-          accepted = true;
-          reject(err);
-        } else {
-          console.warn(`[redispatch] ${event.id}'s turn failed:`, err);
-        }
-      });
+      .then(
+        () => {
+          if (settled) return;
+          settled = true;
+          reject(new Error("Nothing took it: it's still held."));
+        },
+        (err: unknown) => {
+          if (!settled) {
+            settled = true;
+            reject(err);
+          } else {
+            console.warn(`[redispatch] ${event.id}'s turn failed:`, err);
+          }
+        },
+      );
   });
 }
