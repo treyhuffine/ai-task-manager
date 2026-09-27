@@ -83,7 +83,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y xvfb xauth libgtk-3-0 libnss3 libasound2t64
+          sudo apt-get install --no-install-recommends -y xvfb xauth openbox libgtk-3-0 libnss3 libasound2t64
       - run: pnpm install --frozen-lockfile
       - run: pnpm ts
       - run: pnpm test
@@ -166,6 +166,23 @@ jobs:
           else
             pnpm exec tsx desktop/notifications-smoke.ts
           fi
+      - name: Exercise close-to-background, reopen and explicit Quit
+        timeout-minutes: 15
+        env:
+          TMPDIR: ${{ runner.temp }}/ri-acceptance
+        run: |
+          mkdir -p "$TMPDIR"
+          if [ "$RUNNER_OS" = Linux ]; then
+            # Xvfb supplies a display, while minimization needs a window manager.
+            xvfb-run --auto-servernum sh -c '
+              openbox --sm-disable >/dev/null 2>&1 &
+              manager_pid=$!
+              trap "kill $manager_pid 2>/dev/null || true" EXIT
+              pnpm exec tsx desktop/background-smoke.ts
+            '
+          else
+            pnpm exec tsx desktop/background-smoke.ts
+          fi
       - run: pnpm exec tsx desktop/update-smoke.ts "$RI_RUNTIME_PACKAGE"
       - name: Install test Chromium
         run: pnpm exec playwright-core install --with-deps chromium
@@ -185,6 +202,8 @@ jobs:
             ${{ runner.temp }}/ri-acceptance/ri-endurance-smoke-*/*.png
             ${{ runner.temp }}/ri-acceptance/ri-notifications-smoke-*/report.json
             ${{ runner.temp }}/ri-acceptance/ri-notifications-smoke-*/*.png
+            ${{ runner.temp }}/ri-acceptance/ri-background-smoke-*/report.json
+            ${{ runner.temp }}/ri-acceptance/ri-background-smoke-*/*.png
           if-no-files-found: ignore
           retention-days: 14
       - uses: actions/upload-artifact@v4

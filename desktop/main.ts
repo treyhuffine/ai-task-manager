@@ -19,6 +19,8 @@ import { redactServiceLine } from '../src/lib/service/logging';
 import { assertExistingInstallation, installationEnvironment, localInstallation, readInstallation, saveInstallation, type InstallationInspection } from './installation';
 import { maintenanceWindow } from './maintenance-window';
 import { DesktopNotifications } from './notifications';
+import { backgroundWindow, revealWindow } from './window-visibility';
+import { createDesktopTray, desktopMenuCommands } from './tray';
 import type { DesktopNotificationAction } from '../src/lib/notifications/desktop-contract';
 
 const repo = app.isPackaged ? path.join(process.resourcesPath, 'server') : process.env.RI_DESKTOP_REPO || path.resolve(__dirname, '../..');
@@ -82,11 +84,61 @@ let appToken: string | undefined;
 let installedRuntime: BackendReady['runtime'];
 let preparingClose = false;
 let closeGuard: { nonce: string; resolve: (ok: boolean) => void } | undefined;
+let preparation: Promise<boolean> | undefined;
+let backgroundGuard: { nonce: string; resolve: (ok: boolean) => void } | undefined;
+let backgroundPending = false;
+let visibilityRevision = 0;
 let oauthAbort = new AbortController();
 let notifications: DesktopNotifications | undefined;
 let notificationAbort = new AbortController();
 let navigating = false;
+let tray: ReturnType<typeof createDesktopTray>;
+let updatingShell = false;
 const pendingLinks: string[] = [];
+
+function showWindow() {
+  visibilityRevision++;
+  if (!quitting) revealWindow(window);
+}
+
+async function hideWindow() {
+  if (quitting || preparingClose || navigating || updatingShell || preparation || backgroundPending || !window || window.isDestroyed()) return;
+  backgroundPending = true;
+  const current = window;
+  const revision = visibilityRevision;
+  try {
+    let ready = true;
+    if (appOrigin && sameOrigin(current.webContents.getURL(), appOrigin)) {
+      ready = await new Promise<boolean>(resolve => {
+        const nonce = randomUUID();
+        const timer = setTimeout(() => { backgroundGuard = undefined; resolve(false); }, 3000);
+        backgroundGuard = { nonce, resolve: ok => { clearTimeout(timer); backgroundGuard = undefined; resolve(ok); } };
+        current.webContents.send('desktop:prepare-background', nonce);
+      });
+    }
+    if (quitting || preparingClose || navigating || updatingShell || preparation || current.isDestroyed() || revision !== visibilityRevision) return;
+    if (!ready) {
+      showWindow();
+      await dialog.showMessageBox(current, { type: 'info', message: 'Keep Ri visible while voice input is active',
+        detail: 'Finish or cancel voice input before closing this window. If Ri is still loading, try again shortly.', buttons: ['Keep open'] });
+      return;
+    }
+    backgroundWindow(current, process.platform, !!tray && !tray.isDestroyed());
+  } finally { backgroundPending = false; }
+}
+
+async function checkDesktopUpdate() {
+  if (!window || quitting || updatingShell) return;
+  updatingShell = true;
+  showWindow();
+  try {
+    await updateDesktop(window, prepareClose, () => {
+      quitting = true; finished = true; oauthAbort.abort(); notifications?.stop(); notificationAbort.abort();
+      tray?.destroy(); tray = undefined;
+      if (backend?.connected) backend.send({ type: 'stop' });
+    });
+  } finally { updatingShell = false; }
+}
 
 async function handleDeepLink(raw: string) {
   const params = parseDeepLink(raw);
@@ -219,7 +271,8 @@ async function manageTerminalCommand(remove = false) {
 }
 
 async function serviceCommand(action: 'install' | 'uninstall' | 'start' | 'stop' | 'status') {
-  if (!window) return;
+  if (!window || quitting) return;
+  showWindow();
   if (action !== 'status' && !(await prepareClose())) return;
   try {
     if (action === 'status') {
@@ -244,7 +297,12 @@ function stopTree(child: ChildProcess) {
   else { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } }
 }
 
-async function prepareClose(): Promise<boolean> {
+function prepareClose(): Promise<boolean> {
+  preparation ??= prepareCloseOnce().finally(() => { preparation = undefined; });
+  return preparation;
+}
+
+async function prepareCloseOnce(): Promise<boolean> {
   if (!window || window.isDestroyed() || !appOrigin || !sameOrigin(window.webContents.getURL(), appOrigin)) return true;
   const ok = await new Promise<boolean>(resolve => {
     const nonce = randomUUID();
@@ -253,6 +311,9 @@ async function prepareClose(): Promise<boolean> {
     window!.webContents.send('desktop:prepare-close', nonce);
   });
   if (ok) return true;
+  // A Quit from the menu bar must not leave its save/recording dialog attached
+  // to a hidden window. Reopening alone never resumes a guarded renderer.
+  showWindow();
   const result = await dialog.showMessageBox(window, {
     type: 'warning', message: 'Some changes have not finished saving',
     detail: 'Keep Ri open to retry. If you quit, retained text drafts can be recovered when you reopen. Finish any recording or upload before closing.',
@@ -268,6 +329,7 @@ async function quit(skipGuard = false) {
   if (!skipGuard && !(await prepareClose())) { preparingClose = false; return; }
   preparingClose = false;
   quitting = true;
+  tray?.destroy(); tray = undefined;
   oauthAbort.abort();
   notifications?.stop(); notificationAbort.abort();
   clearTimeout(startupTimer);
@@ -300,7 +362,7 @@ async function navigateSafely(url: string) {
   if (navigating || quitting || !window) return;
   navigating = true;
   try {
-    if (await prepareClose()) await window.loadURL(url);
+    if (await prepareClose() && !quitting && !preparingClose) await window.loadURL(url);
   } catch { window?.webContents.send('desktop:resume'); }
   finally { navigating = false; }
 }
@@ -372,8 +434,7 @@ async function openApp(ready: BackendReady) {
       ...(process.platform === 'darwin' ? { history: () => Notification.getHistory() } : {}),
       navigate: target => {
         if (quitting || !window || appOrigin !== ready.origin) return;
-        if (window.isMinimized()) window.restore();
-        window.show(); window.focus(); void navigateSafely(`${ready.origin}${target}`);
+        showWindow(); void navigateSafely(`${ready.origin}${target}`);
       },
     });
     notifications.start();
@@ -392,9 +453,7 @@ async function openApp(ready: BackendReady) {
     if (quitting || !window) return;
     fs.writeFileSync(`${cursorFile}.tmp`, JSON.stringify({ runId: ready.serviceRunId, sequence: result.sequence }), { mode: 0o600 });
     fs.renameSync(`${cursorFile}.tmp`, cursorFile);
-    if (window.isMinimized()) window.restore();
-    window.show();
-    window.focus();
+    showWindow();
     void navigateSafely(resultLocation(ready.origin, result));
   }, cursor);
   for (const raw of pendingLinks.splice(0)) void handleDeepLink(raw);
@@ -427,11 +486,18 @@ async function start() {
   window.on('resize', saveBounds); window.on('move', saveBounds);
   window.webContents.on('render-process-gone', async (_event, details) => {
     if (quitting || details.reason === 'clean-exit') return;
-    const result = await dialog.showMessageBox({ type: 'error', message: 'Ri’s window stopped responding', detail: 'The background service is still independent. Reload to recover retained drafts.', buttons: ['Reload', 'Close'], defaultId: 0 });
+    showWindow();
+    const result = await dialog.showMessageBox({ type: 'error', message: 'Ri’s window stopped responding', detail: 'The background service is still independent. Reload to recover retained drafts.', buttons: ['Reload', 'Quit Ri'], defaultId: 0 });
     if (result.response === 0 && appOrigin) await window?.loadURL(appOrigin);
     else void quit(true);
   });
-  window.on('close', event => { if (!quitting) { event.preventDefault(); void quit(); } });
+  window.on('close', event => { if (!quitting) { event.preventDefault(); void hideWindow(); } });
+  ipcMain.on('desktop:background-ready', (event, message: unknown) => {
+    if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) return;
+    if (!message || typeof message !== 'object') return;
+    const reply = message as { nonce?: unknown; ok?: unknown };
+    if (reply.nonce === backgroundGuard?.nonce) backgroundGuard?.resolve(reply.ok === true);
+  });
   ipcMain.on('desktop:prepared', (event, message: unknown) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) return;
     if (!message || typeof message !== 'object') return;
@@ -453,16 +519,30 @@ async function start() {
   const logo = fs.readFileSync(path.join(repo, 'public/brand/ri-mark-white.svg'), 'utf8');
   const loading = `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"></head><body style="margin:0;background:#181a18;color:#f5f2ea;display:grid;place-items:center;height:100vh;font:15px system-ui"><div style="text-align:center"><img alt="${APP_NAME}" width="64" src="data:image/svg+xml;base64,${Buffer.from(logo).toString('base64')}"><p>Starting ${APP_NAME}</p><p style="color:#aeb3aa">Preparing your local app…</p></div></body></html>`;
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loading)}`);
+  const actions = {
+    show: showWindow, hide: hideWindow, quit: () => { void quit(); },
+    notifications: () => { showWindow(); if (appOrigin) void navigateSafely(`${appOrigin}/?settings=notifications`); },
+    update: () => { void checkDesktopUpdate(); }, status: () => { void serviceCommand('status'); },
+    recovery: () => { if (!quitting) void maintenance.show(); },
+  };
+  const commands = desktopMenuCommands(actions);
+  tray = createDesktopTray(repo, actions);
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : [{ label: 'App', submenu: [{ role: 'quit' as const }] }]),
-    { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+    { label: APP_NAME, submenu: [
+      ...(process.platform === 'darwin' ? [
+        { role: 'about' as const }, { type: 'separator' as const }, { role: 'services' as const },
+        { type: 'separator' as const }, { role: 'hide' as const }, { role: 'hideOthers' as const }, { role: 'unhide' as const }, { type: 'separator' as const },
+      ] : []),
+      { ...commands.quit, accelerator: 'CmdOrCtrl+Q' },
+    ] },
+    { role: 'editMenu' }, { role: 'viewMenu' },
+    { label: 'Window', role: 'windowMenu', submenu: [
+      { role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, commands.show,
+      { ...commands.hide, accelerator: 'CmdOrCtrl+W', click: (_item, focused) => (focused ?? BrowserWindow.getFocusedWindow() ?? window)?.close() },
+      ...(process.platform === 'darwin' ? [{ type: 'separator' as const }, { role: 'front' as const }] : []),
+    ] },
     { label: 'Tools', submenu: [
-      { label: 'Check for Desktop Update…', click: () => { if (window) void updateDesktop(window, prepareClose, () => {
-        quitting = true; finished = true; oauthAbort.abort(); notifications?.stop(); notificationAbort.abort();
-        if (backend?.connected) backend.send({ type: 'stop' });
-      }); } },
-      { label: 'Service Status…', click: () => void serviceCommand('status') },
-      { label: 'Local Installation and Recovery…', click: () => void maintenance.show() },
+      commands.notifications, commands.update, commands.status, commands.recovery,
       { label: 'Start at Login…', click: () => void serviceCommand('install') },
       { label: 'Disable Start at Login…', click: () => void serviceCommand('uninstall') },
       { label: 'Start Service', click: () => void serviceCommand('start') },
@@ -504,6 +584,7 @@ function startConnection() {
 
 app.on('before-quit', (event) => { if (!finished) { event.preventDefault(); void quit(); } });
 app.on('window-all-closed', () => void quit());
+app.on('activate', showWindow);
 process.once('SIGINT', () => void quit());
 process.once('SIGTERM', () => void quit());
 app.on('open-url', (event, url) => { event.preventDefault(); void handleDeepLink(url); });
@@ -513,8 +594,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', (_event, argv) => {
     for (const arg of argv) if (arg.startsWith('ri://')) void handleDeepLink(arg);
-    if (window?.isMinimized()) window.restore();
-    window?.focus();
+    showWindow();
   });
   void start().catch((error) => fail(error instanceof Error ? error.message : String(error)));
 }

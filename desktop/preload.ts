@@ -6,6 +6,15 @@ if (process.isMainFrame) {
     platform: process.platform,
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('desktop:open-external', url),
     notifications: (action: unknown) => ipcRenderer.invoke('desktop:notifications', action),
+    onPrepareBackground: (callback: () => boolean) => {
+      const listener = (_event: Electron.IpcRendererEvent, nonce: string) => {
+        let ok = false;
+        try { ok = callback() === true; } catch { /* Keep the window reachable. */ }
+        ipcRenderer.send('desktop:background-ready', { nonce, ok });
+      };
+      ipcRenderer.on('desktop:prepare-background', listener);
+      return () => ipcRenderer.removeListener('desktop:prepare-background', listener);
+    },
     onResume: (callback: () => void) => {
       // Never pass Electron's IPC event (and its sender) into page callbacks.
       const listener = () => callback();

@@ -5,6 +5,7 @@ export interface RiDesktop {
   openExternal(url: string): Promise<void>;
   onResume(callback: () => void): () => void;
   onPrepareClose(callback: () => Promise<boolean>): () => void;
+  onPrepareBackground(callback: () => boolean): () => void;
   notifications(action: DesktopNotificationAction): Promise<DesktopNotificationStatus>;
 }
 

@@ -19,6 +19,16 @@ export function DesktopChrome() {
       }
     };
     window.addEventListener('beforeunload', beforeUnload);
+    // Window close now hides the live desktop renderer. Flush pending document
+    // edits without freezing it or interrupting recordings/background work.
+    // Failed writes keep their existing synchronous durable drafts for retry.
+    const visibility = () => {
+      if (window.riDesktop && document.visibilityState === 'hidden') void documentSaves.flushAll().catch(() => {});
+    };
+    document.addEventListener('visibilitychange', visibility);
+    // A hidden microphone loses its visible recording controls. Keep this
+    // window open until voice capture/transcription is finished or cancelled.
+    const background = window.riDesktop?.onPrepareBackground?.(() => !hasActiveInput());
     const unsubscribe = window.riDesktop?.onPrepareClose?.(async () => {
       if (hasActiveInput()) return false;
       document.body.inert = true;
@@ -32,7 +42,7 @@ export function DesktopChrome() {
       } catch { document.body.inert = false; return false; }
     });
     const resume = window.riDesktop?.onResume?.(() => { document.body.inert = false; });
-    return () => { resume?.(); document.body.inert = false; window.removeEventListener('beforeunload', beforeUnload); unsubscribe?.(); };
+    return () => { resume?.(); background?.(); document.body.inert = false; window.removeEventListener('beforeunload', beforeUnload); document.removeEventListener('visibilitychange', visibility); unsubscribe?.(); };
   }, [queryClient]);
   return <><div className="desktop-drag-fallback" aria-hidden="true" /><ServiceConnection /></>;
 }

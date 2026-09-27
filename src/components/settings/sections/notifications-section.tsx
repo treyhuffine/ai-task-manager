@@ -396,7 +396,7 @@ export function NotificationsSection() {
               <Monitor size={18} className="shrink-0 text-muted-foreground" />
               <div className="flex-1 space-y-1">
                 <h3 className="text-sm font-semibold">Desktop notifications</h3>
-                <p className="text-xs text-muted-foreground">Get alerts on this computer while Ri is open. Quitting the desktop app stops native alerts, even when its background service is running.</p>
+                <p className="text-xs text-muted-foreground">Get alerts on this computer while Ri is running. Closing the window keeps alerts active. Choosing Quit Ri stops desktop alerts, even when its background service is running.</p>
               </div>
               <Button variant="outline" size="sm" disabled={busy || (!desktopStatus.enabled && !desktopStatus.supported)} onClick={() => run(async () => {
                 if (!desktopStatus.enabled) await removeDesktopWebPushSubscription();

@@ -29,7 +29,7 @@ export async function updateDesktop(window: BrowserWindow, prepare: () => Promis
     // in an otherwise untrusted multi-artifact channel response.
     Object.assign(found.updateInfo, { files: [eligibleShellFile(release, found.updateInfo.files)] });
     delete (found.updateInfo as { packages?: unknown }).packages;
-    const choice = await dialog.showMessageBox(window, { message: `Update the desktop app to ${release.version}?`, detail: `${release.notes}\n\nThe background service keeps running. The desktop download may apply on the next launch if you close the app.`, buttons: ['Update', 'Later'], defaultId: 0, cancelId: 1 });
+    const choice = await dialog.showMessageBox(window, { message: `Update the desktop app to ${release.version}?`, detail: `${release.notes}\n\nThe background service keeps running. The desktop download may apply on the next launch after you quit Ri. Closing the window keeps Ri running.`, buttons: ['Update', 'Later'], defaultId: 0, cancelId: 1 });
     if (choice.response !== 0 || !(await prepare())) return;
     window.setProgressBar(0);
     const progress = (value: { percent: number }) => window.setProgressBar(value.percent / 100);
