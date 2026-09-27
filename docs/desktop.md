@@ -136,6 +136,36 @@ These checks cover S15-S19 on `ai-task-manager/session-ca52f4`. Hardware evidenc
 
 Publication still requires the actual publisher key/feed, platform signing and notarization, review of the exact speech distribution, and signed installer qualification. Experimental Home/worker/Teams integration remains a separate product decision and implementation. None of those gates is represented as complete by unit tests or by an unsigned local package.
 
+### Browser notification recovery and delivery history
+
+This follow-up builds on the shared notifier without changing its dispatcher or adding a retry worker. The Homes branch at `cbbd90c` already separates transaction-time queueing from delivery and adds a drain for stranded pending notifications. Its eventual integration must preserve the desktop adapter's deferred result, so native alerts stay pending until Electron claims and acknowledges them.
+
+- [x] S20: Reconcile this browser's permission, local push subscription and server registration. Provide explicit setup, repair and removal with actionable failure states. Preserve global channel enablement, routing and other devices.
+- [x] S21: Show the latest 100 delivery records in Notifications settings, with channel/event, timestamp, attempts and accurate queued, sent, failed, uncertain, expired or skipped states. Bound and sanitize the API response and explain channel-delete retention.
+- [x] S22: Verify browser setup failures and recovery, user scoping, preference preservation and history presentation. Run integration/type/lint checks, update this record, and commit on the desktop branch.
+
+The recent-history view uses existing records and existing channel deletion behavior. Removing a channel also removes its history. It is not a permanent inbox or an immutable audit log. No schema migration, read/unread state or replay action is introduced. Browser push still records success once at least one subscription accepts a message, and native success confirms the OS presentation event. Neither is proof that the user read it.
+
+Browser setup checks both the local subscription and the server's matching endpoint/keys. A local permission grant alone is not displayed as a working registration. Enable/repair and removal are explicit actions, and repairing a browser preserves the shared channel's disabled state and event choices. The read-only status route never subscribes a device or changes routing. History returns bounded display data and fixed failure categories, without private push endpoints, provider receipts, event bodies or raw upstream errors.
+
+Reproduce the browser integration check against an already-built package:
+
+```sh
+RI_DESKTOP_PACKAGE=release/desktop/mac-arm64/Ri.app pnpm desktop:browser-notifications-smoke
+```
+
+An optional `RI_BROWSER_EXECUTABLE_PATH` selects an existing Chromium executable. The fixture uses a fresh browser profile and isolated Ri installation. It mocks browser permission/push-provider operations and injects one failed registration request while keeping the UI, service worker, API and SQLite real. It does not qualify actual browser push delivery or mobile OS behavior.
+
+The S20–S22 verification candidate is a new unsigned macOS arm64 package, distinct from the S15–S19 candidate above. Its app and headless runtime manifests match at `e3b74c9be3bf4e7d59126a15a6ab2990b79c19c4574d292c617224b76356e6c1`, with 81,602 entries and 3,943 portable links. The runtime archive is 469,201,335 bytes. The shell ASAR SHA-256 is `7f89f2c8cd500541b7ab99b927f3436c963bffbe8216207c63499813659bcc22`. Native SQLite, vector, PTY and bundled CLI probes passed.
+
+Application tests passed with 2,563 tests and 25 existing skips. All 139 desktop unit tests passed. Type checking, changed-source lint and the production build passed. Lint retains one existing `isCreateSubtask` warning, and the build retains the same 42 dynamic-tracing warnings as the preceding candidate.
+
+The packaged native-notification check passed all seven scenarios against this candidate. It verifies the real notifier/outbox/claim/ack flow, history's OS-confirmation wording and private-receipt omission, visible failed presentation, save-before-navigation, no duplicates on reload, durable disable and preference preservation. OS display and clicks are mocked at Electron's boundary. Report and screenshots: `/private/var/folders/0f/kt2pkmp53f5g33pyjw3wzvc40000gp/T/ri-notifications-smoke-68cseI/`. The temporary service stopped cleanly.
+
+The packaged browser check passed all nine scenarios in a fresh Chromium profile paired through the real device-pairing UI. It verifies anonymous rejection, no automatic opt-in, failed registration and retained-subscription repair, channel deletion by another client, repair without resetting disabled/routing preferences, failed local removal with explicit retry, preservation of another browser, safe history projection, and status/channel filters. Desktop and 390-pixel-wide screenshots were inspected without horizontal overflow. Report and screenshots: `/private/var/folders/0f/kt2pkmp53f5g33pyjw3wzvc40000gp/T/ri-browser-notifications-smoke-ySyUQN/`. The temporary service stopped cleanly. The run used the existing Playwright Chromium 1223 executable through `RI_BROWSER_EXECUTABLE_PATH` because the default browser revision was absent.
+
+Qualification fixes were confined to the smoke drivers: ordinary browser pairing was required in addition to server authentication, and the native failure assertion was scoped to the delivery list rather than also matching the status-filter option. Production code stayed unchanged after the candidate build. Signed native delivery and real push-provider/mobile checks remain the platform qualification boundary.
+
 ### Independent desktop features
 
 **Updates:** Settings > Updates exposes automatic-download preference, explicit metered mode, and a maintenance window with start hour, duration and timezone. Metered mode pauses automatic downloads, not owner-requested downloads. This is an explicit preference, not OS network detection. Approval applies only to the selected update. A sleeping or busy computer waits for the next eligible safe point. The selected timezone stays fixed when the user travels. Renderer settings cannot change the publisher URL, key or release channel. Headless parity is `ri update preferences --automatic-download on|off --metered on|off`.

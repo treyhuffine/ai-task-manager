@@ -85,6 +85,14 @@ void acceptance('notifications-smoke', async fixture => {
   assert.equal(shown[0].title, 'Ri notifications are ready');
   fixture.check('Real notify/render/outbox/claim/native-show/ack round trip');
 
+  const history = page.getByRole('region', { name: 'Recent delivery history', exact: true });
+  await history.getByRole('button', { name: 'Refresh history', exact: true }).click();
+  await history.getByText('The operating system reported showing this alert. This does not confirm it was read.', { exact: true }).waitFor();
+  const recorded = await api<{ deliveries: { id: string; status: string; attempts: number }[] }>(page, '/api/notifications/deliveries');
+  assert.deepEqual(recorded.deliveries.map(row => ({ id: row.id, status: row.status, attempts: row.attempts })), [{ id: first.id, status: 'sent', attempts: 1 }]);
+  assert(!JSON.stringify(recorded).includes(first.receipt!), 'Private presentation receipts must not appear in the history API');
+  fixture.check('Native delivery appears in shared history with accurate OS confirmation and no private receipt');
+
   const note = await api<{ id: string }>(page, '/api/notes', 'POST', { title: 'Before notification click', body: 'Temporary notification fixture.' });
   await fixture.navigate(`/note/${note.id}`);
   const latest = 'Saved before the notification opened settings';
@@ -125,6 +133,9 @@ void acceptance('notifications-smoke', async fixture => {
   assert.match(deliveries()[1].lastError ?? '', /Injected operating-system rejection/);
   const deliveryError = page.getByRole('alert').filter({ hasText: 'operating system could not show' });
   await deliveryError.waitFor();
+  await history.getByRole('button', { name: 'Refresh history', exact: true }).click();
+  await history.getByRole('list', { name: 'Recent notification deliveries' }).getByText('Failed', { exact: true }).waitFor();
+  assert(!(await history.innerText()).includes('Injected operating-system rejection'), 'History must not display raw provider failures');
   await deliveryError.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(fixture.base, 'notification-failure.png') });
   fixture.check('OS rejection is persisted as failed and visible in settings');

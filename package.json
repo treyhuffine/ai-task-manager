@@ -63,6 +63,7 @@
     "desktop:interaction-smoke": "tsx desktop/interaction-smoke.ts",
     "desktop:endurance-smoke": "tsx desktop/endurance-smoke.ts",
     "desktop:notifications-smoke": "tsx desktop/notifications-smoke.ts",
+    "desktop:browser-notifications-smoke": "tsx desktop/browser-notifications-smoke.ts",
     "runtime:lifecycle-smoke": "tsx desktop/service-lifecycle-smoke.ts",
     "speech:sources": "\"${RI_SPEECH_BUILD_PYTHON:-.electron-demo/speech-build/venv/bin/python}\" desktop/speech/release_materials.py"
   },

@@ -7585,6 +7585,31 @@ export function listWebPushSubscriptions(userId: string): WebPushSubscriptionRec
   return getDb().select().from(webPushSubscriptions).where(eq(webPushSubscriptions.userId, userId)).all();
 }
 
+export function getWebPushSubscriptionByEndpoint(userId: string, endpoint: string): WebPushSubscriptionRecord | undefined {
+  return getDb().select().from(webPushSubscriptions).where(and(eq(webPushSubscriptions.userId, userId), eq(webPushSubscriptions.endpoint, endpoint))).get();
+}
+
+/** Explicit browser registration and channel creation commit together. Repairing
+ * one browser never changes the user's existing channel or event preferences. */
+export function registerWebPushSubscription(input: CreateWebPushSubscriptionInput & { userId: string }, events: string[]): boolean {
+  const db = getDb();
+  return db.transaction(() => {
+    const existing = db.select().from(webPushSubscriptions).where(eq(webPushSubscriptions.endpoint, input.endpoint)).get();
+    if (existing && existing.userId !== input.userId) return false;
+    upsertWebPushSubscription(input);
+    if (!listNotificationChannels({ userId: input.userId }).some(channel => channel.kind === 'web_push')) {
+      createNotificationChannel({ userId: input.userId, kind: 'web_push', config: {}, events, enabled: true });
+    }
+    return true;
+  }, { behavior: 'immediate' });
+}
+
+/** Browser-facing removal is scoped to its authenticated notification subject.
+ * The provider adapter's expiry cleanup retains its endpoint-only helper. */
+export function deleteWebPushSubscriptionForUser(userId: string, endpoint: string): boolean {
+  return getDb().delete(webPushSubscriptions).where(and(eq(webPushSubscriptions.userId, userId), eq(webPushSubscriptions.endpoint, endpoint))).run().changes > 0;
+}
+
 /** Upsert by endpoint (a browser re-subscribing replaces its keys). */
 export function upsertWebPushSubscription(input: CreateWebPushSubscriptionInput): WebPushSubscriptionRecord {
   const db = getDb();
@@ -7667,13 +7692,13 @@ export function getDelivery(dedupeKey: string, channelId: string): NotificationD
     .get();
 }
 
-/** Delivery history for a user (newest first) — the in-app center reads this later. */
+/** Delivery history for a user, with stable newest-first ordering. */
 export function listNotificationDeliveries(userId: string, limit = 100): NotificationDeliveryRecord[] {
   return getDb()
     .select()
     .from(notificationDeliveries)
     .where(eq(notificationDeliveries.userId, userId))
-    .orderBy(desc(notificationDeliveries.createdAt))
+    .orderBy(desc(notificationDeliveries.createdAt), desc(notificationDeliveries.id))
     .limit(limit)
     .all();
 }

@@ -22,13 +22,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api/client';
 import { EVENT_CATALOG } from '@/lib/notifications/events';
-import {
-  webPushSupported,
-  isWebPushSubscribed,
-  subscribeToWebPush,
-  unsubscribeFromWebPush,
-  removeDesktopWebPushSubscription,
-} from '@/lib/notifications/web-push-client';
+import { removeDesktopWebPushSubscription } from '@/lib/notifications/web-push-client';
 import { isDesktopNotificationChannel, type DesktopNotificationStatus } from '@/lib/notifications/desktop-contract';
 import type { NotificationChannelRecord } from '@/db/types';
 import { Button } from '@/components/ui/button';
@@ -39,6 +33,8 @@ import { cn } from '@/lib/utils';
 import { setSettingsSection } from '@/components/settings/settings-store';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 import { ConnectorLogo } from '@/components/connectors/connector-logo';
+import { BrowserNotifications } from './browser-notifications';
+import { NotificationHistory } from './notification-history';
 
 interface Connection {
   id: string;
@@ -67,7 +63,7 @@ export function NotificationsSection() {
   const [channels, setChannels] = useState<NotificationChannelRecord[]>([]);
   const [telegramConns, setTelegramConns] = useState<Connection[]>([]);
   const [digests, setDigests] = useState<Digest[]>([]);
-  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,7 +100,7 @@ export function NotificationsSection() {
     setTelegramConns(cn.connections.filter((c) => c.providerId === 'telegram'));
     setDigests(dg.digests);
     setBaseUrls(bu);
-    if (webPushSupported()) setPushSubscribed(await isWebPushSubscribed());
+    setHistoryRefresh(value => value + 1);
     if (window.riDesktop) setDesktopStatus(await window.riDesktop.notifications('status'));
   }, []);
 
@@ -176,13 +172,9 @@ export function NotificationsSection() {
       setTestResults((p) => ({ ...p, [id]: { status: 'error', error: errMsg(e) } }));
     } finally {
       setTesting(null);
+      setHistoryRefresh(value => value + 1);
     }
   };
-
-  // --- Web push ------------------------------------------------------------
-
-  const enablePush = () => run(() => subscribeToWebPush());
-  const disablePush = () => run(() => unsubscribeFromWebPush());
 
   // --- Telegram add --------------------------------------------------------
 
@@ -421,35 +413,8 @@ export function NotificationsSection() {
           {/* Web push */}
           {desktopStatus ? (
             <div className="rounded-xl border border-border p-3 text-[11px] text-muted-foreground">For alerts on your phone, enable browser push from Ri on that device.</div>
-          ) : !webPushSupported() ? (
-            <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/20 p-3 text-[11px] text-muted-foreground">
-              <Globe size={15} className="shrink-0" />
-              <span>
-                Browser push is unavailable here. On iPhone or iPad, open Ri from its home-screen icon first.{' '}
-                <button type="button" className="font-medium underline" onClick={() => setSettingsSection('devices')}>
-                  Phone setup
-                </button>
-              </span>
-            </div>
-          ) : pushSubscribed ? (
-            <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
-              <CheckCircle2 size={15} className="shrink-0" /> Browser push on for this device
-            </div>
           ) : (
-            <button
-              type="button"
-              onClick={enablePush}
-              disabled={busy}
-              className="flex items-center gap-2.5 rounded-xl border border-border bg-card/30 p-3 text-left transition-colors hover:bg-muted/40 disabled:opacity-50"
-            >
-              <div className="rounded-lg bg-muted/60 p-2 text-muted-foreground">
-                <Globe size={16} />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-semibold text-foreground">Enable browser push</div>
-                <div className="text-[11px] text-muted-foreground">Notifications on this device</div>
-              </div>
-            </button>
+            <BrowserNotifications channel={channels.find(channel => channel.kind === 'web_push') ?? null} onChanged={refresh} />
           )}
 
           {/* Telegram */}
@@ -685,31 +650,13 @@ export function NotificationsSection() {
                         size="icon-xs"
                         onClick={() => removeChannel(c.id)}
                         disabled={busy}
-                        title="Remove channel"
+                        title="Remove channel and its delivery history"
+                        aria-label={`Remove ${channelLabel(c)} and its delivery history`}
                       >
                         <Trash2 size={12} />
                       </Button>
                     </div>
                   </div>
-
-                  {/* Per-browser control for the web_push channel */}
-                  {isWebPush && webPushSupported() && (
-                    <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-border/40 pt-2.5">
-                      <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <Monitor size={12} />
-                        This browser: {pushSubscribed ? 'subscribed' : 'not subscribed'}
-                      </span>
-                      {pushSubscribed ? (
-                        <Button variant="ghost" size="xs" onClick={disablePush} disabled={busy} className="text-xs">
-                          Turn off here
-                        </Button>
-                      ) : (
-                        <Button variant="ghost" size="xs" onClick={enablePush} disabled={busy} className="text-xs">
-                          Enable here
-                        </Button>
-                      )}
-                    </div>
-                  )}
 
                   {tr && (
                     <div
@@ -719,7 +666,7 @@ export function NotificationsSection() {
                       )}
                     >
                       {tr.status === 'queued' ? 'Test queued. Check your computer’s notifications. Any delivery error will appear above.' : tr.status === 'sent'
-                        ? '✓ Test notification delivered'
+                        ? (isWebPush ? 'Test accepted by the push service. Check your subscribed devices.' : 'Test accepted by the notification provider.')
                         : `✗ Test ${tr.status}${tr.error ? `: ${tr.error}` : ''}`}
                     </div>
                   )}
@@ -746,6 +693,8 @@ export function NotificationsSection() {
           </div>
         </div>
       )}
+
+      <NotificationHistory refreshKey={historyRefresh} />
 
       {/* 4. Routing matrix */}
       {channels.length > 0 && (
