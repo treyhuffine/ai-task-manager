@@ -71,7 +71,7 @@ import { isComputerConnected, wakeComputer } from '@/lib/workers/hub';
 import { notReady, runOnFor } from '@/lib/setups/run-on';
 import { requireHarnessId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
-import { ExecutionMovingError, movingTo } from '@/lib/transfer/moving';
+import { admitChange } from '@/lib/transfer/moving';
 
 const execFileAsync = promisify(execFile);
 
@@ -668,9 +668,21 @@ export async function archiveExecutionSession(
 ): Promise<ChatSessionWithExecution | null> {
   const session = getChatSessionWithExecution(args.sessionId);
   if (!session) return null;
-  // Not while it moves: its source is being saved (P4.5).
-  const movingToName = movingTo(session.executionId);
-  if (movingToName) throw new ExecutionMovingError(movingToName);
+  // Counted for as long as it runs: it can't start while the work moves
+  // (ExecutionMovingError), and no move starts while it's removing the
+  // worktree a move would save (P4 review).
+  const release = admitChange(session.executionId, 'being archived');
+  try {
+    return await archiveAdmitted(args, session);
+  } finally {
+    release();
+  }
+}
+
+async function archiveAdmitted(
+  args: ArchiveExecutionSessionArgs,
+  session: ChatSessionWithExecution,
+): Promise<ChatSessionWithExecution | null> {
 
   // On another computer (P4.5): stop it there (its sessions and terminals),
   // then remove its worktree there, refused when it has work that isn't

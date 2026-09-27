@@ -611,8 +611,8 @@ export const sessionsApi = {
     return api.get<ReviewState>(`/sessions/${id}/review${on}`, { signal: opts.signal, headers: hostHeaders() });
   },
   /** Make or refresh it: refreshed only while it has no edits. */
-  openCodeHere(id: string): Promise<ReviewState & { created: boolean; refreshed: boolean }> {
-    return api.post<ReviewState & { created: boolean; refreshed: boolean }>(`/sessions/${id}/review`, {}, { headers: hostHeaders() });
+  openCodeHere(id: string): Promise<ReviewState & { created: boolean; refreshed: boolean; inTheWay?: string[] }> {
+    return api.post<ReviewState & { created: boolean; refreshed: boolean; inTheWay?: string[] }>(`/sessions/${id}/review`, {}, { headers: hostHeaders() });
   },
   /** Open it in an app on this computer, through its worker. */
   openReview(id: string, target: OpenTarget): Promise<{ ok: boolean; reason?: string; message?: string }> {

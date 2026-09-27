@@ -26,6 +26,9 @@ const requestWorker = vi.fn();
 vi.mock('@/lib/db/queries', () => ({
   getChatSessionWithExecution: (id: string) =>
     (getChatSessionWithExecution as unknown as (id: string) => unknown)(id),
+  getChatSession: (id: string) => (getChatSessionWithExecution as unknown as (id: string) => unknown)(id),
+  // Nothing is moving: a new terminal is let through (P4 review).
+  getActiveTransfer: () => null,
   getWorkspace: (id: string) => (getWorkspace as unknown as (id: string) => unknown)(id),
   chatPlacement: () => chatPlacement(),
   getHome: () => ({ hostComputerId: 'mini' }),

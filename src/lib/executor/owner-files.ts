@@ -11,7 +11,6 @@
 import { existsSync } from 'node:fs';
 import { chatPlacement, getChatSessionWithExecution, getComputer, getWorkspace } from '@/lib/db/queries';
 import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
-import { refuseWhileMoving } from '@/lib/transfer/moving';
 import type { ReadExecutionRequest, WriteExecutionRequest } from '@/lib/workers/protocol';
 import type { ExecutionRead, ReadAnswer } from '@/lib/workspaces/execution-reads';
 import type { ExecutionWrite } from '@/lib/workspaces/execution-writes';
@@ -60,9 +59,6 @@ async function askOwner(computerId: string, executionId: string, chatSessionId: 
  * edit is live work, not something to queue for later.
  */
 export async function writeOnOwner(chatSessionId: string, write: ExecutionWrite): Promise<Response | null> {
-  // Wherever it runs, nothing changes its files while it moves (P4.5).
-  const moving = refuseWhileMoving(chatSessionId);
-  if (moving) return moving;
   const placement = chatPlacement(chatSessionId);
   if (!placement || placement.isHome || !placement.executionId) return null;
   const session = getChatSessionWithExecution(chatSessionId);

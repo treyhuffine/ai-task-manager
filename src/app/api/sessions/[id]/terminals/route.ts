@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { createTerminalAt, listTerminalsAt, sessionTerminalPlace } from '@/lib/terminal/place';
 import { withCompression } from '@/lib/api/compression';
+import { whileAdmitted } from '@/lib/transfer/moving';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,7 +28,7 @@ async function handleGET(
   }
 }
 
-export async function POST(
+async function handlePOST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -39,4 +40,10 @@ export async function POST(
     console.error('[POST /api/sessions/:id/terminals]', err);
     return Response.json({ error: message }, { status: 500 });
   }
+}
+
+/** Counted while it runs, and refused while the work moves (P4 review). */
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return whileAdmitted(id, 'opening a terminal', () => handlePOST(request, context));
 }

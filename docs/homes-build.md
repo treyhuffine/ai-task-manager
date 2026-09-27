@@ -1175,6 +1175,33 @@ On the dev home with the stand-in's worker, real Claude on both:
 - **The controls on the stand-in**: Push from the action bar published a new branch there, Pull base brought main in, archive refused uncommitted work and then removed the worktree there, and reopen prepared it again on its branch at the saved commit.
 - **Found and fixed**: the missing action bar, the location menu saying "isn't set up" while it loaded, the PR list's 500 for a repository not on GitHub, a push rejection naming "this computer" to a browser on another one, and four copy slips (c9c2f29).
 
+## P4 review fixes
+
+A review of P4 at cbbd90c found eight reproducible failures in thirteen failing probes, six of them P1. All eight are fixed, and the probes are kept as regressions in `src/test/regressions/homes-p4-review.test.ts`. Two probes were adapted to go through the paths the app uses, their invariants kept: the archive race takes the lock with `startTransfer` rather than inserting the record, and the cold restart runs the startup's transfer recovery as well as the transcript sweep.
+
+### What a checkpoint takes
+
+- **Staged or changed local files were pushed.** The local-only rule filtered the new files offered, but the checkpoint then staged every tracked change and committed the whole index, so a staged `.env.local`, or a `filesToCopy` file already tracked and changed, went to the remote. Now only permitted paths are staged: a change to local setup or secrets stays uncommitted where it is, the dialog lists it as staying, and one already staged stops the checkpoint with nothing touched ("unstage it there").
+- **A half-done merge was committed.** Staging a conflicted file marks it resolved, and the commit finished the merge with its markers. A merge, rebase, cherry-pick or revert in progress, or unresolved conflicts, now stop it with nothing touched, and the dialog says so before Continue is offered.
+- **Try again refused its own chosen files.** A retry after the first attempt committed them found them tracked and called them invalid. A chosen file already tracked is accepted as it is.
+- **Ignored files were overwritten.** Moving a reused destination worktree forward, or refreshing a review checkout, let Git replace an ignored local file the newer commit starts tracking. Incoming paths are checked against local files first: the destination stops ("move it aside there"), and the review stays as it was and says which files.
+- Paths are passed to Git literally, from a file, so names like `[id].tsx` or `*.md` are those files, and no list is too long.
+
+### The boundary around the source
+
+- **A send, an archive or a new terminal could reach a source the move had stopped.** Each checked once at its start, and a move could start while it was still under way. Now every operation on an execution passes one boundary (`src/lib/transfer/moving.ts`) in the same tick as it starts, and is counted until it ends. File changes, push, pull base, merge, auto-merge, archive and new terminals are refused while the work moves, and a move doesn't start while one of them runs ("It's being archived right now"). A send is checked again at the moment it goes to the harness, held if a move started meanwhile, and started over for the new owner if the work changed hands. A move stops its source only once the sends already let through have reached it.
+- **A message sent after a move stopped went to the source.** Only messages already held were kept back. Now a move that stopped holds new messages too, until Try again, Resume or Finish. The card has no Dismiss: it says what's held and that new messages wait.
+
+### Recovery
+
+- **A restart left a move under way forever**, holding messages, refusing changes, and offering nothing. At startup, before the sweep that re-fires unanswered messages, a move still under way stops where it was, with its messages: Try again or Resume before the destination owned the work, Finish after. Commands it queued that no computer took yet are withdrawn. One a computer took finishes there first, since a worker runs an execution's commands in order.
+- **Two Resumes delivered a held message twice.** Resume and Finish now settle the move once, and a second click, another tab or Try again at the same moment finds it settled. Try again takes the held messages in the same transaction that supersedes the stopped move. Each held message is taken off the list by one delivery alone before it's sent, and the home's own harness is protected from the same message twice at once, as a worker's queue already was.
+- Held messages now go one after another as each is accepted, not after each whole turn, so Resume answers at once (a harness that takes one message at a time still gets them turn by turn). A move settled before its held messages all went finishes delivering them after a restart, and nothing else sends them meanwhile.
+
+### Tests
+
+- The review's 15 probes, all passing. `coordination.test.ts` (8): the boundary both ways, draining admitted sends, a send prepared while the work changed hands built for the new owner's folder, new messages held until a stopped move is settled and a second Resume finding nothing, Resume answering before the held turns end, in order, Try again carrying held messages, and restart recovery withdrawing queued commands and finishing a settled delivery. `git-checkpoint.test.ts` (+4): a changed local file left uncommitted, the staged-secret and half-done-merge refusals said before anything is touched, pattern-like names taken literally and again on a retry, and a review kept when a local file is in the way. Each fix fails without it. Full suite: 2,759 passed.
+
 ## P0.3 Records and the runner boundary
 
 ### Principles

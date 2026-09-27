@@ -58,7 +58,11 @@ export function ReviewBar({ session, workspace }: { session: ChatSessionWithExec
               onSuccess: (s) =>
                 s.review?.dirty
                   ? toast.message('It has your edits, so it stayed as it was')
-                  : toast.success(s.refreshed ? `Now at ${s.review?.sha.slice(0, 7)}` : 'Already the latest published commit'),
+                  : s.inTheWay?.length
+                    ? toast.message('It stayed as it was', {
+                        description: `The newer commit would replace local files here: ${s.inTheWay.slice(0, 3).join(', ')}${s.inTheWay.length > 3 ? ` and ${s.inTheWay.length - 3} more` : ''}. Move them aside to refresh.`,
+                      })
+                    : toast.success(s.refreshed ? `Now at ${s.review?.sha.slice(0, 7)}` : 'Already the latest published commit'),
               onError: (err) => toast.error("Couldn't refresh it", { description: apiErrorText(err) }),
             })
           }

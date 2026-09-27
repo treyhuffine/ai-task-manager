@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { readOnOwner, writeOnOwner } from '@/lib/executor/owner-files';
+import { whileAdmitted } from '@/lib/transfer/moving';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { withCompression } from '@/lib/api/compression';
 import {
@@ -64,7 +65,7 @@ interface PostBody {
  *   - copy:  { action: 'copy', copied: string[], skipped: {...}[] }
  *   - move:  { action: 'move', conflict: boolean, stashMessage: string | null }
  */
-export async function POST(
+async function handlePOST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -125,4 +126,10 @@ export async function POST(
     console.error('[POST /api/sessions/:id/wip]', err);
     return Response.json({ error: String(err) }, { status: 500 });
   }
+}
+
+/** A change to its files, counted while it runs: never under a move (P4 review). */
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return whileAdmitted(id, 'changing its files', () => handlePOST(request, context));
 }

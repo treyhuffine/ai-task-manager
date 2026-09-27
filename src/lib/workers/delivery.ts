@@ -102,7 +102,11 @@ function heldDelivery(transfer: { toComputerId: string; fromComputerId: string; 
         ? transfer.toGeneration === null
           ? `The move to ${to} stopped. Try again, or resume on ${from}.`
           : `The move to ${to} stopped after it arrived. Deliver it there to finish.`
-        : null,
+        : transfer.state === 'cancelled'
+          ? `Going to ${from} now.`
+          : transfer.state === 'succeeded' || transfer.toGeneration !== null
+            ? `Going to ${to} now.`
+            : null,
     cancellable: false,
   };
 }

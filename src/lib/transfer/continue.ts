@@ -38,6 +38,12 @@ import {
   getNote,
   getTask,
   getTransfer,
+  cancelWorkerCommand,
+  listActiveTransfers,
+  listQueuedTransferCommands,
+  listTransfersStillDelivering,
+  settleStoppedTransfer,
+  takeHeldMessage,
   listSessionRefs,
   targetGenerationOf,
   getWorkspace,
@@ -61,6 +67,7 @@ import { runOnFor } from '@/lib/setups/run-on';
 import { CheckpointError, saveCheckpoint, worktreeAtCheckpoint, type SavedCheckpoint } from './git-checkpoint';
 import { composeHandoff, deterministicHandoff, summaryPrompt, type HandoffInput } from './handoff';
 import { transferView, type TransferView } from './view';
+import { busyWith, drainSends } from './moving';
 import type { PreparePayload, GitPayload, QuiescePayload, SetupScriptPayload, PrepareResult } from '@/lib/worker/handlers';
 
 export class TransferError extends Error {
@@ -75,6 +82,7 @@ export class TransferError extends Error {
       | 'source_unreachable'
       | 'destination_unreachable'
       | 'conflict'
+      | 'busy'
       | 'nothing_held',
     message: string,
     readonly status = 409,
@@ -86,6 +94,7 @@ export class TransferError extends Error {
 
 /** How long each step on a connected computer may take before the transfer stops there. */
 export const STEP_TIMEOUTS_MS = {
+  drain: 30_000,
   quiesce: 2 * 60_000,
   checkpoint: 3 * 60_000,
   prepare: 10 * 60_000,
@@ -154,12 +163,16 @@ export function startTransfer(input: StartTransferInput): ExecutionTransferRecor
       `${computerName(placement.computerId)} isn't connected, so its work can't be saved and moved. Wait for it, or keep following it here.`,
     );
   }
+  // Not under a change already running on it: archiving, a push, a file
+  // being saved. startTransfer takes the lock without awaiting anything, so
+  // none can start between this and the lock (P4 review).
+  const busy = busyWith(execution.id);
+  if (busy) throw new TransferError('busy', `It's ${busy} right now. Continue once that's done.`);
   const problem = destinationProblem(workspace.id, session.harness, input.toComputerId);
   if (problem) throw new TransferError('destination_not_ready', problem);
 
-  // A transfer that stopped earlier still holds messages: they come along.
-  const earlier = latestTransfer(execution.id);
-  const carried = earlier?.state === 'failed' && earlier.toGeneration === null ? earlier.heldEventIds : [];
+  // A move that stopped earlier is superseded in the lock's transaction, and
+  // the messages it held come along.
   let transfer: ExecutionTransferRecord;
   try {
     transfer = createTransfer({
@@ -168,14 +181,12 @@ export function startTransfer(input: StartTransferInput): ExecutionTransferRecor
       toComputerId: input.toComputerId,
       fromGeneration: placement.generation,
       includeUntracked: input.includeUntracked,
-      heldEventIds: carried,
       requestedByApiKeyId: input.requestedByApiKeyId,
     });
   } catch (err) {
     if (err instanceof TransferConflictError) throw new TransferError('conflict', err.message);
     throw err;
   }
-  if (earlier && carried.length > 0) updateTransfer(earlier.id, { heldEventIds: [] });
   announce(transfer);
   void runTransfer(transfer.id, input).catch((err) => console.error(`[transfer] ${transfer.id} failed unexpectedly:`, err));
   return transfer;
@@ -209,6 +220,11 @@ function queueOn(computerId: string, kind: 'quiesce' | 'git' | 'prepare' | 'run_
 
 async function stopSource(transfer: ExecutionTransferRecord, chats: string[], actor?: WorkerCommandActor): Promise<void> {
   const host = getHome()?.hostComputerId ?? null;
+  // A message let through before the lock reaches the source first, so the
+  // stop that follows is the last thing it gets. Anything later is held.
+  if (!(await drainSends(transfer.executionId, STEP_TIMEOUTS_MS.drain))) {
+    throw new StepFailed(`A message was still on its way to ${computerName(transfer.fromComputerId)}. Try again in a moment.`);
+  }
   if (transfer.fromComputerId !== host) {
     const payload: QuiescePayload = { chatSessionIds: chats, transferId: transfer.id };
     const command = queueOn(transfer.fromComputerId, 'quiesce', payload, transfer, transfer.fromGeneration, chats[0] ?? null, actor);
@@ -383,19 +399,25 @@ async function writeHandoff(transfer: ExecutionTransferRecord, checkpoint: Saved
   return composeHandoff(fixed, summary);
 }
 
-/** Deliver the messages a transfer holds, in order, to wherever the work is now. Each goes once. */
+/**
+ * Deliver the messages a transfer holds, in order, to wherever the work is
+ * now. Each is taken off the list by one delivery alone before it's sent
+ * (`takeHeldMessage`), and the next goes once the harness has the one before,
+ * not once its turn is over. If the home stops between taking one and its
+ * harness having it, it's an unanswered message the health check sends once
+ * the chat is opened.
+ */
 export async function deliverHeld(transfer: ExecutionTransferRecord, actor?: WorkerCommandActor): Promise<void> {
   const { redispatchStoredMessage } = await import('@/lib/sessions/redispatch');
-  const pending = [...transfer.heldEventIds];
-  for (const eventId of pending) {
-    const current = getTransfer(transfer.id);
-    if (!current) return;
-    updateTransfer(transfer.id, { heldEventIds: current.heldEventIds.filter((id) => id !== eventId) });
+  for (;;) {
+    const next = getTransfer(transfer.id)?.heldEventIds[0];
+    if (!next) return;
+    if (!takeHeldMessage(transfer.id, next)) continue;
     try {
-      await redispatchStoredMessage(eventId, actor);
+      await redispatchStoredMessage(next, actor);
     } catch (err) {
       // It went out and failed there: its own delivery state says so, with Send again.
-      console.warn(`[transfer] held message ${eventId} failed to deliver:`, err);
+      console.warn(`[transfer] held message ${next} failed to deliver:`, err);
     }
   }
 }
@@ -461,7 +483,11 @@ export async function resumeOnSource(executionId: string, actor?: WorkerCommandA
   if (!transfer || transfer.state !== 'failed' || transfer.toGeneration !== null) {
     throw new TransferError('nothing_held', 'There is no stopped move to resume from.');
   }
-  await deliverHeld(transfer, actor);
+  // Once: a second click, another tab or Try again at the same moment finds it settled.
+  const settled = settleStoppedTransfer(transfer.id, 'resumed');
+  if (!settled) throw new TransferError('conflict', 'It was already resumed, or tried again.');
+  announce(settled);
+  await deliverHeld(settled, actor);
   const updated = getTransfer(transfer.id)!;
   announce(updated);
   return updated;
@@ -473,10 +499,46 @@ export async function finishOnDestination(executionId: string, actor?: WorkerCom
   if (!transfer || transfer.state !== 'failed' || transfer.toGeneration === null) {
     throw new TransferError('nothing_held', 'There is no stopped move to finish.');
   }
-  await deliverHeld(transfer, actor);
-  const updated = updateTransfer(transfer.id, { state: 'succeeded', stage: 'done', error: null, failedStage: null, finishedAt: new Date().toISOString() })!;
+  const settled = settleStoppedTransfer(transfer.id, 'finished');
+  if (!settled) throw new TransferError('conflict', 'It was already finished.');
+  announce(settled);
+  await deliverHeld(settled, actor);
+  const updated = getTransfer(transfer.id)!;
   announce(updated);
   return updated;
+}
+
+/**
+ * When the home starts (P4 review): moves a restart interrupted. Nothing in
+ * this process is running them, so each stops where it was, holding what it
+ * held: Try again or Resume before the destination owned the work, Finish
+ * after. Commands it queued that no computer has taken yet are withdrawn.
+ * One a computer took finishes there first, in order, before anything new
+ * for the execution reaches it. And a move settled by Resume or Finish goes
+ * on delivering the messages it hadn't sent yet.
+ */
+export function recoverInterruptedTransfers(): { stopped: number; delivering: number } {
+  const now = new Date().toISOString();
+  const interrupted = listActiveTransfers();
+  for (const transfer of interrupted) {
+    for (const command of listQueuedTransferCommands(transfer)) cancelWorkerCommand(command.id);
+    const next =
+      transfer.toGeneration === null
+        ? `Nothing was lost: Try again, or resume on ${computerName(transfer.fromComputerId)}.`
+        : `${computerName(transfer.toComputerId)} has the work: finish there to deliver what it held.`;
+    const stopped = updateTransfer(transfer.id, {
+      state: 'failed',
+      failedStage: transfer.stage,
+      error: `Ri restarted while it was moving. ${next}`,
+      finishedAt: now,
+    });
+    if (stopped) announce(stopped);
+  }
+  const delivering = listTransfersStillDelivering();
+  for (const transfer of delivering) {
+    void deliverHeld(transfer).catch((err) => console.error(`[transfer] ${transfer.id}: delivering held messages after a restart failed:`, err));
+  }
+  return { stopped: interrupted.length, delivering: delivering.length };
 }
 
 /** The handoff a fresh session on the destination starts from, while none has started yet (P4.3). */

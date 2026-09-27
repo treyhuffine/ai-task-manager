@@ -5,6 +5,7 @@ import { looksLikeNonFastForward } from '@/lib/workspaces/git-errors';
 import { pushExecutionBranch } from '@/lib/workspaces/branch-sync';
 import { gitOnOwner } from '@/lib/executor/owner-git';
 import { actorFromRequest } from '@/lib/auth/actor';
+import { whileAdmitted } from '@/lib/transfer/moving';
 
 /**
  * `pushExecutionBranch` — pushes the current branch to its upstream,
@@ -13,7 +14,7 @@ import { actorFromRequest } from '@/lib/auth/actor';
  * surface a structured `code: 'non_fast_forward'` so the action bar can
  * transition to the `localDiverged` state and offer Resolve Conflicts.
  */
-export async function POST(
+async function handlePOST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -64,4 +65,10 @@ export async function POST(
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: name, message }, { status: 400 });
   }
+}
+
+/** Counted while it runs, and refused while the work moves (P4 review). */
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return whileAdmitted(id, 'pushing', () => handlePOST(request, context));
 }

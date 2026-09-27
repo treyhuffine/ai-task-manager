@@ -18,9 +18,30 @@ export async function redispatchStoredMessage(eventId: string, actor?: WorkerCom
   if (!event || event.role !== 'user' || !event.content) return;
   const attachments = (event.attachments ?? []) as Attachment[];
   const expanded = await expandMarkers(expandEntityMarkers(event.content, event.sessionId), attachments);
-  await executor.dispatch(event.sessionId, withSenderLabel(expanded, event.senderSessionId), {
-    sourceEventId: event.id,
-    attachments,
-    actor,
+  // Resolves once the harness (or its computer's queue) has it, not when the
+  // turn is over: messages delivered one after another keep their order
+  // without each waiting on the last one's whole turn.
+  await new Promise<void>((resolve, reject) => {
+    let accepted = false;
+    const accept = () => {
+      if (accepted) return;
+      accepted = true;
+      resolve();
+    };
+    executor
+      .dispatch(event.sessionId, withSenderLabel(expanded, event.senderSessionId), {
+        sourceEventId: event.id,
+        attachments,
+        actor,
+        onAccepted: accept,
+      })
+      .then(accept, (err: unknown) => {
+        if (!accepted) {
+          accepted = true;
+          reject(err);
+        } else {
+          console.warn(`[redispatch] ${event.id}'s turn failed:`, err);
+        }
+      });
   });
 }

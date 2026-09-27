@@ -30,10 +30,11 @@ import {
   listMainChats,
   createRun as createRunRow,
   markRunStarted as markRunStartedRow,
-  getActiveTransfer,
   heldMessages,
   holdForTransfer,
+  holdingTransfer,
 } from '@/lib/db/queries';
+import { admitSend } from '@/lib/transfer/moving';
 import { getAppRoot } from '@/lib/config/paths';
 import type { Attachment, PermissionMode, WorkerCommandActor } from '@/db/types';
 import { budgetGate } from '@/lib/runs/budget';
@@ -161,7 +162,18 @@ export interface DispatchOptions {
    * doesn't read as working.
    */
   onQueued?: () => void;
+  /**
+   * Called once the next message can follow this one: when the chat's
+   * harness has it and takes messages mid-turn, or its computer's queue has
+   * it (a worker takes them in turn), or a move holds it. For a harness here
+   * that takes one message at a time, when its turn is over. What a delivery
+   * of several messages in order waits for, rather than every whole turn.
+   */
+  onAccepted?: () => void;
 }
+
+/** The work changed hands while a send was being prepared: it starts over, for the new owner. */
+class PlacementChanged extends Error {}
 
 /**
  * Dispatch a user message into the agent. Fire-and-forget from the
@@ -186,6 +198,21 @@ export async function dispatch(
   userMessage: string,
   options: DispatchOptions = {},
 ): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await dispatchOnce(chatSessionId, userMessage, options);
+    } catch (err) {
+      if (err instanceof PlacementChanged && attempt < 2) continue;
+      throw err;
+    }
+  }
+}
+
+async function dispatchOnce(
+  chatSessionId: string,
+  userMessage: string,
+  options: DispatchOptions,
+): Promise<void> {
   const session = getChatSessionWithExecution(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
   // An import nobody has taken over has no session to resume. A send would
@@ -195,19 +222,13 @@ export async function dispatch(
 
   // Moving to another computer (P4.2): the message is saved and held, and
   // goes once to wherever the work ends up. Nothing reaches the source while
-  // it's being stopped and saved.
+  // it's being stopped and saved, nor either side while a move that stopped
+  // waits for Try again, Resume or Finish (P4 review).
   if (session.executionId) {
-    const moving = getActiveTransfer(session.executionId);
-    if (moving && moving.toGeneration === null) {
-      if (!options.sourceEventId) {
-        throw new ExecutorError('invalid_state', 'This execution is moving to another computer. Send again once it has arrived.');
-      }
-      const held = holdForTransfer(session.executionId, options.sourceEventId);
-      if (held) {
-        options.onQueued?.();
-        announceHeld(chatSessionId, options.sourceEventId);
-        return;
-      }
+    if (holdingTransfer(session.executionId) && holdHere(chatSessionId, session.executionId, options)) {
+      options.onQueued?.();
+      options.onAccepted?.();
+      return;
     }
     // Held by a move, one that stopped or one delivering where it arrived
     // (P4.4): it goes with Resume, Try again or that delivery, never on its
@@ -224,20 +245,52 @@ export async function dispatch(
   const placement = chatPlacement(chatSessionId);
   const remote = placement && !placement.isHome ? placement : null;
   // This message already went to its computer's queue, or is on its way
-  // there, by another path (the original send, an earlier retry, or one
-  // overlapping this): its run and its turn are that send's. A second one
-  // would only make a run and wait on a turn that never come. The check and
-  // the reservation are in the same tick, so overlapping dispatches can't
-  // both pass (P2 review fixes).
-  const sourceEventId = remote ? options.sourceEventId ?? null : null;
-  if (sourceEventId && (sendingEvents.has(sourceEventId) || getSendForEvent(sourceEventId))) return;
+  // there or to the harness here, by another path (the original send, an
+  // earlier retry, a second Resume, or one overlapping this): its run and
+  // its turn are that send's. A second one would only make a run and wait on
+  // a turn that never come, or send it twice. The check and the reservation
+  // are in the same tick, so overlapping dispatches can't both pass (P2 and
+  // P4 review fixes).
+  const sourceEventId = options.sourceEventId ?? null;
+  if (sourceEventId && (sendingEvents.has(sourceEventId) || (remote && getSendForEvent(sourceEventId)))) {
+    options.onAccepted?.();
+    return;
+  }
   if (sourceEventId) sendingEvents.add(sourceEventId);
   try {
-    await dispatchTo(chatSessionId, userMessage, options, session, remote);
+    await dispatchTo(chatSessionId, userMessage, options, session, remote, placement);
   } finally {
     // Once this dispatch ends, the queue itself answers for the message.
     if (sourceEventId) sendingEvents.delete(sourceEventId);
   }
+}
+
+/**
+ * Hold a message for the move that holds the execution's messages: true when
+ * it's held. A send with no saved message to hold is refused instead.
+ */
+function holdHere(chatSessionId: string, executionId: string, options: DispatchOptions): boolean {
+  const holding = holdingTransfer(executionId);
+  if (!holding) return false;
+  if (!options.sourceEventId) {
+    throw new ExecutorError(
+      'invalid_state',
+      holding.state === 'active'
+        ? 'This execution is moving to another computer. Send again once it has arrived.'
+        : 'Its move to another computer stopped. Try again, resume it or finish it, then send again.',
+    );
+  }
+  if (!holdForTransfer(executionId, options.sourceEventId)) return false;
+  announceHeld(chatSessionId, options.sourceEventId);
+  return true;
+}
+
+/** How a send ended up: with the harness here, in its computer's queue, or held by a move. */
+interface Delivered {
+  turn: Promise<void>;
+  outcome: 'sent' | 'queued' | 'held';
+  /** Another message can follow it now, rather than when its turn is over. */
+  acceptsMore: boolean;
 }
 
 async function dispatchTo(
@@ -246,6 +299,7 @@ async function dispatchTo(
   options: DispatchOptions,
   session: NonNullable<ReturnType<typeof getChatSessionWithExecution>>,
   remote: ChatPlacement | null,
+  placement: ChatPlacement | null,
 ): Promise<void> {
   let cwd: string | null;
   let preparing: string | null = null;
@@ -347,15 +401,19 @@ async function dispatchTo(
   // reference keeps the chat marked running while its session starts.
   startingSends.set(chatSessionId, starting + 1);
   const preparation = beginDispatchPreparation(chatSessionId);
-  let delivered: { turn: Promise<void> };
+  let delivered: Delivered;
   try {
-    delivered = await deliver(chatSessionId, userMessage, options, session, selection, cwd, remote, preparing);
+    delivered = await deliver(chatSessionId, userMessage, options, session, selection, cwd, remote, preparing, placement, caps.concurrentSend);
   } finally {
     // Delivered or refused, the send is no longer starting. Once delivered,
     // the runner's own count holds the gate and the running flag.
     releaseStartingSend(chatSessionId);
     endDispatchPreparation(chatSessionId, preparation);
   }
+  // Said once the chat no longer reads as busy with this dispatch: a message
+  // waiting in a queue, or held by a move, isn't the chat working.
+  if (delivered.outcome !== 'sent') options.onQueued?.();
+  if (delivered.outcome !== 'sent' || delivered.acceptsMore) options.onAccepted?.();
   await delivered.turn;
 }
 
@@ -372,7 +430,75 @@ async function deliver(
   cwd: string,
   remote: ChatPlacement | null,
   preparing: string | null,
-): Promise<{ turn: Promise<void> }> {
+  placement: ChatPlacement | null,
+  concurrentSend: boolean,
+): Promise<Delivered> {
+  const buildSpec = async () => ({
+    ...(await buildSessionSpec(
+      {
+      chatSessionId,
+      harness: session.harness,
+      cwd,
+      sessionType: session.type,
+      workspaceId: session.workspaceId ?? null,
+      surfaceKind: session.surfaceKind,
+      surfaceRef: session.surfaceRef,
+      existingExternalSessionId: session.externalSessionId,
+      executionId: session.executionId ?? null,
+      permissionMode: session.permissionMode,
+      prePlanMode: (session.prePlanMode as PermissionMode | null) ?? null,
+      model: selection.model,
+      modelVariant: selection.variant,
+      effort: selection.effort,
+      },
+      remote ?? undefined,
+    )),
+    preparedWorktreeOf: preparing,
+  });
+  // A live session here needs no spec, so a follow-up does no spec work. A
+  // connected computer always gets one. Attached files: paths here for a chat
+  // at home. A connected computer gets the markers as they are and the files
+  // beside them, and places its own copies.
+  const spec = !remote && isHarnessSessionAlive(chatSessionId) ? null : await buildSpec();
+  const attachments = options.attachments ?? [];
+  const files = remote ? await describeInputFiles(userMessage, attachments) : undefined;
+
+  // The send boundary (P4 review). Everything above can take a while, and a
+  // move can start or stop meanwhile, or finish and hand the work to another
+  // computer. So here, in the same tick as the send is counted: a move under
+  // way, or one that stopped, holds the message; work that changed hands
+  // starts the send over for its new owner; otherwise the send is counted
+  // until its harness has it, and a move stops the source only after that.
+  const held: Delivered = { turn: Promise.resolve(), outcome: 'held', acceptsMore: true };
+  if (session.executionId && holdingTransfer(session.executionId)) {
+    if (holdHere(chatSessionId, session.executionId, options)) return held;
+  }
+  const now = chatPlacement(chatSessionId);
+  if (now?.computerId !== placement?.computerId || now?.generation !== placement?.generation) throw new PlacementChanged();
+  const admitted = admitSend(session.executionId);
+  if (!admitted) {
+    if (session.executionId && holdHere(chatSessionId, session.executionId, options)) return held;
+    throw new PlacementChanged();
+  }
+  try {
+    const sent = await sendAdmitted(chatSessionId, userMessage, options, session, remote, spec, files, attachments, buildSpec);
+    return { ...sent, acceptsMore: !!remote || concurrentSend };
+  } finally {
+    admitted();
+  }
+}
+
+async function sendAdmitted(
+  chatSessionId: string,
+  userMessage: string,
+  options: DispatchOptions,
+  session: NonNullable<ReturnType<typeof getChatSessionWithExecution>>,
+  remote: ChatPlacement | null,
+  spec: SendRequest['spec'],
+  files: SendRequest['files'],
+  attachments: Attachment[],
+  buildSpec: () => Promise<NonNullable<SendRequest['spec']>>,
+): Promise<Omit<Delivered, 'acceptsMore'>> {
   // Run-row instrumentation (task #12). Every dispatch creates a run row
   // — manual, scheduled, or webhook — so cost tracking and budget
   // guards are honest. The scheduled wrapper sets `internalCall: true`
@@ -398,45 +524,18 @@ async function deliver(
 
   const turnId = uuidv7();
   const turn = awaitTurn(turnId);
-  const buildSpec = async () => ({
-    ...(await buildSessionSpec(
-      {
-      chatSessionId,
-      harness: session.harness,
-      cwd,
-      sessionType: session.type,
-      workspaceId: session.workspaceId ?? null,
-      surfaceKind: session.surfaceKind,
-      surfaceRef: session.surfaceRef,
-      existingExternalSessionId: session.externalSessionId,
-      executionId: session.executionId ?? null,
-      permissionMode: session.permissionMode,
-      prePlanMode: (session.prePlanMode as PermissionMode | null) ?? null,
-      model: selection.model,
-      modelVariant: selection.variant,
-      effort: selection.effort,
-      },
-      remote ?? undefined,
-    )),
-    preparedWorktreeOf: preparing,
-  });
+  let queued = false;
   try {
     const runner = runnerFor(chatSessionId);
-    // A live session here needs no spec, so a follow-up does no spec work. A
-    // connected computer always gets one.
-    // Attached files: paths here for a chat at home. A connected computer
-    // gets the markers as they are and the files beside them, and places
-    // its own copies.
-    const attachments = options.attachments ?? [];
     const request: SendRequest = {
       chatSessionId,
       message: remote ? userMessage : placeFilesAtHome(userMessage, attachments),
       turnId,
       runId,
-      spec: !remote && isHarnessSessionAlive(chatSessionId) ? null : await buildSpec(),
+      spec,
       sourceEventId: options.sourceEventId ?? null,
       actor: options.actor,
-      files: remote ? await describeInputFiles(userMessage, attachments) : undefined,
+      files,
     };
     let sent = await runner.send(request);
     if (sent.status === 'needs_spec') {
@@ -448,7 +547,7 @@ async function deliver(
     }
     if (sent.status === 'queued') {
       announceDelivery(sent.commandId);
-      options.onQueued?.();
+      queued = true;
     }
   } catch (err) {
     forgetTurn(turnId);
@@ -463,7 +562,7 @@ async function deliver(
     }
     throw err;
   }
-  return { turn };
+  return { turn, outcome: queued ? 'queued' : 'sent' };
 }
 
 /**

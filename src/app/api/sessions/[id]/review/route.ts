@@ -111,5 +111,5 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     commitSha: answer.sha,
     dirty: answer.dirty,
   });
-  return Response.json({ viewer, review: view(record), created: answer.created, refreshed: answer.refreshed });
+  return Response.json({ viewer, review: view(record), created: answer.created, refreshed: answer.refreshed, inTheWay: answer.inTheWay ?? [] });
 }

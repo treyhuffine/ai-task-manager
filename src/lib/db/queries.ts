@@ -5154,6 +5154,10 @@ export class TransferConflictError extends Error {
  * Start a transfer: its record, and the lock. One active transfer per
  * execution, enforced by a partial unique index, so two starting at once
  * can't both hold it.
+ *
+ * Try again, in the same transaction: a move that stopped and still waits
+ * for a decision is superseded, and the messages it held come along. So
+ * Try again and Resume can't both take them (P4 review).
  */
 export function createTransfer(input: {
   executionId: string;
@@ -5173,6 +5177,21 @@ export function createTransfer(input: {
       .get();
     if (active) throw new TransferConflictError(active);
     const now = new Date().toISOString();
+    const stopped = tx
+      .select()
+      .from(executionTransfers)
+      .where(eq(executionTransfers.executionId, input.executionId))
+      .orderBy(desc(executionTransfers.id))
+      .limit(1)
+      .get();
+    let carried: string[] = [];
+    if (stopped?.state === 'failed') {
+      carried = stopped.heldEventIds;
+      tx.update(executionTransfers)
+        .set({ state: 'cancelled', heldEventIds: [], updatedAt: now })
+        .where(eq(executionTransfers.id, stopped.id))
+        .run();
+    }
     return tx
       .insert(executionTransfers)
       .values({
@@ -5186,12 +5205,65 @@ export function createTransfer(input: {
         stage: 'preparing',
         state: 'active',
         includeUntracked: input.includeUntracked,
-        heldEventIds: input.heldEventIds ?? [],
+        heldEventIds: [...new Set([...carried, ...(input.heldEventIds ?? [])])],
         requestedByApiKeyId: input.requestedByApiKeyId,
       })
       .returning()
       .get();
   }, { behavior: 'immediate' });
+}
+
+/**
+ * Settle a move that stopped, once: Resume on the source (`resumed`, the
+ * move set aside) or Finish on the destination (`finished`). Null when it
+ * was already settled, by this or by Try again: a second click, another
+ * tab, or an overlapping request finds nothing to do (P4 review).
+ */
+export function settleStoppedTransfer(transferId: string, outcome: 'resumed' | 'finished'): ExecutionTransferRecord | null {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const transfer = tx.select().from(executionTransfers).where(eq(executionTransfers.id, transferId)).get();
+    if (!transfer || transfer.state !== 'failed') return null;
+    if ((outcome === 'resumed') !== (transfer.toGeneration === null)) return null;
+    const now = new Date().toISOString();
+    return (
+      tx
+        .update(executionTransfers)
+        .set(
+          outcome === 'resumed'
+            ? { state: 'cancelled', updatedAt: now }
+            : { state: 'succeeded', stage: 'done', error: null, failedStage: null, finishedAt: now, updatedAt: now },
+        )
+        .where(eq(executionTransfers.id, transferId))
+        .returning()
+        .get() ?? null
+    );
+  }, { behavior: 'immediate' });
+}
+
+/** Take one held message off a transfer to deliver it. True only for the one caller that took it. */
+export function takeHeldMessage(transferId: string, eventId: string): boolean {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const transfer = tx.select().from(executionTransfers).where(eq(executionTransfers.id, transferId)).get();
+    if (!transfer?.heldEventIds.includes(eventId)) return false;
+    tx.update(executionTransfers)
+      .set({ heldEventIds: transfer.heldEventIds.filter((id) => id !== eventId), updatedAt: new Date().toISOString() })
+      .where(eq(executionTransfers.id, transferId))
+      .run();
+    return true;
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * The transfer new messages wait on, or null: one under way before the
+ * destination has the work, or one that stopped and waits for Try again,
+ * Resume or Finish. Nothing reaches either side meanwhile (P4 review).
+ */
+export function holdingTransfer(executionId: string): ExecutionTransferRecord | null {
+  const latest = latestTransfer(executionId);
+  if (!latest) return null;
+  return (latest.state === 'active' && latest.toGeneration === null) || latest.state === 'failed' ? latest : null;
 }
 
 export function getTransfer(id: string): ExecutionTransferRecord | null {
@@ -5243,30 +5315,69 @@ export function updateTransfer(
 export function holdForTransfer(executionId: string, eventId: string): ExecutionTransferRecord | null {
   const db = getDb();
   return db.transaction((tx) => {
-    const active = tx
+    const latest = tx
       .select()
       .from(executionTransfers)
-      .where(and(eq(executionTransfers.executionId, executionId), eq(executionTransfers.state, 'active')))
+      .where(eq(executionTransfers.executionId, executionId))
+      .orderBy(desc(executionTransfers.id))
+      .limit(1)
       .get();
-    // Once the destination owns the work, messages go straight there.
-    if (!active || active.toGeneration !== null) return null;
-    if (active.heldEventIds.includes(eventId)) return active;
+    // Held while it moves, until the destination owns the work, and while a
+    // move that stopped waits for a decision (see `holdingTransfer`).
+    const holding = !!latest && ((latest.state === 'active' && latest.toGeneration === null) || latest.state === 'failed');
+    if (!latest || !holding) return null;
+    if (latest.heldEventIds.includes(eventId)) return latest;
     return tx
       .update(executionTransfers)
-      .set({ heldEventIds: [...active.heldEventIds, eventId], updatedAt: new Date().toISOString() })
-      .where(eq(executionTransfers.id, active.id))
+      .set({ heldEventIds: [...latest.heldEventIds, eventId], updatedAt: new Date().toISOString() })
+      .where(eq(executionTransfers.id, latest.id))
       .returning()
       .get();
   }, { behavior: 'immediate' });
 }
 
-/** Messages a transfer holds that haven't been delivered or let go of, by chat. */
+/**
+ * Messages a transfer holds that haven't been taken for delivery, by chat.
+ * Whatever became of the move: after Resume or Finish they stay listed until
+ * each is taken, so nothing else sends one meanwhile.
+ */
 export function heldMessages(executionId: string): Map<string, { transfer: ExecutionTransferRecord }> {
   const out = new Map<string, { transfer: ExecutionTransferRecord }>();
   const transfer = latestTransfer(executionId);
-  if (!transfer || (transfer.state !== 'active' && transfer.state !== 'failed')) return out;
+  if (!transfer) return out;
   for (const id of transfer.heldEventIds) out.set(id, { transfer });
   return out;
+}
+
+/** Moves a restart left under way: nothing in this process is running them. */
+export function listActiveTransfers(): ExecutionTransferRecord[] {
+  return getDb().select().from(executionTransfers).where(eq(executionTransfers.state, 'active')).all();
+}
+
+/** Moves settled by Resume or Finish whose held messages weren't all taken before a restart. */
+export function listTransfersStillDelivering(): ExecutionTransferRecord[] {
+  return getDb()
+    .select()
+    .from(executionTransfers)
+    .where(and(inArray(executionTransfers.state, ['cancelled', 'succeeded']), sql`json_array_length(${executionTransfers.heldEventIds}) > 0`))
+    .all()
+    .filter((t) => latestTransfer(t.executionId)?.id === t.id);
+}
+
+/** Commands of a transfer not yet sent to their computer: a restarted home settles them. */
+export function listQueuedTransferCommands(transfer: ExecutionTransferRecord): WorkerCommandRecord[] {
+  return getDb()
+    .select()
+    .from(workerCommands)
+    .where(
+      and(
+        eq(workerCommands.executionId, transfer.executionId),
+        eq(workerCommands.state, 'queued'),
+        gte(workerCommands.createdAt, transfer.createdAt),
+        sql`(json_extract(${workerCommands.payload}, '$.transferId') = ${transfer.id} OR json_extract(${workerCommands.payload}, '$.transfer.id') = ${transfer.id})`,
+      ),
+    )
+    .all();
 }
 
 /**

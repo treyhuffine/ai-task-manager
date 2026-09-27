@@ -5,10 +5,11 @@
  * P4.4): Preparing, Saving work, Setting up MacBook, Continuing. When it
  * stops, where and why, and the ways on: before the destination took the
  * work, Try again or Resume on the source. After, Finish there. Messages
- * sent meanwhile were held, and say so under each one.
+ * sent meanwhile are held until one of those, and say so under each one.
+ * There's no dismissing it: a stopped move holds new messages until it's
+ * settled (P4 review).
  */
 
-import { useState } from 'react';
 import { AlertTriangle, Check, Loader2 } from 'lucide-react';
 import { useFinishTransfer, useResumeTransfer, useStartTransfer, useTransfer } from '@/hooks/use-execution';
 import { transferStepLabel, type TransferView } from '@/lib/transfer/view';
@@ -26,10 +27,8 @@ function stepIndex(stage: TransferStage): number {
 
 export function TransferProgress({ sessionId }: { sessionId: string }) {
   const { data: transfer } = useTransfer(sessionId);
-  const [dismissed, setDismissed] = useState<string | null>(null);
   if (!transfer || transfer.state === 'succeeded' || transfer.state === 'cancelled') return null;
-  if (transfer.state === 'failed' && dismissed === transfer.id && transfer.heldCount === 0) return null;
-  return transfer.state === 'active' ? <Moving transfer={transfer} /> : <Stopped sessionId={sessionId} transfer={transfer} onDismiss={() => setDismissed(transfer.id)} />;
+  return transfer.state === 'active' ? <Moving transfer={transfer} /> : <Stopped sessionId={sessionId} transfer={transfer} />;
 }
 
 function Steps({ transfer, failedAt }: { transfer: TransferView; failedAt?: number }) {
@@ -74,7 +73,7 @@ function Moving({ transfer }: { transfer: TransferView }) {
   );
 }
 
-function Stopped({ sessionId, transfer, onDismiss }: { sessionId: string; transfer: TransferView; onDismiss: () => void }) {
+function Stopped({ sessionId, transfer }: { sessionId: string; transfer: TransferView }) {
   const retry = useStartTransfer(sessionId);
   const resume = useResumeTransfer(sessionId);
   const finish = useFinishTransfer(sessionId);
@@ -95,10 +94,15 @@ function Stopped({ sessionId, transfer, onDismiss }: { sessionId: string; transf
           ? `${transfer.to.name} has the work now.`
           : `${transfer.from.name} still has the work, stopped. Nothing was lost: ${transfer.checkpoint ? `its folder and ${transfer.checkpoint.branch} are as they were` : 'its folder is as it was'}.`}
       </p>
+      <p className="mt-1 text-[11px] text-muted-foreground/80">
+        {transfer.heldCount > 0
+          ? `${transfer.heldCount === 1 ? 'A message you sent is' : `${transfer.heldCount} messages you sent are`} held until you choose. New ones wait too.`
+          : 'Messages you send wait here until you choose.'}
+      </p>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {transfer.ownershipChanged ? (
           <button type="button" className={button} disabled={busy} onClick={() => finish.mutate()}>
-            {transfer.heldCount > 0 ? `Deliver held messages on ${transfer.to.name}` : 'Done'}
+            {transfer.heldCount > 0 ? `Deliver held messages on ${transfer.to.name}` : `Finish on ${transfer.to.name}`}
           </button>
         ) : (
           <>
@@ -113,15 +117,14 @@ function Stopped({ sessionId, transfer, onDismiss }: { sessionId: string; transf
             <button type="button" className={button} disabled={busy} onClick={() => resume.mutate()}>
               Resume on {transfer.from.name}
             </button>
-            {transfer.heldCount === 0 && (
-              <button type="button" className={button} onClick={onDismiss}>
-                Dismiss
-              </button>
-            )}
           </>
         )}
       </div>
-      {retry.error && <p className="mt-1.5 text-[11.5px] text-destructive">{apiErrorText(retry.error)}</p>}
+      {[retry.error, resume.error, finish.error].filter(Boolean).map((err, i) => (
+        <p key={i} className="mt-1.5 text-[11.5px] text-destructive">
+          {apiErrorText(err)}
+        </p>
+      ))}
     </div>
   );
 }

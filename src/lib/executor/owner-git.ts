@@ -14,16 +14,10 @@ import { requestWorker, wakeComputer, WorkerRequestError, WorkerUnavailableError
 import { awaitWorkerCommand, CommandFailedError } from '@/lib/workers/await-command';
 import { runGithub, type GithubRequest } from '@/lib/github/execution-github';
 import type { GitPayload } from '@/lib/worker/handlers';
-import { refuseWhileMoving } from '@/lib/transfer/moving';
 import type { WorkerCommandActor } from '@/db/types';
 
 /** GitHub for the execution's branch: in the agent's folder here, or on the computer the agent lives on. */
 export async function githubOnOwner(sessionId: string, request: GithubRequest): Promise<Response> {
-  // Merging while it moves would race the push that saves its work (P4.5).
-  if (request.op !== 'pr') {
-    const moving = refuseWhileMoving(sessionId);
-    if (moving) return moving;
-  }
   const session = getChatSessionWithExecution(sessionId);
   const ws = session?.workspaceId ? getWorkspace(session.workspaceId) : null;
   if (!session || !ws) return Response.json({ error: 'Session not found' }, { status: 404 });
@@ -50,16 +44,14 @@ export async function githubOnOwner(sessionId: string, request: GithubRequest): 
 
 /**
  * A Git operation on the execution's worktree, on the computer it runs on,
- * waited for. Null when it runs here and the route does it itself. Refused
- * wherever it runs while the work moves (P4.5).
+ * waited for. Null when it runs here and the route does it itself. Routes
+ * run it admitted (`whileAdmitted`), so never under a move.
  */
 export async function gitOnOwner(
   sessionId: string,
   payload: GitPayload,
   opts: { timeoutMs: number; what: string; actor?: WorkerCommandActor },
 ): Promise<{ ok: true; result: unknown } | { ok: false; response: Response } | null> {
-  const moving = refuseWhileMoving(sessionId);
-  if (moving) return { ok: false, response: moving };
   const placement = chatPlacement(sessionId);
   if (!placement || placement.isHome || !placement.executionId) return null;
   const name = getComputer(placement.computerId)?.name ?? 'its computer';

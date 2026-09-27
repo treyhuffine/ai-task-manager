@@ -4,6 +4,7 @@ import { openWorktreeHandle } from '@/lib/workspaces';
 import { gitOnOwner } from '@/lib/executor/owner-git';
 import { pullBaseInto } from '@/lib/workspaces/branch-sync';
 import { actorFromRequest } from '@/lib/auth/actor';
+import { whileAdmitted } from '@/lib/transfer/moving';
 
 /**
  * `pullBaseInto` — fetch the worktree's base branch from its remote and
@@ -11,7 +12,7 @@ import { actorFromRequest } from '@/lib/auth/actor';
  * throws `MergeConflictError` on conflict; we return 409 with code so the
  * UI can offer "ask agent to resolve."
  */
-export async function POST(
+async function handlePOST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -63,4 +64,10 @@ export async function POST(
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: name, message }, { status: 400 });
   }
+}
+
+/** Counted while it runs, and refused while the work moves (P4 review). */
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return whileAdmitted(id, 'bringing in the base branch', () => handlePOST(request, context));
 }

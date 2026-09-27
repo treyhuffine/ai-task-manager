@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { readOnOwner, writeOnOwner } from '@/lib/executor/owner-files';
+import { whileAdmitted } from '@/lib/transfer/moving';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { fileReadResponse } from '@/lib/workspaces/file-http';
@@ -60,7 +61,7 @@ async function handleGET(
   }
 }
 
-export async function PUT(
+async function handlePUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -89,7 +90,7 @@ export async function PUT(
   }
 }
 
-export async function DELETE(
+async function handleDELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -111,4 +112,16 @@ export async function DELETE(
   } catch (err) {
     return mapFileError(err, '[DELETE /api/sessions/:id/file]');
   }
+}
+
+/** A change to its files, counted while it runs: never under a move (P4 review). */
+export async function PUT(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return whileAdmitted(id, 'changing its files', () => handlePUT(request, context));
+}
+
+/** A change to its files, counted while it runs: never under a move (P4 review). */
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return whileAdmitted(id, 'changing its files', () => handleDELETE(request, context));
 }

@@ -3,6 +3,7 @@ import { getChatSessionWithExecution } from '@/lib/db/queries';
 import type { MergeMethod } from '@/lib/github/auto-merge';
 import { MERGE_METHODS } from '@/lib/github/execution-github';
 import { githubOnOwner } from '@/lib/executor/owner-git';
+import { whileAdmitted } from '@/lib/transfer/moving';
 
 export const runtime = 'nodejs';
 
@@ -17,7 +18,7 @@ export interface AutoMergeRequestBody {
   method?: MergeMethod;
 }
 
-export async function POST(
+async function handlePOST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -66,4 +67,10 @@ export async function POST(
     console.error('[POST /api/sessions/:id/auto-merge]', err);
     return Response.json({ error: String(err) }, { status: 500 });
   }
+}
+
+/** Counted while it runs, and refused while the work moves (P4 review). */
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return whileAdmitted(id, 'changing auto-merge', () => handlePOST(request, context));
 }

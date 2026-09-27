@@ -126,7 +126,16 @@ export interface ReviewCheckoutRequest {
 
 /** What a review checkout request found or made. */
 export type ReviewCheckoutAnswer =
-  | { ok: true; path: string; sha: string; created: boolean; refreshed: boolean; dirty: boolean }
+  | {
+      ok: true;
+      path: string;
+      sha: string;
+      created: boolean;
+      refreshed: boolean;
+      dirty: boolean;
+      /** Local files the newer commit would replace, kept by not refreshing. */
+      inTheWay?: string[];
+    }
   | { ok: false; code: 'not_set_up' | 'not_published' | 'failed'; message: string };
 
 /**

@@ -58,6 +58,18 @@ export async function register() {
   // First-ever reconcile per session just initializes the byte-offset
   // cursor (no replay); subsequent calls replay only the delta.
   // Background; never blocks startup.
+  // Moves a restart interrupted stop where they were, holding what they
+  // held, before the sweep below re-fires unanswered messages (P4 review).
+  try {
+    const { recoverInterruptedTransfers } = await import('@/lib/transfer/continue');
+    const recovered = recoverInterruptedTransfers();
+    if (recovered.stopped || recovered.delivering) {
+      console.log(`[transfer] startup: ${recovered.stopped} interrupted move(s) stopped, ${recovered.delivering} still delivering`);
+    }
+  } catch (err) {
+    console.warn('[transfer] startup recovery failed', err);
+  }
+
   try {
     const { reconcileAllSessions } = await import('@/lib/executor/reconcile');
     reconcileAllSessions()

@@ -13,6 +13,7 @@
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import picomatch from 'picomatch';
@@ -36,7 +37,10 @@ export class CheckpointError extends Error {
       | 'branch_in_use'
       | 'target_exists'
       | 'dirty_target'
-      | 'invalid_untracked',
+      | 'invalid_untracked'
+      | 'unfinished_operation'
+      | 'local_files_staged'
+      | 'local_files_in_the_way',
     message: string,
   ) {
     super(message);
@@ -48,15 +52,90 @@ async function git(cwd: string, args: string[], opts: { allowFail?: boolean } = 
   try {
     const { stdout, stderr } = await run('git', args, {
       cwd,
-      env: { ...sanitizeChildEnv(), GIT_TERMINAL_PROMPT: '0' },
-      maxBuffer: 16 * 1024 * 1024,
+      // Paths are paths: a file named `*.ts` or `:x` is that file, never a pattern.
+      env: { ...sanitizeChildEnv(), GIT_TERMINAL_PROMPT: '0', GIT_LITERAL_PATHSPECS: '1' },
+      maxBuffer: 64 * 1024 * 1024,
     });
-    return { ok: true, stdout: stdout.trim(), stderr: stderr.trim() };
+    // A `-z` listing is kept exactly: a name can start or end with a space.
+    const out = (text: string) => (args.includes('-z') ? text : text.trim());
+    return { ok: true, stdout: out(stdout), stderr: stderr.trim() };
   } catch (err) {
     if (!opts.allowFail) throw err;
     const e = err as { stdout?: string; stderr?: string };
     return { ok: false, stdout: (e.stdout ?? '').trim(), stderr: (e.stderr ?? '').trim() };
   }
+}
+
+/** Paths from a `-z` listing. */
+function paths(out: string): string[] {
+  return out.split('\0').filter(Boolean);
+}
+
+/** Run a Git command over a list of paths, passed in a file so no list is too long for a command line. */
+async function gitOverPaths(cwd: string, args: string[], list: readonly string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-paths-'));
+  const file = path.join(dir, 'paths');
+  try {
+    fs.writeFileSync(file, list.join('\0'));
+    return await git(cwd, [...args, `--pathspec-from-file=${file}`, '--pathspec-file-nul'], { allowFail: true });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * A merge, rebase, cherry-pick or revert left unfinished in the worktree, or
+ * conflicts not yet resolved: what it is, or null. Staging its files would
+ * mark the conflicts resolved and commit their markers.
+ */
+async function unfinishedOperation(worktree: string): Promise<string | null> {
+  const markers: Array<[string, string]> = [
+    ['rebase-merge', 'A rebase'],
+    ['rebase-apply', 'A rebase'],
+    ['MERGE_HEAD', 'A merge'],
+    ['CHERRY_PICK_HEAD', 'A cherry-pick'],
+    ['REVERT_HEAD', 'A revert'],
+  ];
+  const conflicted = paths((await git(worktree, ['diff', '--name-only', '--diff-filter=U', '-z'], { allowFail: true })).stdout);
+  for (const [name, what] of markers) {
+    const where = (await git(worktree, ['rev-parse', '--git-path', name])).stdout;
+    if (fs.existsSync(path.resolve(worktree, where))) {
+      return conflicted.length > 0 ? `${what} is in progress, with conflicts in ${listed(conflicted)}` : `${what} is in progress`;
+    }
+  }
+  return conflicted.length > 0 ? `There are unresolved conflicts in ${listed(conflicted)}` : null;
+}
+
+function listed(files: readonly string[], max = 5): string {
+  const shown = files.slice(0, max).join(', ');
+  return files.length > max ? `${shown} and ${files.length - max} more` : shown;
+}
+
+/**
+ * Local files, untracked or ignored, that moving this worktree from one
+ * commit to another would replace: a path the newer commit adds where a
+ * local file already is, or a file where one of its folders would go. Git
+ * refuses to overwrite an untracked file, but an ignored one it replaces
+ * without a word, so this looks first.
+ */
+async function filesInTheWay(worktree: string, from: string, to: string): Promise<string[]> {
+  const added = paths((await git(worktree, ['diff', '--name-only', '--no-renames', '--diff-filter=A', '-z', from, to])).stdout);
+  const inTheWay = new Set<string>();
+  for (const rel of added) {
+    for (let at = rel; at && at !== '.'; at = path.dirname(at)) {
+      let stat: fs.Stats | null = null;
+      try {
+        stat = fs.lstatSync(path.join(worktree, at));
+      } catch {
+        stat = null;
+      }
+      if (!stat) continue;
+      // The path itself is taken, or a file sits where one of its folders goes.
+      if (at === rel || !stat.isDirectory()) inTheWay.add(at);
+      break;
+    }
+  }
+  return [...inTheWay];
 }
 
 /** Never offered for inclusion, and never included: local setup and secrets. */
@@ -71,27 +150,44 @@ function localOnlyMatcher(filesToCopy: readonly string[]): (file: string) => boo
 export interface WorkingState {
   branch: string | null;
   head: string | null;
-  /** Tracked files with changes, staged or not. */
+  /** Tracked files with changes, staged or not, that go along. */
   changed: string[];
   /** Untracked files that could be included: not ignored, not local setup or secrets. */
   untracked: string[];
-  /** Untracked files that stay behind whatever is chosen: local setup and secrets. */
+  /**
+   * What stays behind whatever is chosen: local setup and secrets, new or
+   * changed. A change to a tracked one stays uncommitted where it is.
+   */
   localOnly: string[];
+  /** Local setup or secrets already staged: the checkpoint refuses rather than publish them. */
+  stagedLocal: string[];
+  /** Why a checkpoint can't be saved as things are, or null. */
+  problem: string | null;
 }
 
 /** What a checkpoint would take, for the person to choose untracked files from. */
 export async function workingState(worktree: string, filesToCopy: readonly string[] = []): Promise<WorkingState> {
   const branch = (await git(worktree, ['branch', '--show-current'])).stdout || null;
   const head = (await git(worktree, ['rev-parse', 'HEAD'], { allowFail: true })).stdout || null;
-  const changed = (await git(worktree, ['diff', 'HEAD', '--name-only'], { allowFail: true })).stdout.split('\n').filter(Boolean);
-  const others = (await git(worktree, ['ls-files', '--others', '--exclude-standard'])).stdout.split('\n').filter(Boolean);
+  const tracked = paths((await git(worktree, ['diff', 'HEAD', '--name-only', '--no-renames', '-z'], { allowFail: true })).stdout);
+  const staged = paths((await git(worktree, ['diff', '--cached', '--name-only', '--no-renames', '-z'], { allowFail: true })).stdout);
+  const others = paths((await git(worktree, ['ls-files', '--others', '--exclude-standard', '-z'])).stdout);
   const isLocal = localOnlyMatcher(filesToCopy);
+  const stagedLocal = staged.filter(isLocal);
+  const unfinished = await unfinishedOperation(worktree);
+  const problem = unfinished
+    ? `${unfinished}. Finish or abort it there first: a checkpoint never commits a half-done merge.`
+    : stagedLocal.length > 0
+      ? `${listed(stagedLocal)} ${stagedLocal.length === 1 ? 'is' : 'are'} staged, and local setup and secrets never move. Unstage ${stagedLocal.length === 1 ? 'it' : 'them'} there first (git restore --staged).`
+      : null;
   return {
     branch,
     head,
-    changed,
+    changed: tracked.filter((f) => !isLocal(f)),
     untracked: others.filter((f) => !isLocal(f)),
-    localOnly: others.filter((f) => isLocal(f)),
+    localOnly: [...others.filter(isLocal), ...tracked.filter((f) => isLocal(f) && !stagedLocal.includes(f))],
+    stagedLocal,
+    problem,
   };
 }
 
@@ -107,8 +203,13 @@ export interface SavedCheckpoint {
 
 /**
  * Commit tracked changes and the chosen untracked files, and push the
- * branch without force. Idempotent: run again after a crash, it finds the
- * work already committed and the branch already pushed.
+ * branch without force. Idempotent: run again after a crash or for Try
+ * again, it finds the work already committed (the chosen files with it)
+ * and the branch already pushed.
+ *
+ * Only what may go is staged: changes to local setup and secrets stay
+ * uncommitted where they are, and one already staged, or a merge or rebase
+ * left unfinished, stops it with nothing touched (P4 review).
  */
 export async function saveCheckpoint(args: {
   worktree: string;
@@ -117,12 +218,30 @@ export async function saveCheckpoint(args: {
   filesToCopy?: readonly string[];
 }): Promise<SavedCheckpoint> {
   const { worktree, message } = args;
-  const state = await workingState(worktree, args.filesToCopy ?? []);
+  const filesToCopy = args.filesToCopy ?? [];
+  const state = await workingState(worktree, filesToCopy);
   if (!state.branch) throw new CheckpointError('not_on_branch', "The worktree isn't on a branch, so there's nothing to push and continue from.");
   const branch = state.branch;
+  const unfinished = await unfinishedOperation(worktree);
+  if (unfinished) {
+    throw new CheckpointError('unfinished_operation', `${unfinished} in the worktree. Nothing was changed: finish or abort it there, then continue again.`);
+  }
+  if (state.stagedLocal.length > 0) {
+    throw new CheckpointError(
+      'local_files_staged',
+      `${listed(state.stagedLocal)} ${state.stagedLocal.length === 1 ? 'is' : 'are'} staged, and local setup and secrets never move. Nothing was changed: unstage ${state.stagedLocal.length === 1 ? 'it' : 'them'} there (git restore --staged), then continue again.`,
+    );
+  }
 
+  // A chosen file is taken while it's untracked, and accepted as it is once
+  // it's tracked (a first attempt already committed it). Local setup,
+  // secrets and ignored files are never taken.
+  const isLocal = localOnlyMatcher(filesToCopy);
   const chosen = [...new Set(args.includeUntracked)];
-  const refused = chosen.filter((f) => !state.untracked.includes(f));
+  const newlyChosen = chosen.filter((f) => state.untracked.includes(f));
+  const rest = chosen.filter((f) => !state.untracked.includes(f));
+  const alreadyTracked = rest.length > 0 ? new Set(paths((await git(worktree, ['ls-files', '-z', '--', ...rest])).stdout)) : new Set<string>();
+  const refused = rest.filter((f) => isLocal(f) || !alreadyTracked.has(f));
   if (refused.length > 0) {
     throw new CheckpointError(
       'invalid_untracked',
@@ -130,9 +249,12 @@ export async function saveCheckpoint(args: {
     );
   }
 
-  await git(worktree, ['add', '--update']);
-  if (chosen.length > 0) await git(worktree, ['add', '--', ...chosen]);
-  const staged = (await git(worktree, ['diff', '--cached', '--name-only'])).stdout.split('\n').filter(Boolean);
+  const toStage = [...state.changed, ...newlyChosen];
+  if (toStage.length > 0) {
+    const added = await gitOverPaths(worktree, ['add', '--all'], toStage);
+    if (!added.ok) throw new CheckpointError('commit_failed', `Git couldn't stage the work: ${added.stderr || added.stdout}`);
+  }
+  const staged = paths((await git(worktree, ['diff', '--cached', '--name-only', '--no-renames', '-z'])).stdout);
   let committed = false;
   if (staged.length > 0) {
     const commit = await git(worktree, ['commit', '--no-verify', '-m', message], { allowFail: true });
@@ -230,9 +352,9 @@ export async function worktreeAtCheckpoint(args: {
     if (!head.ok || on.stdout !== branch) {
       throw new CheckpointError('target_exists', `${args.path} already exists and isn't on ${branch}. Nothing was changed in it.`);
     }
-    // Uncommitted changes to tracked files stop it. Untracked files stay as
-    // they are: moving forward never touches them, and Git refuses if the
-    // checkpoint would overwrite one.
+    // Uncommitted changes to tracked files stop it. Untracked and ignored
+    // files stay as they are: one the checkpoint would replace stops it
+    // below, before Git could.
     const status = (await git(args.path, ['status', '--porcelain', '--untracked-files=no'], { allowFail: true })).stdout;
     if (status) {
       throw new CheckpointError(
@@ -246,6 +368,13 @@ export async function worktreeAtCheckpoint(args: {
         throw new CheckpointError(
           'divergent_branch',
           `${branch} in ${args.path} has commits that aren't in the checkpoint. Nothing was changed: merge them there, then continue again.`,
+        );
+      }
+      const inTheWay = await filesInTheWay(args.path, head.stdout, sha);
+      if (inTheWay.length > 0) {
+        throw new CheckpointError(
+          'local_files_in_the_way',
+          `${listed(inTheWay)} in ${args.path} ${inTheWay.length === 1 ? 'is a local file' : 'are local files'} the checkpoint would replace. Nothing was changed: move ${inTheWay.length === 1 ? 'it' : 'them'} aside there, then continue again.`,
         );
       }
       const merged = await git(args.path, ['merge', '--ff-only', sha], { allowFail: true });
@@ -295,13 +424,14 @@ export function reviewPathFor(workDir: string, workspaceSlug: string, executionI
  * A review checkout of a published commit (P4.1): detached at the commit, in
  * its own folder, never on the execution's branch, so it can't publish to it
  * by accident. Refreshed only while clean: local edits are kept, never
- * replaced.
+ * replaced, and so are local files the newer commit would replace
+ * (`inTheWay`), ignored ones included.
  */
 export async function reviewCheckout(args: {
   repo: string;
   path: string;
   checkpoint: { remote: string; branch: string; sha: string };
-}): Promise<{ path: string; sha: string; refreshed: boolean; dirty: boolean; created: boolean }> {
+}): Promise<{ path: string; sha: string; refreshed: boolean; dirty: boolean; created: boolean; inTheWay?: string[] }> {
   const { repo, checkpoint } = args;
   await fetchCheckpoint(repo, checkpoint);
   if (!fs.existsSync(args.path)) {
@@ -313,6 +443,8 @@ export async function reviewCheckout(args: {
   const status = (await git(args.path, ['status', '--porcelain'])).stdout;
   if (status) return { path: args.path, sha: head, refreshed: false, dirty: true, created: false };
   if (head === checkpoint.sha) return { path: args.path, sha: head, refreshed: false, dirty: false, created: false };
+  const inTheWay = await filesInTheWay(args.path, head, checkpoint.sha);
+  if (inTheWay.length > 0) return { path: args.path, sha: head, refreshed: false, dirty: false, created: false, inTheWay };
   await git(args.path, ['checkout', '--detach', checkpoint.sha]);
   return { path: args.path, sha: checkpoint.sha, refreshed: true, dirty: false, created: false };
 }

@@ -67,6 +67,11 @@ export function ContinueDialog({
             <p className="text-destructive">{apiErrorText(error)}</p>
           ) : state ? (
             <>
+              {state.problem && (
+                <p role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-2 text-[12px] text-foreground">
+                  {state.problem}
+                </p>
+              )}
               <p className="text-muted-foreground">
                 {state.changed.length > 0
                   ? `${state.changed.length} changed ${state.changed.length === 1 ? 'file goes' : 'files go'} along, on ${state.branch ?? 'its branch'}.`
@@ -95,7 +100,7 @@ export function ContinueDialog({
               )}
               {state.localOnly.length > 0 && (
                 <p className="text-[11px] text-muted-foreground/80">
-                  Staying on {from}: {state.localOnly.join(', ')}. Local setup and secrets never move. {to.name} uses its own.
+                  Staying on {from}: {state.localOnly.join(', ')}. Local setup and secrets never move, new or changed. {to.name} uses its own.
                 </p>
               )}
             </>
@@ -114,7 +119,7 @@ export function ContinueDialog({
           <button
             type="button"
             onClick={go}
-            disabled={start.isPending || isLoading || !!error}
+            disabled={start.isPending || isLoading || !!error || !!state?.problem}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12.5px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             {start.isPending && <Loader2 size={12} className="animate-spin" />}

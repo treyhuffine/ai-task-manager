@@ -178,3 +178,75 @@ describe('a review checkout', () => {
     expect(fs.readFileSync(path.join(review, 'README.md'), 'utf8')).toBe('my own edit\n');
   });
 });
+
+describe('what never goes, and what stops it (P4 review)', () => {
+  it('leaves a changed local file uncommitted where it is, and takes the rest', async () => {
+    write(worktree, 'config.local.json', '{"template": true}\n');
+    git(worktree, 'add', 'config.local.json');
+    git(worktree, 'commit', '-q', '-m', 'template');
+    write(worktree, 'config.local.json', '{"token": "mine"}\n');
+    write(worktree, 'README.md', '# demo, edited\n');
+    const state = await workingState(worktree, ['config.local.json']);
+    expect(state).toMatchObject({ changed: ['README.md'], localOnly: ['config.local.json'], problem: null });
+
+    const saved = await saveCheckpoint({ worktree, message: 'checkpoint', includeUntracked: [], filesToCopy: ['config.local.json'] });
+    expect(saved.files).toEqual(['README.md']);
+    expect(git(remote, 'show', `${saved.sha}:config.local.json`)).toBe('{"template": true}');
+    // Still here, still uncommitted.
+    expect(fs.readFileSync(path.join(worktree, 'config.local.json'), 'utf8')).toBe('{"token": "mine"}\n');
+    expect(git(worktree, 'status', '--porcelain')).toBe('M config.local.json');
+  });
+
+  it('says why before anything is touched: a staged secret, or a merge left half done', async () => {
+    write(worktree, '.env.local', 'SECRET=1\n');
+    git(worktree, 'add', '.env.local');
+    expect((await workingState(worktree)).problem).toBe(
+      '.env.local is staged, and local setup and secrets never move. Unstage it there first (git restore --staged).',
+    );
+    await expect(saveCheckpoint({ worktree, message: 'checkpoint', includeUntracked: [] })).rejects.toMatchObject({ code: 'local_files_staged' });
+    expect(git(worktree, 'diff', '--cached', '--name-only')).toBe('.env.local');
+    git(worktree, 'restore', '--staged', '.env.local');
+
+    git(laptop, 'switch', '-q', '-c', 'other', 'main');
+    write(laptop, 'README.md', 'theirs\n');
+    git(laptop, 'commit', '-qam', 'theirs');
+    write(worktree, 'README.md', 'ours\n');
+    git(worktree, 'commit', '-qam', 'ours');
+    try {
+      git(worktree, 'merge', 'other');
+    } catch {
+      // The conflict this test is about.
+    }
+    expect((await workingState(worktree)).problem).toBe(
+      'A merge is in progress, with conflicts in README.md. Finish or abort it there first: a checkpoint never commits a half-done merge.',
+    );
+    await expect(saveCheckpoint({ worktree, message: 'checkpoint', includeUntracked: [] })).rejects.toMatchObject({ code: 'unfinished_operation' });
+  });
+
+  it('takes chosen files whose names look like patterns as they are, and accepts them again on a retry', async () => {
+    write(worktree, 'app/[id].tsx', 'export {};\n');
+    write(worktree, 'app/[ib].tsx', 'not chosen\n');
+    write(worktree, '*.md', 'a file named star dot md\n');
+    const chosen = ['app/[id].tsx', '*.md'];
+    const first = await saveCheckpoint({ worktree, message: 'checkpoint', includeUntracked: chosen });
+    expect(first.files.sort()).toEqual(['*.md', 'app/[id].tsx']);
+    expect(git(worktree, 'status', '--porcelain')).toBe('?? app/[ib].tsx');
+    await expect(saveCheckpoint({ worktree, message: 'checkpoint', includeUntracked: chosen })).resolves.toMatchObject({ sha: first.sha, committed: false });
+  });
+
+  it('keeps a review checkout as it is when the newer commit would replace a local file, and says which', async () => {
+    const first = await saveCheckpoint({ worktree, message: 'first', includeUntracked: [] });
+    const review = path.join(root, 'review');
+    await reviewCheckout({ repo: mini, path: review, checkpoint: first });
+    write(review, 'node_modules/tool/config.json', 'local\n');
+    write(worktree, 'node_modules/tool/config.json', 'vendored\n');
+    git(worktree, 'add', '-f', 'node_modules/tool/config.json');
+    git(worktree, 'commit', '-qm', 'vendor it');
+    const next = await saveCheckpoint({ worktree, message: 'next', includeUntracked: [] });
+    await expect(reviewCheckout({ repo: mini, path: review, checkpoint: next })).resolves.toMatchObject({
+      refreshed: false,
+      sha: first.sha,
+      inTheWay: ['node_modules/tool/config.json'],
+    });
+  });
+});
