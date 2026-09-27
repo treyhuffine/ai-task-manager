@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session, shell, screen, clipboard } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, session, shell, screen, clipboard } from 'electron';
 import { fork, execFile, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
@@ -9,7 +9,7 @@ import { createInterface } from 'node:readline';
 import { APP_NAME, PAIRING_TOKEN_FRAGMENT_KEY } from '../src/constants/app';
 import { getConfigDir } from '../src/lib/config/paths';
 import { demoEnvironment, type BackendMessage, type BackendReady } from './config';
-import { certificateDecision, externalWebUrl, sameOrigin } from './trust';
+import { certificateDecision, desktopRequestHeaders, externalWebUrl, sameOrigin } from './trust';
 import { installTerminalCommand, removeTerminalCommand, type CliInstallation } from './cli-install';
 import { updateDesktop } from './shell-update';
 import { parseDeepLink, resultLocation, watchOAuthResults } from './oauth-client';
@@ -18,6 +18,8 @@ import { serviceRequest, serviceStatus } from '../src/lib/service/client';
 import { redactServiceLine } from '../src/lib/service/logging';
 import { assertExistingInstallation, installationEnvironment, localInstallation, readInstallation, saveInstallation, type InstallationInspection } from './installation';
 import { maintenanceWindow } from './maintenance-window';
+import { DesktopNotifications } from './notifications';
+import type { DesktopNotificationAction } from '../src/lib/notifications/desktop-contract';
 
 const repo = app.isPackaged ? path.join(process.resourcesPath, 'server') : process.env.RI_DESKTOP_REPO || path.resolve(__dirname, '../..');
 // An explicit state directory isolates saved installation choices as well as
@@ -81,6 +83,8 @@ let installedRuntime: BackendReady['runtime'];
 let preparingClose = false;
 let closeGuard: { nonce: string; resolve: (ok: boolean) => void } | undefined;
 let oauthAbort = new AbortController();
+let notifications: DesktopNotifications | undefined;
+let notificationAbort = new AbortController();
 let navigating = false;
 const pendingLinks: string[] = [];
 
@@ -265,6 +269,7 @@ async function quit(skipGuard = false) {
   preparingClose = false;
   quitting = true;
   oauthAbort.abort();
+  notifications?.stop(); notificationAbort.abort();
   clearTimeout(startupTimer);
   if (backend && backend.exitCode === null && backend.signalCode === null) {
     const exited = once(backend, 'exit');
@@ -304,17 +309,18 @@ async function openApp(ready: BackendReady) {
   const reconnecting = appOrigin === ready.origin;
   if (appOrigin && !reconnecting && !(await prepareClose())) return;
   oauthAbort.abort(); oauthAbort = new AbortController();
+  notifications?.stop(); notificationAbort.abort(); notificationAbort = new AbortController();
   installedRuntime = ready.runtime;
   selectionError = undefined;
   appToken = ready.token;
   clearTimeout(startupTimer);
   const ses = window!.webContents.session;
   ses.webRequest.onBeforeSendHeaders((details, callback) => {
-    const headers = { ...details.requestHeaders };
-    for (const key of Object.keys(headers)) if (key.toLowerCase() === 'x-ri-desktop-client') delete headers[key];
-    if (ready.desktopClient && details.webContentsId === window?.webContents.id &&
-        details.frame === window?.webContents.mainFrame && sameOrigin(details.url, ready.origin) &&
-        details.initiatorOrigin === ready.origin) headers['x-ri-desktop-client'] = ready.desktopClient;
+    const headers = desktopRequestHeaders({ headers: details.requestHeaders, url: details.url,
+      origin: ready.origin, capability: ready.desktopClient,
+      nativeRequest: !details.webContentsId || details.webContentsId === -1,
+      trustedMainFrame: details.webContentsId === window?.webContents.id && details.frame === window?.webContents.mainFrame && details.initiatorOrigin === ready.origin,
+    });
     callback({ requestHeaders: headers });
   });
   ses.setCertificateVerifyProc((request, callback) => {
@@ -348,6 +354,30 @@ async function openApp(ready: BackendReady) {
   if (!response.ok) throw new Error('The local app rejected its desktop session.');
   await response.text();
   appOrigin = ready.origin;
+  if (ready.desktopClient) {
+    const signal = notificationAbort.signal;
+    notifications = new DesktopNotifications({
+      supported: () => Notification.isSupported(),
+      request: async <T>(body?: object): Promise<T> => {
+        const response = await ses.fetch(`${ready.origin}/api/desktop/notifications`, {
+          method: body ? 'POST' : 'GET', signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+          headers: { authorization: `Bearer ${ready.token}`, 'x-ri-desktop-client': ready.desktopClient!, 'content-type': 'application/json' },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? 'Desktop notifications are unavailable.');
+        return data as T;
+      },
+      create: (id, title, body) => new Notification({ id, title, body, icon: path.join(repo, 'public/brand/ri-desktop-icon.png') }),
+      ...(process.platform === 'darwin' ? { history: () => Notification.getHistory() } : {}),
+      navigate: target => {
+        if (quitting || !window || appOrigin !== ready.origin) return;
+        if (window.isMinimized()) window.restore();
+        window.show(); window.focus(); void navigateSafely(`${ready.origin}${target}`);
+      },
+    });
+    notifications.start();
+  }
   // Refresh credentials immediately after controller replacement, even while
   // a recording or unsaved draft delays reload. The renderer's connection
   // observer reloads the current route only when its input is safe.
@@ -414,6 +444,12 @@ async function start() {
     if (!url) throw new Error('Invalid web address');
     await shell.openExternal(url);
   });
+  ipcMain.handle('desktop:notifications', async (event, action: unknown) => {
+    if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) throw new Error('Untrusted window');
+    if (typeof action !== 'string' || !['status', 'enable', 'disable', 'test'].includes(action)) throw new Error('Invalid notification action');
+    if (!notifications) throw new Error('The local service has not connected yet.');
+    return notifications.action(action as DesktopNotificationAction);
+  });
   const logo = fs.readFileSync(path.join(repo, 'public/brand/ri-mark-white.svg'), 'utf8');
   const loading = `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"></head><body style="margin:0;background:#181a18;color:#f5f2ea;display:grid;place-items:center;height:100vh;font:15px system-ui"><div style="text-align:center"><img alt="${APP_NAME}" width="64" src="data:image/svg+xml;base64,${Buffer.from(logo).toString('base64')}"><p>Starting ${APP_NAME}</p><p style="color:#aeb3aa">Preparing your local app…</p></div></body></html>`;
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loading)}`);
@@ -422,7 +458,7 @@ async function start() {
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
     { label: 'Tools', submenu: [
       { label: 'Check for Desktop Update…', click: () => { if (window) void updateDesktop(window, prepareClose, () => {
-        quitting = true; finished = true; oauthAbort.abort();
+        quitting = true; finished = true; oauthAbort.abort(); notifications?.stop(); notificationAbort.abort();
         if (backend?.connected) backend.send({ type: 'stop' });
       }); } },
       { label: 'Service Status…', click: () => void serviceCommand('status') },

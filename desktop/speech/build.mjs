@@ -24,7 +24,7 @@ run(python, ['-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir', '--name'
   '--collect-all', 'onnx_asr', '--collect-all', 'onnxruntime', '--collect-all', 'av', path.join(source, 'helper.py')]);
 fs.rmSync(output, { recursive: true, force: true });
 fs.cpSync(path.join(build, 'dist/ri-speech-helper'), output, { recursive: true, dereference: false, verbatimSymlinks: true });
-run(python, ['-c', `import importlib.metadata, pathlib, shutil, builtins, ctypes, json, av
+run(python, ['-c', `import importlib.metadata, pathlib, shutil, builtins
 out=pathlib.Path(${JSON.stringify(path.join(output,'licenses'))})
 for name in ['onnx-asr','onnxruntime','av','numpy','flatbuffers','protobuf','packaging','pyinstaller']:
  d=importlib.metadata.distribution(name)
@@ -37,19 +37,20 @@ for candidate in builtins.license._Printer__filenames:
  if pathlib.Path(candidate).is_absolute() and pathlib.Path(candidate).is_file():
   shutil.copyfile(candidate,out/'PYTHON-LICENSE.txt')
   break
-ffmpeg=[]
-for candidate in (pathlib.Path(av.__file__).parent/'.dylibs').glob('*avcodec*'):
- lib=ctypes.CDLL(str(candidate))
- lib.avcodec_license.restype=ctypes.c_char_p
- lib.avcodec_configuration.restype=ctypes.c_char_p
- ffmpeg.append({'library':candidate.name,'license':lib.avcodec_license().decode(),'configuration':lib.avcodec_configuration().decode()})
-(out/'ffmpeg-build.json').write_text(json.dumps(ffmpeg,indent=2))
 `]);
 fs.copyFileSync(path.join(source, 'requirements.txt'), path.join(output, 'requirements.txt'));
 fs.copyFileSync(path.join(source, 'NOTICES.md'), path.join(output, 'NOTICES.md'));
 // These checked-in native notices are separate from PyAV's Python BSD license.
 // Keep their source URLs/hashes with the exact copied texts in every helper.
 fs.cpSync(path.join(source, 'licenses'), path.join(output, 'licenses/native'), { recursive: true });
-fs.writeFileSync(path.join(output, 'build.json'), JSON.stringify({ protocol: 1, platform: process.platform, arch: process.arch, python: '3.12.12', engine: 'onnx-asr', version: '0.12.0' }, null, 2));
+fs.copyFileSync(path.join(source, 'source-catalog.json'), path.join(output, 'source-catalog.json'));
+run(python, ['-c', `import importlib.metadata as m,json,pathlib,platform,sys
+names=['onnx-asr','onnxruntime','av','numpy','flatbuffers','protobuf','packaging','pyinstaller']
+receipt=pathlib.Path(sys.base_prefix)/'BUILD'
+record={'protocol':1,'platform':${JSON.stringify(process.platform)},'arch':${JSON.stringify(process.arch)},'python':platform.python_version(),'pythonBuild':receipt.read_text().strip() if receipt.is_file() else None,'pythonCompiler':platform.python_compiler(),'engine':'onnx-asr','version':m.version('onnx-asr'),'packages':{name:{'version':m.version(name),'wheel':m.distribution(name).read_text('WHEEL')} for name in names}}
+pathlib.Path(${JSON.stringify(path.join(output, 'build.json'))}).write_text(json.dumps(record,indent=2)+'\\n')
+`]);
 run(path.join(output, 'ri-speech-helper'), ['--version']);
+run(python, [path.join(source, 'native_inventory.py'), output]);
+run(python, [path.join(source, 'native_inventory.py'), output, '--verify']);
 console.log(`Speech helper: ${output}. Copy this directory to server/speech-helper before signing and manifest generation.`);

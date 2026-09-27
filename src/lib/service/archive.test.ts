@@ -19,6 +19,20 @@ it('rejects escaping symbolic links before extraction', async () => {
   fs.symlinkSync('../../outside', path.join(root, 'server/link'));
   await expect(validateRuntimeArchive(await archive(), 100)).rejects.toThrow('escapes');
 });
+it('rejects symlink-ancestor traversal before extraction', async () => {
+  fs.mkdirSync(path.join(root, 'server/dir'));
+  fs.symlinkSync('..', path.join(root, 'server/dir/up'));
+  fs.symlinkSync('dir/up/../../external', path.join(root, 'server/escape'));
+  fs.writeFileSync(path.join(root, 'server/external'), 'lexical decoy');
+  await expect(validateRuntimeArchive(await archive(), 100)).rejects.toThrow('Unsafe runtime symbolic link');
+});
+it('accepts package links whose parent components precede named components', async () => {
+  fs.mkdirSync(path.join(root, 'node/bin'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'node/bin/node'), 'node');
+  fs.mkdirSync(path.join(root, 'server/packages/nested'), { recursive: true });
+  fs.symlinkSync('../../../node/bin/node', path.join(root, 'server/packages/nested/dependency'));
+  await expect(validateRuntimeArchive(await archive(['node', 'server']), 100)).resolves.toBeUndefined();
+});
 it('rejects unexpected paths and duplicate entries', async () => {
   fs.writeFileSync(path.join(root, 'secret'), 'x');
   await expect(validateRuntimeArchive(await archive(['secret']), 100)).rejects.toThrow('path');

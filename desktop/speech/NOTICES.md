@@ -43,18 +43,42 @@ Other included native libraries report libopus 1.6.1, libvpx 1.16.0, LAME 3.100,
 
 The matching [FFmpeg patch](https://github.com/PyAV-Org/pyav-ffmpeg/blob/8.1.2-1/patches/ffmpeg.patch) moves libx264 and libx265 from FFmpeg's GPL dependency list to its version-3 dependency list. Consequently the runtime license string and absence of `--enable-gpl` do not establish the license terms of those included libraries. [FFmpeg's own distribution guidance](https://ffmpeg.org/legal.html) identifies external-library/source requirements separately, and [x265's project documentation](https://x265.readthedocs.io/en/master/introduction.html) describes its GPL and commercial licensing options. No commercial license provenance was found in the inspected helper.
 
-## Material still needed for a published helper
+## Preserved native notices and source materials
 
 The inspected package contains Python's license, PyAV's BSD license and author files, ONNX ASR's license, NumPy's bundled license collection, Protobuf's license, Packaging's license files, and PyInstaller's copying text. ONNX Runtime's `LICENSE` and `ThirdPartyNotices.txt` are present under `_internal/onnxruntime`.
 
-Following that inspection, Ri added exact upstream FFmpeg license texts and its license overview, x264/x265 copying texts and source copyright headers, and the FlatBuffers license under this directory's sibling `licenses/` directory. The helper build copies them to `licenses/native/`. Its `sources.json` records exact release URLs, source hashes, copied-file hashes and any verbatim-header extraction. These additions supply those texts but do not fill the corresponding-source archive or remaining-codec inventory gaps. A helper staged before this change needs its notice files regenerated before publication.
+The checked-in `licenses/` tree preserves 154 exact upstream license, copyright, notice, patent, author and license-header texts. The helper build copies them to `licenses/native/`. `licenses/sources.json` records each copied file's SHA-256, upstream URL and version. Archive-derived records additionally identify the exact archive digest, member path, original member digest and any verbatim-header extraction. Headers supply the AMF and NVIDIA codec-header notices where those upstream archives do not provide standalone license files. These texts cover the vendor inputs below, as well as the previously preserved FlatBuffers notice. Source-only build inputs are kept even on platforms that do not compile them.
+
+`source-catalog.json` pins 22 archives totaling 81,901,939 bytes. Twenty are the source inputs listed by the matching vendor recipe. The other two preserve the complete vendor and PyAV repositories at immutable commits, including build workflows, dependency recipes and applied patches:
+
+| Input | Pinned version |
+| --- | --- |
+| FFmpeg | 8.1.2 |
+| x264 | `b35605ace3ddf7c1a5d67a2eb553f034aef41d55` |
+| x265 | 4.2 |
+| Opus / VPX / LAME | 1.6.1 / 1.16.0 / 3.100 |
+| dav1d / SVT-AV1 / OpenCORE AMR | 1.5.3 / 4.1.0 / 0.1.6 |
+| WebP including SharpYUV / PNG | 1.6.0 / 1.6.58 |
+| GMP / Nettle / GnuTLS / libunistring | 6.3.0 / 3.10.2 / 3.8.13 / 1.4.2 |
+| ALSA / oneVPL / NASM | 1.2.14 / 2.16.0 / 2.16.03 |
+| NVIDIA codec headers / AMF headers | 13.0.19.0 / 1.5.0 |
+| pyav-ffmpeg vendor recipe | 8.1.2-1, commit `a71bf9279f7a4659154b68ba6783e89be460bcd5` |
+| PyAV sources and wheel recipe | 18.1.0, commit `7e3d950a8b72062502c1a60d672f8ca565313af5` |
+
+`release_materials.py` fetches these archives with pinned size/SHA-256 verification and assembles a deterministic source-material bundle with all checked-in notices and the exact Ri helper/build recipes. It never executes downloaded source or extracts archive paths. The vendor repository archive retains all its patches, including its FFmpeg license-classification patch. The bundle is a codec/PyAV source and recipe inventory. It does **not** contain the complete corresponding source for Python, ONNX Runtime, NumPy, PyInstaller or every other dependency in the frozen helper. Reproducible material bundling is also not proof of a bit-for-bit reproducible native build.
+
+`native_inventory.py` scans actual Mach-O/ELF headers and records every native file, its hash, component and linked dependencies. macOS uses `otool`, Linux uses `readelf`, and neither uses `ldd`. It records exported version, configuration and license evidence separately for all seven FFmpeg libraries, checks the source version, verifies packaged notices, and refuses unknown native components, unresolved dependencies and altered or omitted files. The locally inspected macOS arm64 helper has 85 native files with no inventory problems. Linux collection is implemented and parser-tested, but no Linux helper was inspected in this local session. Extra Linux dependencies such as OpenBLAS, OpenSSL, libffi or zlib must receive exact provenance and notices before an actual build can pass. The gate must not be weakened to accept an unknown dependency.
+
+See [RELEASE.md](RELEASE.md) for preparation, final-signature inventory and publisher-review commands. A Boolean CI variable cannot approve a helper. Distribution verification requires an explicit publisher decision bound to the exact helper inventory and source-bundle hashes. Missing or pending review, missing sources/notices, changed recipes and changed binaries fail closed.
+
+## Remaining published-release decisions
 
 The following gaps remain explicit release work:
 
-- Complete the remaining included codec-library license, copyright and notice inventory, including Opus, VPX, LAME, dav1d, SVT-AV1, OpenCORE AMR and WebP/SharpYUV. They were not found in the frozen PyAV license directory. PyAV's BSD license is not a notice inventory for its bundled codecs.
-- Preserve exact corresponding source archives, build recipes and applied patches alongside the published binaries. The source locations above identify the recipe but this artifact does not contain those archives or a publisher-hosted source location.
-- Record native versions, configuration and notices separately on Linux. The current build's `licenses/ffmpeg-build.json` collector only scans macOS `.dylibs` and only avcodec, so an empty Linux result is not evidence of an absent dependency.
-- Resolve the x264/x265 provenance and distribution requirements before labeling this package LGPL-only. If the release chooses an audio-only FFmpeg build, exclude unnecessary video libraries deliberately, then repeat the format and native-package tests against those new bytes.
-- Confirm that the added native and FlatBuffers license texts reach each final signed artifact, and verify the complete notices/source inventory against its actual bytes.
+- Resolve the combined x264/x265 distribution terms, license compatibility, any commercial licensing and relevant patent terms. The preserved sources and runtime strings do not resolve those decisions. An audio-only rebuild is an alternative product decision, and would require new pinned sources, notices, native inventories and decoding tests.
+- Review source, relinking and notice obligations across the **whole helper**, including Python's statically embedded dependencies and each wheel's vendored code. Wheel metadata and a top-level license are not complete evidence for embedded dependencies. Supply any additional source or materials that review requires.
+- Inspect and qualify every intended native OS/CPU artifact. Linux/Intel build declarations and parser fixtures do not constitute successful native qualification.
+- Sign and notarize the final macOS helper with the app, then regenerate its native inventory before generating the outer runtime manifest and the publisher's artifact-bound review. Signing changes file bytes.
+- Publish the exact verified source bundle, notices, any additional required sources/relinking materials and review evidence at the reviewed source location with the binary release. The verifier checks the HTTPS location's syntax and artifact hashes, not that a remote publisher has actually uploaded or retained those materials.
 
 This file records evidence and missing release materials. It does not certify license compliance or change any upstream license.

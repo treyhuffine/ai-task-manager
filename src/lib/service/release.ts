@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import * as tar from 'tar';
-import { getRuntimeInstallDir, stageRuntime, verifyRuntime } from './runtime';
+import { getRuntimeInstallDir, stageRuntime, validateRuntimeLink, verifyRuntime } from './runtime';
 import { requireDiskSpace } from './checkpoint';
 import { secureFetch, type Release } from './release-trust';
 export { ReleaseSchema, releasePolicy, verifyRelease, checkRelease, type Release, type ReleasePolicy } from './release-trust';
@@ -61,9 +61,7 @@ export async function validateRuntimeArchive(archive: string, maximumSize: numbe
       entries.add(name);
       if (!['File', 'Directory', 'SymbolicLink'].includes(entry.type)) throw new Error('Unsupported runtime archive entry');
       if (entry.type === 'SymbolicLink') {
-        if (!entry.linkpath) throw new Error('Missing symbolic link target');
-        const link = path.posix.normalize(path.posix.join(path.posix.dirname(name), entry.linkpath));
-        if (path.posix.isAbsolute(entry.linkpath) || link.startsWith('../') || entry.linkpath.includes('\\')) throw new Error('Runtime archive link escapes its root');
+        validateRuntimeLink(name, entry.linkpath);
       }
       unpacked += entry.size;
       if (unpacked > maximumSize) throw new Error('Runtime archive exceeds its signed unpacked size');

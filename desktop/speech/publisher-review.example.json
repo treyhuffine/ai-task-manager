@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "decision": "pending",
+  "helperInventorySha256": "",
+  "sourceBundleSha256": "",
+  "reviewer": "",
+  "reviewedAt": "",
+  "reviewReference": "",
+  "sourcePublicationUrl": "",
+  "reviewedRequirements": {
+    "nativeLicenseCompatibility": false,
+    "correspondingSourceAndRelinking": false,
+    "noticesAndAttributions": false,
+    "patentAndCommercialTerms": false,
+    "pythonAndOtherBundledDependencies": false
+  }
+}

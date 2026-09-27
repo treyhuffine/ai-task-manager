@@ -40,10 +40,22 @@ function waitForActiveWorker(reg: ServiceWorkerRegistration): Promise<void> {
 export function webPushSupported(): boolean {
   return (
     typeof window !== 'undefined' &&
+    !window.riDesktop &&
     'serviceWorker' in navigator &&
     'PushManager' in window &&
     'Notification' in window
   );
+}
+
+/** Switching this Electron profile to native alerts must not leave its old
+ * browser subscription active. Other browsers and phones are untouched. */
+export async function removeDesktopWebPushSubscription(): Promise<void> {
+  if (typeof window === 'undefined' || !window.riDesktop || !('serviceWorker' in navigator)) return;
+  const reg = await navigator.serviceWorker.getRegistration(SW_URL);
+  const sub = await reg?.pushManager.getSubscription();
+  if (!sub) return;
+  await api.post('/notifications/web-push/unsubscribe', { endpoint: sub.endpoint });
+  if (!(await sub.unsubscribe())) throw new Error('Could not remove the old browser notification subscription. Retry enabling desktop notifications.');
 }
 
 /** True if this browser currently has an active push subscription. */

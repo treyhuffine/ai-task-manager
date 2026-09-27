@@ -27,7 +27,9 @@ import {
   isWebPushSubscribed,
   subscribeToWebPush,
   unsubscribeFromWebPush,
+  removeDesktopWebPushSubscription,
 } from '@/lib/notifications/web-push-client';
+import { isDesktopNotificationChannel, type DesktopNotificationStatus } from '@/lib/notifications/desktop-contract';
 import type { NotificationChannelRecord } from '@/db/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -69,6 +71,7 @@ export function NotificationsSection() {
   const [isLoading, setIsLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [desktopStatus, setDesktopStatus] = useState<DesktopNotificationStatus | null>(null);
 
   // Telegram add flow
   const [addTgOpen, setAddTgOpen] = useState(false);
@@ -102,6 +105,7 @@ export function NotificationsSection() {
     setDigests(dg.digests);
     setBaseUrls(bu);
     if (webPushSupported()) setPushSubscribed(await isWebPushSubscribed());
+    if (window.riDesktop) setDesktopStatus(await window.riDesktop.notifications('status'));
   }, []);
 
   useEffect(() => {
@@ -109,6 +113,14 @@ export function NotificationsSection() {
       .catch((e) => setError(errMsg(e)))
       .finally(() => setIsLoading(false));
   }, [refresh]);
+
+  useEffect(() => {
+    if (!window.riDesktop) return;
+    const timer = setInterval(() => {
+      void window.riDesktop!.notifications('status').then(setDesktopStatus).catch(() => {});
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
 
   const run = useCallback(
     async (fn: () => Promise<void>) => {
@@ -136,7 +148,12 @@ export function NotificationsSection() {
     });
 
   const toggleEnabled = (channel: NotificationChannelRecord) =>
-    run(() => api.patch(`/notifications/channels/${channel.id}`, { enabled: !channel.enabled }).then(() => {}));
+    run(async () => {
+      if (isDesktopNotificationChannel(channel) && window.riDesktop && channel.id === desktopStatus?.channelId) {
+        if (!channel.enabled) await removeDesktopWebPushSubscription();
+        setDesktopStatus(await window.riDesktop.notifications(channel.enabled ? 'disable' : 'enable'));
+      } else await api.patch(`/notifications/channels/${channel.id}`, { enabled: !channel.enabled });
+    });
 
   const removeChannel = (id: string) => run(() => api.delete(`/notifications/channels/${id}`).then(() => {}));
 
@@ -147,6 +164,12 @@ export function NotificationsSection() {
     setTesting(id);
     setError(null);
     try {
+      if (id === desktopStatus?.channelId && window.riDesktop) {
+        const status = await window.riDesktop.notifications('test');
+        setDesktopStatus(status);
+        setTestResults(p => ({ ...p, [id]: status.error ? { status: 'error', error: status.error } : { status: 'queued' } }));
+        return;
+      }
       const r = await api.post<{ status: string; error?: string }>(`/notifications/channels/${id}/test`, {});
       setTestResults((p) => ({ ...p, [id]: r }));
     } catch (e) {
@@ -259,6 +282,7 @@ export function NotificationsSection() {
   // --- Display helpers -----------------------------------------------------
 
   const channelType = (c: NotificationChannelRecord): string => {
+    if (isDesktopNotificationChannel(c)) return 'Desktop';
     if (c.kind === 'web_push') return 'Web push';
     if (c.kind === 'connector' && c.providerId) return c.providerId.charAt(0).toUpperCase() + c.providerId.slice(1);
     return c.kind;
@@ -285,7 +309,7 @@ export function NotificationsSection() {
         className="inline-flex shrink-0 items-center justify-center rounded-xl bg-muted/50 text-muted-foreground ring-1 ring-inset ring-border/50"
         style={{ width: size, height: size }}
       >
-        <Globe size={Math.round(size * 0.5)} />
+        {isDesktopNotificationChannel(c) ? <Monitor size={Math.round(size * 0.5)} /> : <Globe size={Math.round(size * 0.5)} />}
       </span>
     );
   };
@@ -374,10 +398,30 @@ export function NotificationsSection() {
 
       {/* 2. Add a channel */}
       <div className="space-y-3">
+        {desktopStatus && (
+          <div className="space-y-3 rounded-xl border border-border bg-card/30 p-4">
+            <div className="flex items-center gap-3">
+              <Monitor size={18} className="shrink-0 text-muted-foreground" />
+              <div className="flex-1 space-y-1">
+                <h3 className="text-sm font-semibold">Desktop notifications</h3>
+                <p className="text-xs text-muted-foreground">Get alerts on this computer while Ri is open. Quitting the desktop app stops native alerts, even when its background service is running.</p>
+              </div>
+              <Button variant="outline" size="sm" disabled={busy || (!desktopStatus.enabled && !desktopStatus.supported)} onClick={() => run(async () => {
+                if (!desktopStatus.enabled) await removeDesktopWebPushSubscription();
+                setDesktopStatus(await window.riDesktop!.notifications(desktopStatus.enabled ? 'disable' : 'enable'));
+              })}>{desktopStatus.enabled ? 'Disable desktop notifications' : 'Enable desktop notifications'}</Button>
+            </div>
+            {!desktopStatus.supported && <p className="text-xs text-muted-foreground">Native notifications are unavailable on this computer.</p>}
+            {desktopStatus.error && <p role="alert" className="text-xs text-destructive">{desktopStatus.error}</p>}
+            <p className="text-[11px] text-muted-foreground">Allow Ri in your computer&apos;s notification settings. Recent queued alerts can appear when you reopen Ri. Choose event types below.</p>
+          </div>
+        )}
         <h2 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Add a channel</h2>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {/* Web push */}
-          {!webPushSupported() ? (
+          {desktopStatus ? (
+            <div className="rounded-xl border border-border p-3 text-[11px] text-muted-foreground">For alerts on your phone, enable browser push from Ri on that device.</div>
+          ) : !webPushSupported() ? (
             <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/20 p-3 text-[11px] text-muted-foreground">
               <Globe size={15} className="shrink-0" />
               <span>
@@ -591,6 +635,7 @@ export function NotificationsSection() {
             {channels.map((c) => {
               const tr = testResults[c.id];
               const isWebPush = c.kind === 'web_push';
+              const isDesktop = isDesktopNotificationChannel(c);
               return (
                 <div key={c.id} className="rounded-xl border border-border bg-card/30 p-3">
                   <div className="flex items-center gap-3">
@@ -605,7 +650,7 @@ export function NotificationsSection() {
                         )}
                       </div>
                       <p className="truncate text-[11px] text-muted-foreground">
-                        {isWebPush
+                        {isDesktop ? (c.id === desktopStatus?.channelId ? 'This desktop app' : 'Another installation’s desktop destination') : isWebPush
                           ? 'All your subscribed browsers'
                           : `Chat ${String((c.config as { chatId?: unknown }).chatId ?? '-')}`}
                         {(c.events ?? []).length > 0 && ` · ${(c.events ?? []).length} events`}
@@ -616,7 +661,7 @@ export function NotificationsSection() {
                         variant="outline"
                         size="xs"
                         onClick={() => sendTest(c.id)}
-                        disabled={busy || testing === c.id}
+                        disabled={busy || testing === c.id || (isDesktop && (c.id !== desktopStatus?.channelId || !c.enabled))}
                         className="text-xs"
                       >
                         {testing === c.id ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
@@ -626,7 +671,7 @@ export function NotificationsSection() {
                         variant={c.enabled ? 'outline' : 'secondary'}
                         size="xs"
                         onClick={() => toggleEnabled(c)}
-                        disabled={busy}
+                        disabled={busy || (isDesktop && c.id !== desktopStatus?.channelId && !c.enabled)}
                         className={cn(
                           'text-xs',
                           c.enabled &&
@@ -670,10 +715,10 @@ export function NotificationsSection() {
                     <div
                       className={cn(
                         'mt-2 text-[11px] font-medium',
-                        tr.status === 'sent' ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive',
+                        tr.status === 'queued' ? 'text-muted-foreground' : tr.status === 'sent' ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive',
                       )}
                     >
-                      {tr.status === 'sent'
+                      {tr.status === 'queued' ? 'Test queued. Check your computer’s notifications. Any delivery error will appear above.' : tr.status === 'sent'
                         ? '✓ Test notification delivered'
                         : `✗ Test ${tr.status}${tr.error ? `: ${tr.error}` : ''}`}
                     </div>

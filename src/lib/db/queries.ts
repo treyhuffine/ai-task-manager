@@ -7678,6 +7678,63 @@ export function listNotificationDeliveries(userId: string, limit = 100): Notific
     .all();
 }
 
+/** One deterministic local desktop destination per installation. Creating it
+ * is explicit. A concurrent enable request preserves the user's event choices. */
+export function enableDesktopNotificationChannel(id: string, userId: string, events: string[]): NotificationChannelRecord {
+  const existing = getNotificationChannel(id);
+  if (existing && (existing.userId !== userId || existing.kind !== 'in_app' || existing.config.surface !== 'desktop')) throw new Error('This desktop notification destination belongs to another channel.');
+  const now = new Date().toISOString();
+  return getDb().insert(notificationChannels).values({
+    id, userId, kind: 'in_app', config: { surface: 'desktop' }, events, enabled: true,
+    createdAt: now, updatedAt: now,
+  }).onConflictDoUpdate({ target: notificationChannels.id, set: { enabled: true, updatedAt: now } }).returning().get();
+}
+
+/** Claim before crossing the OS boundary. A lost response or crashed presenter
+ * has an unknown outcome and is deliberately never auto-replayed. This avoids
+ * duplicate alerts across reconnects and overlapping desktop processes. */
+export function claimDesktopNotificationDelivery(channelId: string, userId: string, since: string): NotificationDeliveryRecord | undefined {
+  const db = getDb();
+  return db.transaction(() => {
+    const channel = getNotificationChannel(channelId);
+    if (!channel?.enabled || channel.userId !== userId || channel.kind !== 'in_app' || channel.config.surface !== 'desktop') return;
+    const now = new Date().toISOString();
+    db.update(notificationDeliveries).set({ status: 'skipped', updatedAt: now, lastError: 'This desktop alert expired while the app was closed.' })
+      .where(and(eq(notificationDeliveries.channelId, channelId), eq(notificationDeliveries.userId, userId), eq(notificationDeliveries.status, 'pending'), lt(notificationDeliveries.createdAt, since))).run();
+    const row = db.select().from(notificationDeliveries).where(and(
+      eq(notificationDeliveries.channelId, channelId), eq(notificationDeliveries.userId, userId), eq(notificationDeliveries.status, 'pending'),
+    )).orderBy(asc(notificationDeliveries.createdAt), asc(notificationDeliveries.id)).limit(1).get();
+    if (!row) return;
+    return db.update(notificationDeliveries).set({
+      status: 'skipped', providerMessageId: `desktop:${uuidv7()}`, updatedAt: now,
+      attempts: sql`${notificationDeliveries.attempts} + 1`,
+      lastError: 'Desktop presentation was interrupted or has not been acknowledged. It will not be repeated automatically.',
+      rendered: { title: row.event.title.slice(0, 160), body: row.event.body.slice(0, 1000), url: row.event.url.slice(0, 2048) },
+    }).where(and(eq(notificationDeliveries.id, row.id), eq(notificationDeliveries.status, 'pending'))).returning().get();
+  });
+}
+
+export function acknowledgeDesktopNotificationDelivery(input: {
+  channelId: string; userId: string; id: string; receipt: string; status: 'sent' | 'failed' | 'skipped'; error?: string;
+}): boolean {
+  const now = new Date().toISOString();
+  const changed = getDb().update(notificationDeliveries).set({
+    status: input.status, providerMessageId: `ack:${input.receipt}`, updatedAt: now, ...(input.status === 'sent' ? { sentAt: now } : {}),
+    lastError: input.status === 'sent' ? null : (input.error ?? 'The operating system did not confirm notification delivery.').slice(0, 1000),
+  }).where(and(eq(notificationDeliveries.id, input.id), eq(notificationDeliveries.channelId, input.channelId),
+    eq(notificationDeliveries.userId, input.userId), eq(notificationDeliveries.providerMessageId, input.receipt), eq(notificationDeliveries.status, 'skipped'))).run();
+  return changed.changes > 0;
+}
+
+/** History is bounded and restricted to this native destination. It lets a
+ * restarted Mac reattach safe click handlers to its OS notification history. */
+export function desktopNotificationHistory(channelId: string, userId: string, since: string): NotificationDeliveryRecord[] {
+  return getDb().select().from(notificationDeliveries).where(and(
+    eq(notificationDeliveries.channelId, channelId), eq(notificationDeliveries.userId, userId),
+    gte(notificationDeliveries.createdAt, since), isNotNull(notificationDeliveries.providerMessageId),
+  )).orderBy(desc(notificationDeliveries.createdAt)).limit(50).all();
+}
+
 // ─── Skill Usage ──────────────────────────────────────────────
 
 /**

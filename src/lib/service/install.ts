@@ -45,8 +45,9 @@ function definition() {
 export async function installService(dryRun = false) {
   const job = definition();
   if (dryRun) return job;
-  // Installation is an explicit action. Never stop a live service to take over
-  // supervision: its work must first finish and the owner must stop it.
+  // Validate ownership before asking a live backend to drain. A conflicting
+  // login definition must not interrupt the otherwise healthy current owner.
+  if (fs.existsSync(job.file) && fs.readFileSync(job.file, 'utf8') !== job.content) throw new Error('A different service definition already exists at this path');
   if (fs.existsSync(supervisionRecord()) && fs.existsSync(job.file) && fs.readFileSync(job.file, 'utf8') === job.content) {
     await startInstalledService(); return job;
   }

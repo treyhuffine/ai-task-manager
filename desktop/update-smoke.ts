@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { desktopPackageLayout } from './package-layout';
+import { nativeNavigate, nativeReload } from './acceptance-fixture';
 import os from 'node:os';
 import https from 'node:https';
 import { once } from 'node:events';
@@ -20,13 +21,20 @@ import type { UpdateRecord } from '../src/lib/service/update';
 import type { ReleasePreferences } from '../src/lib/service/update-settings';
 
 const source = path.resolve(process.argv[2] ?? `release/ri-runtime-0.1.0-${process.platform}-${process.arch}`);
+const guiPackage = process.env.RI_UPDATE_SMOKE_GUI;
 const temporary = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ri-update-smoke-')));
-for (const name of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR', 'RI_MAINTENANCE_TOKEN', 'RI_SERVICE_VALIDATING']) delete process.env[name];
-Object.assign(process.env, { RI_ROOT: path.join(temporary, 'home'), RI_INSTALL_ROOT: path.join(temporary, 'installed'), RI_DESKTOP: '1', RI_DESKTOP_MODE: 'production', NEXT_DIST_DIR: '.next-desktop' });
+const fixtureHome = path.join(temporary, 'os-home');
+fs.mkdirSync(fixtureHome);
+for (const name of Object.keys(process.env)) {
+  if (/^(?:RI_|OPENAI_|ANTHROPIC_|GROQ_|BEAMD_|CLAUDE_|CODEX_|CURSOR_|OPENCODE_)/.test(name)) delete process.env[name];
+}
+Object.assign(process.env, { HOME: fixtureHome, XDG_CONFIG_HOME: path.join(fixtureHome, '.config'), PATH: '/usr/bin:/bin:/usr/sbin:/sbin', RI_ROOT: path.join(temporary, 'home'), RI_INSTALL_ROOT: path.join(temporary, 'installed'), RI_DESKTOP_STATE_DIR: path.join(temporary, 'desktop-state'), RI_DESKTOP: '1', RI_DESKTOP_MODE: 'production', NEXT_DIST_DIR: '.next-desktop' });
 let server: https.Server | undefined;
 let envelope: object;
 let archive: string;
 let gui: ElectronApplication | undefined;
+const guiNavigation: Record<string, unknown> = {};
+let result: Record<string, unknown> | undefined;
 async function waitFor<T>(read: () => Promise<T>, ready: (value: T) => boolean, label: string, timeout = 240_000): Promise<T> {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
@@ -58,7 +66,7 @@ async function exerciseDownloadPreferences(page: Page) {
   await waitFor(update, value => value.policy?.automaticDownload === false, 'automatic download disabled');
   await page.getByRole('switch', { name: metered, exact: true }).click();
   await waitFor(update, value => value.policy?.metered === false, 'metered preference disabled');
-  await page.reload();
+  await nativeReload(gui!, page, guiNavigation);
   await assertSwitch(page, automatic, false);
   await assertSwitch(page, metered, false);
   await page.getByRole('switch', { name: metered, exact: true }).click();
@@ -90,7 +98,7 @@ async function exerciseMaintenanceWindow(page: Page) {
   await page.getByRole('button', { name: 'Schedule update', exact: true }).click();
   const scheduled = await waitFor(update, value => value.phase === 'waiting' && value.approved === true && value.window?.timeZone === timeZone, 'persisted approval and maintenance window');
   assert.deepEqual(scheduled.window, window);
-  await page.reload();
+  await nativeReload(gui!, page, guiNavigation);
   await assertSwitch(page, 'Use a maintenance window', true);
   assert.equal(await page.getByRole('textbox', { name: 'Time zone', exact: true }).inputValue(), timeZone);
   assert.match(await page.getByRole('combobox', { name: 'Start time', exact: true }).innerText(), /23:00/);
@@ -166,13 +174,16 @@ try {
   assert.equal(created.status, 201);
   const noteId = created.body.id;
   assert.equal(typeof noteId, 'string');
-  if (process.env.RI_UPDATE_SMOKE_GUI) {
+  if (guiPackage) {
     console.info('Attaching the packaged GUI to the same service');
     await request(initial, '/api/user-state', { onboardedAt: new Date().toISOString() }, 'PATCH');
-    gui = await _electron.launch({ executablePath: desktopPackageLayout(process.env.RI_UPDATE_SMOKE_GUI).executable, env: { ...process.env, RI_DESKTOP_ROOT: process.env.RI_ROOT!, RI_DESKTOP_SMOKE: '1' }, timeout: 240_000 });
+    gui = await _electron.launch({ executablePath: desktopPackageLayout(guiPackage).executable, env: { ...process.env, RI_DESKTOP_ROOT: process.env.RI_ROOT!, RI_DESKTOP_SMOKE: '1' }, timeout: 240_000 });
     const page = await gui.firstWindow();
     await page.waitForURL(url => url.origin === initial.origin, { timeout: 240_000 });
-    await page.goto(`${initial.origin}/?settings=updates`);
+    const notifications = await page.evaluate(() => window.riDesktop!.notifications('status'));
+    assert.equal(notifications.enabled, false);
+    assert.equal(notifications.error, undefined);
+    await nativeNavigate(page, `${initial.origin}/?settings=updates`, guiNavigation);
     await exerciseDownloadPreferences(page);
   }
   const unpublished = path.join(process.env.RI_ROOT!, 'unpublished.txt'); fs.writeFileSync(unpublished, 'unpublished work');
@@ -188,7 +199,7 @@ try {
   if (gui) {
     const page = await gui.firstWindow();
     await exerciseMaintenanceWindow(page);
-    await page.goto(`${initial.origin}/note/${noteId}`);
+    await nativeNavigate(page, `${initial.origin}/note/${noteId}`, guiNavigation);
     const title = page.locator('textarea.note-title');
     await title.waitFor(); await title.fill('An open desktop survives this update');
     await page.evaluate(() => { (window as unknown as { riUpdateSmokeMarker?: boolean }).riUpdateSmokeMarker = true; });
@@ -212,11 +223,26 @@ try {
     await page.waitForURL(url => url.origin === current.origin && url.pathname === `/note/${noteId}`, { timeout: 60_000 });
     await page.locator('textarea.note-title').waitFor();
     assert.equal(await page.locator('textarea.note-title').inputValue(), note.body.title);
+    // The renderer can observe the new controller before the native helper's
+    // two-second monitor refreshes its private capability. Verify that real
+    // bridge recovery completes, without assuming both observers are atomic.
+    const bridgeStarted = Date.now(); let bridgeAttempts = 0;
+    const bridge = await waitFor(async () => {
+      bridgeAttempts++;
+      return page.evaluate(async () => {
+        try { return { ok: true as const, status: await window.riDesktop!.notifications('status') }; }
+        catch (error) { return { ok: false as const, error: String(error) }; }
+      });
+    }, value => value.ok, 'native notification capability after controller replacement', 15_000);
+    assert(bridge.ok);
+    assert.equal(bridge.status.enabled, false);
+    assert.equal(bridge.status.error, undefined, 'Desktop notification capability did not recover after controller replacement');
+    guiNavigation.notificationReconnect = { attempts: bridgeAttempts, elapsedMs: Date.now() - bridgeStarted };
   }
   const after = await request(current, '/api/notes', { body: 'New data after upgrade.' }); assert.equal(after.status, 201);
   assert.equal(fs.readFileSync(unpublished, 'utf8'), 'unpublished work');
   assert(fs.existsSync(first.repo));
-  console.info(JSON.stringify({ passed: true, guiAttached: !!gui, malformedRequestsRejected: true, downloadPreferencesVerified: !!gui, maintenanceWindowVerified: !!gui, originStable: true, publisherVerified: true, migrated: true, controllerReplaced: true, priorRuntimeRetained: true, newWritesAccepted: true, checkpointVerified: true, temporary }));
+  result = { passed: true, guiAttached: !!gui, notificationBridgeReconnected: !!gui, guiNavigation, malformedRequestsRejected: true, downloadPreferencesVerified: !!gui, maintenanceWindowVerified: !!gui, originStable: true, publisherVerified: true, migrated: true, controllerReplaced: true, priorRuntimeRetained: true, newWritesAccepted: true, checkpointVerified: true, temporary };
 } finally {
   if (gui) {
     await Promise.all([
@@ -226,7 +252,18 @@ try {
   }
   await stopService().catch(error => console.error('Isolated service cleanup:', error.message));
   server?.closeAllConnections(); await new Promise<void>(resolve => server ? server.close(() => resolve()) : resolve());
+  assert.equal(await serviceStatus(), null, 'Update fixture service was left running');
+  if (result) {
+    // Keep the database, checkpoint, update journal and logs. Successful
+    // rehearsals need not retain duplicate GBs of immutable runtime bytes.
+    for (const file of [path.join(temporary, 'candidate'), path.join(temporary, 'runtime.tar.gz'),
+      path.join(getRuntimeInstallDir(), 'releases'), path.join(getRuntimeInstallDir(), 'downloads')]) {
+      fs.rmSync(file, { recursive: true, force: true });
+    }
+    Object.assign(result, { serviceStopped: true, fixtureRuntimeCopiesRemoved: true });
+  }
 }
+console.info(JSON.stringify(result));
 
 }
 void main().catch(error => { console.error(error); process.exitCode = 1; });

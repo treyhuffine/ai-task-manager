@@ -20,6 +20,22 @@ export function sameOrigin(url: string, origin: string): boolean {
   try { return new URL(url).origin === origin; } catch { return false; }
 }
 
+/** Strip caller-supplied capabilities before admitting our main frame or an
+ * explicitly authenticated main-process request. Subframes never inherit it. */
+export function desktopRequestHeaders(input: {
+  headers: Record<string, string>; url: string; origin: string; capability?: string;
+  nativeRequest: boolean; trustedMainFrame: boolean;
+}): Record<string, string> {
+  const headers = { ...input.headers };
+  const presented = Object.entries(headers).filter(([key]) => key.toLowerCase() === 'x-ri-desktop-client');
+  for (const [key] of presented) delete headers[key];
+  if (input.capability && sameOrigin(input.url, input.origin) && (input.trustedMainFrame ||
+    (input.nativeRequest && presented.length === 1 && presented[0][1] === input.capability))) {
+    headers['x-ri-desktop-client'] = input.capability;
+  }
+  return headers;
+}
+
 export function externalWebUrl(raw: string): string | null {
   try {
     const url = new URL(raw);

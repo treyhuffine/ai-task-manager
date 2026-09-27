@@ -1,8 +1,11 @@
+import type { DesktopNotificationAction, DesktopNotificationStatus } from '@/lib/notifications/desktop-contract';
+
 export interface RiDesktop {
   platform: string;
   openExternal(url: string): Promise<void>;
   onResume(callback: () => void): () => void;
   onPrepareClose(callback: () => Promise<boolean>): () => void;
+  notifications(action: DesktopNotificationAction): Promise<DesktopNotificationStatus>;
 }
 
 declare global { interface Window { riDesktop?: RiDesktop } }

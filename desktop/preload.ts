@@ -5,6 +5,7 @@ if (process.isMainFrame) {
   contextBridge.exposeInMainWorld('riDesktop', Object.freeze({
     platform: process.platform,
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('desktop:open-external', url),
+    notifications: (action: unknown) => ipcRenderer.invoke('desktop:notifications', action),
     onResume: (callback: () => void) => {
       // Never pass Electron's IPC event (and its sender) into page callbacks.
       const listener = () => callback();

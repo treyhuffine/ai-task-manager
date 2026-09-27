@@ -126,6 +126,29 @@ it('restores the checkpoint after migration or validation failure', async () => 
   expect(read()).toBe('before'); expect(installedRuntime()?.id).toBe(prior);
   expect(updater.status().phase).toBe('failed'); expect(backend.restart).toHaveBeenCalledOnce();
 });
+it('restarts the unchanged prior runtime after checkpoint disk exhaustion without migrating or restoring', async () => {
+  backend.checkpoint = vi.fn(async () => { throw Object.assign(new Error('No space left on device'), { code: 'ENOSPC' }); });
+  backend.restore = vi.fn();
+  backend.restart = vi.fn(async () => {
+    expect(readMaintenance()).toBeNull();
+    const release = acquireDatabaseAccess(database); release();
+    expect(read()).toBe('before');
+  });
+  const updater = coordinator();
+  await expect(updater.apply()).rejects.toMatchObject({ code: 'ENOSPC' });
+  expect(backend.checkpoint).toHaveBeenCalledOnce();
+  expect(backend.validate).not.toHaveBeenCalled();
+  expect(backend.restore).not.toHaveBeenCalled();
+  expect(backend.activate).not.toHaveBeenCalled();
+  expect(backend.restart).toHaveBeenCalledOnce();
+  expect(installedRuntime()?.id).toBe(prior);
+  expect(updater.status()).toMatchObject({ phase: 'failed', approved: false, busy: false });
+  expect(updater.status().checkpoint).toBeUndefined();
+  // A fresh controller must see the same completed failure, rather than a
+  // durable validating/committed marker pointing at a nonexistent snapshot.
+  expect(coordinator().status()).toMatchObject({ phase: 'failed', priorId: prior });
+  expect(read()).toBe('before');
+});
 it('never restores a checkpoint after committing, even if activation fails', async () => {
   backend.unavailable = vi.fn();
   backend.activate = vi.fn(async () => { write('new user data'); throw new Error('activation failed'); });

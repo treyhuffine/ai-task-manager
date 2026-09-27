@@ -1,0 +1,403 @@
+{
+  "format": 1,
+  "scope": "Exact PyAV 18.1.0 vendor codec source inputs and complete build recipes, including Linux inputs. This inventory is not a license compatibility certification.",
+  "vendorRecipeCommit": "a71bf9279f7a4659154b68ba6783e89be460bcd5",
+  "pyavRecipeCommit": "7e3d950a8b72062502c1a60d672f8ca565313af5",
+  "vendorRecipeSha256": "809dfe365c69f8ec9efa24bfb0b4c103b5c884aaf2c78ffbb7448e75f647b648",
+  "artifacts": [
+    {
+      "id": "alsa-lib",
+      "url": "https://www.alsa-project.org/files/pub/lib/alsa-lib-1.2.14.tar.bz2",
+      "sha256": "be9c88a0b3604367dd74167a2b754a35e142f670292ae47a2fdef27a2ee97a32",
+      "file": "alsa-lib-1.2.14.tar.bz2",
+      "size": 1115517,
+      "version": "1.2.14",
+      "kind": "source",
+      "notices": [
+        "alsa-lib/aserver/COPYING",
+        "alsa-lib/COPYING"
+      ]
+    },
+    {
+      "id": "amf-headers",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "sha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "file": "AMF-headers-v1.5.0.tar.gz",
+      "size": 82755,
+      "version": "1.5.0",
+      "kind": "source",
+      "notices": [
+        "amf-headers/header-notices/AMF/components/PreAnalysis.h.txt",
+        "amf-headers/header-notices/AMF/components/VideoDecoderUVD.h.txt",
+        "amf-headers/header-notices/AMF/components/VideoCapture.h.txt",
+        "amf-headers/header-notices/AMF/components/Capture.h.txt",
+        "amf-headers/header-notices/AMF/components/CursorCapture.h.txt",
+        "amf-headers/header-notices/AMF/components/FFMPEGAudioEncoder.h.txt",
+        "amf-headers/header-notices/AMF/components/FFMPEGAudioDecoder.h.txt",
+        "amf-headers/header-notices/AMF/components/AMFXInput.h.txt",
+        "amf-headers/header-notices/AMF/components/DisplayCapture.h.txt",
+        "amf-headers/header-notices/AMF/components/ColorSpace.h.txt",
+        "amf-headers/header-notices/AMF/components/FFMPEGVideoDecoder.h.txt",
+        "amf-headers/header-notices/AMF/components/VideoConverter.h.txt",
+        "amf-headers/header-notices/AMF/components/FFMPEGEncoderHEVC.h.txt",
+        "amf-headers/header-notices/AMF/components/VideoEncoderVCE.h.txt",
+        "amf-headers/header-notices/AMF/components/VideoEncoderAV1.h.txt",
+        "amf-headers/header-notices/AMF/components/HQScaler.h.txt",
+        "amf-headers/header-notices/AMF/components/FRC.h.txt",
+        "amf-headers/header-notices/AMF/components/FFMPEGComponents.h.txt",
+        "amf-headers/header-notices/AMF/components/SupportedCodecs.h.txt",
+        "amf-headers/header-notices/AMF/components/PreProcessing.h.txt",
+        "amf-headers/header-notices/AMF/components/ZCamLiveStream.h.txt",
+        "amf-headers/header-notices/AMF/components/VQEnhancer.h.txt",
+        "amf-headers/header-notices/AMF/components/FFMPEGEncoderH264.h.txt",
+        "amf-headers/header-notices/AMF/components/AudioCapture.h.txt",
+        "amf-headers/header-notices/AMF/components/FFMPEGAudioConverter.h.txt",
+        "amf-headers/header-notices/AMF/components/FFMPEGFileDemuxer.h.txt",
+        "amf-headers/header-notices/AMF/components/FFMPEGFileMuxer.h.txt",
+        "amf-headers/header-notices/AMF/components/ComponentCaps.h.txt",
+        "amf-headers/header-notices/AMF/components/ChromaKey.h.txt",
+        "amf-headers/header-notices/AMF/components/FFMPEGEncoderAV1.h.txt",
+        "amf-headers/header-notices/AMF/components/VideoEncoderHEVC.h.txt",
+        "amf-headers/header-notices/AMF/components/VideoStitch.h.txt",
+        "amf-headers/header-notices/AMF/components/Ambisonic2SRenderer.h.txt",
+        "amf-headers/header-notices/AMF/components/Component.h.txt",
+        "amf-headers/header-notices/AMF/components/MediaSource.h.txt",
+        "amf-headers/header-notices/AMF/core/Trace.h.txt",
+        "amf-headers/header-notices/AMF/core/Context.h.txt",
+        "amf-headers/header-notices/AMF/core/Platform.h.txt",
+        "amf-headers/header-notices/AMF/core/Surface.h.txt",
+        "amf-headers/header-notices/AMF/core/Compute.h.txt",
+        "amf-headers/header-notices/AMF/core/Factory.h.txt",
+        "amf-headers/header-notices/AMF/core/Buffer.h.txt",
+        "amf-headers/header-notices/AMF/core/ComputeFactory.h.txt",
+        "amf-headers/header-notices/AMF/core/AudioBuffer.h.txt",
+        "amf-headers/header-notices/AMF/core/VulkanAMF.h.txt",
+        "amf-headers/header-notices/AMF/core/Plane.h.txt",
+        "amf-headers/header-notices/AMF/core/Variant.h.txt",
+        "amf-headers/header-notices/AMF/core/PropertyStorageEx.h.txt",
+        "amf-headers/header-notices/AMF/core/PropertyStorage.h.txt",
+        "amf-headers/header-notices/AMF/core/D3D12AMF.h.txt",
+        "amf-headers/header-notices/AMF/core/Result.h.txt",
+        "amf-headers/header-notices/AMF/core/CurrentTime.h.txt",
+        "amf-headers/header-notices/AMF/core/Interface.h.txt",
+        "amf-headers/header-notices/AMF/core/Dump.h.txt",
+        "amf-headers/header-notices/AMF/core/Version.h.txt",
+        "amf-headers/header-notices/AMF/core/Data.h.txt",
+        "amf-headers/header-notices/AMF/core/Debug.h.txt"
+      ]
+    },
+    {
+      "id": "dav1d",
+      "url": "https://code.videolan.org/videolan/dav1d/-/archive/1.5.3/dav1d-1.5.3.tar.bz2",
+      "sha256": "e099f53253f6c247580c554d53a13f1040638f2066edc3c740e4c2f15174ce22",
+      "file": "dav1d-1.5.3.tar.bz2",
+      "size": 1217030,
+      "version": "1.5.3",
+      "kind": "source",
+      "notices": [
+        "dav1d/COPYING",
+        "dav1d/doc/PATENTS"
+      ]
+    },
+    {
+      "id": "ffmpeg",
+      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+      "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+      "file": "ffmpeg-8.1.2.tar.xz",
+      "size": 11710924,
+      "version": "8.1.2",
+      "kind": "source",
+      "notices": [
+        "ffmpeg/COPYING.LGPLv2.1",
+        "ffmpeg/COPYING.GPLv2",
+        "ffmpeg/COPYING.LGPLv3",
+        "ffmpeg/COPYING.GPLv3",
+        "ffmpeg/LICENSE.md"
+      ]
+    },
+    {
+      "id": "gmp",
+      "url": "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz",
+      "sha256": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
+      "file": "gmp-6.3.0.tar.xz",
+      "size": 2094196,
+      "version": "6.3.0",
+      "kind": "source",
+      "notices": [
+        "gmp/COPYING",
+        "gmp/COPYING.LESSERv3",
+        "gmp/AUTHORS",
+        "gmp/COPYINGv3",
+        "gmp/COPYINGv2"
+      ]
+    },
+    {
+      "id": "gnutls",
+      "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz",
+      "sha256": "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e",
+      "file": "gnutls-3.8.13.tar.xz",
+      "size": 7275324,
+      "version": "3.8.13",
+      "kind": "source",
+      "notices": [
+        "gnutls/AUTHORS",
+        "gnutls/COPYING",
+        "gnutls/COPYING.LESSERv2",
+        "gnutls/doc/examples/tlsproxy/LICENSE",
+        "gnutls/lib/accelerated/x86/license.txt",
+        "gnutls/lib/crau/LICENSE",
+        "gnutls/lib/inih/LICENSE.txt"
+      ]
+    },
+    {
+      "id": "lame",
+      "url": "https://deb.debian.org/debian/pool/main/l/lame/lame_3.100.orig.tar.gz",
+      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+      "file": "lame_3.100.orig.tar.gz",
+      "size": 1524133,
+      "version": "3.100",
+      "kind": "source",
+      "notices": [
+        "lame/COPYING",
+        "lame/LICENSE",
+        "lame/mpglib/AUTHORS",
+        "lame/debian/copyright"
+      ]
+    },
+    {
+      "id": "libsvtav1",
+      "url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v4.1.0/SVT-AV1-v4.1.0.tar.bz2",
+      "sha256": "184162d3db3a4448882b17230413b4938ca252eef6b3c5e2f1236b2fcf497881",
+      "file": "SVT-AV1-v4.1.0.tar.bz2",
+      "size": 10197493,
+      "version": "4.1.0",
+      "kind": "source",
+      "notices": [
+        "libsvtav1/LICENSE-BSD2.md",
+        "libsvtav1/LICENSE.md",
+        "libsvtav1/PATENTS.md",
+        "libsvtav1/third_party/fastfeat/LICENSE",
+        "libsvtav1/third_party/safestringlib/LICENSE"
+      ]
+    },
+    {
+      "id": "libvpl",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "sha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "file": "v2.16.0.tar.gz",
+      "size": 12968334,
+      "version": "2.16.0",
+      "kind": "source",
+      "notices": [
+        "libvpl/LICENSE",
+        "libvpl/examples/api1x_core/legacy-decode/License.txt",
+        "libvpl/examples/api1x_core/legacy-encode/License.txt",
+        "libvpl/examples/api1x_core/legacy-vpp/License.txt",
+        "libvpl/examples/api2x/hello-decode/License.txt",
+        "libvpl/examples/api2x/hello-decvpp/License.txt",
+        "libvpl/examples/api2x/hello-encode-jpeg/License.txt",
+        "libvpl/examples/api2x/hello-encode/License.txt",
+        "libvpl/examples/api2x/hello-sharing-dx11/License.txt",
+        "libvpl/examples/api2x/hello-sharing-ocl/License.txt",
+        "libvpl/examples/api2x/hello-sharing-vaapi/License.txt",
+        "libvpl/examples/api2x/hello-transcode/License.txt",
+        "libvpl/examples/api2x/hello-vpp/License.txt",
+        "libvpl/examples/interop/vpl-infer/License.txt",
+        "libvpl/examples/tutorials/01_transition/License.txt",
+        "libvpl/libvpl/test/ext/googletest/LICENSE"
+      ]
+    },
+    {
+      "id": "nasm",
+      "url": "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/nasm-2.16.03.tar.xz",
+      "sha256": "1412a1c760bbd05db026b6c0d1657affd6631cd0a63cddb6f73cc6d4aa616148",
+      "file": "nasm-2.16.03.tar.xz",
+      "size": 1032388,
+      "version": "2.16.03",
+      "kind": "source",
+      "notices": [
+        "nasm/AUTHORS",
+        "nasm/LICENSE"
+      ]
+    },
+    {
+      "id": "nettle",
+      "url": "https://ftp.gnu.org/gnu/nettle/nettle-3.10.2.tar.gz",
+      "sha256": "fe9ff51cb1f2abb5e65a6b8c10a92da0ab5ab6eaf26e7fc2b675c45f1fb519b5",
+      "file": "nettle-3.10.2.tar.gz",
+      "size": 2644644,
+      "version": "3.10.2",
+      "kind": "source",
+      "notices": [
+        "nettle/COPYINGv3",
+        "nettle/COPYING.LESSERv3",
+        "nettle/COPYINGv2",
+        "nettle/AUTHORS"
+      ]
+    },
+    {
+      "id": "nv-codec-headers",
+      "url": "https://github.com/FFmpeg/nv-codec-headers/archive/refs/tags/n13.0.19.0.tar.gz",
+      "sha256": "86d15d1a7c0ac73a0eafdfc57bebfeba7da8264595bf531cf4d8db1c22940116",
+      "file": "n13.0.19.0.tar.gz",
+      "size": 83385,
+      "version": "13.0.19.0",
+      "kind": "source",
+      "notices": [
+        "nv-codec-headers/header-notices/include/ffnvcodec/dynlink_cuda.h.txt",
+        "nv-codec-headers/header-notices/include/ffnvcodec/dynlink_cuviddec.h.txt",
+        "nv-codec-headers/header-notices/include/ffnvcodec/dynlink_loader.h.txt",
+        "nv-codec-headers/header-notices/include/ffnvcodec/dynlink_nvcuvid.h.txt",
+        "nv-codec-headers/header-notices/include/ffnvcodec/nvEncodeAPI.h.txt"
+      ]
+    },
+    {
+      "id": "opencore-amr",
+      "url": "https://downloads.sourceforge.net/project/opencore-amr/opencore-amr/opencore-amr-0.1.6.tar.gz",
+      "sha256": "483eb4061088e2b34b358e47540b5d495a96cd468e361050fae615b1809dc4a1",
+      "file": "opencore-amr-0.1.6.tar.gz",
+      "size": 939179,
+      "version": "0.1.6",
+      "kind": "source",
+      "notices": [
+        "opencore-amr/LICENSE",
+        "opencore-amr/opencore/codecs_v2/audio/gsm_amr/patent_disclaimer.txt",
+        "opencore-amr/opencore/NOTICE"
+      ]
+    },
+    {
+      "id": "opus",
+      "url": "https://ftp.osuosl.org/pub/xiph/releases/opus/opus-1.6.1.tar.gz",
+      "sha256": "6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1",
+      "file": "opus-1.6.1.tar.gz",
+      "size": 10472813,
+      "version": "1.6.1",
+      "kind": "source",
+      "notices": [
+        "opus/AUTHORS",
+        "opus/COPYING"
+      ]
+    },
+    {
+      "id": "png",
+      "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz",
+      "sha256": "28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775",
+      "file": "libpng-1.6.58.tar.xz",
+      "size": 1070096,
+      "version": "1.6.58",
+      "kind": "source",
+      "notices": [
+        "png/AUTHORS",
+        "png/LICENSE",
+        "png/ci/LICENSE_MIT.txt",
+        "png/contrib/gregbook/COPYING",
+        "png/contrib/gregbook/LICENSE",
+        "png/contrib/pngexif/LICENSE_MIT.txt",
+        "png/contrib/pngminus/LICENSE.txt",
+        "png/scripts/cmake/AUTHORS.md"
+      ]
+    },
+    {
+      "id": "pyav-recipe",
+      "url": "https://codeload.github.com/PyAV-Org/PyAV/tar.gz/7e3d950a8b72062502c1a60d672f8ca565313af5",
+      "file": "pyav-recipe-7e3d950a8b72062502c1a60d672f8ca565313af5.tar.gz",
+      "commit": "7e3d950a8b72062502c1a60d672f8ca565313af5",
+      "sha256": "7441b86f5c9c6275239cc388dd319ac04c9c56fc03b25ce2dfd3252cb8f1432b",
+      "size": 255997,
+      "version": "18.1.0",
+      "kind": "recipe",
+      "notices": [
+        "pyav-recipe/AUTHORS.rst",
+        "pyav-recipe/LICENSE.txt",
+        "pyav-recipe/docs/development/license.rst"
+      ]
+    },
+    {
+      "id": "unistring",
+      "url": "https://ftp.gnu.org/gnu/libunistring/libunistring-1.4.2.tar.gz",
+      "sha256": "e82664b170064e62331962126b259d452d53b227bb4a93ab20040d846fec01d8",
+      "file": "libunistring-1.4.2.tar.gz",
+      "size": 5046603,
+      "version": "1.4.2",
+      "kind": "source",
+      "notices": [
+        "unistring/COPYING.LIB",
+        "unistring/AUTHORS",
+        "unistring/COPYING"
+      ]
+    },
+    {
+      "id": "vendor-recipe",
+      "url": "https://codeload.github.com/PyAV-Org/pyav-ffmpeg/tar.gz/a71bf9279f7a4659154b68ba6783e89be460bcd5",
+      "file": "vendor-recipe-a71bf9279f7a4659154b68ba6783e89be460bcd5.tar.gz",
+      "commit": "a71bf9279f7a4659154b68ba6783e89be460bcd5",
+      "sha256": "cae01fc6e6b4072ceef1944c389771096f402a561979d5726b152a04c69ea77c",
+      "size": 20076,
+      "version": "8.1.2-1",
+      "kind": "recipe",
+      "notices": []
+    },
+    {
+      "id": "vpx",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+      "sha256": "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+      "file": "vpx-1.16.0.tar.gz",
+      "size": 5635379,
+      "version": "1.16.0",
+      "kind": "source",
+      "notices": [
+        "vpx/AUTHORS",
+        "vpx/LICENSE",
+        "vpx/PATENTS",
+        "vpx/third_party/googletest/src/LICENSE",
+        "vpx/third_party/libwebm/AUTHORS.TXT",
+        "vpx/third_party/libwebm/LICENSE.TXT",
+        "vpx/third_party/libwebm/PATENTS.TXT",
+        "vpx/third_party/libyuv/LICENSE",
+        "vpx/third_party/nalloc/LICENSE",
+        "vpx/third_party/x86inc/LICENSE"
+      ]
+    },
+    {
+      "id": "webp",
+      "url": "https://github.com/webmproject/libwebp/archive/refs/tags/v1.6.0.tar.gz",
+      "sha256": "93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136",
+      "file": "webp-1.6.0.tar.gz",
+      "size": 3833512,
+      "version": "1.6.0",
+      "kind": "source",
+      "notices": [
+        "webp/AUTHORS",
+        "webp/COPYING",
+        "webp/PATENTS"
+      ]
+    },
+    {
+      "id": "x264",
+      "url": "https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.bz2",
+      "sha256": "6eeb82934e69fd51e043bd8c5b0d152839638d1ce7aa4eea65a3fedcf83ff224",
+      "file": "x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.bz2",
+      "size": 848719,
+      "version": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "kind": "source",
+      "notices": [
+        "x264/AUTHORS",
+        "x264/COPYING"
+      ]
+    },
+    {
+      "id": "x265",
+      "url": "https://bitbucket.org/multicoreware/x265_git/downloads/x265_4.2.tar.gz",
+      "sha256": "40b1ea0453e0309f0eba934e0ddf533f8f6295966679e8894e8f1c1c8d5e1210",
+      "file": "x265_4.2.tar.gz",
+      "size": 1833442,
+      "version": "4.2",
+      "kind": "source",
+      "notices": [
+        "x265/COPYING",
+        "x265/source/dynamicHDR10/LICENSE.txt",
+        "x265/source/dynamicHDR10/json11/LICENSE.txt"
+      ]
+    }
+  ]
+}

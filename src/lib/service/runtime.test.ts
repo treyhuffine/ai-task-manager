@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createRuntimeManifest, installedRuntime, stageRuntime, verifyRuntime } from './runtime';
 import { serviceDefinition } from './install';
@@ -37,6 +38,39 @@ it('detects file changes, extra files, and escaped symlinks', () => {
   fs.unlinkSync(path.join(resources, 'server/injected.js'));
   fs.symlinkSync('/etc/hosts', path.join(resources, 'server/escape'));
   expect(() => createRuntimeManifest(resources)).toThrow('escapes');
+});
+
+it('rejects symlink-ancestor traversal even when lexical realpath points inside', () => {
+  const manifest = createRuntimeManifest(resources);
+  fs.mkdirSync(path.join(resources, 'server/dir'));
+  fs.symlinkSync('..', path.join(resources, 'server/dir/up'));
+  fs.symlinkSync('dir/up/../../external', path.join(resources, 'server/escape'));
+  fs.writeFileSync(path.join(resources, 'server/external'), 'inside');
+  fs.writeFileSync(path.join(temporary, 'external'), 'outside');
+  expect(fs.readFileSync(path.join(resources, 'server/escape'), 'utf8')).toBe('outside');
+
+  // A self-consistent manifest must not make the kernel escape acceptable.
+  const { id, ...content } = manifest;
+  content.files.push(
+    { name: 'server/dir/up', link: '..', executable: false },
+    { name: 'server/escape', link: 'dir/up/../../external', executable: false },
+    { name: 'server/external', sha256: createHash('sha256').update('inside').digest('hex'), executable: false },
+  );
+  content.files.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  const changedId = createHash('sha256').update(JSON.stringify(content)).digest('hex');
+  expect(changedId).not.toBe(id);
+  fs.writeFileSync(path.join(resources, 'runtime-manifest.json'), JSON.stringify({ ...content, id: changedId }));
+  expect(() => verifyRuntime(resources)).toThrow('Unsafe runtime symbolic link');
+  expect(() => createRuntimeManifest(resources)).toThrow('Unsafe runtime symbolic link');
+});
+
+it('preserves ordinary package links with leading parent components', () => {
+  fs.mkdirSync(path.join(resources, 'server/packages/nested'), { recursive: true });
+  fs.symlinkSync('../../../node/bin/node', path.join(resources, 'server/packages/nested/dependency'));
+  const manifest = createRuntimeManifest(resources);
+  const installed = stageRuntime(resources);
+  expect(verifyRuntime(installed.directory).id).toBe(manifest.id);
+  expect(fs.readFileSync(path.join(installed.directory, 'server/packages/nested/dependency'), 'utf8')).toBe('node/bin/node');
 });
 
 it('stages another version without changing the active runtime', () => {

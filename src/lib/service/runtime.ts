@@ -11,6 +11,23 @@ export interface RuntimeManifest {
 
 export { getRuntimeInstallDir } from './paths';
 
+/** Package links can walk upward before naming a target. Parent components
+ * after a named component depend on symlink expansion and must not be reduced
+ * lexically before the archive has been safely extracted. */
+export function validateRuntimeLink(name: string, link: string | undefined) {
+  if (!link || link.length > 4096 || /[\\\x00-\x1f\x7f]/.test(link)) throw new Error(`Unsafe runtime symbolic link: ${name}`);
+  if (path.posix.isAbsolute(link)) throw new Error(`Runtime link escapes its package: ${name}`);
+  let named = false;
+  for (const component of link.split('/')) {
+    if (!component || component === '.') continue;
+    if (component === '..') {
+      if (named) throw new Error(`Unsafe runtime symbolic link: ${name}`);
+    } else named = true;
+  }
+  const target = path.posix.normalize(path.posix.join(path.posix.dirname(name), link));
+  if (target === '..' || target.startsWith('../')) throw new Error(`Runtime link escapes its package: ${name}`);
+}
+
 function digestFile(file: string) {
   const hash = createHash('sha256');
   const buffer = Buffer.alloc(1024 * 1024);
@@ -24,7 +41,7 @@ function digestFile(file: string) {
 
 function inventory(root: string): RuntimeFile[] {
   const files: RuntimeFile[] = [];
-  const physicalRoot = fs.realpathSync(root);
+  const physicalRoot = fs.realpathSync.native(root);
   function walk(relative: string) {
     // Next's image/data cache is writable state, kept outside release files.
     if (relative === 'server/.next-desktop/cache') return;
@@ -32,8 +49,9 @@ function inventory(root: string): RuntimeFile[] {
     const stat = fs.lstatSync(absolute);
     if (stat.isSymbolicLink()) {
       const link = fs.readlinkSync(absolute);
-      const target = fs.realpathSync(absolute);
-      if (path.isAbsolute(link) || !target.startsWith(`${physicalRoot}${path.sep}`)) throw new Error(`Runtime link escapes its package: ${relative}`);
+      validateRuntimeLink(relative, link);
+      const target = fs.realpathSync.native(absolute);
+      if (!target.startsWith(`${physicalRoot}${path.sep}`)) throw new Error(`Runtime link escapes its package: ${relative}`);
       files.push({ name: relative, link, executable: false });
     } else if (stat.isDirectory()) {
       for (const name of fs.readdirSync(absolute).sort()) walk(path.join(relative, name));

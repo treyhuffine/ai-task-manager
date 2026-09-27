@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/lib/api/client';
-import { subscribeToWebPush } from './web-push-client';
+import { subscribeToWebPush, webPushSupported, removeDesktopWebPushSubscription } from './web-push-client';
 
 vi.mock('@/lib/api/client', () => ({ api: { get: vi.fn(), post: vi.fn() } }));
 
@@ -34,6 +34,27 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('web push activation', () => {
+  it('uses native alerts in Electron and removes only this profile’s old subscription on opt-in', async () => {
+    const { register } = browser('activated');
+    Object.assign(window, { riDesktop: {} });
+    expect(webPushSupported()).toBe(false);
+    await expect(subscribeToWebPush()).rejects.toThrow('not supported');
+    expect(register).not.toHaveBeenCalled();
+    const unsubscribe = vi.fn().mockResolvedValue(true);
+    Object.assign(navigator.serviceWorker, { getRegistration: vi.fn().mockResolvedValue({ pushManager: { getSubscription: async () => ({ endpoint: 'this-profile', unsubscribe }) } }) });
+    await removeDesktopWebPushSubscription();
+    expect(api.post).toHaveBeenCalledWith('/notifications/web-push/unsubscribe', { endpoint: 'this-profile' });
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+  it('does not remove another browser subscription or continue after failed cleanup', async () => {
+    browser('activated'); await removeDesktopWebPushSubscription(); expect(api.post).not.toHaveBeenCalled();
+    Object.assign(window, { riDesktop: {} });
+    const unsubscribe = vi.fn().mockResolvedValue(true);
+    Object.assign(navigator.serviceWorker, { getRegistration: vi.fn().mockResolvedValue({ pushManager: { getSubscription: async () => ({ endpoint: 'this-profile', unsubscribe }) } }) });
+    vi.mocked(api.post).mockRejectedValueOnce(new Error('Offline'));
+    await expect(removeDesktopWebPushSubscription()).rejects.toThrow('Offline');
+    expect(unsubscribe).not.toHaveBeenCalled();
+  });
   it('subscribes an already active worker without the global ready promise', async () => {
     const { subscribe } = browser('activated');
     await subscribeToWebPush();

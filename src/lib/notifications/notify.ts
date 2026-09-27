@@ -67,6 +67,7 @@ export async function notify(event: NotificationEvent, options: NotifyOptions = 
           adapter.validateConfig?.(channel);
           const rendered = render(event, channel);
           const result = await adapter.deliver(channel, rendered);
+          if (result.deferred) return;
           markDeliverySent(delivery.id, {
             rendered,
             ...(result.providerMessageId !== undefined ? { providerMessageId: result.providerMessageId } : {}),

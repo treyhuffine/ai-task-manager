@@ -101,6 +101,14 @@ console.info(`Verified ${rebaseResourceLinks(stage, stage)} portable resource li
 if (releaseBuild && process.platform === 'darwin') {
   if (!process.env.CSC_NAME) throw new Error('Signed macOS releases require CSC_NAME with your Developer ID Application identity');
   signRuntime(stage, process.env.CSC_NAME, path.join(repo, 'desktop/runtime-entitlements.plist'));
+  if (process.argv.includes('--with-speech')) {
+    // Signing changes native bytes. Inventory the final signed helper before
+    // freezing the runtime so publisher review can bind to this candidate.
+    run(process.env.RI_SPEECH_BUILD_PYTHON || path.join(repo, '.electron-demo/speech-build/venv/bin/python'),
+      [path.join(repo, 'desktop/speech/native_inventory.py'), path.join(server, 'speech-helper')]);
+    run(process.env.RI_SPEECH_BUILD_PYTHON || path.join(repo, '.electron-demo/speech-build/venv/bin/python'),
+      [path.join(repo, 'desktop/speech/native_inventory.py'), path.join(server, 'speech-helper'), '--verify']);
+  }
 }
 run(process.execPath, ['dist/cli/index.mjs', 'service', 'manifest', stage]);
 const policy = path.join(stage, 'release-policy.json');
