@@ -5,7 +5,26 @@ on:
     paths:
       - 'desktop/**'
       - 'src/lib/service/**'
+      - 'src/lib/stt/**'
+      - 'src/lib/client/**'
+      - 'src/lib/notifications/**'
       - 'src/service/**'
+      - 'src/app/api/service/**'
+      - 'src/app/api/transcribe/**'
+      - 'src/app/manifest.ts'
+      - 'src/app/layout.tsx'
+      - 'src/app/apple-icon.png'
+      - 'src/hooks/use-voice-input*'
+      - 'src/components/desktop/**'
+      - 'src/components/settings/**'
+      - 'src/components/dashboard/command-input.tsx'
+      - 'src/components/dashboard/quick-capture-modal.tsx'
+      - 'src/components/executions/execution-composer.tsx'
+      - 'public/brand/**'
+      - 'public/notifications-sw.js'
+      - 'public/offline.html'
+      - 'scripts/smoke-phone-web-app.ts'
+      - 'next.config.ts'
       - '.github/workflows/desktop.yml'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -18,7 +37,7 @@ jobs:
       matrix:
         os: [macos-15, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -28,15 +47,49 @@ jobs:
         with:
           node-version: '26.5.0'
           cache: pnpm
+      - name: Install the pinned speech build tool
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.10.3'
+          enable-cache: false
+      - name: Install Linux native window dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y xvfb libgtk-3-0 libnss3 libasound2t64
       - run: pnpm install --frozen-lockfile
       - run: pnpm ts
       - run: pnpm test
       - run: pnpm desktop:test
       - run: pnpm --filter @connectors/engine test
-      - run: pnpm desktop:package
+      # Includes a frozen helper for each native target, but never downloads a
+      # model or starts speech inference without the user's installation choice.
+      - run: pnpm speech:build
+      - name: Verify audio decoding boundaries
+        run: .electron-demo/speech-build/venv/bin/python -m unittest discover -s desktop/speech -p 'test_*.py'
+      - run: pnpm desktop:package --with-speech
+      - name: Exercise packaged macOS recovery
+        if: runner.os == 'macOS'
+        run: |
+          if [ "$RUNNER_ARCH" = "ARM64" ]; then
+            export RI_DESKTOP_PACKAGE=release/desktop/mac-arm64/Ri.app
+          else
+            export RI_DESKTOP_PACKAGE=release/desktop/mac/Ri.app
+          fi
+          pnpm exec tsx desktop/recovery-smoke.ts
+      - name: Exercise Linux recovery in a virtual display
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum pnpm exec tsx desktop/recovery-smoke.ts
       - run: pnpm exec tsx desktop/update-smoke.ts
+      - name: Install test Chromium
+        run: pnpm exec playwright-core install --with-deps chromium
+      - name: Exercise phone manifest and private-cache boundaries
+        run: pnpm exec tsx scripts/smoke-phone-web-app.ts
       - run: tar -czf "release/ri-desktop-${RUNNER_OS}-${RUNNER_ARCH}.tar.gz" -C release/desktop .
       - uses: actions/upload-artifact@v4
+        # Speech wheel binaries include native codec libraries. Enable artifact
+        # distribution only after their complete source/notice release review.
+        if: vars.RI_SPEECH_DISTRIBUTION_APPROVED == 'true'
         with:
           name: ri-unsigned-${{ runner.os }}-${{ runner.arch }}
           path: release/*.tar.gz

@@ -5,6 +5,7 @@ import { Readable } from 'node:stream';
 import { z } from 'zod';
 import { atomicWriteFile } from '@/lib/config/atomic-write';
 import { getRuntimeInstallDir } from './paths';
+import { UpdatePreferencesSchema, type ReleasePreferences } from './update-settings';
 
 const httpsUrl = z.string().url().refine(value => { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password; });
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -20,15 +21,33 @@ export const ReleaseSchema = z.object({
   runtime: z.object({ id: digest, url: httpsUrl, sha256: digest, size: z.number().int().positive().max(4 * 1024 ** 3), unpackedSize: z.number().int().positive().max(16 * 1024 ** 3) }).strict(),
 }).strict();
 export type Release = z.infer<typeof ReleaseSchema>;
-export interface ReleasePolicy { format: 1; feed: string; publicKey: string; channel: 'stable' | 'beta'; automaticDownload: boolean; metered: boolean }
+const ReleasePolicySchema = z.object({
+  format: z.literal(1), feed: httpsUrl, publicKey: z.string().min(1).max(16000),
+  channel: z.enum(['stable', 'beta']), automaticDownload: z.boolean(), metered: z.boolean(),
+}).strict();
+export type ReleasePolicy = z.infer<typeof ReleasePolicySchema>;
 
 export function releasePolicy(): ReleasePolicy | null {
   const file = path.join(getRuntimeInstallDir(), 'release-policy.json');
   if (!fs.existsSync(file)) return null;
-  const policy = JSON.parse(fs.readFileSync(file, 'utf8')) as ReleasePolicy;
-  if (policy.format !== 1 || !['stable', 'beta'].includes(policy.channel) || !policy.publicKey) throw new Error('Invalid release policy');
-  httpsUrl.parse(policy.feed);
-  return policy;
+  return ReleasePolicySchema.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
+}
+export function releasePreferences(policy = releasePolicy()): ReleasePreferences | null {
+  if (!policy) return null;
+  return { channel: policy.channel, automaticDownload: policy.automaticDownload, metered: policy.metered };
+}
+/** Called only by the single controller owner, never by the renderer or Next
+ * process directly. The package-installed trust anchors remain untouched. */
+export function updateReleasePreferences(input: unknown): ReleasePreferences {
+  const preferences = UpdatePreferencesSchema.parse(input);
+  const policy = releasePolicy();
+  if (!policy) throw new Error('This build has no release publisher configured');
+  const updated = { ...policy,
+    ...(preferences.automaticDownload === undefined ? {} : { automaticDownload: preferences.automaticDownload }),
+    ...(preferences.metered === undefined ? {} : { metered: preferences.metered }),
+  };
+  atomicWriteFile(path.join(getRuntimeInstallDir(), 'release-policy.json'), JSON.stringify(updated));
+  return releasePreferences(updated)!;
 }
 export function verifyRelease(envelope: unknown, policy: Pick<ReleasePolicy, 'publicKey' | 'channel'>, minimumSequence = 0, now = Date.now()): Release {
   const { payload, signature } = z.object({ payload: z.string().max(128000), signature: z.string().max(200) }).strict().parse(envelope);

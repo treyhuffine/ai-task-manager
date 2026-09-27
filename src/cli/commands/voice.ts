@@ -23,12 +23,15 @@ import {
   stopVoiceService,
   waitForVoiceReady,
 } from '../lib/voice';
+import { registerManagedSpeechCommand } from './managed-speech';
 import { getVoiceEnabled, setVoiceEnabled } from '@/lib/config/voice';
 
 export function registerVoiceCommand(program: Command) {
   const voice = program
     .command('voice')
-    .description('Manage the voice (speech-to-text) sidecar');
+    .description('Manage speech recognition: optional packaged model or external Docker sidecar');
+
+  registerManagedSpeechCommand(voice);
 
   voice
     .command('status', { isDefault: true })

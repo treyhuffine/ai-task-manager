@@ -379,7 +379,13 @@ export function NotificationsSection() {
           {/* Web push */}
           {!webPushSupported() ? (
             <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/20 p-3 text-[11px] text-muted-foreground">
-              <Globe size={15} className="shrink-0" /> Browser push isn&apos;t supported in this browser.
+              <Globe size={15} className="shrink-0" />
+              <span>
+                Browser push is unavailable here. On iPhone or iPad, open Ri from its home-screen icon first.{' '}
+                <button type="button" className="font-medium underline" onClick={() => setSettingsSection('devices')}>
+                  Phone setup
+                </button>
+              </span>
             </div>
           ) : pushSubscribed ? (
             <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">

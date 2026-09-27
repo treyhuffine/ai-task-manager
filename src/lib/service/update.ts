@@ -7,12 +7,13 @@ import { getRuntimeInstallDir, installedRuntime, verifyRuntime } from './runtime
 import { clearMaintenance, exclusiveActivity, exclusiveDatabaseAccess, writeMaintenance } from './maintenance';
 import { createCheckpoint, restoreCheckpointDatabase, validateDatabase } from './checkpoint';
 import { checkRelease, downloadRelease, releasePolicy, type Release } from './release';
+import { MaintenanceWindowSchema, type MaintenanceWindow } from './update-settings';
 
 export type UpdatePhase = 'idle' | 'available' | 'downloading' | 'ready' | 'waiting' | 'draining' | 'checkpointing' | 'validating' | 'committed' | 'failed' | 'recovery-required';
 export interface UpdateRecord {
   format: 1; phase: UpdatePhase; release?: Release; priorId?: string; checkpoint?: string;
   approved?: boolean; bytes?: number; reason?: string; error?: string; changedAt: string;
-  committedAt?: string; window?: { hour: number; durationHours: number; timeZone: string };
+  committedAt?: string; window?: MaintenanceWindow;
 }
 export interface RuntimeTarget { id: string; repo: string; node: string }
 export interface UpdateBackend {
@@ -42,7 +43,12 @@ export class UpdateCoordinator {
     this.record = fs.existsSync(this.file) ? JSON.parse(fs.readFileSync(this.file, 'utf8')) : { format: 1, phase: 'idle', changedAt: new Date().toISOString() };
     if (this.record.format !== 1 || !['idle', 'available', 'downloading', 'ready', 'waiting', ...transient, 'committed', 'failed', 'recovery-required'].includes(this.record.phase)) throw new Error('Unsupported update record. Recovery is required.');
   }
-  status() { return { ...this.record, configured: !!releasePolicy(), busy: this.busy }; }
+  status() {
+    const policy = releasePolicy();
+    return { ...this.record, configured: !!policy, busy: this.busy, policy: policy ? {
+      channel: policy.channel, automaticDownload: policy.automaticDownload, metered: policy.metered,
+    } : null };
+  }
   startupFailed(error: unknown) {
     if (this.record.committedAt) this.save({ phase: 'recovery-required', approved: false, error: `The new database is retained. Startup failed: ${message(error)}` });
   }
@@ -92,10 +98,7 @@ export class UpdateCoordinator {
   }
   approve(window?: UpdateRecord['window']) {
     if (this.busy || !['ready', 'waiting'].includes(this.record.phase)) throw new Error('Download an update before scheduling activation');
-    if (window) {
-      if (!Number.isInteger(window.hour) || window.hour < 0 || window.hour > 23 || !Number.isInteger(window.durationHours) || window.durationHours < 1 || window.durationHours > 12) throw new Error('Invalid maintenance window');
-      new Intl.DateTimeFormat('en', { timeZone: window.timeZone }).format();
-    }
+    if (window) window = MaintenanceWindowSchema.parse(window);
     this.save({ approved: true, phase: 'waiting', window, reason: 'Waiting for the service to be idle' });
     return this.status();
   }

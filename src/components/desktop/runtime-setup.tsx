@@ -39,7 +39,7 @@ export function RuntimeSetup() {
             onChange={event => setPatch(previous => ({ ...previous, [name]: event.target.value }))} />
         </label>;
       })}
-      <p className="text-muted-foreground">Parakeet is an optional external service. Ri does not download a speech model automatically. The embeddings key enables semantic search. Keyword search works without it.</p>
+      <p className="text-muted-foreground">Install optional local speech in Voice settings, or configure an external Parakeet service here. The embeddings key enables semantic search. Keyword search works without it.</p>
       <Button disabled={saving || !Object.keys(patch).length} onClick={() => void save()}>Save runtime settings</Button>
     </div>
   </details>;

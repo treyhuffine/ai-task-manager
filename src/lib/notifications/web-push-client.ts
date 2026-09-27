@@ -7,6 +7,36 @@ import { api } from '@/lib/api/client';
 
 const SW_URL = '/notifications-sw.js';
 
+/** `serviceWorker.ready` never rejects. Observe this registration instead so
+ * a failed or stalled installation returns an actionable settings error. */
+function waitForActiveWorker(reg: ServiceWorkerRegistration): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const observed = new Set<ServiceWorker>();
+    const finish = (error?: Error) => {
+      clearTimeout(timer);
+      reg.removeEventListener('updatefound', inspect);
+      for (const worker of observed) worker.removeEventListener('statechange', inspect);
+      if (error) reject(error); else resolve();
+    };
+    const inspect = () => {
+      if (reg.active?.state === 'activated') { finish(); return; }
+      const worker = reg.installing ?? reg.waiting ?? reg.active;
+      if (!worker) return;
+      if (worker.state === 'redundant') {
+        finish(new Error('Notification setup failed. Reload Ri and try enabling notifications again.'));
+        return;
+      }
+      if (!observed.has(worker)) {
+        observed.add(worker);
+        worker.addEventListener('statechange', inspect);
+      }
+    };
+    const timer = setTimeout(() => finish(new Error('Notification setup timed out. Check your connection, reload Ri and try again.')), 15_000);
+    reg.addEventListener('updatefound', inspect);
+    inspect();
+  });
+}
+
 export function webPushSupported(): boolean {
   return (
     typeof window !== 'undefined' &&
@@ -30,7 +60,7 @@ export async function subscribeToWebPush(): Promise<void> {
   if (permission !== 'granted') throw new Error('Notification permission was denied.');
 
   const reg = await navigator.serviceWorker.register(SW_URL);
-  await navigator.serviceWorker.ready;
+  await waitForActiveWorker(reg);
 
   const { publicKey } = await api.get<{ publicKey: string }>('/notifications/web-push/public-key');
   const sub = await reg.pushManager.subscribe({

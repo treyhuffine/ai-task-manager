@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { APP_ROOT_ENV, CONFIG_DIR_ENV, DB_PATH_ENV, WORK_DIR_ENV } from '../src/lib/config/paths';
 
-export interface CliInstallation { node: string; cli: string; root: string; server: string; launcher?: string }
+export interface CliInstallation { node: string; cli: string; root: string; server: string; launcher?: string; locations?: { database: string; config: string; work: string } }
 export const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 export function terminalCommand(options: CliInstallation) {
@@ -12,6 +12,11 @@ export function terminalCommand(options: CliInstallation) {
     `# ${JSON.stringify(options)}`,
     `if [ -n "\${RI_DESKTOP_ROOT:-}" ]; then export ${APP_ROOT_ENV}="$RI_DESKTOP_ROOT"; else export ${APP_ROOT_ENV}=${shellQuote(options.root)}; fi`,
     `unset ${DB_PATH_ENV} ${CONFIG_DIR_ENV} ${WORK_DIR_ENV} NODE_OPTIONS ELECTRON_RUN_AS_NODE`,
+    ...(options.locations ? [
+      `if [ "$${APP_ROOT_ENV}" = ${shellQuote(options.root)} ]; then`,
+      `  export ${DB_PATH_ENV}=${shellQuote(options.locations.database)} ${CONFIG_DIR_ENV}=${shellQuote(options.locations.config)} ${WORK_DIR_ENV}=${shellQuote(options.locations.work)}`,
+      'fi',
+    ] : []),
     `export RI_DESKTOP=1 NEXT_DIST_DIR=.next-desktop`,
     `export RI_DESKTOP_REPO=${shellQuote(options.server)}`,
     ...(options.launcher ? [] : [`cd ${shellQuote(options.server)} || exit 1`]),

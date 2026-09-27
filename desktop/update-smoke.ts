@@ -8,7 +8,7 @@ import https from 'node:https';
 import { once } from 'node:events';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import Database from 'better-sqlite3';
-import { _electron, type ElectronApplication } from 'playwright-core';
+import { _electron, type ElectronApplication, type Page } from 'playwright-core';
 import * as tar from 'tar';
 import { generateCaPair, generateLeafPair } from '../src/lib/config/tls-x509';
 import { getCaCertPath } from '../src/lib/config/tls';
@@ -16,6 +16,7 @@ import { createRuntimeManifest, getRuntimeInstallDir, stageRuntime, installedRun
 import { ensureService, serviceRequest, serviceStatus, stopService, type ServiceSession } from '../src/lib/service/client';
 import { fileDigest, verifyCheckpoint } from '../src/lib/service/checkpoint';
 import type { UpdateRecord } from '../src/lib/service/update';
+import type { ReleasePreferences } from '../src/lib/service/update-settings';
 
 const source = path.resolve(process.argv[2] ?? `release/ri-runtime-0.1.0-${process.platform}-${process.arch}`);
 const temporary = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ri-update-smoke-')));
@@ -34,8 +35,71 @@ async function waitFor<T>(read: () => Promise<T>, ready: (value: T) => boolean, 
   }
   throw new Error(`Timed out: ${label}. See ${temporary}`);
 }
-async function update() { return (await serviceRequest<{ update: UpdateRecord }>('/update')).update; }
+async function update() { return (await serviceRequest<{ update: UpdateRecord & { policy: ReleasePreferences | null } }>('/update')).update; }
 async function action(action: string) { await serviceRequest('/update', 'POST', 30_000, { action }); }
+async function assertSwitch(page: Page, name: string, checked: boolean) {
+  const control = page.getByRole('switch', { name, exact: true });
+  await control.waitFor();
+  await waitFor(() => control.getAttribute('aria-checked'), value => value === String(checked), `${name} ${checked ? 'enabled' : 'disabled'}`, 15_000);
+}
+async function exerciseDownloadPreferences(page: Page) {
+  console.info('Checking owner download preferences through the desktop UI');
+  const automatic = 'Download updates automatically';
+  const metered = 'Limit downloads on this connection';
+  await assertSwitch(page, automatic, false);
+  await assertSwitch(page, metered, true);
+  // Keep metered mode enabled while testing automatic downloads so this
+  // fixture still controls the actual large download explicitly below.
+  await page.getByRole('switch', { name: automatic, exact: true }).click();
+  await waitFor(update, value => value.policy?.automaticDownload === true && value.policy.metered === true, 'automatic download enabled');
+  await assertSwitch(page, automatic, true);
+  await page.getByRole('switch', { name: automatic, exact: true }).click();
+  await waitFor(update, value => value.policy?.automaticDownload === false, 'automatic download disabled');
+  await page.getByRole('switch', { name: metered, exact: true }).click();
+  await waitFor(update, value => value.policy?.metered === false, 'metered preference disabled');
+  await page.reload();
+  await assertSwitch(page, automatic, false);
+  await assertSwitch(page, metered, false);
+  await page.getByRole('switch', { name: metered, exact: true }).click();
+  await waitFor(update, value => value.policy?.metered === true && value.policy.automaticDownload === false, 'metered preference restored');
+  assert.notEqual((await update()).approved, true, 'Preference changes must never approve activation');
+}
+async function exerciseMaintenanceWindow(page: Page) {
+  console.info('Scheduling, reloading and cancelling an approved maintenance window');
+  // Always choose an explicit zone currently well outside 23:00-02:00. This
+  // prevents the real controller tick from activating while the test reloads.
+  const timeZone = ['UTC', 'America/Denver', 'Asia/Tokyo'].find(zone => {
+    const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone: zone }).format());
+    return hour >= 6 && hour <= 17;
+  });
+  assert(timeZone, 'The fixture needs a time zone outside its activation window');
+  const window = { hour: 23, durationHours: 3, timeZone };
+  await assertSwitch(page, 'Use a maintenance window', false);
+  await page.getByRole('switch', { name: 'Use a maintenance window', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Start time', exact: true }).click();
+  await page.getByRole('option', { name: '23:00', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Window length', exact: true }).click();
+  await page.getByRole('option', { name: '3 hours', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Time zone', exact: true }).fill(timeZone);
+  // A normal status poll must not reset the still-unsubmitted form.
+  await page.waitForResponse(response => new URL(response.url()).pathname === '/api/service' && response.request().method() === 'GET', { timeout: 15_000 });
+  assert.equal(await page.getByRole('textbox', { name: 'Time zone', exact: true }).inputValue(), timeZone);
+  assert.match(await page.getByRole('combobox', { name: 'Start time', exact: true }).innerText(), /23:00/);
+  assert.match(await page.getByRole('combobox', { name: 'Window length', exact: true }).innerText(), /3 hours/);
+  await page.getByRole('button', { name: 'Schedule update', exact: true }).click();
+  const scheduled = await waitFor(update, value => value.phase === 'waiting' && value.approved === true && value.window?.timeZone === timeZone, 'persisted approval and maintenance window');
+  assert.deepEqual(scheduled.window, window);
+  await page.reload();
+  await assertSwitch(page, 'Use a maintenance window', true);
+  assert.equal(await page.getByRole('textbox', { name: 'Time zone', exact: true }).inputValue(), timeZone);
+  assert.match(await page.getByRole('combobox', { name: 'Start time', exact: true }).innerText(), /23:00/);
+  assert.match(await page.getByRole('combobox', { name: 'Window length', exact: true }).innerText(), /3 hours/);
+  assert.deepEqual((await update()).window, window);
+  await page.getByRole('button', { name: 'Later', exact: true }).click();
+  const cancelled = await waitFor(update, value => value.phase === 'ready' && value.approved === false, 'cancelled scheduled activation');
+  assert.equal(cancelled.window, undefined);
+  await assertSwitch(page, 'Use a maintenance window', false);
+}
 async function request(session: ServiceSession, route: string, body?: object, method = body ? 'POST' : 'GET') {
   return new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
     const request = https.request(`${session.origin}${route}`, { ca: fs.readFileSync(getCaCertPath()), method, headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/json' } }, response => {
@@ -91,6 +155,7 @@ try {
     const page = await gui.firstWindow();
     await page.waitForURL(url => url.origin === initial.origin, { timeout: 240_000 });
     await page.goto(`${initial.origin}/?settings=updates`);
+    await exerciseDownloadPreferences(page);
   }
   const unpublished = path.join(process.env.RI_ROOT!, 'unpublished.txt'); fs.writeFileSync(unpublished, 'unpublished work');
   console.info('Downloading a publisher-verified release');
@@ -104,6 +169,7 @@ try {
   assert.equal(downloaded.phase, 'ready', downloaded.error);
   if (gui) {
     const page = await gui.firstWindow();
+    await exerciseMaintenanceWindow(page);
     await page.goto(`${initial.origin}/note/${noteId}`);
     const title = page.locator('textarea.note-title');
     await title.waitFor(); await title.fill('An open desktop survives this update');
@@ -132,7 +198,7 @@ try {
   const after = await request(current, '/api/notes', { body: 'New data after upgrade.' }); assert.equal(after.status, 201);
   assert.equal(fs.readFileSync(unpublished, 'utf8'), 'unpublished work');
   assert(fs.existsSync(first.repo));
-  console.info(JSON.stringify({ passed: true, guiAttached: !!gui, originStable: true, publisherVerified: true, migrated: true, controllerReplaced: true, priorRuntimeRetained: true, newWritesAccepted: true, checkpointVerified: true, temporary }));
+  console.info(JSON.stringify({ passed: true, guiAttached: !!gui, downloadPreferencesVerified: !!gui, maintenanceWindowVerified: !!gui, originStable: true, publisherVerified: true, migrated: true, controllerReplaced: true, priorRuntimeRetained: true, newWritesAccepted: true, checkpointVerified: true, temporary }));
 } finally {
   if (gui) {
     await Promise.all([

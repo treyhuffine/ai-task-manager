@@ -826,7 +826,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                 />
               )}
 
-              {showVoiceButton && voice.isRecording && (
+              {showVoiceButton && (voice.isRecording || voice.isTranscribing) && (
                 <button
                   type="button"
                   onClick={voice.cancelRecording}
@@ -834,8 +834,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                     'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
                     'text-muted-foreground hover:text-foreground hover:bg-muted/50',
                   )}
-                  aria-label="Cancel recording"
-                  title="Cancel recording (discard)"
+                  aria-label={voice.isTranscribing ? 'Cancel transcription' : 'Cancel recording'}
+                  title={voice.isTranscribing ? 'Cancel transcription' : 'Cancel recording (discard)'}
                 >
                   <X size={13} />
                 </button>

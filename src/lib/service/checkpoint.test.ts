@@ -20,17 +20,22 @@ afterEach(() => { vi.unstubAllEnvs(); fs.rmSync(root, { recursive: true, force: 
 it('verifies all files and restores only the database before activation', async () => {
   const profile = path.join(root, 'home/.config/electron-demo');
   fs.mkdirSync(profile); fs.writeFileSync(path.join(profile, 'live-draft'), 'latest browser draft');
+  const speech = path.join(root, 'home/.work/speech'); fs.mkdirSync(speech); fs.writeFileSync(path.join(speech, 'downloaded-model'), 'regenerable model');
+  fs.writeFileSync(path.join(root, 'home/.config/managed-speech.json'), '{"enabled":true}');
   const checkpoint = await createCheckpoint(path.join(root, 'backup'));
   const manifest = verifyCheckpoint(checkpoint);
   expect(manifest.entries.map(entry => entry.source)).toContain(canonical(path.join(root, 'home/.config/key')));
   expect(manifest.entries.map(entry => entry.source)).toContain(canonical(path.join(root, 'home/.work/unpublished/file')));
   expect(manifest.entries.some(entry => entry.source.includes('/electron-demo/'))).toBe(false);
+  expect(manifest.entries.some(entry => entry.source.includes('/.work/speech/'))).toBe(false);
+  expect(manifest.entries.some(entry => entry.source.endsWith('/managed-speech.json'))).toBe(true);
   const db = new Database(dbFile); db.exec("UPDATE notes SET body='candidate';"); db.close();
   fs.writeFileSync(path.join(root, 'home/.work/unpublished/file'), 'external edit');
   await restoreCheckpointDatabase(checkpoint);
   const restored = new Database(dbFile); expect(restored.prepare('SELECT body FROM notes').pluck().get()).toBe('before'); restored.close();
   expect(fs.readFileSync(path.join(root, 'home/.work/unpublished/file'), 'utf8')).toBe('external edit');
   expect(fs.readFileSync(path.join(profile, 'live-draft'), 'utf8')).toBe('latest browser draft');
+  expect(fs.readFileSync(path.join(speech, 'downloaded-model'), 'utf8')).toBe('regenerable model');
   expect(fs.readdirSync(checkpoint).some(file => file.startsWith('failed-'))).toBe(true);
 });
 it('refuses a corrupt checkpoint without touching live data', async () => {

@@ -26,3 +26,15 @@ it('runs the bundled runtime with isolated paths and preserves literal shell arg
   const link = path.join(dir, 'other'); fs.symlinkSync(command, link);
   expect(() => installTerminalCommand(link, options)).toThrow('already exists');
 });
+
+it('keeps the selected installation advanced paths in the matching terminal command', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-cli-locations-')); dirs.push(dir);
+  const cli = path.join(dir, 'cli.mjs');
+  fs.writeFileSync(cli, 'console.log(JSON.stringify({root:process.env.RI_ROOT,db:process.env.RI_DB_PATH,config:process.env.RI_CONFIG_DIR,work:process.env.RI_WORK_DIR}))');
+  const locations = { database: path.join(dir, "db ' $(false).db"), config: path.join(dir, 'private settings'), work: path.join(dir, 'workspace') };
+  const options = { node: process.execPath, cli, root: path.join(dir, 'home'), server: dir, locations };
+  const command = path.join(dir, 'ri'); installTerminalCommand(command, options);
+  const run = (root: string) => JSON.parse(execFileSync(command, [], { env: { ...process.env, RI_DESKTOP_ROOT: root }, encoding: 'utf8' }));
+  expect(run('')).toEqual({ root: options.root, db: locations.database, config: locations.config, work: locations.work });
+  expect(run('/explicit-other-root')).toEqual({ root: '/explicit-other-root' });
+});

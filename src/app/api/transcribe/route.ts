@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     }
 
     const voiceModel = (formData.get('voiceModel') as string) || 'local/parakeet-tdt-0.6b-v3';
-    const text = await transcribe(file, voiceModel);
+    const text = await transcribe(file, voiceModel, request.signal);
 
     const provider = voiceModel.split('/')[0];
     return Response.json({ text, provider });

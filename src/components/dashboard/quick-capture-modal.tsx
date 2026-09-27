@@ -107,7 +107,7 @@ export function QuickCaptureModal({ open, onOpenChange }: QuickCaptureModalProps
     setImageUploading(false);
     clearStagedImage();
     voice.clearTranscript();
-    if (voice.isRecording) voice.cancelRecording();
+    voice.cancelRecording();
   }, [voice, clearStagedImage]);
 
   const uploadImages = useCallback(
@@ -319,6 +319,9 @@ export function QuickCaptureModal({ open, onOpenChange }: QuickCaptureModalProps
                           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                             <Loader2 size={14} className="animate-spin text-primary" />
                             Transcribing voice capture...
+                            <button type="button" onClick={voice.cancelRecording} className="ml-auto underline hover:text-foreground">
+                              Cancel transcription
+                            </button>
                           </div>
                         )}
                         {imageUploading && (

@@ -23,7 +23,7 @@ export type CaptureMode = 'media-recorder' | 'web-speech' | null;
 type VoiceStatus = 'idle' | 'starting' | 'recording' | 'stopping' | 'cancelling' | 'transcribing';
 
 export interface ProviderStatus {
-  local: { available: boolean; configured: boolean };
+  local: { available: boolean; configured: boolean; managedModel?: string };
   groq: { available: boolean; configured: boolean };
   web: { available: boolean; configured: boolean };
 }
@@ -53,7 +53,7 @@ export interface UseVoiceInputReturn {
   stopRecording: () => void;
   /** Toggle recording on/off */
   toggleRecording: () => void;
-  /** Cancel recording without transcribing */
+  /** Discard a recording or cancel an in-flight transcription */
   cancelRecording: () => void;
   /** The active MediaStream (for passing to LiveWaveform visualization) */
   stream: MediaStream | null;
@@ -71,14 +71,17 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
   // (triggers re-renders). `setVoiceStatus` is the ONLY way to update —
   // the raw state setter is deliberately hidden via destructure rename.
   const statusRef = useRef<VoiceStatus>('idle');
+  const mountedRef = useRef(true);
+  const generationRef = useRef(0);
+  const transcriptionRef = useRef<AbortController | null>(null);
+  const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [status, _unsafeSetStatus] = useState<VoiceStatus>('idle');
   const setVoiceStatus = useCallback((next: VoiceStatus) => {
+    if (!mountedRef.current) return;
     retainActiveInput(statusRef, !['idle', 'error'].includes(next));
     statusRef.current = next;
     _unsafeSetStatus(next);
   }, []);
-
-  useEffect(() => () => { retainActiveInput(statusRef, false); }, []);
 
   const [transcript, setTranscript] = useState('');
   const [provider, setProvider] = useState<VoiceProvider>(null);
@@ -90,7 +93,6 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
   const isSupported = captureMode !== null;
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const voiceModelRef = useRef(voiceModel);
   voiceModelRef.current = voiceModel;
@@ -106,6 +108,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
   // Probe provider availability on mount
   useEffect(() => {
     let cancelled = false;
+    let probeGeneration = 0;
 
     // Capability detection — what the *browser* can do, independent of server providers.
     // getUserMedia requires a secure context (HTTPS or localhost). `capture` on a file
@@ -126,27 +129,28 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
       mode: CaptureMode;
       reason: string | null;
     } {
-      // Pick the best available server provider (user's choice → local → any).
+      // Provider choice is a privacy boundary. A local choice must never start
+      // browser/cloud recognition because the local service is unavailable.
       const selected = voiceModelRef.current
         ? (getVoiceProvider(voiceModelRef.current) as VoiceProvider)
         : null;
-      let serverProvider: VoiceProvider = null;
-      if (selected && selected !== 'web' && status?.[selected]?.available) {
-        serverProvider = selected;
-      } else if (status?.local?.available) {
-        serverProvider = 'local';
-      } else if (status?.groq?.available) {
-        serverProvider = 'groq';
-      }
-
-      // Server provider wins — but only if the browser can actually record live audio.
-      if (serverProvider) {
+      if (selected === 'local' || selected === 'groq') {
+        if (selected === 'local' && status?.local.managedModel && status.local.managedModel !== voiceModelRef.current) return {
+          provider: selected, mode: null,
+          reason: 'The installed helper supports Parakeet V3 INT8. Choose that model or disable managed speech to use an external service.',
+        };
+        if (!status?.[selected]?.available) return {
+          provider: selected, mode: null,
+          reason: selected === 'local'
+            ? 'Local speech is unavailable. Start or repair Parakeet, or explicitly choose another provider in Voice settings.'
+            : 'Groq is unavailable. Configure its API key or choose another provider in Voice settings.',
+        };
         if (hasMediaRecorder) {
-          return { provider: serverProvider, mode: 'media-recorder', reason: null };
+          return { provider: selected, mode: 'media-recorder', reason: null };
         }
         // Server is ready but the browser can't capture audio (insecure origin).
         return {
-          provider: serverProvider,
+          provider: selected,
           mode: null,
           reason: isInsecureContext
             ? 'Voice requires HTTPS. Access this site over https:// (e.g. via Tailscale Serve) to enable the mic.'
@@ -154,8 +158,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
         };
       }
 
-      // No server provider — try the browser's built-in recognition.
-      if (hasWebSpeech) {
+      if (selected === 'web' && hasWebSpeech) {
         return { provider: 'web', mode: 'web-speech', reason: null };
       }
 
@@ -172,21 +175,24 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
         provider: null,
         mode: null,
         reason:
-          'No speech provider is available. Configure a local Parakeet service or a Groq key in Settings.',
+          selected === 'web'
+            ? 'This browser does not support browser speech recognition. Choose another provider in Voice settings.'
+            : 'Choose an available speech provider in Voice settings.',
       };
     }
 
     async function probe() {
+      const generation = ++probeGeneration;
       let status: ProviderStatus | null = null;
       try {
         const data = await api.get<{ providers: ProviderStatus }>('/transcribe');
-        if (cancelled) return;
-        status = data.providers;
+        if (cancelled || generation !== probeGeneration) return;
+        status = { ...data.providers, web: { available: hasWebSpeech, configured: hasWebSpeech } };
         setProviderStatus(status);
       } catch {
         // Probe failed — fall through with null status; resolve() handles it.
       }
-      if (cancelled) return;
+      if (cancelled || generation !== probeGeneration) return;
 
       const { provider: p, mode, reason } = resolve(status);
       setProvider(p);
@@ -194,8 +200,14 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
       setUnsupportedReason(reason);
     }
 
-    probe();
-    return () => { cancelled = true; };
+    void probe();
+    window.addEventListener('focus', probe);
+    window.addEventListener('ri:voice-providers-changed', probe);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', probe);
+      window.removeEventListener('ri:voice-providers-changed', probe);
+    };
   }, [voiceModel]);
 
   // ─── Mic lifecycle helpers ──────────────────────────────────
@@ -208,10 +220,40 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
   // Helper — reads status without triggering TS control-flow narrowing
   const getStatus = useCallback(() => statusRef.current, []);
 
+  // Detach callbacks before stopping. MediaRecorder dispatches its final data
+  // and stop events asynchronously, including after a component unmounts.
+  const discardCapture = useCallback(() => {
+    generationRef.current += 1;
+    transcriptionRef.current?.abort();
+    transcriptionRef.current = null;
+    if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+    stopTimerRef.current = null;
+    const recorder = mediaRecorderRef.current;
+    mediaRecorderRef.current = null;
+    if (recorder) {
+      recorder.onstop = null;
+      recorder.ondataavailable = null;
+      if (recorder.state !== 'inactive') recorder.stop();
+    }
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    if (recognition) {
+      recognition.onresult = null;
+      recognition.onend = null;
+      recognition.onerror = null;
+      recognition.abort();
+    }
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+  }, []);
+
   // ─── Server-side transcription: record audio, POST to /api/transcribe ──
   const startServerTranscription = useCallback(async () => {
     // Guard: only start from idle
     if (getStatus() !== 'idle') return;
+    const generation = ++generationRef.current;
+    const current = () => mountedRef.current && generationRef.current === generation;
+    const selectedModel = voiceModelRef.current;
     setVoiceStatus('starting');
     setError(null);
 
@@ -221,7 +263,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
       });
 
       // If cancelled/stopped during getUserMedia, clean up and bail
-      if (getStatus() !== 'starting') {
+      if (!current() || getStatus() !== 'starting') {
         mic.getTracks().forEach(t => t.stop());
         return;
       }
@@ -229,19 +271,22 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
       streamRef.current = mic;
       setStream(mic);
 
-      chunksRef.current = [];
+      const chunks: Blob[] = [];
       const mimeType = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus'].find(type => MediaRecorder.isTypeSupported(type));
       const recorder = new MediaRecorder(mic, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+        if (current() && e.data.size > 0) chunks.push(e.data);
       };
 
       recorder.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
-        chunksRef.current = [];
+        if (!current()) return;
+        const blob = new Blob(chunks, { type: recorder.mimeType });
+        chunks.length = 0;
         mediaRecorderRef.current = null;
+        if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+        stopTimerRef.current = null;
 
         // Kill the mic — we own it, not LiveWaveform
         stopMic();
@@ -259,33 +304,39 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
         }
 
         setVoiceStatus('transcribing');
+        const transcription = new AbortController();
+        transcriptionRef.current = transcription;
 
         try {
           const form = new FormData();
           const extension = recorder.mimeType.includes('mp4') ? 'm4a' : recorder.mimeType.includes('ogg') ? 'ogg' : 'webm';
           form.append('file', blob, `recording.${extension}`);
-          if (voiceModelRef.current) {
-            form.append('voiceModel', voiceModelRef.current);
+          if (selectedModel) {
+            form.append('voiceModel', selectedModel);
           }
           const data = await api.upload<{ text?: string; error?: string }>(
             '/transcribe',
             form,
+            { signal: transcription.signal },
           );
+          if (!current() || transcription.signal.aborted) return;
           if (data.text) {
             setTranscript(prev => prev ? `${prev} ${data.text}` : data.text!);
           } else {
             setError(data.error ?? 'Transcription failed');
           }
         } catch (err) {
-          setError(`Transcription error: ${err}`);
+          if (current() && !transcription.signal.aborted) setError(`Transcription error: ${err}`);
         } finally {
-          setVoiceStatus('idle');
+          if (transcriptionRef.current === transcription) transcriptionRef.current = null;
+          if (current()) setVoiceStatus('idle');
         }
       };
 
       recorder.start(250);
       setVoiceStatus('recording');
     } catch (err) {
+      if (!current()) return;
       stopMic();
       setVoiceStatus('idle');
       setError(`Microphone error: ${err}`);
@@ -302,7 +353,8 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
       recorder.requestData();
       // Capture this specific recorder — don't use the ref in the timeout,
       // or a quick start→stop→start could stop the wrong recorder
-      setTimeout(() => {
+      stopTimerRef.current = setTimeout(() => {
+        stopTimerRef.current = null;
         if (recorder.state === 'recording') {
           recorder.stop();
         }
@@ -313,30 +365,16 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
     }
   }, [stopMic, setVoiceStatus, getStatus]);
 
-  // Cancel recording — discard audio, no transcription.
+  // Cancel both recording and transcription. A late result cannot append to a
+  // newer recording or change its lifecycle state.
   // Handles both server-side (MediaRecorder) and Web Speech paths.
   const cancelRecording = useCallback(() => {
     const s = getStatus();
-    if (s !== 'recording' && s !== 'starting') return;
-
-    // Server path: stop recorder, onstop reads 'cancelling' and discards
-    const recorder = mediaRecorderRef.current;
-    if (recorder?.state === 'recording') {
-      setVoiceStatus('cancelling');
-      recorder.stop();
-      return;
-    }
-
-    // Web Speech path: abort discards pending results (unlike stop which delivers them)
-    if (recognitionRef.current) {
-      recognitionRef.current.abort();
-      recognitionRef.current = null;
-    }
-
-    // Clean up mic ('starting' state) and reset
-    stopMic();
+    if (s === 'idle') return;
+    discardCapture();
+    setStream(null);
     setVoiceStatus('idle');
-  }, [stopMic, setVoiceStatus, getStatus]);
+  }, [discardCapture, setVoiceStatus, getStatus]);
 
   // ─── Web Speech API fallback ─────────────────────────────
 
@@ -344,6 +382,8 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
     if (getStatus() !== 'idle') return;
     const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Ctor) return;
+    const generation = ++generationRef.current;
+    const current = () => mountedRef.current && generationRef.current === generation;
 
     setError(null);
     if (recognitionRef.current) recognitionRef.current.abort();
@@ -356,6 +396,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
     webTranscriptRef.current = '';
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
+      if (!current()) return;
       let text = '';
       for (let i = 0; i < event.results.length; i++) {
         if (event.results[i].isFinal) {
@@ -371,11 +412,13 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
     };
 
     recognition.onend = () => {
+      if (!current()) return;
       setVoiceStatus('idle');
       recognitionRef.current = null;
     };
 
     recognition.onerror = (event: Event) => {
+      if (!current()) return;
       // abort() fires an 'aborted' error — that's intentional cancel, not a real error
       if ((event as Event & { error?: string }).error === 'aborted') return;
       console.error('[Voice] Web Speech error:', event);
@@ -385,8 +428,8 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
     };
 
     recognitionRef.current = recognition;
-    recognition.start();
-    setVoiceStatus('recording');
+    try { recognition.start(); setVoiceStatus('recording'); }
+    catch { recognitionRef.current = null; setError('Could not start browser speech recognition'); setVoiceStatus('idle'); }
   }, [setVoiceStatus, getStatus]);
 
   const stopWeb = useCallback(() => {
@@ -398,21 +441,22 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
   // ─── Unified controls ────────────────────────────────────
 
   const startRecording = useCallback(() => {
+    if (!captureMode) return;
     if (provider === 'web') {
       startWeb();
     } else if (provider) {
       // local and groq both use server-side transcription
       startServerTranscription();
     }
-  }, [provider, startServerTranscription, startWeb]);
+  }, [provider, captureMode, startServerTranscription, startWeb]);
 
   const stopRecording = useCallback(() => {
-    if (provider === 'web') {
+    if (recognitionRef.current) {
       stopWeb();
-    } else if (provider) {
+    } else {
       stopServerTranscription();
     }
-  }, [provider, stopServerTranscription, stopWeb]);
+  }, [stopServerTranscription, stopWeb]);
 
   const toggleRecording = useCallback(() => {
     if (isRecording) {
@@ -429,15 +473,14 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
 
   // Cleanup on unmount
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
-      if (mediaRecorderRef.current?.state === 'recording') {
-        mediaRecorderRef.current.stop();
-      }
-      streamRef.current?.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-      if (recognitionRef.current) recognitionRef.current.abort();
+      mountedRef.current = false;
+      discardCapture();
+      statusRef.current = 'idle';
+      retainActiveInput(statusRef, false);
     };
-  }, []);
+  }, [discardCapture]);
 
   return {
     isRecording,

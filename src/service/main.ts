@@ -24,6 +24,9 @@ import { hasLoginSupervision } from '@/lib/service/install';
 import { installedRuntime } from '@/lib/service/runtime';
 import { writeMaintenance, clearMaintenance, exclusiveActivity } from '@/lib/service/maintenance';
 import { releasePolicy } from '@/lib/service/release';
+import { updateReleasePreferences } from '@/lib/service/release-trust';
+import { ServiceControlCoordination } from '@/lib/service/control-coordination';
+import { consumeDesktopInitialization } from '@/lib/service/initialization';
 import { redactServiceLine, rotateServiceLog } from '@/lib/service/logging';
 
 const paths = servicePaths();
@@ -35,7 +38,7 @@ process.env.RI_RUNTIME_REPO = repo;
 process.env.RI_DESKTOP_CLIENT_SECRET = randomBytes(32).toString('base64url');
 process.env.RI_SERVICE_CONTROL_TOKEN = randomBytes(32).toString('base64url');
 const status: ServiceStatus = { protocol: 1, identity: paths.identity, runId: newRunId(), pid: process.pid,
-  phase: 'starting', version: JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version, repo };
+  phase: 'starting', version: JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version, repo, node };
 let next: ChildProcess | undefined;
 let gateway: Http2GatewayHandle | undefined;
 let certificate = '';
@@ -46,7 +49,8 @@ let expectedExit = false;
 let releaseOwner: (() => void) | undefined;
 let stopping: Promise<void> | undefined;
 let updater: UpdateCoordinator;
-let handingOff = false;
+const coordination = new ServiceControlCoordination(() => updater.status().busy);
+const updateTick = () => coordination.tick(() => updater.tick());
 const childRecord = path.join(paths.identity.work, 'service-child.json');
 
 async function backendRequest<T>(route: string, timeout = 3000): Promise<T> {
@@ -73,7 +77,7 @@ async function startBackend(target?: RuntimeTarget, validating?: string) {
   if (target) { repo = canonical(target.repo); node = target.node; }
   process.env.RI_RUNTIME_REPO = repo;
   process.env.RI_DESKTOP_REPO = repo;
-  process.env.RI_CLI_COMMAND = bundledCliCommand(node, repo, paths.identity.root);
+  process.env.RI_CLI_COMMAND = bundledCliCommand(node, repo, paths.identity.root, paths.identity);
   process.chdir(repo);
   expectedExit = false;
   const environment = serviceEnvironment(node);
@@ -94,6 +98,7 @@ async function startBackend(target?: RuntimeTarget, validating?: string) {
       const ready = await backendRequest<{ ready: boolean; repo: string; validation: boolean }>('/__ri_ready');
       if (ready.ready && ready.repo === repo && ready.validation === !!validating) {
         status.repo = repo;
+        status.node = node;
         status.version = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version;
         return;
       }
@@ -123,47 +128,52 @@ const control = http.createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/status') return reply({ update: updater?.status() });
     if (request.method === 'GET' && request.url === '/session' && status.phase === 'running') return reply({ certificate, token, desktopClient: process.env.RI_DESKTOP_CLIENT_SECRET });
     if (request.method === 'GET' && request.url === '/update') return reply({ update: updater.status() });
-    if (request.method === 'POST' && request.url === '/update') {
-      if (handingOff) throw new Error('Login supervision is being installed');
+    if (request.method === 'PATCH' && request.url === '/update/policy') {
+      if (coordination.handingOff || updater.status().busy) throw new Error('Wait for the current service action before changing update preferences.');
       let bytes = 0; const chunks: Buffer[] = [];
-      for await (const chunk of request) { bytes += chunk.length; if (bytes > 8192) throw new Error('Control request too large'); chunks.push(chunk); }
-      const body = JSON.parse(Buffer.concat(chunks).toString()) as { action?: string; window?: Parameters<UpdateCoordinator['approve']>[0] };
-      if (body.action === 'check' || body.action === 'download') {
-        const promise = body.action === 'check' ? updater.check() : updater.download();
-        void promise.catch(error => console.error('[update]', error instanceof Error ? error.message : 'Failed'));
-      } else if (body.action === 'apply' || body.action === 'when-idle') {
-        updater.approve(body.window);
-        if (body.action === 'apply') setImmediate(() => void updater.tick());
-      } else if (body.action === 'later') updater.later();
-      else throw new Error('Unknown update action');
-      return reply({ update: updater.status() });
+      for await (const chunk of request) { bytes += chunk.length; if (bytes > 4096) throw new Error('Control request too large'); chunks.push(chunk); }
+      if (coordination.handingOff || updater.status().busy) throw new Error('Wait for the current service action before changing update preferences.');
+      return reply({ policy: updateReleasePreferences(JSON.parse(Buffer.concat(chunks).toString())) });
+    }
+    if (request.method === 'POST' && request.url === '/update') {
+      await coordination.dispatchUpdate(request, body => {
+        if (body.action === 'check' || body.action === 'download') {
+          const promise = body.action === 'check' ? updater.check() : updater.download();
+          void promise.catch(error => console.error('[update]', error instanceof Error ? error.message : 'Failed'));
+        } else if (body.action === 'apply' || body.action === 'when-idle') {
+          updater.approve(body.window);
+          if (body.action === 'apply') setImmediate(() => void updateTick());
+        } else if (body.action === 'later') updater.later();
+        return reply({ update: updater.status() });
+      });
+      return;
     }
     if (request.method === 'POST' && request.url === '/recover') {
-      if (status.phase !== 'failed' || next || updater.status().busy) throw new Error('Recovery is only available while the backend is stopped');
+      if (status.phase !== 'failed' || next || updater.status().busy || coordination.handingOff) throw new Error('Recovery is only available while the backend is stopped');
       await updater.recover(true);
       reply({ phase: 'stopping' }); setImmediate(() => void shutdown()); return;
     }
     if (request.method === 'POST' && request.url === '/handoff') {
-      if (handingOff || updater.status().busy) throw new Error('Service management is already in progress');
-      const reasons = await activity();
-      if (reasons.length) throw new Error(`Finish or close active work before installing login supervision: ${reasons.join(', ')}`);
-      handingOff = true;
-      let release: (() => void) | undefined;
-      try {
-        writeMaintenance({ phase: 'draining', token: randomBytes(32).toString('hex'), startedAt: new Date().toISOString() });
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        const pending = await activity();
-        if (pending.length) throw new Error(`Active work is still running: ${pending.join(', ')}`);
-        release = exclusiveActivity();
-        await stopBackend();
-        clearMaintenance();
-        reply({ phase: 'stopping' });
-        setImmediate(() => void shutdown());
-      } finally { clearMaintenance(); release?.(); handingOff = false; }
+      await coordination.handoff(async () => {
+        let release: (() => void) | undefined;
+        try {
+          const reasons = await activity();
+          if (reasons.length) throw new Error(`Finish or close active work before installing login supervision: ${reasons.join(', ')}`);
+          writeMaintenance({ phase: 'draining', token: randomBytes(32).toString('hex'), startedAt: new Date().toISOString() });
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const pending = await activity();
+          if (pending.length) throw new Error(`Active work is still running: ${pending.join(', ')}`);
+          release = exclusiveActivity();
+          await stopBackend();
+          clearMaintenance();
+          reply({ phase: 'stopping' });
+          setImmediate(() => void shutdown());
+        } finally { clearMaintenance(); release?.(); }
+      });
       return;
     }
     if (request.method === 'POST' && request.url === '/stop') {
-      if (updater?.status().busy) return reply({ error: 'An update action is in progress. Wait before stopping the service.' }, 409);
+      if (updater?.status().busy || coordination.handingOff) return reply({ error: 'A service action is in progress. Wait before stopping the service.' }, 409);
       reply({ phase: 'stopping' }); void shutdown(); return;
     }
     reply({ error: 'Control action unavailable' }, 404);
@@ -237,6 +247,9 @@ async function start() {
   const tls = await ensureGeneratedTls(); certificate = tls.cert;
   gateway = await startHttp2Gateway({ publicPort, publicBaseUrl: status.origin, upstreamHost: '127.0.0.1', upstreamPort: privatePort, tls });
   process.env[PUBLIC_BASE_URL_ENV] = status.origin; process.env.PORT = String(privatePort);
+  // Consume the first-install permit before any database opener. A later lost
+  // database must never be mistaken for an installation that has not begun.
+  consumeDesktopInitialization();
   const { ensureLocalToken } = await import('@/lib/auth/bootstrap');
   const { resetDb } = await import('@/lib/db');
   token = ensureLocalToken().plaintext; resetDb();
@@ -246,7 +259,7 @@ async function start() {
   if (!probe.ok) throw new Error(`HTTP/2 readiness failed: ${probe.detail ?? probe.status}`);
   publish(); console.info(`[service] Ready at ${status.origin}`);
   const renewal = setInterval(() => {
-    if (updater.status().busy || handingOff) return;
+    if (updater.status().busy || coordination.handingOff) return;
     void ensureGeneratedTls().then(tls => {
       if (tls.cert !== certificate) { gateway?.rotate(tls); certificate = tls.cert; }
     }).catch(() => console.warn('[service] Certificate renewal failed. Check disk permissions and TLS diagnostics.'));
@@ -257,14 +270,14 @@ async function start() {
     try { rotateServiceLog(paths.log); } catch { /* read-only diagnostics must not stop the service */ }
   }, 30_000);
   logRotation.unref();
-  const tick = setInterval(() => void updater.tick(), 30_000); tick.unref();
+  const tick = setInterval(() => void updateTick(), 30_000); tick.unref();
   // Checking/downloading never approves activation. Metered mode suppresses
   // automatic downloads, while an explicit Download remains available.
   const check = async () => {
-    const policy = releasePolicy(); if (!policy || updater.status().busy || handingOff) return;
+    const policy = releasePolicy(); if (!policy || updater.status().busy || coordination.handingOff) return;
     try {
       await updater.check();
-      if (policy.automaticDownload && !policy.metered && updater.status().phase === 'available') await updater.download();
+      if (!coordination.handingOff && policy.automaticDownload && !policy.metered && updater.status().phase === 'available') await updater.download();
     } catch (error) { console.warn('[update] Automatic check unavailable:', error instanceof Error ? error.message : 'Offline'); }
   };
   const initial = setTimeout(() => void check(), 60_000 + Math.random() * 60_000); initial.unref();

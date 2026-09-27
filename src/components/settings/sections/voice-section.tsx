@@ -7,6 +7,7 @@ import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import { VOICE_MODELS, VOICE_MODEL_MAP, DEFAULT_VOICE_MODEL, type VoiceModel } from '@/constants/voice-models';
 import type { ProviderStatus } from '@/hooks/use-voice-input';
 import { api } from '@/lib/api/client';
+import { ManagedSpeechSettings } from './managed-speech-settings';
 
 const PROVIDER_LABELS: Record<string, { label: string; icon: typeof Server }> = {
   local: { label: 'Local', icon: Server },
@@ -43,8 +44,9 @@ function ModelCard({
   onSelect: () => void;
 }) {
   const status = providerStatus?.[model.provider];
-  const isAvailable = model.provider === 'web' ? true : status?.available ?? false;
-  const isConfigured = model.provider === 'web' ? true : status?.configured ?? false;
+  const needsExternal = model.provider === 'local' && !!providerStatus?.local.managedModel && providerStatus.local.managedModel !== model.id;
+  const isAvailable = !needsExternal && (status?.available ?? false);
+  const isConfigured = status?.configured ?? false;
   const needsSetup = !isConfigured && model.provider !== 'local';
   const needsServer = model.provider === 'local' && !isAvailable;
 
@@ -68,7 +70,7 @@ function ModelCard({
               <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">Setup Required</span>
             )}
             {needsServer && (
-              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">Server Offline</span>
+              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">{needsExternal ? 'External service required' : 'Server Offline'}</span>
             )}
           </div>
           <div className="mt-1 flex items-center gap-3 text-[11px] text-muted-foreground/70">
@@ -94,13 +96,12 @@ function ModelCard({
 
       {needsSetup && (
         <div className="mt-2 rounded bg-muted/50 px-2 py-1.5 text-[11px] text-muted-foreground/60">
-          Add <code className="font-mono text-foreground/70">{model.envKey}</code> to your{' '}
-          <code className="font-mono text-foreground/70">.env.local</code> file
+          {model.provider === 'web' ? 'Speech recognition is not supported in this browser.' : 'Configure your Groq key in Runtime setup under Updates settings.'}
         </div>
       )}
       {needsServer && (
         <div className="mt-2 rounded bg-muted/50 px-2 py-1.5 text-[11px] text-muted-foreground/60">
-          Start the local server: <code className="font-mono text-foreground/70">pnpm dev:stt</code>
+          {needsExternal ? 'The managed helper includes Parakeet V3 INT8. Disable managed speech to use this model on an external service.' : 'Install optional local speech above, or configure an external Parakeet service in Runtime setup.'}
         </div>
       )}
     </button>
@@ -125,14 +126,17 @@ export function VoiceSection() {
 
   useEffect(() => {
     let cancelled = false;
-    api
+    const probe = () => { void api
       .get<{ providers: ProviderStatus }>('/transcribe')
       .then((data) => {
-        if (!cancelled) setProviderStatus(data.providers);
+        if (!cancelled) setProviderStatus({ ...data.providers, web: { available: !!(window.SpeechRecognition || window.webkitSpeechRecognition), configured: !!(window.SpeechRecognition || window.webkitSpeechRecognition) } });
       })
-      .catch(() => {});
+      .catch(() => {}); };
+    probe();
+    window.addEventListener('ri:voice-providers-changed', probe);
     return () => {
       cancelled = true;
+      window.removeEventListener('ri:voice-providers-changed', probe);
     };
   }, []);
 
@@ -152,6 +156,7 @@ export function VoiceSection() {
 
   return (
     <div className="space-y-4">
+      <ManagedSpeechSettings />
       <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border bg-background p-3">
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">

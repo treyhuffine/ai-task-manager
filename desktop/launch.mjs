@@ -6,8 +6,8 @@ import electron from 'electron';
 
 const repo = fileURLToPath(new URL('../', import.meta.url));
 const dev = process.argv.includes('--dev');
-const root = path.resolve(process.env.RI_DESKTOP_ROOT || path.join(repo, '.electron-demo', 'home'));
-const env = { ...process.env, RI_DESKTOP_REPO: repo, RI_DESKTOP_ROOT: root, RI_DESKTOP_NODE: process.execPath,
+const root = path.resolve(process.env.RI_DESKTOP_ROOT || path.join(process.env.RI_DESKTOP_STATE_DIR || path.join(repo, '.electron-demo'), 'home'));
+const env = { ...process.env, RI_DESKTOP_REPO: repo, RI_DESKTOP_ROOT: process.env.RI_DESKTOP_ROOT || '', RI_DESKTOP_NODE: process.execPath,
   RI_DESKTOP_MODE: dev ? 'development' : 'production' };
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.NODE_OPTIONS;

@@ -57,7 +57,9 @@
     "desktop:package": "node desktop/package.mjs",
     "desktop:relay": "node desktop/relay/server.mjs",
     "desktop:release": "node desktop/package.mjs --release",
-    "runtime:package": "node desktop/package.mjs --headless"
+    "runtime:package": "node desktop/package.mjs --headless",
+    "speech:build": "node desktop/speech/build.mjs",
+    "desktop:recovery-smoke": "pnpm desktop:build && tsx desktop/recovery-smoke.ts"
   },
   "bin": {
     "ri": "./dist/cli/index.mjs"

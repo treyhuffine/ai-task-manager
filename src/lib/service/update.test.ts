@@ -42,7 +42,41 @@ beforeEach(() => {
   backend = { activity: vi.fn(async () => []), stop: vi.fn(async () => {}), validate: vi.fn(async () => { write('migrated'); }), activate: vi.fn(async () => {}), restart: vi.fn(async () => {}), assertNoLegacyWriters: vi.fn(async () => {}) };
   save({});
 });
-afterEach(() => { vi.unstubAllEnvs(); fs.rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); fs.rmSync(root, { recursive: true, force: true }); });
+
+it('preserves an approved maintenance window across controller restarts', () => {
+  const window = { hour: 23, durationHours: 3, timeZone: 'America/Denver' };
+  coordinator().approve(window);
+  expect(coordinator().status()).toMatchObject({ phase: 'waiting', approved: true, window });
+});
+it('honors cross-midnight windows and never stops busy work inside a window', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-26T04:00:00Z'));
+  backend.activity = vi.fn(async () => ['2 executions']);
+  coordinator().approve({ hour: 23, durationHours: 3, timeZone: 'UTC' });
+  const updater = coordinator();
+  await updater.tick();
+  expect(backend.activity).not.toHaveBeenCalled();
+  expect(updater.status().reason).toMatch(/maintenance window/);
+  vi.setSystemTime(new Date('2026-09-27T00:00:00Z'));
+  await updater.tick();
+  expect(backend.activity).toHaveBeenCalledOnce();
+  expect(backend.stop).not.toHaveBeenCalled();
+  expect(updater.status()).toMatchObject({ phase: 'waiting', approved: true, reason: '2 executions' });
+});
+it('lets an explicit immediate request replace a schedule and Later revoke approval', () => {
+  const updater = coordinator();
+  updater.approve({ hour: 3, durationHours: 2, timeZone: 'UTC' });
+  updater.approve();
+  expect(coordinator().status()).toMatchObject({ approved: true });
+  expect(coordinator().status().window).toBeUndefined();
+  updater.later();
+  expect(coordinator().status()).toMatchObject({ phase: 'ready', approved: false });
+});
+it('rejects an invalid schedule without approving the release', () => {
+  const updater = coordinator();
+  expect(() => updater.approve({ hour: 3, durationHours: 2, timeZone: 'invalid' })).toThrow();
+  expect(updater.status().approved).not.toBe(true);
+});
 
 it('checkpoints and validates before the durable commit and admission reopening', async () => {
   backend.validate = vi.fn(async (_target, token) => {

@@ -27,7 +27,18 @@ Implementation is based on main `e7a4520` in the desktop worktree. Keep changes 
 - [x] S7: Complete release configuration, desktop diagnostics/permissions/window behavior, optional voice configuration, and documented operator setup. Actual publisher signing, provider registrations and public hosting require their real external configuration.
 - [x] S8: Reconcile this checklist with the full document, run application/desktop/connector checks and isolated package/service/update smoke tests, and record platform or live-provider checks that require external hardware/accounts.
 
-Managed speech downloads remain the separately identified optional voice product. Remote worker and Teams integration (D13 and the corresponding parts of D1/D9/D14 and U4) is conditional on adopting the experimental design. Standalone implementation must remain useful without that branch.
+Managed speech is now implemented as an optional packaged helper with explicit model installation, described below. Remote worker and Teams integration (D13 and the corresponding parts of D1/D9/D14 and U4) is conditional on adopting the experimental design. Standalone implementation must remain useful without that branch.
+
+### Independent completion checklist
+
+The S1-S8 delivery was the service and desktop foundation, not completion of every original requirement. The following independent product gaps extend that foundation. An unchecked item remains unfinished until its focused verification passes. Production signing and live-device qualification remain separate gates.
+
+- [x] S9: Expose maintenance windows and safe automatic-download/metered preferences in Settings, with owner-only APIs and persisted state.
+- [x] S10: Provide a local Electron recovery screen independent of Next, with verified service diagnostics, controlled recovery/retry, and log access.
+- [x] S11: Explicitly select and verify an existing local installation, preserve advanced paths and per-installation profiles, and refuse unsafe implicit migration/adoption.
+- [x] S12: Add phone installation metadata/icons/instructions and an honest offline experience without caching private pages or APIs.
+- [x] S13: Package an optional managed Parakeet helper and pinned verified models, with installation, readiness, cancellation, repair/removal, bounded ownership and format tests.
+- [x] S14: Integrate the independent changes, run focused and whole-app validation plus packaged lifecycle checks, reconcile the original requirements, and commit verified work on the desktop branch.
 
 The reviewed desktop source began at `dc318c5` on `ai-task-manager/session-ca52f4`. The related multi-machine implementation was reviewed at `183391a` on `ai-task-manager/session-e4aa22`. Landing preparation also adopts its `@agentex/workspace` 0.0.5 dependency fix and repairs a pre-existing connector-test typecheck error. Its results are identified separately from tests run here. These are dated snapshots, not claims about the future state of either branch.
 
@@ -46,8 +57,53 @@ The desktop implementation does not modify the experimental schemas or transfer 
 | S6, F08/F13, U1/U2 | Service-owned coordinator verifies Ed25519 metadata, platform/protocol/config compatibility, monotonic sequence, expiry/withdrawal, artifact size/hash, archive paths and the complete runtime inventory. It drains admitted work, stops Next, excludes DB openers, verifies a full checkpoint, boots migrations without effects, then commits and hands off to the new controller. | Linux and actual power-loss qualification. No released-history squash is accepted as an unattended upgrade. |
 | S6/S7, U3/U4 | Settings and CLI expose check/download/apply/when-idle/later/status. Approval and maintenance windows persist. Shell updates use the platform updater with artifact metadata checked against the signed publisher envelope. Runtime and GUI can update independently. | Publisher key/feed, Apple identity/notarization, signed clean install and actual shell installer round trip. Remote worker/team compatibility remains conditional. |
 | S7, F09/F14, D9/D11 | Private persistent executable paths, speech URL and encrypted API keys, common tool discovery, service menu controls, diagnostics, window restoration, renderer crash recovery, camera/microphone descriptions, and native save handshakes. | Each real harness from Finder/SSH, OS permissions, notifications, every shortcut, multiple displays and accessibility. |
-| Optional F10/D10 | Existing private Parakeet service or Groq can be configured without a source checkout. Browser recording chooses supported WebM, MP4 or Ogg formats. | Managed model/helper download, benchmarks, platform-specific conversion and live phone recording remain the separately scoped optional voice product. |
+| Optional F10/D10 | Existing private Parakeet service or Groq can be configured without a source checkout. Browser recording chooses supported WebM, MP4 or Ogg formats. | Managed installation, format decoding and local benchmarks are implemented in S13. Native Linux/Intel builds, real phone recordings, broader accuracy testing and signed distribution remain qualification gates. |
 | D1/D13 and multi-machine portions of D9/D14/U4 | No experimental schema, worker enrollment or execution-placement behavior was imported. The backend connection/lifecycle boundary is ready for subsequent integration. | Decide whether to adopt Homes/Teams, then implement and qualify its semantics with that agent. |
+
+### Independent desktop features
+
+**Updates:** Settings > Updates exposes automatic-download preference, explicit metered mode, and a maintenance window with start hour, duration and timezone. Metered mode pauses automatic downloads, not owner-requested downloads. This is an explicit preference, not OS network detection. Approval applies only to the selected update. A sleeping or busy computer waits for the next eligible safe point. The selected timezone stays fixed when the user travels. Renderer settings cannot change the publisher URL, key or release channel. Headless parity is `ri update preferences --automatic-download on|off --metered on|off`.
+
+**Recovery and association:** Tools > Local Installation and Recovery opens a separate, sandboxed local window with no app credentials or network access. It works when Next cannot start, reads verified service status, copies credential-free diagnostics, reveals local logs, and runs the controller's existing recovery flow. It also offers an explicit existing-installation picker with read-only migration preflight. Advanced paths and per-installation profiles stay associated together. No background service is stopped merely because another installation is selected. A failed selection leaves the original renderer usable. A missing/unwritable selected profile opens recovery instead of silently starting another data home.
+
+Cold startup recognizes a strictly validated, installation-bound interrupted update before comparing the transitional SQLite schema. Only the existing selected controller performs recovery and full content verification. A precommit interruption restores its verified checkpoint, while a committed version retains the new database. Unexpectedly missing databases, unrelated or malformed recovery records, and stopped unmanaged CLI installations are refused. Connecting a viewer never stages replacement binaries for an existing owner. Login supervision handoff also excludes new update commands and already-queued activation ticks until shutdown.
+
+Fresh packaged installations receive a private first-initialization record bound to their identity and selected runtime. Configuration/TLS failures before database bootstrap can retry that runtime. The controller consumes the record durably before any database import/open, preventing later database deletion from being treated as a new install. A crash between consumption and the first database creation stops for manual recovery rather than guessing whether data was lost.
+
+`RI_DESKTOP_STATE_DIR=/absolute/path` optionally isolates the saved installation choice, recovery profile and default desktop home from the OS-wide desktop state. `RI_DESKTOP_ROOT` still selects a specific data home. This also lets native integration tests exercise the real picker and saved selection without touching personal desktop preferences.
+
+**Phone installation:** the app supplies a standalone manifest, regular/maskable icons, and Settings > Devices instructions for Safari and browsers offering installation. The single existing notification worker caches only a public `/offline.html` explanation. It never caches authenticated pages, API responses, attachments or mutations, and does not queue offline writes. Opening Ri on a phone still requires an awake, reachable server. The offline page explains this and offers retry. Native Electron windows do not install the web worker. Real iOS/Android installation, push, pairing storage and recordings remain device checks.
+
+**Managed local speech:** builds made with `--with-speech` contain a frozen Python 3.12.12, ONNX ASR 0.12.0/ONNX Runtime 1.30, and PyAV 18.1 helper. Users do not install Python, FFmpeg or Docker. The helper ships with the immutable runtime and is included in its signing/inventory boundary. The 670,619,803-byte Parakeet v3 INT8 model downloads only after choosing Install local speech in Voice settings or `ri voice managed install`. The pinned revision is `8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce`. Each file has an app-controlled size/hash. Downloads support pause/resume, retry, verification/repair and removal. Removing the model leaves the packaged helper and authored data intact.
+
+The model cache lives under the selected work directory's `speech/` folder, outside the app. It is regenerable and excluded from migration checkpoints. The enabled/fallback preferences remain in the configuration checkpoint. A cross-process lock prevents competing model managers. The helper starts on demand, binds only to loopback, requires a random credential sent over private stdin, and exits when its parent disappears. It unloads after five idle minutes, limits recordings to ten minutes and admits one local transcription at a time. Decode formats are constrained so uploaded playlists cannot read local files or networks. Installation and transcription participate in the maintenance admission guard. Browser cancellation aborts uploads and discards stale results.
+
+Automatic cloud fallback is off unless explicitly enabled. Explicit local model selection never switches to Groq or browser recognition. Headless commands use the same backend owner and pinned TLS, with no second helper manager:
+
+```sh
+ri voice managed status
+ri voice managed install
+ri voice managed pause
+ri voice managed enable
+ri voice managed disable
+ri voice managed allow-cloud
+ri voice managed local-only
+ri voice managed remove
+```
+
+Build the helper on each matching target, then include it in the desktop or headless artifact:
+
+```sh
+pnpm speech:build
+pnpm desktop:package --with-speech
+pnpm runtime:package --with-speech
+```
+
+CI pins `uv`, and the helper build enforces its Python/package versions and hash-checked dependency lock. It preserves PyInstaller relative links, records component notices, and verifies its native executable. No model is bundled or downloaded by packaging. A build without the flag continues supporting an external Parakeet service and explicitly reports the managed helper unavailable.
+
+The first end-to-end packaged transcription took 16-17 seconds during concurrent validation, including model verification and process startup. Warm helper inference timings below are a separate measurement and do not describe that first-request delay.
+
+On this Apple Silicon development Mac, the relocated frozen helper transcribed the same 6.52-second synthetic sample correctly in WAV, WebM/Opus, MP4/AAC and Ogg/Opus. Warm calls took 151-161 ms. A 91.32-second repeated synthetic sample took 2.78 seconds with about 2.08 GiB resident memory. Model load was about 0.84 seconds. This is functional evidence, not a multilingual accuracy or platform-performance certification. Auth rejection, the 600-second duration limit, cancellation and parent-stdin cleanup also passed. Actual helper signing/notarization, Linux/Intel qualification and exact redistribution obligations for native dependencies remain release gates. The audited PyAV wheel links x264/x265, while its vendor patches FFmpeg’s dependency license classification. Do not describe the complete binary as LGPL-only based on the reported runtime string. Exact upstream license texts and source provenance are in `desktop/speech/licenses/` and `desktop/speech/NOTICES.md`. Remaining codec notices and a complete corresponding-source distribution still require completion. CI runs its builds/tests but uploads speech-bearing artifacts only when `RI_SPEECH_DISTRIBUTION_APPROVED` is explicitly set after that review.
 
 The service's private control socket is local to the OS account. HTTP update/configuration actions require the installation's original owner credential, not a paired-device, harness or future team token. No renderer-controlled artifact URL, shell command or signing key is accepted. Diagnostic clipboard output contains status and paths, not logs or credentials. Logs redact known service credentials, bearer headers and OAuth URL parameters, rotate locally, and are never uploaded automatically. Logs may still contain user content from dependencies, so inspect them before sharing.
 
@@ -59,7 +115,7 @@ Packaged Electron stages its runtime and starts or attaches to the local service
 
 Reopening a viewer checks the private service identity and active runtime selection first. It attaches directly when both match an already running service. Full runtime inventory verification and staging happen when starting an installation, rather than rescanning the whole bundle on every window reopen. First installation still includes substantial file verification and is not a measured cold-start performance guarantee.
 
-The matching terminal command follows the stable launcher. To share data intentionally, select the same `RI_DESKTOP_ROOT` for Electron and `RI_ROOT` for the CLI. Stop an older `ri start` launcher before first handoff. Desktop currently uses root-relative DB/config/work paths and deliberately clears advanced overrides. Installations using separate DB/config/work overrides should use the CLI service with those explicit settings until desktop association supports them. This is an explicit adoption boundary, not a second silently created authority.
+The matching terminal command follows the stable launcher. To share data intentionally, select the same `RI_DESKTOP_ROOT` for Electron and `RI_ROOT` for the CLI. Stop an older `ri start` launcher before first handoff. Tools > Local Installation and Recovery verifies an existing installation before selecting it, including separate database/configuration/work paths. Selection persists across launches and matching terminal commands preserve those paths. Ambient CLI overrides are still ignored unless an installation was explicitly associated. A stopped installation must already have an explicitly staged managed runtime with compatible migration history. Otherwise start its existing CLI service first. Connecting a viewer never stages or selects bundled code for that CLI installation, including after a controller reconnect. Pending or incompatible migrations are refused without changing the database. Use the existing service’s verified update flow first. Running services are attached through the existing identity/protocol handshake. No data is moved or merged.
 
 From a trusted matching headless runtime archive on macOS or Linux:
 
@@ -121,7 +177,9 @@ Use the platform's ZIP/AppImage shell artifact and matching electron-builder met
 Do not run `db:push`, a baseline rebuild or an older legacy binary against an updating installation. Cooperative CLI DB connections hold a shared access lease, and migration waits for all of them. `lsof` blocks activation when an older uncooperative process still has the database open. These are operational fences, not protection from an administrator manually replacing files.
 
 
-### Standalone verification, 26 September 2026
+### Foundation verification, 26 September 2026
+
+These results describe the S1-S8 foundation at `c4c62a0`. The independent feature verification below records the subsequent S9-S14 work.
 
 | Check | Result |
 | --- | --- |
@@ -154,7 +212,44 @@ RI_UPDATE_SMOKE_GUI=release/desktop/mac-arm64/Ri.app pnpm exec tsx desktop/updat
 
 The updater rehearsal creates its own publisher key and process-local CA trust, never production keys or OS trust. Its fixtures deliberately use a real appended SQL migration. Generated artifacts and homes are ignored by Git. The older audit probe is retained as historical evidence, not used as a passing release gate.
 
-**Remaining release gates:** actual Apple signing/notarization and shell installer update, a real publisher feed/key, Linux/Intel/clean-machine service qualification, login/logout/reboot/sleep behavior, live provider and Beamd flows, phone recording/push, accessibility and long-running resource budgets. Automated crash-phase recovery tests are not a physical power-loss certification. Managed speech downloads and Homes/Teams are separate conditional scopes. No automatic force-update or silent rollback after new writes is enabled.
+**Remaining release gates:** actual Apple signing/notarization and shell installer update, a real publisher feed/key, Linux/Intel/clean-machine service qualification, login/logout/reboot/sleep behavior, live provider and Beamd flows, phone recording/push, accessibility and long-running resource budgets. Automated crash-phase recovery tests are not a physical power-loss certification. Managed speech is optional and implemented below. Homes/Teams remains conditional. No automatic force-update or silent rollback after new writes is enabled.
+
+### Independent feature verification, 26 September 2026
+
+These checks cover the S9-S14 additions after `c4c62a0`, including the final review fixes. All service and browser fixtures use disposable installations. They never install an OS login job, alter the production data home, grant provider consent, change a live tunnel, or publish an artifact.
+
+| Check | Result |
+| --- | --- |
+| Application suite | 2,428 passed, 25 existing skips, across 264 passing files and two skipped files. |
+| Desktop suite | 64 passed across 14 files, including real SQLite interrupted-update rollback/forward recovery, first-initialization retry boundaries, and refusal of malformed or unrelated records. |
+| Connector engine suite | 301 passed across 49 files. |
+| Python decoder boundaries | Three passed, including playlist rejection and supported audio container decoding. |
+| TypeScript and builds | Root and connector checks, production Next, CLI, controller and desktop builds pass. |
+| Changed-source lint | No errors. Two existing unused-import warnings remain in command input and quick capture. The earlier whole-project lint limits above still apply. |
+| Packaged recovery and association | A deliberately failed first setup recovers before its first DB open. The real native picker verifies advanced paths, saves its selection, closes safely and reopens using that saved identity. The attached source/CLI owner retains its runtime, no extra database is created, and GUI quit preserves both services. The recovery screenshot was inspected. |
+| Phone browser smoke | Real Chromium validates manifest/icons, the public-only offline cache, offline API failure, reconnect and gateway fallback. Worker/cache-denial and bounded notification-activation regressions pass. No physical-phone claim. |
+| Managed speech | Relocated frozen helper, four actual audio containers, bounded duration, auth rejection, cancellation and parent cleanup pass. The packaged Voice UI and bundled headless CLI use one helper and retain the backend after GUI quit. Benchmarks and distribution limits are recorded above. |
+| Runtime update | Real HTTPS/Ed25519 feed, archive verification, appended SQLite migration, complete checkpoint, controller replacement, stable origin, retained prior runtime, preserved edit and successful new writes pass headlessly and with a packaged GUI. The GUI also persists download preferences and a maintenance window across reload, preserves draft window fields while polling, and cancels approval with Later. |
+
+Additional reproduction commands, after a production desktop build:
+
+```sh
+pnpm speech:build
+pnpm desktop:package --with-speech
+RI_DESKTOP_PACKAGE=release/desktop/mac-arm64/Ri.app pnpm exec tsx desktop/recovery-smoke.ts
+pnpm exec tsx scripts/smoke-phone-web-app.ts
+# Reuse a verified local model/audio fixture without another large download.
+RI_DESKTOP_PACKAGE=release/desktop/mac-arm64/Ri.app \
+RI_SPEECH_MODEL_FIXTURE=/absolute/path/to/verified/model \
+RI_SPEECH_AUDIO_FIXTURE=/absolute/path/to/sample.wav \
+pnpm exec tsx desktop/voice-smoke.ts
+```
+
+The final local desktop/headless runtime manifest is `aa8ff6938b790d05fbd31d449f904ef5fd731bba41923ca34e3b75b1c80e10f2`. Packaging verifies 3,943 portable dependency links, the complete runtime inventory and native CLI/SQLite/vector/PTY probes. The optional helper and all 11 checked-in native notice/provenance files are present, with their bytes checked against source.
+
+One parallel GUI update rehearsal timed out on a private control request while several large fixtures were active. The headless rehearsal and subsequent isolated GUI rehearsal passed. Controller responsiveness under sustained storage pressure remains part of release soak qualification. Final first-setup recovery and persisted installation switching passed against the final artifact above.
+
+The CI workflow now builds native helpers and runs the appropriate Mac/Linux checks, but that remote workflow has not been executed from this local session. Speech-bearing artifact upload remains gated on the documented distribution review. This is an unsigned local beta implementation, not a claim that the combined D1-D14 release matrix has passed. Conditional Homes/Teams integration and external qualification remain open.
 
 ## Framework decision and delivered assets
 
@@ -179,6 +274,16 @@ pnpm desktop:dev                        # Development server with hot reload
 ```
 
 These commands must run in the worktree containing `desktop/`. Source runs default to `.electron-demo/home`. An explicit `RI_DESKTOP_ROOT` chooses another desktop home. Other database/config/work path overrides are cleared, so the normal CLI home is not silently inherited.
+
+A source-only installation has no staged release. If its service was explicitly stopped, start it using that installation's matching checkout before reopening the viewer. For the default source demo home:
+
+```sh
+RI_DESKTOP=1 NEXT_DIST_DIR=.next-desktop RI_DB_PATH= RI_CONFIG_DIR= RI_WORK_DIR= \
+node dist/cli/index.mjs service --root "$PWD/.electron-demo/home" start
+node desktop/launch.mjs --skip-build
+```
+
+Use the actual selected root and advanced paths for another installation. A packaged, previously staged installation restarts its own selected runtime directly. This distinction prevents a new viewer from implicitly choosing replacement code for an existing source/CLI home.
 
 The first service start prefers `https://localhost:42242` and records an available public and private port. Later starts reuse those ports and report collisions instead of silently changing the origin. It uses `.next-desktop` or `.next-desktop-dev`, separate from ordinary web development. The existing authentication cookie is established before the page loads. The renderer has no Node access and receives a narrow platform/browser and save-handshake bridge through preload.
 
@@ -300,11 +405,11 @@ flowchart TD
   Worker --> Local[Local tools, credentials and working files]
 ```
 
-**Yes, the server can run with no GUI open. That should be the normal always-on mode.** Keeping the existing app open is sufficient only while its process and backend remain healthy and the computer stays awake. A hidden window or menu bar process can extend that lifetime, but does not provide independent service supervision. In the current desktop demo, quitting Electron stops its child backend.
+**Yes, the server can run with no GUI open.** The implemented desktop attaches to a separately owned service, and quitting Electron leaves that service running. Opt-in launchd/systemd supervision handles later login or service restart. A hidden window alone is not independent supervision. The computer must remain awake and reachable for phone access.
 
 Use the same installed runtime from both UI and CLI. The CLI is a way to install, inspect, start, stop and diagnose the service, not another authority or daemon alongside it. On a Home machine, one supervised service owns the backend and its child processes. On an enrolled remote execution machine, one supervised worker owns its local harnesses and journals. A viewing-only installation needs neither a local database nor a worker.
 
-The branch already has the long-running `ri worker run` entry point and its shutdown behavior. Its connected `ri start` checks/opens the saved Home address. Inspecting the function body shows that it does not yet start a supervised worker, despite a forward-looking comment. Neither branch currently implements a Home/worker service installer for launchd or systemd.
+At the reviewed experimental-branch snapshot, `ri worker run` was long-running and connected `ri start` checked/opened the saved Home address without starting a supervised worker. This desktop branch now implements launchd/systemd adapters for the standalone service. Role-aware Home/worker supervision remains conditional integration work.
 
 The standalone management commands `ri service install`, `status`, `start`, `stop`, `logs` and `uninstall` now exist. Home/worker role resolution remains conditional on the experimental branch. The GUI should invoke the same lifecycle layer. Ordinary window close and Quit Desktop must not silently mean Stop Home. Stopping local execution on a worker must not stop the Home or executions on other computers.
 
@@ -498,7 +603,7 @@ The Homes portable backup deliberately excludes machine-local identity, worker j
 | User/team/worker credentials attempt an unauthorized update | Only the relevant installation owner/host administrator can activate it |
 
 - [ ] U1: Establish the service owner, stable launcher, versioned runtime layout, maintenance guard, save/draft handshake and activity report with the Home/worker integration.
-- [ ] U2: Add migration-history compatibility checks, exclusive migration/bootstrap mode, full update checkpoint/verification, and crash-safe recovery. Test this locally before enabling remote updates.
+- [x] U2: Add migration-history compatibility checks, exclusive migration/bootstrap mode, full update checkpoint/verification, and crash-safe recovery. Local regressions and signed-runtime migration rehearsals pass. Physical power-loss and additional-platform qualification remain release gates.
 - [ ] U3: Build signed release payloads/metadata and the platform installer adapters, then connect them to the shared durable coordinator. Verify installed-app behavior, not only a development mock.
 - [ ] U4: Expose in-app/headless update controls and opt-in maintenance scheduling, implement UI/worker compatibility handling, and pass the fault matrix before unattended activation is enabled.
 
@@ -692,7 +797,7 @@ No real provider consent, production database migration, destructive disk test, 
 
 ## Delivery sequence and effort
 
-**The remaining work can be delivered in concrete stages.** These are engineering estimates including implementation and focused tests for one experienced engineer working with coding assistance. They exclude waiting for Apple credentials, provider approvals or external account/domain setup. The larger estimate replaces the earlier 2-4 week estimate because this review found additional security, durability, storage and service work.
+**Historical planning estimate, before S1-S14 implementation.** These stages included implementation and focused tests for one experienced engineer working with coding assistance. They excluded waiting for Apple credentials, provider approvals or external account/domain setup. They are retained to explain the original scope, not as an estimate of work remaining after this implementation. Current outstanding work is in the implementation matrix and release gates above.
 
 | Stage | Scope and completion criterion | Estimate |
 | --- | --- | --- |
@@ -704,17 +809,17 @@ No real provider consent, production database migration, destructive disk test, 
 
 Budget **roughly 4-6 engineer-weeks for a dependable macOS arm64 beta**, or **5-8 weeks including managed local voice**. These are planning ranges, not measured throughput or a guarantee. A narrow personal-use build can arrive sooner, but the capability gates above still determine what is safe to depend on. Other OS/CPU targets and a hosted confidential OAuth service are additional scope.
 
-These desktop estimates were produced before the multi-machine integration review. Do not add them blindly to the full Homes/teams estimate. Reuse its existing role/identity, worker routing, journals, backup and Git dependency work. Re-estimate against the landed Homes implementation and qualify the combined system. Linux service packaging, additional CPU targets, live account approvals, hosted confidential exchange and team-specific acceptance need their own budget. The optional local speech engine benchmark is still unresolved.
+These desktop estimates were produced before the multi-machine integration review. Do not add them blindly to the full Homes/teams estimate. Reuse its existing role/identity, worker routing, journals, backup and Git dependency work. Re-estimate if Homes is adopted and qualify the combined system. Linux qualification, additional CPU targets, live account approvals, hosted confidential exchange and team-specific acceptance need their own budget. The local speech functional benchmark is now recorded above. Broader accuracy, hardware and real-phone qualification remain open.
 
 ## Build checklist after the multi-device/teams work
 
-This is the original combined Home/team acceptance checklist. It remains unchecked where it includes conditional multi-machine behavior or external qualification. Standalone code completion is tracked by S1-S8 and the implementation matrix above. The Homes spec controls its own phase ownership.
+This is the original combined Home/team acceptance checklist. It remains unchecked where it includes conditional multi-machine behavior or external qualification. Standalone code completion is tracked by S1-S14 and the implementation matrix above. The Homes spec controls its own phase ownership.
 
 - [ ] D1: Resolve Home/connected/viewer roles before any DB initialization. Adopt an existing installation only through explicit verified ownership and the existing stopped migration/recovery flow. Keep development profiles explicit.
 - [ ] D2: Extract one lifecycle API used by GUI and CLI. Install/status/start/stop/logs/uninstall services without requiring a separate CLI download. Package Home/worker runtime independently of Electron for Mac and Linux.
 - [ ] D3: Implement a verified root/Home ID/runtime/protocol handshake, owner lock and race-safe attach/start. Version workers explicitly, including service launches outside pnpm. Prevent duplicate schedulers, split authority and concurrent old/new binaries during update.
 - [ ] D4: Add launchd/systemd adapters, bounded crash restart, graceful drain, login/logout/reboot tests, wake/reconnect and service diagnostics. Quit Desktop leaves an enabled service running. Stop Home and Stop Local Worker are separate actions with correct scope.
-- [ ] D5: Fix active-document attachment execution, bounded body reads, cookie mutation-origin defense, atomic configuration writes and safe production gating of development-only surfaces. Preserve bearer and provider-callback paths deliberately.
+- [x] D5: Fix active-document attachment execution, bounded body reads, cookie mutation-origin defense, atomic configuration writes and safe production gating of development-only surfaces. Preserve bearer and provider-callback paths deliberately.
 - [ ] D6: Flush pending saves on navigation/close/quit/update, wait for acknowledged writes, keep durable drafts through crashes, and preserve team content-revision conflict behavior. Stabilize renderer storage identity across ports and Home reconnection.
 - [ ] D7: Unify authorization initiation and registered callbacks per initiating client. Complete headless harness login and provider-specific secret handling. Verify settings/tool reconnect, refresh/revocation, simultaneous accounts and phone callbacks with real providers.
 - [ ] D8: Bind tunnels and previews to the correct Home/owner/destination, keep the public address stable, verify edge streaming/websocket/upload behavior, and exercise live Beamd restart/collision/reconnect. Rotate local TLS pins and certificates without a long-lived service outage.

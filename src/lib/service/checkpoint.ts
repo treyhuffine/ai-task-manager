@@ -42,6 +42,9 @@ function inventory(identity: Checkpoint['identity']) {
     // is not a consistent snapshot of its LevelDB/SQLite stores. Service
     // migrations never mutate it, and rollback must leave its drafts intact.
     if (source === path.join(identity.config, 'electron-demo')) return;
+    // Models are immutable, verified downloads and can be installed again.
+    // Their process owner lock and partial downloads are not recovery data.
+    if (source === path.join(identity.work, 'speech')) return;
     if (source === identity.database || source.startsWith(`${identity.database}-`) || source === `${identity.database}.maintenance.json` || volatile.test(source)) return;
     const stat = fs.lstatSync(source);
     if (stat.isDirectory()) for (const name of fs.readdirSync(source)) walk(path.join(source, name), path.join(saved, name));

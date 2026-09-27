@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
@@ -9,13 +9,17 @@ import { LifecycleGuardProvider } from "@/components/tasks/lifecycle-guard";
 import "./globals.css";
 import { APP_NAME } from "@/constants/app";
 import { DesktopChrome } from '@/components/desktop/desktop-chrome';
+import { WebAppBootstrap } from '@/components/settings/phone-install';
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: APP_NAME,
   description: "Productivity framework for humans and agents combined",
+  appleWebApp: { capable: true, title: APP_NAME, statusBarStyle: 'default' },
 };
+
+export const viewport: Viewport = { themeColor: '#181a18' };
 
 export default function RootLayout({
   children,
@@ -27,6 +31,7 @@ export default function RootLayout({
       <body className="antialiased">
         <QueryProvider>
           <DesktopChrome />
+          <WebAppBootstrap />
           <PairingBootstrap />
           <TooltipProvider>
             <ConfirmProvider>

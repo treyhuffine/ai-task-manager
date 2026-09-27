@@ -32,6 +32,16 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
   // Local desktop homes and distribution artifacts are never server assets.
   outputFileTracingExcludes: { '*': ['./.electron-demo/**', './release/**'] },
+  async headers() {
+    return [{
+      source: '/notifications-sw.js',
+      headers: [
+        { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self'; connect-src 'self'" },
+      ],
+    }];
+  },
   // StrictMode's dev-only double-fire of effects was causing real
   // user-facing bugs (rail mark-read triggered on the synthetic fake
   // unmount, before the user had seen the row). Effect cleanups here

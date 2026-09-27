@@ -1,0 +1,95 @@
+{
+  "format": 1,
+  "retrievedAt": "2026-09-26",
+  "files": [
+    {
+      "file": "ffmpeg/COPYING.LGPLv2.1",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n8.1.2/COPYING.LGPLv2.1",
+      "upstreamVersion": "8.1.2",
+      "sha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30",
+      "sourceSha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "ffmpeg/COPYING.LGPLv3",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n8.1.2/COPYING.LGPLv3",
+      "upstreamVersion": "8.1.2",
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+      "sourceSha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "ffmpeg/COPYING.GPLv2",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n8.1.2/COPYING.GPLv2",
+      "upstreamVersion": "8.1.2",
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+      "sourceSha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "ffmpeg/COPYING.GPLv3",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n8.1.2/COPYING.GPLv3",
+      "upstreamVersion": "8.1.2",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "sourceSha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "ffmpeg/LICENSE.md",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n8.1.2/LICENSE.md",
+      "upstreamVersion": "8.1.2",
+      "sha256": "2e1d16c72fd74e12063776371da757322f8b77589386532f4fd8634bde7de1af",
+      "sourceSha256": "2e1d16c72fd74e12063776371da757322f8b77589386532f4fd8634bde7de1af",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "x264/COPYING",
+      "url": "https://raw.githubusercontent.com/mirror/x264/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/COPYING",
+      "upstreamVersion": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "sha256": "32b1062f7da84967e7019d01ab805935caa7ab7321a7ced0e30ebe75e5df1670",
+      "sourceSha256": "32b1062f7da84967e7019d01ab805935caa7ab7321a7ced0e30ebe75e5df1670",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "x264/COPYRIGHT.txt",
+      "url": "https://raw.githubusercontent.com/mirror/x264/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264.h",
+      "upstreamVersion": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "sha256": "05018277b750080545a1f504335f2f89b961e862e92780c0e6bdf7b618bc3765",
+      "sourceSha256": "cec084bdb3cd2330800d0726bdbd99d91112df3fdb6d79f94e15ba67808b715c",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "x265/COPYING",
+      "url": "https://bitbucket.org/multicoreware/x265_git/raw/4.2/COPYING",
+      "upstreamVersion": "4.2",
+      "sha256": "d8afb1bcc7a2cfc603683b168d6987ef0a48e59e0da3693bf55c5d33b67e2b49",
+      "sourceSha256": "d8afb1bcc7a2cfc603683b168d6987ef0a48e59e0da3693bf55c5d33b67e2b49",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "x265/COPYRIGHT.txt",
+      "url": "https://bitbucket.org/multicoreware/x265_git/raw/4.2/source/x265.h",
+      "upstreamVersion": "4.2",
+      "sha256": "e8557aeb23ac7c220cc9298b485864e87df4ae9d7418ef0359cd0e5ccec34d01",
+      "sourceSha256": "cbef2ef491146a2d6c2358e8e89b9548b945782973ab74204bacdc6aad5d18ac",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "flatbuffers/LICENSE",
+      "url": "https://raw.githubusercontent.com/google/flatbuffers/v25.12.19/LICENSE",
+      "upstreamVersion": "25.12.19",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "sourceSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "extraction": "complete upstream file, verbatim"
+    }
+  ],
+  "wheelProvenance": {
+    "pyav": "https://github.com/PyAV-Org/PyAV/blob/v18.1.0/scripts/ffmpeg-latest.json",
+    "nativeRelease": "https://github.com/PyAV-Org/pyav-ffmpeg/releases/tag/8.1.2-1",
+    "sourceRecipe": "https://github.com/PyAV-Org/pyav-ffmpeg/blob/8.1.2-1/scripts/pkg.py",
+    "buildRecipe": "https://github.com/PyAV-Org/pyav-ffmpeg/blob/8.1.2-1/scripts/build-ffmpeg.py",
+    "patches": "https://github.com/PyAV-Org/pyav-ffmpeg/tree/8.1.2-1/patches",
+    "ffmpegSource": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+    "ffmpegSourceSha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c"
+  }
+}

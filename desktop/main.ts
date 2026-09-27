@@ -13,8 +13,29 @@ import { certificateDecision, externalWebUrl, sameOrigin } from './trust';
 import { installTerminalCommand, removeTerminalCommand, type CliInstallation } from './cli-install';
 import { updateDesktop } from './shell-update';
 import { parseDeepLink, resultLocation, watchOAuthResults } from './oauth-client';
+import { servicePaths } from '../src/lib/service/paths';
+import { serviceRequest, serviceStatus } from '../src/lib/service/client';
+import { redactServiceLine } from '../src/lib/service/logging';
+import { assertExistingInstallation, installationEnvironment, localInstallation, readInstallation, saveInstallation, type InstallationInspection } from './installation';
+import { maintenanceWindow } from './maintenance-window';
 
 const repo = app.isPackaged ? path.join(process.resourcesPath, 'server') : process.env.RI_DESKTOP_REPO || path.resolve(__dirname, '../..');
+// An explicit state directory isolates saved installation choices as well as
+// the default home. Useful for portable/test launches without OS-global state.
+const desktopState = path.resolve(process.env.RI_DESKTOP_STATE_DIR || (app.isPackaged ? path.join(app.getPath('appData'), APP_NAME) : path.join(repo, '.electron-demo')));
+const installationFile = path.join(desktopState, app.isPackaged ? 'desktop-installation.json' : 'installation.json');
+const defaultDesktopRoot = path.join(desktopState, 'home');
+const useSavedInstallation = process.argv.includes('--ri-use-saved-installation');
+const useDefaultInstallation = process.argv.includes('--ri-default-installation');
+let selectionError: string | undefined;
+let selectionInvalid = false;
+if (useSavedInstallation || useDefaultInstallation) {
+  for (const key of ['RI_DESKTOP_ROOT', 'RI_DESKTOP_DATABASE', 'RI_DESKTOP_CONFIG', 'RI_DESKTOP_WORK', 'RI_DESKTOP_ASSOCIATED']) delete process.env[key];
+}
+if (!useDefaultInstallation && (!process.env.RI_DESKTOP_ROOT || useSavedInstallation)) {
+  try { const selected = readInstallation(installationFile); if (selected) Object.assign(process.env, installationEnvironment(selected)); }
+  catch (error) { selectionInvalid = true; selectionError = error instanceof Error ? error.message : 'Could not read the selected installation.'; }
+}
 if (app.isPackaged) {
   const configFile = path.join(process.resourcesPath, 'desktop-config.json');
   if (fs.existsSync(configFile)) {
@@ -24,15 +45,28 @@ if (app.isPackaged) {
   }
   process.env.RI_DESKTOP_NODE = path.join(process.resourcesPath, 'node', 'bin', 'node');
   process.env.RI_DESKTOP_RESOURCES = process.resourcesPath;
-  process.env.RI_DESKTOP_ROOT ||= path.join(app.getPath('appData'), APP_NAME, 'home');
+  process.env.RI_DESKTOP_ROOT ||= defaultDesktopRoot;
   process.env.RI_DESKTOP_MODE = 'production';
 }
 const mode = process.env.RI_DESKTOP_MODE === 'development' ? 'development' : 'production';
 const env = demoEnvironment(repo, process.env, mode);
 for (const key of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR']) delete process.env[key];
 Object.assign(process.env, env);
-const profile = path.join(getConfigDir(), 'electron-demo');
-fs.mkdirSync(profile, { recursive: true, mode: 0o700 });
+const identity = servicePaths().identity;
+const defaults = localInstallation({ root: identity.root });
+const advanced = ['database', 'config', 'work'].some(key => identity[key as keyof typeof identity] !== defaults[key as keyof typeof defaults]);
+let profile = path.join(getConfigDir(), 'electron-demo', ...(advanced ? [servicePaths().id] : []));
+try {
+  // The ordinary Node inspector decides whether a missing DB has a valid
+  // first-initialization permit. This pass only establishes a safe profile.
+  if (process.env.RI_DESKTOP_ASSOCIATED === '1') assertExistingInstallation(identity, { allowMissingDatabase: true });
+  fs.mkdirSync(profile, { recursive: true, mode: 0o700 });
+} catch (error) {
+  selectionInvalid = true;
+  selectionError = error instanceof Error ? error.message : 'The selected installation profile cannot be opened.';
+  profile = path.join(path.dirname(installationFile), 'recovery-profile');
+  fs.mkdirSync(profile, { recursive: true, mode: 0o700 });
+}
 app.setName(app.isPackaged ? APP_NAME : `${APP_NAME} Demo`);
 app.setPath('userData', profile);
 let window: BrowserWindow | undefined;
@@ -63,12 +97,103 @@ async function handleDeepLink(raw: string) {
 }
 
 function cliInstallation(): CliInstallation {
-  const runtimeRepo = installedRuntime?.repo ?? repo;
-  return { node: installedRuntime?.node ?? process.env.RI_DESKTOP_NODE!, cli: path.join(runtimeRepo, 'dist/cli/index.mjs'), root: env.RI_DESKTOP_ROOT!, server: runtimeRepo, launcher: installedRuntime?.launcher };
+  if (selectionInvalid || !installedRuntime) throw new Error('This service does not report its runtime executable. Use its existing CLI to manage it. No bundled runtime was adopted.');
+  const runtimeRepo = installedRuntime.repo;
+  return { node: installedRuntime.node, cli: path.join(runtimeRepo, 'dist/cli/index.mjs'), root: env.RI_DESKTOP_ROOT!, server: runtimeRepo, launcher: installedRuntime.launcher, locations: servicePaths().identity };
 }
 
+async function inspectInstallation(value: unknown): Promise<InstallationInspection> {
+  const identity = localInstallation(value);
+  const inspectEnv = demoEnvironment(repo, { ...env, ...installationEnvironment(identity) }, mode);
+  return new Promise((resolve, reject) => execFile(process.env.RI_DESKTOP_NODE!, [path.join(repo, 'dist/desktop/inspect-installation.cjs')],
+    { env: inspectEnv, timeout: 15_000, maxBuffer: 64 * 1024 }, (error, stdout, stderr) => {
+      if (error) reject(new Error(stderr || error.message));
+      else { try { resolve(JSON.parse(stdout)); } catch { reject(new Error('Could not verify this installation.')); } }
+    }));
+}
+
+async function diagnostics() {
+  let connectionError: string | undefined;
+  const status = await serviceStatus().catch(error => { connectionError = error instanceof Error ? error.message : 'Service status is unavailable.'; return null; });
+  const safe = status as typeof status & { update?: { phase: string; reason?: string; error?: string; release?: { version: string } } };
+  return { desktop: app.getVersion(), platform: process.platform, arch: process.arch, identity: servicePaths().identity,
+    phase: status?.phase ?? (connectionError ? 'unreachable' : 'stopped'), version: status?.version,
+    failure: redactServiceLine(selectionError ?? connectionError ?? status?.error ?? '', [appToken ?? '']),
+    update: safe?.update && { phase: safe.update.phase, version: safe.update.release?.version,
+      reason: redactServiceLine(safe.update.reason ?? '', [appToken ?? '']), error: redactServiceLine(safe.update.error ?? '', [appToken ?? '']) } };
+}
+
+async function detachConnection() {
+  const child = backend;
+  backend = undefined;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  const exited = once(child, 'exit');
+  if (child.connected) child.send({ type: 'stop' }); else child.kill('SIGTERM');
+  const timeout = setTimeout(() => stopTree(child), 10_000);
+  try { await exited; } finally { clearTimeout(timeout); }
+}
+
+async function retryConnection() {
+  if (selectionInvalid) throw new Error('Choose and verify an installation before retrying. The saved selection could not be opened.');
+  const status = await serviceStatus();
+  if (status?.phase === 'failed') throw new Error('The service needs recovery before it can restart.');
+  selectionError = undefined;
+  await detachConnection();
+  startConnection();
+  return {};
+}
+
+async function switchInstallation(value?: unknown) {
+  const inspected = value === undefined ? undefined : await inspectInstallation(value);
+  if (inspected && !inspected.canUse) throw new Error(inspected.reason ?? 'This installation is not ready.');
+  const identity = inspected?.identity ?? localInstallation({ root: defaultDesktopRoot });
+  const choice = await dialog.showMessageBox({ type: 'question', message: 'Use this local installation?',
+    detail: `Data: ${identity.root}\nDatabase: ${identity.database}\nConfiguration: ${identity.config}\nWork: ${identity.work}\n\nRi will save this window and restart it. Existing services and files stay in place.`,
+    buttons: ['Cancel', 'Use installation'], defaultId: 0, cancelId: 0 });
+  if (choice.response !== 1 || !(await prepareClose())) return {};
+  try {
+    // Recheck after the dialog, since a service or migration may have changed.
+    if (inspected && !(await inspectInstallation(inspected.identity)).canUse) throw new Error('The installation changed. Verify it again before switching.');
+    if (inspected) saveInstallation(installationFile, identity);
+    else fs.rmSync(installationFile, { force: true });
+    const args = process.argv.slice(1).filter(arg => !['--ri-use-saved-installation', '--ri-default-installation'].includes(arg));
+    app.relaunch({ args: [...args, inspected ? '--ri-use-saved-installation' : '--ri-default-installation'] });
+    await quit(true);
+  } catch (error) { if (!quitting) window?.webContents.send('desktop:resume'); throw error; }
+  return {};
+}
+
+const maintenance = maintenanceWindow({
+  status: diagnostics,
+  retry: retryConnection,
+  recover: async () => {
+    const status = await serviceStatus();
+    if (status?.phase !== 'failed') throw new Error('Recovery is available only for a stopped, failed backend.');
+    const choice = await dialog.showMessageBox({ type: 'warning', message: 'Recover the background service?',
+      detail: 'Ri follows the saved update record and preserves any database that already accepted new writes. Recovery never forces active work to stop. If the problem remains, inspect the log before retrying.',
+      buttons: ['Cancel', 'Recover'], defaultId: 0, cancelId: 0 });
+    if (choice.response !== 1) return {};
+    await serviceRequest('/recover', 'POST', 120_000);
+    const deadline = Date.now() + 30_000;
+    while (await serviceStatus()) {
+      if (Date.now() >= deadline) throw new Error('The recovering service is still stopping. Refresh its status before retrying.');
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    return retryConnection();
+  },
+  logs: async () => {
+    const log = servicePaths().log;
+    if (!fs.existsSync(log)) throw new Error('No service log exists yet.');
+    shell.showItemInFolder(log);
+    return {};
+  },
+  copy: async () => { clipboard.writeText(JSON.stringify(await diagnostics(), null, 2)); return {}; },
+  inspect: inspectInstallation,
+  use: switchInstallation,
+  default: () => switchInstallation(),
+});
+
 async function manageTerminalCommand(remove = false) {
-  const options = cliInstallation();
   const record = path.join(profile, 'terminal-command.json');
   try {
     if (remove) {
@@ -79,6 +204,7 @@ async function manageTerminalCommand(remove = false) {
       await dialog.showMessageBox({ message: 'Terminal command removed', detail: installed.target });
       return;
     }
+    const options = cliInstallation();
     if (fs.existsSync(record)) throw new Error('Remove the existing desktop terminal command before installing another.');
     const selected = await dialog.showSaveDialog({ title: 'Install Ri terminal command', defaultPath: path.join(os.homedir(), '.local/bin/ri-desktop'), buttonLabel: 'Install command', nameFieldLabel: 'Command name' });
     if (selected.canceled || !selected.filePath) return;
@@ -89,17 +215,21 @@ async function manageTerminalCommand(remove = false) {
 }
 
 async function serviceCommand(action: 'install' | 'uninstall' | 'start' | 'stop' | 'status') {
-  if (!appOrigin || !window) return;
-  const options = cliInstallation();
+  if (!window) return;
   if (action !== 'status' && !(await prepareClose())) return;
   try {
+    if (action === 'status') {
+      const output = JSON.stringify(await diagnostics(), null, 2);
+      const result = await dialog.showMessageBox(window, { message: 'Ri service', detail: output, buttons: ['Close', 'Copy diagnostics'] });
+      if (result.response === 1) clipboard.writeText(output);
+      return;
+    }
+    const options = cliInstallation();
+    if (action === 'install' && !options.launcher) throw new Error('Start at login requires an explicitly staged managed runtime. Use this installation’s existing CLI to adopt one first.');
     const command = options.launcher ?? options.node;
     const args = options.launcher ? ['cli', 'service', action] : [options.cli, 'service', action];
     const output = await new Promise<string>((resolve, reject) => execFile(command, args, { env, timeout: 240_000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => error ? reject(new Error(stderr || error.message)) : resolve(stdout)));
-    if (action === 'status') {
-      const result = await dialog.showMessageBox(window, { message: 'Ri service', detail: output, buttons: ['Close', 'Copy diagnostics'] });
-      if (result.response === 1) clipboard.writeText(JSON.stringify({ desktop: app.getVersion(), electron: process.versions.electron, platform: process.platform, arch: process.arch, service: JSON.parse(output) }, null, 2));
-    } else await dialog.showMessageBox(window, { message: action === 'install' ? 'Start at login enabled' : action === 'uninstall' ? 'Start at login disabled' : action === 'start' ? 'Service started' : 'Service stopped', detail: output.trim() });
+    await dialog.showMessageBox(window, { message: action === 'install' ? 'Start at login enabled' : action === 'uninstall' ? 'Start at login disabled' : action === 'start' ? 'Service started' : 'Service stopped', detail: output.trim() });
   } catch (error) { dialog.showErrorBox('Ri service', error instanceof Error ? error.message : String(error)); }
   finally { window?.webContents.send('desktop:resume'); }
 }
@@ -144,6 +274,7 @@ async function quit(skipGuard = false) {
     clearTimeout(force);
   }
   finished = true;
+  maintenance.close();
   // Keep the native window alive until the helper exits. On macOS, destroying
   // the last window during app.quit can suspend delivery of child exit events.
   window?.destroy();
@@ -154,9 +285,10 @@ function fail(message: string) {
   if (quitting) return;
   console.error(`[desktop] ${message}`);
   // Automation must report failure instead of hanging on a modal dialog.
-  if (!process.env.RI_DESKTOP_SMOKE) dialog.showErrorBox(`${APP_NAME} could not start`, message);
-  exitCode = 1;
-  void quit(true);
+  clearTimeout(startupTimer);
+  selectionError = message;
+  if (process.env.RI_DESKTOP_SMOKE && !process.env.RI_DESKTOP_RECOVERY_SMOKE) { exitCode = 1; void quit(true); return; }
+  void maintenance.show();
 }
 
 async function navigateSafely(url: string) {
@@ -173,6 +305,7 @@ async function openApp(ready: BackendReady) {
   if (appOrigin && !reconnecting && !(await prepareClose())) return;
   oauthAbort.abort(); oauthAbort = new AbortController();
   installedRuntime = ready.runtime;
+  selectionError = undefined;
   appToken = ready.token;
   clearTimeout(startupTimer);
   const ses = window!.webContents.session;
@@ -293,6 +426,7 @@ async function start() {
         if (backend?.connected) backend.send({ type: 'stop' });
       }); } },
       { label: 'Service Status…', click: () => void serviceCommand('status') },
+      { label: 'Local Installation and Recovery…', click: () => void maintenance.show() },
       { label: 'Start at Login…', click: () => void serviceCommand('install') },
       { label: 'Disable Start at Login…', click: () => void serviceCommand('uninstall') },
       { label: 'Start Service', click: () => void serviceCommand('start') },
@@ -305,8 +439,15 @@ async function start() {
   if (!process.env.RI_DESKTOP_NODE || process.env.RI_DESKTOP_NODE === process.execPath) {
     throw new Error('Launch with pnpm desktop:demo or pnpm desktop:dev so the backend uses ordinary Node.');
   }
-  backend = fork(path.join(repo, 'dist/desktop/backend.cjs'), [], { cwd: repo, execPath: process.env.RI_DESKTOP_NODE,
+  if (selectionError) { fail(selectionError); return; }
+  startConnection();
+}
+
+function startConnection() {
+  clearTimeout(startupTimer);
+  const child = fork(path.join(repo, 'dist/desktop/backend.cjs'), [], { cwd: repo, execPath: process.env.RI_DESKTOP_NODE,
     execArgv: [], env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+  backend = child;
   // Next prints its browser pairing URL at boot. Desktop pairing happens over
   // private IPC, so avoid copying that credential into terminal/test logs.
   for (const [input, output] of [[backend.stdout, process.stdout], [backend.stderr, process.stderr]] as const) {
@@ -315,12 +456,13 @@ async function start() {
     });
   }
   backend.on('message', (message: BackendMessage) => {
+    if (backend !== child || quitting) return;
     if (message.type === 'certificate' && window && message.origin === appOrigin) window.webContents.session.setCertificateVerifyProc((request, callback) => callback(certificateDecision(request.hostname, request.certificate.data, message)));
     if (message.type === 'error') fail(message.message);
     if (message.type === 'ready') void openApp(message).catch(() => fail('Could not load the local app. Check the backend output and relaunch the demo.'));
   });
-  backend.once('error', (error) => fail(error.message));
-  backend.once('exit', (code) => { if (!quitting) fail(`The local backend stopped (${code ?? 'signal'}). Relaunch the demo.`); });
+  child.once('error', (error) => { if (backend === child) fail(error.message); });
+  child.once('exit', (code) => { if (!quitting && backend === child && !selectionError) fail(`The desktop connection helper stopped (${code ?? 'signal'}). Inspect the service and retry.`); });
   startupTimer = setTimeout(() => fail('The app did not finish starting within four minutes. Check the backend output and retry.'), 240_000);
 }
 

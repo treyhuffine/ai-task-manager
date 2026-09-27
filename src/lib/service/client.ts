@@ -12,6 +12,8 @@ export interface ServiceStatus {
   phase: 'starting' | 'running' | 'stopping' | 'failed' | 'updating';
   version: string;
   repo: string;
+  /** Executable used by the owning backend, when reported by this controller. */
+  node?: string;
   origin?: string;
   error?: string;
 }
@@ -21,7 +23,9 @@ export interface ServiceSession extends ServiceStatus { origin: string; certific
 export async function serviceRequest<T>(route: string, method = 'GET', timeoutMs = 3000, body?: unknown): Promise<T> {
   const paths = servicePaths();
   return new Promise((resolve, reject) => {
-    const request = http.request({ socketPath: paths.socket, path: route, method }, response => {
+    // Control calls span controller replacement. Never reuse a pooled socket
+    // belonging to the process that just acknowledged recovery/shutdown.
+    const request = http.request({ socketPath: paths.socket, path: route, method, agent: false }, response => {
       const chunks: Buffer[] = [];
       let size = 0;
       response.on('data', chunk => {
@@ -48,9 +52,13 @@ export async function serviceRequest<T>(route: string, method = 'GET', timeoutMs
 }
 
 export async function serviceStatus(): Promise<ServiceStatus | null> {
-  try { return await serviceRequest<ServiceStatus>('/status'); } catch (error) {
-    if (['ENOENT', 'ECONNREFUSED'].includes((error as NodeJS.ErrnoException).code ?? '')) return null;
-    throw error;
+  for (let attempt = 0; ; attempt++) {
+    try { return await serviceRequest<ServiceStatus>('/status'); } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? '';
+      if (['ENOENT', 'ECONNREFUSED'].includes(code)) return null;
+      if (attempt === 0 && ['ECONNRESET', 'EPIPE'].includes(code)) { await new Promise(resolve => setTimeout(resolve, 50)); continue; }
+      throw error;
+    }
   }
 }
 

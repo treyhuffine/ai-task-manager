@@ -3,6 +3,7 @@
 import { RemoteBaseUrlSection } from '@/components/settings/remote-base-url';
 import { DevicesSection } from '@/components/settings/devices-section';
 import { ClientSettings } from '@/components/settings/client-settings';
+import { PhoneInstall } from '@/components/settings/phone-install';
 
 /**
  * Devices pane. Remote base URL first (it's the most-reached-for setting —
@@ -15,6 +16,7 @@ export function DevicesSettingsSection() {
     <div className="space-y-7">
       <RemoteBaseUrlSection />
       <DevicesSection />
+      <PhoneInstall />
       <ClientSettings />
     </div>
   );
