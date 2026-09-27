@@ -41,3 +41,48 @@ it('retains failed writes and detects an external edit before recovery', async (
   expect(draftDisposition(draft, { body: 'draft' })).toBe('saved');
   expect(draftDisposition(draft, { body: 'someone else' })).toBe('conflict');
 });
+
+it('does not block close after acknowledged writes when local storage is disabled', async () => {
+  const saves = new DocumentSaveQueue(() => { throw new Error('storage is disabled'); });
+  const writer = vi.fn(async () => {});
+  expect(() => saves.schedule('notes:1', { body: 'latest' }, { body: '' }, writer)).toThrow('storage is disabled');
+  expect(saves.has()).toBe(true);
+  await expect(saves.flushAll()).resolves.toBeUndefined();
+  expect(writer).toHaveBeenCalledExactlyOnceWith({ body: 'latest' });
+  expect(saves.has()).toBe(false);
+});
+
+it('continues serial writes when storage becomes unavailable during a save', async () => {
+  vi.useFakeTimers();
+  let storageAvailable = true;
+  const stored = new Map<string, string>();
+  const saves = new DocumentSaveQueue(() => {
+    if (!storageAvailable) throw new Error('storage is disabled');
+    return {
+      getItem: key => stored.get(key) ?? null,
+      setItem: (key, value) => { stored.set(key, value); },
+      removeItem: key => { stored.delete(key); },
+    };
+  });
+  let acknowledge!: () => void;
+  const writer = vi.fn().mockImplementationOnce(() => new Promise<void>(resolve => { acknowledge = resolve; })).mockResolvedValue(undefined);
+  saves.schedule('notes:1', { body: 'first' }, { body: '' }, writer);
+  const pending = saves.flushAll();
+  saves.schedule('notes:1', { body: 'second' }, { body: '' }, writer);
+  storageAvailable = false;
+  acknowledge();
+  await expect(pending).resolves.toBeUndefined();
+  expect(writer.mock.calls).toEqual([[{ body: 'first' }], [{ body: 'second' }]]);
+  expect(saves.has()).toBe(false);
+});
+
+it('retains failed writes in memory even when draft persistence also fails', async () => {
+  const saves = new DocumentSaveQueue(() => { throw new Error('storage is disabled'); });
+  const writer = vi.fn().mockRejectedValueOnce(new Error('server unavailable')).mockResolvedValue(undefined);
+  expect(() => saves.schedule('notes:1', { body: 'latest' }, { body: '' }, writer)).toThrow('storage is disabled');
+  await expect(saves.flush('notes:1')).rejects.toThrow('server unavailable');
+  expect(saves.has()).toBe(true);
+  await saves.flushAll();
+  expect(writer.mock.calls).toEqual([[{ body: 'latest' }], [{ body: 'latest' }]]);
+  expect(saves.has()).toBe(false);
+});

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Command } from 'commander';
-import { APP_ROOT_ENV } from '@/lib/config/paths';
+import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
 import { ensureService, serviceStatus, stopService } from '@/lib/service/client';
 import { servicePaths } from '@/lib/service/paths';
 import { createRuntimeManifest, installedRuntime, stageRuntime, verifyRuntime } from '@/lib/service/runtime';
@@ -19,6 +19,9 @@ export function registerServiceCommand(program: Command) {
   service.command('start').description('Start or attach without keeping this terminal open')
     .option('--dev', 'use the development server')
     .action(async (options: { dev?: boolean }) => {
+      // Resolve the identity before runtime lookup or service discovery, just
+      // as the foreground `start --dev` command does.
+      if (options.dev && !process.env[APP_ROOT_ENV]) process.env[APP_ROOT_ENV] = getDevAppRoot();
       const installed = installedRuntime();
       const repo = installed?.repo ?? process.env.RI_RUNTIME_REPO ?? process.env.RI_DESKTOP_REPO ?? process.cwd();
       const ready = await ensureService({ repo, node: installed?.node ?? process.execPath,

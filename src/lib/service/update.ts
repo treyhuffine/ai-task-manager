@@ -28,6 +28,7 @@ export interface UpdateBackend {
   validate(target: RuntimeTarget, token: string): Promise<void>;
   activate(): Promise<void>;
   restart(target: RuntimeTarget): Promise<void>;
+  unavailable?(error: string): void;
   assertNoLegacyWriters(): Promise<void>;
 }
 const transient = new Set<UpdatePhase>(['draining', 'checkpointing', 'validating']);
@@ -155,7 +156,8 @@ export class UpdateCoordinator {
         }
         if (!activity) { clearMaintenance(); this.save({ phase: 'waiting', reason: 'Waiting for active requests, CLI commands or background work' }); return this.status(); }
         writeMaintenance({ ...gate, phase: 'offline' });
-        await this.backend.stop(); stopped = true;
+        stopped = true;
+        await this.backend.stop();
         access = exclusiveDatabaseAccess();
         await this.backend.assertNoLegacyWriters();
         this.save({ phase: 'checkpointing' });
@@ -172,10 +174,14 @@ export class UpdateCoordinator {
         activity(); activity = undefined;
         clearMaintenance();
         await this.backend.activate();
+        stopped = false;
         return this.status();
       } catch (error) {
         if (this.record.committedAt) {
           this.save({ phase: 'recovery-required', error: `The new database is retained. ${message(error)}` });
+          // Validation can still be alive if runtime selection or handoff
+          // failed. Recovery must never swap/select under that backend.
+          await this.backend.stop();
           throw error;
         }
         if (stopped) {
@@ -195,14 +201,26 @@ export class UpdateCoordinator {
         access?.(); access = undefined;
         activity?.(); activity = undefined;
         this.save({ phase: 'failed', approved: false, error: message(error) });
-        if (stopped) await this.backend.restart(await this.target(prior.id));
+        if (stopped) {
+          try { await this.backend.restart(await this.target(prior.id)); stopped = false; }
+          catch (restartError) { this.save({ error: message(restartError) }); throw restartError; }
+        }
         throw error;
-      } finally { access?.(); activity?.(); }
+      } finally {
+        access?.(); activity?.();
+        if (stopped) this.backend.unavailable?.(this.record.error ?? 'The backend stopped during an update. Review recovery before restarting.');
+      }
     });
   }
 
   /** Runs before any token bootstrap, DB opener, scheduler or public socket. */
   async recover(retry = false) {
+    // Restoring a checkpoint can await an out-of-process helper. Keep the
+    // controller's busy fence held so a concurrent recover/stop/handoff cannot
+    // race the database replacement or release ownership while it runs.
+    return this.exclusive(() => this.recoverExclusive(retry));
+  }
+  private async recoverExclusive(retry: boolean) {
     if (retry && this.record.phase === 'recovery-required') {
       if (!this.record.committedAt && (!this.record.checkpoint || !this.record.priorId)) throw new Error('No complete recovery record is available. Inspect the preserved data before proceeding.');
       this.save({ phase: this.record.committedAt ? 'committed' : 'validating' });

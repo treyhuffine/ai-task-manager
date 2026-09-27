@@ -421,7 +421,7 @@ async function start() {
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : [{ label: 'App', submenu: [{ role: 'quit' as const }] }]),
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
     { label: 'Tools', submenu: [
-      { label: 'Check for Desktop Update…', click: () => { if (window) void updateDesktop(window, prepareClose, async () => {
+      { label: 'Check for Desktop Update…', click: () => { if (window) void updateDesktop(window, prepareClose, () => {
         quitting = true; finished = true; oauthAbort.abort();
         if (backend?.connected) backend.send({ type: 'stop' });
       }); } },

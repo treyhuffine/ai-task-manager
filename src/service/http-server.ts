@@ -12,7 +12,12 @@ const handle = application.getRequestHandler();
 async function start() {
   await application.prepare();
   const server = http.createServer((request, response) => {
-    const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+    let pathname: string;
+    try { pathname = new URL(request.url ?? '/', 'http://localhost').pathname; }
+    catch {
+      response.writeHead(400, { 'Cache-Control': 'no-store', 'Content-Type': 'text/plain' }).end('Invalid request target');
+      return;
+    }
     const gate = readMaintenance();
     // Readiness is private to the local controller. During validation the
     // public gateway is still closed, including to ordinary read requests.

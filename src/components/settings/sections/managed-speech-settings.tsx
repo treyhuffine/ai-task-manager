@@ -36,6 +36,7 @@ export function ManagedSpeechSettings() {
     {installing && <div className="space-y-1"><progress className="h-2 w-full" value={data.downloadedBytes} max={data.totalBytes} aria-label="Model download progress" /><p className="text-xs text-muted-foreground">{(data.downloadedBytes / 1024 ** 2).toFixed(0)} / {(data.totalBytes / 1024 ** 2).toFixed(0)} MiB</p></div>}
     {!data.installed && data.helperAvailable && <p className="text-xs text-muted-foreground">Downloads a verified {(data.totalBytes / 1024 ** 2).toFixed(0)} MiB model. Allow 900 MiB of free disk space. No Python or Docker installation is needed.</p>}
     <div className="flex flex-wrap gap-2">
+      {data.installed && data.enabled && data.phase === 'error' && <Button size="sm" variant="outline" disabled={busy} onClick={() => void action({ action: 'configure', enabled: true })}>Retry local speech</Button>}
       {!installing && data.helperAvailable && <Button size="sm" variant={data.installed ? 'outline' : 'default'} disabled={busy} onClick={() => void action({ action: 'install' })}>{data.installed ? 'Verify and repair' : data.phase === 'error' ? 'Resume or retry' : 'Install local speech'}</Button>}
       {installing && <Button size="sm" variant="outline" disabled={pending} onClick={() => void action({ action: 'cancel' })}>Pause download</Button>}
       {(data.installed || data.phase === 'error') && !installing && <Button size="sm" variant="outline" disabled={busy} onClick={() => setConfirmRemove(true)}>Remove model</Button>}

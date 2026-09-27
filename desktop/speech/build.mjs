@@ -9,7 +9,7 @@ const build = path.join(root, '.electron-demo/speech-build');
 const output = path.join(root, 'release/speech-helper');
 fs.mkdirSync(build, { recursive: true });
 function run(command, args) {
-  const result = spawnSync(command, args, { stdio: 'inherit', cwd: root, env: { ...process.env, PYINSTALLER_CONFIG_DIR: path.join(build, 'pyinstaller-cache') } });
+  const result = spawnSync(command, args, { stdio: 'inherit', cwd: build, env: { ...process.env, ORT_DISABLE_TELEMETRY: '1', PYINSTALLER_CONFIG_DIR: path.join(build, 'pyinstaller-cache') } });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} failed (${result.status})`);
 }

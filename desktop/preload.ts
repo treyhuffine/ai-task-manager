@@ -6,8 +6,10 @@ if (process.isMainFrame) {
     platform: process.platform,
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('desktop:open-external', url),
     onResume: (callback: () => void) => {
-      ipcRenderer.on('desktop:resume', callback);
-      return () => ipcRenderer.removeListener('desktop:resume', callback);
+      // Never pass Electron's IPC event (and its sender) into page callbacks.
+      const listener = () => callback();
+      ipcRenderer.on('desktop:resume', listener);
+      return () => ipcRenderer.removeListener('desktop:resume', listener);
     },
     onPrepareClose: (callback: () => Promise<boolean>) => {
       const listener = (_event: Electron.IpcRendererEvent, nonce: string) => {

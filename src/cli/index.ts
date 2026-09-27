@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { serviceEnvironment } from '@/lib/service/environment';
+import { applyServiceEnvironment } from '@/lib/service/environment';
 import { beginActivity } from '@/lib/service/maintenance';
 import { Command } from 'commander';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
@@ -38,7 +38,7 @@ program.hook('preAction', (_program, action) => {
   let command = action;
   while (command.parent && command.parent !== program) command = command.parent;
   if (!['service', 'update', 'start', 'stop'].includes(command.name())) {
-    Object.assign(process.env, serviceEnvironment(process.execPath));
+    applyServiceEnvironment(process.execPath);
     releaseCommand = beginActivity();
   }
 });

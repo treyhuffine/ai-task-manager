@@ -30,11 +30,18 @@ export function useDocumentAutosave<Input extends { id: string }>(
       if (!draft) return;
       const action = draftDisposition(draft, entity as Record<string, unknown>);
       if (action === 'saved') documentSaves.discard(key);
-      else if (action === 'retry') save(draft.patch as Omit<Input, 'id'>);
-      else toast.warning('A retained draft differs from the saved document.', {
+      // Matching the old base does not prove the draft is still current. The
+      // server may have been edited back to that value, or an acknowledged
+      // draft may have survived a denied storage cleanup. Recover explicitly.
+      else toast.warning(action === 'conflict'
+        ? 'A retained draft differs from the saved document.'
+        : 'A retained draft is available for this document.', {
         duration: Infinity,
         action: { label: 'Restore draft', onClick: () => save(draft.patch as Omit<Input, 'id'>) },
-        cancel: { label: 'Discard draft', onClick: () => documentSaves.discard(key) },
+        cancel: { label: 'Discard draft', onClick: () => {
+          try { documentSaves.discard(key); }
+          catch { toast.error('Could not discard the retained draft. It was left in storage.'); }
+        } },
       });
     } catch { toast.error('Could not read the retained draft. It was left in storage.'); }
   }, [key, entity, save]);

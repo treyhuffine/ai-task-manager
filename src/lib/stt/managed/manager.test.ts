@@ -80,3 +80,39 @@ it('rejects an already cancelled transcription without spawning a helper', async
   await expect(manager.transcribe(new Blob(['recording']), cancel.signal)).rejects.toThrow();
   expect(manager.status().phase).toBe('installed');
 });
+it('allows a deliberate retry after helper startup fails without reinstalling the model', async () => {
+  manager.install(); await settled();
+  // The fixture helper is intentionally not executable. A failed launch must
+  // not strand a verified model behind permanently unavailable provider state.
+  await expect(manager.transcribe(new Blob(['recording']))).rejects.toThrow();
+  expect(manager.status()).toMatchObject({ phase: 'error', installed: true, enabled: true });
+  vi.mocked(fetch).mockClear();
+  expect(manager.configure({ enabled: true })).toMatchObject({ phase: 'installed', installed: true, enabled: true, error: undefined });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(fs.readFileSync(path.join(speechPaths().model, 'test.onnx'), 'utf8')).toBe(fixture.bytes);
+});
+it('keeps the helper crash cooldown when deliberately retrying', async () => {
+  manager.install(); await settled();
+  const helper = path.join(root, 'helper');
+  const launches = path.join(root, 'launches');
+  fs.writeFileSync(helper, `#!/usr/bin/env node
+require('node:fs').appendFileSync(${JSON.stringify(launches)}, 'started\\n');
+process.stdin.once('data', () => {
+  console.log(JSON.stringify({ protocol: 1, ready: true, port: 12345 }));
+  setTimeout(() => process.exit(1), 100);
+});
+`);
+  fs.chmodSync(helper, 0o700);
+  vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ text: 'recognized' })));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // Give each fake helper its own response body. It exits after readiness,
+    // exercising the real process-exit accounting without a listening server.
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ text: 'recognized' })));
+    await expect(manager.transcribe(new Blob(['recording']))).resolves.toBe('recognized');
+    for (let count = 0; count < 200 && manager.status().phase !== 'error'; count++) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(manager.status().phase).toBe('error');
+    manager.configure({ enabled: true });
+  }
+  await expect(manager.transcribe(new Blob(['recording']))).rejects.toThrow('repeatedly stopped');
+  expect(fs.readFileSync(launches, 'utf8').trim().split('\n')).toHaveLength(3);
+});

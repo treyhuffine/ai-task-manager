@@ -12,6 +12,11 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+# ORT's POSIX uploader initializes while its native module imports. Suppress it
+# before importing onnx_asr/onnxruntime, including the standalone version probe.
+# This is separate from Hugging Face's telemetry preference.
+os.environ["ORT_DISABLE_TELEMETRY"] = "1"
+
 MAX_BYTES = 50 * 1024 * 1024
 MAX_SECONDS = 600
 PROTOCOL = 1
@@ -22,6 +27,13 @@ def decode_audio(data):
     import numpy as np
     chunks = []
     size = 0
+    def append(converted):
+        nonlocal size
+        samples = converted.to_ndarray().reshape(-1)
+        size += samples.size
+        if size > MAX_SECONDS * 16000:
+            raise ValueError("Recording exceeds the 10 minute local transcription limit")
+        chunks.append(samples)
     if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
         container_format = "wav"
     elif data[:4] == b"OggS":
@@ -42,13 +54,9 @@ def decode_audio(data):
         resampler = av.AudioResampler(format="fltp", layout="mono", rate=16000)
         for frame in container.decode(audio=0):
             for converted in resampler.resample(frame):
-                samples = converted.to_ndarray().reshape(-1)
-                size += samples.size
-                if size > MAX_SECONDS * 16000:
-                    raise ValueError("Recording exceeds the 10 minute local transcription limit")
-                chunks.append(samples)
+                append(converted)
         for converted in resampler.resample(None):
-            chunks.append(converted.to_ndarray().reshape(-1))
+            append(converted)
     if not chunks:
         raise ValueError("No audio samples found")
     return np.concatenate(chunks).astype(np.float32)
@@ -88,6 +96,7 @@ def main():
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
     import onnx_asr
     import onnxruntime as ort
+    ort.disable_telemetry_events()
     options = ort.SessionOptions()
     options.intra_op_num_threads = min(4, os.cpu_count() or 1)
     options.inter_op_num_threads = 1

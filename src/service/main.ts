@@ -8,7 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import getPort from 'get-port';
 import { acquireServiceOwner } from '@/lib/service/owner';
-import { runtimeJob } from '@/lib/service/runtime-job';
+import { runtimeJob, initializeRuntimeJobs, stopRuntimeJobs } from '@/lib/service/runtime-job';
 import { serviceEnvironment } from '@/lib/service/environment';
 import { bundledCliCommand } from '../../desktop/config';
 import { canonical, servicePaths } from '@/lib/service/paths';
@@ -74,6 +74,7 @@ async function stopBackend() {
   fs.rmSync(childRecord, { force: true });
 }
 async function startBackend(target?: RuntimeTarget, validating?: string) {
+  if (stopping) throw new Error('The service is stopping');
   if (target) { repo = canonical(target.repo); node = target.node; }
   process.env.RI_RUNTIME_REPO = repo;
   process.env.RI_DESKTOP_REPO = repo;
@@ -185,6 +186,7 @@ async function shutdown(code = 0) {
   if (stopping) return stopping;
   stopping = (async () => {
     status.phase = 'stopping';
+    await stopRuntimeJobs();
     await gateway?.close(1000).catch(() => {});
     await stopBackend();
     clearServerRuntimeIfOwned(status.runId);
@@ -195,6 +197,7 @@ async function shutdown(code = 0) {
 
 async function start() {
   releaseOwner = acquireServiceOwner();
+  await initializeRuntimeJobs();
   if (readLiveServerRuntime()) throw new Error('An existing launcher is using this data root. Stop it before enabling the service.');
   if (fs.existsSync(childRecord)) {
     const child = JSON.parse(fs.readFileSync(childRecord, 'utf8')) as { pid: number };
@@ -222,7 +225,11 @@ async function start() {
       await new Promise<void>((resolve, reject) => { relay.once('spawn', resolve); relay.once('error', reject); });
       relay.unref(); setImmediate(() => void shutdown());
     },
-    restart: async target => { await startBackend(target); publish(); },
+    restart: async target => {
+      try { await startBackend(target); publish(); }
+      catch (error) { await stopBackend(); throw error; }
+    },
+    unavailable: error => { status.phase = 'failed'; status.error = error; },
   });
   if (fs.existsSync(paths.socket)) {
     if (!fs.lstatSync(paths.socket).isSocket()) throw new Error('The service socket path is occupied by another file');

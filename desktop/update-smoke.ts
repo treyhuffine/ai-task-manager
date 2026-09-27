@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { desktopPackageLayout } from './package-layout';
 import os from 'node:os';
 import https from 'node:https';
 import { once } from 'node:events';
@@ -107,6 +108,22 @@ async function request(session: ServiceSession, route: string, body?: object, me
     }); request.on('error', reject); request.end(body && JSON.stringify(body));
   });
 }
+async function assertMalformedRequestsRejected(session: ServiceSession) {
+  // Send raw, unauthenticated targets. URL/fetch helpers normalize these and
+  // would miss a parser exception before the application's auth boundary.
+  for (const target of ['//', '//[']) {
+    const status = await new Promise<number>((resolve, reject) => {
+      const probe = https.request(session.origin, { ca: fs.readFileSync(getCaCertPath()), path: target }, response => {
+        response.resume(); response.on('end', () => resolve(response.statusCode!));
+      });
+      probe.setTimeout(5000, () => probe.destroy(new Error('Malformed request probe timed out')));
+      probe.on('error', reject); probe.end();
+    });
+    assert.equal(status, 400);
+  }
+  assert.equal((await serviceStatus())?.runId, session.runId, 'Malformed traffic must not restart the controller');
+  assert.equal((await request(session, '/api/health')).status, 200);
+}
 async function main() {
 try {
   console.info('Staging the first runtime');
@@ -144,6 +161,7 @@ try {
   fs.writeFileSync(path.join(getRuntimeInstallDir(), 'release-policy.json'), JSON.stringify({ format: 1, feed: `${origin}/release.json`, publicKey: keys.publicKey.export({ type: 'spki', format: 'pem' }), channel: 'stable', automaticDownload: false, metered: true }));
   console.info('Starting the standalone service');
   const initial = await ensureService({ repo: first.repo, node: first.node, env: { ...process.env, NODE_EXTRA_CA_CERTS: caFile } });
+  await assertMalformedRequestsRejected(initial);
   const created = await request(initial, '/api/notes', { body: 'Keep this note across the update.' });
   assert.equal(created.status, 201);
   const noteId = created.body.id;
@@ -151,7 +169,7 @@ try {
   if (process.env.RI_UPDATE_SMOKE_GUI) {
     console.info('Attaching the packaged GUI to the same service');
     await request(initial, '/api/user-state', { onboardedAt: new Date().toISOString() }, 'PATCH');
-    gui = await _electron.launch({ executablePath: path.join(path.resolve(process.env.RI_UPDATE_SMOKE_GUI), 'Contents/MacOS/Ri'), env: { ...process.env, RI_DESKTOP_ROOT: process.env.RI_ROOT!, RI_DESKTOP_SMOKE: '1' }, timeout: 240_000 });
+    gui = await _electron.launch({ executablePath: desktopPackageLayout(process.env.RI_UPDATE_SMOKE_GUI).executable, env: { ...process.env, RI_DESKTOP_ROOT: process.env.RI_ROOT!, RI_DESKTOP_SMOKE: '1' }, timeout: 240_000 });
     const page = await gui.firstWindow();
     await page.waitForURL(url => url.origin === initial.origin, { timeout: 240_000 });
     await page.goto(`${initial.origin}/?settings=updates`);
@@ -198,7 +216,7 @@ try {
   const after = await request(current, '/api/notes', { body: 'New data after upgrade.' }); assert.equal(after.status, 201);
   assert.equal(fs.readFileSync(unpublished, 'utf8'), 'unpublished work');
   assert(fs.existsSync(first.repo));
-  console.info(JSON.stringify({ passed: true, guiAttached: !!gui, downloadPreferencesVerified: !!gui, maintenanceWindowVerified: !!gui, originStable: true, publisherVerified: true, migrated: true, controllerReplaced: true, priorRuntimeRetained: true, newWritesAccepted: true, checkpointVerified: true, temporary }));
+  console.info(JSON.stringify({ passed: true, guiAttached: !!gui, malformedRequestsRejected: true, downloadPreferencesVerified: !!gui, maintenanceWindowVerified: !!gui, originStable: true, publisherVerified: true, migrated: true, controllerReplaced: true, priorRuntimeRetained: true, newWritesAccepted: true, checkpointVerified: true, temporary }));
 } finally {
   if (gui) {
     await Promise.all([

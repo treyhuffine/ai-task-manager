@@ -73,6 +73,14 @@ export class ManagedSpeech {
       this.claim();
       atomicWriteFile(speechPaths().settings, JSON.stringify({ ...speechPreferences(), ...preferences }));
       if (preferences.enabled === false) this.stop();
+      // A failed helper launch makes provider probes unavailable. Explicitly
+      // enabling again lets the next recording retry without copying/downloading
+      // the verified model. Keep the crash counter so deliberate retries still
+      // obey the restart bound in ensureStarted.
+      if (preferences.enabled === true && this.phase === 'error') {
+        this.stop();
+        this.error = undefined;
+      }
       return this.status();
     } finally { release(); }
   }

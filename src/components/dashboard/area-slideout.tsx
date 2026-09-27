@@ -115,22 +115,24 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
       setNameValue(value)
 
       const trimmed = value.trim()
-      if (trimmed && areaId && trimmed !== area?.name) {
+      // Queue the latest input even when it matches the saved value. An undo
+      // can otherwise leave an earlier, different value waiting to be saved.
+      if (trimmed && areaId) {
         autosave({ name: trimmed })
       }
     },
-    [areaId, area?.name, autosave]
+    [areaId, autosave]
   )
 
   const saveDescription = useCallback(
     (value: string) => {
       setDescValue(value)
 
-      if (areaId && value !== (area?.description ?? '')) {
+      if (areaId) {
         autosave({ description: value || null })
       }
     },
-    [areaId, area?.description, autosave]
+    [areaId, autosave]
   )
 
   const handleArchive = useCallback(() => {

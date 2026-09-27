@@ -40,7 +40,10 @@ function read(): EnvironmentSettings {
 export function environmentStatus() {
   const settings = read();
   const { GROQ_API_KEY, OPENAI_API_KEY, ...values } = settings;
-  return { values, secrets: { GROQ_API_KEY: !!(GROQ_API_KEY ?? process.env.GROQ_API_KEY), OPENAI_API_KEY: !!(OPENAI_API_KEY ?? process.env.OPENAI_API_KEY) } };
+  return { values, secrets: {
+    GROQ_API_KEY: !!(GROQ_API_KEY === undefined ? process.env.GROQ_API_KEY : GROQ_API_KEY),
+    OPENAI_API_KEY: !!(OPENAI_API_KEY === undefined ? process.env.OPENAI_API_KEY : OPENAI_API_KEY),
+  } };
 }
 export function saveEnvironment(input: unknown) {
   const patch = EnvironmentInput.parse(input);
@@ -83,4 +86,12 @@ export function serviceEnvironment(node: string, inherited: NodeJS.ProcessEnv = 
   // These secrets are explicitly allowed here, never general renderer env.
   for (const name of secretNames) if (env[name] === '') delete env[name];
   return env;
+}
+
+/** CLI commands execute in this process. Copying only present values would
+ * retain inherited keys that the owner explicitly removed in Settings. */
+export function applyServiceEnvironment(node: string, target: NodeJS.ProcessEnv = process.env) {
+  const environment = serviceEnvironment(node, target);
+  for (const name of Object.keys(target)) if (!(name in environment)) delete target[name];
+  Object.assign(target, environment);
 }

@@ -60,14 +60,22 @@ export class DocumentSaveQueue {
         } catch (error) {
           state.patch = { ...patch, ...state.patch };
           state.inFlight = undefined;
-          this.persist(key, state);
+          // The write error remains authoritative when local storage also
+          // fails. Keep the in-memory patch available for the next retry.
+          try { this.persist(key, state); } catch { /* Already retained in memory. */ }
           throw error;
         }
         state.inFlight = undefined;
         Object.assign(state.base, patch);
-        if (Object.keys(state.patch).length) this.persist(key, state);
+        if (Object.keys(state.patch).length) {
+          // Storage restrictions must not prevent already-queued edits from
+          // reaching the server. schedule() reports retention failures.
+          try { this.persist(key, state); } catch { /* Continue the serial writer. */ }
+        }
       }
-      this.discard(key);
+      // All writes are acknowledged. A denied localStorage cleanup must not
+      // leave a phantom pending save that blocks close or reload forever.
+      try { this.discard(key); } catch { /* Recovery never silently replays retained drafts. */ }
       this.pending.delete(key);
     })();
     try { await state.running; } finally { state.running = undefined; }

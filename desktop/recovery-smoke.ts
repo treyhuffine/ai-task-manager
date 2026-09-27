@@ -10,6 +10,7 @@ import { demoEnvironment } from './config';
 import { installationEnvironment, localInstallation } from './installation';
 import { ensureService, serviceStatus, stopService } from '../src/lib/service/client';
 import { installedRuntime } from '../src/lib/service/runtime';
+import { desktopPackageLayout } from './package-layout';
 
 const repo = path.resolve(__dirname, '..');
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-recovery-smoke-'));
@@ -20,7 +21,7 @@ fs.mkdirSync(testHome, { recursive: true });
 const desktopState = path.join(base, 'desktop-state');
 const env = demoEnvironment(repo, { ...process.env, HOME: testHome, XDG_CONFIG_HOME: path.join(testHome, '.config'), RI_DESKTOP_STATE_DIR: desktopState, RI_DESKTOP_ROOT: root, RI_INSTALL_ROOT: path.join(base, 'runtime'), RI_DESKTOP_NODE: process.execPath }, 'production');
 const packageFile = process.env.RI_DESKTOP_PACKAGE;
-const executablePath = packageFile ? path.join(path.resolve(packageFile), 'Contents/MacOS/Ri') : electron as unknown as string;
+const executablePath = packageFile ? desktopPackageLayout(packageFile).executable : electron as unknown as string;
 const args = packageFile ? [] : [path.join(repo, 'dist/desktop/main.cjs')];
 let instance: ElectronApplication | undefined;
 function select(environment: NodeJS.ProcessEnv) { for (const name of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR']) delete process.env[name]; Object.assign(process.env, environment); }

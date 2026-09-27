@@ -138,7 +138,7 @@ if (!headless) {
     protocols: [{ name: 'Ri OAuth callback', schemes: ['ri'] }],
     mac: { icon: path.join(repo, 'assets/brand/icons/icon.icns'), identity: releaseBuild ? process.env.CSC_NAME : null, signIgnore: ['Contents/Resources/server/', 'Contents/Resources/node/'], hardenedRuntime: true, notarize: releaseBuild,
       extendInfo: { NSMicrophoneUsageDescription: 'Ri uses the microphone when you record a voice message.', NSCameraUsageDescription: 'Ri uses the camera when you scan a pairing code.' } },
-    linux: { icon: path.join(repo, 'assets/brand/icons'), category: 'Office' },
+    linux: { executableName: 'ri', icon: path.join(repo, 'assets/brand/icons'), category: 'Office' },
     // The native updater obtains the eligible URL from signed Ri metadata.
     publish: process.env.RI_RELEASE_FEED ? [{ provider: 'generic', url: new URL('.', process.env.RI_RELEASE_FEED).href }] : null,
     afterPack: async context => {

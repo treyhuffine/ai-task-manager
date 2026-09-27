@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { desktopPackageLayout } from './package-layout';
 import { execFileSync } from 'node:child_process';
 import { _electron, type ElectronApplication, type Page } from 'playwright-core';
 import { demoEnvironment } from './config';
@@ -26,8 +27,7 @@ const root = path.join(base, 'home');
 const isolatedUser = path.join(base, 'os-home');
 fs.mkdirSync(isolatedUser, { recursive: true });
 const packaged = path.resolve(source);
-const resources = process.platform === 'darwin' ? path.join(packaged, 'Contents/Resources') : path.join(packaged, 'resources');
-const executablePath = process.platform === 'darwin' ? path.join(packaged, 'Contents/MacOS/Ri') : path.join(packaged, 'ri');
+const { resources, executable: executablePath } = desktopPackageLayout(packaged);
 const bundledNode = path.join(resources, 'node/bin/node');
 const cli = path.join(resources, 'server/dist/cli/index.mjs');
 const env = demoEnvironment(repo, { NODE_ENV: 'production', HOME: isolatedUser, USER: process.env.USER, TMPDIR: process.env.TMPDIR, PATH: '/usr/bin:/bin:/usr/sbin:/sbin',

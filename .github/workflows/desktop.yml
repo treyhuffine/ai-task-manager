@@ -79,7 +79,13 @@ jobs:
           pnpm exec tsx desktop/recovery-smoke.ts
       - name: Exercise Linux recovery in a virtual display
         if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum pnpm exec tsx desktop/recovery-smoke.ts
+        run: |
+          if [ "$RUNNER_ARCH" = "ARM64" ]; then
+            export RI_DESKTOP_PACKAGE=release/desktop/linux-arm64-unpacked
+          else
+            export RI_DESKTOP_PACKAGE=release/desktop/linux-unpacked
+          fi
+          xvfb-run --auto-servernum pnpm exec tsx desktop/recovery-smoke.ts
       - run: pnpm exec tsx desktop/update-smoke.ts
       - name: Install test Chromium
         run: pnpm exec playwright-core install --with-deps chromium

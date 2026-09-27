@@ -127,11 +127,34 @@ it('restores the checkpoint after migration or validation failure', async () => 
   expect(updater.status().phase).toBe('failed'); expect(backend.restart).toHaveBeenCalledOnce();
 });
 it('never restores a checkpoint after committing, even if activation fails', async () => {
+  backend.unavailable = vi.fn();
   backend.activate = vi.fn(async () => { write('new user data'); throw new Error('activation failed'); });
   const updater = coordinator(); await expect(updater.apply()).rejects.toThrow('activation failed');
   expect(read()).toBe('new user data'); expect(updater.status().phase).toBe('recovery-required');
+  expect(backend.stop).toHaveBeenCalledTimes(2);
+  expect(backend.unavailable).toHaveBeenCalledWith(expect.stringContaining('new database is retained'));
   await expect(coordinator().recover()).rejects.toThrow('retained');
   expect(read()).toBe('new user data');
+});
+it('exposes a stopped recovery failure to the controller instead of remaining updating', async () => {
+  backend.validate = vi.fn(async () => { write('candidate'); throw new Error('candidate crashed'); });
+  backend.restore = vi.fn(async () => { throw new Error('checkpoint unavailable'); });
+  backend.unavailable = vi.fn();
+  const updater = coordinator();
+  await expect(updater.apply()).rejects.toThrow('checkpoint unavailable');
+  expect(updater.status()).toMatchObject({ phase: 'recovery-required', busy: false });
+  expect(backend.unavailable).toHaveBeenCalledWith(expect.stringContaining('checkpoint unavailable'));
+  expect(backend.restart).not.toHaveBeenCalled();
+});
+it('exposes a failed prior-runtime restart while retaining its restored database', async () => {
+  backend.validate = vi.fn(async () => { write('candidate'); throw new Error('candidate crashed'); });
+  backend.restart = vi.fn(async () => { throw new Error('prior backend could not restart'); });
+  backend.unavailable = vi.fn();
+  const updater = coordinator();
+  await expect(updater.apply()).rejects.toThrow('prior backend could not restart');
+  expect(read()).toBe('before');
+  expect(backend.unavailable).toHaveBeenCalledOnce();
+  await expect(updater.recover(true)).resolves.toBeUndefined();
 });
 it.each(['draining', 'checkpointing'] as const)('recovers a controller crash in %s without restoring untouched data', async phase => {
   save({ phase }); const updater = coordinator(); await updater.recover();
@@ -160,4 +183,22 @@ it('leaves corrupted recovery material untouched and refuses to boot', async () 
   write('candidate'); save({ phase: 'validating', checkpoint });
   const updater = coordinator(); await expect(updater.recover()).rejects.toThrow('checksum');
   expect(updater.status().phase).toBe('recovery-required'); expect(read()).toBe('candidate');
+});
+it('excludes other controller actions throughout an asynchronous recovery', async () => {
+  let finishRestore!: () => void;
+  let restored!: () => void;
+  const restoreStarted = new Promise<void>(resolve => { restored = resolve; });
+  const restorePending = new Promise<void>(resolve => { finishRestore = resolve; });
+  backend.restore = vi.fn(async () => { restored(); await restorePending; });
+  save({ phase: 'validating', checkpoint: '/verified/checkpoint' });
+  const updater = coordinator();
+  const recovery = updater.recover();
+  await restoreStarted;
+  try {
+    expect(updater.status().busy).toBe(true);
+    await expect(updater.recover(true)).rejects.toThrow('Another update action');
+    await expect(updater.check()).rejects.toThrow('Another update action');
+    expect(backend.restore).toHaveBeenCalledOnce();
+  } finally { finishRestore(); await recovery; }
+  expect(updater.status()).toMatchObject({ busy: false, phase: 'failed' });
 });
