@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Dialog as DialogPrimitive, VisuallyHidden } from "radix-ui";
-import { X, Mic, Square, Send, Loader2, Zap, ImagePlus, ArrowUp } from "lucide-react";
+import { X, Mic, Square, Loader2, Zap, ImagePlus, ArrowUp } from "lucide-react";
 import { toast } from "sonner";
 import { useCreateStream } from "@/hooks/use-stream";
 import { useVoiceInput } from "@/hooks/use-voice-input";
@@ -10,6 +10,7 @@ import { LiveWaveform } from "@/components/ui/live-waveform";
 import { api, ApiError } from "@/lib/api/client";
 import type { StreamRecord } from "@/db/types";
 import { cn } from "@/lib/utils";
+import { retainCaptureDraft } from '@/lib/client/capture-draft';
 
 // Toggle to A/B the attach-image flow:
 //   false → stage image in composer, send with text via Capture button
@@ -50,6 +51,12 @@ export function QuickCaptureModal({ open, onOpenChange }: QuickCaptureModalProps
   const imageInputRef = useRef<HTMLInputElement>(null);
   const createStream = useCreateStream();
   const voice = useVoiceInput();
+  const captureOwner = useRef({});
+  useEffect(() => {
+    const owner = captureOwner.current;
+    retainCaptureDraft(owner, !!text.trim() || stagedImages.length > 0 || imageUploading || createStream.isPending);
+    return () => retainCaptureDraft(owner, false);
+  }, [text, stagedImages.length, imageUploading, createStream.isPending]);
 
   // Append voice transcript to textarea when recording finishes
   useEffect(() => {

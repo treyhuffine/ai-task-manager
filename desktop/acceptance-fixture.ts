@@ -114,7 +114,7 @@ export class AcceptanceFixture {
       if (/^(?:RI_|OPENAI_|ANTHROPIC_|GROQ_|BEAMD_|CLAUDE_|CODEX_|CURSOR_|OPENCODE_)/.test(key)) delete inherited[key];
     }
     this.env = Object.fromEntries(Object.entries(demoEnvironment(path.resolve(__dirname, '..'), {
-      ...inherited, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
+      ...inherited, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share'),
       PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
       RI_DESKTOP_STATE_DIR: path.join(this.base, 'desktop-state'), RI_DESKTOP_ROOT: this.root,
       RI_INSTALL_ROOT: path.join(this.base, 'runtime'), RI_DESKTOP_SMOKE: '1',
@@ -134,11 +134,11 @@ export class AcceptanceFixture {
     Object.assign(process.env, this.env);
   }
 
-  async launch() {
+  async launch(args: string[] = []) {
     assert(!this.app, 'Quit the current viewer before reopening it');
     const started = Date.now();
     console.info(`[acceptance] Launching packaged viewer with temporary home ${this.root}`);
-    this.app = await _electron.launch({ executablePath: this.executable, args: [], cwd: this.base, env: this.env, timeout: 240_000 });
+    this.app = await _electron.launch({ executablePath: this.executable, args, cwd: this.base, env: this.env, timeout: 240_000 });
     const page = await this.app.firstWindow({ timeout: 30_000 });
     page.setDefaultTimeout(30_000);
     // Electron can cancel beforeunload before Chromium's CDP dialog reply.

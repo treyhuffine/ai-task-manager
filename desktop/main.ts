@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, session, shell, screen, clipboard } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, session, shell, screen, clipboard, globalShortcut } from 'electron';
 import { fork, execFile, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
@@ -20,7 +20,13 @@ import { assertExistingInstallation, installationEnvironment, localInstallation,
 import { maintenanceWindow } from './maintenance-window';
 import { DesktopNotifications } from './notifications';
 import { backgroundWindow, revealWindow } from './window-visibility';
-import { createDesktopTray, desktopMenuCommands } from './tray';
+import { createDesktopTray, desktopMenuCommands, activityMenuItems, updateDesktopTray } from './tray';
+import { CaptureShortcut } from './shortcut';
+import { ensureDesktopPortalIdentity } from './portal';
+import { createDesktopLogin } from './login';
+import { desktopSettingsAction } from './settings';
+import { DesktopActivity } from './activity';
+import { desktopActivityPath, type DesktopActivitySnapshot } from '../src/lib/sessions/desktop-activity-contract';
 import type { DesktopNotificationAction } from '../src/lib/notifications/desktop-contract';
 
 const repo = app.isPackaged ? path.join(process.resourcesPath, 'server') : process.env.RI_DESKTOP_REPO || path.resolve(__dirname, '../..');
@@ -29,7 +35,13 @@ const repo = app.isPackaged ? path.join(process.resourcesPath, 'server') : proce
 const desktopState = path.resolve(process.env.RI_DESKTOP_STATE_DIR || (app.isPackaged ? path.join(app.getPath('appData'), APP_NAME) : path.join(repo, '.electron-demo')));
 const installationFile = path.join(desktopState, app.isPackaged ? 'desktop-installation.json' : 'installation.json');
 const defaultDesktopRoot = path.join(desktopState, 'home');
-const useSavedInstallation = process.argv.includes('--ri-use-saved-installation');
+const macLoginLaunch = (() => {
+  try { return app.isPackaged && process.platform === 'darwin' && app.getLoginItemSettings({ type: 'mainAppService' }).wasOpenedAtLogin; }
+  catch { return false; }
+})();
+// A genuine OS login uses the saved choice. A caller's --ri-background flag
+// only affects visibility and must retain an explicitly selected data root.
+const useSavedInstallation = process.argv.includes('--ri-use-saved-installation') || macLoginLaunch;
 const useDefaultInstallation = process.argv.includes('--ri-default-installation');
 let selectionError: string | undefined;
 let selectionInvalid = false;
@@ -94,7 +106,47 @@ let notificationAbort = new AbortController();
 let navigating = false;
 let tray: ReturnType<typeof createDesktopTray>;
 let updatingShell = false;
+const desktopLogin = createDesktopLogin({ app });
+let captureShortcut: CaptureShortcut | undefined;
+let captureReady = false;
+let capturePending = false;
+let activity: DesktopActivity | undefined;
+let activityState: DesktopActivitySnapshot = { connection: 'connecting' };
+let menuActions: Parameters<typeof desktopMenuCommands>[0] | undefined;
+let refreshApplicationMenu: (() => void) | undefined;
+let activityPresentation = '';
 const pendingLinks: string[] = [];
+
+function requestQuickCapture() {
+  if (quitting || preparation || preparingClose || navigating || updatingShell) return;
+  showWindow();
+  capturePending = true;
+  deliverCapture();
+}
+
+function deliverCapture() {
+  if (!capturePending || !captureReady || !window || window.isDestroyed() || quitting || preparation || preparingClose || navigating || updatingShell) return;
+  capturePending = false;
+  window.webContents.send('desktop:quick-capture');
+}
+
+function openActivity(sessionId: string) {
+  if (!appOrigin || quitting || !activityState.activity?.targets.some(target => target.sessionId === sessionId)) return;
+  showWindow(); void navigateSafely(`${appOrigin}${desktopActivityPath(sessionId)}`);
+}
+
+function updateActivity(snapshot: DesktopActivitySnapshot) {
+  activityState = snapshot;
+  if (quitting) return;
+  const presentation = JSON.stringify({ connection: snapshot.connection, activity: snapshot.activity });
+  if (presentation === activityPresentation) return;
+  activityPresentation = presentation;
+  if (tray && !tray.isDestroyed() && menuActions) updateDesktopTray(tray, menuActions, snapshot, openActivity);
+  // Electron makes MenuItem.submenu read-only. Rebuild from the template only
+  // when visible activity changes, keeping ordinary polls from replacing menus.
+  refreshApplicationMenu?.();
+  app.dock?.setBadge(snapshot.connection === 'connected' && snapshot.activity?.attention ? String(snapshot.activity.attention) : '');
+}
 
 function showWindow() {
   visibilityRevision++;
@@ -134,6 +186,7 @@ async function checkDesktopUpdate() {
   try {
     await updateDesktop(window, prepareClose, () => {
       quitting = true; finished = true; oauthAbort.abort(); notifications?.stop(); notificationAbort.abort();
+      activity?.stop(); captureShortcut?.stop();
       tray?.destroy(); tray = undefined;
       if (backend?.connected) backend.send({ type: 'stop' });
     });
@@ -297,12 +350,12 @@ function stopTree(child: ChildProcess) {
   else { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } }
 }
 
-function prepareClose(): Promise<boolean> {
-  preparation ??= prepareCloseOnce().finally(() => { preparation = undefined; });
+function prepareClose(intent: 'quit' | 'continue' = 'continue'): Promise<boolean> {
+  preparation ??= prepareCloseOnce(intent).finally(() => { preparation = undefined; });
   return preparation;
 }
 
-async function prepareCloseOnce(): Promise<boolean> {
+async function prepareCloseOnce(intent: 'quit' | 'continue'): Promise<boolean> {
   if (!window || window.isDestroyed() || !appOrigin || !sameOrigin(window.webContents.getURL(), appOrigin)) return true;
   const ok = await new Promise<boolean>(resolve => {
     const nonce = randomUUID();
@@ -316,8 +369,8 @@ async function prepareCloseOnce(): Promise<boolean> {
   showWindow();
   const result = await dialog.showMessageBox(window, {
     type: 'warning', message: 'Some changes have not finished saving',
-    detail: 'Keep Ri open to retry. If you quit, retained text drafts can be recovered when you reopen. Finish any recording or upload before closing.',
-    buttons: ['Keep open', 'Quit anyway'], defaultId: 0, cancelId: 0,
+    detail: 'Keep Ri open to finish your capture, recording or upload and retry pending saves. Retained document and chat drafts can be recovered. Unsubmitted captures and attachments may be lost if you continue.',
+    buttons: ['Keep open', intent === 'quit' ? 'Quit anyway' : 'Continue without saving'], defaultId: 0, cancelId: 0,
   });
   if (result.response !== 1) window?.webContents.send('desktop:resume');
   return result.response === 1;
@@ -326,9 +379,10 @@ async function prepareCloseOnce(): Promise<boolean> {
 async function quit(skipGuard = false) {
   if (quitting || preparingClose) return;
   preparingClose = true;
-  if (!skipGuard && !(await prepareClose())) { preparingClose = false; return; }
+  if (!skipGuard && !(await prepareClose('quit'))) { preparingClose = false; return; }
   preparingClose = false;
   quitting = true;
+  activity?.stop(); captureShortcut?.stop();
   tray?.destroy(); tray = undefined;
   oauthAbort.abort();
   notifications?.stop(); notificationAbort.abort();
@@ -354,6 +408,7 @@ function fail(message: string) {
   // Automation must report failure instead of hanging on a modal dialog.
   clearTimeout(startupTimer);
   selectionError = message;
+  updateActivity({ connection: 'disconnected' });
   if (process.env.RI_DESKTOP_SMOKE && !process.env.RI_DESKTOP_RECOVERY_SMOKE) { exitCode = 1; void quit(true); return; }
   void maintenance.show();
 }
@@ -362,16 +417,29 @@ async function navigateSafely(url: string) {
   if (navigating || quitting || !window) return;
   navigating = true;
   try {
-    if (await prepareClose() && !quitting && !preparingClose) await window.loadURL(url);
+    if (await prepareClose() && !quitting && !preparingClose) await loadPreparedPage(url);
   } catch { window?.webContents.send('desktop:resume'); }
   finally { navigating = false; }
+}
+
+/** Only a completed save/discard decision may override beforeunload for the
+ * single navigation it approved. Ordinary renderer reloads keep their guard. */
+async function loadPreparedPage(url: string) {
+  if (!window || window.isDestroyed()) return;
+  const contents = window.webContents;
+  const approved = (event: Electron.Event) => event.preventDefault();
+  contents.once('will-prevent-unload', approved);
+  try { await window.loadURL(url); }
+  finally { if (!contents.isDestroyed()) contents.removeListener('will-prevent-unload', approved); }
 }
 
 async function openApp(ready: BackendReady) {
   const reconnecting = appOrigin === ready.origin;
   if (appOrigin && !reconnecting && !(await prepareClose())) return;
+  if (quitting || preparingClose || !window || window.isDestroyed()) return;
   oauthAbort.abort(); oauthAbort = new AbortController();
   notifications?.stop(); notificationAbort.abort(); notificationAbort = new AbortController();
+  activity?.stop();
   installedRuntime = ready.runtime;
   selectionError = undefined;
   appToken = ready.token;
@@ -415,8 +483,18 @@ async function openApp(ready: BackendReady) {
   const response = await ses.fetch(`${ready.origin}/api/session`, { method: 'POST', headers: { authorization: `Bearer ${ready.token}` } });
   if (!response.ok) throw new Error('The local app rejected its desktop session.');
   await response.text();
+  if (quitting || preparingClose || window.isDestroyed()) return;
   appOrigin = ready.origin;
   if (ready.desktopClient) {
+    activity = new DesktopActivity({
+      request: async signal => {
+        const response = await ses.fetch(`${ready.origin}/api/desktop/activity`, { signal, headers: { authorization: `Bearer ${ready.token}`, 'x-ri-desktop-client': ready.desktopClient! } });
+        if (!response.ok) throw new Error('Activity is unavailable.');
+        return response.json();
+      },
+      onChange: updateActivity,
+    });
+    activity.start();
     const signal = notificationAbort.signal;
     notifications = new DesktopNotifications({
       supported: () => Notification.isSupported(),
@@ -442,7 +520,8 @@ async function openApp(ready: BackendReady) {
   // Refresh credentials immediately after controller replacement, even while
   // a recording or unsaved draft delays reload. The renderer's connection
   // observer reloads the current route only when its input is safe.
-  if (!reconnecting) await window!.loadURL(`${ready.origin}/#${PAIRING_TOKEN_FRAGMENT_KEY}=${encodeURIComponent(ready.token)}`);
+  if (!reconnecting) await loadPreparedPage(`${ready.origin}/#${PAIRING_TOKEN_FRAGMENT_KEY}=${encodeURIComponent(ready.token)}`);
+  if (quitting || preparingClose || window.isDestroyed()) return;
   const cursorFile = path.join(profile, 'oauth-cursor.json');
   let cursor = 0;
   try {
@@ -462,6 +541,8 @@ async function openApp(ready: BackendReady) {
 
 async function start() {
   await app.whenReady();
+  if (process.platform === 'linux') app.setDesktopName('app.ri.desktop.desktop');
+  const backgroundLaunch = desktopLogin.launchedInBackground();
   const icon = nativeImage.createFromPath(path.join(repo, 'public/brand/ri-desktop-icon.png'));
   app.dock?.setIcon(icon);
   const ses = session.fromPartition('persist:ri-desktop-demo');
@@ -471,7 +552,7 @@ async function start() {
     if (['x', 'y', 'width', 'height'].every(key => Number.isFinite(saved[key])) && saved.width >= 800 && saved.height >= 600 &&
         screen.getAllDisplays().some(display => saved.x + 100 > display.workArea.x && saved.x < display.workArea.x + display.workArea.width && saved.y + 50 > display.workArea.y && saved.y < display.workArea.y + display.workArea.height)) bounds = saved;
   } catch { /* first window or disconnected display */ }
-  window = new BrowserWindow({ ...bounds, minWidth: 800, minHeight: 600, title: APP_NAME, icon,
+  window = new BrowserWindow({ ...bounds, show: false, minWidth: 800, minHeight: 600, title: APP_NAME, icon,
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 12, y: 12 } } : {}),
     backgroundColor: '#181a18', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), session: ses, nodeIntegration: false, contextIsolation: true, sandbox: true, webviewTag: false } });
   let boundsTimer: ReturnType<typeof setTimeout> | undefined;
@@ -492,6 +573,20 @@ async function start() {
     else void quit(true);
   });
   window.on('close', event => { if (!quitting) { event.preventDefault(); void hideWindow(); } });
+  window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) captureReady = false; });
+  ipcMain.on('desktop:capture-ready', event => {
+    if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) return;
+    captureReady = true; deliverCapture();
+  });
+  ipcMain.handle('desktop:settings', (event, raw: unknown) => {
+    if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) throw new Error('Untrusted window');
+    if (quitting || preparingClose || updatingShell) throw new Error('Ri is restarting. Try again after it reconnects.');
+    const action = desktopSettingsAction(raw);
+    if (!captureShortcut) throw new Error('Desktop settings are still loading.');
+    if (action.type === 'shortcut') captureShortcut.configure(action);
+    const login = action.type === 'login' ? desktopLogin.setEnabled(action.enabled) : desktopLogin.status();
+    return { shortcut: captureShortcut.status(), login };
+  });
   ipcMain.on('desktop:background-ready', (event, message: unknown) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) return;
     if (!message || typeof message !== 'object') return;
@@ -521,13 +616,23 @@ async function start() {
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loading)}`);
   const actions = {
     show: showWindow, hide: hideWindow, quit: () => { void quit(); },
+    capture: requestQuickCapture,
+    preferences: () => { showWindow(); if (appOrigin) void navigateSafely(`${appOrigin}/?settings=general`); },
     notifications: () => { showWindow(); if (appOrigin) void navigateSafely(`${appOrigin}/?settings=notifications`); },
     update: () => { void checkDesktopUpdate(); }, status: () => { void serviceCommand('status'); },
     recovery: () => { if (!quitting) void maintenance.show(); },
   };
+  menuActions = actions;
   const commands = desktopMenuCommands(actions);
   tray = createDesktopTray(repo, actions);
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
+  const wayland = process.platform === 'linux' && (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
+  captureShortcut = new CaptureShortcut(path.join(profile, 'capture-shortcut.json'), globalShortcut, requestQuickCapture, wayland, () => {
+    if (!wayland) return;
+    if (!app.isPackaged) throw new Error('Install the packaged Ri app before enabling its Wayland global shortcut.');
+    ensureDesktopPortalIdentity();
+  });
+  captureShortcut.start();
+  refreshApplicationMenu = () => Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: APP_NAME, submenu: [
       ...(process.platform === 'darwin' ? [
         { role: 'about' as const }, { type: 'separator' as const }, { role: 'services' as const },
@@ -542,6 +647,7 @@ async function start() {
       ...(process.platform === 'darwin' ? [{ type: 'separator' as const }, { role: 'front' as const }] : []),
     ] },
     { label: 'Tools', submenu: [
+      commands.capture, { id: 'ri-activity-menu', label: 'Activity', submenu: activityMenuItems(activityState, openActivity) }, commands.preferences,
       commands.notifications, commands.update, commands.status, commands.recovery,
       { label: 'Start at Login…', click: () => void serviceCommand('install') },
       { label: 'Disable Start at Login…', click: () => void serviceCommand('uninstall') },
@@ -552,6 +658,12 @@ async function start() {
       { label: 'Remove Terminal Command…', click: () => void manageTerminalCommand(true) },
     ] },
   ]));
+  refreshApplicationMenu();
+  updateActivity(activityState);
+  if (!backgroundLaunch || !tray || process.platform !== 'darwin') {
+    showWindow();
+    if (backgroundLaunch && process.platform !== 'darwin') backgroundWindow(window, process.platform, !!tray);
+  }
   if (!process.env.RI_DESKTOP_NODE || process.env.RI_DESKTOP_NODE === process.execPath) {
     throw new Error('Launch with pnpm desktop:demo or pnpm desktop:dev so the backend uses ordinary Node.');
   }

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api/client';
 import { hasActiveInput } from '@/lib/client/active-input';
+import { hasPendingCapture } from '@/lib/client/capture-draft';
 import { documentSaves } from '@/lib/client/document-saves';
 
 /** Every viewer retains its own drafts. A changed service build reloads only
@@ -28,9 +29,11 @@ export function ServiceConnection() {
           setMessage('Preparing an update. Saving your changes…');
           await documentSaves.flushAll();
         } else if (status.phase === 'running' && knownBuild !== build) {
-          setMessage('Ri was updated. Saving changes before reloading…');
+          setMessage(hasPendingCapture()
+            ? 'Ri was updated. Finish or close Quick Capture before reloading.'
+            : 'Ri was updated. Saving changes before reloading…');
           await documentSaves.flushAll();
-          if (!queryClient.isMutating() && !documentSaves.has() && !hasActiveInput() && !disposed) window.location.reload();
+          if (!queryClient.isMutating() && !documentSaves.has() && !hasActiveInput() && !hasPendingCapture() && !disposed) window.location.reload();
         } else setMessage(status.phase === 'updating' ? 'Updating Ri. Your drafts are retained on this device.' : '');
       } catch { if (managed && !disposed) setMessage('Reconnecting to Ri. Your drafts are retained on this device.'); }
       finally { checking = false; }

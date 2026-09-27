@@ -10,6 +10,7 @@ import "./globals.css";
 import { APP_NAME } from "@/constants/app";
 import { DesktopChrome } from '@/components/desktop/desktop-chrome';
 import { WebAppBootstrap } from '@/components/settings/phone-install';
+import { QuickCaptureHost } from '@/components/dashboard/quick-capture-host';
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -31,6 +32,7 @@ export default function RootLayout({
       <body className="antialiased">
         <QueryProvider>
           <DesktopChrome />
+          <QuickCaptureHost />
           <WebAppBootstrap />
           <PairingBootstrap />
           <TooltipProvider>

@@ -28,6 +28,7 @@ import { updateReleasePreferences } from '@/lib/service/release-trust';
 import { ServiceControlCoordination } from '@/lib/service/control-coordination';
 import { consumeDesktopInitialization } from '@/lib/service/initialization';
 import { redactServiceLine, rotateServiceLog } from '@/lib/service/logging';
+import { ServiceAwake } from '@/lib/service/awake';
 
 const paths = servicePaths();
 let repo = canonical(process.env.RI_RUNTIME_REPO ?? process.cwd());
@@ -52,6 +53,7 @@ let updater: UpdateCoordinator;
 const coordination = new ServiceControlCoordination(() => updater.status().busy);
 const updateTick = () => coordination.tick(() => updater.tick());
 const childRecord = path.join(paths.identity.work, 'service-child.json');
+const awake = new ServiceAwake();
 
 async function backendRequest<T>(route: string, timeout = 3000): Promise<T> {
   const response = await fetch(`http://127.0.0.1:${privatePort}${route}`, {
@@ -126,7 +128,15 @@ const control = http.createServer(async (request, response) => {
   response.setHeader('content-type', 'application/json'); response.setHeader('cache-control', 'no-store');
   const reply = (body: object, code = 200) => { response.statusCode = code; response.end(JSON.stringify({ ...status, ...body })); };
   try {
-    if (request.method === 'GET' && request.url === '/status') return reply({ update: updater?.status() });
+    if (request.method === 'GET' && request.url === '/status') return reply({ update: updater?.status(), awake: awake.status() });
+    if (request.method === 'GET' && request.url === '/awake') return reply({ awake: awake.status() });
+    if (request.method === 'PATCH' && request.url === '/awake') {
+      if (status.phase !== 'running' || coordination.handingOff || updater.status().busy) throw new Error('Wait until the background service is running before changing keep-awake preferences.');
+      let bytes = 0; const chunks: Buffer[] = [];
+      for await (const chunk of request) { bytes += chunk.length; if (bytes > 4096) throw new Error('Control request too large'); chunks.push(chunk); }
+      if (status.phase !== 'running' || coordination.handingOff || updater.status().busy) throw new Error('Wait until the background service is running before changing keep-awake preferences.');
+      return reply({ awake: await awake.configure(JSON.parse(Buffer.concat(chunks).toString())) });
+    }
     if (request.method === 'GET' && request.url === '/session' && status.phase === 'running') return reply({ certificate, token, desktopClient: process.env.RI_DESKTOP_CLIENT_SECRET });
     if (request.method === 'GET' && request.url === '/update') return reply({ update: updater.status() });
     if (request.method === 'PATCH' && request.url === '/update/policy') {
@@ -186,6 +196,7 @@ async function shutdown(code = 0) {
   if (stopping) return stopping;
   stopping = (async () => {
     status.phase = 'stopping';
+    await awake.stop();
     await stopRuntimeJobs();
     await gateway?.close(1000).catch(() => {});
     await stopBackend();
@@ -265,6 +276,7 @@ async function start() {
   const probe = await gateway.probe();
   if (!probe.ok) throw new Error(`HTTP/2 readiness failed: ${probe.detail ?? probe.status}`);
   publish(); console.info(`[service] Ready at ${status.origin}`);
+  await awake.start();
   const renewal = setInterval(() => {
     if (updater.status().busy || coordination.handingOff) return;
     void ensureGeneratedTls().then(tls => {
@@ -298,6 +310,7 @@ void start().catch(async error => {
   // Keep diagnostics/recovery available. Repeated startup failures must not
   // create a launchd restart loop or restore data written after an upgrade.
   await stopBackend();
+  await awake.stop();
   await gateway?.close(1000).catch(() => {});
   updater?.startupFailed(error);
 });

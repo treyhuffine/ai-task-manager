@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
+import { DesktopSettings } from './desktop-settings';
 import { Switch } from '@/components/ui/switch';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
@@ -111,6 +112,7 @@ export function GeneralSection() {
 
   return (
     <div className="space-y-6">
+      <DesktopSettings />
       {/* Theme */}
       <section className="space-y-2">
         <h3 className="text-[12px] font-medium text-foreground">Theme</h3>

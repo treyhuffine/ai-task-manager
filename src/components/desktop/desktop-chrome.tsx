@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { hasActiveInput } from '@/lib/client/active-input';
+import { hasPendingCapture } from '@/lib/client/capture-draft';
 import { documentSaves } from '@/lib/client/document-saves';
 import '@/lib/client/desktop';
 import { ServiceConnection } from './service-connection';
@@ -12,7 +13,7 @@ export function DesktopChrome() {
   useEffect(() => {
     if (window.riDesktop) document.documentElement.dataset.riDesktop = window.riDesktop.platform;
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (documentSaves.has() || queryClient.isMutating() || hasActiveInput()) {
+      if (documentSaves.has() || queryClient.isMutating() || hasActiveInput() || hasPendingCapture()) {
         void documentSaves.flushAll().catch(() => {});
         event.preventDefault();
         event.returnValue = '';
@@ -30,7 +31,7 @@ export function DesktopChrome() {
     // window open until voice capture/transcription is finished or cancelled.
     const background = window.riDesktop?.onPrepareBackground?.(() => !hasActiveInput());
     const unsubscribe = window.riDesktop?.onPrepareClose?.(async () => {
-      if (hasActiveInput()) return false;
+      if (hasActiveInput() || hasPendingCapture()) return false;
       document.body.inert = true;
       try {
         await documentSaves.flushAll();

@@ -2,8 +2,9 @@ import path from 'node:path';
 import { Command } from 'commander';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { APP_ROOT_ENV, getAppRoot, getDevAppRoot } from '@/lib/config/paths';
-const mocks = vi.hoisted(() => ({ ensure: vi.fn(), installed: vi.fn() }));
-vi.mock('@/lib/service/client', () => ({ ensureService: mocks.ensure, serviceStatus: vi.fn(), stopService: vi.fn() }));
+const mocks = vi.hoisted(() => ({ ensure: vi.fn(), installed: vi.fn(), status: vi.fn(), request: vi.fn(), awake: vi.fn() }));
+vi.mock('@/lib/service/client', () => ({ ensureService: mocks.ensure, serviceStatus: mocks.status, serviceRequest: mocks.request, stopService: vi.fn() }));
+vi.mock('@/lib/service/awake', () => ({ readAwakePreferences: mocks.awake }));
 vi.mock('@/lib/service/runtime', () => ({ installedRuntime: mocks.installed, createRuntimeManifest: vi.fn(), stageRuntime: vi.fn(), verifyRuntime: vi.fn() }));
 import { registerServiceCommand } from './service';
 
@@ -12,6 +13,8 @@ beforeEach(() => {
   vi.stubEnv(APP_ROOT_ENV, undefined);
   vi.spyOn(console, 'info').mockImplementation(() => {});
   mocks.installed.mockReturnValue(null);
+  mocks.status.mockResolvedValue(null);
+  mocks.awake.mockReturnValue({ enabled: false });
   mocks.ensure.mockImplementation(async () => ({ origin: 'https://localhost:42242', identity: { root: getAppRoot() } }));
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
@@ -40,4 +43,24 @@ it('keeps the production default when development mode was not requested', async
   await run('start');
   expect(getAppRoot()).toBe(original);
   expect(mocks.ensure).toHaveBeenCalledWith(expect.objectContaining({ env: expect.objectContaining({ RI_DESKTOP_MODE: 'production' }) }));
+});
+it('changes keep-awake through the live controller and never starts a service implicitly', async () => {
+  mocks.status.mockResolvedValue({ phase: 'running' });
+  await run('awake', 'on');
+  expect(mocks.request).toHaveBeenLastCalledWith('/awake', 'PATCH', 10_000, { enabled: true });
+  await run('awake', 'off');
+  expect(mocks.request).toHaveBeenLastCalledWith('/awake', 'PATCH', 10_000, { enabled: false });
+  await run('awake');
+  expect(mocks.request).toHaveBeenLastCalledWith('/awake', 'GET', 10_000, undefined);
+  expect(mocks.ensure).not.toHaveBeenCalled();
+});
+it('shows the retained preference while stopped and requires explicit service start for changes', async () => {
+  mocks.awake.mockReturnValue({ enabled: true });
+  await run('awake', 'status');
+  expect(console.info).toHaveBeenCalledWith(expect.stringContaining('"stopped"'));
+  expect(console.info).toHaveBeenCalledWith(expect.stringContaining('"enabled": true'));
+  await expect(run('awake', 'on')).rejects.toThrow('Start the background service');
+  await expect(run('awake', 'wat')).rejects.toThrow('Choose on, off, or status');
+  expect(mocks.request).not.toHaveBeenCalled();
+  expect(mocks.ensure).not.toHaveBeenCalled();
 });

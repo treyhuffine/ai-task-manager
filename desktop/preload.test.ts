@@ -33,3 +33,17 @@ it('background readiness exposes only a boolean response and removes its exact l
   expect(mocks.send).toHaveBeenLastCalledWith('desktop:background-ready', { nonce: 'error', ok: false });
   remove(); expect(mocks.remove).toHaveBeenLastCalledWith('desktop:prepare-background', listener);
 });
+
+it('capture registers its listener before announcing readiness and never exposes the native event', async () => {
+  vi.stubGlobal('process', { ...process, isMainFrame: true });
+  await import('./preload');
+  const bridge = mocks.expose.mock.calls[0][1] as { onQuickCapture(callback: () => void): () => void };
+  const callback = vi.fn(); const remove = bridge.onQuickCapture(callback);
+  const index = mocks.on.mock.calls.findIndex(call => call[0] === 'desktop:quick-capture');
+  const listener = mocks.on.mock.calls[index][1];
+  const ready = mocks.send.mock.calls.findIndex(call => call[0] === 'desktop:capture-ready');
+  expect(mocks.on.mock.invocationCallOrder[index]).toBeLessThan(mocks.send.mock.invocationCallOrder[ready]);
+  listener({ sender: { invoke: vi.fn() } }, 'untrusted payload');
+  expect(callback).toHaveBeenCalledExactlyOnceWith();
+  remove(); expect(mocks.remove).toHaveBeenLastCalledWith('desktop:quick-capture', listener);
+});

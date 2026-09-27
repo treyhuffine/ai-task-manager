@@ -1,4 +1,5 @@
 import type { DesktopNotificationAction, DesktopNotificationStatus } from '@/lib/notifications/desktop-contract';
+import type { DesktopSettingsAction, DesktopSettingsStatus } from './desktop-settings';
 
 export interface RiDesktop {
   platform: string;
@@ -6,6 +7,8 @@ export interface RiDesktop {
   onResume(callback: () => void): () => void;
   onPrepareClose(callback: () => Promise<boolean>): () => void;
   onPrepareBackground(callback: () => boolean): () => void;
+  onQuickCapture(callback: () => void): () => void;
+  settings(action: DesktopSettingsAction): Promise<DesktopSettingsStatus>;
   notifications(action: DesktopNotificationAction): Promise<DesktopNotificationStatus>;
 }
 

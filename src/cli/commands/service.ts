@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Command } from 'commander';
 import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
-import { ensureService, serviceStatus, stopService } from '@/lib/service/client';
+import { ensureService, serviceRequest, serviceStatus, stopService } from '@/lib/service/client';
+import { readAwakePreferences } from '@/lib/service/awake';
 import { servicePaths } from '@/lib/service/paths';
 import { createRuntimeManifest, installedRuntime, stageRuntime, verifyRuntime } from '@/lib/service/runtime';
 import { beginActivity } from '@/lib/service/maintenance';
@@ -35,6 +36,18 @@ export function registerServiceCommand(program: Command) {
     await stopService();
     console.info('Ri service stopped. Your data was retained.');
   });
+  service.command('awake [mode]').description('Keep this computer awake on external power: on, off, or status')
+    .action(async (mode = 'status') => {
+      if (!['on', 'off', 'status'].includes(mode)) throw new Error('Choose on, off, or status.');
+      const running = await serviceStatus();
+      if (!running) {
+        if (mode !== 'status') throw new Error('Start the background service before changing keep-awake preferences.');
+        console.info(JSON.stringify({ awake: { ...readAwakePreferences(), phase: 'stopped', power: 'unknown', detail: 'The background service is stopped.' } }, null, 2));
+        return;
+      }
+      console.info(JSON.stringify(await serviceRequest('/awake', mode === 'status' ? 'GET' : 'PATCH', 10_000,
+        mode === 'status' ? undefined : { enabled: mode === 'on' }), null, 2));
+    });
   service.command('configure').description('Inspect or save private service settings. Changes apply on restart.')
     .option('--file <json>', 'JSON file containing the settings to merge')
     .action((options: { file?: string }) => {

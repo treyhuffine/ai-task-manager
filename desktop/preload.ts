@@ -6,6 +6,13 @@ if (process.isMainFrame) {
     platform: process.platform,
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('desktop:open-external', url),
     notifications: (action: unknown) => ipcRenderer.invoke('desktop:notifications', action),
+    settings: (action: unknown) => ipcRenderer.invoke('desktop:settings', action),
+    onQuickCapture: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('desktop:quick-capture', listener);
+      ipcRenderer.send('desktop:capture-ready');
+      return () => ipcRenderer.removeListener('desktop:quick-capture', listener);
+    },
     onPrepareBackground: (callback: () => boolean) => {
       const listener = (_event: Electron.IpcRendererEvent, nonce: string) => {
         let ok = false;

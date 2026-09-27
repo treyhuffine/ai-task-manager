@@ -87,7 +87,7 @@ run(portableNode, ['dist/cli/index.mjs', '--help'], server);
 fs.mkdirSync(shell);
 for (const name of ['main.cjs', 'preload.cjs', 'maintenance-preload.cjs']) fs.copyFileSync(path.join(repo, 'dist/desktop', name), path.join(shell, name));
 const pkg = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8'));
-fs.writeFileSync(path.join(shell, 'package.json'), JSON.stringify({ name: 'ri-desktop', productName: 'Ri', version: pkg.version, main: 'main.cjs', description: pkg.description ?? 'Ri desktop', author: 'Ri contributors', dependencies: {} }));
+fs.writeFileSync(path.join(shell, 'package.json'), JSON.stringify({ name: 'ri-desktop', productName: 'Ri', desktopName: 'app.ri.desktop.desktop', version: pkg.version, main: 'main.cjs', description: pkg.description ?? 'Ri desktop', author: 'Ri contributors', dependencies: {} }));
 const desktopConfig = path.join(stage, 'desktop-config.json');
 const callbackUrl = process.env.RI_DESKTOP_OAUTH_RELAY_URL;
 if (callbackUrl) {
@@ -146,7 +146,7 @@ if (!headless) {
     protocols: [{ name: 'Ri OAuth callback', schemes: ['ri'] }],
     mac: { icon: path.join(repo, 'assets/brand/icons/icon.icns'), identity: releaseBuild ? process.env.CSC_NAME : null, signIgnore: ['Contents/Resources/server/', 'Contents/Resources/node/'], hardenedRuntime: true, notarize: releaseBuild,
       extendInfo: { NSMicrophoneUsageDescription: 'Ri uses the microphone when you record a voice message.', NSCameraUsageDescription: 'Ri uses the camera when you scan a pairing code.' } },
-    linux: { executableName: 'ri', icon: path.join(repo, 'assets/brand/icons'), category: 'Office' },
+    linux: { executableName: 'ri', syncDesktopName: true, icon: path.join(repo, 'assets/brand/icons'), category: 'Office' },
     // The native updater obtains the eligible URL from signed Ri metadata.
     publish: process.env.RI_RELEASE_FEED ? [{ provider: 'generic', url: new URL('.', process.env.RI_RELEASE_FEED).href }] : null,
     afterPack: async context => {

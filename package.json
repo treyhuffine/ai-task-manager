@@ -65,6 +65,7 @@
     "desktop:notifications-smoke": "tsx desktop/notifications-smoke.ts",
     "desktop:browser-notifications-smoke": "tsx desktop/browser-notifications-smoke.ts",
     "desktop:background-smoke": "tsx desktop/background-smoke.ts",
+    "desktop:native-features-smoke": "tsx desktop/native-features-smoke.ts",
     "runtime:lifecycle-smoke": "tsx desktop/service-lifecycle-smoke.ts",
     "speech:sources": "\"${RI_SPEECH_BUILD_PYTHON:-.electron-demo/speech-build/venv/bin/python}\" desktop/speech/release_materials.py"
   },

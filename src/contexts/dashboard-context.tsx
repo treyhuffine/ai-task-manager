@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useMemo, useRef, type ReactNode, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useQuickCaptureOpen, setQuickCaptureOpen, toggleQuickCapture } from '@/lib/client/quick-capture';
 import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, MobileTab, Task, StreamEvent } from '@/types/dashboard';
 import { hot } from '@/lib/_debug/hot-path';
 import {
@@ -243,8 +244,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [mobileTab, setMobileTab] = useState<MobileTab>('chat');
   const [mobileCreateOpen, setMobileCreateOpen] = useState(false);
   // ─── Quick capture ────────────────────────────────────────
-  const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
-  const toggleQuickCapture = useCallback(() => setQuickCaptureOpen((prev) => !prev), []);
+  const quickCaptureOpen = useQuickCaptureOpen();
 
   // ─── Foreground and background agent activity ─────────────
   const [directStreamingSessionIds, setDirectStreamingSessionIds] = useState<Set<string>>(
