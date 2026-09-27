@@ -40,7 +40,8 @@ export class CheckpointError extends Error {
       | 'invalid_untracked'
       | 'unfinished_operation'
       | 'local_files_staged'
-      | 'local_files_in_the_way',
+      | 'local_files_in_the_way'
+      | 'unexpected_files',
     message: string,
   ) {
     super(message);
@@ -114,12 +115,17 @@ function listed(files: readonly string[], max = 5): string {
 /**
  * Local files, untracked or ignored, that moving this worktree from one
  * commit to another would replace: a path the newer commit adds where a
- * local file already is, or a file where one of its folders would go. Git
- * refuses to overwrite an untracked file, but an ignored one it replaces
- * without a word, so this looks first.
+ * local file already is, a file where one of its folders would go, or local
+ * files inside a folder the newer commit turns into a file. Git refuses to
+ * overwrite an untracked file, but an ignored one it replaces without a
+ * word, so this looks first. What `from` tracks isn't local: a clean
+ * worktree's tracked file that the commit replaces (a file becoming a
+ * folder, or the reverse) is the commit's to change (P4 re-check).
  */
 async function filesInTheWay(worktree: string, from: string, to: string): Promise<string[]> {
   const added = paths((await git(worktree, ['diff', '--name-only', '--no-renames', '--diff-filter=A', '-z', from, to])).stdout);
+  if (added.length === 0) return [];
+  const tracked = new Set(paths((await git(worktree, ['ls-tree', '-r', '--name-only', '-z', from])).stdout));
   const inTheWay = new Set<string>();
   for (const rel of added) {
     for (let at = rel; at && at !== '.'; at = path.dirname(at)) {
@@ -130,8 +136,13 @@ async function filesInTheWay(worktree: string, from: string, to: string): Promis
         stat = null;
       }
       if (!stat) continue;
-      // The path itself is taken, or a file sits where one of its folders goes.
-      if (at === rel || !stat.isDirectory()) inTheWay.add(at);
+      if (at === rel && stat.isDirectory()) {
+        // A folder where the commit puts a file: only what's local in it is in the way.
+        for (const local of paths((await git(worktree, ['ls-files', '--others', '-z', '--', at])).stdout)) inTheWay.add(local);
+      } else if (at === rel || (!stat.isDirectory() && !tracked.has(at))) {
+        // The path itself is taken, or a local file sits where one of its folders goes.
+        inTheWay.add(at);
+      }
       break;
     }
   }
@@ -249,12 +260,45 @@ export async function saveCheckpoint(args: {
     );
   }
 
-  const toStage = [...state.changed, ...newlyChosen];
-  if (toStage.length > 0) {
-    const added = await gitOverPaths(worktree, ['add', '--all'], toStage);
-    if (!added.ok) throw new CheckpointError('commit_failed', `Git couldn't stage the work: ${added.stderr || added.stdout}`);
+  // Each tracked change as it is on disk now. One that's gone, or became a
+  // folder, is staged as removed, never added: adding a folder would take
+  // everything in it, secrets and files nobody chose (P4 re-check). What's
+  // in such a folder is new, and goes only when chosen, like any new file.
+  const removed: string[] = [];
+  const updated: string[] = [];
+  for (const file of state.changed) {
+    let stat: fs.Stats | null = null;
+    try {
+      stat = fs.lstatSync(path.join(worktree, file));
+    } catch {
+      stat = null;
+    }
+    if (!stat || stat.isDirectory()) removed.push(file);
+    else updated.push(file);
+  }
+  const stagedBefore = paths((await git(worktree, ['diff', '--cached', '--name-only', '--no-renames', '-z'])).stdout);
+  for (const [args, list] of [
+    [['rm', '--cached', '--quiet', '--ignore-unmatch'], removed],
+    [['add'], [...updated, ...newlyChosen]],
+  ] as const) {
+    if (list.length === 0) continue;
+    const done = await gitOverPaths(worktree, [...args], list);
+    if (!done.ok) throw new CheckpointError('commit_failed', `Git couldn't stage the work: ${done.stderr || done.stdout}`);
   }
   const staged = paths((await git(worktree, ['diff', '--cached', '--name-only', '--no-renames', '-z'])).stdout);
+
+  // And checked before anything is committed: only the tracked changes that
+  // may go, the files chosen, and what was staged already. Anything else is
+  // taken back out of the index, as it was, and nothing is committed.
+  const allowed = new Set([...state.changed, ...newlyChosen, ...stagedBefore]);
+  const unexpected = staged.filter((file) => !allowed.has(file) || isLocal(file));
+  if (unexpected.length > 0) {
+    await gitOverPaths(worktree, ['restore', '--staged'], unexpected);
+    throw new CheckpointError(
+      'unexpected_files',
+      `${listed(unexpected)} would have gone along without being chosen. Nothing was committed or changed.`,
+    );
+  }
   let committed = false;
   if (staged.length > 0) {
     const commit = await git(worktree, ['commit', '--no-verify', '-m', message], { allowFail: true });

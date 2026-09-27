@@ -106,7 +106,7 @@ export function computerName(computerId: string): string {
 }
 
 export function viewOf(transfer: ExecutionTransferRecord): TransferView {
-  return transferView(transfer, computerName);
+  return transferView(transfer, computerName, delivering.has(transfer.id));
 }
 
 function announce(transfer: ExecutionTransferRecord): void {
@@ -168,6 +168,10 @@ export function startTransfer(input: StartTransferInput): ExecutionTransferRecor
   // none can start between this and the lock (P4 review).
   const busy = busyWith(execution.id);
   if (busy) throw new TransferError('busy', `It's ${busy} right now. Continue once that's done.`);
+  const earlier = latestTransfer(execution.id);
+  if (earlier && delivering.has(earlier.id)) {
+    throw new TransferError('busy', 'Messages it held are still going out. Continue once they have.');
+  }
   const problem = destinationProblem(workspace.id, session.harness, input.toComputerId);
   if (problem) throw new TransferError('destination_not_ready', problem);
 
@@ -399,27 +403,83 @@ async function writeHandoff(transfer: ExecutionTransferRecord, checkpoint: Saved
   return composeHandoff(fixed, summary);
 }
 
+// The deliveries under way in this process, one per transfer at a time.
+const DELIVERING_KEY = Symbol.for('@ri/transfer-delivering');
+const deliveringHolder = globalThis as unknown as { [DELIVERING_KEY]?: Set<string> };
+const delivering: Set<string> = (deliveringHolder[DELIVERING_KEY] ??= new Set());
+
+/** Whether this transfer's held messages are going out now. */
+export function isDelivering(transferId: string): boolean {
+  return delivering.has(transferId);
+}
+
 /**
  * Deliver the messages a transfer holds, in order, to wherever the work is
- * now. Each is taken off the list by one delivery alone before it's sent
- * (`takeHeldMessage`), and the next goes once the harness has the one before,
- * not once its turn is over. If the home stops between taking one and its
- * harness having it, it's an unanswered message the health check sends once
- * the chat is opened.
+ * now. Each stays held, first in line, until its harness (or its computer's
+ * queue) has it, and only then is taken off the list; the next goes then,
+ * not once the last one's turn is over. One that nothing took stops the
+ * delivery where it is, with the rest behind it, and says why: nothing
+ * overtakes it, and Send them again picks up from it (P4 re-check). New
+ * messages sent meanwhile join the line (`holdingTransfer`), and this
+ * delivery takes them too. One delivery per transfer at a time.
  */
 export async function deliverHeld(transfer: ExecutionTransferRecord, actor?: WorkerCommandActor): Promise<void> {
+  if (delivering.has(transfer.id)) return;
+  delivering.add(transfer.id);
   const { redispatchStoredMessage } = await import('@/lib/sessions/redispatch');
-  for (;;) {
-    const next = getTransfer(transfer.id)?.heldEventIds[0];
-    if (!next) return;
-    if (!takeHeldMessage(transfer.id, next)) continue;
-    try {
-      await redispatchStoredMessage(next, actor);
-    } catch (err) {
-      // It went out and failed there: its own delivery state says so, with Send again.
-      console.warn(`[transfer] held message ${next} failed to deliver:`, err);
+  let stopped = false;
+  try {
+    for (;;) {
+      const next = getTransfer(transfer.id)?.heldEventIds[0];
+      if (!next) break;
+      try {
+        await redispatchStoredMessage(next, actor, { heldFor: transfer.id, onAccepted: () => takeHeldMessage(transfer.id, next) });
+      } catch (err) {
+        stopped = true;
+        const current = getTransfer(transfer.id)!;
+        const where = computerName(current.toGeneration === null ? current.fromComputerId : current.toComputerId);
+        const count = current.heldEventIds.length;
+        const reason = err instanceof Error ? err.message : String(err);
+        const updated = updateTransfer(transfer.id, {
+          error: `${count === 1 ? 'A held message' : `${count} held messages`} didn't reach ${where}: ${reason}`,
+        });
+        if (updated) announce(updated);
+        break;
+      }
     }
+  } finally {
+    delivering.delete(transfer.id);
   }
+  const after = getTransfer(transfer.id);
+  if (after) announce(after);
+  // A message that joined the line just as this finished is taken now.
+  if (!stopped && after && after.heldEventIds.length > 0 && after.state !== 'active') void continueHeldDelivery(after.id);
+}
+
+/**
+ * Keep a settled transfer's held messages going: after one joins the line,
+ * or after a restart. Not one that stopped short, which waits for Send them
+ * again, and not one a move is still running (it delivers its own).
+ */
+export async function continueHeldDelivery(transferId: string, actor?: WorkerCommandActor): Promise<void> {
+  const transfer = getTransfer(transferId);
+  if (!transfer || transfer.heldEventIds.length === 0) return;
+  if (transfer.state !== 'cancelled' && transfer.state !== 'succeeded') return;
+  if (transfer.error || delivering.has(transfer.id)) return;
+  await deliverHeld(transfer, actor);
+}
+
+/** Send them again: pick up a delivery that stopped short, from the message it stopped at. */
+export async function retryHeldDelivery(executionId: string, actor?: WorkerCommandActor): Promise<ExecutionTransferRecord> {
+  const transfer = latestTransfer(executionId);
+  if (!transfer || transfer.heldEventIds.length === 0 || (transfer.state !== 'cancelled' && transfer.state !== 'succeeded')) {
+    throw new TransferError('nothing_held', 'No held messages are waiting to go.');
+  }
+  if (delivering.has(transfer.id)) throw new TransferError('conflict', 'They are going out now.');
+  const cleared = updateTransfer(transfer.id, { error: null })!;
+  announce(cleared);
+  await deliverHeld(cleared, actor);
+  return getTransfer(transfer.id)!;
 }
 
 async function runTransfer(transferId: string, input: StartTransferInput): Promise<void> {
@@ -466,6 +526,8 @@ async function runTransfer(transferId: string, input: StartTransferInput): Promi
     await deliverHeld(transfer, input.actor);
     transfer = updateTransfer(transfer.id, { stage: 'done', state: 'succeeded', finishedAt: new Date().toISOString() })!;
     announce(transfer);
+    // One that joined the line as the delivery finished goes now.
+    void continueHeldDelivery(transfer.id, input.actor);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     transfer = updateTransfer(transfer.id, { state: 'failed', failedStage: stage, error: message, finishedAt: new Date().toISOString() })!;
@@ -534,11 +596,13 @@ export function recoverInterruptedTransfers(): { stopped: number; delivering: nu
     });
     if (stopped) announce(stopped);
   }
-  const delivering = listTransfersStillDelivering();
-  for (const transfer of delivering) {
-    void deliverHeld(transfer).catch((err) => console.error(`[transfer] ${transfer.id}: delivering held messages after a restart failed:`, err));
+  // Including one that stopped short before the restart: it's tried again, from where it stopped.
+  const toDeliver = listTransfersStillDelivering();
+  for (const transfer of toDeliver) {
+    const cleared = updateTransfer(transfer.id, { error: null }) ?? transfer;
+    void deliverHeld(cleared).catch((err) => console.error(`[transfer] ${transfer.id}: delivering held messages after a restart failed:`, err));
   }
-  return { stopped: interrupted.length, delivering: delivering.length };
+  return { stopped: interrupted.length, delivering: toDeliver.length };
 }
 
 /** The handoff a fresh session on the destination starts from, while none has started yet (P4.3). */

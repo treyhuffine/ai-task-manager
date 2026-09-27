@@ -15,8 +15,14 @@ export interface TransferView {
   /** Set once the destination owns the work. */
   ownershipChanged: boolean;
   failedStage: TransferStage | null;
+  /**
+   * Why it stopped, while it waits for a decision. Once settled (Resume or
+   * Finish), why delivering its held messages stopped short, if it did.
+   */
   error: string | null;
   heldCount: number;
+  /** Its held messages are going out now. */
+  delivering: boolean;
   /** The untracked files chosen to go along, for Try again. */
   includeUntracked: string[];
   checkpoint: { branch: string; sha: string } | null;
@@ -27,6 +33,7 @@ export interface TransferView {
 export function transferView(
   transfer: ExecutionTransferRecord,
   names: (computerId: string) => string,
+  delivering = false,
 ): TransferView {
   return {
     id: transfer.id,
@@ -39,6 +46,7 @@ export function transferView(
     failedStage: transfer.failedStage,
     error: transfer.error,
     heldCount: transfer.heldEventIds.length,
+    delivering,
     includeUntracked: transfer.includeUntracked,
     checkpoint: transfer.branch && transfer.checkpointSha ? { branch: transfer.branch, sha: transfer.checkpointSha } : null,
     createdAt: transfer.createdAt,

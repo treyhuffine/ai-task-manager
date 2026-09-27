@@ -799,6 +799,15 @@ export function useResumeTransfer(sessionId: string) {
   });
 }
 
+export function useDeliverHeld(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.deliverHeld(sessionId),
+    onSuccess: ({ transfer }) => qc.setQueryData(['session', sessionId, 'transfer'], transfer),
+    onError: (err) => toast.error("Couldn't send them", { description: apiErrorText(err) }),
+  });
+}
+
 export function useFinishTransfer(sessionId: string) {
   const qc = useQueryClient();
   return useMutation({

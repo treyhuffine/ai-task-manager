@@ -604,6 +604,10 @@ export const sessionsApi = {
   finishTransfer(id: string): Promise<{ transfer: TransferView }> {
     return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer/finish`);
   },
+  /** Send them again: held messages whose delivery stopped short. */
+  deliverHeld(id: string): Promise<{ transfer: TransferView }> {
+    return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer/deliver`);
+  },
 
   /** Open code here (P4.1): this computer's review checkout of the execution, if any. */
   review(id: string, opts: { signal?: AbortSignal; computerId?: string } = {}): Promise<ReviewState> {

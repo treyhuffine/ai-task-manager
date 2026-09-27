@@ -198,6 +198,42 @@ describe('settling a move that stopped', () => {
   });
 });
 
+describe('delivering what a move held, in order (P4 re-check)', () => {
+  it('puts a message sent while held ones go out behind them, and starts no move meanwhile', async () => {
+    const q = await import('@/lib/db/queries');
+    const models = await import('@/lib/harness/model-discovery');
+    const original = models.getHarnessModelCatalog;
+    let release!: () => void;
+    let entered!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    vi.spyOn(models, 'getHarnessModelCatalog').mockImplementationOnce(async (...args) => {
+      entered();
+      await held;
+      return original(...args);
+    });
+    const transfer = await moveRecord();
+    const a = await saved('held one');
+    q.holdForTransfer(executionId, a.id);
+    q.updateTransfer(transfer.id, { state: 'failed', failedStage: 'saving', error: 'push rejected' });
+    const { resumeOnSource, startTransfer } = await import('./continue');
+    const resuming = resumeOnSource(executionId);
+    await reached;
+    // The held one is on its way: a new message waits behind it, and no move starts under it.
+    const b = await saved('sent meanwhile');
+    await (await import('@/lib/executor/adapter')).dispatch(chatId, b.content!, { sourceEventId: b.id });
+    expect(q.getTransfer(transfer.id)!.heldEventIds).toEqual([a.id, b.id]);
+    expect(() => startTransfer({ chatSessionId: chatId, toComputerId: otherId, includeUntracked: [], requestedByApiKeyId: null })).toThrow(
+      'Messages it held are still going out. Continue once they have.',
+    );
+    release();
+    await resuming;
+    await until(() => fake.sessions.flatMap((s) => s.messages).length === 2, 'both messages');
+    expect(fake.sessions.flatMap((s) => s.messages)).toEqual(['held one', 'sent meanwhile']);
+    expect(q.getTransfer(transfer.id)!.heldEventIds).toEqual([]);
+  });
+});
+
 describe('when the home restarts', () => {
   it('stops an interrupted move and withdraws the commands no computer took yet', async () => {
     const q = await import('@/lib/db/queries');
@@ -222,6 +258,18 @@ describe('when the home restarts', () => {
     });
     expect(q.getWorkerCommand(prepare.id)!.state).toBe('cancelled');
     expect(q.getWorkerCommand(unrelated.id)!.state).toBe('queued');
+  });
+
+  it('tries again a delivery that stopped short before the restart', async () => {
+    const q = await import('@/lib/db/queries');
+    const transfer = await moveRecord();
+    const a = await saved('stopped short');
+    q.holdForTransfer(executionId, a.id);
+    q.updateTransfer(transfer.id, { state: 'cancelled', failedStage: 'saving', error: "A held message didn't reach Mac Mini: model discovery failed" });
+    const { recoverInterruptedTransfers } = await import('./continue');
+    expect(recoverInterruptedTransfers()).toEqual({ stopped: 0, delivering: 1 });
+    await until(() => fake.sessions.flatMap((s) => s.messages).includes('stopped short'), 'the held message');
+    expect(q.getTransfer(transfer.id)).toMatchObject({ heldEventIds: [], error: null });
   });
 
   it('goes on delivering what a settled move had not sent yet', async () => {

@@ -13,19 +13,28 @@ import { withSenderLabel } from '@/lib/sessions/sender';
 import * as executor from '@/lib/executor/adapter';
 import type { Attachment, WorkerCommandActor } from '@/db/types';
 
-export async function redispatchStoredMessage(eventId: string, actor?: WorkerCommandActor): Promise<void> {
+export async function redispatchStoredMessage(
+  eventId: string,
+  actor?: WorkerCommandActor,
+  opts: { heldFor?: string; onAccepted?: () => void } = {},
+): Promise<void> {
   const event = getChatEventById(eventId);
-  if (!event || event.role !== 'user' || !event.content) return;
+  if (!event || event.role !== 'user' || !event.content) {
+    opts.onAccepted?.();
+    return;
+  }
   const attachments = (event.attachments ?? []) as Attachment[];
   const expanded = await expandMarkers(expandEntityMarkers(event.content, event.sessionId), attachments);
   // Resolves once the harness (or its computer's queue) has it, not when the
   // turn is over: messages delivered one after another keep their order
-  // without each waiting on the last one's whole turn.
+  // without each waiting on the last one's whole turn. Rejects when nothing
+  // took it, so the caller keeps it (P4 re-check).
   await new Promise<void>((resolve, reject) => {
     let accepted = false;
     const accept = () => {
       if (accepted) return;
       accepted = true;
+      opts.onAccepted?.();
       resolve();
     };
     executor
@@ -33,6 +42,7 @@ export async function redispatchStoredMessage(eventId: string, actor?: WorkerCom
         sourceEventId: event.id,
         attachments,
         actor,
+        heldFor: opts.heldFor,
         onAccepted: accept,
       })
       .then(accept, (err: unknown) => {

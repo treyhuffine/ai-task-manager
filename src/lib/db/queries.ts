@@ -5184,11 +5184,13 @@ export function createTransfer(input: {
       .orderBy(desc(executionTransfers.id))
       .limit(1)
       .get();
+    // A move that stopped, or the delivery of one settled earlier that
+    // stopped short: its messages come along, still in order.
     let carried: string[] = [];
-    if (stopped?.state === 'failed') {
+    if (stopped && (stopped.state === 'failed' || stopped.heldEventIds.length > 0)) {
       carried = stopped.heldEventIds;
       tx.update(executionTransfers)
-        .set({ state: 'cancelled', heldEventIds: [], updatedAt: now })
+        .set({ state: stopped.state === 'failed' ? 'cancelled' : stopped.state, heldEventIds: [], updatedAt: now })
         .where(eq(executionTransfers.id, stopped.id))
         .run();
     }
@@ -5229,9 +5231,11 @@ export function settleStoppedTransfer(transferId: string, outcome: 'resumed' | '
     return (
       tx
         .update(executionTransfers)
+        // From here `error` says only why delivering its messages stopped;
+        // where the move itself stopped stays in `failedStage`.
         .set(
           outcome === 'resumed'
-            ? { state: 'cancelled', updatedAt: now }
+            ? { state: 'cancelled', error: null, updatedAt: now }
             : { state: 'succeeded', stage: 'done', error: null, failedStage: null, finishedAt: now, updatedAt: now },
         )
         .where(eq(executionTransfers.id, transferId))
@@ -5255,15 +5259,23 @@ export function takeHeldMessage(transferId: string, eventId: string): boolean {
   }, { behavior: 'immediate' });
 }
 
+/** Whether new messages wait on this transfer (see `holdingTransfer`). */
+function holdsNewMessages(transfer: ExecutionTransferRecord): boolean {
+  return (
+    (transfer.state === 'active' && transfer.toGeneration === null) || transfer.state === 'failed' || transfer.heldEventIds.length > 0
+  );
+}
+
 /**
  * The transfer new messages wait on, or null: one under way before the
- * destination has the work, or one that stopped and waits for Try again,
- * Resume or Finish. Nothing reaches either side meanwhile (P4 review).
+ * destination has the work, one that stopped and waits for Try again,
+ * Resume or Finish, or one whose held messages are still going out. Nothing
+ * reaches either side meanwhile, and nothing overtakes a held message
+ * (P4 review and re-check).
  */
 export function holdingTransfer(executionId: string): ExecutionTransferRecord | null {
   const latest = latestTransfer(executionId);
-  if (!latest) return null;
-  return (latest.state === 'active' && latest.toGeneration === null) || latest.state === 'failed' ? latest : null;
+  return latest && holdsNewMessages(latest) ? latest : null;
 }
 
 export function getTransfer(id: string): ExecutionTransferRecord | null {
@@ -5322,10 +5334,10 @@ export function holdForTransfer(executionId: string, eventId: string): Execution
       .orderBy(desc(executionTransfers.id))
       .limit(1)
       .get();
-    // Held while it moves, until the destination owns the work, and while a
-    // move that stopped waits for a decision (see `holdingTransfer`).
-    const holding = !!latest && ((latest.state === 'active' && latest.toGeneration === null) || latest.state === 'failed');
-    if (!latest || !holding) return null;
+    // Held while it moves, until the destination owns the work, while a move
+    // that stopped waits for a decision, and behind held messages still
+    // going out (see `holdingTransfer`).
+    if (!latest || !holdsNewMessages(latest)) return null;
     if (latest.heldEventIds.includes(eventId)) return latest;
     return tx
       .update(executionTransfers)

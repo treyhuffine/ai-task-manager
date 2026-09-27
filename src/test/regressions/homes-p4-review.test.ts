@@ -291,6 +291,8 @@ describe('transfer lifecycle boundaries', () => {
     expect(fake.sessions.flatMap((s) => s.messages)).toEqual([]);
     const { finishOnDestination, resumeOnSource } = await import('@/lib/transfer/continue');
     if (stage === 'saving') await expect(resumeOnSource(executionId)).resolves.toMatchObject({ state: 'cancelled', heldEventIds: [] });
-    else await expect(finishOnDestination(executionId)).resolves.toMatchObject({ state: 'succeeded', heldEventIds: [] });
+    // This companion never reported a harness, so nothing there can take it:
+    // it stays in line, the reason recorded, for Send them again (P4 re-check).
+    else await expect(finishOnDestination(executionId)).resolves.toMatchObject({ state: 'succeeded', heldEventIds: [event.id], error: expect.stringContaining("hasn't reported claude") });
   });
 });

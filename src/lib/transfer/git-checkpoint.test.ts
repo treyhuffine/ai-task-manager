@@ -249,4 +249,25 @@ describe('what never goes, and what stops it (P4 review)', () => {
       inTheWay: ['node_modules/tool/config.json'],
     });
   });
+
+  it('lets a clean folder become a file, and names what is local inside one that does', async () => {
+    write(worktree, 'lib/a.ts', 'a\n');
+    const first = await saveCheckpoint({ worktree, message: 'first', includeUntracked: ['lib/a.ts'] });
+    const target = path.join(root, 'mini-worktree');
+    await worktreeAtCheckpoint({ repo: mini, path: target, checkpoint: first });
+    // The folder becomes a file, committed on the source.
+    fs.rmSync(path.join(worktree, 'lib'), { recursive: true });
+    write(worktree, 'lib', 'now a file\n');
+    git(worktree, 'add', '--all');
+    git(worktree, 'commit', '-qm', 'lib is a file');
+    const next = await saveCheckpoint({ worktree, message: 'next', includeUntracked: [] });
+    // With something local in the folder there, it stops and says what.
+    write(target, 'lib/notes.local', 'mine\n');
+    await expect(worktreeAtCheckpoint({ repo: mini, path: target, checkpoint: next })).rejects.toMatchObject({ code: 'local_files_in_the_way', message: expect.stringContaining('lib/notes.local') });
+    expect(fs.readFileSync(path.join(target, 'lib/notes.local'), 'utf8')).toBe('mine\n');
+    // With only tracked files in it, it goes.
+    fs.rmSync(path.join(target, 'lib/notes.local'));
+    await expect(worktreeAtCheckpoint({ repo: mini, path: target, checkpoint: next })).resolves.toMatchObject({ sha: next.sha });
+    expect(fs.readFileSync(path.join(target, 'lib'), 'utf8')).toBe('now a file\n');
+  });
 });

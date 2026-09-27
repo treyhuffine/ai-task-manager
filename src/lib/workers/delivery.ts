@@ -89,7 +89,13 @@ export function deliveriesForChat(chatSessionId: string): Record<string, Message
 }
 
 /** A message a move holds (P4.2). If the move stopped, why, and it waits for Try again or Resume. */
-function heldDelivery(transfer: { toComputerId: string; fromComputerId: string; state: string; toGeneration: number | null }): MessageDelivery {
+function heldDelivery(transfer: {
+  toComputerId: string;
+  fromComputerId: string;
+  state: string;
+  toGeneration: number | null;
+  error: string | null;
+}): MessageDelivery {
   const to = getComputer(transfer.toComputerId)?.name ?? 'the other computer';
   const from = getComputer(transfer.fromComputerId)?.name ?? 'the other computer';
   return {
@@ -102,9 +108,11 @@ function heldDelivery(transfer: { toComputerId: string; fromComputerId: string; 
         ? transfer.toGeneration === null
           ? `The move to ${to} stopped. Try again, or resume on ${from}.`
           : `The move to ${to} stopped after it arrived. Deliver it there to finish.`
-        : transfer.state === 'cancelled'
-          ? `Going to ${from} now.`
-          : transfer.state === 'succeeded' || transfer.toGeneration !== null
+        : transfer.state === 'cancelled' || transfer.state === 'succeeded'
+          ? transfer.error
+            ? `Held messages stopped short of ${transfer.state === 'cancelled' ? from : to}. Send them again to go on.`
+            : `Going to ${transfer.state === 'cancelled' ? from : to} now.`
+          : transfer.toGeneration !== null
             ? `Going to ${to} now.`
             : null,
     cancellable: false,

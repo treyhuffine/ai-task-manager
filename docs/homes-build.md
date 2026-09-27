@@ -1208,6 +1208,16 @@ On the dev home with the stand-in's worker, from a browser linked to the stand-i
 
 A move the earlier code "resumed" was left marked stopped, so it showed as stopped again, holding new messages, until Resume. Only the dev home ran that code, so there is nothing to migrate.
 
+### Re-check at c8473cd
+
+A focused re-check confirmed the eight fixes and found three more, each with a probe, kept in `src/test/regressions/homes-p4-recheck.test.ts`.
+
+- **A tracked file that became a folder took the folder along.** Staging the removed file by name added the folder in its place, everything in it included, secrets and files nobody chose. Each tracked change is now staged as it is on disk: one that's gone or became a folder is staged as removed, and what's in the folder goes only when chosen. Before committing, the index is checked against what may go, and anything else is taken back out and nothing is committed.
+- **A held message that nothing took was lost.** It came off the list before it was sent, and when sending failed early (the model check, a harness that isn't there) the next went ahead, and its answer hid the missed one from the health check. Now a message stays held, first in line, until its harness or its computer's queue has it. One that nothing took stops the delivery where it is, with the rest and any new messages behind it, and the card says why with Send them again. A restart tries it again.
+- **A file becoming a folder, or the reverse, was taken for local data.** The overwrite check now counts only what the current commit doesn't track: a clean tracked file the commit replaces goes, and a folder the commit turns into a file is checked for local files inside it.
+
+The held-message probe was adapted to the fix the review asked for (delivery stops at the message nothing took), where it had observed the next message going first. Its requirement is kept and Send them again is exercised. Tests: the three probes, plus a message sent while held ones go out joining the line with no move starting meanwhile, a stopped-short delivery tried again after a restart, and a folder becoming a file with and without local files in it. Full suite: 2,765 passed.
+
 ## P0.3 Records and the runner boundary
 
 ### Principles

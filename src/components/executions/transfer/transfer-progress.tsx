@@ -7,11 +7,13 @@
  * work, Try again or Resume on the source. After, Finish there. Messages
  * sent meanwhile are held until one of those, and say so under each one.
  * There's no dismissing it: a stopped move holds new messages until it's
- * settled (P4 review).
+ * settled (P4 review). Once settled, its held messages going out, and if
+ * one wasn't taken, that delivery stopping with Send them again (P4
+ * re-check).
  */
 
 import { AlertTriangle, Check, Loader2 } from 'lucide-react';
-import { useFinishTransfer, useResumeTransfer, useStartTransfer, useTransfer } from '@/hooks/use-execution';
+import { useDeliverHeld, useFinishTransfer, useResumeTransfer, useStartTransfer, useTransfer } from '@/hooks/use-execution';
 import { transferStepLabel, type TransferView } from '@/lib/transfer/view';
 import { apiErrorText } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
@@ -27,8 +29,40 @@ function stepIndex(stage: TransferStage): number {
 
 export function TransferProgress({ sessionId }: { sessionId: string }) {
   const { data: transfer } = useTransfer(sessionId);
-  if (!transfer || transfer.state === 'succeeded' || transfer.state === 'cancelled') return null;
+  if (!transfer) return null;
+  if (transfer.state === 'succeeded' || transfer.state === 'cancelled') {
+    return transfer.heldCount > 0 ? <Delivering sessionId={sessionId} transfer={transfer} /> : null;
+  }
   return transfer.state === 'active' ? <Moving transfer={transfer} /> : <Stopped sessionId={sessionId} transfer={transfer} />;
+}
+
+/** Held messages going out after Resume or Finish, or stopped short at one nothing took. */
+function Delivering({ sessionId, transfer }: { sessionId: string; transfer: TransferView }) {
+  const again = useDeliverHeld(sessionId);
+  const where = transfer.state === 'cancelled' ? transfer.from.name : transfer.to.name;
+  const count = transfer.heldCount === 1 ? 'A held message' : `${transfer.heldCount} held messages`;
+  if (!transfer.error || transfer.delivering) {
+    return (
+      <p role="status" className="mx-auto flex w-full max-w-3xl items-center gap-1.5 px-1 text-[11.5px] text-muted-foreground">
+        <Loader2 size={11} className="animate-spin" /> Sending {count.toLowerCase()} to {where}
+      </p>
+    );
+  }
+  return (
+    <div role="alert" className="mx-auto w-full max-w-3xl rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2.5">
+      <p className="text-[12.5px] font-medium text-foreground">{count} didn&apos;t go to {where}.</p>
+      <p className="mt-1 whitespace-pre-wrap text-[11.5px] text-muted-foreground">{transfer.error}</p>
+      <p className="mt-1 text-[11px] text-muted-foreground/80">They stay in order, and new messages wait behind them.</p>
+      <button
+        type="button"
+        disabled={again.isPending}
+        onClick={() => again.mutate()}
+        className="mt-2 rounded-md border border-primary bg-primary px-2.5 py-1 text-[12px] text-primary-foreground hover:opacity-90 disabled:opacity-50"
+      >
+        Send them again
+      </button>
+    </div>
+  );
 }
 
 function Steps({ transfer, failedAt }: { transfer: TransferView; failedAt?: number }) {

@@ -170,6 +170,11 @@ export interface DispatchOptions {
    * of several messages in order waits for, rather than every whole turn.
    */
   onAccepted?: () => void;
+  /**
+   * The transfer delivering this held message (`deliverHeld`): the one send
+   * its hold lets through. Everything else waits in line behind it.
+   */
+  heldFor?: string;
 }
 
 /** The work changed hands while a send was being prepared: it starts over, for the new owner. */
@@ -233,7 +238,8 @@ async function dispatchOnce(
     // Held by a move, one that stopped or one delivering where it arrived
     // (P4.4): it goes with Resume, Try again or that delivery, never on its
     // own. A health re-fire on opening the chat, or a retry, finds it here.
-    if (options.sourceEventId && heldMessages(session.executionId).has(options.sourceEventId)) {
+    const heldBy = options.sourceEventId ? heldMessages(session.executionId).get(options.sourceEventId) : undefined;
+    if (heldBy && options.sourceEventId && heldBy.transfer.id !== options.heldFor) {
       options.onQueued?.();
       announceHeld(chatSessionId, options.sourceEventId);
       return;
@@ -271,7 +277,8 @@ async function dispatchOnce(
  */
 function holdHere(chatSessionId: string, executionId: string, options: DispatchOptions): boolean {
   const holding = holdingTransfer(executionId);
-  if (!holding) return false;
+  // The delivery of what a move held sends its own messages through.
+  if (!holding || holding.id === options.heldFor) return false;
   if (!options.sourceEventId) {
     throw new ExecutorError(
       'invalid_state',
@@ -280,8 +287,13 @@ function holdHere(chatSessionId: string, executionId: string, options: DispatchO
         : 'Its move to another computer stopped. Try again, resume it or finish it, then send again.',
     );
   }
-  if (!holdForTransfer(executionId, options.sourceEventId)) return false;
+  const held = holdForTransfer(executionId, options.sourceEventId);
+  if (!held) return false;
   announceHeld(chatSessionId, options.sourceEventId);
+  // In line behind messages a settled move is delivering: that delivery takes it too.
+  if (held.state === 'cancelled' || held.state === 'succeeded') {
+    void import('@/lib/transfer/continue').then((m) => m.continueHeldDelivery(held.id)).catch(() => {});
+  }
   return true;
 }
 
