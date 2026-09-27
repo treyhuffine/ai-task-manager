@@ -1202,6 +1202,12 @@ A review of P4 at cbbd90c found eight reproducible failures in thirteen failing 
 
 - The review's 15 probes, all passing. `coordination.test.ts` (8): the boundary both ways, draining admitted sends, a send prepared while the work changed hands built for the new owner's folder, new messages held until a stopped move is settled and a second Resume finding nothing, Resume answering before the held turns end, in order, Try again carrying held messages, and restart recovery withdrawing queued commands and finishing a settled delivery. `git-checkpoint.test.ts` (+4): a changed local file left uncommitted, the staged-secret and half-done-merge refusals said before anything is touched, pattern-like names taken literally and again on a retry, and a review kept when a local file is in the way. Each fix fails without it. Full suite: 2,759 passed.
 
+### Live check
+
+On the dev home with the stand-in's worker, from a browser linked to the stand-in: with `.env.local` staged at home, the Continue dialog said so and wouldn't continue. With someone else's push on the branch, the move stopped at Saving work, naming Mac Mini. A message typed then said "The move to MacBook (stand-in) stopped. Try again, or resume on Mac Mini." and nothing was sent, and the card had no Dismiss and said the message was held. Two Resume requests at once answered 200 and 409, and the held message was answered at home once.
+
+A move the earlier code "resumed" was left marked stopped, so it showed as stopped again, holding new messages, until Resume. Only the dev home ran that code, so there is nothing to migrate.
+
 ## P0.3 Records and the runner boundary
 
 ### Principles
