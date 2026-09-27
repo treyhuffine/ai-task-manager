@@ -1218,6 +1218,8 @@ A focused re-check confirmed the eight fixes and found three more, each with a p
 
 The held-message probe was adapted to the fix the review asked for (delivery stops at the message nothing took), where it had observed the next message going first. Its requirement is kept and Send them again is exercised. Tests: the three probes, plus a message sent while held ones go out joining the line with no move starting meanwhile, a stopped-short delivery tried again after a restart, and a folder becoming a file with and without local files in it. Full suite: 2,765 passed.
 
+Live on the dev home with the stand-in's worker restarted on this code: a fresh execution went to the stand-in from its browser, with a message typed mid-move held and then answered there once from the handoff, and came back to Mac Mini with the stand-in's change and chosen new file, the home's unchosen file still in place.
+
 ## P0.3 Records and the runner boundary
 
 ### Principles
