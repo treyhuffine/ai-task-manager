@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Continue on MacBook (docs/homes-spec.md §8.2, P4.2): what the move does,
+ * Move to MacBook (docs/homes-model.md, spec §8.2, P4.2): what the move does,
  * what it takes, and the one choice it asks for. Tracked changes always go,
  * committed and pushed with Git. Untracked files go only when chosen. Local
  * setup and secrets never do. A review checkout already there (§8.1) stays
@@ -51,7 +51,7 @@ export function ContinueDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Continue on {to.name}</DialogTitle>
+          <DialogTitle>Move to {to.name}</DialogTitle>
           <DialogDescription>
             The agent stops on {from}. Its work is committed and pushed with Git, and the same execution continues on {to.name}{' '}
             in a fresh session that starts from a handoff. The chat stays as it is, and {from} keeps its folder.
@@ -123,7 +123,7 @@ export function ContinueDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12.5px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             {start.isPending && <Loader2 size={12} className="animate-spin" />}
-            Continue on {to.name}
+            Move to {to.name}
           </button>
         </DialogFooter>
       </DialogContent>

@@ -131,18 +131,21 @@ Name the computer on an execution only when it isn't the home, on desktop and ph
 
 ### 3.4 Bringing work here
 
-Provide two distinct actions in the execution's location menu:
+Amended after gates B and C started (the simplification pass, [docs/homes-model.md](homes-model.md)). One action per computer in the execution's location menu, named by the computer, from any screen:
 
 | Action | Result |
 | --- | --- |
-| Open code here | Fetch a published Git commit into a local review checkout and open the editor. The running execution stays where it is |
-| Continue here | Stop the source, transfer a checkpoint, prepare the local environment, and continue the same Ri execution here |
+| Move to MacBook | Stop the source, transfer a checkpoint, prepare the environment there, and continue the same Ri execution on MacBook |
 
-On a laptop-owned execution, Continue on Mac Mini uses the same transfer operation for the prepared home computer. Complete that action before closing the laptop. Sleep does not move its work, and a sleeping source cannot complete a transfer. A future sleep reminder is not a prerequisite for this flow.
+Every other computer that runs agents is listed. The page never needs to know which computer it's on, so moving needs no browser linking. Each move says why when it can't happen yet: the source or destination isn't running Ri (with how to start it), a move is already under way, or the work isn't in Git.
 
-When local execution is not installed, the action leads to companion setup. When the project is not set up, offer Use existing folder and Clone repository. Attach the result to the existing agent, not a new agent.
+Complete a move off the laptop before closing it. Sleep does not move its work, and a sleeping source cannot complete a transfer. A future sleep reminder is not a prerequisite for this flow.
 
-A phone can follow, reply to, interrupt, and answer an execution on any connected personal computer. It does not offer Open code here or claim to execute code.
+When the agent isn't on the destination yet, the move sets it up there first, from the app: Copy it from Git (the standard case: the remote of the agent's folder on the home, into Ri's projects folder there, its references coming along beside it as on the home, or reusing one another agent there already has), or Use a folder that's already there. A reference that can't be found is asked about once, with Go without it. The result is the same setup `ri setup attach` makes, attached to the existing agent. The same setup is offered wherever a computer is chosen: New execution on…, and the launcher's Run on control. When local execution is not installed, the action leads to companion setup (P5.4).
+
+Open code here (a read-only review checkout on this computer, §8.1) is built and parked off the menu until it earns a place: seeing work from anywhere already covers the chat, changes, files and terminal, and moving covers working on it locally.
+
+A phone can follow, reply to, interrupt, and answer an execution on any connected personal computer, and move it.
 
 The in-app terminal follows the execution. A laptop viewing a Home-owned execution controls a terminal on Home in that execution's folder. After Continue here succeeds, opening the terminal creates a fresh shell in the laptop's destination worktree. Shell processes do not migrate, and opening a review checkout does not move the execution's terminal. There is no separate global terminal computer toggle. Show the terminal's computer and working folder.
 
@@ -387,6 +390,8 @@ Preserve the scheduler's existing overdue behavior: when the home next ticks, an
 ## 8. Reviewing locally and continuing elsewhere
 
 ### 8.1 Open code here
+
+Parked off the menu in the simplification pass (§3.4). The capability below is built and kept.
 
 Git owns code versions and transfer. Ri coordinates existing commit/push/fetch/worktree operations and opens the result. There is no live filesystem copy, background capture of unfinished edits, or separate snapshot format.
 
@@ -674,7 +679,9 @@ Passed on 2026-09-25 with the real MacBook and iPhone against the dev home. Ther
 - [x] P4.6 Test unavailable source, push rejection, untracked work, divergent/stale branches, failed setup, changed references, and failure before/after ownership changes. Include the P2 re-review's placement probe: a command streamed before a disconnect, for a placement changed since, never runs when resent ([recorded](homes-build.md#p4-acceptance-recorded)). Each mapped to its test in the [failure matrix](homes-build.md#the-failure-matrix-46).
 - [x] P4 review: 8 reproducible failures found by review are fixed, with its probes kept as regressions. A checkpoint could push staged or changed local files and secrets, commit a half-done merge's conflict markers, and refuse Try again's own chosen files. Moving a destination forward or refreshing a review could overwrite ignored local files. A send, an archive or a new terminal could reach a source the move had stopped, and a message sent after a move stopped went to the source. A restart left a move under way forever, and two Resumes delivered a message twice. Every operation on an execution now passes one boundary with the move, a stopped move holds new messages until it's settled, and a restart stops an interrupted move where it was. A re-check found three more, fixed: a tracked file turned into a folder took the folder's contents along, a held message nothing took could be lost behind the next, and a file becoming a folder was taken for local data. A final re-check found a message still being prepared taken as delivered, fixed. See the [build notes](homes-build.md#p4-review-fixes).
 
-**Dogfood gate C:** review and continue real work in both directions. The person can tell whether they are viewing, reviewing a checkpoint, or continuing locally, while staying in the same Ri work record. Deliberately interrupt a transfer and recover without lost files or two active owners.
+- [x] Simplification pass, after gates B and C started: the product is measured against a one-page model ([docs/homes-model.md](homes-model.md)). Moves are named by computer from any screen (Move to MacBook), with no browser linking. An agent is set up on a computer from the app, copied from Git or from a folder already there, wherever a computer is chosen. Open code here is parked off the menu. Every "can't" says why and what to do. See the [build notes](homes-build.md#simplification-pass-before-p5).
+
+**Dogfood gate C:** move real work in both directions. The person can tell whether they are viewing or moving it, while staying in the same Ri work record. Deliberately interrupt a move and recover without lost files or two active owners. (Amended in the simplification pass: reviewing a checkpoint is parked.)
 
 ### P5. Existing-data adoption and personal release
 

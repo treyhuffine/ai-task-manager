@@ -10,7 +10,9 @@
  * A computer that can't take the work is still a choice, with the reason, and
  * a start on it is refused with that reason. Nothing is ever swapped for
  * another computer: not a one-off choice, and not a saved default that has
- * since stopped working.
+ * since stopped working. Every other computer that runs agents is a choice
+ * too, after those, marked as needing the agent set up there, which the app
+ * offers to do.
  */
 
 import {
@@ -36,6 +38,11 @@ export interface RunOnChoice {
   problem: string | null;
   /** Its worker is connected now. Work started while it isn't waits for it. The home is always connected. */
   connected: boolean;
+  /**
+   * The agent isn't on this computer yet, and can be set up there from the
+   * app (docs/homes-model.md): offered rather than a dead end.
+   */
+  needsSetup: boolean;
 }
 
 export interface RunOn {
@@ -67,7 +74,7 @@ export function notReady(folder: string, setup: { problem: string | null; status
 }
 
 function problemOf(agentName: string, computerName: string, setup: AgentSetupWithComputer | undefined, enrolled: boolean): string | null {
-  if (!setup) return `${agentName} isn't set up on ${computerName}. Attach its folder there, or pick another computer.`;
+  if (!setup) return `${agentName} isn't on ${computerName} yet.`;
   if (!enrolled) return `${computerName} isn't set up to run agents. Run \`ri worker enroll\` there first.`;
   if (setup.status !== 'ready') return notReady(`${agentName}'s folder on ${computerName}`, setup);
   return null;
@@ -94,6 +101,7 @@ export function runOnFor(workspaceId: string): RunOn | null {
       ready: !homeSetup || homeSetup.status === 'ready',
       problem: homeSetup && homeSetup.status !== 'ready' ? notReady(`${ws.name}'s folder here`, homeSetup) : null,
       connected: true,
+      needsSetup: false,
     });
   }
   for (const setup of setups) {
@@ -109,6 +117,26 @@ export function runOnFor(workspaceId: string): RunOn | null {
       ready: problem === null,
       problem,
       connected: isEnrolled && isComputerConnected(computer.id),
+      needsSetup: false,
+    });
+  }
+
+  // The other computers that run agents, where it isn't yet: set up from
+  // the app when the person picks one.
+  const others = [...enrolled]
+    .filter((id) => id !== host && !choices.some((c) => c.computerId === id))
+    .map((id) => getComputer(id))
+    .filter((c): c is NonNullable<typeof c> => !!c && c.status === 'active')
+    .sort((a, b) => a.name.localeCompare(b.name));
+  for (const computer of others) {
+    choices.push({
+      computerId: computer.id,
+      name: computer.name,
+      isHome: false,
+      ready: false,
+      problem: problemOf(ws.name, computer.name, undefined, true),
+      connected: isComputerConnected(computer.id),
+      needsSetup: true,
     });
   }
 
@@ -127,6 +155,7 @@ export function runOnFor(workspaceId: string): RunOn | null {
           ? `${computer?.name ?? 'That computer'} is no longer connected to this home.`
           : problemOf(ws.name, computer.name, undefined, enrolled.has(saved)),
       connected: false,
+      needsSetup: false,
     });
   }
 
@@ -192,7 +221,7 @@ export function setDefaultComputer(workspaceId: string, computerId: string | nul
     if (!computer || computer.status !== 'active') throw new RunOnError('That computer is no longer connected to this home.');
     const isHome = computerId === getHome()?.hostComputerId;
     if (!isHome && !listAgentSetups({ workspaceId, computerId }).length) {
-      throw new RunOnError(`${ws.name} isn't set up on ${computer.name}. Attach its folder there first.`);
+      throw new RunOnError(`${ws.name} isn't on ${computer.name} yet. Set it up there first.`);
     }
   }
   updateWorkspace(workspaceId, { defaultComputerId: computerId });

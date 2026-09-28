@@ -1,4 +1,8 @@
-/** Actual mobile agents view and sheet in Chromium at phone width; data hooks only are fixtures. */
+/**
+ * Actual mobile agents view and sheet in Chromium at phone width; data hooks only are fixtures.
+ * Adapted at the simplification pass: the fixture hooks gain the setup ones
+ * the sheet now uses (a computer the agent isn't on offers to set it up).
+ */
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
@@ -23,6 +27,8 @@ it('returns focus and pointer input after selecting or dismissing the agent comp
     export const startExecution=(_qc,input)=>{record('start',input.computerId??'default');return {sessionId:'chat',done:Promise.resolve()};};
     export const useRunOn=()=>({data:{defaultId:'home',choices:[{computerId:'home',name:'Review home',isHome:true,ready:true,connected:true},{computerId:'worker',name:'Review worker',isHome:false,ready:true,connected:true}]}});
     export const useSetDefaultComputer=()=>({isPending:false,mutate:(id)=>record('default',id)});
+    export const useSetupPlan=()=>({data:null,isLoading:false,error:null});
+    export const useSetUpAgent=()=>({isPending:false,mutate:()=>{}});
   `;
   const bundled = await build({
     stdin:{resolveDir:process.cwd(),loader:'tsx',contents:`

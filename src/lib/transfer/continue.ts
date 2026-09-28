@@ -77,7 +77,6 @@ export class TransferError extends Error {
       | 'archived'
       | 'not_git'
       | 'same_computer'
-      | 'not_here'
       | 'destination_not_ready'
       | 'source_unreachable'
       | 'destination_unreachable'
@@ -120,11 +119,11 @@ function destinationProblem(workspaceId: string, harness: string, toComputerId: 
   const computer = getComputer(toComputerId);
   if (!computer || computer.status !== 'active') return `${name} is no longer connected to this home.`;
   const choice = runOnFor(workspaceId)?.choices.find((c) => c.computerId === toComputerId);
-  if (!choice) return `${getWorkspace(workspaceId)?.name ?? 'The agent'} isn't set up on ${name}. Attach its folder there first.`;
+  if (!choice) return `${getWorkspace(workspaceId)?.name ?? 'The agent'} isn't on ${name} yet. Set it up there first.`;
   if (!choice.ready) return choice.problem ?? `${name} can't take this work yet.`;
   if (toComputerId === host) return null;
   if (!listEnrolledComputerIds().has(toComputerId)) return `${name} isn't set up to run agents. Run \`ri worker enroll\` there first.`;
-  if (!isComputerConnected(toComputerId)) return `${name} isn't connected. Start Ri's worker there, then continue.`;
+  if (!isComputerConnected(toComputerId)) return `${name} isn't running Ri right now. Start Ri on ${name}, then move it.`;
   const report = computer.harnesses?.find((h) => h.harness === harness);
   if (report && report.binary.status !== 'supported') return `${name} can't run ${harness} right now.`;
   return null;

@@ -75,6 +75,29 @@ export function useRunOn(workspaceId: string | null) {
   });
 }
 
+/** What setting the agent up on that computer would do, asked of that computer when the dialog opens. */
+export function useSetupPlan(workspaceId: string | null, computerId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: [...WORKSPACES_KEY, workspaceId, 'setup-plan', computerId],
+    queryFn: ({ signal }) => workspacesApi.setupPlan(workspaceId!, computerId!, { signal }),
+    enabled: enabled && !!workspaceId && !!computerId,
+    staleTime: 0,
+    retry: false,
+  });
+}
+
+/** Set the agent up on a computer from the app. Where it can run follows at once. */
+export function useSetUpAgent(workspaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Parameters<typeof workspacesApi.setUp>[1]) => workspacesApi.setUp(workspaceId!, body),
+    onSuccess: (outcome) => {
+      if (outcome.runOn) qc.setQueryData([...WORKSPACES_KEY, workspaceId, 'run-on'], outcome.runOn);
+      void qc.invalidateQueries({ queryKey: [...WORKSPACES_KEY, workspaceId] });
+    },
+  });
+}
+
 /** "Make this the default" for an agent's new executions (P3.1). */
 export function useSetDefaultComputer(workspaceId: string | null) {
   const qc = useQueryClient();

@@ -40,6 +40,9 @@ import { pullBaseInto, pushExecutionBranch } from '@/lib/workspaces/branch-sync'
 import { looksLikeNonFastForward } from '@/lib/workspaces/git-errors';
 import { fetchInputFiles, inputFilesDir, placeInputFiles } from './input-files';
 import { UnsupportedRequestError, type RequestHandler } from './run';
+import { applySetupHere, collectingLink, planSetupHere, type SetupAgentRequest } from '@/lib/setups/set-up-here';
+import { SetupError } from '@/lib/setups/service';
+import { SetupFileConflictError } from '@/lib/setups/local-file';
 
 const run = promisify(execFile);
 
@@ -278,6 +281,24 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
       const folder = agentFolderHere(homeId, request.agentId);
       if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this computer." } };
       return readAgentFolder(folder, request.filesToCopy, request.read);
+    }
+    if (kind === 'setup_agent') {
+      // Setting an agent up here from the app: its project copied down, or a
+      // folder already here, the same setup `ri setup attach` makes. Only for
+      // this computer's own home.
+      const request = payload as SetupAgentRequest;
+      if (request.context.homeId !== homeId) {
+        return { status: 409, body: { error: 'wrong_home', message: 'This computer runs agents for a different Ri.' } };
+      }
+      try {
+        if (request.op === 'plan') return { status: 200, body: planSetupHere(request) };
+        return { status: 200, body: await applySetupHere(request, collectingLink(request.context)) };
+      } catch (err) {
+        if (err instanceof SetupError || err instanceof SetupFileConflictError) {
+          return { status: 400, body: { error: 'setup', message: err.message } };
+        }
+        throw err;
+      }
     }
     throw new UnsupportedRequestError(kind);
   };

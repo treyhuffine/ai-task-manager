@@ -1,5 +1,6 @@
 import { api } from './client';
 import type { RunOn } from '@/lib/setups/run-on';
+import type { SetupAgentInput, SetupAgentPlan, SetupOutcome } from '@/lib/setups/set-up-agent';
 import type {
   WorkspaceRecord,
   WorkspaceWithCounts,
@@ -96,6 +97,16 @@ export const workspacesApi = {
   /** "Make this the default", or null to go back to the automatic choice. */
   setDefaultComputer(id: string, computerId: string | null): Promise<RunOn> {
     return api.put<RunOn>(`/workspaces/${id}/run-on`, { defaultComputerId: computerId });
+  },
+
+  /** What setting the agent up on that computer would do (docs/homes-model.md). */
+  setupPlan(id: string, computerId: string, opts: { signal?: AbortSignal } = {}): Promise<SetupAgentPlan> {
+    return api.get<SetupAgentPlan>(`/workspaces/${id}/setups`, { query: { computerId }, signal: opts.signal });
+  },
+
+  /** Set the agent up on that computer: its project copied down, or a folder already there. */
+  setUp(id: string, body: SetupAgentInput & { computerId: string }): Promise<SetupOutcome> {
+    return api.post<SetupOutcome>(`/workspaces/${id}/setups`, body);
   },
 
   listPRs(id: string): Promise<PRSummary[]> {

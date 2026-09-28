@@ -28,3 +28,6 @@ export function locationLabel(
   if (!location.isHome) return location.name;
   return mode === 'always' && severalComputers ? location.name : null;
 }
+
+/** How a computer starts running Ri, until the companion app does it at login (P5.4). */
+export const START_RI = 'ri worker run';

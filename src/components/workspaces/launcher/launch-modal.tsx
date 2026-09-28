@@ -631,6 +631,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
               />
               {!continuation && severalComputers && runOn && workspaceId && (
                 <RunOnControl
+                  agent={{ id: workspaceId, name: workspace?.name ?? 'This agent' }}
                   runOn={runOn}
                   value={runOnTarget}
                   onChange={(computerId) => setRunOnPick({ workspaceId, computerId })}

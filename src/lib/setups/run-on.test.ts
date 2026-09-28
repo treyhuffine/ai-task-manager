@@ -42,10 +42,13 @@ async function setUpOn(computerId: string, status: 'ready' | 'missing_folder' = 
 }
 
 describe('the choices and the default', () => {
-  it('runs an agent from before setups at home', async () => {
+  it('runs an agent from before setups at home, and offers to set it up on the other computers', async () => {
     const { runOnFor } = await import('./run-on');
     expect(runOnFor(agentId)).toMatchObject({
-      choices: [{ computerId: hostId, name: 'Mac Mini', isHome: true, ready: true, connected: true }],
+      choices: [
+        { computerId: hostId, name: 'Mac Mini', isHome: true, ready: true, connected: true, needsSetup: false },
+        { computerId: laptopId, name: 'MacBook', isHome: false, ready: false, needsSetup: true, problem: "Ri isn't on MacBook yet." },
+      ],
       savedDefaultId: null,
       defaultId: hostId,
     });
@@ -102,7 +105,7 @@ describe('Make this the default', () => {
     await setUpOn(hostId);
     const { setDefaultComputer, RunOnError } = await import('./run-on');
     expect(() => setDefaultComputer(agentId, laptopId)).toThrow(RunOnError);
-    expect(() => setDefaultComputer(agentId, laptopId)).toThrow("Ri isn't set up on MacBook. Attach its folder there first.");
+    expect(() => setDefaultComputer(agentId, laptopId)).toThrow("Ri isn't on MacBook yet. Set it up there first.");
   });
 
   it('keeps a saved default that stopped working as the default, with the reason, rather than picking another', async () => {
@@ -117,7 +120,8 @@ describe('Make this the default', () => {
     expect(runOn.defaultId).toBe(laptopId);
     expect(runOn.choices.find((c) => c.computerId === laptopId)).toMatchObject({
       ready: false,
-      problem: "Ri isn't set up on MacBook. Attach its folder there, or pick another computer.",
+      needsSetup: true,
+      problem: "Ri isn't on MacBook yet.",
     });
   });
 });

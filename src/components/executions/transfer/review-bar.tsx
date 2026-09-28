@@ -31,7 +31,8 @@ export function ReviewBar({ session, workspace }: { session: ChatSessionWithExec
   const [continuing, setContinuing] = useState(false);
   const review = data?.review;
   if (!review || !data?.viewer || data.viewer.id === owner?.computerId) return null;
-  const here = moves.find((m) => m.key === 'here') ?? null;
+  // Moving it to the computer this review is on.
+  const here = moves.find((m) => m.key === data.viewer!.id && !m.needsSetup) ?? null;
   const ownBranch = `git switch -c ${review.branch}-mine`;
 
   return (

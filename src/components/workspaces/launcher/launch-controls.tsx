@@ -21,6 +21,8 @@ import {
 import type { EffortLevel } from '@/db/types';
 import type { LaunchBase, LaunchMode } from '@/lib/executions/launch-draft';
 import type { RunOn } from '@/lib/setups/run-on';
+import { SetupAgentDialog } from '@/components/agents/setup-agent-dialog';
+import { START_RI } from '@/lib/executions/location';
 import { cn } from '@/lib/utils';
 
 const TRIGGER_CLASS =
@@ -144,9 +146,11 @@ export function LiveModeNotice() {
  * chip that opens the choices. Picking one affects this execution only.
  * "Make this the default" is its own explicit item, never a side effect of
  * picking. A computer that can't take the work says why and can't be
- * picked, and nothing is ever swapped in for it.
+ * picked, and nothing is ever swapped in for it. One the agent isn't on yet
+ * offers to set it up there, then is picked (docs/homes-model.md).
  */
 export function RunOnControl({
+  agent,
   runOn,
   value,
   onChange,
@@ -154,6 +158,7 @@ export function RunOnControl({
   savingDefault,
   disabled,
 }: {
+  agent: { id: string; name: string };
   runOn: RunOn;
   value: string | null;
   onChange: (computerId: string) => void;
@@ -162,6 +167,7 @@ export function RunOnControl({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [settingUp, setSettingUp] = useState<{ id: string; name: string } | null>(null);
   const selected = runOn.choices.find((c) => c.computerId === value) ?? null;
   if (runOn.choices.length === 0 || !selected) return null;
 
@@ -176,69 +182,93 @@ export function RunOnControl({
 
   const oneOff = value !== runOn.defaultId;
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          title="Where this execution runs"
-          className={cn(TRIGGER_CLASS, oneOff && 'border-primary/40 text-foreground', !selected.ready && 'border-amber-500/40 text-amber-600 dark:text-amber-400')}
-        >
-          <Laptop size={11} />
-          <span className="max-w-[9rem] truncate">{selected.name}</span>
-        </button>
-      </PopoverTrigger>
-      <LauncherPopoverContent align="start" className="w-[280px] p-1">
-        <div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">Run on</div>
-        {runOn.choices.map((choice) => {
-          const isSelected = choice.computerId === value;
-          const hint = !choice.ready
-            ? choice.problem
-            : !choice.connected
-              ? 'Not connected right now. The work starts when it is.'
-              : null;
-          return (
-            <button
-              key={choice.computerId}
-              type="button"
-              disabled={!choice.ready}
-              onClick={() => { onChange(choice.computerId); setOpen(false); }}
-              className={cn(
-                'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed',
-                isSelected ? 'bg-muted' : 'hover:bg-muted/50',
-              )}
-            >
-              <Laptop size={11} className={cn('mt-0.5 flex-shrink-0', choice.ready ? 'text-primary/70' : 'text-muted-foreground/50')} />
-              <span className="min-w-0 flex-1">
-                <span className={cn('flex items-center gap-1.5 text-[12px]', choice.ready ? 'text-foreground' : 'text-muted-foreground')}>
-                  <span className="truncate">{choice.name}</span>
-                  {choice.computerId === runOn.defaultId && (
-                    <span className="text-[10px] text-muted-foreground/70">default</span>
-                  )}
-                </span>
-                {hint && (
-                  <span className={cn('block text-[10.5px] leading-snug', choice.ready ? 'text-muted-foreground/80' : 'text-amber-600 dark:text-amber-400')}>
-                    {hint}
-                  </span>
-                )}
-              </span>
-              {isSelected && <Check size={11} className="mt-0.5 flex-shrink-0 text-primary" />}
-            </button>
-          );
-        })}
-        {oneOff && selected.ready && (
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
           <button
             type="button"
-            disabled={savingDefault}
-            onClick={() => onMakeDefault(selected.computerId)}
-            className="mt-1 flex w-full items-center gap-2 rounded-md border-t border-border/70 px-2 py-1.5 text-left text-[11.5px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
+            disabled={disabled}
+            title="Where this execution runs"
+            className={cn(TRIGGER_CLASS, oneOff && 'border-primary/40 text-foreground', !selected.ready && 'border-amber-500/40 text-amber-600 dark:text-amber-400')}
           >
-            {savingDefault ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} className="opacity-0" />}
-            Make {selected.name} the default for this agent
+            <Laptop size={11} />
+            <span className="max-w-[9rem] truncate">{selected.name}</span>
           </button>
-        )}
-      </LauncherPopoverContent>
-    </Popover>
+        </PopoverTrigger>
+        <LauncherPopoverContent align="start" className="w-[280px] p-1">
+          <div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">Run on</div>
+          {runOn.choices.map((choice) => {
+            const isSelected = choice.computerId === value;
+            const canSetUp = choice.needsSetup && choice.connected;
+            const hint = choice.needsSetup
+              ? canSetUp
+                ? `${agent.name} isn't on ${choice.name} yet. Set it up there, once.`
+                : `${choice.name} isn't running Ri right now. Start it there with ${START_RI}.`
+              : !choice.ready
+                ? choice.problem
+                : !choice.connected
+                  ? 'Not connected right now. The work starts when it is.'
+                  : null;
+            return (
+              <button
+                key={choice.computerId}
+                type="button"
+                disabled={!choice.ready && !canSetUp}
+                onClick={() => {
+                  setOpen(false);
+                  if (canSetUp) setSettingUp({ id: choice.computerId, name: choice.name });
+                  else onChange(choice.computerId);
+                }}
+                className={cn(
+                  'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed',
+                  isSelected ? 'bg-muted' : 'hover:bg-muted/50',
+                )}
+              >
+                <Laptop size={11} className={cn('mt-0.5 flex-shrink-0', choice.ready ? 'text-primary/70' : 'text-muted-foreground/50')} />
+                <span className="min-w-0 flex-1">
+                  <span className={cn('flex items-center gap-1.5 text-[12px]', choice.ready ? 'text-foreground' : 'text-muted-foreground')}>
+                    <span className="truncate">{choice.name}</span>
+                    {choice.computerId === runOn.defaultId && (
+                      <span className="text-[10px] text-muted-foreground/70">default</span>
+                    )}
+                  </span>
+                  {hint && (
+                    <span className={cn('block text-[10.5px] leading-snug', choice.ready ? 'text-muted-foreground/80' : 'text-amber-600 dark:text-amber-400')}>
+                      {hint}
+                    </span>
+                  )}
+                </span>
+                {isSelected && <Check size={11} className="mt-0.5 flex-shrink-0 text-primary" />}
+              </button>
+            );
+          })}
+          {oneOff && selected.ready && (
+            <button
+              type="button"
+              disabled={savingDefault}
+              onClick={() => onMakeDefault(selected.computerId)}
+              className="mt-1 flex w-full items-center gap-2 rounded-md border-t border-border/70 px-2 py-1.5 text-left text-[11.5px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
+            >
+              {savingDefault ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} className="opacity-0" />}
+              Make {selected.name} the default for this agent
+            </button>
+          )}
+        </LauncherPopoverContent>
+      </Popover>
+      {settingUp && (
+        <SetupAgentDialog
+          workspaceId={agent.id}
+          agentName={agent.name}
+          computer={settingUp}
+          open={!!settingUp}
+          onOpenChange={(next) => !next && setSettingUp(null)}
+          onReady={() => {
+            onChange(settingUp.id);
+            setSettingUp(null);
+          }}
+        />
+      )}
+    </>
   );
 }
 

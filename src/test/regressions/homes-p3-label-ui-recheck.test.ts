@@ -3,7 +3,9 @@
  *
  * Adapted after ece748f: the phone's hold on + became the agent's ⋯ menu
  * ("New execution on…"), so the probe opens the sheet from a real dropdown
- * item, as the agents list does, instead of a long press. + is a plain tap. */
+ * item, as the agents list does, instead of a long press. + is a plain tap.
+ * And at the simplification pass: moves are named by computer ("Move to
+ * Review worker"), and the fixture hooks gain the setup ones. */
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
@@ -27,6 +29,8 @@ it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a co
     export const useCommit = () => ({mutate:()=>{}});
     export const useOpenCodeHere = () => ({isPending:false,mutate:()=>record('review','worker')});
     export const useOpenReview = () => () => {};
+    export const useSetupPlan = () => ({data:null,isLoading:false,error:null});
+    export const useSetUpAgent = () => ({isPending:false,mutate:()=>{}});
   `;
   const bundle = await build({
     stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
@@ -84,9 +88,9 @@ it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a co
     await page.getByRole('button', { name: 'Name all computers' }).click();
     expect(await page.locator('#label').textContent()).toBe('Review home');
     await page.getByRole('button', { name: 'Execution menu' }).click();
-    await page.getByRole('button', { name: 'Continue here, on Review worker' }).click();
-    await page.getByRole('dialog', { name: 'Continue on Review worker' }).waitFor();
-    await page.getByRole('button', { name: 'Continue on Review worker', exact: true }).click();
+    await page.getByRole('button', { name: 'Move to Review worker' }).click();
+    await page.getByRole('dialog', { name: 'Move to Review worker' }).waitFor();
+    await page.getByRole('button', { name: 'Move to Review worker', exact: true }).click();
     await page.keyboard.press('Escape');
     await page.locator('#plus').tap();
     await page.locator('#more').tap();

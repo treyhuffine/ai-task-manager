@@ -49,7 +49,8 @@ export type WorkerRequestKind =
   | 'review_checkout'
   | 'github'
   | 'list_history'
-  | 'read_history';
+  | 'read_history'
+  | 'setup_agent';
 
 /**
  * Read an execution placed on the worker's computer. It names the execution,
