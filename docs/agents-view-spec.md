@@ -403,7 +403,7 @@ One registry generates both surfaces, so every item lands on both.
 - [x] **Preview:** the existing preview pane pointed at the workspace preview.
   - Revised by the Phase 5 finding: the agent's execution previews (`GET /api/workspaces/:id/previews`). Pick one to show it in the existing preview pane, with "Restore pinned" calling `preview/restore-set`.
 - [x] **Setup** replaces `WorkspaceSettingsSheet`. Sections:
-  - `src/components/agents/agent-setup.tsx`. Adds Purpose and Instructions with live counters against the caps. Saving sends only the fields that changed, because instructions, the browser and the folder recycle live sessions (verified: editing purpose sends `{"purpose": ...}` alone). An untouched form follows edits made elsewhere, such as the main chat's `update_workspace`, and unsaved edits are never overwritten. The Start script is the preview command, so it lives in "Scripts and preview". The sheet is deleted, and every opener (rail gear, status and history views, Needs Review, row menus, the execution preview pane) opens this tab.
+  - `src/components/agents/agent-setup.tsx`. Adds Purpose and Instructions with live counters against the caps. Saving sends only the fields that changed, because instructions, the browser and the folder recycle live sessions (verified: editing purpose sends `{"purpose": ...}` alone). An untouched form follows edits made elsewhere, such as the main chat's `update_workspace`, and unsaved edits are never overwritten. The Start script is the preview command, so it lives in "Scripts and preview". The sheet is deleted, and every setup opener (status and history views, Needs Review, row menus, the execution preview pane) opens this tab. The rail row's hover button opened it too, until it became an open arrow that opens the agent's view (the gear read as settings, when the action is going into the agent).
   - Basics: name, icon, area, purpose
   - Instructions
   - Connectors
@@ -447,7 +447,7 @@ One registry generates both surfaces, so every item lands on both.
   | Click an execution | execution view | unchanged |
 
   The active agent gets a highlight.
-  - Landed with Phase 7 (the view needed a way in). The icon slot is its own fold button, the name is the open button, and the gear's label says "Agent setup".
+  - Landed with Phase 7 (the view needed a way in). The icon slot is its own fold button, the name is the open button, and the hover button is an open arrow that opens the agent's view (it was a gear labeled "Agent setup").
 - [x] Rail state per view: Home and the agent view keep whatever the user set. The execution view still collapses the rail automatically. That contrast is part of what makes the two views feel different.
   - `PowerRail compact` is true only for the execution view, and ⌘\ toggles the global rail state everywhere else.
 - [x] Execution header (`execution-header.tsx`): a breadcrumb "ri › Refactor auth". Clicking the agent name opens the agent view.

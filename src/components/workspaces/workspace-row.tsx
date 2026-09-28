@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { ChevronRight, Folder, Settings, Plus } from 'lucide-react';
+import { ArrowUpRight, ChevronRight, Folder, Plus } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -17,7 +17,7 @@ import { SessionRow } from './session-row';
 
 interface WorkspaceRowProps {
   workspace: WorkspaceWithCounts;
-  /** Open the agent's setup (its view, on the Setup tab). */
+  /** Open the agent's setup (its view, on the Setup tab), from a session row's menu. */
   onOpenSettings: (id: string) => void;
   /** Express lane — start immediately on remembered settings (shift-click). */
   onCreateExecution: (id: string) => void;
@@ -195,13 +195,13 @@ export function WorkspaceRow({
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              onOpenSettings(workspace.id);
+              openAgent(workspace.id);
             }}
             className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
-            aria-label="Agent setup"
-            title="Agent setup"
+            aria-label={`Open ${workspace.name}`}
+            title={`Open ${workspace.name}`}
           >
-            <Settings size={13} />
+            <ArrowUpRight size={13} />
           </button>
           <button
             onPointerDown={(e) => e.stopPropagation()}
