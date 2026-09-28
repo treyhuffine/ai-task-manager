@@ -53,9 +53,36 @@ export function pageOrigin(request: Request): string | null {
   }
 }
 
-/** An in-app path the callback may land on: same-origin paths only, never `//host`. */
+// Stands in for the app's origin while a path is resolved, so the result can be
+// checked for having left it.
+const IN_APP = 'http://ri.invalid';
+
+/**
+ * Resolve a path the way a browser will, and keep it only if it stays in the app.
+ * Checking the raw string is not enough: `/\host` is read as `//host`, and dot
+ * segments normalize `/a/..//host` to `//host`, both protocol-relative. Null when
+ * the path would leave the app's origin or resolves to `//...`.
+ */
+function resolveInApp(raw: string): URL | null {
+  let url: URL;
+  try {
+    url = new URL(raw, IN_APP);
+  } catch {
+    return null;
+  }
+  if (url.origin !== IN_APP || url.pathname.startsWith('//')) return null;
+  return url;
+}
+
+/**
+ * An in-app path the callback may land on, normalized, or null. Same-origin
+ * paths only: never another host, whether written `//host`, `/\host` or through
+ * dot segments.
+ */
 export function safeReturnPath(raw: unknown): string | null {
-  return typeof raw === 'string' && raw.startsWith('/') && !raw.startsWith('//') ? raw : null;
+  if (typeof raw !== 'string' || !raw.startsWith('/')) return null;
+  const url = resolveInApp(raw);
+  return url ? `${url.pathname}${url.search}${url.hash}` : null;
 }
 
 /** Record where the sign-in behind `state` should come back to. */
@@ -87,10 +114,10 @@ export function oauthReturnRedirect(
   target: { origin: string | null; path: string } | null,
   result: Record<string, string>,
 ): Response {
-  const path = target?.path ?? DEFAULT_OAUTH_RETURN_PATH;
-  // Resolve against a placeholder origin only to merge the query safely.
-  const url = new URL(path, 'http://ri.invalid');
+  // Re-checked here, not only when recorded, so no caller can hand in a path that leaves the app.
+  const url = resolveInApp(target?.path ?? DEFAULT_OAUTH_RETURN_PATH) ?? new URL(DEFAULT_OAUTH_RETURN_PATH, IN_APP);
   for (const [key, value] of Object.entries(result)) url.searchParams.set(key, value);
-  if (target?.origin) return NextResponse.redirect(new URL(`${url.pathname}${url.search}${url.hash}`, target.origin));
-  return new Response(null, { status: 307, headers: { Location: `${url.pathname}${url.search}${url.hash}` } });
+  const location = `${url.pathname}${url.search}${url.hash}`;
+  if (target?.origin) return NextResponse.redirect(new URL(location, target.origin));
+  return new Response(null, { status: 307, headers: { Location: location } });
 }

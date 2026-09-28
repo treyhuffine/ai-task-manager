@@ -40,6 +40,20 @@ describe('safeReturnPath', () => {
     expect(safeReturnPath('https://evil.example')).toBeNull();
     expect(safeReturnPath(42)).toBeNull();
   });
+
+  it('judges the path a browser will resolve, not the raw string', () => {
+    // Dot segments normalize to a protocol-relative `//evil.example/landing`.
+    expect(safeReturnPath('/a/..//evil.example/landing')).toBeNull();
+    expect(safeReturnPath('/a/%2e%2e//evil.example/landing')).toBeNull();
+    // A browser reads a backslash as a slash, so this is `//evil.example`.
+    expect(safeReturnPath('/\\evil.example/x')).toBeNull();
+  });
+
+  it('returns the normalized path', () => {
+    expect(safeReturnPath('/a/../welcome?step=connect#top')).toBe('/welcome?step=connect#top');
+    // Encoded slashes stay a path segment on this origin.
+    expect(safeReturnPath('/%2F%2Fevil.example')).toBe('/%2F%2Fevil.example');
+  });
 });
 
 describe('remember / take', () => {
@@ -82,6 +96,15 @@ describe('oauthReturnRedirect', () => {
     const res = oauthReturnRedirect(null, { error: 'missing_code_or_state' });
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe('/?settings=connectors&error=missing_code_or_state');
+  });
+
+  it('never leaves the app, even for a path that skipped safeReturnPath', () => {
+    for (const path of ['/a/..//evil.example/landing', '/\\evil.example/x', '//evil.example']) {
+      const abs = oauthReturnRedirect({ origin: 'https://ri-trey.beamd.run', path }, { connected: 'a@b.co' });
+      expect(new URL(abs.headers.get('location')!).origin).toBe('https://ri-trey.beamd.run');
+      const rel = oauthReturnRedirect({ origin: null, path }, { connected: 'a@b.co' });
+      expect(rel.headers.get('location')).toBe('/?settings=connectors&connected=a%40b.co');
+    }
   });
 
   it('answers relative for a recorded path with no trusted origin', () => {
