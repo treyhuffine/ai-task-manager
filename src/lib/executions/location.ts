@@ -12,15 +12,19 @@ export function preparedFolder(session: Pick<ChatSessionWithExecution, 'worktree
 }
 
 /**
- * The computer to show on an execution, or null to show none: always when it
- * runs away from the home, and at home only when the home has other computers
- * to tell it apart from.
+ * The computer to show on an execution, or null to show none. The standard
+ * case goes unsaid: work on the home is unlabeled, and only work away from it
+ * names its computer (`away`, the default). `always` names the home too, once
+ * there are other computers to tell it apart from. See
+ * `lib/client/computer-label-mode.ts`.
  */
 export function locationLabel(
   session: Pick<ChatSessionWithExecution, 'location'>,
   severalComputers: boolean,
+  mode: 'away' | 'always' = 'away',
 ): string | null {
   const location = session.location;
   if (!location) return null;
-  return !location.isHome || severalComputers ? location.name : null;
+  if (!location.isHome) return location.name;
+  return mode === 'always' && severalComputers ? location.name : null;
 }

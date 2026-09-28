@@ -16,6 +16,7 @@ import {
 } from '@/lib/client/editor-preference';
 import { useTranscriptDensity, type TranscriptDensity } from '@/lib/client/transcript-density';
 import { useDeckQuickAddMode, type DeckQuickAddMode } from '@/lib/client/deck-quick-add-mode';
+import { useComputerLabelMode, type ComputerLabelMode } from '@/lib/client/computer-label-mode';
 import { useDeckLayoutMode, type DeckLayoutMode } from '@/lib/client/deck-layout-mode';
 import { useEntityViewMode, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { useAgentViewMode, type AgentViewMode } from '@/lib/client/agent-view-mode';
@@ -105,6 +106,7 @@ export function GeneralSection() {
   const { choice, customCommand, setChoice, setCustomCommand } = useEditorPreference();
   const { density, setDensity } = useTranscriptDensity();
   const { mode: deckQuickAddMode, setMode: setDeckQuickAddMode } = useDeckQuickAddMode();
+  const { mode: computerLabelMode, setMode: setComputerLabelMode } = useComputerLabelMode();
   const { mode: deckLayoutMode, setMode: setDeckLayoutMode } = useDeckLayoutMode();
   const { mode: entityViewMode, setMode: setEntityViewMode } = useEntityViewMode();
   const { mode: agentViewMode, setMode: setAgentViewMode } = useAgentViewMode();
@@ -244,6 +246,29 @@ export function GeneralSection() {
               : deckQuickAddMode === 'trigger'
                 ? 'A clear "Add a task" button opens a field at the top of the deck. New tasks land at the top, ready to work on.'
                 : 'The original faded inline field at the bottom of the stack, opened by the small "Add task" pill.'}
+          </p>
+        </div>
+      </section>
+
+      {/* Which computer an execution names (presentation trial) */}
+      <section className="space-y-2">
+        <h3 className="text-[12px] font-medium text-foreground">Computers</h3>
+        <div className="space-y-2 rounded-lg border border-border bg-background p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-foreground">Show which computer runs an execution</span>
+            <select
+              value={computerLabelMode}
+              onChange={(e) => setComputerLabelMode(e.target.value as ComputerLabelMode)}
+              className="rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="away">Only when it isn&apos;t the home (trial)</option>
+              <option value="always">Always</option>
+            </select>
+          </div>
+          <p className="text-[11px] text-muted-foreground/85">
+            {computerLabelMode === 'away'
+              ? 'Work runs on the home unless you pick another computer, so only the exception is labeled. Its computer is always in its details, and moving it is in its … menu.'
+              : 'Every execution names its computer once there is more than one, the home included.'}
           </p>
         </div>
       </section>

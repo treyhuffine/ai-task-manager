@@ -98,17 +98,9 @@ export function useMoves(session: ChatSessionWithExecution, workspace: Workspace
   return { owner, viewer, moves, canReview, reviewProblem };
 }
 
-export function LocationMenu({
-  session,
-  workspace,
-  name,
-}: {
-  session: ChatSessionWithExecution;
-  workspace: WorkspaceRecord | null | undefined;
-  name: string;
-}) {
-  const { owner, viewer, moves, canReview, reviewProblem } = useMoves(session, workspace);
-  const [moving, setMoving] = useState<Move | null>(null);
+/** Open code here (P4.1), with what it says when it works and when nothing's published yet. */
+function useOpenCodeHereAction(session: ChatSessionWithExecution) {
+  const owner = session.location;
   const openCode = useOpenCodeHere(session.id);
   const openReview = useOpenReview(session.id);
   const commit = useCommit(session.id);
@@ -141,6 +133,21 @@ export function LocationMenu({
         });
       },
     });
+  return { openCodeHere, pending: openCode.isPending };
+}
+
+export function LocationMenu({
+  session,
+  workspace,
+  name,
+}: {
+  session: ChatSessionWithExecution;
+  workspace: WorkspaceRecord | null | undefined;
+  name: string;
+}) {
+  const { owner, viewer, moves, canReview, reviewProblem } = useMoves(session, workspace);
+  const [moving, setMoving] = useState<Move | null>(null);
+  const openCode = useOpenCodeHereAction(session);
 
   const chip = (
     <span className="inline-flex min-w-0 flex-shrink items-center gap-1 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -185,8 +192,8 @@ export function LocationMenu({
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                disabled={!!reviewProblem || openCode.isPending}
-                onSelect={openCodeHere}
+                disabled={!!reviewProblem || openCode.pending}
+                onSelect={openCode.openCodeHere}
                 className="flex-col items-start gap-0.5 text-[12.5px]"
               >
                 <span className="inline-flex items-center gap-1.5">
@@ -209,6 +216,53 @@ export function LocationMenu({
           to={moving.to}
           from={owner.name}
         />
+      )}
+    </>
+  );
+}
+
+/**
+ * The same moves in the execution's … menu, for work on the home, which
+ * shows no computer chip (the standard case goes unsaid). Nothing when
+ * there's no move to make from this screen.
+ */
+export function MoveActions({
+  session,
+  workspace,
+}: {
+  session: ChatSessionWithExecution;
+  workspace: WorkspaceRecord | null | undefined;
+}) {
+  const { owner, viewer, moves, canReview, reviewProblem } = useMoves(session, workspace);
+  const [moving, setMoving] = useState<Move | null>(null);
+  const openCode = useOpenCodeHereAction(session);
+  if (moves.length === 0 && !canReview) return null;
+  const item =
+    'w-full flex flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-60';
+  return (
+    <>
+      {moves.map((move) => (
+        <button key={move.key} type="button" disabled={!!move.problem} onClick={() => setMoving(move)} className={item}>
+          <span className="inline-flex items-center gap-2">
+            <ArrowRightLeft size={12} />
+            {move.label}
+          </span>
+          {move.problem && <span className="pl-5 text-[11px] text-muted-foreground">{move.problem}</span>}
+        </button>
+      ))}
+      {canReview && (
+        <button type="button" disabled={!!reviewProblem || openCode.pending} onClick={openCode.openCodeHere} className={item}>
+          <span className="inline-flex items-center gap-2">
+            <Code size={12} />
+            Open code here
+          </span>
+          <span className="pl-5 text-[11px] text-muted-foreground">
+            {reviewProblem ?? `Its latest published commit, on ${viewer!.name}, to read.`}
+          </span>
+        </button>
+      )}
+      {moving && owner && (
+        <ContinueDialog sessionId={session.id} open={!!moving} onOpenChange={(open) => !open && setMoving(null)} to={moving.to} from={owner.name} />
       )}
     </>
   );

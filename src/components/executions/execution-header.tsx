@@ -25,7 +25,8 @@ import { ResyncMenuItem } from './resync-menu-item';
 import { RestartMenuItem } from './restart-menu-item';
 import { deriveExecutionHeaderStatus, describeChatStatus, type ChatStatusTone } from './execution-header-status';
 import { useSteadyRunning } from './steady-running';
-import { LocationMenu } from './transfer/location-menu';
+import { LocationMenu, MoveActions } from './transfer/location-menu';
+import { useComputerLabelMode } from '@/lib/client/computer-label-mode';
 import { ExecutionTaskChips } from './execution-task-chips';
 import { resumeCommandForHarness } from '@/lib/harness/registry';
 import { isSessionUnread } from '@/lib/utils/session-sort';
@@ -169,10 +170,11 @@ export function ExecutionHeader({
   // we don't render "setting up" forever on a failed provision.
   const isSettingUp =
     !!workspace && workspace.isGit === true && !preparedFolder(session) && !isSetupFailed;
-  // Which computer it runs on, by name (P3.1): always when it's not the
-  // home, and at home only when there are other computers to tell it from.
+  // Which computer it runs on, by name (P3.1): the exception only. Work on
+  // the home is unlabeled unless this browser asked to always show it.
   const severalComputers = useRunsOnSeveralComputers();
-  const where = locationLabel(session, severalComputers);
+  const { mode: labelMode } = useComputerLabelMode();
+  const where = locationLabel(session, severalComputers, labelMode);
   // The chip opens the moves this screen can make (P4.2).
   const locationChip = where ? <LocationMenu session={session} workspace={workspace} name={where} /> : null;
 
@@ -369,6 +371,9 @@ export function ExecutionHeader({
               <div className="p-1.5">{worktreeLinks}</div>
             </>
           )}
+
+          {/* With no computer chip, moving it lives here (P4.2). */}
+          {!locationChip && <MoveActionsSection session={session} workspace={workspace} />}
 
           <div className="h-px bg-border" />
           <div className="p-2">
@@ -956,4 +961,14 @@ function parsePrInput(raw: string): number | null {
     return Number.isFinite(n) && n > 0 ? n : null;
   }
   return null;
+}
+
+/** The moves from the … menu, divided off, or nothing when there are none. */
+function MoveActionsSection({ session, workspace }: { session: ChatSessionWithExecution; workspace: WorkspaceRecord | null | undefined }) {
+  if (!session.location || !workspace?.isGit) return null;
+  return (
+    <div className="border-t border-border p-1 empty:hidden">
+      <MoveActions session={session} workspace={workspace} />
+    </div>
+  );
 }

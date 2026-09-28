@@ -1103,6 +1103,17 @@ Tests: the five probes; `page-stream.test.ts` (6: one connection for everything,
 
 Live on the dev home: an execution with seven terminal tabs held one connection by the page's own count and Chrome's network log, the terminal showed its output, a chat reply arrived live, and hiding the page let go of its connection. A terminal on the stand-in came through the worker relay, and switching tabs and back resumed its screen intact.
 
+## The standard case goes unsaid (after gate B)
+
+Found in gate B on the phone: + made an execution on the Mac Mini with no way to choose, and every execution carried a computer badge, the home's too. Trey's direction: standard cases with escape hatches, no repeated decisions, and the base case assumed.
+
+- **A plain + asks nothing.** It starts on the agent's default, the home unless someone chose otherwise (already the rule, spec §3.3).
+- **Only the exception is named.** An execution on the home shows no computer; one away from it shows "MacBook", in the header and the rail (`locationLabel`, `away` by default). Its computer stays in its details, and Continue here and Open code here, which lived in the chip, are in its … menu when there's no chip (`MoveActions`).
+- **The escape hatch on the phone:** holding + opens "New execution in Demo, on…" with each computer that can take the work, the default marked, and Make default beside the others (`RunOnSheet`, `useLongPress`). Picking one starts that one execution there and changes nothing else. The desktop launcher's Run on control is the same hatch.
+- **One click back:** Settings, General, Computers switches to always naming the computer (`lib/client/computer-label-mode.ts`), as a reversible trial.
+
+Spec §3.3 and the P3.1 line are amended to match. Tests: the label rule both ways, and the long press (a tap starts, holding picks, a right click holds, sliding off cancels). Live on the dev home: home work showed no badge and its … menu offered Continue here on the stand-in and Open code here, the stand-in's execution showed its name, and on a phone holding + opened the sheet and picking the stand-in started the execution there.
+
 ## P4 Reviewing locally and continuing elsewhere
 
 Spec §8. Git carries the code: a move commits and pushes the work, and the destination checks out that exact commit. The execution, its chat and its task links stay the same. What changes is the computer, the folder and the native session.

@@ -1,5 +1,7 @@
 "use client";
 
+import { RunOnSheet } from './run-on-sheet';
+import { useLongPress } from '@/hooks/use-long-press';
 import { useMemo, useState } from 'react';
 import {
   ChevronRight,
@@ -141,14 +143,18 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
   // into the new ExecutionView immediately and let the create land behind it.
   // The label is null until the first message derives one server-side; the
   // header renders "Untitled" in the meantime.
-  const handleCreateExecution = () => {
+  const handleCreateExecution = (computerId?: string) => {
     if (creating) return;
     setCreating(true);
-    const { sessionId, done } = startExecution(qc, { workspaceId: workspace.id });
+    const { sessionId, done } = startExecution(qc, { workspaceId: workspace.id, computerId });
     setMobileTab('agents');
     setActiveView(executionView(sessionId));
     void done.finally(() => setCreating(false));
   };
+  // A tap starts where the agent usually runs. Holding picks another
+  // computer for this one execution (spec §3.3).
+  const [pickingComputer, setPickingComputer] = useState(false);
+  const plusPress = useLongPress(() => handleCreateExecution(), () => setPickingComputer(true));
 
   const linkedArea = workspace.areaId
     ? areas?.find((a) => a.id === workspace.areaId)
@@ -203,10 +209,11 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
         <Badge streaming={streamingCount} review={reviewCount} />
         <button
           type="button"
-          onClick={handleCreateExecution}
+          {...plusPress}
           disabled={creating}
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-primary active:bg-primary/10 transition-colors flex-shrink-0 disabled:opacity-40"
-          aria-label="New execution"
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-primary active:bg-primary/10 transition-colors flex-shrink-0 disabled:opacity-40 select-none [-webkit-touch-callout:none]"
+          aria-label="New execution. Hold to choose a computer."
+          title="New execution (hold to choose a computer)"
         >
           <Plus size={18} />
         </button>
@@ -226,12 +233,21 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
         </button>
       </div>
 
+      <RunOnSheet
+        workspace={workspace}
+        open={pickingComputer}
+        onOpenChange={setPickingComputer}
+        onPick={(computerId) => {
+          setPickingComputer(false);
+          handleCreateExecution(computerId);
+        }}
+      />
       {expanded && (
         <div className="pl-3 pr-1 pt-1 pb-2 space-y-1">
           {childSessions.length === 0 ? (
             <button
               type="button"
-              onClick={handleCreateExecution}
+              {...plusPress}
               disabled={creating}
               className="ml-9 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium text-primary active:bg-primary/10 transition-colors disabled:opacity-40"
             >

@@ -17,10 +17,16 @@ describe('preparedFolder', () => {
 });
 
 describe('locationLabel', () => {
-  it('always names a computer away from the home, and the home only when there are others', () => {
+  it('names only the exception: a computer away from the home, never the home', () => {
     expect(locationLabel(at({ isHome: false, folder: null }), false)).toBe('MacBook');
-    expect(locationLabel(at({ isHome: true, folder: null }), false)).toBeNull();
-    expect(locationLabel(at({ isHome: true, folder: null }), true)).toBe('Mac Mini');
+    expect(locationLabel(at({ isHome: false, folder: null }), true)).toBe('MacBook');
+    expect(locationLabel(at({ isHome: true, folder: null }), true)).toBeNull();
     expect(locationLabel(at(null), true)).toBeNull();
+  });
+
+  it('names the home too when asked to always, once there are other computers', () => {
+    expect(locationLabel(at({ isHome: false, folder: null }), false, 'always')).toBe('MacBook');
+    expect(locationLabel(at({ isHome: true, folder: null }), false, 'always')).toBeNull();
+    expect(locationLabel(at({ isHome: true, folder: null }), true, 'always')).toBe('Mac Mini');
   });
 });
