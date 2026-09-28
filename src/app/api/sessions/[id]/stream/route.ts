@@ -20,7 +20,7 @@ function sse(event: string, data: unknown, id?: string): Uint8Array {
 
 /**
  * Per-session realtime stream. The app's own pages use the page stream
- * (`/api/stream`), which carries this same feed for each chat on screen
+ * (`/api/live`), which carries this same feed for each chat on screen
  * over one connection (P3 review); this route stays for other clients.
  *
  * Lifecycle on connect:

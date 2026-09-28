@@ -5,7 +5,7 @@
  *
  * The review's probe opened six raw EventSources itself, which only shows
  * the browser's limit: no change to the app could make it pass. Adapted to
- * the fix: the app opens one stream per page (`/api/stream`), carrying the
+ * the fix: the app opens one stream per page (`/api/live`), carrying the
  * dashboard's signals, each chat and each visible terminal. In real headless
  * Chromium, against the real route and real shells, a page following two
  * chats and four terminals holds one connection, their output arrives, and
@@ -43,7 +43,7 @@ it('follows two chats and four terminals over one connection, leaving the others
   const terminals = Array.from({ length: 4 }, () => pty.createTerminal({ ownerId: a.execution.id, cwd: folder }));
   for (const [i, t] of terminals.entries()) pty.writeInput(a.execution.id, t.id, `echo terminal-${i}-ok\r`);
 
-  const { GET } = await import('@/app/api/stream/route');
+  const { GET } = await import('@/app/api/live/route');
   let probeRequests = 0;
   let streams = 0;
   const open = new Set<http.ServerResponse>();
@@ -54,7 +54,7 @@ it('follows two chats and four terminals over one connection, leaving the others
       res.end('ok');
       return;
     }
-    if (url.pathname !== '/api/stream') {
+    if (url.pathname !== '/api/live') {
       res.setHeader('Content-Type', 'text/html');
       res.end('<!doctype html><title>page stream</title>');
       return;
@@ -102,7 +102,7 @@ it('follows two chats and four terminals over one connection, leaving the others
         for (const event of ['ready', 'session', 'terminal']) {
           w.source.addEventListener(event, (e) => w.frames.push({ event, data: (e as MessageEvent).data }));
         }
-      }, `/api/stream?sub=${encodeURIComponent(JSON.stringify(sub))}`);
+      }, `/api/live?sub=${encodeURIComponent(JSON.stringify(sub))}`);
     }
     // Each page: the global ready, both chats' ready, and every terminal's output.
     for (const page of pages) {
