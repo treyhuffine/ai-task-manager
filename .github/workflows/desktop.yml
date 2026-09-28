@@ -167,7 +167,7 @@ jobs:
             pnpm exec tsx desktop/notifications-smoke.ts
           fi
       - name: Exercise menu bar, global capture, login controls and availability
-        timeout-minutes: 20
+        timeout-minutes: 30
         env:
           TMPDIR: ${{ runner.temp }}/ri-acceptance
         run: |
@@ -180,10 +180,12 @@ jobs:
               trap "kill $manager_pid 2>/dev/null || true" EXIT
               pnpm exec tsx desktop/background-smoke.ts
               pnpm exec tsx desktop/native-features-smoke.ts
+              pnpm exec tsx desktop/capture-smoke.ts
             '
           else
             pnpm exec tsx desktop/background-smoke.ts
             pnpm exec tsx desktop/native-features-smoke.ts
+            pnpm exec tsx desktop/capture-smoke.ts
           fi
       - run: pnpm exec tsx desktop/update-smoke.ts "$RI_RUNTIME_PACKAGE"
       - name: Install test Chromium
@@ -208,6 +210,8 @@ jobs:
             ${{ runner.temp }}/ri-acceptance/ri-background-smoke-*/*.png
             ${{ runner.temp }}/ri-acceptance/ri-native-features-smoke-*/report.json
             ${{ runner.temp }}/ri-acceptance/ri-native-features-smoke-*/*.png
+            ${{ runner.temp }}/ri-acceptance/ri-capture-smoke-*/report.json
+            ${{ runner.temp }}/ri-acceptance/ri-capture-smoke-*/*.png
           if-no-files-found: ignore
           retention-days: 14
       - uses: actions/upload-artifact@v4

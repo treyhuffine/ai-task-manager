@@ -30,7 +30,7 @@ export function ServiceConnection() {
           await documentSaves.flushAll();
         } else if (status.phase === 'running' && knownBuild !== build) {
           setMessage(hasPendingCapture()
-            ? 'Ri was updated. Finish or close Quick Capture before reloading.'
+            ? 'Ri was updated. Waiting for your capture to save on this device.'
             : 'Ri was updated. Saving changes before reloading…');
           await documentSaves.flushAll();
           if (!queryClient.isMutating() && !documentSaves.has() && !hasActiveInput() && !hasPendingCapture() && !disposed) window.location.reload();

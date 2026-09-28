@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { hasActiveInput } from '@/lib/client/active-input';
-import { hasPendingCapture } from '@/lib/client/capture-draft';
+import { flushCaptureDrafts, hasPendingCapture } from '@/lib/client/capture-draft';
 import { documentSaves } from '@/lib/client/document-saves';
 import '@/lib/client/desktop';
 import { ServiceConnection } from './service-connection';
@@ -31,10 +31,11 @@ export function DesktopChrome() {
     // window open until voice capture/transcription is finished or cancelled.
     const background = window.riDesktop?.onPrepareBackground?.(() => !hasActiveInput());
     const unsubscribe = window.riDesktop?.onPrepareClose?.(async () => {
-      if (hasActiveInput() || hasPendingCapture()) return false;
+      if (hasActiveInput()) return false;
       document.body.inert = true;
       try {
         await documentSaves.flushAll();
+        await flushCaptureDrafts();
         const deadline = Date.now() + 10_000;
         while (queryClient.isMutating() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
         const ready = queryClient.isMutating() === 0 && !documentSaves.has();

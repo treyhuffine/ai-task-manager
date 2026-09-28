@@ -13,6 +13,8 @@ export const HOTKEYS = {
   search: { key: 'k', meta: true, label: '\u2318K' },
   voiceChat: { key: 'j', meta: true, label: '\u2318J' },
   quickCapture: { key: 'k', meta: true, shift: true, label: '\u2318\u21E7K' },
+  submitCapture: { key: 'Enter', label: 'Enter' },
+  submitCaptureModified: { key: 'Enter', meta: true, label: '\u2318\u21A9' },
   slideoutBack: { key: 'Escape', label: 'Esc' },
   slideoutCloseAll: { key: 'Escape', shift: true, label: '\u21E7Esc' },
   openFullPage: { key: 'Enter', meta: true, label: '\u2318\u21A9' },

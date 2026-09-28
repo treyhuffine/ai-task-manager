@@ -1,489 +1,251 @@
-"use client";
+'use client';
 
-import { useState, useRef, useCallback, useEffect } from "react";
-import { Dialog as DialogPrimitive, VisuallyHidden } from "radix-ui";
-import { X, Mic, Square, Loader2, Zap, ImagePlus, ArrowUp } from "lucide-react";
-import { toast } from "sonner";
-import { useCreateStream } from "@/hooks/use-stream";
-import { useVoiceInput } from "@/hooks/use-voice-input";
-import { LiveWaveform } from "@/components/ui/live-waveform";
-import { api, ApiError } from "@/lib/api/client";
-import type { StreamRecord } from "@/db/types";
-import { cn } from "@/lib/utils";
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
+import { X, Mic, Square, Loader2, Zap, ImagePlus, ArrowUp, Upload } from 'lucide-react';
+import { toast } from 'sonner';
+import { useCreateStream } from '@/hooks/use-stream';
+import { useVoiceInput } from '@/hooks/use-voice-input';
+import { useCaptureDraft } from '@/hooks/use-capture-draft';
+import { LiveWaveform } from '@/components/ui/live-waveform';
+import { api, apiErrorText } from '@/lib/api/client';
+import type { StreamRecord } from '@/db/types';
+import { cn } from '@/lib/utils';
 import { retainCaptureDraft } from '@/lib/client/capture-draft';
+import { CAPTURE_MAX_TEXT_LENGTH, CAPTURE_MAX_IMAGES, chooseCaptureImages, transferFiles } from '@/lib/client/capture-images';
+import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 
-// Toggle to A/B the attach-image flow:
-//   false → stage image in composer, send with text via Capture button
-//   true  → send image immediately on pick (previous behavior)
-const IMAGE_SENDS_IMMEDIATELY = false;
+interface QuickCaptureModalProps { open: boolean; onOpenChange(open: boolean): void }
 
-interface QuickCaptureModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
-
-function truncate(s: string, n: number): string {
-  const clean = s.replace(/\s+/g, " ").trim();
-  return clean.length <= n ? clean : clean.slice(0, n).trimEnd() + "…";
-}
-
-function toastCaptured(item: StreamRecord, extra?: { extracted?: string }) {
-  const mediaLabel =
-    item.media === "voice"
-      ? "Voice"
-      : item.media === "image"
-      ? "Image"
-      : "Note";
-  const preview = truncate(extra?.extracted || item.rawText || "", 80);
-  toast.success(`${mediaLabel} captured`, {
-    description: preview || undefined,
+function toastCaptured(item: StreamRecord) {
+  const text = item.rawText.replace(/\s+/g, ' ').trim();
+  toast.success(`${item.media === 'image' ? 'Image' : item.media === 'voice' ? 'Voice' : 'Note'} captured`, {
+    description: text.length > 80 ? `${text.slice(0, 80)}…` : text || undefined,
   });
 }
 
+/** Object URLs belong to a File occurrence. Adding/removing a different image
+ * must not revoke a still-visible preview. Duplicate files may be intentional. */
+function ImagePreview({ file, remove, disabled }: { file: File; remove(): void; disabled: boolean }) {
+  const image = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    const next = URL.createObjectURL(file);
+    if (image.current) image.current.src = next;
+    return () => URL.revokeObjectURL(next);
+  }, [file]);
+  return <div className="relative shrink-0">
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    <img ref={image} alt={file.name || 'Staged image'} className="h-24 w-24 rounded-xl object-cover border border-border shadow-sm" />
+    <button type="button" onClick={remove} disabled={disabled} aria-label="Remove image"
+      className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm disabled:opacity-40"><X size={14} /></button>
+  </div>;
+}
+
 export function QuickCaptureModal({ open, onOpenChange }: QuickCaptureModalProps) {
-  const [text, setText] = useState("");
-  const [usedVoice, setUsedVoice] = useState(false);
-  const [stagedImages, setStagedImages] = useState<{ file: File; url: string }[]>([]);
+  const draft = useCaptureDraft(open);
+  const { edit } = draft;
+  const { text, usedVoice, files: images } = draft.value;
   const [imageUploading, setImageUploading] = useState(false);
-  const [imageError, setImageError] = useState<string | null>(null);
-  const [hasInteracted, setHasInteracted] = useState(false);
+  const [inputError, setInputError] = useState<string>();
+  const [savedRemotely, setSavedRemotely] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+  const submitting = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const createStream = useCreateStream();
   const voice = useVoiceInput();
   const captureOwner = useRef({});
+  const busy = imageUploading || createStream.isPending || draft.recovering || draft.save.phase === 'loading';
+  const hasInput = !!text.trim() || images.length > 0;
+  const hasDraft = !!text || images.length > 0 || draft.missingFiles.length > 0;
+  const activeVoice = voice.isRecording || voice.isTranscribing;
+  const joinedTranscript = `${text}${text && !/\s$/.test(text) ? ' ' : ''}${voice.transcript}`;
+  const transcriptOverflow = !!voice.transcript && joinedTranscript.length > CAPTURE_MAX_TEXT_LENGTH;
+  const pristine = !hasInput && !activeVoice;
+  const canSubmit = hasInput && !busy && !activeVoice && !savedRemotely && !draft.missingFiles.length && !transcriptOverflow;
+
   useEffect(() => {
     const owner = captureOwner.current;
-    retainCaptureDraft(owner, !!text.trim() || stagedImages.length > 0 || imageUploading || createStream.isPending);
+    retainCaptureDraft(owner, imageUploading || createStream.isPending || !!voice.transcript);
     return () => retainCaptureDraft(owner, false);
-  }, [text, stagedImages.length, imageUploading, createStream.isPending]);
+  }, [imageUploading, createStream.isPending, voice.transcript]);
 
-  // Append voice transcript to textarea when recording finishes
   useEffect(() => {
     if (!voice.transcript) return;
-    setText((prev) => {
-      const sep = prev && !prev.endsWith(" ") && !prev.endsWith("\n") ? " " : "";
-      return prev + sep + voice.transcript;
-    });
-    setUsedVoice(true);
-    voice.clearTranscript();
-    queueMicrotask(() => textareaRef.current?.focus());
-  }, [voice.transcript, voice]);
-
-  // Lock the UI into the active omnibox state once any interaction happens
-  useEffect(() => {
-    if (text.trim() !== "" || stagedImages.length > 0 || voice.isRecording || voice.isTranscribing) {
-      setHasInteracted(true);
+    const joined = `${text}${text && !/\s$/.test(text) ? ' ' : ''}${voice.transcript}`;
+    if (joined.length <= CAPTURE_MAX_TEXT_LENGTH) {
+      edit({ text: joined, usedVoice: true }); voice.clearTranscript();
     }
-  }, [text, stagedImages, voice.isRecording, voice.isTranscribing]);
+  }, [voice, text, edit]);
 
-  // Auto-grow textarea
   useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 400)}px`;
-  }, [text]);
+    const element = textareaRef.current;
+    if (!element) return;
+    element.style.height = 'auto'; element.style.height = `${Math.min(element.scrollHeight, 320)}px`;
+  }, [text, open]);
 
-  // Revoke object URLs we create for the staged-image preview
+  useEffect(() => { if (!open) { setDragging(false); dragDepth.current = 0; } }, [open]);
   useEffect(() => {
-    return () => {
-      stagedImages.forEach(img => URL.revokeObjectURL(img.url));
+    if (!open) return;
+    // A file dropped on the dimmed area must not navigate the browser away.
+    const preventFileNavigation = (event: DragEvent) => {
+      if (Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault();
     };
-  }, [stagedImages]);
+    document.addEventListener('dragover', preventFileNavigation);
+    document.addEventListener('drop', preventFileNavigation);
+    return () => { document.removeEventListener('dragover', preventFileNavigation); document.removeEventListener('drop', preventFileNavigation); };
+  }, [open]);
 
-  const clearStagedImage = useCallback((index?: number) => {
-    setStagedImages((prev) => {
-      if (index === undefined) {
-        prev.forEach(img => URL.revokeObjectURL(img.url));
-        return [];
-      }
-      const newImages = [...prev];
-      URL.revokeObjectURL(newImages[index].url);
-      newImages.splice(index, 1);
-      return newImages;
-    });
-    if (imageInputRef.current) imageInputRef.current.value = "";
-  }, []);
+  const stageFiles = useCallback((incoming: File[]) => {
+    if (busy || submitting.current || savedRemotely) return;
+    const result = chooseCaptureImages(images, incoming);
+    setInputError(result.errors.length ? result.errors.join(' ') : undefined);
+    if (result.files.length !== images.length) edit({ files: result.files });
+    if (imageInputRef.current) imageInputRef.current.value = '';
+    queueMicrotask(() => textareaRef.current?.focus());
+  }, [busy, savedRemotely, images, edit]);
 
-  const resetForm = useCallback(() => {
-    setText("");
-    setHasInteracted(false);
-    setUsedVoice(false);
-    setImageError(null);
-    setImageUploading(false);
-    clearStagedImage();
-    voice.clearTranscript();
-    voice.cancelRecording();
-  }, [voice, clearStagedImage]);
+  const discard = async () => {
+    if (submitting.current) return;
+    voice.cancelRecording(); voice.clearTranscript();
+    if (await draft.discard()) { setInputError(undefined); setSavedRemotely(false); }
+  };
 
-  const uploadImages = useCallback(
-    async (files: File[], caption: string | null) => {
-      setImageError(null);
-      setImageUploading(true);
-      try {
-        const form = new FormData();
-        files.forEach(file => form.append("file", file));
-        if (caption && caption.trim()) form.append("text", caption.trim());
-        const res = await api.upload<{ item: StreamRecord; extracted?: string }>(
-          "/capture",
-          form,
-        );
-        toastCaptured(res.item, { extracted: res.extracted });
-        resetForm();
-        onOpenChange(false);
-      } catch (err) {
-        if (err instanceof ApiError) {
-          const body = err.body as { error?: string } | null;
-          setImageError(body?.error ?? `Upload failed (${err.status})`);
-        } else {
-          setImageError(err instanceof Error ? err.message : "Upload failed");
-        }
-      } finally {
-        setImageUploading(false);
-      }
-    },
-    [onOpenChange, resetForm],
-  );
-
-  const handleSubmit = useCallback(() => {
-    if (createStream.isPending || imageUploading) return;
-
-    if (stagedImages.length > 0) {
-      void uploadImages(stagedImages.map(s => s.file), text);
-      return;
+  const submitted = async (item: StreamRecord) => {
+    setSavedRemotely(true); toastCaptured(item);
+    try {
+      await draft.acknowledge();
+      setSavedRemotely(false); voice.clearTranscript(); setInputError(undefined); onOpenChange(false);
+    } catch {
+      setInputError('Capture saved to your Stream. Discard this local copy before capturing again.');
     }
+  };
 
-    const trimmed = text.trim();
-    if (!trimmed) return;
-
-    createStream.mutate(
-      { rawText: trimmed, source: "capture", media: usedVoice ? "voice" : "text" },
-      {
-        onSuccess: (item) => {
-          toastCaptured(item);
-          resetForm();
-          onOpenChange(false);
-        },
-      },
-    );
-  }, [text, usedVoice, stagedImages, createStream, imageUploading, uploadImages, onOpenChange, resetForm]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        e.preventDefault();
-        handleSubmit();
-        return;
+  const handleSubmit = async () => {
+    if (!canSubmit || submitting.current) return;
+    submitting.current = true; setInputError(undefined);
+    // While the local journal is being marked, block image edits and close
+    // guards even before the network mutation begins.
+    setImageUploading(true);
+    let requestStarted = false;
+    try {
+      await draft.markSubmitting();
+      requestStarted = true;
+      if (images.length) {
+        const form = new FormData(); images.forEach(file => form.append('file', file));
+        if (text.trim()) form.append('text', text.trim());
+        const result = await api.upload<{ item: StreamRecord }>('/capture', form);
+        await submitted(result.item);
+      } else {
+        await submitted(await createStream.mutateAsync({ rawText: text.trim(), source: 'capture', media: usedVoice ? 'voice' : 'text' }));
       }
-      if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        handleSubmit();
-      }
-    },
-    [handleSubmit],
-  );
+    } catch (error) {
+      setInputError(requestStarted
+        ? `${apiErrorText(error)} Check your Stream before capturing again.`
+        : 'Capture was not sent. Retry saving the draft before capturing again.');
+    }
+    finally { submitting.current = false; setImageUploading(false); }
+  };
 
-  const handleOpenChange = useCallback(
-    (next: boolean) => {
-      if (!next) resetForm();
-      onOpenChange(next);
-    },
-    [onOpenChange, resetForm],
-  );
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (matchesHotkey(event.nativeEvent, HOTKEYS.submitCapture) || matchesHotkey(event.nativeEvent, HOTKEYS.submitCaptureModified)) {
+      event.preventDefault(); void handleSubmit();
+    }
+  };
 
-  const handleMicClick = useCallback(() => {
-    if (voice.captureMode === null) return;
-    voice.toggleRecording();
-  }, [voice]);
+  const handleOpenChange = (next: boolean) => {
+    if (!next) voice.cancelRecording();
+    onOpenChange(next);
+  };
+  const hasFiles = (event: React.DragEvent) => Array.from(event.dataTransfer.types).includes('Files');
+  const recoveryDisabled = busy || hasDraft || activeVoice || !!voice.transcript;
+  const placeholder = voice.isRecording ? 'Listening…' : images.length ? 'Add a note for these images (optional)' : "What's on your mind?";
 
-  const handleImageClick = useCallback(() => {
-    setImageError(null);
-    imageInputRef.current?.click();
-  }, []);
-
-  const handleImageChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files ?? []);
-      if (files.length === 0) return;
-      setImageError(null);
-
-      if (IMAGE_SENDS_IMMEDIATELY) {
-        void uploadImages(files, text);
-        if (imageInputRef.current) imageInputRef.current.value = "";
-        return;
-      }
-
-      // Stage in composer
-      const newStaged = files.map(file => ({ file, url: URL.createObjectURL(file) }));
-      setStagedImages(prev => [...prev, ...newStaged]);
-      // Don't clear the input value here — clearing it *before* React commits the
-      // staged-image state fires another 'change' in some browsers. We clear on
-      // remove/reset instead.
-      queueMicrotask(() => textareaRef.current?.focus());
-    },
-    [text, uploadImages],
-  );
-
-  const hasInput = text.trim().length > 0 || stagedImages.length > 0;
-  const canSubmit = hasInput && !createStream.isPending && !imageUploading;
-  const hasContent = hasInput || voice.isRecording || voice.isTranscribing;
-  const isPristine = !hasInteracted && !hasContent;
-  const showWaveform = voice.isRecording && voice.stream;
-
-  const placeholder = voice.isRecording
-    ? "Listening…"
-    : stagedImages.length > 0
-    ? "Add a note for these images (optional)"
-    : "What's on your mind?";
-
-  return (
-    <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-[20%] md:top-1/2 z-50 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 md:-translate-y-1/2 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 duration-200">
-          <VisuallyHidden.Root>
-            <DialogPrimitive.Title>Quick Capture</DialogPrimitive.Title>
-            <DialogPrimitive.Description>
-              Quickly capture a thought into your Stream inbox. Type, speak, or attach an image.
-            </DialogPrimitive.Description>
-          </VisuallyHidden.Root>
-
-          <div className="rounded-3xl border border-border/80 bg-card shadow-2xl overflow-hidden sm:max-w-[560px] mx-auto w-full flex flex-col">
-            
-            {/* Extremely Subtle Header */}
-            <div className="flex items-center justify-between px-5 pt-4 pb-2">
-              <div className="flex items-center gap-2 text-muted-foreground/80">
-                <Zap size={14} className="text-primary/80" />
-                <span className="text-sm font-medium tracking-tight">Quick capture</span>
+  return <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
+    <DialogPrimitive.Portal>
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
+      <DialogPrimitive.Content
+        className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 outline-none"
+        onPaste={event => {
+          const files = transferFiles(event.clipboardData);
+          if (!files.length) return;
+          event.preventDefault(); stageFiles(files);
+        }}
+        onDragEnter={event => { if (hasFiles(event)) { event.preventDefault(); if (++dragDepth.current === 1 && !busy) setDragging(true); } }}
+        onDragOver={event => { if (hasFiles(event)) { event.preventDefault(); event.dataTransfer.dropEffect = busy ? 'none' : 'copy'; } }}
+        onDragLeave={event => { if (hasFiles(event)) { dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); } }}
+        onDrop={event => {
+          if (!hasFiles(event)) return;
+          event.preventDefault(); dragDepth.current = 0; setDragging(false); stageFiles(transferFiles(event.dataTransfer));
+        }}>
+        <VisuallyHidden.Root><DialogPrimitive.Title>Quick Capture</DialogPrimitive.Title>
+          <DialogPrimitive.Description>Capture a thought into your Stream. Type, speak, paste or drop images. Closing keeps your draft on this device.</DialogPrimitive.Description></VisuallyHidden.Root>
+        <div className="relative flex max-h-[85dvh] flex-col overflow-y-auto rounded-3xl border border-border/80 bg-card shadow-2xl">
+          <div className="flex items-center justify-between px-5 pt-4 pb-2">
+            <div className="flex items-center gap-2 text-muted-foreground"><Zap size={14} /><span className="text-sm font-medium">Quick capture</span></div>
+            <DialogPrimitive.Close asChild><button type="button" aria-label="Close" className="rounded-full bg-muted/40 p-1.5 text-muted-foreground hover:text-foreground"><X size={15} /></button></DialogPrimitive.Close>
+          </div>
+          <div className="space-y-3 px-5 pb-5 pt-2">
+            {!!draft.recoveries.length && <section aria-label="Saved captures on this device" className="space-y-2 rounded-xl border bg-muted/20 p-3">
+              <p className="text-xs font-medium">Saved captures on this device</p>
+              {draft.recoveries.map(saved => <div key={saved.id} className="space-y-1 border-t pt-2 first:border-0">
+                <p className="line-clamp-2 break-words text-xs text-muted-foreground">{saved.text.trim() || 'Image capture'}{saved.imageCount > 0 && ` · ${saved.imageCount} image${saved.imageCount === 1 ? '' : 's'}`}</p>
+                <div className="flex gap-3 text-xs"><button type="button" disabled={recoveryDisabled} onClick={() => void draft.restore(saved.id)} className="underline disabled:opacity-40">Restore capture</button>
+                  <button type="button" disabled={busy} onClick={() => void draft.discardSaved(saved.id)} className="text-muted-foreground underline disabled:opacity-40">Discard saved capture</button></div>
+              </div>)}
+              {hasInput && <p className="text-xs text-muted-foreground">Capture or discard the current draft before restoring another.</p>}
+            </section>}
+            {draft.recoveryError && <p role="alert" className="text-xs text-amber-600 dark:text-amber-500">Saved drafts could not be read. {draft.recoveryError} <button type="button" onClick={() => void draft.refreshRecoveries()} className="underline">Retry recovery</button></p>}
+            <div className={cn('rounded-[20px] border bg-background shadow-sm', pristine ? 'border-input' : 'border-primary/30 ring-2 ring-primary/10')}>
+              {!!images.length && <div className="flex gap-3 overflow-x-auto px-3 pt-4 pb-2">
+                {draft.previews.map(({ id, file }, index) => <ImagePreview key={id} file={file} disabled={busy || savedRemotely} remove={() => draft.edit({ files: images.filter((_, position) => position !== index) })} />)}
+              </div>}
+              <textarea ref={textareaRef} value={text} onChange={event => draft.edit({ text: event.target.value })} onKeyDown={handleKeyDown}
+                placeholder={placeholder} maxLength={CAPTURE_MAX_TEXT_LENGTH} disabled={busy || savedRemotely} autoFocus rows={pristine ? 2 : 3}
+                className={cn('max-h-80 min-h-24 w-full resize-none rounded-t-[20px] bg-transparent px-4 py-4 text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-50', pristine ? 'text-xl font-light' : 'text-[15px] leading-relaxed')} />
+              <div className="space-y-1 px-4 pb-3 text-xs">
+                {draft.save.phase === 'loading' && <p role="status" className="text-muted-foreground">Preparing capture…</p>}
+                {(hasInput || draft.save.phase === 'error') && <p role={draft.save.phase === 'error' ? 'alert' : 'status'} className={draft.save.phase === 'error' ? 'text-amber-600 dark:text-amber-500' : 'text-muted-foreground'}>
+                  {draft.save.phase === 'saved' ? 'Draft saved on this device.' : draft.save.phase === 'saving' ? 'Saving draft on this device…' : draft.save.phase === 'error' ? draft.save.error || 'Draft could not be saved on this device.' : ''}
+                  {draft.save.phase === 'error' && !draft.missingFiles.length && !savedRemotely && <button type="button" disabled={busy} className="ml-2 underline" onClick={() => void draft.retry()}>Retry saving draft</button>}
+                </p>}
+                {!!draft.missingFiles.length && <div role="alert"><p>Missing images: {draft.missingFiles.join(', ')}</p><button type="button" onClick={draft.acceptRecoveredFiles} className="underline">Keep recovered content</button></div>}
+                {transcriptOverflow && <div role="alert" className="space-y-2 text-amber-600 dark:text-amber-500">
+                  <p>This transcript does not fit. Shorten the capture to add it, or copy the transcript before discarding it. It has not been saved on this device.</p>
+                  <textarea aria-label="Unadded voice transcript" readOnly value={voice.transcript} className="max-h-32 w-full rounded border bg-background p-2 text-foreground" />
+                  <button type="button" onClick={voice.clearTranscript} className="underline">Discard unadded transcript</button>
+                </div>}
+                {draft.value.submission === 'uncertain' && !imageUploading && <p role="status" className="text-amber-600 dark:text-amber-500">This capture may already have been submitted. Check your Stream before capturing again.</p>}
+                {inputError && <p role="alert" className="text-amber-600 dark:text-amber-500">{inputError}</p>}
+                {voice.error && <p role="alert" className="text-destructive">{voice.error}</p>}
+                {voice.captureMode === null && voice.unsupportedReason && <p className="text-muted-foreground">{voice.unsupportedReason}</p>}
+                {voice.isTranscribing && <p role="status">Transcribing voice capture… <button type="button" onClick={voice.cancelRecording} className="underline">Cancel transcription</button></p>}
               </div>
-              <DialogPrimitive.Close asChild>
-                <button
-                  className="p-1.5 rounded-full bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  aria-label="Close"
-                >
-                  <X size={15} />
-                </button>
-              </DialogPrimitive.Close>
-            </div>
-
-            <div className="px-5 pb-5 pt-2">
-              <div className="flex flex-col gap-3">
-                <div
-                  className={cn(
-                    "relative flex flex-col rounded-[20px] transition-all duration-300 bg-background",
-                    !isPristine 
-                      ? "border border-primary/30 shadow-sm ring-[3px] ring-primary/10" 
-                      : "border border-input shadow-sm focus-within:border-primary/40 focus-within:ring-[3px] focus-within:ring-primary/15"
-                  )}
-                >
-                  {/* 1. Top Section: Media Previews (Image) */}
-                  {stagedImages.length > 0 && (
-                    <div className="px-3 pt-3 pb-1 flex items-start gap-3 overflow-x-auto select-none" style={{ scrollbarWidth: 'none' }}>
-                      {stagedImages.map((stage, idx) => (
-                        <div key={stage.url} className="relative group shrink-0">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={stage.url}
-                            alt={stage.file.name ?? "Staged image"}
-                            className="h-24 w-24 rounded-xl object-cover border border-border shadow-md"
-                          />
-                          <button
-                            onClick={() => clearStagedImage(idx)}
-                            aria-label="Remove image"
-                            className="absolute -top-2.5 -right-2.5 w-7 h-7 rounded-full bg-background border border-border text-foreground hover:bg-accent flex items-center justify-center shadow-sm transition-transform hover:scale-110"
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* 2. Middle Section: Dynamic Text Area */}
-                  <div className={cn("flex flex-col", isPristine ? "px-1" : "pt-1 px-1")}>
-                    <textarea
-                      ref={textareaRef}
-                      value={text}
-                      onChange={(e) => setText(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder={placeholder}
-                      disabled={createStream.isPending || imageUploading}
-                      className={cn(
-                        "w-full resize-none bg-transparent text-foreground placeholder:text-muted-foreground/40 focus:outline-none disabled:opacity-50 transition-all duration-300",
-                        isPristine 
-                          ? "text-xl sm:text-2xl font-light px-4 pt-[20px] pb-[16px] h-[72px]" 
-                          : "text-[15px] leading-relaxed px-4 py-3 min-h-[80px] max-h-[400px]"
-                      )}
-                      rows={isPristine ? 1 : 3}
-                      autoFocus
-                    />
-                    
-                    {/* Status indicators */}
-                    {(voice.isTranscribing || imageUploading || voice.error || (voice.captureMode === null && voice.unsupportedReason) || imageError) && (
-                      <div className="px-4 pb-3 flex flex-col gap-1.5">
-                        {voice.isTranscribing && (
-                          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                            <Loader2 size={14} className="animate-spin text-primary" />
-                            Transcribing voice capture...
-                            <button type="button" onClick={voice.cancelRecording} className="ml-auto underline hover:text-foreground">
-                              Cancel transcription
-                            </button>
-                          </div>
-                        )}
-                        {imageUploading && (
-                          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                            <Loader2 size={14} className="animate-spin text-primary" />
-                            Uploading {stagedImages.length > 1 ? "images" : "image"}...
-                          </div>
-                        )}
-                        {voice.error && <div className="text-xs font-medium text-destructive">{voice.error}</div>}
-                        {voice.captureMode === null && voice.unsupportedReason && (
-                          <div className="text-xs font-medium text-muted-foreground">{voice.unsupportedReason}</div>
-                        )}
-                        {imageError && <div className="text-xs font-medium text-amber-600 dark:text-amber-500">{imageError}</div>}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Live waveform while recording (Moved near bottom toolbar) */}
-                  {showWaveform && (
-                    <div className="mx-2 mb-2 rounded-xl bg-red-400/5 px-4 py-3 flex items-center gap-4 border border-red-500/10">
-                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0 shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
-                      <LiveWaveform
-                        stream={voice.stream}
-                        active
-                        height={28}
-                        barColor="currentColor"
-                        className="flex-1 text-foreground opacity-80"
-                      />
-                      <button
-                        onClick={handleMicClick}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 text-red-600 dark:text-red-500 hover:bg-red-500/20 rounded-[8px] text-xs font-semibold transition-colors shrink-0 outline-none focus:ring-2 focus:ring-red-500/40"
-                      >
-                        <Square size={12} className="fill-current" />
-                        Stop
-                      </button>
-                    </div>
-                  )}
-
-                  {/* 3. Bottom Section: Toolbar (Only shown when NOT pristine) */}
-                  {!isPristine && (
-                    <div className="flex items-center justify-between p-2 mt-2 border-t border-border/40 bg-muted/10 rounded-b-[20px] animate-in fade-in duration-200">
-                      <div className="flex items-center gap-1 focus-within:ring-0 px-1">
-                        {!voice.isRecording && (
-                          <button
-                            onClick={handleMicClick}
-                            disabled={voice.captureMode === null || voice.isTranscribing || createStream.isPending || imageUploading}
-                            aria-label="Voice capture"
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-sm border border-transparent disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <Mic size={15} />
-                            <span className="hidden sm:inline-block">Speak</span>
-                          </button>
-                        )}
-
-                        <button
-                          onClick={handleImageClick}
-                          disabled={imageUploading || createStream.isPending || (stagedImages.length > 0 && !IMAGE_SENDS_IMMEDIATELY)}
-                          aria-label="Attach image"
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-sm border border-transparent transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <ImagePlus size={15} />
-                          <span className="hidden sm:inline-block">Image</span>
-                        </button>
-                        <input
-                          ref={imageInputRef}
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          className="hidden"
-                          onChange={handleImageChange}
-                        />
-                      </div>
-
-                      <div className="flex items-center gap-3 pr-2">
-                        <span className="text-[11px] font-medium text-muted-foreground/60 hidden sm:inline-block mr-1">
-                          <kbd className="font-sans px-1.5 py-0.5 rounded-md bg-background border border-border shadow-sm">Enter</kbd> to save
-                        </span>
-                        <button
-                          onClick={handleSubmit}
-                          disabled={!canSubmit}
-                          className={cn(
-                            "flex items-center justify-center gap-1.5 px-4 h-9 rounded-lg transition-all font-semibold text-sm",
-                            canSubmit 
-                              ? "bg-primary text-primary-foreground shadow-md hover:bg-primary/95 hover:shadow-lg active:scale-95" 
-                              : "bg-muted text-muted-foreground opacity-50 cursor-not-allowed"
-                          )}
-                          aria-label="Capture"
-                        >
-                          {createStream.isPending || imageUploading ? (
-                            <Loader2 size={16} className="animate-spin" />
-                          ) : (
-                            <>
-                              <ArrowUp size={16} className="stroke-[2.5px]" />
-                              Capture
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+              {voice.isRecording && voice.stream && <div className="mx-3 mb-3 flex items-center gap-3 rounded-xl bg-red-400/5 p-3">
+                <LiveWaveform stream={voice.stream} active height={28} barColor="currentColor" className="flex-1 text-foreground" />
+                <button type="button" onClick={voice.toggleRecording} className="flex items-center gap-1 text-xs text-red-500"><Square size={12} />Stop</button>
+              </div>}
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-b-[20px] border-t bg-muted/10 p-2">
+                <div className="flex gap-1">
+                  <button type="button" aria-label="Voice capture" onClick={voice.toggleRecording} disabled={busy || voice.captureMode === null || voice.isTranscribing || savedRemotely} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-muted disabled:opacity-40"><Mic size={15} />{voice.isRecording ? 'Stop' : 'Speak'}</button>
+                  <button type="button" aria-label="Attach image" onClick={() => imageInputRef.current?.click()} disabled={busy || savedRemotely || images.length >= CAPTURE_MAX_IMAGES} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-muted disabled:opacity-40"><ImagePlus size={15} />Image</button>
+                  <input ref={imageInputRef} type="file" accept="image/*" multiple className="hidden" onChange={event => stageFiles(Array.from(event.target.files ?? []))} />
                 </div>
-
-                {/* The Pristine Action Cards decoupled from text input */}
-                {isPristine && (
-                  <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="grid grid-cols-2 gap-3 h-[110px]">
-                      <button 
-                        onClick={handleMicClick}
-                        disabled={voice.captureMode === null}
-                        className="relative flex flex-col items-center justify-center bg-muted/20 border border-border/50 hover:bg-red-500/5 hover:border-red-500/30 transition-all rounded-[14px] group shadow-sm disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden h-full"
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-t from-red-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                        <div className="flex flex-col items-center justify-center gap-2 w-full px-4">
-                          <div className="w-10 h-10 bg-background shadow-sm border border-border/50 text-red-500 rounded-full flex items-center justify-center group-hover:scale-110 group-hover:border-red-500/40 transition-all shrink-0">
-                            <Mic size={18} className="stroke-[2px] opacity-80 group-hover:opacity-100 transition-opacity" />
-                          </div>
-                          <div className="flex flex-col items-center leading-tight">
-                            <span className="font-semibold text-[15px] tracking-tight text-foreground/90">Speak</span>
-                            <span className="text-[11px] text-muted-foreground opacity-80">Voice memo</span>
-                          </div>
-                        </div>
-                      </button>
-
-                      <button 
-                        onClick={handleImageClick}
-                        className="relative flex flex-col items-center justify-center bg-muted/20 border border-border/50 hover:bg-blue-500/5 hover:border-blue-500/30 transition-all rounded-[14px] group shadow-sm overflow-hidden h-full"
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-t from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                        <div className="flex flex-col items-center justify-center gap-2 w-full px-4">
-                          <div className="w-10 h-10 bg-background shadow-sm border border-border/50 text-blue-500 rounded-full flex items-center justify-center group-hover:scale-110 group-hover:border-blue-500/40 transition-all shrink-0">
-                            <ImagePlus size={18} className="stroke-[2px] opacity-80 group-hover:opacity-100 transition-opacity" />
-                          </div>
-                          <div className="flex flex-col items-center leading-tight">
-                            <span className="font-semibold text-[15px] tracking-tight text-foreground/90">Upload</span>
-                            <span className="text-[11px] text-muted-foreground opacity-80">Image file</span>
-                          </div>
-                        </div>
-                      </button>
-                      
-                      <input
-                        ref={imageInputRef}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        className="hidden"
-                        onChange={handleImageChange}
-                      />
-                    </div>
-                  </div>
-                )}
+                <button type="button" aria-label="Capture" onClick={() => void handleSubmit()} disabled={!canSubmit} className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-40">
+                  {imageUploading || createStream.isPending ? <Loader2 size={15} className="animate-spin" /> : <ArrowUp size={15} />}Capture
+                </button>
               </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <p>Paste or drop images. Closing keeps your draft.</p>
+              {(hasDraft || !!voice.transcript) && <button type="button" disabled={busy} onClick={() => void discard()} className="shrink-0 underline disabled:opacity-40">Discard capture</button>}
             </div>
           </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
-  );
+          {dragging && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-background/90"><span className="flex items-center gap-2 text-sm"><Upload size={18} />Drop images to attach</span></div>}
+        </div>
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
+  </DialogPrimitive.Root>;
 }

@@ -140,18 +140,13 @@ void acceptance('native-features-smoke', async fixture => {
     // Stage a tiny local image but remove it before submission. This verifies
     // preservation of both kinds of unsent input without invoking extraction.
     await capture.locator('input[type="file"]').setInputFiles({ name: 'native-capture-fixture.png', mimeType: 'image/png',
-      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8y8AAAAASUVORK5CYII=', 'base64') });
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMw7nj3HwAFRAKpaXmUKgAAAABJRU5ErkJggg==', 'base64') });
     await capture.getByRole('img', { name: 'native-capture-fixture.png', exact: true }).waitFor();
-    await app.evaluate(() => { const state = (globalThis as NativeGlobal).riNativeAcceptance; state.dialogResponse = 0; state.dialogs = []; });
-    await menu('ri-desktop-preferences');
-    await eventually(async () => (await app.evaluate(() => (globalThis as NativeGlobal).riNativeAcceptance.dialogs)).some(dialog => dialog.buttons.includes('Continue without saving')), 'unsent capture vetoes native navigation');
-    await page.waitForFunction(() => !document.body.inert);
-    assert.equal(page.url(), url); assert.equal(await capture.locator('textarea').inputValue(), captureText);
-    assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin);
-    await menu('ri-quit');
-    await eventually(async () => (await app.evaluate(() => (globalThis as NativeGlobal).riNativeAcceptance.dialogs)).some(dialog => dialog.buttons.includes('Quit anyway')), 'unsent capture vetoes explicit Quit');
-    await foreground(); await page.waitForFunction(() => !document.body.inert);
-    assert.equal(page.url(), url); assert.equal(await capture.locator('textarea').inputValue(), captureText);
+    await capture.getByText('Draft saved on this device.', { exact: true }).waitFor();
+    await capture.getByRole('button', { name: 'Close', exact: true }).click();
+    await capture.waitFor({ state: 'hidden' });
+    await menu('ri-quick-capture'); await capture.waitFor();
+    assert.equal(await capture.locator('textarea').inputValue(), captureText);
     assert.equal(await capture.getByRole('img', { name: 'native-capture-fixture.png', exact: true }).count(), 1);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()); await background();
     await menu('ri-quick-capture'); await foreground();
@@ -160,7 +155,7 @@ void acceptance('native-features-smoke', async fixture => {
     assert.equal(page.url(), url); assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin);
     await capture.getByRole('button', { name: 'Remove image', exact: true }).click();
     await capture.getByRole('img', { name: 'native-capture-fixture.png', exact: true }).waitFor({ state: 'hidden' });
-    fixture.check('Unsent capture text and a staged image survive cancelled native navigation, cancelled Quit, and close-to-background/reopen without freezing the editor');
+    fixture.check('Saved capture text and a staged image survive modal close and close-to-background/reopen without freezing the editor');
 
     await capture.getByRole('button', { name: 'Capture', exact: true }).click();
     await capture.waitFor({ state: 'hidden' });
@@ -193,37 +188,30 @@ void acceptance('native-features-smoke', async fixture => {
     fixture.check('Shortcut conflict is reported without changing preferences, accepted configuration persists, captured native callback opens once, and change/disable unregisters it');
 
     await menu('ri-quick-capture'); await capture.waitFor();
-    const discardedText = 'This unsent native capture is deliberately discarded.';
-    await capture.locator('textarea').fill(discardedText);
-    await app.evaluate(() => { const state = (globalThis as NativeGlobal).riNativeAcceptance; state.dialogResponse = 1; state.dialogs = []; });
+    const recoveredText = 'This unsent native capture is retained across navigation.';
+    await capture.locator('textarea').fill(recoveredText);
+    await capture.getByText('Draft saved on this device.', { exact: true }).waitFor();
+    await app.evaluate(() => { const state = (globalThis as NativeGlobal).riNativeAcceptance; state.dialogs = []; });
     await menu('ri-desktop-preferences');
     await page.waitForURL(url => url.pathname === '/' && url.searchParams.get('settings') === 'general');
     await page.getByRole('heading', { name: 'Desktop', exact: true }).waitFor();
-    await capture.waitFor({ state: 'hidden' });
     await page.waitForFunction(() => !document.body.inert);
-    assert((await app.evaluate(() => (globalThis as NativeGlobal).riNativeAcceptance.dialogs)).some(dialog => dialog.buttons.includes('Continue without saving')));
-    const discardedDb = new Database(database, { readonly: true, fileMustExist: true });
-    try { assert.equal((discardedDb.prepare('SELECT COUNT(*) AS total FROM stream WHERE raw_text = ?').get(discardedText) as { total: number }).total, 0); }
-    finally { discardedDb.close(); }
-    const afterDiscardDocument = await page.evaluate(() => performance.timeOrigin);
+    assert.equal((await app.evaluate(() => (globalThis as NativeGlobal).riNativeAcceptance.dialogs)).length, 0);
     await menu('ri-quick-capture'); await capture.waitFor();
     assert.equal(await capture.locator('textarea').inputValue(), '');
-    const nextDraft = 'This later capture must still prevent an unapproved reload.';
-    await capture.locator('textarea').fill(nextDraft);
-    await app.evaluate(({ BrowserWindow }) => {
-      const contents = BrowserWindow.getAllWindows()[0].webContents;
-      // Observe only. Not preventing this event retains the normal Electron
-      // behavior: beforeunload cancels a reload with an unsent capture.
-      contents.once('will-prevent-unload', () => { (globalThis as NativeGlobal).riNativeAcceptance.preventedReloads++; });
-      contents.reload();
-    });
-    await eventually(async () => (await app.evaluate(() => (globalThis as NativeGlobal).riNativeAcceptance.preventedReloads)) === 1, 'new capture still guards an ordinary native reload');
-    assert.equal(await page.evaluate(() => performance.timeOrigin), afterDiscardDocument);
-    assert.equal(await capture.locator('textarea').inputValue(), nextDraft);
-    assert.equal(await page.evaluate(() => document.body.inert), false);
+    await capture.getByRole('button', { name: 'Restore capture', exact: true }).click();
+    await eventually(async () => await capture.locator('textarea').inputValue() === recoveredText, 'native navigation retains a recoverable draft');
+    const db = new Database(database, { readonly: true, fileMustExist: true });
+    try { assert.equal((db.prepare('SELECT COUNT(*) AS total FROM stream WHERE raw_text = ?').get(recoveredText) as { total: number }).total, 0); }
+    finally { db.close(); }
+    await capture.getByRole('button', { name: 'Discard capture', exact: true }).click();
+    await eventually(async () => await capture.locator('textarea').inputValue() === '', 'explicit discard clears capture');
     await capture.getByRole('button', { name: 'Close', exact: true }).click();
-    await capture.waitFor({ state: 'hidden' });
-    fixture.check('Explicit Continue without saving completes only its approved navigation, never submits the discarded capture, and leaves a later capture protected against ordinary reload');
+    await fixture.reload();
+    await menu('ri-quick-capture'); await capture.waitFor();
+    assert.equal(await capture.getByRole('button', { name: 'Restore capture', exact: true }).count(), 0);
+    await capture.getByRole('button', { name: 'Close', exact: true }).click();
+    fixture.check('Durable capture allows native navigation without a discard prompt, recovers explicitly without submission, and explicit discard survives reload');
 
     assert.equal((await settings({ type: 'login', enabled: true })).login.enabled, true);
     if (process.platform === 'darwin') {

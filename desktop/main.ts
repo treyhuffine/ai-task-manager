@@ -369,7 +369,7 @@ async function prepareCloseOnce(intent: 'quit' | 'continue'): Promise<boolean> {
   showWindow();
   const result = await dialog.showMessageBox(window, {
     type: 'warning', message: 'Some changes have not finished saving',
-    detail: 'Keep Ri open to finish your capture, recording or upload and retry pending saves. Retained document and chat drafts can be recovered. Unsubmitted captures and attachments may be lost if you continue.',
+    detail: 'Keep Ri open to finish your recording or upload and retry pending saves. Saved document, chat and capture drafts can be recovered. Content that could not be saved on this device may be lost if you continue.',
     buttons: ['Keep open', intent === 'quit' ? 'Quit anyway' : 'Continue without saving'], defaultId: 0, cancelId: 0,
   });
   if (result.response !== 1) window?.webContents.send('desktop:resume');
