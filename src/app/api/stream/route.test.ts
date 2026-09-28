@@ -6,8 +6,12 @@
  */
 
 import { NextRequest } from 'next/server';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+
+// The route, not the triage it schedules after a capture (its own tests cover that).
+const onStreamCaptured = vi.fn();
+vi.mock('@/lib/stream-triage/triggers', () => ({ onStreamCaptured: (...args: unknown[]) => onStreamCaptured(...args) }));
 
 let home: TestHome | undefined;
 afterEach(async () => {
@@ -24,6 +28,7 @@ it('captures into the stream and lists what was captured', async () => {
   expect(created.status).toBe(201);
   const row = (await created.json()) as { id: string; rawText: string };
   expect(row.rawText).toBe('call the plumber');
+  expect(onStreamCaptured).toHaveBeenCalledWith(row.id);
   const listed = await GET(new NextRequest('http://home/api/stream'));
   expect(listed.status).toBe(200);
   expect(listed.headers.get('content-type')).toContain('application/json');

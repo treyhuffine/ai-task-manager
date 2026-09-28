@@ -713,8 +713,9 @@ describe('the controls follow the work (P4.5)', () => {
 
     worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
     await until(() => !fs.existsSync(there), 'the worktree removed once the laptop is back');
-    const archive = q.listWorkerCommands(laptopId).find((c) => c.kind === 'git' && (c.payload as { op: string }).op === 'archive_worktree');
-    expect(archive).toMatchObject({ state: 'delivered' });
+    // Its acknowledgement follows the removal.
+    const archive = () => q.listWorkerCommands(laptopId).find((c) => c.kind === 'git' && (c.payload as { op: string }).op === 'archive_worktree');
+    await until(() => archive()?.state === 'delivered', 'the archive acknowledged');
   }, 180_000);
 
   it('waits while the work moves: no file change, push, merge or archive races the save', async () => {

@@ -10,8 +10,11 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CheckpointError, reviewCheckout, saveCheckpoint, workingState, worktreeAtCheckpoint } from './git-checkpoint';
+
+// Real Git, many commands per test: past the 5s default when the whole suite runs at once.
+vi.setConfig({ testTimeout: 30_000 });
 
 let root: string;
 let remote: string;

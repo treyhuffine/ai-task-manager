@@ -4,8 +4,11 @@
  * computer running on the default, or refused with the reason.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+
+// Real Git setup per test: past the 5s default when the whole suite runs at once.
+vi.setConfig({ testTimeout: 30_000 });
 
 let home: TestHome;
 let hostId: string;

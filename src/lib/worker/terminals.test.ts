@@ -68,7 +68,12 @@ describe("a worker's terminals", () => {
     // Each chunk ends where the next begins.
     for (let i = 1; i < chunks.length; i++) expect(chunks[i].offset - chunks[i].data.length).toBe(chunks[i - 1].offset);
     const replay = await terminals.handle({ op: 'replay', scope: execution(), terminalId: id, since: chunks[0].offset });
-    expect(replay).toMatchObject({ status: 200, body: { offset: chunks.at(-1)!.offset } });
+    expect(replay.status).toBe(200);
+    // The ring can be ahead of what was posted (the shell keeps printing its
+    // prompt), never behind it, and replays exactly what followed.
+    const body = replay.body as { offset: number; replay: string };
+    expect(body.offset).toBeGreaterThanOrEqual(chunks.at(-1)!.offset);
+    expect(body.replay.startsWith(chunks.slice(1).map((c) => c.data).join(''))).toBe(true);
   });
 
   it('answers only for the placement it holds, and stops its shells when that moves on', async () => {
