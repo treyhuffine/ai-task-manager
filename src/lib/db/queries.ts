@@ -8257,12 +8257,17 @@ export function listRecentChatEvents(sessionId: string, limit = 30): ChatEventRe
  */
 /**
  * What a session's stream missed while a client was away (P3 re-check): the
- * events after `afterId`, and the cumulative parts revised in place since
- * `revisedSince` (the newest `updatedAt` the client has seen, the home's
- * clock). `complete` is false when that's more than `limit`, or when parts
- * may have been revised and there's no `revisedSince` to find them by: the
- * client can't be brought up to date from here, and should read the
- * transcript afresh. Nothing is returned then.
+ * events written after `afterId`, and the cumulative parts revised in place
+ * since `revisedSince` (the newest `updatedAt` the client has seen, the
+ * home's clock). `complete` is false when that's more than `limit`, when
+ * `afterId` isn't this session's, or when parts may have been revised and
+ * there's no `revisedSince` to find them by: the client can't be brought up
+ * to date from here, and should read the transcript afresh. Nothing is
+ * returned then.
+ *
+ * "After" is in the order the home wrote them (rowid), not by id: a message
+ * keeps the id its sender minted on its own clock, so a phone running ahead
+ * puts its message's id past the replies that follow it.
  */
 export function listChatEventsToResume(
   sessionId: string,
@@ -8271,14 +8276,21 @@ export function listChatEventsToResume(
   limit = 1000,
 ): { rows: ChatEventRecord[]; complete: boolean } {
   const db = getDb();
-  const revisable = and(lte(chatEvents.id, afterId), isNotNull(chatEvents.partRevision));
+  const at = db
+    .select({ rowid: sql<number>`rowid` })
+    .from(chatEvents)
+    .where(and(eq(chatEvents.sessionId, sessionId), eq(chatEvents.id, afterId)))
+    .get();
+  if (!at) return { rows: [], complete: false };
+  const written = sql`rowid`;
+  const revisable = and(lte(written, at.rowid), isNotNull(chatEvents.partRevision));
   if (revisedSince === null) {
     const revised = db.select({ id: chatEvents.id }).from(chatEvents).where(and(eq(chatEvents.sessionId, sessionId), revisable)).limit(1).get();
     if (revised) return { rows: [], complete: false };
   }
   const missed = revisedSince === null
-    ? gt(chatEvents.id, afterId)
-    : or(gt(chatEvents.id, afterId), and(revisable, gte(chatEvents.updatedAt, revisedSince)));
+    ? gt(written, at.rowid)
+    : or(gt(written, at.rowid), and(revisable, gte(chatEvents.updatedAt, revisedSince)));
   const rows = db
     .select()
     .from(chatEvents)
@@ -8891,7 +8903,37 @@ export function updateRun(id: string, input: UpdateRunInput): RunRecord | null {
 
 /** Transition a queued run to running. */
 export function markRunStarted(id: string, startedAt: string = new Date().toISOString()): RunRecord | null {
-  return updateRun(id, { status: 'running', startedAt });
+  return updateRun(id, { status: 'running', startedAt, statusReason: null });
+}
+
+/** Why a scheduled fire waits: a move holds its message (P3 re-check). */
+export const HELD_BY_MOVE = 'held_by_move';
+
+/**
+ * A scheduled fire whose message a move holds: back to `queued`, waiting,
+ * with nothing started. The move delivers it as this run once it settles
+ * (`heldFireFor`). Only a run still under way.
+ */
+export function markRunHeld(id: string): RunRecord | null {
+  return (
+    getDb()
+      .update(runs)
+      .set({ status: 'queued', statusReason: HELD_BY_MOVE, startedAt: null })
+      .where(and(eq(runs.id, id), inArray(runs.status, ['queued', 'running'])))
+      .returning()
+      .get() ?? null
+  );
+}
+
+/** The scheduled fire a held message is, while it still waits for the move to deliver it. */
+export function heldFireFor(eventId: string): RunRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(runs)
+      .where(and(eq(runs.sourceEventId, eventId), eq(runs.status, 'queued'), eq(runs.statusReason, HELD_BY_MOVE)))
+      .get() ?? null
+  );
 }
 
 /** Terminal transition with timing. completedAt defaults to now.
@@ -8974,16 +9016,20 @@ export function markRunCancelled(id: string, reason: string | null = null): RunR
  * and the worker reports how it ends. One with no send is a dispatch this
  * process was still preparing when it stopped. No worker ever heard of it,
  * so it's reaped like any other (docs/homes-build.md, P2 review fixes).
+ *
+ * A scheduled fire a move holds is kept too: its message is saved with the
+ * move, which delivers it as the run once it settles (P3 re-check).
  */
 export function reapStaleRunningRuns(): number {
   const db = getDb();
   const now = new Date().toISOString();
   const active = db
-    .select({ id: runs.id, chatSessionId: runs.chatSessionId })
+    .select({ id: runs.id, chatSessionId: runs.chatSessionId, status: runs.status, statusReason: runs.statusReason })
     .from(runs)
     .where(inArray(runs.status, ['queued', 'running']))
     .all();
   const ghosts = active
+    .filter((r) => !(r.status === 'queued' && r.statusReason === HELD_BY_MOVE))
     .filter((r) => !r.chatSessionId || getChatComputerId(r.chatSessionId) === null || !hasSendForRun(r.id))
     .map((r) => r.id);
   if (ghosts.length === 0) return 0;
@@ -9007,8 +9053,17 @@ export function findActiveRunForExecution(executionId: string): RunRecord | unde
   return db
     .select()
     .from(runs)
-    .where(and(eq(runs.executionId, executionId), eq(runs.status, 'running')))
+    .where(and(eq(runs.executionId, executionId), activeRun()))
     .get();
+}
+
+/**
+ * Under way, for the concurrency gate: running, or a fire a move holds,
+ * which runs once the move settles. Later fires then wait behind it rather
+ * than pile up behind a stuck move (P3 re-check).
+ */
+function activeRun(): SQL {
+  return or(eq(runs.status, 'running'), and(eq(runs.status, 'queued'), eq(runs.statusReason, HELD_BY_MOVE)))!;
 }
 
 /**
@@ -9057,7 +9112,7 @@ export function findActiveRunForTrigger(triggerId: string): RunRecord | undefine
   return db
     .select()
     .from(runs)
-    .where(and(eq(runs.triggerId, triggerId), eq(runs.status, 'running')))
+    .where(and(eq(runs.triggerId, triggerId), activeRun()))
     .get();
 }
 

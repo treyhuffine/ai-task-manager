@@ -483,6 +483,9 @@ export async function send(req: SendRequest): Promise<SendResult> {
   let commandUuid: string;
   try {
     const handle = live ?? (await startSessionOnce(req.spec!));
+    // Starting a session can take a while: the sender may have given up
+    // meanwhile. The session stays, for the next message.
+    if (req.signal?.aborted) throw new ExecutorError('invalid_state', 'It was given up before it was sent.');
     const sent = await handle.send(withFirstTurnPreamble(req.message, takeFirstTurnPreamble(handle)));
     result = sent.result;
     // A harness that names no message still has its sends kept apart.

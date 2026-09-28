@@ -67,3 +67,12 @@ export function toChatEventDTO(row: ChatEventRecord): ChatEventDTO {
 export function toChatEventDTOs(rows: readonly ChatEventRecord[]): ChatEventDTO[] {
   return rows.map(toChatEventDTO);
 }
+
+/**
+ * A part revised in place (OpenCode's text grows under one id): whether
+ * `incoming` is a newer revision than `cached`, so it should replace it.
+ * An older or equal one never does (P3 re-check).
+ */
+export function isNewerRevision(incoming: Pick<ChatEventDTO, 'partRevision'>, cached: Pick<ChatEventDTO, 'partRevision'>): boolean {
+  return incoming.partRevision != null && (cached.partRevision == null || incoming.partRevision > cached.partRevision);
+}

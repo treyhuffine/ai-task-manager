@@ -91,6 +91,13 @@ export interface SendRequest {
    * gets their paths in the message instead.
    */
   files?: InputFile[];
+  /**
+   * The sender gave up (a scheduled run out of time): checked again at the
+   * moment the message goes to the harness, after any session startup, so
+   * a send whose run already failed never reaches it (P3 re-check).
+   * Never crosses to a computer elsewhere: its message is queued at once.
+   */
+  signal?: AbortSignal;
 }
 
 /** A file sent with a message to a computer elsewhere, as the home has it. */

@@ -89,3 +89,10 @@ it('says where the transcript stands: the event written last, not the greatest i
   expect(ready.position.after).toBe(last.id);
   expect(ready.position.since).toBe(last.updatedAt);
 });
+
+it("replays nothing and says so from a cursor that isn't this chat's", async () => {
+  q.insertChatEvent({ sessionId: chat, role: 'user', source: 'user', content: 'a', createdAt: new Date(1).toISOString() });
+  const { events, ready } = await open('01a0e000-0000-7000-8000-000000000000', '2000-01-01 00:00:00');
+  expect(ready.resumed).toBe(false);
+  expect(events).toEqual([]);
+});

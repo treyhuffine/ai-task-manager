@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
+import { isNewerRevision, type ChatEventDTO } from '@/lib/api/dto/chat-event';
 import type { PendingInput } from '@/lib/api/sessions';
 import { isMutatingToolUse } from '@/lib/executor/mutation-detect';
 import { worktreeScopeFromCache } from '@/hooks/use-execution';
@@ -193,17 +193,36 @@ export function useSessionStream(sessionId: string | null): void {
     // revised in place included: the server says it resumed only then, and
     // otherwise replays nothing (P3 re-check). Deliveries and the move
     // aren't replayed, so they're refetched either way.
-    const handleReady = (frame: unknown) => {
-      const resumed = (frame as { resumed?: boolean } | null)?.resumed === true;
-      if (!resumed) {
-        queryClient.invalidateQueries({ queryKey: eventsKey });
+    const handleReady = (frame: unknown, caughtUp?: () => void) => {
+      const data = frame as { resumed?: boolean; position?: { after?: string | null } } | null;
+      if (data?.resumed !== true) {
+        void readTranscriptAfresh(data?.position?.after ?? null, caughtUp);
         queryClient.invalidateQueries({ queryKey: runtimeKey });
       }
       queryClient.invalidateQueries({ queryKey: deliveriesKey });
       queryClient.invalidateQueries({ queryKey: transferKey });
     };
 
-    const handlers: Record<string, (data: unknown) => void> = {
+    // The transcript read afresh, then acknowledged to the page stream once
+    // the cache has the event `ready` named as the transcript's last: only
+    // then does the chat resume from there. A read already under way when
+    // `ready` came can't vouch for it (the refetch joins it), so a second
+    // one is asked for before giving up (P3 re-check).
+    const readTranscriptAfresh = async (last: string | null, caughtUp?: () => void) => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          await queryClient.invalidateQueries({ queryKey: eventsKey });
+        } catch {
+          return;
+        }
+        if (!last || queryClient.getQueryData<ChatEventDTO[]>(eventsKey)?.some((e) => e.id === last)) {
+          caughtUp?.();
+          return;
+        }
+      }
+    };
+
+    const handlers: Record<string, (data: unknown, caughtUp?: () => void) => void> = {
       chat_event: handleChatEvent,
       delivery: handleDelivery,
       transfer: handleTransfer,
@@ -214,9 +233,9 @@ export function useSessionStream(sessionId: string | null): void {
       ready: handleReady,
     };
     // Carried by the page's one stream (P3 review).
-    const unsubscribe = pageStream().subscribeSession(sessionId, (event, data) => {
+    const unsubscribe = pageStream().subscribeSession(sessionId, (event, data, _id, caughtUp) => {
       try {
-        handlers[event]?.(data);
+        handlers[event]?.(data, caughtUp);
       } catch (err) {
         console.error(`[useSessionStream] malformed ${event} frame:`, err);
       }
@@ -229,7 +248,3 @@ export function useSessionStream(sessionId: string | null): void {
   }, [sessionId, queryClient]);
 }
 
-/** A part revised in place: the stream's copy replaces the cached one only when it's newer. */
-function isNewerRevision(incoming: ChatEventDTO, cached: ChatEventDTO): boolean {
-  return incoming.partRevision != null && (cached.partRevision == null || incoming.partRevision > cached.partRevision);
-}

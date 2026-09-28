@@ -34,6 +34,9 @@ import {
   updateTrigger,
   createRun,
   markRunStarted,
+  markRunHeld,
+  updateRun,
+  getTrigger,
   setTriggerLastRun,
   findActiveRunForExecution,
   findActiveRunForTrigger,
@@ -47,7 +50,7 @@ import {
 import { finishRun } from './finish';
 import { withdrawQueuedSend } from '@/lib/workers/undelivered';
 import { withApiLease } from '@/lib/runs/rate-lease';
-import { dispatch as executorDispatch, abort as executorAbort } from '@/lib/executor/adapter';
+import { dispatch as executorDispatch, abort as executorAbort, type DispatchOptions } from '@/lib/executor/adapter';
 import { provisionWorktreeForSession } from '@/lib/sessions/dispatch';
 import { runArtifactBucket } from './artifact-bucket';
 import { budgetGate, BUDGET_DISABLED_REASON } from './budget';
@@ -411,22 +414,24 @@ function appendCoalescedMessage(args: {
   triggerPayload: Record<string, unknown> | string | null;
 }): void {
   const content = composeCoalescedContent(args.trigger, args.triggerPayload);
+  let sourceEventId: string | null = null;
   try {
-    insertChatEvent({
+    sourceEventId = insertChatEvent({
       sessionId: args.blockerChatSessionId,
       role: 'user',
       source: 'user',
       content,
       createdAt: new Date().toISOString(),
-    });
+    })?.id ?? null;
   } catch (err) {
     console.warn(`[dispatch] coalesce: failed to persist user event for ${args.blockerChatSessionId}:`, err);
     return;
   }
   // Fire-and-forget — the blocker's run will surface the result when
   // its current turn completes. We catch the rejection ourselves so an
-  // unhandled rejection doesn't trip the Node process.
-  void executorDispatch(args.blockerChatSessionId, content, { internalCall: true })
+  // unhandled rejection doesn't trip the Node process. Tied to its event,
+  // so a move holding the blocker holds it too, rather than refuse it.
+  void executorDispatch(args.blockerChatSessionId, content, { internalCall: true, sourceEventId })
     .catch((err) => {
       console.warn(`[dispatch] coalesce: executor send failed for ${args.blockerChatSessionId}:`, err);
     });
@@ -495,41 +500,33 @@ async function runUnderLease(
       bumpSessionOutcome(chatSessionId);
       return;
     }
-    const send = async () => {
-      const prompt = promptForTrigger(trigger, triggerPayload);
-      // Persist a user chat_event mirroring the route layer's pattern
-      // for normal sends. Without this, scheduled chats show only the
-      // agent's responses with no record of what triggered them — and
-      // run history becomes ambiguous if the trigger's prompt later
-      // changes. The agent's stream output still arrives via the
-      // adapter's onEvent callback unchanged.
-      let sourceEventId: string | null = null;
-      try {
-        sourceEventId = insertChatEvent({
-          sessionId: chatSessionId,
-          role: 'user',
-          source: 'user',
-          content: prompt,
-          createdAt: new Date().toISOString(),
-        })?.id ?? null;
-      } catch (err) {
-        console.warn(`[dispatch] failed to persist scheduled prompt event for ${chatSessionId}:`, err);
-      }
-      await runArtifactBucket.runWith(runId, chatSessionId, () =>
-        runWithTimeout(chatSessionId, trigger, ({ onQueuedCommand, signal }) =>
-          // The prompt's event carries its delivery when the execution runs
-          // on another computer, so the chat shows it waiting (P3.2).
-          executorDispatch(chatSessionId, prompt, { internalCall: true, runId, sourceEventId, onQueuedCommand, signal }),
-        ),
-      );
-    };
-    // The lease caps provider sessions on this computer. An execution on
-    // another computer runs on that computer's harness, and can wait there
-    // for hours while it sleeps: holding a lease for that would starve the
-    // home's own scheduled work (P3.4).
-    if (runsElsewhere(execution)) await send();
-    else await withApiLease(send);
-    finalizeRunSuccessIfPending(runId);
+    const prompt = promptForTrigger(trigger, triggerPayload);
+    // Persist a user chat_event mirroring the route layer's pattern
+    // for normal sends. Without this, scheduled chats show only the
+    // agent's responses with no record of what triggered them — and
+    // run history becomes ambiguous if the trigger's prompt later
+    // changes. The agent's stream output still arrives via the
+    // adapter's onEvent callback unchanged. The run keeps it, so a move
+    // that holds it delivers it as this run (P3 re-check).
+    let sourceEventId: string | null = null;
+    try {
+      sourceEventId = insertChatEvent({
+        sessionId: chatSessionId,
+        role: 'user',
+        source: 'user',
+        content: prompt,
+        createdAt: new Date().toISOString(),
+      })?.id ?? null;
+      if (sourceEventId) updateRun(runId, { sourceEventId });
+    } catch (err) {
+      console.warn(`[dispatch] failed to persist scheduled prompt event for ${chatSessionId}:`, err);
+    }
+    // The prompt's event carries its delivery when the execution runs
+    // on another computer, so the chat shows it waiting (P3.2).
+    const sent = await sendAsRun(runId, chatSessionId, trigger.timeoutSeconds, execution, prompt, { sourceEventId });
+    // Held by a move: it waits, as this run, until the move delivers it.
+    if (sent === 'held') markRunHeld(runId);
+    else finalizeRunSuccessIfPending(runId);
   } catch (err) {
     finalizeRunFailure(runId, err);
   }
@@ -537,6 +534,81 @@ async function runUnderLease(
   // every assistant message — but a failure before any assistant turn
   // would leave the inbox quiet. Touch it so failed runs surface.
   bumpSessionOutcome(chatSessionId);
+}
+
+/**
+ * Send a scheduled fire's message as its run: under the trigger's time
+ * limit, collecting what it changes, and under the API lease when it runs
+ * here. The lease caps provider sessions on this computer. An execution on
+ * another computer runs on that computer's harness, and can wait there for
+ * hours while it sleeps: holding a lease for that would starve the home's
+ * own scheduled work (P3.4). Says whether a move held it instead.
+ */
+async function sendAsRun(
+  runId: string,
+  chatSessionId: string,
+  timeoutSeconds: number | null,
+  execution: ExecutionRecord | null,
+  message: string,
+  options: Omit<DispatchOptions, 'internalCall' | 'runId' | 'onQueuedCommand' | 'signal' | 'onHeld'>,
+): Promise<'done' | 'held'> {
+  let held = false;
+  const send = () =>
+    runArtifactBucket.runWith(runId, chatSessionId, () =>
+      runWithTimeout(chatSessionId, timeoutSeconds, ({ onQueuedCommand, signal }) =>
+        executorDispatch(chatSessionId, message, {
+          ...options,
+          internalCall: true,
+          runId,
+          onQueuedCommand,
+          signal,
+          onHeld: () => {
+            held = true;
+          },
+        }),
+      ),
+    );
+  if (runsElsewhere(execution)) await send();
+  else await withApiLease(send);
+  return held ? 'held' : 'done';
+}
+
+/**
+ * Deliver a scheduled fire's message that a move held (`deliverHeld`, P3
+ * re-check), as the same run: started now, under its trigger's time limit
+ * from now, and finished by its turn. Held again by another move, it waits
+ * again. A delivery that fails before anything took the message leaves it
+ * held and the run waiting, for the move's "Send them again". Unless its
+ * time ran out: then the run fails on time, and the move lets the message
+ * go (`onAccepted`), so it never runs late.
+ */
+export async function deliverHeldFire(run: RunRecord, message: string, options: DispatchOptions): Promise<void> {
+  const chatSessionId = run.chatSessionId!;
+  const timeoutSeconds = run.triggerId ? (getTrigger(run.triggerId)?.timeoutSeconds ?? null) : null;
+  const execution = run.executionId ? (getExecution(run.executionId) ?? null) : null;
+  let accepted = false;
+  markRunStarted(run.id);
+  try {
+    const sent = await sendAsRun(run.id, chatSessionId, timeoutSeconds, execution, message, {
+      ...options,
+      onAccepted: () => {
+        accepted = true;
+        options.onAccepted?.();
+      },
+    });
+    if (sent === 'held') markRunHeld(run.id);
+    else finalizeRunSuccessIfPending(run.id);
+  } catch (err) {
+    if (accepted || err instanceof RunTimeoutError) {
+      finalizeRunFailure(run.id, err);
+      if (!accepted) options.onAccepted?.();
+    } else {
+      markRunHeld(run.id);
+    }
+    throw err;
+  } finally {
+    bumpSessionOutcome(chatSessionId);
+  }
 }
 
 /** Whether an execution is placed on a computer other than the home. */
@@ -665,10 +737,9 @@ class RunTimeoutError extends Error {
  */
 async function runWithTimeout<T>(
   chatSessionId: string,
-  trigger: TriggerRecord,
+  seconds: number | null,
   body: (clock: { onQueuedCommand: (commandId: string) => void; signal?: AbortSignal }) => Promise<T>,
 ): Promise<T> {
-  const seconds = trigger.timeoutSeconds;
   if (!seconds || seconds <= 0) return body({ onQueuedCommand: () => {} });
   const expired = new AbortController();
   let settled = false;

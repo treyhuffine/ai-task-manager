@@ -2211,6 +2211,12 @@ export const runs = sqliteTable(
     // human-readable detail.
     errorCode: text(),
     errorMessage: text(),
+
+    // The chat event a scheduled fire sends (its prompt). A move that holds
+    // the message delivers it later as this run, under its time limit, and
+    // the run waits `queued` until then (P3 re-check). Null for a manual
+    // send, and for a fire that failed before its prompt was written.
+    sourceEventId: text(),
   },
   (table) => [
     // Per-trigger history.
@@ -2224,6 +2230,8 @@ export const runs = sqliteTable(
     // reason this index exists; it's the hot path. See
     // docs/executions-spec.md §5.
     index('idx_runs_execution_status').on(table.executionId, table.status),
+    // A held message's scheduled run, found when a move delivers it.
+    index('idx_runs_source_event').on(table.sourceEventId),
   ],
 );
 

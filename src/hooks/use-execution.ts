@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import { isLaunchPending } from '@/lib/executions/pending-launch';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { PermissionMode, EffortLevel, Attachment } from '@/db/types';
-import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
+import { isNewerRevision, type ChatEventDTO } from '@/lib/api/dto/chat-event';
 import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import {
@@ -187,12 +187,19 @@ function sessionEventsQuery(qc: ReturnType<typeof useQueryClient>, id: string | 
       // drop a row until the next refetch; (b) older pages a previous
       // scroll-up already loaded — re-fetching the tail must not discard
       // them. Same merge also covers focus-refetch overlap.
+      // (c) a part the stream revised meanwhile keeps its newer revision
+      // over the snapshot's older one (P3 re-check).
       const cached = qc.getQueryData<ChatEventDTO[]>(queryKey);
       if (!cached?.length) return fresh;
+      const cachedById = new Map(cached.map((e) => [e.id, e]));
+      const merged = fresh.map((e) => {
+        const kept = cachedById.get(e.id);
+        return kept && isNewerRevision(kept, e) ? kept : e;
+      });
       const seen = new Set(fresh.map((e) => e.id));
       const extra = cached.filter((e) => !seen.has(e.id));
-      if (extra.length === 0) return fresh;
-      return [...fresh, ...extra].sort(byCreatedThenId);
+      if (extra.length === 0) return merged;
+      return [...merged, ...extra].sort(byCreatedThenId);
     },
     enabled: !!id,
     // No polling — `useSessionStream` pushes new rows into this same

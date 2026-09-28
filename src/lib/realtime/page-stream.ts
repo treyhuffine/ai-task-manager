@@ -19,7 +19,15 @@
  * - An error reconnects with backoff, from the same positions.
  */
 
-type Listener = (event: string, data: unknown, id?: string) => void;
+/**
+ * A subscriber's frames. A chat's `ready` that didn't resume comes with
+ * `caughtUp`: call it once the page's transcript has what `ready` says the
+ * transcript is (its `position`), and the chat resumes from there next
+ * time. Until then it resumes from where it was (P3 re-check).
+ */
+type Listener = (event: string, data: unknown, id?: string, caughtUp?: () => void) => void;
+
+type TranscriptPosition = { after: string | null; since: string | null };
 
 /**
  * Where a terminal screen is: the offset of the last output it was handed,
@@ -29,6 +37,14 @@ type Listener = (event: string, data: unknown, id?: string) => void;
  */
 export interface TerminalPosition {
   after: number | null;
+  /**
+   * The last frame the screen was handed, as the page stream marks them.
+   * It joins the open connection only when that's the connection's last
+   * frame for the terminal: an offset alone doesn't say it saw an `exit`
+   * or a `ready` that carried no output (P3 re-check). Kept by the page
+   * stream.
+   */
+  mark?: string;
 }
 
 interface TerminalScreen {
@@ -52,6 +68,13 @@ interface SessionSubscription {
   since: string | null;
   /** The first connection it takes frames from. */
   from: number;
+  /**
+   * After a `ready` that didn't resume: the position it gave, and what
+   * arrived since, waiting for the transcript to be read afresh. Nothing
+   * moves `after` meanwhile, so a read that fails or was older than the
+   * `ready` leaves the chat resuming from where it was.
+   */
+  catchingUp: { position: TranscriptPosition; after: string | null; since: string | null } | null;
 }
 
 const COALESCE_MS = 20;
@@ -66,8 +89,9 @@ export class PageStream {
   /** Counts connections: each subscriber knows the first it may take frames from. */
   private epoch = 0;
   private connectedKeys: string | null = null;
-  /** Where the open connection's stream for each terminal is: a screen there can join it. */
-  private terminalAt = new Map<string, number | null>();
+  /** The open connection's last frame for each terminal: a screen handed it can join. */
+  private terminalAt = new Map<string, string>();
+  private frames = 0;
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
   private hiddenTimer: ReturnType<typeof setTimeout> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -103,7 +127,7 @@ export class PageStream {
   subscribeSession(sessionId: string, listener: Listener): () => void {
     let sub = this.sessions.get(sessionId);
     if (!sub) {
-      this.sessions.set(sessionId, (sub = { listeners: new Set(), after: null, since: null, from: this.epoch + 1 }));
+      this.sessions.set(sessionId, (sub = { listeners: new Set(), after: null, since: null, from: this.epoch + 1, catchingUp: null }));
       // Its last listener may have left a moment ago, leaving the set as it was.
       this.forced = true;
     }
@@ -123,14 +147,14 @@ export class PageStream {
    * `exit`, `unavailable`, `error`. From where `position` says the screen
    * is: the whole backlog for a screen with nothing yet, or only what it
    * missed for one hidden and shown again. It joins the open connection
-   * when that's exactly where the screen is, and waits for one opened for
-   * it otherwise.
+   * when it was handed that connection's last frame for the terminal, and
+   * waits for one opened for it otherwise.
    */
   subscribeTerminal(base: string, terminalId: string, position: TerminalPosition, listener: Listener): () => void {
     const key = `${base}:${terminalId}`;
     let sub = this.terminals.get(key);
     if (!sub) this.terminals.set(key, (sub = { base, terminalId, screens: new Set() }));
-    const inStep = position.after !== null && this.source !== null && this.terminalAt.has(key) && this.terminalAt.get(key) === position.after;
+    const inStep = position.mark !== undefined && this.source !== null && this.terminalAt.get(key) === position.mark;
     if (!inStep) this.forced = true;
     const screen: TerminalScreen = { listener, position, from: inStep ? this.epoch : this.epoch + 1 };
     sub.screens.add(screen);
@@ -181,15 +205,14 @@ export class PageStream {
   private connect(keys: string): void {
     this.disconnect();
     const epoch = ++this.epoch;
-    const terminals = [...this.terminals.entries()].map(([key, t]) => ({ key, t, after: terminalCursor(t) }));
     const sub = {
       s: [...this.sessions.entries()].map(([id, s]) => [id, s.after, s.after === null ? null : s.since]),
-      t: terminals.map(({ t, after }) => [t.base, t.terminalId, after]),
+      t: [...this.terminals.values()].map((t) => [t.base, t.terminalId, terminalCursor(t)]),
     };
     const source = this.env.open(`/api/live?sub=${encodeURIComponent(JSON.stringify(sub))}`);
     this.source = source;
     this.connectedKeys = keys;
-    this.terminalAt = new Map(terminals.map(({ key, after }) => [key, after]));
+    this.terminalAt = new Map();
     const parse = (raw: MessageEvent): unknown => {
       try {
         return JSON.parse(raw.data as string);
@@ -212,16 +235,37 @@ export class PageStream {
       if (!frame) return;
       const session = this.sessions.get(frame.s);
       if (!session || session.from > epoch) return;
+      let caughtUp: (() => void) | undefined;
       if (frame.e === 'chat_event' && frame.i) {
-        session.after = frame.i;
-        advanceSince(session, (frame.d as { updatedAt?: unknown } | null)?.updatedAt);
+        const updatedAt = (frame.d as { updatedAt?: unknown } | null)?.updatedAt;
+        const into = session.catchingUp ?? session;
+        into.after = frame.i;
+        advanceSince(into, updatedAt);
       } else if (frame.e === 'ready') {
-        // Where the transcript stands: its listeners read it afresh unless this resumed.
-        const position = (frame.d as { position?: { after?: unknown; since?: unknown } } | null)?.position;
-        if (typeof position?.after === 'string') session.after = position.after;
-        advanceSince(session, position?.since);
+        const data = frame.d as { resumed?: boolean; position?: { after?: unknown; since?: unknown } } | null;
+        const position: TranscriptPosition = {
+          after: typeof data?.position?.after === 'string' ? data.position.after : null,
+          since: typeof data?.position?.since === 'string' ? data.position.since : null,
+        };
+        if (data?.resumed) {
+          // Everything missed was replayed to its listeners: they're there.
+          session.catchingUp = null;
+          if (position.after) session.after = position.after;
+          advanceSince(session, position.since);
+        } else {
+          // Its listeners read the transcript afresh: there once they have it.
+          const catching = { position, after: null, since: null };
+          session.catchingUp = catching;
+          caughtUp = () => {
+            if (this.sessions.get(frame.s) !== session || session.catchingUp !== catching) return;
+            session.catchingUp = null;
+            session.after = catching.after ?? position.after ?? session.after;
+            advanceSince(session, position.since);
+            advanceSince(session, catching.since);
+          };
+        }
       }
-      for (const listener of [...session.listeners]) listener(frame.e, frame.d, frame.i);
+      for (const listener of [...session.listeners]) listener(frame.e, frame.d, frame.i, caughtUp);
     });
     source.addEventListener('terminal', (raw) => {
       if (this.source !== source) return;
@@ -230,12 +274,13 @@ export class PageStream {
       const offset = frame.i !== undefined && /^\d+$/.test(frame.i) ? Number(frame.i) : undefined;
       // Not resumed: the screen resets, and starts again from what follows.
       const restarted = frame.e === 'ready' && !(frame.d as { resumed?: boolean } | null)?.resumed;
-      if (offset !== undefined) this.terminalAt.set(frame.k, offset);
-      else if (restarted) this.terminalAt.set(frame.k, null);
+      const mark = `${epoch}:${++this.frames}`;
+      this.terminalAt.set(frame.k, mark);
       for (const screen of [...(this.terminals.get(frame.k)?.screens ?? [])]) {
         if (screen.from > epoch) continue;
         if (offset !== undefined) screen.position.after = offset;
         else if (restarted) screen.position.after = null;
+        screen.position.mark = mark;
         screen.listener(frame.e, frame.d, frame.i);
       }
     });
@@ -307,7 +352,7 @@ function terminalCursor(sub: TerminalSubscription): number | null {
 }
 
 /** The newest change seen: `updatedAt` strings in one format compare in time order. */
-function advanceSince(session: SessionSubscription, at: unknown): void {
+function advanceSince(session: { since: string | null }, at: unknown): void {
   if (typeof at === 'string' && (session.since === null || at > session.since)) session.since = at;
 }
 

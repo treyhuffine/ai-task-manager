@@ -71,6 +71,13 @@
       "when": 1790460228669,
       "tag": "0009_lucky_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1790623378909,
+      "tag": "0010_worried_gateway",
+      "breakpoints": true
     }
   ]
 }

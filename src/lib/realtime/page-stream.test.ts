@@ -173,17 +173,35 @@ describe('where each left off is what it was handed (P3 re-check)', () => {
     expect(sub(sources[1]!)).toEqual({ s: [['chat', null, null]], t: [] });
   });
 
-  it("carries the newest change a chat's listeners saw, and where `ready` says the transcript stands", () => {
-    stream.subscribeSession('chat', () => {});
+  it("resumes from where `ready` said the transcript stands only once the page's transcript has it", () => {
+    const acks: Array<(() => void) | undefined> = [];
+    stream.subscribeSession('chat', (e, _d, _i, caughtUp) => {
+      if (e === 'ready') acks.push(caughtUp);
+    });
     vi.advanceTimersByTime(50);
     const s = sources[0]!;
     s.frame('session', { s: 'chat', e: 'ready', d: { resumed: false, position: { after: 'ev-5', since: '2026-09-28 10:00:05' } } });
     s.frame('session', { s: 'chat', e: 'chat_event', d: { updatedAt: '2026-09-28 10:00:09' }, i: 'ev-6' });
     // A revision of an older part: the newest change moves, the last event is the part.
     s.frame('session', { s: 'chat', e: 'chat_event', d: { updatedAt: '2026-09-28 10:00:07' }, i: 'ev-3' });
+    // Not read yet: it starts fresh again.
     s.fail();
     vi.advanceTimersByTime(1_000);
-    expect(sub(sources[1]!)).toEqual({ s: [['chat', 'ev-3', '2026-09-28 10:00:09']], t: [] });
+    expect(sub(sources[1]!)).toEqual({ s: [['chat', null, null]], t: [] });
+    // Read now, on the connection's `ready`: it resumes from the last it was handed.
+    sources[1]!.frame('session', { s: 'chat', e: 'ready', d: { resumed: false, position: { after: 'ev-5', since: '2026-09-28 10:00:05' } } });
+    sources[1]!.frame('session', { s: 'chat', e: 'chat_event', d: { updatedAt: '2026-09-28 10:00:09' }, i: 'ev-6' });
+    acks[0]!(); // an older ready's acknowledgement moves nothing
+    acks[1]!();
+    sources[1]!.fail();
+    vi.advanceTimersByTime(2_000);
+    expect(sub(sources[2]!)).toEqual({ s: [['chat', 'ev-6', '2026-09-28 10:00:09']], t: [] });
+    // A resumed `ready` replayed everything to its listeners: taken at once.
+    sources[2]!.frame('session', { s: 'chat', e: 'ready', d: { resumed: true, position: { after: 'ev-8', since: '2026-09-28 10:00:12' } } });
+    expect(acks[2]).toBeUndefined();
+    sources[2]!.fail();
+    vi.advanceTimersByTime(4_000);
+    expect(sub(sources[3]!)).toEqual({ s: [['chat', 'ev-8', '2026-09-28 10:00:12']], t: [] });
   });
 
   it('a screen shown again in step with the open connection joins it without reconnecting', () => {
@@ -200,6 +218,23 @@ describe('where each left off is what it was handed (P3 re-check)', () => {
     expect(sources).toHaveLength(1);
     expect(got).toEqual(['data a', 'data b']);
     expect(screen.after).toBe(2);
+  });
+
+  it('a screen shown again after missing a frame with no output, which another screen got, reconnects', () => {
+    const a = { after: null as number | null };
+    const hide = stream.subscribeTerminal('/sessions/chat', 't1', a, () => {});
+    stream.subscribeTerminal('/sessions/chat', 't1', { after: null }, () => {});
+    vi.advanceTimersByTime(50);
+    sources[0]!.frame('terminal', { k: '/sessions/chat:t1', e: 'data', d: 'a', i: '1' });
+    hide();
+    // Its computer dropped: no output, so the offset stays where the screen left it.
+    sources[0]!.frame('terminal', { k: '/sessions/chat:t1', e: 'unavailable', d: { message: 'away' } });
+    const got: string[] = [];
+    stream.subscribeTerminal('/sessions/chat', 't1', a, (e) => got.push(e));
+    vi.advanceTimersByTime(50);
+    expect(sources).toHaveLength(2);
+    expect(sub(sources[1]!).t).toEqual([['/sessions/chat', 't1', 1]]);
+    expect(got).toEqual([]);
   });
 
   it('a screen that falls back to a snapshot starts again from what follows it', () => {

@@ -201,6 +201,12 @@ export interface DispatchOptions {
    */
   onQueuedCommand?: (commandId: string) => void;
   /**
+   * A move holds this message instead: it goes out once the move settles
+   * (`deliverHeld`). The dispatch resolves then too, with nothing sent. A
+   * scheduled fire waits as its run rather than finishing (P3 re-check).
+   */
+  onHeld?: () => void;
+  /**
    * The caller gave up on this send: a scheduled run whose time ran out
    * while it was being prepared (P3 re-check). Once aborted, the send
    * boundary refuses it rather than send, queue or hold it, so a run that
@@ -281,6 +287,7 @@ async function dispatchOnce(
   if (session.executionId) {
     if (holdingTransfer(session.executionId) && holdHere(chatSessionId, session.executionId, options)) {
       options.onQueued?.();
+      options.onHeld?.();
       return;
     }
     // Held by a move, one that stopped or one delivering where it arrived
@@ -289,6 +296,7 @@ async function dispatchOnce(
     const heldBy = options.sourceEventId ? heldMessages(session.executionId).get(options.sourceEventId) : undefined;
     if (heldBy && options.sourceEventId && heldBy.transfer.id !== options.heldFor) {
       options.onQueued?.();
+      options.onHeld?.();
       announceHeld(chatSessionId, options.sourceEventId);
       return;
     }
@@ -496,6 +504,7 @@ async function dispatchTo(
   // waiting in a queue, or held by a move, isn't the chat working. Accepted
   // only when something took it, never when it was held.
   if (delivered.outcome !== 'sent') options.onQueued?.();
+  if (delivered.outcome === 'held') options.onHeld?.();
   if (delivered.commandId) options.onQueuedCommand?.(delivered.commandId);
   if (delivered.outcome === 'queued' || (delivered.outcome === 'sent' && delivered.acceptsMore)) options.onAccepted?.();
   try {
@@ -626,6 +635,7 @@ async function sendAdmitted(
       sourceEventId: options.sourceEventId ?? null,
       actor: options.actor,
       files,
+      signal: options.signal,
     };
     let sent = await runner.send(request);
     if (sent.status === 'needs_spec') {
