@@ -39,7 +39,12 @@ export async function POST(request: NextRequest) {
     let connectorScopes: CreateWorkspaceInput['connectorScopes'] | undefined;
     if (body.connectorScopes !== undefined) {
       const parsed = parseConnectorScopes(body.connectorScopes);
-      if (!parsed) return Response.json({ error: 'connectorScopes must be an array of { toolkitId, account? }' }, { status: 400 });
+      if (!parsed) {
+        return Response.json(
+          { error: 'connectorScopes must be an array of { toolkitId, accounts? }, where each account is an email, label, account id or { accountId, authConfigId? }' },
+          { status: 400 },
+        );
+      }
       const result = await validateConnectorScopes(parsed);
       if (!result.ok) return Response.json({ error: result.error }, { status: 400 });
       connectorScopes = result.scopes;

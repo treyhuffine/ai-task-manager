@@ -659,6 +659,15 @@ export interface RunActionOptions {
   connectionId?: string;
   /** Account hint (email or label) for multi-account resolution (§6). */
   account?: string;
+  /**
+   * Allowed connection set: when present, resolution only ever picks one of these connection ids
+   * (a host-side account subset, e.g. a workspace scoped to 2 of 3 Gmail accounts). A `connectionId`
+   * or an `account` hint naming a connection outside the set fails with `account_not_allowed`
+   * (listing the allowed accounts); no hint with more than one allowed connection returns
+   * `needs_account` with only the allowed choices. An empty set allows nothing (fail closed), and a
+   * constrained run never starts a connect flow. Omitted = every owner connection is eligible.
+   */
+  allowedConnectionIds?: string[];
   caller?: Caller;
   // Multi-client / hosted layer (authconfig spec §6): the tenant half of the resolution context,
   // used when the agent path auto-initiates auth and must pick a visible client per §4a.

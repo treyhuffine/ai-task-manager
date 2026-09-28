@@ -80,6 +80,108 @@ describe('serveMcp (§11) — project actions to an external host', () => {
   });
 });
 
+describe('serveMcp allowedAccounts: a toolkit scoped to a subset of accounts', () => {
+  async function threeAccounts() {
+    const h = makeHarness();
+    const personal = await h.connect({ email: 'personal@gmail.com' });
+    const work = await h.connect({ email: 'work@gmail.com' });
+    const side = await h.connect({ email: 'side@gmail.com' });
+    h.env.action = () => ({ json: { items: [{ id: 'primary', summary: 'Primary', primary: true }] } });
+    const choices = await h.runtime.listAccountChoices('google');
+    const pick = (...ids: string[]) => choices.filter((c) => ids.includes(c.connectionId));
+    return { h, personal, work, side, pick };
+  }
+  const describeOf = (schema: Record<string, unknown> | undefined, key: string): string | undefined =>
+    (schema?.[key] as { description?: string } | undefined)?.description;
+  const ranAs = (h: ReturnType<typeof makeHarness>) =>
+    [...h.runs].reverse().find((e) => e.phase === 'finish' && e.status === 'ok')?.connectionId;
+
+  it('keeps the account param, described with exactly the allowed accounts', async () => {
+    const { h, work, side, pick } = await threeAccounts();
+    const reg = fakeRegistrar();
+    serveMcp(reg, h.runtime, { allowedAccounts: { google_calendar: pick(work.id, side.id) } });
+    const schema = reg.tools.get('google_calendar__list_calendars')!.config.inputSchema;
+    expect(schema).toHaveProperty('account');
+    const desc = describeOf(schema, 'account')!;
+    expect(desc).toContain('"work@gmail.com"');
+    expect(desc).toContain('"side@gmail.com"');
+    expect(desc).not.toContain('personal@gmail.com');
+    // Other toolkits are untouched: the generic param, no subset.
+    expect(describeOf(reg.tools.get('gmail__search_messages')!.config.inputSchema, 'account')).not.toContain('allowed here');
+  });
+
+  it('runs an account inside the subset', async () => {
+    const { h, work, side, pick } = await threeAccounts();
+    const reg = fakeRegistrar();
+    serveMcp(reg, h.runtime, { allowedAccounts: { google_calendar: pick(work.id, side.id) } });
+    const res = await reg.tools.get('google_calendar__list_calendars')!.handler({ account: 'side@gmail.com' });
+    expect(res.isError).toBeUndefined();
+    expect(JSON.parse(res.content[0]!.text).calendars).toHaveLength(1);
+    expect(ranAs(h)).toBe(side.id);
+  });
+
+  it('rejects an account outside the subset with a model-safe error listing the allowed ones', async () => {
+    const { h, personal, work, side, pick } = await threeAccounts();
+    const paused: ActionOutcome[] = [];
+    const reg = fakeRegistrar();
+    serveMcp(reg, h.runtime, {
+      allowedAccounts: { google_calendar: pick(work.id, side.id) },
+      onPause: (_id, o) => paused.push(o),
+    });
+    const res = await reg.tools.get('google_calendar__list_calendars')!.handler({ account: 'personal@gmail.com' });
+    expect(res.isError).toBe(true);
+    const payload = JSON.parse(res.content[0]!.text);
+    expect(payload).toMatchObject({ status: 'error', code: 'account_not_allowed' });
+    expect(payload.message).toContain('"work@gmail.com"');
+    expect(payload.message).toContain('"side@gmail.com"');
+    expect(res.content[0]!.text).not.toContain(personal.id);
+    expect(ranAs(h)).toBeUndefined();
+    expect(paused[0]).toMatchObject({ reason: 'error', code: 'account_not_allowed' });
+  });
+
+  it('with no account given, asks to choose among the subset only', async () => {
+    const { h, work, side, pick } = await threeAccounts();
+    const reg = fakeRegistrar();
+    serveMcp(reg, h.runtime, { allowedAccounts: { google_calendar: pick(work.id, side.id) } });
+    const res = await reg.tools.get('google_calendar__list_calendars')!.handler({});
+    const payload = JSON.parse(res.content[0]!.text);
+    expect(payload.status).toBe('choose_account');
+    expect(payload.accounts.sort()).toEqual(['side@gmail.com', 'work@gmail.com']);
+  });
+
+  it('a one-account set behaves exactly like a pin (param hidden, hint ignored)', async () => {
+    const { h, work, pick } = await threeAccounts();
+    const reg = fakeRegistrar();
+    serveMcp(reg, h.runtime, { allowedAccounts: { google_calendar: pick(work.id) } });
+    const tool = reg.tools.get('google_calendar__list_calendars')!;
+    expect(tool.config.inputSchema).not.toHaveProperty('account');
+    const res = await tool.handler({ account: 'personal@gmail.com' });
+    expect(res.isError).toBeUndefined();
+    expect(ranAs(h)).toBe(work.id);
+  });
+
+  it('an empty set exposes no tools for that toolkit (fail closed)', async () => {
+    const { h } = await threeAccounts();
+    const reg = fakeRegistrar();
+    serveMcp(reg, h.runtime, { toolkits: ['google_calendar', 'gmail'], allowedAccounts: { google_calendar: [] } });
+    expect(reg.tools.has('google_calendar__list_calendars')).toBe(false);
+    expect(reg.tools.has('gmail__search_messages')).toBe(true);
+  });
+
+  it('a pin for the same toolkit wins over a set', async () => {
+    const { h, personal, work, side, pick } = await threeAccounts();
+    const reg = fakeRegistrar();
+    serveMcp(reg, h.runtime, {
+      connectionPins: { google_calendar: personal.id },
+      allowedAccounts: { google_calendar: pick(work.id, side.id) },
+    });
+    const tool = reg.tools.get('google_calendar__list_calendars')!;
+    expect(tool.config.inputSchema).not.toHaveProperty('account');
+    await tool.handler({});
+    expect(ranAs(h)).toBe(personal.id);
+  });
+});
+
 // ── Ingestion ────────────────────────────────────────────────────────────────
 
 function ingestSetup() {

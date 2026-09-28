@@ -83,7 +83,7 @@ describe('PATCH /api/workspaces/:id scope fields', () => {
   });
 
   it('still refuses to write connector scopes through the generic PATCH', async () => {
-    await patch({ connectorScopes: [{ toolkitId: 'github' }], purpose: 'x' });
+    await patch({ connectorScopes: [{ toolkitId: 'github' }, { toolkitId: 'gmail', accounts: ['me@x.com'] }], purpose: 'x' });
     expect(updateWorkspace).toHaveBeenCalledWith('ws-1', { purpose: 'x' });
   });
 });

@@ -3,16 +3,25 @@
 /**
  * Controlled connector-scope picker (docs/connectors-workspace-scoping-spec.md §7). Renders the
  * connected *services* (toolkits) grouped under their provider with a provider-level select-all,
- * a per-service toggle, an account pin when a service has >1 connected account, and a dormant
- * section for stored-but-disconnected scopes. Pure value + onChange — the parent owns persistence
- * (create payload vs PUT). Shared by the workspace settings sheet and the create modal so both
- * surfaces are identical.
+ * a per-service toggle, an account multiselect when a service has >1 connected account, and a
+ * dormant section for stored-but-disconnected scopes. Pure value + onChange — the parent owns
+ * persistence (create payload vs PUT). Shared by the workspace settings sheet and the create modal
+ * so both surfaces are identical.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, AlertCircle, Plug } from 'lucide-react';
+import { Loader2, AlertCircle, ChevronDown, Plug } from 'lucide-react';
 import { api } from '@/lib/api/client';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ConnectorLogo } from '@/components/connectors/connector-logo';
+import { pinKey, pinMatchesConnection, pinOfConnection, scopePins } from '@/lib/connectors/scope-pins';
 import type { WorkspaceConnectorScope, WorkspaceConnectorScopeAccount } from '@/db/types';
 
 interface Toolkit {
@@ -43,12 +52,115 @@ const accountLabel = (c: Connection): string => c.email || c.label || c.accountI
 
 // A pin carries both accountId and authConfigId because the same account can be connected through
 // two OAuth clients — accountId alone wouldn't identify one connection. Match on both.
-const connMatchesPin = (c: Connection, pin?: WorkspaceConnectorScopeAccount): boolean =>
-  !!pin && c.accountId === pin.accountId && (c.authConfigId ?? undefined) === (pin.authConfigId ?? undefined);
-const pinOf = (c: Connection): WorkspaceConnectorScopeAccount => ({
-  accountId: c.accountId,
-  ...(c.authConfigId ? { authConfigId: c.authConfigId } : {}),
-});
+const isPinned = (c: Connection, pins: WorkspaceConnectorScopeAccount[]): boolean =>
+  pins.some((p) => pinMatchesConnection(p, c));
+
+interface AccountMultiSelectProps {
+  serviceName: string;
+  /** The provider's connected accounts. */
+  accounts: Connection[];
+  /** The scope's account pins. Empty = all accounts, including ones connected later. */
+  pins: WorkspaceConnectorScopeAccount[];
+  disabled?: boolean;
+  onChange: (pins: WorkspaceConnectorScopeAccount[]) => void;
+}
+
+/**
+ * Which accounts one service may use. "All accounts" (no pins) also covers accounts connected
+ * later. Checking accounts individually stores exactly that set, so picking every account one by
+ * one is NOT the same as "All accounts": a newly connected account stays off. The set can't be
+ * emptied (unchecking the service is how to remove it), and a pinned account that is no longer
+ * connected is listed so the stored intent stays visible and removable.
+ */
+function AccountMultiSelect({ serviceName, accounts, pins, disabled, onChange }: AccountMultiSelectProps) {
+  const all = pins.length === 0;
+  const selected = all ? accounts : accounts.filter((c) => isPinned(c, pins));
+  const dormant = pins.filter((p) => !accounts.some((c) => pinMatchesConnection(p, c)));
+  const lastOne = !all && pins.length === 1;
+
+  const summary = all
+    ? 'All accounts'
+    : selected.length === 1 && dormant.length === 0
+      ? accountLabel(selected[0]!)
+      : selected.length === 0
+        ? 'Account not connected'
+        : `${selected.length} of ${accounts.length} accounts`;
+  const dormantNote = dormant.length === 1 ? '1 chosen account is not connected' : `${dormant.length} chosen accounts are not connected`;
+
+  const toggleAll = () => onChange(all ? accounts.map(pinOfConnection) : []);
+  const toggleAccount = (c: Connection) => {
+    // From "All accounts", unchecking one keeps every other account (an explicit set).
+    if (all) return onChange(accounts.filter((a) => a.id !== c.id).map(pinOfConnection));
+    onChange(isPinned(c, pins) ? pins.filter((p) => !pinMatchesConnection(p, c)) : [...pins, pinOfConnection(c)]);
+  };
+  const removePin = (pin: WorkspaceConnectorScopeAccount) => onChange(pins.filter((p) => pinKey(p) !== pinKey(pin)));
+  // Keep the menu open so several accounts can be toggled in one go.
+  const stayOpen = (e: Event) => e.preventDefault();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        disabled={disabled}
+        aria-label={`Accounts ${serviceName} may use: ${summary}`}
+        title={dormant.length > 0 ? dormantNote : summary}
+        className="flex h-7 min-w-0 max-w-[55%] shrink-0 items-center gap-1 rounded-lg border border-border bg-input/30 px-2 text-[11px] text-foreground outline-none transition-colors hover:bg-input/50 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 @sm:max-w-[200px]"
+      >
+        {dormant.length > 0 && <AlertCircle size={11} className="shrink-0 text-amber-600 dark:text-amber-400" />}
+        <span className="truncate">{summary}</span>
+        <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-2rem)]">
+        <DropdownMenuCheckboxItem checked={all} onCheckedChange={toggleAll} onSelect={stayOpen} className="items-start text-xs">
+          <span className="min-w-0">
+            <span className="block font-medium">All accounts</span>
+            <span className="block text-[10px] text-muted-foreground">Includes accounts you connect later</span>
+          </span>
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        {accounts.map((c) => {
+          const checked = all || isPinned(c, pins);
+          return (
+            <DropdownMenuCheckboxItem
+              key={c.id}
+              checked={checked}
+              disabled={lastOne && checked}
+              onCheckedChange={() => toggleAccount(c)}
+              onSelect={stayOpen}
+              className="text-xs"
+            >
+              <span className="truncate">{accountLabel(c)}</span>
+            </DropdownMenuCheckboxItem>
+          );
+        })}
+        {dormant.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="py-1.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+              Not connected (kept, inactive)
+            </DropdownMenuLabel>
+            {dormant.map((p) => (
+              <DropdownMenuCheckboxItem
+                key={pinKey(p)}
+                checked
+                disabled={lastOne}
+                onCheckedChange={() => removePin(p)}
+                onSelect={stayOpen}
+                className="text-xs"
+              >
+                <span className="truncate font-mono text-[11px] text-muted-foreground">{p.accountId}</span>
+              </DropdownMenuCheckboxItem>
+            ))}
+          </>
+        )}
+        {!all && (
+          <p className="px-3 pb-1.5 pt-1 text-[10px] leading-normal text-muted-foreground">
+            Only the checked accounts. Accounts you connect later stay off until you add them.
+          </p>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 interface ConnectorScopePickerProps {
   scopes: WorkspaceConnectorScope[];
@@ -110,11 +222,14 @@ export function ConnectorScopePicker({ scopes, onChange, disabled }: ConnectorSc
   const scopeFor = (toolkitId: string) => scopes.find((s) => s.toolkitId === toolkitId);
   const toggleToolkit = (toolkitId: string, on: boolean) =>
     onChange(on ? [...scopes.filter((s) => s.toolkitId !== toolkitId), { toolkitId }] : scopes.filter((s) => s.toolkitId !== toolkitId));
-  const setAccount = (toolkitId: string, account?: WorkspaceConnectorScopeAccount) =>
-    onChange(scopes.map((s) => (s.toolkitId === toolkitId ? { toolkitId, ...(account ? { account } : {}) } : s)));
+  // Always writes the current shape: no pins = all accounts, otherwise `accounts`.
+  const setAccounts = (toolkitId: string, pins: WorkspaceConnectorScopeAccount[]) =>
+    onChange(scopes.map((s) => (s.toolkitId === toolkitId ? { toolkitId, ...(pins.length > 0 ? { accounts: pins } : {}) } : s)));
   const toggleProvider = (toolkitIds: string[], on: boolean) => {
     const without = scopes.filter((s) => !toolkitIds.includes(s.toolkitId));
-    onChange(on ? [...without, ...toolkitIds.map((toolkitId) => ({ toolkitId }))] : without);
+    // Turning a provider on keeps the account choices of services that were already on.
+    const added = toolkitIds.filter((id) => !scopeFor(id)).map((toolkitId) => ({ toolkitId }));
+    onChange(on ? [...scopes, ...added] : without);
   };
   const removeDormant = (toolkitId: string) => onChange(scopes.filter((s) => s.toolkitId !== toolkitId));
 
@@ -127,7 +242,7 @@ export function ConnectorScopePicker({ scopes, onChange, disabled }: ConnectorSc
   }
 
   return (
-    <div className="space-y-3">
+    <div className="@container space-y-3">
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-2.5 text-xs text-destructive">
           <AlertCircle size={14} className="mt-0.5 shrink-0" />
@@ -164,6 +279,7 @@ export function ConnectorScopePicker({ scopes, onChange, disabled }: ConnectorSc
                   {tks.map((t) => {
                     const scope = scopeFor(t.id);
                     const on = !!scope;
+                    const pins = scope ? scopePins(scope) : [];
                     return (
                       <div key={t.id} className="flex items-center gap-2 pl-1">
                         <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
@@ -174,23 +290,15 @@ export function ConnectorScopePicker({ scopes, onChange, disabled }: ConnectorSc
                           />
                           <span className="truncate text-xs text-foreground/90">{t.displayName}</span>
                         </label>
-                        {on && accounts.length > 1 && (
-                          <select
-                            value={accounts.find((c) => connMatchesPin(c, scope?.account))?.id ?? ''}
+                        {/* Shown with >1 account, or while a pin exists so it stays visible and removable. */}
+                        {on && (accounts.length > 1 || pins.length > 0) && (
+                          <AccountMultiSelect
+                            serviceName={t.displayName}
+                            accounts={accounts}
+                            pins={pins}
                             disabled={disabled}
-                            onChange={(e) => {
-                              const c = accounts.find((a) => a.id === e.target.value);
-                              setAccount(t.id, c ? pinOf(c) : undefined);
-                            }}
-                            className="h-7 max-w-[160px] rounded-lg border border-border bg-input/30 px-1.5 text-[11px] text-foreground"
-                          >
-                            <option value="">All accounts</option>
-                            {accounts.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {accountLabel(c)}
-                              </option>
-                            ))}
-                          </select>
+                            onChange={(next) => setAccounts(t.id, next)}
+                          />
                         )}
                       </div>
                     );
@@ -205,22 +313,25 @@ export function ConnectorScopePicker({ scopes, onChange, disabled }: ConnectorSc
       {dormant.length > 0 && (
         <div className="space-y-1.5 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
           <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Disconnected (kept, inactive)</p>
-          {dormant.map((s) => (
-            <div key={s.toolkitId} className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-              <span className="truncate font-mono">
-                {s.toolkitId}
-                {s.account ? ` · ${s.account.accountId}` : ''}
-              </span>
-              <button
-                type="button"
-                onClick={() => removeDormant(s.toolkitId)}
-                disabled={disabled}
-                className="shrink-0 text-destructive hover:underline disabled:opacity-40"
-              >
-                Remove
-              </button>
-            </div>
-          ))}
+          {dormant.map((s) => {
+            const pins = scopePins(s);
+            return (
+              <div key={s.toolkitId} className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                <span className="min-w-0 truncate font-mono" title={pins.map((p) => p.accountId).join(', ')}>
+                  {s.toolkitId}
+                  {pins.length === 1 ? ` · ${pins[0]!.accountId}` : pins.length > 1 ? ` · ${pins.length} accounts` : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeDormant(s.toolkitId)}
+                  disabled={disabled}
+                  className="shrink-0 text-destructive hover:underline disabled:opacity-40"
+                >
+                  Remove
+                </button>
+              </div>
+            );
+          })}
           <p className="text-[10px] leading-normal text-amber-700/80 dark:text-amber-400/80">
             Reconnect the service to reactivate it, or remove it here.
           </p>

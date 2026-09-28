@@ -40,6 +40,7 @@ import { mcpServerStore, type McpServerStore, type McpServerAuth } from './mcp-s
 import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
 import { APP_NAME } from '@/constants/app';
 import { getWorkspace } from '@/lib/db/queries';
+import { resolveConnectorFilter, type WorkspaceConnectorFilter } from './workspace-filter';
 
 const CONNECTOR_CALLBACK_PATH = '/api/connectors/callback';
 
@@ -498,7 +499,7 @@ export function invalidateConnectorRuntime(): void {
  */
 export async function getConnectorTools(
   ownerId: string = getConnectorOwnerId(),
-  opts: { toolkits?: string[]; connectionPins?: Record<string, string> } = {},
+  opts: Partial<WorkspaceConnectorFilter> = {},
 ): Promise<ToolSet> {
   const runtime = await getConnectorRuntime();
   const connections = await runtime.listConnections({ ownerId });
@@ -515,6 +516,7 @@ export async function getConnectorTools(
     ownerId,
     toolkits: toolkitIds,
     ...(opts.connectionPins ? { connectionPins: opts.connectionPins } : {}),
+    ...(opts.allowedAccounts ? { allowedAccounts: opts.allowedAccounts } : {}),
     caller: { type: 'agent' },
     onPause: (actionId, outcome) => {
       // The approval pending is registered inside ApprovalPolicy.check (it has the grant key);
@@ -526,40 +528,14 @@ export async function getConnectorTools(
 
 /**
  * Resolve a workspace's connector allowlist into the engine projection filters
- * (docs/connectors-workspace-scoping-spec.md §6b). Returns the toolkit ids to expose (scoped ∩
- * connected) and per-toolkit connection pins (a stored `account` accountId → its live connection
- * id). Fail-closed: a scope whose toolkit is unknown/disconnected, or whose pinned account doesn't
- * resolve to EXACTLY one owner connection of that toolkit's provider, is dropped (not exposed).
+ * (docs/connectors-workspace-scoping-spec.md §6b): toolkits to expose, hard pins, and allowed
+ * account sets, all derived server-side and fail-closed. See `resolveConnectorFilter`.
  */
 export async function resolveWorkspaceConnectorFilter(
   workspaceId: string,
   ownerId: string = getConnectorOwnerId(),
-): Promise<{ toolkits: string[]; connectionPins: Record<string, string> }> {
+): Promise<WorkspaceConnectorFilter> {
   const scopes = getWorkspace(workspaceId)?.connectorScopes ?? [];
-  if (scopes.length === 0) return { toolkits: [], connectionPins: {} };
-
-  const runtime = await getConnectorRuntime();
-  const connections = await runtime.listConnections({ ownerId });
-  const connectedProviders = new Set(connections.map((c) => c.providerId));
-  const toolkitsById = new Map(runtime.getToolkits().map((t) => [t.id, t]));
-
-  const toolkits: string[] = [];
-  const connectionPins: Record<string, string> = {};
-  for (const scope of scopes) {
-    const toolkit = toolkitsById.get(scope.toolkitId);
-    if (!toolkit) continue; // unknown / dormant (e.g. an MCP server not currently ingested)
-    if (!connectedProviders.has(toolkit.providerId)) continue; // provider disconnected → dormant
-    if (scope.account) {
-      const matches = connections.filter(
-        (c) =>
-          c.providerId === toolkit.providerId &&
-          c.accountId === scope.account!.accountId &&
-          (c.authConfigId ?? undefined) === (scope.account!.authConfigId ?? undefined),
-      );
-      if (matches.length !== 1) continue; // unresolvable / ambiguous pin → fail closed
-      connectionPins[scope.toolkitId] = matches[0]!.id;
-    }
-    toolkits.push(scope.toolkitId);
-  }
-  return { toolkits, connectionPins };
+  if (scopes.length === 0) return { toolkits: [], connectionPins: {}, allowedAccounts: {} };
+  return resolveConnectorFilter(scopes, await getConnectorRuntime(), ownerId);
 }

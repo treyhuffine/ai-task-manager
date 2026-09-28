@@ -112,3 +112,48 @@ describe('AI-SDK projection (§11)', () => {
     expect(viaTool).toEqual((direct as { result: unknown }).result);
   });
 });
+
+describe('AI-SDK projection allowedAccounts (mirrors serveMcp)', () => {
+  type Exec = { execute(a: unknown, o: unknown): Promise<unknown>; inputSchema: { safeParse(v: unknown): { success: boolean } } };
+
+  it('describes and enforces a subset: inside runs, outside is rejected, one-account set is a pin', async () => {
+    const h = makeHarness();
+    const personal = await h.connect({ email: 'personal@gmail.com' });
+    const work = await h.connect({ email: 'work@gmail.com' });
+    const side = await h.connect({ email: 'side@gmail.com' });
+    h.env.action = () => ({ json: { items: [{ id: 'primary', summary: 'Primary', primary: true }] } });
+    const choices = await h.runtime.listAccountChoices('google');
+    const pick = (...ids: string[]) => choices.filter((c) => ids.includes(c.connectionId));
+    const ranAs = () => [...h.runs].reverse().find((e) => e.phase === 'finish' && e.status === 'ok')?.connectionId;
+
+    const tools = await toToolSet(h.runtime, {
+      allowedAccounts: { google_calendar: pick(work.id, side.id), gmail: pick(side.id) },
+    });
+    const cal = tools.google_calendar__list_calendars as unknown as Exec;
+
+    expect(await cal.execute({ account: 'work@gmail.com' }, execOpts)).toMatchObject({ calendars: [{ id: 'primary' }] });
+    expect(ranAs()).toBe(work.id);
+
+    const refused = await cal.execute({ account: 'personal@gmail.com' }, execOpts);
+    expect(refused).toMatchObject({ status: 'error', code: 'account_not_allowed' });
+    expect(JSON.stringify(refused)).not.toContain(personal.id);
+
+    const choose = (await cal.execute({}, execOpts)) as { status: string; accounts: string[] };
+    expect(choose.status).toBe('choose_account');
+    expect(choose.accounts.sort()).toEqual(['side@gmail.com', 'work@gmail.com']);
+
+    // A one-account set is a hard pin: the account key is stripped, the run is forced to it.
+    h.env.action = () => ({ json: { messages: [{ id: 'm1', threadId: 't1' }], resultSizeEstimate: 1 } });
+    const gmail = tools.gmail__search_messages as unknown as Exec;
+    expect(await gmail.execute({ query: 'x', account: 'personal@gmail.com' }, execOpts)).toMatchObject({ messages: [{ id: 'm1' }] });
+    expect(ranAs()).toBe(side.id);
+  });
+
+  it('an empty set exposes no tools for that toolkit', async () => {
+    const h = makeHarness();
+    await h.connect();
+    const tools = await toToolSet(h.runtime, { allowedAccounts: { google_calendar: [] } });
+    expect(Object.keys(tools).some((k) => k.startsWith('google_calendar__'))).toBe(false);
+    expect(Object.keys(tools)).toContain('gmail__search_messages');
+  });
+});

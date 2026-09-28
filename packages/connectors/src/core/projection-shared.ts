@@ -4,7 +4,7 @@
  * sanitization, same model-safe redaction of pause/error outcomes — the model
  * never sees a raw `authorizationUrl` or an opaque `connectionId` (§8).
  */
-import type { Action, ActionOutcome } from './types';
+import type { AccountChoice, Action, ActionOutcome, RunActionOptions } from './types';
 
 export type FailedOutcome = Extract<ActionOutcome, { ok: false }>;
 
@@ -34,6 +34,60 @@ export function accountDisplay(choice: { email?: string; label?: string; authCon
   const base = choice.email ?? choice.label;
   if (!base) return undefined;
   return choice.authConfigLabel ? `${base} (${choice.authConfigLabel})` : base;
+}
+
+/**
+ * How a projection binds one toolkit to accounts, from the host's `connectionPins` /
+ * `allowedAccounts` options (a workspace's account scoping):
+ *  - `open`: no constraint, the model may name any connected account
+ *  - `pin`: exactly one connection, the `account` param is hidden and ignored
+ *  - `allowed`: a set of 2+ connections, the model chooses, and `runAction` rejects anything outside
+ *  - `blocked`: an empty set, the toolkit is not exposed at all (fail closed)
+ * A pin wins over a set for the same toolkit, and a one-account set collapses to a pin.
+ */
+export type AccountBinding =
+  | { kind: 'open' }
+  | { kind: 'pin'; connectionId: string }
+  | { kind: 'allowed'; choices: AccountChoice[] }
+  | { kind: 'blocked' };
+
+export function accountBinding(
+  toolkitId: string,
+  options: { connectionPins?: Record<string, string>; allowedAccounts?: Record<string, AccountChoice[]> },
+): AccountBinding {
+  const pin = options.connectionPins?.[toolkitId];
+  if (pin) return { kind: 'pin', connectionId: pin };
+  const allowed = options.allowedAccounts?.[toolkitId];
+  if (!allowed) return { kind: 'open' };
+  if (allowed.length === 0) return { kind: 'blocked' };
+  if (allowed.length === 1) return { kind: 'pin', connectionId: (allowed[0] as AccountChoice).connectionId };
+  return { kind: 'allowed', choices: allowed };
+}
+
+/** The `account` param description for an allowed set: names exactly the accounts the model may use. */
+export function allowedAccountDescription(choices: AccountChoice[]): string {
+  const names = choices.map(accountDisplay).filter((s): s is string => !!s);
+  return (
+    `Which account to act as. Only these accounts are allowed here: ${names.map((n) => `"${n}"`).join(', ')}. ` +
+    'Pass one of these exact values. Omitting it returns a choose_account prompt.'
+  );
+}
+
+/** The `runAction` options a binding contributes, given the model's `account` hint. */
+export function bindingRunOptions(
+  binding: AccountBinding,
+  account: string | undefined,
+): Pick<RunActionOptions, 'connectionId' | 'account' | 'allowedConnectionIds'> {
+  switch (binding.kind) {
+    case 'pin':
+      return { connectionId: binding.connectionId };
+    case 'allowed':
+      return { allowedConnectionIds: binding.choices.map((c) => c.connectionId), ...(account ? { account } : {}) };
+    case 'blocked':
+      return { allowedConnectionIds: [] };
+    case 'open':
+      return account ? { account } : {};
+  }
 }
 
 /** The model-facing view of a non-ok outcome — never URLs or ids. */
