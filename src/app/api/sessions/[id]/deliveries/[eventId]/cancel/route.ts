@@ -1,8 +1,7 @@
 import type { NextRequest } from 'next/server';
-import { cancelWorkerCommand, getComputer, getSendForEvent } from '@/lib/db/queries';
-import { inTransaction } from '@/lib/effects/after-commit';
+import { getComputer, getSendForEvent } from '@/lib/db/queries';
 import { deliveryOf } from '@/lib/workers/delivery';
-import { settleUndelivered } from '@/lib/workers/undelivered';
+import { withdrawQueuedSend } from '@/lib/workers/undelivered';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,11 +32,7 @@ export async function POST(
   if (send.state !== 'queued') {
     return Response.json({ error: 'not_waiting', message: "It isn't waiting any more." }, { status: 409 });
   }
-  const withdrawn = inTransaction((after) => {
-    const cancelled = cancelWorkerCommand(send.id);
-    if (cancelled) settleUndelivered(cancelled, after);
-    return cancelled;
-  });
+  const withdrawn = withdrawQueuedSend(send.id);
   // Streamed meanwhile: too late to withdraw.
   if (!withdrawn) return onItsWay();
   return Response.json(deliveryOf(withdrawn));

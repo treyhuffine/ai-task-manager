@@ -201,6 +201,13 @@ export interface DispatchOptions {
    */
   onQueuedCommand?: (commandId: string) => void;
   /**
+   * The caller gave up on this send: a scheduled run whose time ran out
+   * while it was being prepared (P3 re-check). Once aborted, the send
+   * boundary refuses it rather than send, queue or hold it, so a run that
+   * failed leaves nothing behind to run later.
+   */
+  signal?: AbortSignal;
+  /**
    * Called once the next message can follow this one: when the chat's
    * harness has it and takes messages mid-turn, or its computer's queue has
    * it (a worker takes them in turn), or a move holds it. For a harness here
@@ -552,6 +559,7 @@ async function deliver(
   // starts the send over for its new owner; otherwise the send is counted
   // until its harness has it, and a move stops the source only after that.
   const held: Delivered = { turn: Promise.resolve(), outcome: 'held', acceptsMore: true };
+  if (options.signal?.aborted) throw new ExecutorError('invalid_state', 'It was given up before it was sent.');
   if (session.executionId && holdingTransfer(session.executionId)) {
     if (holdHere(chatSessionId, session.executionId, options)) return held;
   }

@@ -45,6 +45,7 @@ import {
   getHome,
 } from '@/lib/db/queries';
 import { finishRun } from './finish';
+import { withdrawQueuedSend } from '@/lib/workers/undelivered';
 import { withApiLease } from '@/lib/runs/rate-lease';
 import { dispatch as executorDispatch, abort as executorAbort } from '@/lib/executor/adapter';
 import { provisionWorktreeForSession } from '@/lib/sessions/dispatch';
@@ -515,10 +516,10 @@ async function runUnderLease(
         console.warn(`[dispatch] failed to persist scheduled prompt event for ${chatSessionId}:`, err);
       }
       await runArtifactBucket.runWith(runId, chatSessionId, () =>
-        runWithTimeout(chatSessionId, trigger, (onQueuedCommand) =>
+        runWithTimeout(chatSessionId, trigger, ({ onQueuedCommand, signal }) =>
           // The prompt's event carries its delivery when the execution runs
           // on another computer, so the chat shows it waiting (P3.2).
-          executorDispatch(chatSessionId, prompt, { internalCall: true, runId, sourceEventId, onQueuedCommand }),
+          executorDispatch(chatSessionId, prompt, { internalCall: true, runId, sourceEventId, onQueuedCommand, signal }),
         ),
       );
     };
@@ -656,14 +657,21 @@ class RunTimeoutError extends Error {
  * waits there, as P3.4 promises, and runs once it wakes, the way the home
  * fires an overdue trigger once when it next ticks. So a run never fails
  * on time while its message is still queued to run later.
+ *
+ * Until the message is queued, the same limit bounds preparing it here.
+ * Time running out then fails the run, and the send boundary refuses the
+ * message (`signal`), so it never reaches a queue after the run has failed
+ * (P3 re-check).
  */
 async function runWithTimeout<T>(
   chatSessionId: string,
   trigger: TriggerRecord,
-  body: (onQueuedCommand: (commandId: string) => void) => Promise<T>,
+  body: (clock: { onQueuedCommand: (commandId: string) => void; signal?: AbortSignal }) => Promise<T>,
 ): Promise<T> {
   const seconds = trigger.timeoutSeconds;
-  if (!seconds || seconds <= 0) return body(() => {});
+  if (!seconds || seconds <= 0) return body({ onQueuedCommand: () => {} });
+  const expired = new AbortController();
+  let settled = false;
   let timer: NodeJS.Timeout | null = null;
   let watch: NodeJS.Timeout | null = null;
   let expire!: (err: Error) => void;
@@ -671,8 +679,10 @@ async function runWithTimeout<T>(
     expire = reject;
   });
   const start = () => {
-    if (timer) return;
+    if (timer || settled) return;
     timer = setTimeout(() => {
+      timer = null;
+      expired.abort();
       // Interrupt is fire-and-forget — the agent's pending `send()`
       // will resolve with an aborted result, but we've already
       // rejected the race. Catch defensively so an unhandled
@@ -682,6 +692,14 @@ async function runWithTimeout<T>(
     }, seconds * 1000);
   };
   const onQueuedCommand = (commandId: string) => {
+    if (settled) {
+      // The run is over. The send boundary refuses a send once time is
+      // up, and one it let through reports here in the same tick, so this
+      // shouldn't happen: but a failed run must never leave a message
+      // queued to run when its computer wakes.
+      if (expired.signal.aborted) withdrawQueuedSend(commandId);
+      return;
+    }
     // Queued for a computer elsewhere: the clock waits for it to take it.
     if (timer) clearTimeout(timer);
     timer = null;
@@ -695,8 +713,9 @@ async function runWithTimeout<T>(
   };
   start();
   try {
-    return await Promise.race([body(onQueuedCommand), timeout]);
+    return await Promise.race([body({ onQueuedCommand, signal: expired.signal }), timeout]);
   } finally {
+    settled = true;
     // Always clear the timer so a fast finish doesn't leak a pending
     // `setTimeout`. Without this, the reject above eventually still
     // fires on a closed chat — harmless but noisy in logs.

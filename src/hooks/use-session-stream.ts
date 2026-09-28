@@ -33,8 +33,9 @@ import { pageStream } from '@/lib/realtime/page-stream';
  *
  * The frames come over the page's one stream (`pageStream()`, P3
  * review), which reconnects with the last chat event this page saw, so
- * the server replays the rows missed (`listChatEventsAfter`): laptop
- * sleep, a network blip or a hidden tab lose nothing.
+ * the server replays the rows missed (`listChatEventsToResume`): laptop
+ * sleep, a network blip or a hidden tab lose nothing. When it can't
+ * replay all of it, its `ready` says so and the transcript is refetched.
  *
  * Cookie auth carries the session; EventSource can't attach headers
  * but cookies flow natively and `proxy.ts` accepts either Bearer or
@@ -89,8 +90,16 @@ export function useSessionStream(sessionId: string | null): void {
       queryClient.setQueryData<ChatEventDTO[]>(eventsKey, (prev) => {
         const list = prev ?? [];
         // Idempotent insert: stream + snapshot can deliver the same row
-        // on first connect or after an invalidation. Skip dupes.
-        if (list.some((e) => e.id === event.id)) return list;
+        // on first connect or after an invalidation. Skip dupes, but take
+        // a newer revision of a part that grows in place (OpenCode's
+        // cumulative text), live or replayed on resume (P3 re-check).
+        const at = list.findIndex((e) => e.id === event.id);
+        if (at >= 0) {
+          if (!isNewerRevision(event, list[at]!)) return list;
+          const out = [...list];
+          out[at] = event;
+          return out;
+        }
 
         // Insert preserving (createdAt ASC, id ASC) — same ordering
         // the listChatEvents query uses. New events almost always
@@ -180,8 +189,10 @@ export function useSessionStream(sessionId: string | null): void {
     // Refetch authoritative state on every (re)connect, which the chat's
     // `ready` marks. A fresh start refetches the transcript and runtime too:
     // the seed alone can't overwrite state left from before a server
-    // restart. A resume replayed the transcript already. Deliveries and the
-    // move aren't replayed, so they're refetched either way.
+    // restart. A resume replayed all the transcript missed already, parts
+    // revised in place included: the server says it resumed only then, and
+    // otherwise replays nothing (P3 re-check). Deliveries and the move
+    // aren't replayed, so they're refetched either way.
     const handleReady = (frame: unknown) => {
       const resumed = (frame as { resumed?: boolean } | null)?.resumed === true;
       if (!resumed) {
@@ -216,4 +227,9 @@ export function useSessionStream(sessionId: string | null): void {
       if (diffTimer) clearTimeout(diffTimer);
     };
   }, [sessionId, queryClient]);
+}
+
+/** A part revised in place: the stream's copy replaces the cached one only when it's newer. */
+function isNewerRevision(incoming: ChatEventDTO, cached: ChatEventDTO): boolean {
+  return incoming.partRevision != null && (cached.partRevision == null || incoming.partRevision > cached.partRevision);
 }

@@ -6,19 +6,32 @@
  * a seed, then `ready`. Returns the unsubscribe.
  *
  * Subscribed before the replay, so an event published during it still
- * arrives as a live frame; the client dedups chat events on id.
+ * arrives as a live frame; the client dedups chat events on id, and keeps
+ * the newest revision of a part.
+ *
+ * `ready` says whether what was missed was replayed in full (`resumed`):
+ * only when all of it fits in one replay, parts revised in place included
+ * (found by `revisedSince`, the newest change the client saw). Otherwise
+ * nothing is replayed, and the client reads the transcript afresh (P3
+ * re-check). Either way `position` is where the transcript stands now, for
+ * the client to resume from next time.
  */
 
 import { toChatEventDTO } from '@/lib/api/dto/chat-event';
 import { subscribe, sessionChannel, type SessionStreamMessage } from '@/lib/realtime/bus';
-import { listChatEventsAfter } from '@/lib/db/queries';
+import { chatEventsPosition, listChatEventsToResume } from '@/lib/db/queries';
 import * as executor from '@/lib/executor/adapter';
 import { listForSession as listPendingForSession } from '@/lib/executor/live-state';
 import type { ChatEventRecord } from '@/db/types';
 
 export type FeedEmit = (event: string, data: unknown, id?: string) => void;
 
-export function openSessionFeed(sessionId: string, lastEventId: string | null, emit: FeedEmit): () => void {
+export function openSessionFeed(
+  sessionId: string,
+  lastEventId: string | null,
+  emit: FeedEmit,
+  options: { revisedSince?: string | null } = {},
+): () => void {
   // Both the live publish and the resume replay funnel through here, so the
   // projection applies to each. It has to match the GET /events route
   // exactly (lib/api/dto/chat-event).
@@ -38,11 +51,14 @@ export function openSessionFeed(sessionId: string, lastEventId: string | null, e
     }
   });
 
-  // Resume replay. listChatEventsAfter caps at 1000; a client that drifted
-  // further refetches the events page on `ready`.
+  // Resume replay: all of what was missed, or nothing and the client reads
+  // the transcript afresh.
+  let resumed = false;
   if (lastEventId) {
     try {
-      for (const row of listChatEventsAfter(sessionId, lastEventId)) writeChatEvent(row);
+      const missed = listChatEventsToResume(sessionId, lastEventId, options.revisedSince ?? null);
+      for (const row of missed.rows) writeChatEvent(row);
+      resumed = missed.complete;
     } catch (err) {
       console.error(`[session feed ${sessionId}] resume failed:`, err);
     }
@@ -52,6 +68,6 @@ export function openSessionFeed(sessionId: string, lastEventId: string | null, e
   emit('runtime', { running: executor.isRunning(sessionId) });
   emit('background_tasks', { active: executor.hasBackgroundTasks(sessionId), taskIds: executor.listBackgroundTaskIds(sessionId) });
   emit('pending_input', { pending: listPendingForSession(sessionId) });
-  emit('ready', { sessionId, resumed: !!lastEventId });
+  emit('ready', { sessionId, resumed, position: chatEventsPosition(sessionId) });
   return unsubscribe;
 }

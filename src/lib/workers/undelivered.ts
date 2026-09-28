@@ -7,7 +7,8 @@
  */
 
 import type { WorkerCommandRecord } from '@/db/types';
-import type { AfterCommit } from '@/lib/effects/after-commit';
+import { cancelWorkerCommand } from '@/lib/db/queries';
+import { inTransaction, type AfterCommit } from '@/lib/effects/after-commit';
 import { settleTurn } from '@/lib/executor/turns';
 import { finishRunInTransaction } from '@/lib/runs/finish';
 import { announceDelivery } from './delivery';
@@ -28,4 +29,17 @@ export function settleUndelivered(command: WorkerCommandRecord, after: AfterComm
   if (payload.turnId) after.tasks.push(() => settleTurn(payload.turnId!, message));
   // Its message shows as not delivered, or uncertain, once this commits (P3.2).
   after.tasks.push(() => announceDelivery(command.id));
+}
+
+/**
+ * Withdraw a send still waiting in its computer's queue: cancelled, its run
+ * finished and its turn settled with it, and shown as not delivered. Null
+ * when it isn't waiting any more: it has left for the worker, or was settled.
+ */
+export function withdrawQueuedSend(commandId: string): WorkerCommandRecord | null {
+  return inTransaction((after) => {
+    const cancelled = cancelWorkerCommand(commandId);
+    if (cancelled) settleUndelivered(cancelled, after);
+    return cancelled;
+  });
 }

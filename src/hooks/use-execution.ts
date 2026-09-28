@@ -22,7 +22,7 @@ import {
   type SessionRuntimeStatus,
 } from '@/lib/executor/runtime-status';
 import type { MessageDelivery } from '@/lib/workers/delivery';
-import { deliveryClock, mergeDeliverySnapshot, streamedSince } from '@/lib/query/delivery-fence';
+import { deliveryClock, mergeDeliverySnapshot, noteDeliveryUpdate, streamedSince } from '@/lib/query/delivery-fence';
 
 const SESSION_KEY = (id: string) => ['session', id] as const;
 
@@ -763,9 +763,12 @@ export function useCancelDelivery(sessionId: string) {
   return useMutation({
     mutationFn: (eventId: string) => sessionsApi.cancelDelivery(sessionId, eventId),
     onMutate: () => ({ since: deliveryClock() }),
-    // Unless the stream said something newer about it meanwhile.
+    // Unless the stream said something newer about it meanwhile. Stamped
+    // like a stream update, so a snapshot read before it can't put the
+    // older state back (P3 re-check).
     onSuccess: (delivery, eventId, context) => {
       if (context && streamedSince(sessionId, eventId, context.since)) return;
+      noteDeliveryUpdate(sessionId, eventId);
       qc.setQueryData<Record<string, MessageDelivery>>(['session', sessionId, 'deliveries'], (prev) => ({ ...(prev ?? {}), [eventId]: delivery }));
     },
     onError: (err) => toast.error("Couldn't withdraw that message", { description: apiErrorText(err) }),

@@ -6,7 +6,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { terminalsApi } from '@/lib/api/terminals';
-import { pageStream } from '@/lib/realtime/page-stream';
+import { pageStream, type TerminalPosition } from '@/lib/realtime/page-stream';
 import { terminalsUnavailable } from '@/hooks/use-terminals';
 import { createInputQueue } from '@/lib/terminal/input-queue';
 import { detectIsMac, resolveTerminalKey } from '@/lib/terminal/keymap';
@@ -79,8 +79,8 @@ export function ExecutionTerminalInstance({
   const [offline, setOffline] = useState<string | null>(null);
   /** Turns input off with the reason, or back on with null. Set by the terminal's setup. */
   const goOfflineRef = useRef<((message: string | null) => void) | null>(null);
-  /** Whether this screen has subscribed before: later ones pick up where it was. */
-  const subscribedRef = useRef(false);
+  /** Where this screen is in the terminal's output: later subscriptions pick up there. */
+  const positionRef = useRef<TerminalPosition>({ after: null });
 
   // Keep the latest onExit without retriggering the main effect — that
   // would dispose and recreate the terminal, losing scrollback.
@@ -181,7 +181,7 @@ export function ExecutionTerminalInstance({
     };
     goOfflineRef.current = goOffline;
     // A new screen: its first subscription starts from the whole backlog.
-    subscribedRef.current = false;
+    positionRef.current = { after: null };
 
     // stdin. Serialised and self-batching — see `input-queue.ts` for why
     // one-POST-per-keystroke both reorders bytes and drowns a tunnel.
@@ -303,16 +303,15 @@ export function ExecutionTerminalInstance({
   // stdout, over the page's one stream (P3 review), while this terminal is
   // on screen. The first subscription gets the whole backlog, which is what
   // makes a refresh land on a live screen. A later one, after the tab was
-  // hidden or the page reconnected, gets only what was missed. One that
-  // couldn't be resumed (the missed output aged out of the ring) hands back
-  // a snapshot: reset first so it replaces the screen rather than being
-  // appended to a stale copy of itself.
+  // hidden or the page reconnected, gets only what this screen missed: the
+  // page stream moves its position only for output it hands this screen (P3
+  // re-check). One that couldn't be resumed (the missed output aged out of
+  // the ring) hands back a snapshot: reset first so it replaces the screen
+  // rather than being appended to a stale copy of itself.
   useEffect(() => {
     if (!live) return;
     const term = termRef.current;
     if (!term) return;
-    const fresh = !subscribedRef.current;
-    subscribedRef.current = true;
     let ended = false;
     let unsubscribe = () => {};
     const finish = (line: string) => {
@@ -324,6 +323,7 @@ export function ExecutionTerminalInstance({
     unsubscribe = pageStream().subscribeTerminal(
       apiBaseRef.current,
       terminalId,
+      positionRef.current,
       (event, data) => {
         if (ended) return;
         switch (event) {
@@ -347,7 +347,6 @@ export function ExecutionTerminalInstance({
             break;
         }
       },
-      fresh,
     );
     return () => {
       ended = true;

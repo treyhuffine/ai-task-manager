@@ -6,6 +6,8 @@
  * would put the older state back ("Waiting", with Cancel, for a message
  * already delivered). So every stream update is stamped, and a snapshot or
  * an answer keeps whatever the stream changed after its request started.
+ * An answer that's applied is stamped the same way: Cancel's "Not
+ * delivered" outranks a snapshot read before it (P3 re-check).
  */
 
 import type { MessageDelivery } from '@/lib/workers/delivery';
@@ -20,7 +22,7 @@ export function deliveryClock(): number {
   return clock;
 }
 
-/** The stream changed this message's delivery. */
+/** The stream, or an answer that was applied, changed this message's delivery. */
 export function noteDeliveryUpdate(sessionId: string, eventId: string): void {
   let session = stamps.get(sessionId);
   if (!session) stamps.set(sessionId, (session = new Map()));

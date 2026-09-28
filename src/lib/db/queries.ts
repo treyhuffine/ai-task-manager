@@ -8255,16 +8255,56 @@ export function listRecentChatEvents(sessionId: string, limit = 30): ChatEventRe
  * monotonic-by-creation-time per process, so an id-comparison is a
  * cheap, correct cursor without a separate sequence column.
  */
-export function listChatEventsAfter(sessionId: string, afterId: string, limit = 1000): ChatEventRecord[] {
+/**
+ * What a session's stream missed while a client was away (P3 re-check): the
+ * events after `afterId`, and the cumulative parts revised in place since
+ * `revisedSince` (the newest `updatedAt` the client has seen, the home's
+ * clock). `complete` is false when that's more than `limit`, or when parts
+ * may have been revised and there's no `revisedSince` to find them by: the
+ * client can't be brought up to date from here, and should read the
+ * transcript afresh. Nothing is returned then.
+ */
+export function listChatEventsToResume(
+  sessionId: string,
+  afterId: string,
+  revisedSince: string | null,
+  limit = 1000,
+): { rows: ChatEventRecord[]; complete: boolean } {
   const db = getDb();
+  const revisable = and(lte(chatEvents.id, afterId), isNotNull(chatEvents.partRevision));
+  if (revisedSince === null) {
+    const revised = db.select({ id: chatEvents.id }).from(chatEvents).where(and(eq(chatEvents.sessionId, sessionId), revisable)).limit(1).get();
+    if (revised) return { rows: [], complete: false };
+  }
+  const missed = revisedSince === null
+    ? gt(chatEvents.id, afterId)
+    : or(gt(chatEvents.id, afterId), and(revisable, gte(chatEvents.updatedAt, revisedSince)));
   const rows = db
     .select()
     .from(chatEvents)
-    .where(and(eq(chatEvents.sessionId, sessionId), gt(chatEvents.id, afterId)))
+    .where(and(eq(chatEvents.sessionId, sessionId), missed))
     .orderBy(asc(chatEvents.createdAt), asc(chatEvents.id))
-    .limit(limit)
+    .limit(limit + 1)
     .all();
-  return rows.map((r) => hydrateRow(r));
+  if (rows.length > limit) return { rows: [], complete: false };
+  return { rows: rows.map((r) => hydrateRow(r)), complete: true };
+}
+
+/**
+ * Where a session's transcript stands: the event written last, and the
+ * newest change to any (`updatedAt`). A stream client resumes from here once
+ * it has read the transcript. The last written rather than the greatest id:
+ * a message keeps the id its sender minted, on its sender's clock.
+ */
+export function chatEventsPosition(sessionId: string): { after: string | null; since: string | null } {
+  const db = getDb();
+  const last = db.select({ id: chatEvents.id }).from(chatEvents).where(eq(chatEvents.sessionId, sessionId)).orderBy(desc(sql`rowid`)).limit(1).get();
+  const since = db
+    .select({ since: sql<string | null>`max(${chatEvents.updatedAt})` })
+    .from(chatEvents)
+    .where(eq(chatEvents.sessionId, sessionId))
+    .get();
+  return { after: last?.id ?? null, since: since?.since ?? null };
 }
 
 /**

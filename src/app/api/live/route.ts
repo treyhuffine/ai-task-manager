@@ -14,13 +14,22 @@ function sse(event: string, data: unknown): Uint8Array {
 
 /** What a page is subscribed to, with where each left off. */
 interface Subscription {
-  /** Chats: id, and the last chat event seen. */
-  s: Array<[string, string | null]>;
+  /**
+   * Chats: id, the newest chat event seen, and the newest change to one
+   * seen (its `updatedAt`), which finds the parts revised in place since.
+   */
+  s: Array<[string, string | null, string | null]>;
   /** Terminals: `/sessions/<id>` or `/workspaces/<id>`, the terminal, and the last offset seen. */
   t: Array<[string, string, number | null]>;
 }
 
 const ID = /^[A-Za-z0-9-]{1,64}$/;
+/**
+ * A chat event's `updatedAt`, as SQLite's `datetime('now')` writes it. It's
+ * compared as a string, so any other shape is dropped (the chat then reads
+ * its transcript afresh), never let through or refused.
+ */
+const CHANGED_AT = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 const MAX_SUBSCRIPTIONS = 32;
 
 function parseSubscription(raw: string | null): Subscription | null {
@@ -36,6 +45,7 @@ function parseSubscription(raw: string | null): Subscription | null {
   const t = Array.isArray(v.t) ? v.t : [];
   if (s.length + t.length > MAX_SUBSCRIPTIONS) return null;
   const okCursor = (c: unknown) => c === null || (typeof c === 'string' && ID.test(c));
+  const changedAt = (c: unknown) => (typeof c === 'string' && CHANGED_AT.test(c) ? c : null);
   if (!s.every((e) => Array.isArray(e) && typeof e[0] === 'string' && ID.test(e[0]) && okCursor(e[1] ?? null))) return null;
   if (
     !t.every(
@@ -50,7 +60,7 @@ function parseSubscription(raw: string | null): Subscription | null {
   ) {
     return null;
   }
-  return { s: s.map(([id, after]) => [id, after ?? null]), t: t.map(([base, id, after]) => [base, id, after ?? null]) };
+  return { s: s.map(([id, after, since]) => [id, after ?? null, changedAt(since)]), t: t.map(([base, id, after]) => [base, id, after ?? null]) };
 }
 
 /**
@@ -89,8 +99,12 @@ export async function GET(request: NextRequest) {
         }),
       );
 
-      for (const [sessionId, after] of subscription.s) {
-        stops.push(openSessionFeed(sessionId, after, (event, data, id) => enqueue(sse('session', { s: sessionId, e: event, d: data, i: id }))));
+      for (const [sessionId, after, since] of subscription.s) {
+        stops.push(
+          openSessionFeed(sessionId, after, (event, data, id) => enqueue(sse('session', { s: sessionId, e: event, d: data, i: id })), {
+            revisedSince: since,
+          }),
+        );
       }
 
       for (const [base, terminalId, after] of subscription.t) {
