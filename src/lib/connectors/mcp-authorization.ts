@@ -1,6 +1,7 @@
 import { connectMcpClient, finishMcpOAuth } from '@connectors/engine/mcp';
 import type { McpServerEntry } from './mcp-servers';
 import { desktopEnabled, desktopOAuth, desktopRelayFor, type DesktopOAuthFlow } from './desktop-oauth';
+import { rememberOAuthReturn } from './oauth-return';
 import { getConnectorRuntime, getMcpServerStore, invalidateConnectorRuntime, mcpOAuthProviderFor, MCP_TIMEOUT_MS, withTimeout } from './runtime';
 
 export async function completeMcpAuthorization(entry: McpServerEntry, code: string, state: string, provider = mcpOAuthProviderFor(entry)) {
@@ -12,7 +13,8 @@ export async function completeMcpAuthorization(entry: McpServerEntry, code: stri
   await getConnectorRuntime();
 }
 
-export async function beginMcpAuthorization(entry: McpServerEntry) {
+/** `request` is the browser call that started the add, so the callback can return to its origin. */
+export async function beginMcpAuthorization(entry: McpServerEntry, request?: Request) {
   let flow: DesktopOAuthFlow | undefined;
   let authUrl: string | undefined;
   try {
@@ -30,6 +32,7 @@ export async function beginMcpAuthorization(entry: McpServerEntry) {
     const state = new URL(authUrl).searchParams.get('state');
     if (!state) throw new Error('The authorization server did not preserve the sign-in state');
     flow?.arm(state, async (params) => completeMcpAuthorization(entry, params.get('code')!, params.get('state')!, provider));
+    if (!flow && request) rememberOAuthReturn(state, request);
     return { requiresAuth: true as const, authUrl, ...(flow ? { desktopFlowId: flow.id } : {}) };
   } catch (error) { flow?.cancel(); throw error; }
 }

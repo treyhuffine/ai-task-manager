@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
   if (auth.kind === 'oauth') {
     const entry = await store.create({ slug, displayName: name, url: urlCheck.url, auth, enabled: body.enabled ?? true });
     try {
-      const result = await beginMcpAuthorization(entry);
+      const result = await beginMcpAuthorization(entry, request);
       return NextResponse.json({ entry, ...result }, { status: 201 });
     } catch (e) {
       await store.remove(entry.id);

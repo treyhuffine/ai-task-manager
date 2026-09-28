@@ -54,7 +54,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
  * (Re)start the OAuth flow for an existing OAuth server — used when a first attempt was abandoned,
  * or refresh failed and the user must re-consent. Returns the authorization URL for the browser.
  */
-export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const entry = getMcpServerStore().get(id);
   if (!entry) return NextResponse.json({ error: 'not_found' }, { status: 404 });
@@ -62,7 +62,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'not an OAuth server' }, { status: 400 });
   }
   try {
-    return NextResponse.json(await beginMcpAuthorization(entry));
+    return NextResponse.json(await beginMcpAuthorization(entry, request));
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Could not start authorization.' }, { status: 400 });
   }
