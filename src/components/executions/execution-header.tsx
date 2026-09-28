@@ -333,6 +333,9 @@ export function ExecutionHeader({
             {pinMenuItem}
             {readStateMenuItem}
             <DensityMenuItem />
+            {/* Up with the actions, not below the details block, where the
+                menu's height cap used to push it out of sight. */}
+            {archiveMenuItem}
           </div>
 
           {worktreeLinks && (
@@ -393,13 +396,6 @@ export function ExecutionHeader({
               <DetailRow label="Linked PR" value={`#${session.prNumber}`} valueClass="font-mono text-foreground" />
             )}
           </div>
-
-          {archiveMenuItem && (
-            <>
-              <div className="h-px bg-border" />
-              <div className="p-1">{archiveMenuItem}</div>
-            </>
-          )}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>
