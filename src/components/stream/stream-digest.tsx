@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import {
-  Check, Undo2, ChevronDown, ChevronRight, Sparkles, Target, FileText,
+  Check, Undo2, ChevronDown, ChevronRight, Lightbulb, Target, FileText,
   BookOpen, Archive, Clock, CornerUpRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -175,7 +175,7 @@ function GraduationOffers() {
       {offers.map((offer) => (
         <div key={offer.disposition} className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
           <div className="flex items-start gap-2">
-            <Sparkles size={12} className="text-primary mt-0.5 flex-shrink-0" />
+            <Lightbulb size={12} className="text-primary mt-0.5 flex-shrink-0" />
             <p className="flex-1 text-[11px] leading-snug text-foreground">{offer.line}</p>
           </div>
           <div className="flex items-center gap-2 mt-2 ml-5">

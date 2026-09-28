@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, Sparkles } from 'lucide-react';
+import { FileText, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { EntityViewMode } from '@/lib/client/entity-view-mode';
 
@@ -43,7 +43,7 @@ export function EntityViewToggle({
             value === m ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
           )}
         >
-          {m === 'agent' ? <Sparkles size={10} /> : <FileText size={10} />}
+          {m === 'agent' ? <Bot size={10} /> : <FileText size={10} />}
           <span className={cn(compact ? 'hidden' : 'hidden sm:inline')}>{m === 'agent' ? 'Agent' : 'Document'}</span>
         </button>
       ))}

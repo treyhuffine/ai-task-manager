@@ -1,7 +1,7 @@
 'use client';
 
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
-import { X, Loader2, AlertCircle, Sparkles } from 'lucide-react';
+import { X, Loader2, AlertCircle, Wrench } from 'lucide-react';
 
 export interface ErrorModalAction {
   label: string;
@@ -77,7 +77,7 @@ export function ErrorModal({ open, onClose, title, message, action }: ErrorModal
                   {action.pending ? (
                     <Loader2 size={14} className="animate-spin" />
                   ) : (
-                    <Sparkles size={14} />
+                    <Wrench size={14} />
                   )}
                   {action.label}
                 </button>

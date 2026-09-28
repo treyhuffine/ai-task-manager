@@ -1,6 +1,6 @@
 'use client';
 
-import { CircleDashed, FileText, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { CircleDashed, FileText, Loader2, RefreshCw, MessageSquarePlus } from 'lucide-react';
 import { MessageResponse } from '@/components/ai-elements/message';
 import { apiErrorText } from '@/lib/api/client';
 import type { EntityBriefHandle } from '@/hooks/use-entity-brief';
@@ -97,7 +97,7 @@ export function EntityBriefCard({
     return (
       <Frame>
         <Row muted>
-          <Sparkles size={12} className="animate-pulse text-primary" /> Reading this {noun}…
+          <Loader2 size={12} className="animate-spin text-primary" /> Reading this {noun}…
         </Row>
         <p className="mt-1 text-[11px] text-muted-foreground/70">
           First open takes a moment. After that it is instant until the {noun} changes.
@@ -243,7 +243,7 @@ function Chips({
           title="Send this to the agent"
           className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/25 bg-primary/5 px-2.5 py-1 text-left text-[11.5px] text-primary transition-colors hover:bg-primary/15 disabled:opacity-50"
         >
-          <Sparkles size={10} className="flex-shrink-0" />
+          <MessageSquarePlus size={10} className="flex-shrink-0" />
           <span className="truncate">{s}</span>
         </button>
       ))}

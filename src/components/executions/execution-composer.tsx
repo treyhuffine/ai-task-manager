@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ArrowUp, Mic, Square, Loader2, Sparkles, Check, Zap, X } from 'lucide-react';
+import { ArrowUp, Mic, Square, Loader2, Cpu, Check, Zap, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LiveWaveform } from '@/components/ui/live-waveform';
@@ -1048,7 +1048,7 @@ function ModelPicker({
             'disabled:opacity-50',
           )}
         >
-          <Sparkles size={11} className="text-primary/70" />
+          <Cpu size={11} className="text-primary/70" />
           <span>{fallbackLabel}</span>
         </button>
       </PopoverTrigger>

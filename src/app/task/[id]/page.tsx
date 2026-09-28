@@ -14,7 +14,6 @@ import {
   Zap,
   Lock,
   Repeat,
-  Sparkles,
 } from 'lucide-react';
 import { useTask, useUpdateTask, useDeleteTask } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
