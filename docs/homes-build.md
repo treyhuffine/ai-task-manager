@@ -1109,10 +1109,10 @@ Found in gate B on the phone: + made an execution on the Mac Mini with no way to
 
 - **A plain + asks nothing.** It starts on the agent's default, the home unless someone chose otherwise (already the rule, spec §3.3).
 - **Only the exception is named.** An execution on the home shows no computer; one away from it shows "MacBook", in the header and the rail (`locationLabel`, `away` by default). Its computer stays in its details, and Continue here and Open code here, which lived in the chip, are in its … menu when there's no chip (`MoveActions`).
-- **The escape hatch on the phone:** holding + opens "New execution in Demo, on…" with each computer that can take the work, the default marked, and Make default beside the others (`RunOnSheet`, `useLongPress`). Picking one starts that one execution there and changes nothing else. The desktop launcher's Run on control is the same hatch.
+- **The escape hatch on the phone:** each agent's ⋯ menu has "New execution on…", which opens "New execution in Demo, on…" with each computer that can take the work, the default marked, and Make default beside the others (`RunOnSheet`). Picking one starts that one execution there and changes nothing else. The same menu opens the agent's Files, Terminal and Setup. The desktop launcher's Run on control is the same hatch. (First built as holding +, then moved to the ⋯ menu at Trey's suggestion: a hold is invisible.)
 - **One click back:** Settings, General, Computers switches to always naming the computer (`lib/client/computer-label-mode.ts`), as a reversible trial.
 
-Spec §3.3 and the P3.1 line are amended to match. Tests: the label rule both ways, and the long press (a tap starts, holding picks, a right click holds, sliding off cancels). Live on the dev home: home work showed no badge and its … menu offered Continue here on the stand-in and Open code here, the stand-in's execution showed its name, and on a phone holding + opened the sheet and picking the stand-in started the execution there.
+Spec §3.3 and the P3.1 line are amended to match. Tests: the label rule both ways. Live on the dev home: home work showed no badge and its … menu offered Continue here on the stand-in and Open code here, the stand-in's execution showed its name, and on a phone the agent's ⋯ menu opened the sheet and picking the stand-in started the execution there.
 
 ## P4 Reviewing locally and continuing elsewhere
 

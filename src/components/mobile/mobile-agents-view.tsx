@@ -1,15 +1,21 @@
 "use client";
 
 import { RunOnSheet } from './run-on-sheet';
-import { useLongPress } from '@/hooks/use-long-press';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import type { AgentTab } from '@/types/dashboard';
 import { useMemo, useState } from 'react';
 import {
   ChevronRight,
+  FileText,
   Folder,
   FolderPlus,
   GitBranch,
   Inbox,
+  Laptop,
+  MoreHorizontal,
   Plus,
+  Settings,
+  SquareTerminal,
 } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import {
@@ -151,10 +157,13 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
     setActiveView(executionView(sessionId));
     void done.finally(() => setCreating(false));
   };
-  // A tap starts where the agent usually runs. Holding picks another
-  // computer for this one execution (spec §3.3).
+  // + starts where the agent usually runs. Another computer, for this one
+  // execution, is in the agent's ⋯ menu (spec §3.3).
   const [pickingComputer, setPickingComputer] = useState(false);
-  const plusPress = useLongPress(() => handleCreateExecution(), () => setPickingComputer(true));
+  const openAgentTab = (tab: AgentTab) => {
+    setMobileTab('agents');
+    openAgent(workspace.id, tab);
+  };
 
   const linkedArea = workspace.areaId
     ? areas?.find((a) => a.id === workspace.areaId)
@@ -207,13 +216,38 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
           </span>
         </button>
         <Badge streaming={streamingCount} review={reviewCount} />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground active:bg-muted/60 transition-colors flex-shrink-0"
+              aria-label={`More for ${workspace.name}`}
+            >
+              <MoreHorizontal size={18} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onSelect={() => setPickingComputer(true)} className="gap-2 py-2.5 text-[14px]">
+              <Laptop size={15} /> New execution on…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => openAgentTab('files')} className="gap-2 py-2.5 text-[14px]">
+              <FileText size={15} /> Files
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => openAgentTab('terminal')} className="gap-2 py-2.5 text-[14px]">
+              <SquareTerminal size={15} /> Terminal
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => openAgentTab('setup')} className="gap-2 py-2.5 text-[14px]">
+              <Settings size={15} /> Setup
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <button
           type="button"
-          {...plusPress}
+          onClick={() => handleCreateExecution()}
           disabled={creating}
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-primary active:bg-primary/10 transition-colors flex-shrink-0 disabled:opacity-40 select-none [-webkit-touch-callout:none]"
-          aria-label="New execution. Hold to choose a computer."
-          title="New execution (hold to choose a computer)"
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-primary active:bg-primary/10 transition-colors flex-shrink-0 disabled:opacity-40"
+          aria-label="New execution"
         >
           <Plus size={18} />
         </button>
@@ -247,7 +281,7 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
           {childSessions.length === 0 ? (
             <button
               type="button"
-              {...plusPress}
+              onClick={() => handleCreateExecution()}
               disabled={creating}
               className="ml-9 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium text-primary active:bg-primary/10 transition-colors disabled:opacity-40"
             >

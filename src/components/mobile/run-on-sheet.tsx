@@ -3,9 +3,9 @@
 /**
  * Where a new execution starts, when it isn't the usual place (spec §3.3,
  * P3.1 on the phone). A plain + starts on the agent's default, the home
- * unless it was changed, with nothing to decide. Holding + opens this: each
- * computer that can take the agent's work, the default marked, and Make
- * this the default as its own action. Picking one starts that one execution
+ * unless it was changed, with nothing to decide. "New execution on…" in the
+ * agent's ⋯ menu opens this: each computer that can take the agent's work,
+ * the default marked, and Make this the default as its own action. Picking one starts that one execution
  * there and changes nothing else.
  */
 
