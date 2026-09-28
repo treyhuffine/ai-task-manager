@@ -60,14 +60,17 @@ export function scopePins(scope: WorkspaceConnectorScope): WorkspaceConnectorSco
 
 /**
  * Rewrite a stored scope list into the current shape: `{ toolkitId, accounts? }`, legacy `account`
- * folded into `accounts`, duplicates removed, unknown fields dropped. Fails closed: a scope that
- * declared account pins but has none that parse is dropped rather than widened to all accounts.
+ * folded into `accounts`, duplicates removed, unknown fields dropped. Fails closed: a scope whose
+ * `accounts` is not a list, or that declared account pins but has none that parse, is dropped
+ * rather than widened to all accounts. Only an absent (or empty) `accounts` means every account.
  */
 export function normalizeConnectorScopes(scopes: readonly WorkspaceConnectorScope[] | null | undefined): WorkspaceConnectorScope[] {
   if (!Array.isArray(scopes)) return [];
   const out: WorkspaceConnectorScope[] = [];
   for (const scope of scopes) {
     if (!scope || typeof scope.toolkitId !== 'string' || !scope.toolkitId) continue;
+    // A restriction that isn't a list (a lone pin object, a string) is corrupt, not absent.
+    if (scope.accounts != null && !Array.isArray(scope.accounts)) continue;
     const declared = (Array.isArray(scope.accounts) && scope.accounts.length > 0) || !!scope.account;
     const pins = scopePins(scope);
     if (declared && pins.length === 0) continue;

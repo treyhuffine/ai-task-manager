@@ -53,6 +53,18 @@ describe('normalizeConnectorScopes (read path)', () => {
     expect(normalizeConnectorScopes(corrupt)).toEqual([{ toolkitId: 'google_calendar', accounts: [{ accountId: 'ok' }] }]);
   });
 
+  it('fails closed: an accounts value that is not a list is dropped, never read as all accounts', () => {
+    const corrupt = [
+      { toolkitId: 'gmail', accounts: { accountId: 'work' } },
+      { toolkitId: 'slack', accounts: 'work' },
+      { toolkitId: 'notion', accounts: 7 },
+      // Null and an empty list do mean every account.
+      { toolkitId: 'google_calendar', accounts: null },
+      { toolkitId: 'google_drive', accounts: [] },
+    ] as unknown as WorkspaceConnectorScope[];
+    expect(normalizeConnectorScopes(corrupt)).toEqual([{ toolkitId: 'google_calendar' }, { toolkitId: 'google_drive' }]);
+  });
+
   it('tolerates a missing column value', () => {
     expect(normalizeConnectorScopes(null)).toEqual([]);
     expect(normalizeConnectorScopes(undefined)).toEqual([]);
