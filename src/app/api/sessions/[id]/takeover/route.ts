@@ -94,7 +94,7 @@ export async function POST(
       return Response.json({ error: 'not_git', message: 'Workspace is not a git repo.' }, { status: 400 });
     }
 
-    const handle = await openWorktreeHandle(session, ws.cwd);
+    const handle = await openWorktreeHandle(session, ws);
     if (!handle || handle.kind !== 'git') {
       return Response.json({ error: 'Worktree unavailable' }, { status: 404 });
     }

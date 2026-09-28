@@ -198,7 +198,7 @@ export async function POST(
       );
     }
 
-    const handle = await openWorktreeHandle(session, ws.cwd);
+    const handle = await openWorktreeHandle(session, ws);
     if (!handle || handle.kind !== 'git') {
       return Response.json({ error: 'Worktree unavailable' }, { status: 404 });
     }

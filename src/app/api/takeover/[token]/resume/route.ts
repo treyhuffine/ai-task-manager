@@ -73,7 +73,7 @@ export async function POST(
     const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'workspace_not_found' }, { status: 404 });
 
-    const handle = await openWorktreeHandle(session, ws.cwd);
+    const handle = await openWorktreeHandle(session, ws);
     if (!handle || handle.kind !== 'git') {
       return Response.json({ error: 'worktree_unavailable' }, { status: 404 });
     }

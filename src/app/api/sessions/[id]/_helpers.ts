@@ -37,7 +37,7 @@ export async function openSessionWorktree(id: string): Promise<WorktreeResolutio
       response: Response.json({ error: 'Workspace not found' }, { status: 404 }),
     };
   }
-  const handle = await openWorktreeHandle(session, ws.cwd);
+  const handle = await openWorktreeHandle(session, ws);
   if (!handle) {
     return {
       ok: false,

@@ -25,7 +25,7 @@ async function handleGET(
     const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json(null);
 
-    const handle = await openWorktreeHandle(session, ws.cwd);
+    const handle = await openWorktreeHandle(session, ws);
     if (!handle || handle.kind !== 'git') return Response.json(null);
 
     const status = await handle.git.status();
