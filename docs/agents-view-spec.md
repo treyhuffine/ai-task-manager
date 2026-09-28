@@ -340,7 +340,7 @@ One registry generates both surfaces, so every item lands on both.
   - provenance: its messages are labeled as coming from it
   - `renderAgentMainChatBrief`. It also reuses the orchestrator brief's shared sections (the domain brief was split into named sections, and the app main chat's brief was verified byte-identical before and after). Home-relative paths (`@USER.md`, `attachments/`) are absolute here, since the working directory is the agent's folder.
 - [x] Write guard for git agents: the same `disallowedTools` as the orchestrator. On Codex it is prompt-only, and the adapter logs it.
-  - Only Claude enforces argv tool filtering, so every other harness gets the prompt-only warning. A non-git agent has no guard, and its brief says it may act directly.
+  - Only Claude enforces argv tool filtering, so every other harness gets the prompt-only warning. A non-git agent has no guard, and its brief still sends building to an execution, editing directly only when the user asks for that edit in the chat.
 - [x] Connectors: the agent's connector scopes, the same set its executions get.
   - Same gate as executions: attached only when the agent has scopes and the harness isolates MCP. **Decision:** "the same set its executions get" applied to the rest of the scope too, so the main chat also gets the agent browser (the isolated `ws-<id>` profile, when the app and the agent allow it) and the agent's reference folders (read-only). Scope and reference-folder edits recycle the main chat along with the executions.
 - [x] It can use the full orchestrator surface (tasks, notes, deck). The brief keeps it focused on its agent.

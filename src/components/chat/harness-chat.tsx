@@ -6,6 +6,7 @@ import { useMainChat, useNewMainChat, type MainChatScope } from '@/hooks/use-mai
 import type { HarnessId } from '@/lib/harness/registry';
 import {
   useSession,
+  useSessionEvents,
   useSendMessage,
   useRuntimeStatus,
   useInterruptSession,
@@ -22,6 +23,7 @@ import { PendingInputArea } from '@/components/executions/pending-input-overlay'
 import { BackgroundTasksBar } from '@/components/executions/background-tasks-bar';
 import { SyncingPill } from '@/components/executions/syncing-pill';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
+import { MainChatIntroPanel, type MainChatIntro } from '@/components/chat/main-chat-intro';
 import { ApiError } from '@/lib/api/client';
 import type { EffortLevel } from '@/db/types';
 
@@ -47,11 +49,14 @@ export function HarnessChat({
   scope = null,
   composerPlaceholder,
   autoFocusComposer,
+  intro,
 }: {
   isMobile?: boolean;
   scope?: MainChatScope;
   composerPlaceholder?: string;
   autoFocusComposer?: boolean;
+  /** Shown while the chat is empty, in place of a blank transcript. */
+  intro?: MainChatIntro;
 }) {
   const { data, isLoading, error, refetch } = useMainChat(scope);
   const newChat = useNewMainChat(scope);
@@ -94,6 +99,7 @@ export function HarnessChat({
       isMobile={isMobile}
       composerPlaceholder={composerPlaceholder}
       autoFocusComposer={autoFocusComposer}
+      intro={intro}
       onSwitchProvider={(next) => newChat.mutate({
         providerId: next.harness,
         model: next.model,
@@ -117,6 +123,7 @@ export function HarnessChatSession({
   isMobile = false,
   autoFocusComposer = true,
   composerPlaceholder,
+  intro,
   onSwitchProvider,
   switchingProvider,
 }: {
@@ -129,6 +136,8 @@ export function HarnessChatSession({
    *  slideout document-chat passes false so the composer doesn't steal focus
    *  from the task/note title. */
   autoFocusComposer?: boolean;
+  /** Shown while the conversation is empty, in place of a blank transcript. */
+  intro?: MainChatIntro;
   /** Optional: enables the composer's provider switcher (starts a fresh chat
    *  on the chosen provider). The host owns what "new chat" means. */
   onSwitchProvider?: (next: {
@@ -149,6 +158,10 @@ export function HarnessChatSession({
   const sendMessage = useSendMessage(sessionId);
   const interruptSession = useInterruptSession(sessionId);
   const isRunning = runtime?.running ?? false;
+  // The same cache the transcript reads. A send inserts its row
+  // optimistically, so the intro gives way the moment anything is sent.
+  const { data: events, isLoading: eventsLoading } = useSessionEvents(sessionId);
+  const showIntro = !!intro && !eventsLoading && (events?.length ?? 0) === 0 && !isRunning;
 
   // Voice-sent event ids, client-memory only — same soft-signal model as
   // the execution view and the legacy chat.
@@ -193,12 +206,24 @@ export function HarnessChatSession({
       }}
     >
       {reconciling && <SyncingPill />}
-      <ExecutionTranscript
-        session={session}
-        workspace={undefined}
-        isRunning={isRunning}
-        voiceSentIds={voiceSentIds}
-      />
+      {showIntro && intro ? (
+        <MainChatIntroPanel
+          intro={intro}
+          disabled={sendMessage.isPending}
+          onSend={(prompt) => void sendMessage.mutateAsync(prompt)}
+          onDraft={(prompt) => {
+            composerHandleRef.current?.insertTextAtCursor(prompt);
+            composerHandleRef.current?.focus({ end: true });
+          }}
+        />
+      ) : (
+        <ExecutionTranscript
+          session={session}
+          workspace={undefined}
+          isRunning={isRunning}
+          voiceSentIds={voiceSentIds}
+        />
+      )}
       <div className="flex-shrink-0 bg-background">
         <PendingInputArea sessionId={session.id} />
         <BackgroundTasksBar
