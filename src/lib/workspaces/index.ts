@@ -249,26 +249,43 @@ function firstLine(message: string): string {
   return line ?? '';
 }
 
+/**
+ * Split a base ref into the remote it lives on and the branch name there:
+ * `origin/main` is `origin` + `main`. A bare `main`, or a prefix that isn't a
+ * configured remote (`feature/x`), is the workspace's remote + the name as given.
+ *
+ * Resolved from the ref itself rather than assuming the workspace default. A
+ * repo with a second remote (`public/main` alongside `origin/main`) would
+ * otherwise fall through an `origin/` check and fetch the wrong thing.
+ */
+async function splitBaseRef(
+  ws: Pick<WorkspaceRecord, 'cwd' | 'remoteName'>,
+  ref: string,
+): Promise<{ remote: string; branch: string }> {
+  const configured = ws.remoteName ?? 'origin';
+  const [maybeRemote, ...rest] = ref.split('/');
+  const known = rest.length > 0 && (await listRemotes(ws.cwd)).includes(maybeRemote!);
+  return known ? { remote: maybeRemote!, branch: rest.join('/') } : { remote: configured, branch: ref };
+}
+
+/** Fetch one branch into its remote-tracking ref and return that ref (`origin/main`). Throws on failure. */
+async function fetchRemoteBranch(cwd: string, remote: string, branch: string): Promise<string> {
+  // `+src:dst` force-updates the remote-tracking ref so a force-push
+  // upstream doesn't make subsequent fetches fail with "non-fast-forward."
+  const refspec = `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`;
+  await execFileAsync('git', ['fetch', remote, refspec], { cwd });
+  return `${remote}/${branch}`;
+}
+
 async function refreshBaseFromRemote(args: {
   ws: WorkspaceRecord;
   baseBranch: string;
 }): Promise<{ ref: string; fetched: boolean; warning: string | null }> {
   const { ws, baseBranch } = args;
-  // Resolve the remote from the ref itself rather than assuming the
-  // workspace default. A repo with a second remote (`public/main` alongside
-  // `origin/main`) would otherwise fall through the `origin/` check and skip
-  // the refresh entirely, silently rooting the worktree at a stale ref.
-  const configured = ws.remoteName ?? 'origin';
-  const [maybeRemote, ...rest] = baseBranch.split('/');
-  const known = rest.length > 0 && (await listRemotes(ws.cwd)).includes(maybeRemote!);
-  const remote = known ? maybeRemote! : configured;
-  const branchName = known ? rest.join('/') : baseBranch;
-  // `+src:dst` force-updates the remote-tracking ref so a force-push
-  // upstream doesn't make subsequent fetches fail with "non-fast-forward."
-  const refspec = `+refs/heads/${branchName}:refs/remotes/${remote}/${branchName}`;
+  const { remote, branch: branchName } = await splitBaseRef(ws, baseBranch);
   try {
-    await execFileAsync('git', ['fetch', remote, refspec], { cwd: ws.cwd });
-    return { ref: `${remote}/${branchName}`, fetched: true, warning: null };
+    const ref = await fetchRemoteBranch(ws.cwd, remote, branchName);
+    return { ref, fetched: true, warning: null };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {
@@ -487,17 +504,15 @@ export async function resumeWorktreeForSession(args: {
  */
 export async function listWorkspaceBranches(ws: WorkspaceRecord): Promise<string[]> {
   if (!ws.isGit) return [];
-  const lib = await loadLib();
   try {
-    const result = await lib.workspace.open(ws.cwd);
-    if (result.kind !== 'git') return [];
-    const raw = await result.git.raw([
-      'for-each-ref',
-      '--sort=-committerdate',
-      '--format=%(refname:short)',
-      'refs/remotes/',
-    ]);
-    return raw.stdout
+    // Plain git rather than an agentex handle: listing refs needs no base, and
+    // the workspace's own checkout has none to give (see `openSourceCheckout`).
+    const { stdout } = await execFileAsync(
+      'git',
+      ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', 'refs/remotes/'],
+      { cwd: ws.cwd, maxBuffer: 8 * 1024 * 1024 },
+    );
+    return stdout
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line.length > 0)
@@ -518,16 +533,21 @@ export async function listWorkspaceBranches(ws: WorkspaceRecord): Promise<string
 /**
  * Re-open an existing worktree for diff stats / status. Returns null if
  * the worktree path no longer exists on disk (multi-device, user deleted).
+ *
+ * A session running in the workspace's own checkout (Live mode, imported
+ * chats: `worktreePath === ws.cwd`) opens through `openSourceCheckout`, since
+ * agentex holds no base for a folder it didn't create.
  */
 export async function openWorktreeHandle(
-  session: WorktreePointer,
-  sourceCwd: string,
+  session: WorktreePointer & { baseSha?: string | null },
+  ws: Pick<WorkspaceRecord, 'cwd' | 'baseBranch' | 'remoteName'>,
 ): Promise<import('@agentex/workspace').Workspace | null> {
   if (!session.worktreePath) return null;
   const lib = await loadLib();
   let handle: import('@agentex/workspace').Workspace;
   try {
-    handle = await lib.workspace.open(session.worktreePath, { source: sourceCwd });
+    if (session.worktreePath === ws.cwd) return await openSourceCheckout(ws, session.baseSha);
+    handle = await lib.workspace.open(session.worktreePath, { source: ws.cwd });
   } catch (err) {
     if (err instanceof lib.WorkspaceNotFoundError) return null;
     throw err;
@@ -537,22 +557,20 @@ export async function openWorktreeHandle(
   // instead of the `baseSha` frozen in the worktree metadata at create time.
   //
   // The frozen value is correct and stable for an isolated feature-branch
-  // worktree — its fork point never moves. But a session that runs in-place on
-  // a shared branch (e.g. `main`, where the "worktree" IS the source checkout)
-  // keeps that same frozen base while HEAD marches forward with every commit
-  // that lands on the branch afterward. `diff("base")` / `shortstat("base")`
-  // then attribute all of that unrelated history to the session — the phantom
-  // "+211k / -8.4k" diff. merge-base(HEAD, base) is the true divergence point:
-  // identical to the frozen value for a feature branch, and self-correcting to
-  // "just this session's own changes" for an in-place branch. Every consumer
-  // (rail stats, in-session diff view, per-file original content) reads
-  // `ws.git.baseSha`, so fixing it here fixes all of them at once.
+  // worktree until the base moves into it: after a pull, the frozen value
+  // attributes everything the pull brought in to the session. merge-base(HEAD,
+  // base) is the true divergence point, identical to the frozen value before a
+  // pull and self-correcting to "just this session's own changes" after one.
+  // (In-place sessions hit the extreme version of this, the phantom "+211k /
+  // -8.4k" diff, which `openSourceCheckout` resolves the same way.) Every
+  // consumer (in-session diff view, per-file original content, tree status)
+  // reads `ws.git.baseSha`, so fixing it here fixes all of them at once.
   if (handle.kind === 'git') {
     const liveBase = await resolveLiveBaseSha(session.worktreePath, handle.git.base);
     if (liveBase && liveBase !== handle.git.baseSha) {
       try {
         return await lib.workspace.open(session.worktreePath, {
-          source: sourceCwd,
+          source: ws.cwd,
           baseSha: liveBase,
         });
       } catch {
@@ -587,11 +605,11 @@ async function gitOut(cwd: string, args: string[]): Promise<string | null> {
  * user's own folder, uncommitted changes. An unborn repo bases on the empty
  * tree, so every file reads as added. Anything else opens bare.
  *
- * The base is never read from agentex's worktree metadata. For a main
- * checkout (as opposed to a linked worktree) `git rev-parse --git-path
- * info/agentex.json` answers with a relative path, and agentex (0.0.4)
- * resolves it against the server process's cwd, so it would read *Ri's own*
- * repo's metadata, or throw where there is none.
+ * The base is never read from agentex's worktree metadata. agentex only
+ * records a base for worktrees it created, so a main checkout has none: 0.0.5
+ * throws "has no base metadata". 0.0.4 resolved the metadata path against the
+ * server process's cwd instead, so it read *Ri's own* repo's metadata, or threw
+ * where there was none.
  */
 export async function openFolderHandle(cwd: string): Promise<import('@agentex/workspace').Workspace | null> {
   if (!existsSync(cwd)) return null;
@@ -608,6 +626,78 @@ export async function openFolderHandle(cwd: string): Promise<import('@agentex/wo
     if (err instanceof lib.WorkspaceNotFoundError) return null;
     throw err;
   }
+}
+
+/**
+ * Open the workspace's own checkout (Live mode, the Live freshness control)
+ * with its base spelled out from our records, for the same reason
+ * `openFolderHandle` does: agentex holds no base for a folder it didn't create.
+ * Unlike that one, this base is the workspace's base branch, because these
+ * callers ask "what did this checkout change relative to `main`" and "pull
+ * `main` in", not "what's uncommitted".
+ *
+ * The base is the remote-tracking ref (`origin/main`) when it exists, else the
+ * local branch. The sha is the live merge-base of HEAD with it, so commits made
+ * here but not yet pushed count as this checkout's changes and upstream history
+ * doesn't. Without a merge-base it falls back to `fallbackSha` (an execution's
+ * recorded start), then HEAD, then the empty tree.
+ *
+ * Throws `WorkspaceNotFoundError` when the folder is gone, and agentex's own
+ * error on a detached HEAD, which it cannot open.
+ */
+async function openSourceCheckout(
+  ws: Pick<WorkspaceRecord, 'cwd' | 'baseBranch' | 'remoteName'>,
+  fallbackSha?: string | null,
+): Promise<import('@agentex/workspace').Workspace> {
+  const lib = await loadLib();
+  const { remote, branch } = await splitBaseRef(ws, ws.baseBranch ?? 'main');
+  const tracking = `${remote}/${branch}`;
+  const base = (await gitOut(ws.cwd, ['rev-parse', '--verify', '--quiet', `refs/remotes/${tracking}`]))
+    ? tracking
+    : branch;
+  const baseSha =
+    (await gitOut(ws.cwd, ['merge-base', 'HEAD', base]))
+    ?? fallbackSha
+    ?? (await gitOut(ws.cwd, ['rev-parse', '--verify', '--quiet', 'HEAD']))
+    ?? EMPTY_TREE_SHA;
+  return lib.workspace.open(ws.cwd, { source: ws.cwd, baseBranch: base, baseSha });
+}
+
+/**
+ * Fetch `base` and merge (or rebase) it into `handle`. Both pull buttons go
+ * through here: Live (the workspace's own checkout) and a worktree session's.
+ *
+ * Not agentex's `pullLatestBase`, which runs `git fetch origin <base>` and
+ * merges `origin/<base>`, so it only takes a bare branch name on `origin`. The
+ * base a worktree is rooted at is the remote-tracking ref (`origin/main`, see
+ * `createWorktreeForSession`), and handing that over asks git to fetch
+ * `origin/main` from origin, which fails with "couldn't find remote ref".
+ *
+ * A PR head (`refs/agentex/pr/<N>`) refetches the PR, so pulling a session
+ * started from a PR picks up whatever was pushed to it since. Throws
+ * `MergeConflictError` on conflict, leaving the tree mid-merge for the agent.
+ */
+export async function pullBase(args: {
+  ws: WorkspaceRecord;
+  handle: import('@agentex/workspace').GitWorkspace;
+  base: string;
+  strategy: 'merge' | 'rebase';
+}): Promise<void> {
+  const { ws, handle, base, strategy } = args;
+  let ref = base;
+  const pr = /^refs\/agentex\/pr\/(\d+)$/.exec(base);
+  if (pr) {
+    ref = (await fetchPrHead({ ws, prNumber: Number(pr[1]) })).ref;
+  } else if (!base.startsWith('refs/')) {
+    const { remote, branch } = await splitBaseRef(ws, base);
+    try {
+      ref = await fetchRemoteBranch(ws.cwd, remote, branch);
+    } catch (err) {
+      const detail = firstLine(err instanceof Error ? err.message : String(err));
+      throw new Error(`Couldn't fetch ${branch} from ${remote}.${detail ? ` ${detail}` : ''}`);
+    }
+  }
+  await handle.git.mergeFrom(ref, { strategy });
 }
 
 /**
@@ -701,8 +791,7 @@ export async function getWorkspaceBaseStatus(ws: WorkspaceRecord): Promise<Works
   const base = ws.baseBranch ?? 'main';
   const refreshed = await refreshBaseFromRemote({ ws, baseBranch: base });
 
-  const lib = await loadLib();
-  const handle = await lib.workspace.open(ws.cwd);
+  const handle = await openSourceCheckout(ws);
   const dirty = handle.kind === 'git' ? (await handle.git.status()).dirty : false;
   const branch = handle.kind === 'git' ? handle.git.branch : null;
 
@@ -725,8 +814,8 @@ export async function getWorkspaceBaseStatus(ws: WorkspaceRecord): Promise<Works
 /**
  * Merge the base branch into the workspace's own checkout.
  *
- * Delegates the actual fetch+merge to the library's `pullLatestBase`, the same
- * call the per-session pull route uses, so both paths behave identically.
+ * The fetch+merge is `pullBase`, the same call the per-session pull route
+ * uses, so both paths behave identically.
  *
  * Guarded on a clean tree first. Live mode's contract is that the agent works
  * in the directory the user is looking at, so merging on top of uncommitted
@@ -750,11 +839,10 @@ export async function pullWorkspaceBase(
     };
   }
 
-  const lib = await loadLib();
-  const handle = await lib.workspace.open(ws.cwd);
+  const handle = await openSourceCheckout(ws);
   if (handle.kind !== 'git') return { ok: false, code: 'error', message: 'Not a git workspace' };
   // MergeConflictError propagates to the route, which maps it to a 409 the
   // same way the per-session pull does.
-  await handle.git.pullLatestBase({ strategy: opts.strategy ?? 'merge' });
+  await pullBase({ ws, handle, base: status.base, strategy: opts.strategy ?? 'merge' });
   return { ok: true, behind: status.behind };
 }

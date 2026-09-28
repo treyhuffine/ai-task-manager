@@ -8,7 +8,7 @@
  * Recent Captures, so this is a pointer, not a list.
  */
 
-import { Inbox, Sparkles } from 'lucide-react';
+import { Inbox, ListChecks } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useProposedDecisions, useTriagePasses, useMarkPassSeen } from '@/hooks/use-stream';
 
@@ -48,7 +48,7 @@ export function DeckTriagePrompt() {
           }}
           className="w-full flex items-center gap-2 rounded-lg border border-border bg-card/40 px-3 py-2 text-left hover:bg-muted transition-colors"
         >
-          <Sparkles size={12} className="text-muted-foreground shrink-0" />
+          <ListChecks size={12} className="text-muted-foreground shrink-0" />
           <span className="text-[11px] text-muted-foreground truncate">
             {latestUnseen.summary ?? 'Your captures were triaged while you were away.'}
           </span>

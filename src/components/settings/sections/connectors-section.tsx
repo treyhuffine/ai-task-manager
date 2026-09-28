@@ -78,13 +78,15 @@ function hostOf(url: string): string {
 
 const byName = (a: { displayName: string }, b: { displayName: string }) => a.displayName.localeCompare(b.displayName);
 
-/** Tile subtitle for a connected provider: the account it holds, not the marketing line. */
+/**
+ * Tile subtitle for a connected provider: the account it holds, not the marketing
+ * line. Several accounts show only the count. Naming one of them read as "the"
+ * account, and it was rarely the one just connected.
+ */
 function connectedSubtitle(p: ProviderStatus, conns: Connection[]): string {
-  const who = conns.map(connectionIdentity).filter((w) => w && w !== p.displayName);
-  if (who.length === 0) {
-    return conns.length > 1 ? `${conns.length} accounts` : connectorMeta(p.id).description;
-  }
-  return who.length > 1 ? `${who[0]} and ${who.length - 1} more` : who[0]!;
+  if (conns.length > 1) return `${conns.length} accounts connected`;
+  const who = conns.map(connectionIdentity).find((w) => w && w !== p.displayName);
+  return who ?? connectorMeta(p.id).description;
 }
 
 export function ConnectorsSection() {

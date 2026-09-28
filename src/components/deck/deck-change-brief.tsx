@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { Sparkles, X, History, Check } from 'lucide-react';
+import { ListRestart, X, History, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { summarizeDeckChanges } from '@/lib/deck/change-summary';
 import type { DeckChangeView } from '@/types/dashboard';
@@ -106,7 +106,7 @@ export function DeckChangeBrief({
   return (
     <div className="mb-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
       <div className="flex items-start gap-2">
-        <Sparkles className="w-3.5 h-3.5 text-primary/70 mt-0.5 shrink-0" />
+        <ListRestart className="w-3.5 h-3.5 text-primary/70 mt-0.5 shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-[11px] text-foreground/80 leading-relaxed">
             {summary

@@ -1,12 +1,11 @@
 import type { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
-import { openWorktreeHandle } from '@/lib/workspaces';
+import { openWorktreeHandle, pullBase } from '@/lib/workspaces';
 
 /**
- * `ws.git.pullLatestBase({strategy})` — fetch the workspace's base
- * branch from origin and merge (or rebase) it into this worktree. Library
- * throws `MergeConflictError` on conflict; we return 409 with code so the
- * UI can offer "ask agent to resolve."
+ * Fetch the base this worktree was rooted at and merge (or rebase) it in, via
+ * `pullBase`. Throws `MergeConflictError` on conflict; we return 409 with code
+ * so the UI can offer "ask agent to resolve."
  */
 export async function POST(
   request: NextRequest,
@@ -25,12 +24,12 @@ export async function POST(
     const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
 
-    const handle = await openWorktreeHandle(session, ws.cwd);
+    const handle = await openWorktreeHandle(session, ws);
     if (!handle || handle.kind !== 'git') {
       return Response.json({ error: 'Not a git workspace' }, { status: 400 });
     }
 
-    await handle.git.pullLatestBase({ strategy });
+    await pullBase({ ws, handle, base: handle.git.base, strategy });
     return Response.json({ ok: true });
   } catch (err) {
     if (err instanceof Error && err.name === 'MergeConflictError') {

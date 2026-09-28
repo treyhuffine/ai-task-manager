@@ -76,4 +76,15 @@ describe('desktop OAuth', () => {
     vi.stubEnv('RI_DESKTOP_OAUTH_RELAY_PROVIDERS', 'google');
     expect(desktopRelayFor('google', true)).toBe('https://callback.example/oauth/callback');
   });
+
+  it('keeps normalized callback returns on the exact desktop origin', () => {
+    const origin = 'https://localhost:42242';
+    for (const returnTo of ['//evil.example/x', '/\\evil.example/x', '/a/..//evil.example/landing', '/a/%2e%2e//evil.example/landing']) {
+      expect(safeReturnPath(returnTo)).toBe('/?settings=connectors');
+      expect(resultLocation(origin, { sequence: 1, id: 'x', status: 'connected', returnTo, message: 'Connected' }))
+        .toBe(`${origin}/?settings=connectors&connected=Connected`);
+    }
+    expect(safeReturnPath('/a/../welcome?step=connect#pairing-token')).toBe('/welcome?step=connect');
+    expect(safeReturnPath('/%2F%2Fevil.example')).toBe('/%2F%2Fevil.example');
+  });
 });

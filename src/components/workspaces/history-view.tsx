@@ -36,7 +36,7 @@ export function HistoryView() {
   const { data, isLoading } = useHistorySessions();
   const { setActiveView, openAgent } = useDashboard();
   const [selectedWs, setSelectedWs] = useState<Set<string>>(new Set());
-  // The gear and row menus open the agent's setup: its view, on the Setup tab.
+  // Session row menus open the agent's setup: its view, on the Setup tab.
   const openSetup = (id: string) => openAgent(id, 'setup');
 
   // Workspaces represented in this feed. Order by first-appearance

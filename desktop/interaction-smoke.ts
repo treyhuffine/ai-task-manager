@@ -74,6 +74,30 @@ void acceptance('interaction-smoke', async fixture => {
     editors: [...document.querySelectorAll('[contenteditable]')].map(element => ({ editable: element.getAttribute('contenteditable'), label: element.getAttribute('aria-label'), disabled: element.getAttribute('aria-disabled') })),
   }));
   await page.waitForFunction(() => document.activeElement?.matches('[contenteditable="true"][aria-label]'));
+  // Record the actual focus/input sequence through Back and capture opening.
+  // Keep the first-fill assertion below strict so a focus race cannot be
+  // hidden by retrying input against a different DOM state.
+  await page.evaluate(() => {
+    const trace: unknown[] = [];
+    (window as unknown as { captureInteractionTrace: unknown[] }).captureInteractionTrace = trace;
+    for (const type of ['focusin', 'focusout', 'beforeinput', 'input']) {
+      document.addEventListener(type, event => {
+        const target = event.target instanceof HTMLElement ? event.target : null;
+        trace.push({
+          type, timeOrigin: performance.timeOrigin, at: performance.now(), url: location.href,
+          target: target?.tagName, role: target?.getAttribute('role'), label: target?.getAttribute('aria-label'),
+          placeholder: target?.getAttribute('placeholder'), editable: target?.getAttribute('contenteditable'),
+          value: target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement
+            ? target.value.slice(0, 200) : target?.textContent?.slice(0, 200),
+          inputType: event instanceof InputEvent ? event.inputType : undefined,
+          data: event instanceof InputEvent ? event.data?.slice(0, 200) : undefined,
+          stack: type === 'focusin' ? new Error('Focus event').stack?.split('\n').slice(0, 9) : undefined,
+        });
+        if (trace.length > 160) trace.shift();
+      }, { capture: true });
+    }
+    trace.push({ type: 'before-back', timeOrigin: performance.timeOrigin, at: performance.now() });
+  });
   // Return through the actual app control and router history, not a CDP
   // address-bar navigation, which is a different Electron lifecycle.
   await page.getByRole('button', { name: 'Back', exact: true }).click();
@@ -88,6 +112,19 @@ void acceptance('interaction-smoke', async fixture => {
   await hotkey(page, 'quickCapture');
   await page.getByRole('dialog', { name: 'Quick Capture', exact: true }).waitFor();
   await page.getByPlaceholder("What's on your mind?").fill('Keyboard-only capture preview.');
+  fixture.report.captureInputTrace = await page.evaluate(() => ({
+    events: (window as unknown as { captureInteractionTrace: unknown[] }).captureInteractionTrace,
+    timeOrigin: performance.timeOrigin, at: performance.now(),
+    active: document.activeElement?.outerHTML.slice(0, 1200),
+    capture: document.querySelector('textarea[placeholder="What\'s on your mind?"]')?.outerHTML,
+    captureDraftKeys: Object.keys(localStorage).filter(key => key.startsWith('ri:capture-draft:')),
+    chatDraftKeys: Object.keys(localStorage).filter(key => key.startsWith('ri:chat-draft:')),
+  }));
+  const focusTrace = fixture.report.captureInputTrace as { events: { type?: string; placeholder?: string; editable?: string }[] };
+  const captureFocused = focusTrace.events.findIndex(event => event.type === 'focusin' && event.placeholder === "What's on your mind?");
+  assert(captureFocused >= 0, 'Quick Capture textarea never received focus');
+  assert(!focusTrace.events.slice(captureFocused + 1).some(event => event.type === 'focusin' && event.editable === 'true'),
+    'A background chat editor took focus after Quick Capture opened');
   assert.equal(await page.getByPlaceholder("What's on your mind?").inputValue(), 'Keyboard-only capture preview.');
   await page.getByPlaceholder("What's on your mind?").fill('');
   await hotkey(page, 'slideoutBack');

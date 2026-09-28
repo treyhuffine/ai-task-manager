@@ -47,7 +47,7 @@ async function handleGET(
     const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
 
-    const handle = await openWorktreeHandle(session, ws.cwd);
+    const handle = await openWorktreeHandle(session, ws);
     if (!handle) return Response.json({ error: 'Worktree unavailable' }, { status: 404 });
 
     return await fileReadResponse(handle, relPath, wantBase);

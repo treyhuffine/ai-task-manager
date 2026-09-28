@@ -7,6 +7,9 @@ export type ConnectorErrorCode =
   | 'unknown_action'
   | 'unknown_provider'
   | 'connection_not_found'
+  // The caller constrained the run to an allowed connection set (a workspace's account subset) and
+  // the requested account / connection is outside it.
+  | 'account_not_allowed'
   | 'invalid_input'
   | 'denied'
   | 'provider_error'

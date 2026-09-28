@@ -75,6 +75,7 @@ import { deriveAttachments } from '@/lib/attachments/derive';
 import { AttachmentMetadataRepairError, planNoteAttachmentMetadataRepair } from '@/lib/attachments/repair-metadata';
 import { publishChatEvent } from '@/lib/realtime/bus';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
+import { normalizeConnectorScopes } from '@/lib/connectors/scope-pins';
 import {
   normalizeTaskStatus,
   canApply,
@@ -4416,12 +4417,25 @@ export function listWorkspaces(filter: { status?: WorkspaceStatus } = {}): Works
     .orderBy(asc(workspaces.position), asc(workspaces.createdAt))
     .all();
 
-  return rows.map((r) => hydrateRow(r));
+  return rows.map((r) => readWorkspaceRow(hydrateRow(r)));
+}
+
+/**
+ * Every workspace row leaves the query layer with its connector scopes in the current shape: a
+ * legacy single `account` pin folded into `accounts` (docs/connectors-workspace-scoping-spec.md §4).
+ * The column is JSON, so old rows are rewritten on read rather than by a migration, and the next
+ * scope save stores the new shape.
+ */
+function readWorkspaceRow<R extends { connectorScopes: WorkspaceConnectorScope[] }>(row: R): R;
+function readWorkspaceRow<R extends { connectorScopes: WorkspaceConnectorScope[] }>(row: R | undefined): R | undefined;
+function readWorkspaceRow<R extends { connectorScopes: WorkspaceConnectorScope[] }>(row: R | undefined): R | undefined {
+  if (!row) return row;
+  return { ...row, connectorScopes: normalizeConnectorScopes(row.connectorScopes) };
 }
 
 export function getWorkspace(id: string): WorkspaceRecord | undefined {
   const db = getDb();
-  return hydrateRow(db.select().from(workspaces).where(eq(workspaces.id, id)).get());
+  return readWorkspaceRow(hydrateRow(db.select().from(workspaces).where(eq(workspaces.id, id)).get()));
 }
 
 /**
@@ -4505,7 +4519,7 @@ export function createWorkspace(input: Omit<CreateWorkspaceInput, 'slug'> & { sl
     })
     .returning()
     .get());
-  return row;
+  return readWorkspaceRow(row);
 }
 
 export function updateWorkspace(id: string, input: UpdateWorkspaceInput): WorkspaceRecord | null {
@@ -4521,7 +4535,7 @@ export function updateWorkspace(id: string, input: UpdateWorkspaceInput): Worksp
     .where(eq(workspaces.id, id))
     .returning()
     .get());
-  return row ?? null;
+  return readWorkspaceRow(row) ?? null;
 }
 
 /**
@@ -4533,7 +4547,8 @@ export function setWorkspaceConnectorScopes(
   id: string,
   scopes: WorkspaceConnectorScope[],
 ): WorkspaceRecord | null {
-  return updateWorkspace(id, { connectorScopes: scopes });
+  // Only ever write the current shape (`accounts`, never the legacy single `account`).
+  return updateWorkspace(id, { connectorScopes: normalizeConnectorScopes(scopes) });
 }
 
 export function archiveWorkspace(id: string): WorkspaceRecord | null {
@@ -4545,7 +4560,7 @@ export function archiveWorkspace(id: string): WorkspaceRecord | null {
     .where(eq(workspaces.id, id))
     .returning()
     .get());
-  return row ?? null;
+  return readWorkspaceRow(row) ?? null;
 }
 
 // ─── Reference folders ────────────────────────────────────────

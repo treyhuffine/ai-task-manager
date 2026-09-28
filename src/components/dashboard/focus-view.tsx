@@ -1,7 +1,7 @@
 "use client";
 
 import { Dialog } from '@base-ui/react/dialog';
-import { Sparkles, Target } from 'lucide-react';
+import { Target } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { cn } from '@/lib/utils';
 

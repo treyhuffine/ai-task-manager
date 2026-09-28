@@ -7,10 +7,12 @@ on:
       - 'src/lib/service/**'
       - 'src/lib/stt/**'
       - 'src/lib/client/**'
+      - 'src/lib/connectors/**'
       - 'src/lib/notifications/**'
       - 'src/service/**'
       - 'src/app/api/service/**'
       - 'src/app/api/desktop/**'
+      - 'src/app/api/connectors/**'
       - 'src/app/api/notifications/**'
       - 'src/app/api/transcribe/**'
       - 'src/app/manifest.ts'
@@ -18,6 +20,7 @@ on:
       - 'src/app/apple-icon.png'
       - 'src/hooks/use-voice-input*'
       - 'src/components/desktop/**'
+      - 'src/components/chat/editor/**'
       - 'src/components/settings/**'
       - 'src/components/dashboard/command-input.tsx'
       - 'src/components/dashboard/quick-capture-modal.tsx'
@@ -26,6 +29,7 @@ on:
       - 'public/notifications-sw.js'
       - 'public/offline.html'
       - 'scripts/smoke-phone-web-app.ts'
+      - 'packages/connectors/**'
       - 'next.config.ts'
       - '.github/workflows/desktop.yml'
       - 'package.json'
@@ -155,6 +159,23 @@ jobs:
           else
             pnpm exec tsx desktop/endurance-smoke.ts
           fi
+      - name: Exercise native and remote browser OAuth on the shared service
+        timeout-minutes: 15
+        env:
+          TMPDIR: ${{ runner.temp }}/ri-acceptance
+        run: |
+          mkdir -p "$TMPDIR"
+          if [ "$RUNNER_OS" = Linux ]; then
+            # A real window manager makes minimize/restore observable under Xvfb.
+            xvfb-run --auto-servernum sh -ec '
+              openbox --sm-disable >/dev/null 2>&1 &
+              manager_pid=$!
+              trap "kill $manager_pid 2>/dev/null || true" EXIT
+              pnpm exec tsx desktop/oauth-smoke.ts
+            '
+          else
+            pnpm exec tsx desktop/oauth-smoke.ts
+          fi
       - name: Exercise packaged notification routing with mocked OS presentation
         timeout-minutes: 15
         env:
@@ -202,6 +223,8 @@ jobs:
             release/qualification/*.json
             ${{ runner.temp }}/ri-acceptance/ri-interaction-smoke-*/report.json
             ${{ runner.temp }}/ri-acceptance/ri-interaction-smoke-*/*.png
+            ${{ runner.temp }}/ri-acceptance/ri-oauth-smoke-*/report.json
+            ${{ runner.temp }}/ri-acceptance/ri-oauth-smoke-*/*.png
             ${{ runner.temp }}/ri-acceptance/ri-endurance-smoke-*/report.json
             ${{ runner.temp }}/ri-acceptance/ri-endurance-smoke-*/*.png
             ${{ runner.temp }}/ri-acceptance/ri-notifications-smoke-*/report.json

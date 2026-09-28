@@ -2,7 +2,7 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react'
 import { Dialog } from 'radix-ui'
-import { ChevronLeft, X, Trash2, MoreHorizontal, ExternalLink, Archive, Sparkles, Maximize2 } from 'lucide-react'
+import { ChevronLeft, X, Trash2, MoreHorizontal, ExternalLink, Archive, Pencil, Maximize2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { NoteEditor } from '@/components/editor/rich-editor'
 import { LinkedReferences } from '@/components/shared/linked-references'
@@ -350,7 +350,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
               {aiBusy && (
                 <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] flex items-center justify-center pointer-events-auto transition-opacity duration-200">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground/80 bg-card/90 border border-border/50 rounded-full px-4 py-2 shadow-md">
-                    <Sparkles size={14} className="text-primary/70 animate-pulse" />
+                    <Pencil size={14} className="text-primary/70 animate-pulse" />
                     <span>AI is editing...</span>
                   </div>
                 </div>

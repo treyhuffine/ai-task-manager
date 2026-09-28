@@ -14,7 +14,7 @@ export function NeedsReviewSection() {
   const { streamingSessionIds, pendingInputSessionIds, openAgent } = useDashboard();
   const { data: candidates } = useNeedsReviewSessions();
   const { data: workspaces } = useWorkspaces({ status: 'active' });
-  // The gear and row menus open the agent's setup: its view, on the Setup tab.
+  // Session row menus open the agent's setup: its view, on the Setup tab.
   const openSetup = (id: string) => openAgent(id, 'setup');
 
   // Hide mid-turn sessions — a fresh outcome is imminent. Exception:

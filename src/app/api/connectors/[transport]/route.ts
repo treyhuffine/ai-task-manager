@@ -18,6 +18,7 @@
  */
 import { createMcpHandler } from 'mcp-handler';
 import { serveMcp, type McpToolRegistrar } from '@connectors/engine/mcp';
+import type { AccountChoice } from '@connectors/engine';
 import type { NextRequest } from 'next/server';
 import { APP_NAME } from '@/constants/app';
 import {
@@ -43,12 +44,15 @@ function buildHandler(workspaceId: string | null) {
 
       let toolkits: string[];
       let connectionPins: Record<string, string> | undefined;
+      let allowedAccounts: Record<string, AccountChoice[]> | undefined;
       if (workspaceId) {
         // Execution surface: only the workspace's allowlist (scoped ∩ connected), with account
-        // pins resolved + validated server-side (fail-closed). Derived from the validated id.
+        // pins and account sets resolved + validated server-side (fail-closed). Derived from the
+        // validated id.
         const filter = await resolveWorkspaceConnectorFilter(workspaceId, ownerId);
         toolkits = filter.toolkits;
         connectionPins = filter.connectionPins;
+        allowedAccounts = filter.allowedAccounts;
       } else {
         // Broad surface (orchestrator/content): every connected provider's toolkits. mcp-handler
         // builds a fresh server per POST, so newly-connected accounts / MCP servers appear without
@@ -68,6 +72,7 @@ function buildHandler(workspaceId: string | null) {
         caller: { type: 'mcp' },
         toolkits,
         ...(connectionPins && Object.keys(connectionPins).length > 0 ? { connectionPins } : {}),
+        ...(allowedAccounts && Object.keys(allowedAccounts).length > 0 ? { allowedAccounts } : {}),
         onPause: (actionId, outcome) => {
           // The approval pending (if any) is registered inside the ApprovalPolicy; trace the pause.
           if (!outcome.ok) console.log(`[connectors-mcp] ${actionId} → ${outcome.reason}`);

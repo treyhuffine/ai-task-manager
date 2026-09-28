@@ -1,13 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { isConnectorError } from '@connectors/engine';
 import { getConnectorRuntime } from '@/lib/connectors/runtime';
 import { withCompression } from '@/lib/api/compression';
-import { safeReturnPath } from '@/lib/connectors/desktop-oauth';
+import { oauthReturnRedirect, takeOAuthReturn } from '@/lib/connectors/oauth-return';
 
 /**
  * OAuth redirect target (public — see proxy PUBLIC_PATHS). The provider sends the
  * browser here with `?code&state`; we complete the exchange and bounce back to the
- * Connectors settings pane with a result query (`?connected=` / `?error=`).
+ * page that started the connect (its origin and `returnTo`, recorded against the
+ * `state`, see oauth-return.ts) with a result query (`?connected=` / `?error=`).
  * Security is the single-use `state` validated against the stored AuthRequest
  * inside `completeAuth`.
  */
@@ -17,33 +18,17 @@ export const GET = withCompression(handleGET);
 
 async function handleGET(request: NextRequest) {
   const url = new URL(request.url);
-
-  // A connect started with `returnTo` (e.g. onboarding) parks the destination
-  // in a short-lived cookie — honor it (same-origin paths only), else land on
-  // the connectors settings pane.
-  const returnTo = request.cookies.get('connector_return_to')?.value;
-  const backPath = safeReturnPath(returnTo);
-  const back = new URL(backPath, url.origin);
-  const redirect = (target: URL) => {
-    const res = NextResponse.redirect(target);
-    res.cookies.delete('connector_return_to');
-    return res;
-  };
+  const code = url.searchParams.get('code');
+  const state = url.searchParams.get('state');
+  const back = takeOAuthReturn(state);
+  const redirect = (result: Record<string, string>) => oauthReturnRedirect(back, result);
 
   const error = url.searchParams.get('error');
   if (error) {
-    const state = url.searchParams.get('state');
     const valid = state && await (await getConnectorRuntime()).cancelAuth(state, 'web');
-    back.searchParams.set('error', valid ? 'authorization_cancelled' : 'invalid_state');
-    return redirect(back);
+    return redirect({ error: valid ? 'authorization_cancelled' : 'invalid_state' });
   }
-
-  const code = url.searchParams.get('code');
-  const state = url.searchParams.get('state');
-  if (!code || !state) {
-    back.searchParams.set('error', 'missing_code_or_state');
-    return redirect(back);
-  }
+  if (!code || !state) return redirect({ error: 'missing_code_or_state' });
 
   // Some providers return extra metadata on the redirect (e.g. Intuit's `realmId`). Forward
   // every non-reserved query param so the provider's identify() can capture it on the connection.
@@ -54,14 +39,12 @@ async function handleGET(request: NextRequest) {
 
   try {
     const connection = await (await getConnectorRuntime()).completeAuth({ code, state, params, expectedChannel: 'web' });
-    back.searchParams.set('connected', connection.email ?? connection.accountId);
-    return redirect(back);
+    return redirect({ connected: connection.email ?? connection.accountId });
   } catch (e) {
     // Map to a coarse code — never put the raw error (which may carry request detail) into the
     // redirect URL, where it would land in browser history / referrer / server logs.
-    const code = isConnectorError(e) ? e.code : 'connect_failed';
+    const errorCode = isConnectorError(e) ? e.code : 'connect_failed';
     console.error('[connectors] completeAuth failed', e);
-    back.searchParams.set('error', code);
-    return redirect(back);
+    return redirect({ error: errorCode });
   }
 }

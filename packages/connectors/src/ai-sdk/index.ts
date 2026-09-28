@@ -15,8 +15,17 @@
  */
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
-import { toToolName, projectedDescription, accountDisplay, modelSafeOutcome, type FailedOutcome } from '../core/projection-shared';
-import type { ActionOutcome, Caller, ConnectorRuntime, Redactor, Toolkit } from '../core/types';
+import {
+  toToolName,
+  projectedDescription,
+  accountDisplay,
+  modelSafeOutcome,
+  accountBinding,
+  allowedAccountDescription,
+  bindingRunOptions,
+  type FailedOutcome,
+} from '../core/projection-shared';
+import type { AccountChoice, ActionOutcome, Caller, ConnectorRuntime, Redactor, Toolkit } from '../core/types';
 
 export interface ToToolSetOptions {
   ownerId?: string;
@@ -39,6 +48,11 @@ export interface ToToolSetOptions {
    * against exactly that connection (no `account` choice exposed) — mirrors `serveMcp`.
    */
   connectionPins?: Record<string, string>;
+  /**
+   * Restrict a toolkit to a SET of accounts, keyed by toolkit id: the `account` param lists only
+   * these, and `runAction` rejects anything outside them. Mirrors `serveMcp`'s `allowedAccounts`.
+   */
+  allowedAccounts?: Record<string, AccountChoice[]>;
 }
 
 export async function toToolSet(runtime: ConnectorRuntime, options: ToToolSetOptions = {}): Promise<ToolSet> {
@@ -59,16 +73,20 @@ export async function toToolSet(runtime: ConnectorRuntime, options: ToToolSetOpt
 
   const tools: ToolSet = {};
   for (const toolkit of selected) {
+    const binding = accountBinding(toolkit.id, options);
+    if (binding.kind === 'blocked') continue; // an empty allowed set exposes nothing (fail closed)
     const accounts = accountsByProvider.get(toolkit.providerId) ?? [];
     const accountDesc =
-      accounts.length > 1
-        ? `Which connected account to act as. One of: ${accounts.map((a) => `"${a}"`).join(', ')}. Omit only if the user clearly means a single account.`
-        : 'Which connected account to act as (email or label). Usually omit — there is at most one connected account.';
+      binding.kind === 'allowed'
+        ? allowedAccountDescription(binding.choices)
+        : accounts.length > 1
+          ? `Which connected account to act as. One of: ${accounts.map((a) => `"${a}"`).join(', ')}. Omit only if the user clearly means a single account.`
+          : 'Which connected account to act as (email or label). Usually omit — there is at most one connected account.';
 
-    const pin = options.connectionPins?.[toolkit.id];
     for (const a of toolkit.actions) {
       const baseSchema = a.input as unknown as z.ZodObject<z.ZodRawShape>;
-      const inputSchema = pin ? baseSchema : baseSchema.extend({ account: z.string().optional().describe(accountDesc) });
+      const inputSchema =
+        binding.kind === 'pin' ? baseSchema : baseSchema.extend({ account: z.string().optional().describe(accountDesc) });
 
       tools[toToolName(a.id)] = tool({
         description: projectedDescription(a),
@@ -77,7 +95,7 @@ export async function toToolSet(runtime: ConnectorRuntime, options: ToToolSetOpt
           const { account, ...rest } = args as { account?: string } & Record<string, unknown>;
           const outcome = await runtime.runAction(a.id, rest, {
             ...(ownerId ? { ownerId } : {}),
-            ...(pin ? { connectionId: pin } : account ? { account } : {}),
+            ...bindingRunOptions(binding, account),
             caller,
           });
           if (outcome.ok) return options.redactor ? options.redactor.redact(outcome.result) : outcome.result;

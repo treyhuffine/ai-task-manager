@@ -1,6 +1,7 @@
 import { connectMcpClient, finishMcpOAuth } from '@connectors/engine/mcp';
 import type { McpServerEntry } from './mcp-servers';
 import { isDesktopRequest, desktopOAuth, desktopRelayFor, type DesktopOAuthFlow } from './desktop-oauth';
+import { rememberOAuthReturn } from './oauth-return';
 import { getConnectorRuntime, getMcpServerStore, invalidateConnectorRuntime, mcpOAuthProviderFor, MCP_TIMEOUT_MS, withTimeout } from './runtime';
 
 export async function completeMcpAuthorization(entry: McpServerEntry, code: string, state: string, provider = mcpOAuthProviderFor(entry)) {
@@ -12,12 +13,15 @@ export async function completeMcpAuthorization(entry: McpServerEntry, code: stri
   await getConnectorRuntime();
 }
 
+/** `request` is the browser call that started the add, so the callback can return to its origin. */
 export async function beginMcpAuthorization(entry: McpServerEntry, request?: Request) {
   let flow: DesktopOAuthFlow | undefined;
   let authUrl: string | undefined;
   try {
     if (request && isDesktopRequest(request)) flow = await desktopOAuth().begin(`mcp:${entry.id}`, { relayUrl: desktopRelayFor('mcp', true) });
-    const provider = mcpOAuthProviderFor(entry, (url) => { authUrl = url.href; }, { redirectUri: flow?.redirectUri, interactive: true });
+    const provider = mcpOAuthProviderFor(entry, (url) => { authUrl = url.href; }, {
+      redirectUri: flow?.redirectUri, callbackChannel: flow ? 'desktop' : 'web', interactive: true,
+    });
     try {
       const client = await withTimeout(connectMcpClient({ url: entry.url, name: entry.slug, authProvider: provider }), MCP_TIMEOUT_MS, 'authorize');
       await client.close().catch(() => {});
@@ -30,6 +34,7 @@ export async function beginMcpAuthorization(entry: McpServerEntry, request?: Req
     const state = new URL(authUrl).searchParams.get('state');
     if (!state) throw new Error('The authorization server did not preserve the sign-in state');
     flow?.arm(state, async (params) => completeMcpAuthorization(entry, params.get('code')!, params.get('state')!, provider));
+    if (!flow && request) rememberOAuthReturn(state, request);
     return { requiresAuth: true as const, authUrl, ...(flow ? { desktopFlowId: flow.id } : {}) };
   } catch (error) { flow?.cancel(); throw error; }
 }

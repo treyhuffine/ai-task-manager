@@ -1889,6 +1889,18 @@ function mapUnknownEvent(
     return null;
   }
 
+  // Codex reports a failing turn through its JSON-RPC `error` notification.
+  // While it retries (`willRetry`, "Reconnecting... n/5") that is noise, so
+  // it stays a hidden system row. The last one, with no retry left, is why
+  // the turn produced nothing, so it renders as an error. Hidden, a failed
+  // turn looked like no reply at all and the user sent the message again.
+  if (codexMethod === 'error') {
+    const failure = codexTurnFailure(ev.raw);
+    if (failure) {
+      return { ...base, role: 'system', source: 'error' satisfies ChatEventSource, content: failure };
+    }
+  }
+
   switch (subtype) {
     case 'compact_boundary':
       return {
@@ -1927,6 +1939,24 @@ function mapUnknownEvent(
         content: subtype,
       };
   }
+}
+
+/**
+ * The message of a Codex `error` notification that ends the turn, or null
+ * while Codex is still retrying. `params.error.message` is the provider's
+ * line (a 401, a disconnect), and `additionalDetails` adds the cause when
+ * the message alone is generic.
+ */
+function codexTurnFailure(raw: Record<string, unknown> | undefined): string | null {
+  const params = raw?.['params'];
+  if (!params || typeof params !== 'object') return null;
+  const { willRetry, error } = params as { willRetry?: unknown; error?: unknown };
+  if (willRetry === true) return null;
+  const err = error && typeof error === 'object' ? (error as { message?: unknown; additionalDetails?: unknown }) : {};
+  const message = typeof err.message === 'string' ? err.message.trim() : '';
+  const details = typeof err.additionalDetails === 'string' ? err.additionalDetails.trim() : '';
+  if (message && details && !message.includes(details)) return `${message} (${details})`;
+  return message || details || 'Codex stopped with an error.';
 }
 
 // ─── Helpers ──────────────────────────────────────────────────

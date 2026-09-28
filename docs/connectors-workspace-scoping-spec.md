@@ -3,6 +3,11 @@
 > **Status:** draft, not built. Revised after a code-verified review. Additive feature
 > on top of the connectors engine + MCP ingest (`docs/connectors-mcp-ingest-spec.md`).
 >
+> **Update 2026-09-28: multi-account subsets shipped.** A service can now be limited to any set of
+> connected accounts (e.g. 2 of 3 Gmail accounts), not just "all" or "one". The stored shape is
+> `accounts?: AccountPin[]` (§4), enforced by an engine "allowed connection set" on `runAction`
+> (§6a), picked with a multiselect (§7). The sections below describe the shipped behavior.
+>
 > **Goal.** Scope which connectors an agent surface may use, at the grain the user
 > actually reasons about — a **service** (a *toolkit*: Gmail, Google Calendar, Drive,
 > Slack, Linear), optionally pinned to a specific **account**. One mechanism, two
@@ -66,15 +71,40 @@ fail session creation if a run explicitly requires connectors.
 // src/lib/db/schema.ts — workspaces
 connectorScopes: text({ mode: 'json' }).$type<WorkspaceConnectorScope[]>().notNull().default([]),
 
-// src/db/types.ts (or shared)
+// src/lib/db/schema.ts (re-exported from src/db/types.ts)
+interface WorkspaceConnectorScopeAccount {  // an "account pin"
+  accountId: string;              // engine accountId (stable across reconnect)
+  authConfigId?: string;          // OAuth client that minted it; undefined = default client
+}
 interface WorkspaceConnectorScope {
   toolkitId: string;              // 'gmail' | 'google_calendar' | 'mcp_linear' | ...
-  account?: {                     // pin to one account; omitted = all connected accounts
-    accountId: string;            // engine accountId (stable across reconnect)
-    authConfigId?: string;        // OAuth client that minted it; undefined = default client
-  };
+  accounts?: WorkspaceConnectorScopeAccount[];
+  /** @deprecated legacy single pin: read (normalized into `accounts`), never written */
+  account?: WorkspaceConnectorScopeAccount;
 }
 ```
+
+What `accounts` means:
+
+| `accounts` | Meaning | Enforcement (§6a) |
+|---|---|---|
+| omitted / `[]` | every connected account, **including ones connected later** | no constraint, the model may name any account |
+| one pin | that account only | hard pin: the `account` tool param is hidden, the run is forced to the connection |
+| two or more pins | exactly that set | the `account` param stays, lists only the set, and `runAction` rejects anything outside it |
+
+Picking every currently connected account one by one stores that **explicit set**, which does NOT
+include an account connected later. Only "All accounts" (no pins) grows with new connections. That
+is the least-privilege reading of a user who picked specific accounts, and the picker (§7) shows the
+two as different states ("All accounts" vs "3 of 3 accounts").
+
+**Legacy rows.** Rows written before multi-account scopes carry the single `account` pin. The column
+is JSON, so there is no SQL migration: the query layer (`getWorkspace`, `listWorkspaces`, and the
+rows `createWorkspace` / `updateWorkspace` / `archiveWorkspace` return) normalizes every read through
+`normalizeConnectorScopes` (`src/lib/connectors/scope-pins.ts`), folding `account` into `accounts`.
+The row itself is rewritten into the new shape on the next scope save
+(`setWorkspaceConnectorScopes` only writes `accounts`). Anything that reads a raw scope goes through
+`scopePins(scope)`, which understands both fields. A stored scope whose declared pins are all
+malformed is dropped on read (fail closed), never widened to all accounts.
 
 **Still JSON, not a join table.** Entries reference toolkit ids (engine constants /
 ingested-server ids) and an engine `accountId` — neither are rows in the app DB (the
@@ -94,12 +124,11 @@ re-derived to the same value on reconnect, so the pin re-attaches with no re-pin
 **not** unique: the same account connected through two clients yields two connections that share
 an `accountId` — without `authConfigId` the pin would resolve to two matches and the toolkit would
 silently drop (fail-closed, but confusing). `authConfigId` undefined = the provider's default
-client (pre-feature / self-credentialed). The pin is a single optional value, not an array — the
-state v1 enforces ("all accounts" or "this one"), so an unenforceable subset can't be
-represented. The route resolves the pin → the live connection id at session build (§6a/§6b),
-requiring **exactly one** match (else fail-closed); the dedicated PUT also validates this at write
-time for currently-connected providers so an ambiguous pin is rejected up front, not silently
-dropped later. Enforcement is by the resolved connection id while storage stays stable.
+client (pre-feature / self-credentialed). The route resolves each pin → a live connection id at
+session build (§6a/§6b), requiring **exactly one** match per pin (a pin that matches zero or several
+contributes nothing); the dedicated PUT also validates this at write time for currently-connected
+providers so an ambiguous pin is rejected up front, not silently dropped later. Enforcement is by the
+resolved connection ids while storage stays stable.
 
 ## 5. Connect-time service selection (fixes "blasted all of Google")
 
@@ -126,14 +155,35 @@ what an execution may use of it.
 
 ## 6. Wiring
 
-### 6a. `serveMcp` gains toolkit filter (have it) + per-toolkit connection pin (new, small)
-`serveMcp` already filters by `options.toolkits`. Add `options.connectionPins?:
-Record<toolkitId, connectionId>`: a pinned toolkit's handlers pass that `connectionId` to
-`runAction` (a hard pin) instead of the model's soft `account` hint. The host computes the
-pin by resolving the scope's stored `account` (accountId) to the owner's live connection for
-that toolkit's provider — so enforcement is a server-resolved connection id, and the stored
-ref stays stable across reconnect (§4). Single-account only (the work/personal case); a
-multi-account subset would need an array shape — deferred (§9).
+### 6a. `serveMcp`: toolkit filter, per-toolkit pin, per-toolkit allowed set
+`serveMcp` filters by `options.toolkits` and takes two account constraints, both keyed by toolkit
+id and computed by the host from the stored pins (§6b), so enforcement is by server-resolved
+connection ids while the stored refs stay stable across reconnect (§4):
+
+- `connectionPins?: Record<toolkitId, connectionId>`: a pinned toolkit's handlers pass that
+  `connectionId` to `runAction` (a hard pin) and the `account` param is not exposed at all.
+- `allowedAccounts?: Record<toolkitId, AccountChoice[]>`: a toolkit limited to a SET of accounts.
+  The `account` param stays, and its description lists exactly the allowed accounts (the
+  `accountDisplay` tokens, e.g. `"work@gmail.com"`, `"me@gmail.com (Work)"`). Every run passes
+  `allowedConnectionIds` plus the model's `account` hint to `runAction`. A one-entry set behaves as a
+  pin, an empty set hides the toolkit (fail closed), and a pin for the same toolkit wins.
+
+The engine constraint lives in `runAction` (`RunActionOptions.allowedConnectionIds`), so it holds
+for any projection, not just MCP. Resolution considers only the owner's connections in the set:
+
+- a hint that matches one allowed account → that connection;
+- a hint or a `connectionId` naming a connection OUTSIDE the set → `error` with code
+  `account_not_allowed` and a message listing the allowed accounts (never silently rerouted, and a
+  raw connection id is never echoed);
+- no hint, or a hint that is ambiguous or names nothing: one allowed connection → it; more →
+  `needs_account` whose choices are only the allowed accounts (the existing multi-account
+  behavior, restricted to the subset);
+- nothing in the set is live (or the set is empty) → `connection_not_found`. A constrained run never
+  starts a connect flow, since the set was fixed by the host, not the model.
+
+The model-facing view of `account_not_allowed` is the usual model-safe `error` outcome. Shared
+projection logic (`accountBinding`, `allowedAccountDescription`, `bindingRunOptions`) lives in
+`packages/connectors/src/core/projection-shared.ts` so MCP and the AI SDK behave identically.
 
 ### 6b. Connectors MCP endpoint is workspace-aware; the boundary is the confined session
 `connectorsMcpServer(port, { workspaceId })` appends `?ws=<id>`. The serve route, per
@@ -141,10 +191,13 @@ request (mcp-handler's init callback has no request access, so build the handler
 route from `req.url`):
 - **no `ws`** → toolkits = connected (orchestrator/content broad).
 - **`ws` present** → validate the workspace id, load its `connectorScopes`, compute
-  `toolkits = connected ∩ scoped` and `connectionPins` server-side, pass to `serveMcp`. A
-  pinned `account` is **resolved + validated** here (exists, owned, matches the toolkit's
-  provider); if it resolves to anything other than exactly one connection, the toolkit is
-  **not exposed** (fail-closed) rather than offering a tool that can only error (P2).
+  `toolkits = connected ∩ scoped`, `connectionPins` and `allowedAccounts` server-side
+  (`resolveConnectorFilter`, `src/lib/connectors/workspace-filter.ts`), pass to `serveMcp`. Each
+  pinned account is **resolved + validated** here (exists, owned, matches the toolkit's provider);
+  a pin that doesn't resolve to exactly one connection contributes nothing. One live pin → a
+  `connectionPins` entry, two or more → an `allowedAccounts` set. If a scope declared pins and
+  none resolve, the toolkit is **not exposed** (fail-closed) rather than widened to every account
+  or offered as a tool that can only error (P2).
 
 **`?ws` is routing context, not the security boundary.** The boundary is that an execution
 session is **strictly confined** (§3) to the exact MCP URL we configured for it, which
@@ -160,18 +213,39 @@ capability gate — Claude Code yes, Codex no). On a non-enforcing harness, atta
 surface it. Executions do not get the orchestrator MCP — unchanged.
 
 ### 6d. SDK parity
-`getConnectorTools(ownerId, opts?: { toolkits?: string[]; connectionPins?: Record<string,string> })`
-takes the same optional filters, for any workspace-bound SDK chat. Harness execution
-(6a–6c) is the primary path.
+`getConnectorTools(ownerId, opts?: Partial<WorkspaceConnectorFilter>)` takes the same optional
+filters (`toolkits`, `connectionPins`, `allowedAccounts`) for any workspace-bound SDK chat, and
+`toToolSet` applies them exactly like `serveMcp`. Harness execution (6a–6c) is the primary path.
 
 ### 6e. Queries + validation (P2, fixed)
 `getWorkspace`/list include `connectorScopes`; add `setWorkspaceConnectorScopes(id, scopes)`:
 - **Reject (don't silently drop) toolkit ids that don't exist** in the registry — return
   them to the caller as an error.
-- **Preserve known-but-currently-disconnected** toolkit ids and pinned `account`s as
-  **dormant** (they resolve to nothing until reconnected; never silently removed). Because a
-  pin is an `accountId` (§4), reconnecting the same account re-resolves it automatically — no
-  re-pin. A truly unknown toolkit id is rejected; a disconnected-but-known one is kept.
+- **Preserve known-but-currently-disconnected** toolkit ids and pinned accounts as
+  **dormant** (they resolve to nothing until reconnected; never silently removed). That covers a
+  whole provider being disconnected AND one account of a still-connected provider: a pin already
+  stored on the workspace is kept even when it matches no live connection. A NEW pin for a
+  connected provider must match exactly one connection. Because a pin is an `accountId` (§4),
+  reconnecting the same account re-resolves it automatically, no re-pin. A truly unknown toolkit id
+  is rejected; a disconnected-but-known one is kept.
+- **Account identifiers.** A write payload (`POST /workspaces`, `PUT /workspaces/:id/connector-scopes`)
+  may name each account as an exact pin `{ accountId, authConfigId? }` (what the UI and
+  `get_workspace` carry) or as a string: an email, label, account id, or the "email (Client)"
+  display form. Strings resolve case-insensitively against the owner's live connections for that
+  toolkit's provider and are stored as pins. No match, or more than one, is a 400 with a readable
+  message listing the connected accounts (or the ambiguous candidates). A string that names a stored
+  dormant pin's account id round-trips. The legacy single `account` (pin or string) is still
+  accepted and folded into `accounts`.
+- **Malformed accounts reject the payload** (400) rather than being dropped. Dropping one used to
+  turn a scope into "all accounts", the opposite of what the caller asked for (this is how
+  `update_workspace`'s string `account` was silently ignored before).
+- Pins are deduped per scope, scopes are deduped by toolkit (last wins), and only the current shape
+  is written.
+
+`update_workspace` (orchestrator action, local CLI only) takes `connectorScopes: [{ toolkitId,
+accounts?: (string | { accountId, authConfigId? })[], account?: string | null }]`, folds the legacy
+`account` into `accounts`, and forwards to the PUT above, so the same resolution and errors apply
+(a 400 comes back as `invalid_params`).
 
 ### 6f. Live policy changes recycle sessions (P2)
 On `setWorkspaceConnectorScopes`, recycle that workspace's **active execution sessions**
@@ -183,13 +257,29 @@ Tightening (removing) must apply now; the harness caches tool lists otherwise.
 - **Connect panel (§5):** the provider's services as checkboxes, all-on by default, with a
   provider-level select-all. Only the box list when one service; grouped when many.
 - **Workspace settings:** a "Connectors" section listing **connected** services grouped under
-  their provider (provider-level select-all + per-service toggles). When a service has **>1
-  connected account**, an account picker (default "all accounts"); pinning one writes
-  `account: { accountId, authConfigId }` (both pulled from the chosen connection so the same
-  account through two clients stays distinct). **Dormant** selected services/accounts (stored but currently
-  disconnected) render disabled with a reconnect/remove affordance, so stored intent is always
-  visible. Sticky — set once per workspace. Copy: "Agents running in this workspace may use
-  these services. The orchestrator always has them all."
+  their provider (provider-level select-all + per-service toggles). When a checked service has
+  **>1 connected account** (or already has pins), an account multiselect sits at the right of the
+  row (`AccountMultiSelect` in `connector-scope-picker.tsx`, a `DropdownMenu` of
+  `DropdownMenuCheckboxItem`s, the app's multi-choice filter pattern):
+  - Collapsed, it summarizes the choice: "All accounts", the one email when a single account is
+    picked, or "2 of 3 accounts". An amber alert icon (with a tooltip) marks chosen accounts that
+    are no longer connected. The trigger caps at 55% of the row in a narrow panel and 200px from
+    the `@sm` container size up (the picker root is an `@container`).
+  - Open, it lists "All accounts" (subtitle "Includes accounts you connect later"), a separator,
+    then one checkbox per connected account. The menu stays open while toggling.
+  - "All accounts" checked shows every account checked. Unchecking one account from there keeps
+    all the others as an explicit set. Unchecking "All accounts" keeps every current account as an
+    explicit set. Checking "All accounts" clears the pins. In an explicit set a footnote says
+    accounts connected later stay off until added.
+  - The last remaining account can't be unchecked (disabled). To remove the service, uncheck it.
+  - Pinned accounts that are no longer connected appear under "Not connected (kept, inactive)",
+    checked, and unchecking one removes it.
+
+  Writes `accounts: [{ accountId, authConfigId }]` (both pulled from the chosen connection so the
+  same account through two clients stays distinct). **Dormant** services (stored but whose provider
+  is disconnected) render in an amber list with a remove affordance and a pin summary, so stored
+  intent is always visible. The settings section's change detection compares each service's
+  sorted pin set. Sticky, set once per workspace.
 
 ## 8. Defaults, migration, back-compat
 
@@ -200,9 +290,6 @@ Tightening (removing) must apply now; the harness caches tool lists otherwise.
 
 ## 9. Out of scope (future seams)
 
-- **Multi-account subsets** (a toolkit scoped to 2 of 3 accounts). v1 is all-accounts or pin-one
-  (`account?: { accountId, authConfigId? }`). Seam: widen to `accounts?: AccountPin[]` + a
-  `runAction` "allowed connection set" constraint (resolve-set, fail-closed on empty).
 - **Connectors on non-strict harnesses** (e.g. Codex executions). Blocked until that harness
   enforces MCP tool-filtering (§3 capability gate); revisit when agentex adds it.
 - **Per-execution override** (one-off "this run may also use X"). Workspace + orchestrator cover
@@ -213,9 +300,20 @@ Tightening (removing) must apply now; the harness caches tool lists otherwise.
 
 - Schema/queries: `setWorkspaceConnectorScopes` round-trips; rejects unknown toolkit ids;
   preserves dormant (disconnected) ids.
-- Endpoint: `?ws` → toolkits = scoped ∩ connected; a pinned `account` resolves to its live
-  connection id and forces it; an unresolvable/ambiguous pin fails closed (toolkit not exposed);
-  no `ws` = connected (broad); empty scopes + `ws` = nothing.
+- Endpoint: `?ws` → toolkits = scoped ∩ connected; a single pin resolves to its live
+  connection id and forces it; 2+ live pins become an allowed set; pins that resolve to nothing
+  fail closed (toolkit not exposed); no `ws` = connected (broad); empty scopes + `ws` = nothing.
+  (`src/lib/connectors/workspace-filter.test.ts`)
+- Allowed set (engine, `packages/connectors/src/__tests__/allowed-connections.test.ts`, `mcp.test.ts`,
+  `projection.test.ts`): an account inside the set runs; one outside (by hint or connectionId) is
+  `account_not_allowed` listing the allowed accounts with no ids leaked; no hint → `needs_account`
+  with only the allowed choices; an empty or dead set → `connection_not_found` with no connect flow;
+  a one-account set is a pin; a pin wins over a set; unconstrained resolution is unchanged.
+- Write path (`scopes.test.ts`, `connector-scopes/route.test.ts`, `registry.agents.test.ts`):
+  identifiers resolve to pins; ambiguous or unknown identifiers are readable 400s; malformed accounts
+  reject; legacy `account` is folded into `accounts`; stored dormant accounts are kept.
+- Legacy rows (`queries.workspace-scope.test.ts`, `scope-pins.test.ts`): a single-`account` row
+  reads back as `accounts`, and the next save writes the new shape.
 - Pin stability: a scope pinned by `(accountId, authConfigId)` re-resolves after a
   disconnect→reconnect of that account (new connection id, same accountId+authConfigId) without a
   re-pin; the same account connected through a second OAuth client stays a distinct, unambiguous pin.

@@ -15,6 +15,7 @@ import { CalendarPanel } from '@/components/calendar/calendar-panel';
 import { useNeedsYourCall } from '@/hooks/use-stream';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import { HarnessChat } from '@/components/chat/harness-chat';
+import { appMainChatIntro } from '@/components/chat/main-chat-intro';
 import { useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
 import { resolveOrchestratorMode, type OrchestratorChatMode } from '@/lib/orchestrator/mode';
 import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
@@ -119,7 +120,7 @@ function ChatContent({ isMobile }: { isMobile: boolean }) {
         newChatPending={newChat.isPending}
       />
       {/* Key on mode so a switch fully remounts against the new session. */}
-      <HarnessChat key={mode} isMobile={isMobile} />
+      <HarnessChat key={mode} isMobile={isMobile} intro={appMainChatIntro()} />
     </div>
   );
 }

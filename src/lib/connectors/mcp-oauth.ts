@@ -27,6 +27,8 @@ export interface McpOAuthState {
   authorizationState?: string;
   authorizationExpiresAt?: number;
   redirectUri?: string;
+  /** Explicit client binding survives a change to the configured public URL. */
+  callbackChannel?: 'web' | 'desktop';
 }
 
 export interface McpOAuthProviderDeps {
@@ -39,6 +41,7 @@ export interface McpOAuthProviderDeps {
   /** Invoked with the authorization URL when the user must be redirected to consent. */
   onRedirect?: (url: URL) => void;
   interactive?: boolean;
+  callbackChannel?: 'web' | 'desktop';
 }
 
 export function makeMcpOAuthProvider(deps: McpOAuthProviderDeps): OAuthClientProvider {
@@ -55,7 +58,8 @@ export function makeMcpOAuthProvider(deps: McpOAuthProviderDeps): OAuthClientPro
     },
     async state() {
       const state = randomBytes(32).toString('base64url');
-      await put({ ...(await get()), authorizationState: state, authorizationExpiresAt: Date.now() + 10 * 60_000, redirectUri: deps.redirectUrl });
+      await put({ ...(await get()), authorizationState: state, authorizationExpiresAt: Date.now() + 10 * 60_000,
+        redirectUri: deps.redirectUrl, callbackChannel: deps.callbackChannel ?? 'web' });
       return state;
     },
     get clientMetadata(): OAuthClientMetadata {

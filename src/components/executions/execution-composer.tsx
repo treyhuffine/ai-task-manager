@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ArrowUp, Mic, Square, Loader2, Sparkles, Check, Zap, X } from 'lucide-react';
+import { ArrowUp, Mic, Square, Loader2, Cpu, Check, Zap, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LiveWaveform } from '@/components/ui/live-waveform';
@@ -257,13 +257,14 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     // up the "click execution → type immediately" flow without an
     // extra click into the textarea. Re-fires when the active session
     // changes (rail navigation, deep link); the disabled gate suppresses
-    // focusing a composer that's archived or still setting up. We hand
-    // Tiptap a microtask so the contenteditable is mounted and ready
-    // before we call `focus()`.
+    // focusing a composer that's archived or still setting up. Defer until
+    // its editor is mounted, then yield to any input/dialog opened while
+    // it loaded. The editor checks again in the actual focus frame.
     useEffect(() => {
       if (!sessionId || disabled || !autoFocus) return;
-      const t = setTimeout(() => editorRef.current?.focus(), 0);
-      return () => clearTimeout(t);
+      let cancelFocus: (() => void) | undefined;
+      const t = setTimeout(() => { cancelFocus = editorRef.current?.scheduleAutoFocus(); }, 0);
+      return () => { clearTimeout(t); cancelFocus?.(); };
     }, [sessionId, disabled, autoFocus]);
 
     const sessionMeta = useSessionMeta(sessionId);
@@ -1048,7 +1049,7 @@ function ModelPicker({
             'disabled:opacity-50',
           )}
         >
-          <Sparkles size={11} className="text-primary/70" />
+          <Cpu size={11} className="text-primary/70" />
           <span>{fallbackLabel}</span>
         </button>
       </PopoverTrigger>

@@ -3,7 +3,7 @@
 import { useMemo, useState, useRef, useCallback } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport } from 'ai'
-import { Send, Square, Sparkles, Loader2 } from 'lucide-react'
+import { Send, Square, FlaskConical, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getAuthToken } from '@/lib/api/client'
 import { APP_NAME } from '@/constants/app'
@@ -63,7 +63,7 @@ export default function PlaygroundPage() {
       {/* Header */}
       <header className="flex items-center justify-between px-4 h-12 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
-          <Sparkles size={14} className="text-primary" />
+          <FlaskConical size={14} className="text-primary" />
           <h1 className="text-sm font-semibold text-foreground">MCP Playground</h1>
           <span className="text-xs text-muted-foreground hidden sm:inline">
             Dogfood the MCP surface
@@ -215,7 +215,7 @@ export default function PlaygroundPage() {
 function EmptyState() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-4 gap-3">
-      <Sparkles size={28} className="text-primary/60" />
+      <FlaskConical size={28} className="text-primary/60" />
       <p className="text-sm text-foreground text-center max-w-md">
         Chat with a model that only has {APP_NAME}&apos;s <code className="font-mono text-xs">query</code> and{' '}
         <code className="font-mono text-xs">update</code> tools.

@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import {
-  ChevronRight, AlertTriangle, RefreshCw, Sparkles,
+  ChevronRight, AlertTriangle, RefreshCw, MessageCircleMore,
   ShieldCheck, ShieldAlert, HelpCircle, LogIn, Loader2,
   FileText, Pencil, FilePlus, Terminal, Search, Globe, Boxes, ListTodo, Wrench,
   ClipboardList, SquareTerminal, ArrowUpRight, Bot, CheckCircle2, XCircle, CircleSlash,
@@ -196,7 +196,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
         >
           <div className="flex items-center gap-1.5">
             <RowDisclosure expanded={expanded}>
-              <Sparkles size={11} className="opacity-50" />
+              <MessageCircleMore size={11} className="opacity-50" />
             </RowDisclosure>
             <span className="truncate">{expanded ? 'Thinking' : truncate(content, 88)}</span>
           </div>

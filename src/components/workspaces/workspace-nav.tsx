@@ -59,7 +59,7 @@ function WorkspaceNavInner() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const { setActiveView, openAgent } = useDashboard();
-  // The gear and row menus open the agent's setup: its view, on the Setup tab.
+  // Session row menus open the agent's setup: its view, on the Setup tab.
   const openSetup = (id: string) => openAgent(id, 'setup');
   // Guards double-fire only. Navigation no longer waits on the create, so
   // without this a fast second click would quietly make a second execution.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isAuthConfigRequiredError, isConnectorError } from '@connectors/engine';
 import { getConnectorRuntime } from '@/lib/connectors/runtime';
 import { isDesktopRequest, desktopOAuth, desktopRelayFor, type DesktopOAuthFlow } from '@/lib/connectors/desktop-oauth';
+import { rememberOAuthReturn, safeReturnPath } from '@/lib/connectors/oauth-return';
 
 /**
  * Start an OAuth connect for a provider. Returns the provider authorization URL; the client
@@ -19,12 +20,9 @@ export async function POST(request: NextRequest) {
   };
   const providerId = typeof body.providerId === 'string' ? body.providerId : 'google';
   // Where the OAuth callback should land the browser afterwards. Same-origin
-  // paths only (single leading slash) — anything else is ignored, and the
+  // paths only (single leading slash). Anything else is ignored, and the
   // callback falls back to the connectors settings pane.
-  const returnTo =
-    typeof body.returnTo === 'string' && body.returnTo.startsWith('/') && !body.returnTo.startsWith('//')
-      ? body.returnTo
-      : null;
+  const returnTo = safeReturnPath(body.returnTo);
   let desktopFlow: DesktopOAuthFlow | undefined;
   try {
     const runtime = await getConnectorRuntime();
@@ -49,16 +47,9 @@ export async function POST(request: NextRequest) {
       const metadata = Object.fromEntries([...params].filter(([key]) => !['code', 'state', 'error'].includes(key)));
       await runtime.completeAuth({ code: params.get('code')!, state: params.get('state')!, params: metadata, expectedChannel: 'desktop' });
     });
-    const res = NextResponse.json({ ...result, ...(desktopFlow ? { desktopFlowId: desktopFlow.id } : {}) });
-    if (returnTo && !desktopFlow) {
-      res.cookies.set('connector_return_to', returnTo, {
-        path: '/',
-        maxAge: 600,
-        httpOnly: true,
-        sameSite: 'lax',
-      });
-    }
-    return res;
+    // The callback returns the browser to this page's origin (see oauth-return.ts).
+    if (!desktopFlow) rememberOAuthReturn(result.requestId, request, returnTo);
+    return NextResponse.json({ ...result, ...(desktopFlow ? { desktopFlowId: desktopFlow.id } : {}) });
   } catch (e) {
     desktopFlow?.cancel();
     // A multi-client provider with no resolvable default surfaces a picker — relay the choices.

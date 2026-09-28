@@ -293,6 +293,41 @@ describe('update_workspace', () => {
     }));
   });
 
+  it('forwards an account list per service, folding the legacy single `account` into it', async () => {
+    const { ws } = await seed();
+    serverFetch.mockResolvedValue({});
+    const envelope = await run('update_workspace', {
+      id: ws.id,
+      connectorScopes: [
+        { toolkitId: 'gmail', accounts: ['work@gmail.com', { accountId: 'sub-side', authConfigId: 'cfg-team' }] },
+        { toolkitId: 'google_calendar', account: 'personal@gmail.com' },
+        { toolkitId: 'slack', accounts: [], account: null },
+      ],
+    }, { remote: false });
+    expect(envelope.ok).toBe(true);
+    expect(serverFetch).toHaveBeenCalledWith(`/workspaces/${ws.id}/connector-scopes`, expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({
+        scopes: [
+          { toolkitId: 'gmail', accounts: ['work@gmail.com', { accountId: 'sub-side', authConfigId: 'cfg-team' }] },
+          { toolkitId: 'google_calendar', accounts: ['personal@gmail.com'] },
+          { toolkitId: 'slack' },
+        ],
+      }),
+    }));
+  });
+
+  it('turns an account that matches no connected account into invalid_params', async () => {
+    const { ws } = await seed();
+    const { ServerResponseError } = await import('./server-client');
+    const message = 'no connected Gmail account matches "nobody@gmail.com". Connected: "work@gmail.com"';
+    serverFetch.mockRejectedValueOnce(new ServerResponseError(400, JSON.stringify({ error: message }), 'PUT → 400'));
+    expect(await run('update_workspace', {
+      id: ws.id,
+      connectorScopes: [{ toolkitId: 'gmail', accounts: ['nobody@gmail.com'] }],
+    }, { remote: false })).toMatchObject({ ok: false, error: { code: 'invalid_params', message } });
+  });
+
   it('passes a validation message through as invalid_params', async () => {
     const { ws } = await seed();
     const { ServerResponseError } = await import('./server-client');

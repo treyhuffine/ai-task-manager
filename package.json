@@ -61,6 +61,7 @@
     "speech:build": "node desktop/speech/build.mjs",
     "desktop:recovery-smoke": "pnpm desktop:build && tsx desktop/recovery-smoke.ts",
     "desktop:interaction-smoke": "tsx desktop/interaction-smoke.ts",
+    "desktop:oauth-smoke": "tsx desktop/oauth-smoke.ts",
     "desktop:endurance-smoke": "tsx desktop/endurance-smoke.ts",
     "desktop:notifications-smoke": "tsx desktop/notifications-smoke.ts",
     "desktop:browser-notifications-smoke": "tsx desktop/browser-notifications-smoke.ts",

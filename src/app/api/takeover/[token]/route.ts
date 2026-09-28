@@ -64,7 +64,7 @@ async function handleGET(
     // and reflects any post-takeover remote changes the user might have
     // made. The takeover row doesn't store remoteUrl precisely because
     // it can drift; the branch and SHA are the only frozen-in-time bits.
-    const handle = await openWorktreeHandle(session, ws.cwd);
+    const handle = await openWorktreeHandle(session, ws);
     if (!handle || handle.kind !== 'git') {
       return Response.json({ error: 'worktree_unavailable' }, { status: 404 });
     }
