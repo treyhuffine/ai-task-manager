@@ -206,14 +206,18 @@ export function remoteTerminalStream(request: Request, place: RemoteTerminalPlac
       enqueue(sse('ready', { id: terminalId, resumed: since !== undefined && !replay.gap }));
       if (replay.replay) enqueue(sse('data', replay.replay, replay.offset));
       at = replay.offset;
+      // Output that arrived while the replay was on its way comes first, then
+      // the exit, so the last of it isn't lost (P3 review). One that can't be
+      // spliced on ends the stream without an exit: the reconnect catches up
+      // from the computer's ring, and ends with the exit there.
+      for (const chunk of early.splice(0)) {
+        send(chunk);
+        if (closed) return;
+      }
       if (replay.exited || exited) {
         enqueue(sse('exit', exited ?? { code: replay.exitCode, signal: null }));
         close();
         return;
-      }
-      for (const chunk of early.splice(0)) {
-        send(chunk);
-        if (closed) return;
       }
       keepAlive = setInterval(() => enqueue(encoder.encode(': ping\n\n')), 25_000);
     },

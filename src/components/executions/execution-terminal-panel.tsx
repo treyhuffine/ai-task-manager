@@ -202,6 +202,7 @@ export function ExecutionTerminalPanel({
               apiBase={folderApiBase(source)}
               terminalId={t.id}
               active={activeId === t.id}
+              live={activeId === t.id && !collapsed}
               onExit={() => handleClose(t.id)}
             />
           </div>

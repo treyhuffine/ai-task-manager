@@ -22,6 +22,7 @@ import {
   type SessionRuntimeStatus,
 } from '@/lib/executor/runtime-status';
 import type { MessageDelivery } from '@/lib/workers/delivery';
+import { deliveryClock, mergeDeliverySnapshot, streamedSince } from '@/lib/query/delivery-fence';
 
 const SESSION_KEY = (id: string) => ['session', id] as const;
 
@@ -741,9 +742,16 @@ interface InternalSendInput extends SendMessageInput {
  * by chat event id. Kept current by the session stream's `delivery` frames.
  */
 export function useDeliveries(sessionId: string | null) {
+  const qc = useQueryClient();
+  const key = ['session', sessionId, 'deliveries'] as const;
   return useQuery({
-    queryKey: ['session', sessionId, 'deliveries'],
-    queryFn: ({ signal }) => sessionsApi.deliveries(sessionId!, { signal }),
+    queryKey: key,
+    // What the stream said while this was on its way wins over it (P3 review).
+    queryFn: async ({ signal }) => {
+      const since = deliveryClock();
+      const snapshot = await sessionsApi.deliveries(sessionId!, { signal });
+      return mergeDeliverySnapshot(sessionId!, snapshot ?? {}, qc.getQueryData<Record<string, MessageDelivery>>(key), since);
+    },
     enabled: !!sessionId,
     staleTime: 60_000,
   });
@@ -754,8 +762,12 @@ export function useCancelDelivery(sessionId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (eventId: string) => sessionsApi.cancelDelivery(sessionId, eventId),
-    onSuccess: (delivery, eventId) =>
-      qc.setQueryData<Record<string, MessageDelivery>>(['session', sessionId, 'deliveries'], (prev) => ({ ...(prev ?? {}), [eventId]: delivery })),
+    onMutate: () => ({ since: deliveryClock() }),
+    // Unless the stream said something newer about it meanwhile.
+    onSuccess: (delivery, eventId, context) => {
+      if (context && streamedSince(sessionId, eventId, context.since)) return;
+      qc.setQueryData<Record<string, MessageDelivery>>(['session', sessionId, 'deliveries'], (prev) => ({ ...(prev ?? {}), [eventId]: delivery }));
+    },
     onError: (err) => toast.error("Couldn't withdraw that message", { description: apiErrorText(err) }),
   });
 }

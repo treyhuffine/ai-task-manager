@@ -195,6 +195,12 @@ export interface DispatchOptions {
    */
   onQueued?: () => void;
   /**
+   * The command a message to a computer elsewhere waits in, once it's
+   * queued: a scheduled run starts its clock only when that computer takes
+   * it (P3 review).
+   */
+  onQueuedCommand?: (commandId: string) => void;
+  /**
    * Called once the next message can follow this one: when the chat's
    * harness has it and takes messages mid-turn, or its computer's queue has
    * it (a worker takes them in turn), or a move holds it. For a harness here
@@ -353,6 +359,8 @@ function holdHere(chatSessionId: string, executionId: string, options: DispatchO
 interface Delivered {
   turn: Promise<void>;
   outcome: 'sent' | 'queued' | 'held';
+  /** The command it waits in, when queued for a computer elsewhere. */
+  commandId?: string;
   /** Another message can follow it now, rather than when its turn is over. */
   acceptsMore: boolean;
 }
@@ -481,6 +489,7 @@ async function dispatchTo(
   // waiting in a queue, or held by a move, isn't the chat working. Accepted
   // only when something took it, never when it was held.
   if (delivered.outcome !== 'sent') options.onQueued?.();
+  if (delivered.commandId) options.onQueuedCommand?.(delivered.commandId);
   if (delivered.outcome === 'queued' || (delivered.outcome === 'sent' && delivered.acceptsMore)) options.onAccepted?.();
   try {
     await delivered.turn;
@@ -597,7 +606,7 @@ async function sendAdmitted(
 
   const turnId = uuidv7();
   const turn = awaitTurn(turnId);
-  let queued = false;
+  let queued: string | null = null;
   try {
     const runner = runnerFor(chatSessionId);
     const request: SendRequest = {
@@ -620,7 +629,7 @@ async function sendAdmitted(
     }
     if (sent.status === 'queued') {
       announceDelivery(sent.commandId);
-      queued = true;
+      queued = sent.commandId;
     }
   } catch (err) {
     forgetTurn(turnId);
@@ -635,7 +644,7 @@ async function sendAdmitted(
     }
     throw err;
   }
-  return { turn, outcome: queued ? 'queued' : 'sent' };
+  return queued ? { turn, outcome: 'queued', commandId: queued } : { turn, outcome: 'sent' };
 }
 
 /**

@@ -30,6 +30,7 @@ import type {
 import {
   createExecutionWithChat,
   getExecution,
+  getWorkerCommand,
   updateTrigger,
   createRun,
   markRunStarted,
@@ -514,10 +515,10 @@ async function runUnderLease(
         console.warn(`[dispatch] failed to persist scheduled prompt event for ${chatSessionId}:`, err);
       }
       await runArtifactBucket.runWith(runId, chatSessionId, () =>
-        runWithTimeout(chatSessionId, trigger, () =>
+        runWithTimeout(chatSessionId, trigger, (onQueuedCommand) =>
           // The prompt's event carries its delivery when the execution runs
           // on another computer, so the chat shows it waiting (P3.2).
-          executorDispatch(chatSessionId, prompt, { internalCall: true, runId, sourceEventId }),
+          executorDispatch(chatSessionId, prompt, { internalCall: true, runId, sourceEventId, onQueuedCommand }),
         ),
       );
     };
@@ -648,32 +649,59 @@ class RunTimeoutError extends Error {
  * timeout" so users who don't care can opt out by setting 0; the
  * trigger default (900s / 15min) ships in the create_trigger
  * action.
+ *
+ * The clock is the execution's (P3 review). Here it starts at once. For
+ * an execution on another computer it starts when that computer takes the
+ * message out of its queue: a fire waiting for a laptop that's asleep
+ * waits there, as P3.4 promises, and runs once it wakes, the way the home
+ * fires an overdue trigger once when it next ticks. So a run never fails
+ * on time while its message is still queued to run later.
  */
 async function runWithTimeout<T>(
   chatSessionId: string,
   trigger: TriggerRecord,
-  body: () => Promise<T>,
+  body: (onQueuedCommand: (commandId: string) => void) => Promise<T>,
 ): Promise<T> {
   const seconds = trigger.timeoutSeconds;
-  if (!seconds || seconds <= 0) return body();
+  if (!seconds || seconds <= 0) return body(() => {});
   let timer: NodeJS.Timeout | null = null;
+  let watch: NodeJS.Timeout | null = null;
+  let expire!: (err: Error) => void;
   const timeout = new Promise<never>((_, reject) => {
+    expire = reject;
+  });
+  const start = () => {
+    if (timer) return;
     timer = setTimeout(() => {
       // Interrupt is fire-and-forget — the agent's pending `send()`
       // will resolve with an aborted result, but we've already
       // rejected the race. Catch defensively so an unhandled
       // rejection here doesn't trip the process.
       executorAbort(chatSessionId).catch(() => { /* best-effort */ });
-      reject(new RunTimeoutError(seconds));
+      expire(new RunTimeoutError(seconds));
     }, seconds * 1000);
-  });
+  };
+  const onQueuedCommand = (commandId: string) => {
+    // Queued for a computer elsewhere: the clock waits for it to take it.
+    if (timer) clearTimeout(timer);
+    timer = null;
+    watch = setInterval(() => {
+      const command = getWorkerCommand(commandId);
+      if (command && command.state === 'queued') return;
+      if (watch) clearInterval(watch);
+      watch = null;
+      start();
+    }, 1_000);
+  };
+  start();
   try {
-    return await Promise.race([body(), timeout]);
+    return await Promise.race([body(onQueuedCommand), timeout]);
   } finally {
     // Always clear the timer so a fast finish doesn't leak a pending
     // `setTimeout`. Without this, the reject above eventually still
     // fires on a closed chat — harmless but noisy in logs.
     if (timer) clearTimeout(timer);
+    if (watch) clearInterval(watch);
   }
 }
 

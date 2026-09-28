@@ -178,8 +178,10 @@ export class WorkerTerminals {
     const result = this.pty!.subscribe(owner, terminalId, (chunk) => {
       if (chunk.type === 'data') this.queue(terminalId, chunk.data, chunk.offset);
       else {
+        // The shell ended, the terminal didn't: it stays this placement's,
+        // replayable and closable, until it's closed or the placement is
+        // released (P3 review). Input stops on its own.
         this.exits.push({ terminalId, code: chunk.code, signal: chunk.signal });
-        this.generations.delete(terminalId);
         this.unsubscribes.delete(terminalId);
         this.schedule();
       }
