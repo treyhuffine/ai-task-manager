@@ -23,7 +23,7 @@
  * client prevents that.
  */
 
-import { APP_SHORT_ID } from '@/constants/app';
+import { APP_SHORT_ID, PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
 import { isGatewayFailure, isNetworkFailure, reportNetworkFailure, reportReachable } from './connectivity';
 
 export const AUTH_TOKEN_STORAGE_KEY = `${APP_SHORT_ID}.token`;
@@ -109,6 +109,15 @@ export interface ApiClientOptions {
 
 export function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
+  // A pairing link (`#token=...`) is the token for this browser from the
+  // first request on, whichever component asks first: a request made before
+  // PairingBootstrap stores it would be refused, and the refusal signs the
+  // browser out. PairingBootstrap still strips the fragment.
+  const fromLink = new URLSearchParams(window.location.hash.replace(/^#/, '')).get(PAIRING_TOKEN_FRAGMENT_KEY);
+  if (fromLink) {
+    setAuthToken(fromLink);
+    return fromLink;
+  }
   try {
     return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
   } catch {

@@ -1183,7 +1183,7 @@ Found on the way: the folder picker could sit on Loading in a headless browser o
 The gate: the personal journey works without pasted commands after installation, preserves existing work, and supports moving from laptop-as-home to an always-on home. The order, and why:
 
 1. **P5.4 The companion.** Today a computer joins by pasted commands and runs its worker in an open terminal, which is exactly what the gate rules out. The desktop branch (`ai-task-manager/session-ca52f4`, `docs/desktop.md`) already has what this needs: one local service shared by the CLI and Electron (`src/lib/service/`), launchd and systemd adapters (a LaunchAgent per data root, restarted on an unsuccessful exit), staged runtimes outside the app bundle, and coordinated updates and maintenance. So nothing separate is built here. The plan, simple to follow later: one service per computer. On the home it runs Ri, on any other computer it runs the worker.
-   - [ ] **Merge the desktop work into this branch**, a normal three-way merge over the 18 files both touch, checking behavior at each boundary even where Git merges cleanly.
+   - [x] **Merge the desktop work into this branch** (297d4ab, the desktop branch at 2d5a37d, with main as of b369b20). Done in a scratch worktree, so the dev home never ran a half-merged tree, then fast-forwarded. See "P5.4 Merging the desktop branch" below.
    - [ ] **The role, before anything starts.** Resolve home versus connected computer before Electron starts a local service or opens a database, keeping this branch's `assertMayOpenDatabase` and the desktop's maintenance and database-access locking (desktop.md, handoff item 1). On a connected computer the service runs `worker run`, under the same lifecycle, status, stop and update.
    - [ ] **The other handoff items**: maintenance admission, draining and idle-harness closing kept with the split runner, and remote workers joining coordinated updates (2). Local filesystem, service, notification and OAuth capabilities kept from remote home and team pages (3). Deferred notification delivery carried into `deliverRow` (4). Connector account allowlists and owner and session authorization kept through the home and harness routing (5).
    - [ ] **What the app adds for a connected computer**: connected, working or stopped at a glance, Open Ri, Stop local execution, joining a home by code or link without a terminal, and the browser association for This Mac (spec §3.1).
@@ -1194,6 +1194,27 @@ The gate: the personal journey works without pasted commands after installation,
 6. **P5.6** Rollback rehearsed, and exactly what's preserved, listed.
 
 Decided: the desktop companion is the Electron app on the desktop branch, not the native menu bar app first proposed, and its service is the one every computer runs. No separate `ri worker install`: a second service beside the app's would fight the one-worker-per-root lock.
+
+## P5.4 Merging the desktop branch
+
+27 files conflicted. How each was settled:
+
+- **The executor.** This branch's split runner stays. Ported onto it: sends admitted through the desktop's maintenance gate (`withActivity` around `dispatch`), the Codex error that ends a turn shown (now in `runner/parse.ts`), and `closeIdleHarnessesForMaintenance`, whose idle close lives in the local runner, which owns the harness cache. The orchestrator mode and import-mirror fixes were already here as cherry-picks.
+- **Pull-base.** Both branches fixed the same bug. One implementation now: `pullBaseInto` (`branch-sync.ts`) runs in the worktree's own repository, so it works on any computer, and it gained the desktop's PR-head refetch and its loud fetch failure. The desktop's `pullBase` is a thin wrapper over it, so its tests stand as written.
+- **Editing in the agent's Files tab** (desktop 143f453) goes to the computer the agent lives on. `agentFolderWrite` writes at home, or sends `write_agent_folder` to that computer's worker, which writes in the folder the home recorded there: never the home's copy of an agent that lives elsewhere. Execution and agent-folder writes share `writeFolder`. Test: `remote-workbench.test.ts` saves, creates, renames and deletes in an agent on the laptop, refuses a path outside it and an archived agent, and finds nothing at home.
+- **`openWorktreeHandle` takes the workspace** (desktop e18f496, for agentex 0.0.5's per-worktree base). Execution locations and requests carry the agent's remote name, and the worker's push and pull open against the agent's folder there.
+- Takeover routes stay retired (P4.5). The importer keeps this branch's version, since the desktop's e7a4520 was ported from it. `deliverRow` carries the deferred-delivery rule (handoff item 4). `proxy.ts` has both the cookie-origin check and the inactive-home gate. The voice hook keeps its provider cache and gains the desktop's re-probe on focus and when providers change (fresh then).
+- **The runner boundary** names one exception: `atomic-file.ts` opens a SQLite file of its own as an OS lock beside a config file, never the app's database.
+- Handoff item 1 at the database: `getDb` refuses a connected computer's database (`assertMayOpenDatabase`) before it takes the desktop's access lock. The role choice for Electron is next.
+
+Verified: typecheck clean. App suite 3,343 passed, with one process-timing test flaking under full-suite load (a different one each run, `faults.test.ts` or `runtime-job-lifecycle.test.ts`, each passing alone every time). Desktop suite 247 passed.
+
+Found when the dev home restarted on the merge:
+
+- **It refused to start**: "Database migration 9 does not match this release", the desktop's schema-history check (S1). The dev home had applied a draft of 0008 on hot reload during P3.1, with `default_computer_id` referencing computers without `ON DELETE SET NULL`, and the committed file differs. Nothing but the dev home ever had it (production has none of these migrations, and a connected computer keeps no database). Fixed on the dev home after a snapshot (`~/ri-homes-snapshots/data-before-desktop-merge-*.db`), with the server stopped: the column's definition changed in place to the committed one (a delete action changes no stored data, and a rebuild would reassign rowids), and the committed hash recorded. Integrity and foreign-key checks clean.
+- **Pairing by link signed the browser straight out.** The desktop's layout mounts components whose first requests ran before `PairingBootstrap` stored the `#token=` from the link, and the 401 signed the browser out. The desktop branch has the same order. Now the API client takes a pairing link's token from the first request on, whichever component asks (`auth-token.test.ts`), and `PairingBootstrap` mounts first.
+
+The dev home runs the merge: the MacBook reconnected on protocol 3, and the Setup tab, the composer and the Folders section render at desktop and phone widths without errors.
 
 ## P5.1 Comparing the two homes
 
