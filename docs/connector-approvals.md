@@ -60,9 +60,16 @@ stream pushes (`connector_approvals` frames, in-memory on the server):
   of a transcript (`get_session_messages`) drops approval ids from these rows.
 - A grant matches only the approved chat's retry of the exact call (same input digest and action
   version), once, within 5 minutes.
-- Residual risk, unchanged by this feature: the app's local bearer token is readable by any process
-  running as the user, including an agent with a shell. Such a process could call any API route,
-  this one included. Closing that needs a human-only credential. That is a separate auth change.
+- Residual risk, unchanged by this feature: the Mac's host key (`<app-root>/.config/config.json`)
+  is what the first-run pairing link uses and what every agent's tool connection uses. All keys have
+  equal authority, and any key can create more device keys. So a process running as the user,
+  including an agent with a shell, could call any API route, this one included.
+- The planned fix reuses the device pairing flow. Agents get their own key type. The Mac's browser
+  pairs like any other device. Keys record whether a person's device or an agent holds them, and
+  human-only routes (approvals, Devices, connecting accounts, Ask first changes) require a person's
+  device key. Only a person's device can create device keys, the first one from a one-time code
+  shown in the terminal or desktop app. It belongs to the homes build (`docs/homes-spec.md` §6,
+  P2.2, P2.6).
 - Dev still auto-approves by default. `CONNECTORS_AUTO_APPROVE=0` runs the real gate in dev. There
   is no switch that disables the gate in production.
 
