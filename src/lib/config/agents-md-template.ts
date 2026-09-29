@@ -3,7 +3,7 @@
  *
  * Every harness reads AGENTS.md at the app root, Claude Code included (since
  * 2.1.277, where the folder has no CLAUDE.md). CLAUDE.md is opt-in: see
- * `syncClaudeMdPointer` in `src/lib/orchestrator/harness-surface.ts`.
+ * `installOrchestratorSurface` in `src/lib/orchestrator/harness-surface.ts`.
  *
  * Written by `ensureAppRoot()` when the file is missing — orientation for a
  * walk-up agent session opened in the data root before any orchestrator

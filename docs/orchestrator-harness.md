@@ -43,10 +43,11 @@ picked a mode sent its main chat to the missing route and nothing happened.
      2.1.277, but only where the folder has no `CLAUDE.md` (a `CLAUDE.md`,
      a `CLAUDE.local.md`, or one in a parent folder hides it completely),
      and not yet on Bedrock, Vertex or Foundry. So `CLAUDE.md` is only
-     ever a one-line `@AGENTS.md` pointer in the managed region
-     (`syncClaudeMdPointer`), written when the installed Claude predates
-     2.1.277, runs on a third-party API provider, or can't be probed
-     (`src/lib/orchestrator/claude-agents-md.ts`, memoized ten minutes).
+     ever a one-line `@AGENTS.md` pointer in the managed region (agentex
+     ≥0.0.38 `installInstructions` with `includeNativeFiles`), written
+     when the installed Claude predates 2.1.277, runs on a third-party API
+     provider, or can't be probed (`src/lib/orchestrator/claude-agents-md.ts`,
+     memoized ten minutes).
      A `CLAUDE.md` holding only our region is removed once it isn't
      needed. One the user wrote keeps their content and gains the pointer
      on top.

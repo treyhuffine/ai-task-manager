@@ -1,6 +1,6 @@
 # Spec: agentex `installInstructions` — cross-runtime instruction files
 
-**Status:** shipped in 0.0.21. Superseded on 2026-09-29 by AGENTS.md-only: Claude Code reads `AGENTS.md` since 2.1.277 (only where the folder has no `CLAUDE.md`), so every runtime's workspace file is now `AGENTS.md` and `CLAUDE.md` is an opt-in one-line `@AGENTS.md` pointer. Ri does this itself against 0.0.37 (`syncClaudeMdPointer` in `src/lib/orchestrator/harness-surface.ts`, see `docs/orchestrator-harness.md`). The matching agentex default flip is a pending library change. The mapping table below is the original 0.0.20 picture.
+**Status:** shipped in 0.0.21. Superseded on 2026-09-29 by AGENTS.md-only: Claude Code reads `AGENTS.md` since 2.1.277 (only where the folder has no `CLAUDE.md`), so every runtime's workspace file is now `AGENTS.md` and `CLAUDE.md` is an opt-in one-line `@AGENTS.md` pointer. agentex 0.0.38 ships this: the default writes `AGENTS.md` only, `includeNativeFiles` adds the pointer, and an existing `CLAUDE.md` is reconciled. Ri uses it from `installOrchestratorSurface` (see `docs/orchestrator-harness.md`). The mapping table below is the original 0.0.20 picture.
 **Originally written against** `@agentex/agent@0.0.20`.
 **Audience:** the agentex repo's coding agent. (Ri = host app embedding agentex sessions; see `docs/orchestrator-harness.md`.)
 **One-liner:** the instruction-file twin of `installSkills` — drop a brief into the right per-runtime filename(s), with a **managed-region merge** that preserves user edits.

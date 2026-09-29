@@ -5,7 +5,6 @@ import os from 'node:os';
 import { APP_ROOT_ENV } from '@/lib/config/paths';
 import { renderAppRootAgentsMd } from '@/lib/config/agents-md-template';
 import {
-  CLAUDE_MD_POINTER,
   installOrchestratorSurface,
   orchestratorMcpServer,
   connectorsMcpServer,
@@ -21,6 +20,8 @@ import { AGENT_BROWSER_SKILL_NAME } from '@/constants/app';
 // match the stable prefix substring rather than a fixed string.
 const MANAGED_START = 'ri:managed:start';
 const MANAGED_END = 'ri:managed:end';
+// The whole of an opt-in CLAUDE.md's managed region.
+const CLAUDE_MD_POINTER = '@AGENTS.md';
 
 // Whether the installed Claude Code needs the CLAUDE.md pointer. The real
 // probe spawns `claude`; tests set the answer.

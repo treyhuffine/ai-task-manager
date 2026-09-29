@@ -4,8 +4,8 @@
  * The app root carries only AGENTS.md. Claude Code reads it on its own from
  * 2.1.277, but only where the folder has no CLAUDE.md, and not yet on
  * Bedrock, Vertex or Foundry. Where Claude can't read it, the orchestrator
- * surface opts into a one-line CLAUDE.md that imports AGENTS.md
- * (`syncClaudeMdPointer` in harness-surface.ts), which every build honors.
+ * surface opts into a one-line CLAUDE.md that imports AGENTS.md (agentex's
+ * `includeNativeFiles`, in harness-surface.ts), which every build honors.
  *
  * Anything the probe can't establish counts as needing the pointer: it is
  * harmless where it isn't needed, and a Claude session without its brief is
