@@ -1176,6 +1176,21 @@ Live on the dev home (snapshot `~/ri-homes-snapshots/data-before-folders-boot-20
 
 Found on the way: the folder picker could sit on Loading in a headless browser on localhost after a restart, which was Chrome's six connections per host held by the dashboard's streams and a deck generation, not the picker (the same request answered in 0.3 seconds directly). The Reference folder dialog's two set-state-in-effect lint errors, which predate this, are gone with its rework (mounted per open, the alias derived).
 
+## P5 Existing-data adoption and personal release (plan)
+
+The gate: the personal journey works without pasted commands after installation, preserves existing work, and supports moving from laptop-as-home to an always-on home. The order, and why:
+
+1. **P5.4 The companion, first.** Today a computer joins by pasted commands and runs its worker in an open terminal, which is exactly what the gate rules out, and everything after it (the stranger test, the laptop joining as a worker once consolidated) goes through it. Two slices:
+   - [ ] **The service** (no decision needed). `ri worker install` registers a per-user LaunchAgent that runs the worker at login and restarts it if it exits, logging under the data root. `ri worker uninstall` removes it. `ri worker stop` and `ri worker start` are the local stop control: stop ends local execution at once (the worker, and the sessions it runs), and it stays stopped until started, across restarts. The service is named per data root, so a development worker and a production one never share one. A worker the home refuses for its protocol stays up, the app says "Update Ri on MacBook" with the one step, and it reconnects on its own once updated.
+   - [ ] **The desktop companion** (decision below). A menu bar item: connected, working or stopped, Open Ri, Stop local execution, start at login. Joining a home by code or link without a terminal, and the browser association for This Mac (spec §3.1).
+2. **P5.5 The stranger test**, once the companion exists. Its script and what counts as coaching are written first.
+3. **P5.1 Consolidation rehearsal** on isolated copies of the Mini's production home and the laptop's home. The laptop's copy is a consistent backup Trey makes there, the one step that needs him.
+4. **P5.2** The worker replacing the laptop's local home in development, and the simulated retired root archived. The production cutover and its recovery, written.
+5. **P5.3** Stopped home relocation: the same home ID, paths relinked, an address change, and the role marker that keeps two roots from both being the home.
+6. **P5.6** Rollback rehearsed, and exactly what's preserved, listed.
+
+Decision for the desktop companion (asked of Trey): a small native macOS menu bar app (SwiftUI `MenuBarExtra`) that runs the worker as its LaunchAgent is the recommendation. It's the smallest thing that fits the spec (no full Electron shell, main UI stays in the browser), both computers are Macs, and Windows or Linux can use the CLI service until they matter. What it needs: an Apple Developer ID to sign and notarize it, or a stranger's Mac refuses to open it. The alternatives are Tauri (cross-platform, a Rust toolchain and a larger app), or no app yet, only the service, which leaves the stranger test to the CLI.
+
 ## The standard case goes unsaid (after gate B)
 
 Found in gate B on the phone: + made an execution on the Mac Mini with no way to choose, and every execution carried a computer badge, the home's too. Trey's direction: standard cases with escape hatches, no repeated decisions, and the base case assumed.
