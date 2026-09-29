@@ -1193,6 +1193,16 @@ The gate: the personal journey works without pasted commands after installation,
 
 Decided: the desktop companion is an Electron app Trey is building, not the native menu bar app first proposed. The service stays the part everything runs through.
 
+## P5.1 Comparing the two homes
+
+Started while the companion waits on Trey's Electron app (its design decides whether the worker runs as a LaunchAgent, as the app's own child, or both, and a LaunchAgent restarting beside an app-launched worker would fight the one-worker-per-root lock).
+
+- **`scripts/compare-homes.ts <a> <b>`** (`src/lib/home/compare.ts`): what B has that A lacks, before anything is imported. Each of A and B is a root or a backup, since a backup has a root's layout, and a running home is read in place without writing to it (`source-db.ts`). For areas, tasks, notes, stream, agents, executions, chats, schedules and linked folders: what's in both by id (unchanged, or changed later on one side), what's only on one side, and what's only in B but looks like something A has (the same title, name or text under another id, for a thing made on each side). Then chat histories with more events on one side, attachments, persona and memory files, and skills. Homes on different schemas compare on the columns both have. `--names Mini,Laptop` labels the sides, `--json` writes every record for choosing what to import. The share of shared ids says whether one home began as a copy of the other.
+- Tests: `compare.test.ts` (a home copied and then changed on both sides, a record made again under its own id, different schemas, and neither home written to).
+- Run for real, the Sep 24 baseline backup against production as it runs now, in 37 seconds on the 5.3 GB database: all ids shared, and five days of use found (15 executions, 46 chats, 33 attachments, the Blogging agent and 2 linked folders only in production, 9 tasks and 4 notes changed later there). Production's root had the same entries before and after.
+
+Waiting on Trey: the laptop's backup and its inventory, made on the laptop (its worktrees and unpublished code are only there), then copied to the Mini's `~/ri-backups/`. The Mini has about 19 GB free, and a backup of production is 5.6 GB, so a fresh one is taken only when the import rehearsal needs it. Then: compare the laptop with production, choose what comes over, and rehearse the import into a restored copy of production (ids kept where they don't collide, so links inside bodies stay whole, with a record of what came from where).
+
 ## The standard case goes unsaid (after gate B)
 
 Found in gate B on the phone: + made an execution on the Mac Mini with no way to choose, and every execution carried a computer badge, the home's too. Trey's direction: standard cases with escape hatches, no repeated decisions, and the base case assumed.
