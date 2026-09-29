@@ -35,10 +35,21 @@ picked a mode sent its main chat to the missing route and nothing happened.
    `Session has no resolvable cwd`.
 4. Before spawn, `ensureHarnessSession` installs the **surface**
    (`src/lib/orchestrator/harness-surface.ts`):
-   - `CLAUDE.md` + `AGENTS.md` at the data root — the role brief (domain
-     model, entity-marker syntax, conventions, mode-specific tool guidance).
-     Content sits inside `<!-- ri:managed -->` markers; user edits outside
-     the markers survive regeneration.
+   - `AGENTS.md` at the data root — the role brief (domain model,
+     entity-marker syntax, conventions, mode-specific tool guidance), read
+     by every harness. Content sits inside `<!-- ri:managed -->` markers;
+     user edits outside the markers survive regeneration.
+   - No `CLAUDE.md` by default. Claude Code reads `AGENTS.md` since
+     2.1.277, but only where the folder has no `CLAUDE.md` (a `CLAUDE.md`,
+     a `CLAUDE.local.md`, or one in a parent folder hides it completely),
+     and not yet on Bedrock, Vertex or Foundry. So `CLAUDE.md` is only
+     ever a one-line `@AGENTS.md` pointer in the managed region
+     (`syncClaudeMdPointer`), written when the installed Claude predates
+     2.1.277, runs on a third-party API provider, or can't be probed
+     (`src/lib/orchestrator/claude-agents-md.ts`, memoized ten minutes).
+     A `CLAUDE.md` holding only our region is removed once it isn't
+     needed. One the user wrote keeps their content and gains the pointer
+     on top.
    - The skills-mode CLI command **bakes the data root inline**
      (`RI_ROOT='…' pnpm --silent --dir <repo> cli:dev` in dev,
      `RI_ROOT='…' ri` in prod). The harness's Bash tool starts a fresh
@@ -268,7 +279,9 @@ actions.
 - `src/lib/orchestrator/harness-surface.ts` — surface install, brief
   rendering, typed per-session config (`orchestratorSessionConfig`,
   `orchestratorMcpServer`) (+ tests in `harness-surface.test.ts`)
-- `src/lib/config/claude-md-template.ts` — managed markers + base brief
+- `src/lib/config/agents-md-template.ts` — managed markers + base brief
+- `src/lib/orchestrator/claude-agents-md.ts` — whether the installed Claude
+  Code needs the `@AGENTS.md` pointer in `CLAUDE.md` (+ tests)
 - `src/lib/executor/adapter.ts` — cwd fallback, orchestration branch in
   `ensureHarnessSession`, `recycleWhenIdle`
 - `src/lib/executor/agent-main-chat.ts` — an agent main chat's spawn

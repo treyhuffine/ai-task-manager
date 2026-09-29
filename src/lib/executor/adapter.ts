@@ -1068,11 +1068,11 @@ async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
   }
 
   // Orchestration sessions run in the app data root and act through the
-  // typed action surface. Install/refresh the on-disk brief (CLAUDE.md /
-  // AGENTS.md) before spawn — this also `ensureAppRoot()`s the cwd — and
-  // merge the mode's typed ProviderConfig slice (disallowedTools /
-  // strictMcpConfig / mcpServers, agentex ≥0.0.20). Providers without
-  // tool-filtering or MCP wiring ignore the fields (Codex today), so the
+  // typed action surface. Install/refresh the on-disk brief (AGENTS.md, plus
+  // a CLAUDE.md pointer only where Claude needs one) before spawn — this also
+  // `ensureAppRoot()`s the cwd — and merge the mode's typed ProviderConfig
+  // slice (disallowedTools / strictMcpConfig / mcpServers, agentex ≥0.0.20).
+  // Providers without tool-filtering or MCP wiring ignore the fields (Codex today), so the
   // config is safe to pass everywhere — but warn, because the write guard
   // genuinely doesn't hold there yet.
   // An agent's main chat: an orchestration chat with a workspace, running in

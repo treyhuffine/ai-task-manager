@@ -238,7 +238,7 @@ A workday in this world: your deck is composed overnight from your personal home
 - Subscription granularity for notes: per-area, per-project, or agent-negotiated? Start coarse.
 - Team mode surface split: triggers yes (they drive standing agents), deck no (decks belong to humans). Verify as it builds.
 - When a member leaves: personal enrichment was never on the hub, authored shared content stays with provenance intact. Verify the model holds.
-- Whether the philosophy refinements in section 7 should be folded into CLAUDE.md itself. Recommended, but that edit is a deliberate act for the maintainer.
+- Whether the philosophy refinements in section 7 should be folded into AGENTS.md itself. Recommended, but that edit is a deliberate act for the maintainer.
 
 ## 18. Relationship to other docs
 

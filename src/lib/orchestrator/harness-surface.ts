@@ -5,10 +5,13 @@
  *
  * Three pieces, all idempotent and safe to re-run at session spawn:
  *
- *   1. CLAUDE.md + AGENTS.md at the app root — the role brief. Written via
- *      agentex's `installInstructions` (managed-region merge, tag `ri`)
- *      so app upgrades regenerate the block while user additions outside it
- *      survive.
+ *   1. AGENTS.md at the app root — the role brief, read by every harness
+ *      (Claude Code since 2.1.277). Written via agentex's
+ *      `installInstructions` (managed-region merge, tag `ri`) so app
+ *      upgrades regenerate the block while user additions outside it
+ *      survive. CLAUDE.md exists only as a one-line `@AGENTS.md` pointer,
+ *      written when the installed Claude can't read AGENTS.md on its own
+ *      (`syncClaudeMdPointer`).
  *   2. Per-session ProviderConfig fields (`orchestratorSessionConfig`) —
  *      typed agentex ≥0.0.20 config, no raw argv:
  *        - `mcpServers` points the harness at this server's orchestrator
@@ -39,7 +42,8 @@ import path from 'node:path';
 // in registry.ts / skills.ts.
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
 import { AGENT_SKILL_NAME, AGENT_BROWSER_SKILL_NAME, APP_NAME, APP_SHORT_ID } from '@/constants/app';
-import { renderBaseBrief, RI_MANAGED_TAG } from '@/lib/config/claude-md-template';
+import { renderBaseBrief, RI_MANAGED_TAG } from '@/lib/config/agents-md-template';
+import { shouldWriteClaudeMdPointer } from '@/lib/orchestrator/claude-agents-md';
 import {
   APP_ROOT_ENV,
   DB_PATH_ENV,
@@ -711,21 +715,22 @@ function removeStaleMcpConfig(root: string): void {
 // ─── Install ──────────────────────────────────────────────────────
 
 export interface InstalledSurface {
-  claudeMdPath: string;
   agentsMdPath: string;
+  /** The `@AGENTS.md` pointer, when one is on disk after the install. */
+  claudeMdPath: string | null;
 }
 
 /**
  * Materialize the surface for a mode at the app data root. Idempotent —
  * called on every orchestrator session ensure and on mode switches.
  *
- * The CLAUDE.md + AGENTS.md merge is delegated to agentex's
- * `installInstructions`: it owns the per-runtime filename mapping
- * (claude → CLAUDE.md, codex → AGENTS.md) and the managed-region merge that
- * preserves user content outside the markers. `managedTag: RI_MANAGED_TAG`
- * ('ri') targets the same region our first-init write uses AND the
- * pre-0.0.21 hand-rolled markers, so existing installs migrate on the next
- * write rather than gaining a second block.
+ * The AGENTS.md merge is delegated to agentex's `installInstructions`, which
+ * owns the managed-region merge that preserves user content outside the
+ * markers. `managedTag: RI_MANAGED_TAG` ('ri') targets the same region our
+ * first-init write uses AND the pre-0.0.21 hand-rolled markers, so existing
+ * installs migrate on the next write rather than gaining a second block.
+ * `claude` is left out of `runtimes` because agentex 0.0.37 maps it to
+ * CLAUDE.md; the Claude side is `syncClaudeMdPointer`.
  */
 export async function installOrchestratorSurface(mode: OrchestratorMode): Promise<InstalledSurface> {
   const root = ensureAppRoot();
@@ -734,20 +739,50 @@ export async function installOrchestratorSurface(mode: OrchestratorMode): Promis
   // on installs that predate these files. Never clobbers user edits.
   ensureBrainDir();
   const brief = renderOrchestratorBrief(mode);
+  const claudeMdWanted = shouldWriteClaudeMdPointer();
 
   const { installInstructions } = await import('@agentex/agent');
   await installInstructions(brief, {
     location: 'workspace',
     cwd: root,
-    runtimes: ['claude', 'codex', 'cursor', 'opencode'],
+    runtimes: ['codex', 'cursor', 'opencode'],
     managedTag: RI_MANAGED_TAG,
   });
+  const claudeMdPath = await syncClaudeMdPointer(root, await claudeMdWanted);
   removeStaleMcpConfig(root);
 
-  return {
-    claudeMdPath: path.join(root, 'CLAUDE.md'),
-    agentsMdPath: path.join(root, 'AGENTS.md'),
-  };
+  return { agentsMdPath: path.join(root, 'AGENTS.md'), claudeMdPath };
+}
+
+/** The whole of an opt-in CLAUDE.md's managed region. */
+export const CLAUDE_MD_POINTER = '@AGENTS.md';
+
+/**
+ * Keep CLAUDE.md from hiding AGENTS.md. Claude Code reads AGENTS.md only
+ * where the folder has no CLAUDE.md, so CLAUDE.md is never a second copy of
+ * the brief, only an import of it inside the `ri` managed region:
+ *
+ * - `wanted` (the installed Claude can't read AGENTS.md on its own): write
+ *   the pointer.
+ * - not wanted, and CLAUDE.md holds nothing but our region (the pointer, or
+ *   the full brief installs before AGENTS.md-only wrote): delete it.
+ * - not wanted, but the user wrote their own CLAUDE.md: keep their content
+ *   and put the pointer on top, so the brief still reaches Claude.
+ *
+ * Returns the CLAUDE.md path when the file exists afterwards, else null.
+ */
+export async function syncClaudeMdPointer(root: string, wanted: boolean): Promise<string | null> {
+  const { stripManagedBlock, upsertManagedBlock } = await import('@agentex/agent');
+  const file = path.join(root, 'CLAUDE.md');
+  const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  if (!wanted && existing === null) return null;
+  if (!wanted && existing !== null && stripManagedBlock(existing, { tag: RI_MANAGED_TAG }) === null) {
+    fs.rmSync(file, { force: true });
+    return null;
+  }
+  const next = upsertManagedBlock(existing, CLAUDE_MD_POINTER, { tag: RI_MANAGED_TAG });
+  if (next !== existing) fs.writeFileSync(file, next, { mode: 0o600 });
+  return file;
 }
 
 // ─── Per-session provider config ──────────────────────────────────

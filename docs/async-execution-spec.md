@@ -542,7 +542,7 @@ Estimated effort: 6-8 focused weeks. Ships as one release.
 ## Appendix: file map
 
 - `src/lib/db/schema.ts` — table + column additions
-- `src/lib/db/queries.ts` — query helpers (per CLAUDE.md, route handlers go through this)
+- `src/lib/db/queries.ts` — query helpers (per AGENTS.md, route handlers go through this)
 - `src/lib/scheduler/runner.ts` — scheduler tick
 - `src/lib/scheduler/lock.ts` — file-based lock
 - `src/lib/scheduler/cron.ts` — cron parsing + next_run_at computation (uses `croner`)

@@ -1,5 +1,9 @@
 /**
- * CLAUDE.md template dropped into the app root on first init.
+ * AGENTS.md template dropped into the app root on first init.
+ *
+ * Every harness reads AGENTS.md at the app root, Claude Code included (since
+ * 2.1.277, where the folder has no CLAUDE.md). CLAUDE.md is opt-in: see
+ * `syncClaudeMdPointer` in `src/lib/orchestrator/harness-surface.ts`.
  *
  * Written by `ensureAppRoot()` when the file is missing — orientation for a
  * walk-up agent session opened in the data root before any orchestrator
@@ -61,7 +65,7 @@ source repo. That's a different role with different conventions.`;
 }
 
 /**
- * First-init CLAUDE.md content: the base brief inside the `ri` managed
+ * First-init AGENTS.md content: the base brief inside the `ri` managed
  * region. This is the create-from-nothing case, so it's a trivial local
  * wrap — we deliberately do NOT import agentex's `upsertManagedBlock` here.
  * `ensureAppRoot` (paths.ts) pulls this module into the CLI's *static*
@@ -75,7 +79,7 @@ source repo. That's a different role with different conventions.`;
  * region in place (and upgrades it to the hash format). Stays synchronous,
  * so `ensureAppRoot` does too.
  */
-export function renderAppRootClaudeMd(): string {
+export function renderAppRootAgentsMd(): string {
   const body = renderBaseBrief().trim();
   return `<!-- ${RI_MANAGED_TAG}:managed:start -->\n${body}\n<!-- ${RI_MANAGED_TAG}:managed:end -->\n`;
 }

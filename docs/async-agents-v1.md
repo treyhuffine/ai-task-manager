@@ -670,7 +670,7 @@ The pieces beyond V1 — heartbeat, pre-gate, lanes, connectors, goals, work que
 ## Appendix: file map
 
 - `src/lib/db/schema.ts` — table + column additions
-- `src/lib/db/queries.ts` — query helpers (per CLAUDE.md, route handlers go through this)
+- `src/lib/db/queries.ts` — query helpers (per AGENTS.md, route handlers go through this)
 - `src/lib/scheduler/runner.ts` — scheduler tick
 - `src/lib/scheduler/lock.ts` — file-based lock
 - `src/lib/scheduler/cron.ts` — cron parsing + `computeNextRun()` (uses `croner`)

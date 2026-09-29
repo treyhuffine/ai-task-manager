@@ -5,7 +5,7 @@
  *
  *   <app-root>/               (~/<APP_SHORT_ID>/ by default) — THE home + cwd.
  *   │                          The agent runs here; this is what you sync.
- *   ├── CLAUDE.md AGENTS.md    agent instructions (regenerated from code)
+ *   ├── AGENTS.md              agent instructions (regenerated from code; CLAUDE.md only on opt-in)
  *   ├── USER.md SOUL.md MEMORY.md   persona + memory
  *   ├── tasks/ notes/ areas/ stream/   markdown mirror (human-readable, git-diffable)
  *   ├── attachments/  .archive/        your files
@@ -42,7 +42,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { APP_SHORT_ID } from '@/constants/app';
-import { renderAppRootClaudeMd } from './claude-md-template';
+import { renderAppRootAgentsMd } from './agents-md-template';
 import { renderBrainMemoryMd } from './memory-template';
 import {
   USER_MD_FILENAME,
@@ -256,9 +256,9 @@ export function ensureAppRoot(): string {
   // Orient any agent that opens a session in the home. Written once — never
   // overwritten — so users can edit freely. The orchestrator brief's managed
   // block is regenerated separately (installInstructions).
-  const claudeMdPath = path.join(dir, 'CLAUDE.md');
-  if (!fs.existsSync(claudeMdPath)) {
-    fs.writeFileSync(claudeMdPath, renderAppRootClaudeMd(), { mode: 0o600 });
+  const agentsMdPath = path.join(dir, 'AGENTS.md');
+  if (!fs.existsSync(agentsMdPath)) {
+    fs.writeFileSync(agentsMdPath, renderAppRootAgentsMd(), { mode: 0o600 });
   }
 
   // Ship a .gitignore so `git init && commit` syncs the home correctly with

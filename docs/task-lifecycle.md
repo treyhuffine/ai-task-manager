@@ -91,7 +91,7 @@ proves clunky. Reviews (`execution_reviews`) are keyed to the exact output event
   ALTERs preserve rowids, so FTS stays intact (verified). Existing `status`
   bytes are copied verbatim; the backfill maps `active` → `todo`. The status
   enum values change is type-level only in SQLite (no CHECK), so it emits no SQL.
-  See CLAUDE.md "Column defaults" for the general rule.
+  See AGENTS.md "Column defaults" for the general rule.
 - Data is normalized by a separate standalone command, never a migration:
   `pnpm backfill:lifecycle` (`scripts/backfill-task-lifecycle.ts`). Dry-run
   default; `--apply` snapshots the DB + tasks mirror first, rewrites task rows

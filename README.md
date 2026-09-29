@@ -187,7 +187,7 @@ pnpm cli:build            # bundle CLI to ./dist
 - **Paths** resolve through `src/lib/config/paths.ts` helpers. Never hardcode the data root.
 - **Orchestrator handlers** throw `ActionError` with a stable code, return plain data, and never `console.log`.
 
-See [`CLAUDE.md`](CLAUDE.md) for the full set of project rules.
+See [`AGENTS.md`](AGENTS.md) for the full set of project rules.
 
 ## Repository layout
 

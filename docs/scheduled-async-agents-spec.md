@@ -717,7 +717,7 @@ Primary sources for the research synthesis (full details elsewhere in this conve
 Existing ai-task-manager files most relevant to implementation:
 
 - `src/lib/db/schema.ts` — column / table additions
-- `src/lib/db/queries.ts` — per CLAUDE.md, route handlers go through this layer
+- `src/lib/db/queries.ts` — per AGENTS.md, route handlers go through this layer
 - `src/lib/executor/adapter.ts` — `dispatch()` caller from the new runner
 - `src/lib/orchestrator/registry.ts` — new orchestrator actions
 - New: `src/lib/scheduler/runner.ts`, `src/lib/scheduler/cron.ts`, `src/lib/scheduler/lock.ts`, `src/lib/scheduler/context-engine.ts`

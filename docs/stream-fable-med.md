@@ -80,7 +80,7 @@ stream_links
 
 Many-to-many by construction. A cluster of five items merged into one new task yields five rows with relation `created` (or one `created` for the seed item and four `merged_into`, see 3.4). An item that appends context to a note and spawns a follow-up task yields two rows.
 
-**Stream table changes** (additive, per the timestamps and migration rules in CLAUDE.md):
+**Stream table changes** (additive, per the timestamps and migration rules in AGENTS.md):
 
 - `status` gains the `proposed` value.
 - New nullable `proposal` JSON column, shape in 3.3.
