@@ -17,6 +17,7 @@ import type { TriggerWithLastRun } from '@/db/types';
 import { describeFrequency } from '@/lib/scheduler/frequency';
 import { findProvider } from '@/lib/harness/options';
 import { isReservedTrigger } from '@/lib/triggers/reserved';
+import { AwakeNote } from '@/components/triggers/awake-note';
 
 export default function TriggersPage() {
   const router = useRouter();
@@ -63,6 +64,7 @@ export default function TriggersPage() {
             </Link>
           </div>
         )}
+        {triggers && triggers.length > 0 && <AwakeNote lead="Schedules run" className="mb-3" />}
         {triggers && triggers.length > 0 && (
           <div className="space-y-2">
             {triggers.map((s) => (

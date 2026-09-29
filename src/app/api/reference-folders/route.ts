@@ -5,6 +5,7 @@ import { recycleForReferenceFolderChange } from '@/lib/executor/adapter';
 import { getWorkspace } from '@/lib/db/queries';
 import type { CreateReferenceFolderInput } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
+import { checkHomeFolders } from '@/lib/setups/folders';
 
 /** Map the query layer's typed failures onto HTTP without leaking stack traces. */
 function statusForReferenceError(code: ReferenceFolderError['code']): number {
@@ -40,6 +41,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as CreateReferenceFolderInput;
     const row = createReferenceFolder(body);
+    // Its place on the home is recorded with it: check it's there (§4.1).
+    await checkHomeFolders();
     // Live sessions cache their config at spawn, so a new folder is invisible
     // to them until they recycle.
     await recycleForReferenceFolderChange(row.workspaceId);

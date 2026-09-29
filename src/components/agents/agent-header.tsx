@@ -2,6 +2,7 @@
 
 import { ChevronLeft, GitBranch, PanelRightClose, PanelRightOpen, Plus } from 'lucide-react';
 import { useAgentExecutions } from '@/hooks/use-agent';
+import { useRunOn } from '@/hooks/use-workspaces';
 import { openLauncher } from '@/components/workspaces/launcher/launcher-store';
 import type { WorkspaceRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
@@ -58,12 +59,7 @@ export function AgentHeader({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1.5 min-w-0 text-[10.5px] text-muted-foreground/75">
-          {workspace.isGit && <GitBranch size={10} className="flex-shrink-0" aria-label="Git repository" />}
-          <span className="truncate font-mono" title={workspace.cwd}>
-            {displayPath(workspace.cwd)}
-          </span>
-        </div>
+        <AgentFolderLine workspace={workspace} />
       </div>
 
       {/* Beside the name, so it reads as this agent's action. The app-wide
@@ -154,5 +150,28 @@ function CountPill({
       />
       {count} {count === 1 && singular ? singular : label}
     </span>
+  );
+}
+
+/**
+ * The agent's folder, on the computer it lives on (P3.5): its folder there
+ * and that computer's name when it isn't the home. An agent set up only on
+ * a laptop has no folder at home to show.
+ */
+function AgentFolderLine({ workspace }: { workspace: WorkspaceRecord }) {
+  const { data: runOn } = useRunOn(workspace.id);
+  const livesOn = runOn?.livesOn ?? null;
+  const elsewhere = livesOn && !livesOn.isHome ? livesOn : null;
+  const folder = elsewhere ? elsewhere.folder : workspace.cwd;
+  return (
+    <div className="flex items-center gap-1.5 min-w-0 text-[10.5px] text-muted-foreground/75">
+      {workspace.isGit && <GitBranch size={10} className="flex-shrink-0" aria-label="Git repository" />}
+      {folder && (
+        <span className="truncate font-mono" title={elsewhere ? `${folder} on ${elsewhere.name}` : folder}>
+          {displayPath(folder)}
+        </span>
+      )}
+      {elsewhere && <span className="flex-shrink-0">on {elsewhere.name}</span>}
+    </div>
   );
 }

@@ -153,11 +153,28 @@ describe('orchestrator trigger + run actions', () => {
       harness: 'claude', triggerKind: 'manual', status: 'completed',
     });
     const cancel = await findAction('cancel_run');
-    const result = await cancel.handler({ remote: false }, { id: run.id } as never) as {
+    // As the server runs it.
+    const result = await cancel.handler({ remote: true }, { id: run.id } as never) as {
       id: string;
       status: string;
     };
     expect(result.status).toBe('completed');
+  });
+
+  it('runs and cancels in the server when called from the home CLI, where the harness can be reached', async () => {
+    await seed();
+    const queries = await import('@/lib/db/queries');
+    const run = queries.createRun({ harness: 'claude', triggerKind: 'manual', status: 'running' });
+    // No server runs in this test: the CLI's call must go to it, not act here.
+    for (const [name, input] of [['cancel_run', { id: run.id }], ['run_trigger', { id: 'any' }]] as const) {
+      const action = await findAction(name);
+      // It reaches for the server (the closed test port, src/test/setup-env.ts,
+      // or stops earlier without a token) instead of acting in this process.
+      await expect(action.handler({ remote: false }, input as never)).rejects.toThrow(
+        /App server unreachable at http:\/\/localhost:9|No local auth token/,
+      );
+    }
+    expect(queries.getRun(run.id)?.status).toBe('running');
   });
 
   async function seedTelegramChannel() {

@@ -69,3 +69,13 @@ export function activeSessionIdOf(view: ActiveView): string | null {
 export function activeAgentIdOf(view: ActiveView): string | null {
   return view.kind === 'agent' ? view.id : null;
 }
+
+/**
+ * The phone tab a view lives under, or null to leave the tab alone: an
+ * execution or an agent is shown under Agents, so opening one from anywhere
+ * (a link, Back/Forward, a chip in the main chat) moves the tab there.
+ * Home belongs to no tab in particular.
+ */
+export function mobileTabForView(view: ActiveView): 'agents' | null {
+  return view.kind === 'home' ? null : 'agents';
+}

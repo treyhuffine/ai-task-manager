@@ -698,13 +698,391 @@ export const apiKeys = sqliteTable(
     lastUsedUserAgent: text(),
     revokedAt: text(),
     revokedReason: text(),
+    // The computer this key belongs to, when a computer registered with it
+    // (docs/homes-spec.md §5.1). Links identity only: a viewing key never
+    // gains the authority to run work by being linked.
+    computerId: text().references((): AnySQLiteColumn => computers.id, { onDelete: 'set null' }),
   },
   (table) => [
     index('idx_api_keys_hash').on(table.hash),
+    index('idx_api_keys_computer').on(table.computerId),
     index('idx_api_keys_prefix').on(table.prefix),
     index('idx_api_keys_revoked').on(table.revokedAt),
   ],
 );
+
+// ─── Home and computers ───────────────────────────────────────
+// docs/homes-spec.md §2.2 and §5.1. `home` is this home's identity: one row,
+// made at boot by `ensureHomeIdentity` (src/lib/home/identity.ts). Its id
+// never changes when the home's address or machine does. `computers` holds
+// each machine enrolled to do work for this home, the home's own machine
+// included. Which row a machine is lives in its `<config>/machine.json`,
+// which backups never carry, so a restored copy can't take itself for the
+// original host.
+
+export const computers = sqliteTable(
+  'computers',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    // What people call it, e.g. "Mac Mini". Editable. A hostname, address or
+    // tunnel URL never identifies a computer (spec §3.3).
+    name: text().notNull(),
+    // Reported facts, for display and diagnostics only.
+    platform: text(),
+    hostname: text(),
+    status: text({ enum: ['active', 'revoked'] }).notNull(),
+    revokedAt: text(),
+    lastSeenAt: text(),
+    // What its worker last reported (docs/homes-build.md, P2.2). Null until a
+    // worker reports, and for the home's own computer, whose runner is in
+    // process.
+    workerProtocol: integer(),
+    workerVersion: text(),
+    harnesses: text({ mode: 'json' }).$type<WorkerHarnessReport[]>(),
+    reportedState: text({ enum: ['awake', 'asleep', 'stopped'] }),
+    // The highest contiguous position of this computer's worker journal the
+    // home has stored (P2.3). Events at or below it are replays.
+    ackedEventSeq: integer().notNull().default(0),
+  },
+  (table) => [index('idx_computers_status').on(table.status)],
+);
+
+// ─── Computer grants and worker enrollments ─────────────────────
+// A grant is a short-lived, single-use secret the home issues to an owner
+// (docs/homes-build.md, P2.2). Redeeming an `enroll` grant makes a computer
+// a worker: the home issues a new worker key and records its enrollment.
+// Redeeming an `associate` grant links a browser's viewing key to the
+// computer whose worker asked for it. Only the secret's hash is stored.
+export const computerGrants = sqliteTable(
+  'computer_grants',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    kind: text({ enum: ['enroll', 'associate'] }).notNull(),
+    hash: text().notNull().unique(),
+    // The computer the grant is for. An enroll grant may name none, and then
+    // redeeming it makes a new computer.
+    computerId: text().references(() => computers.id, { onDelete: 'cascade' }),
+    // A name for the computer an enroll grant will make.
+    computerName: text(),
+    createdByApiKeyId: text().references(() => apiKeys.id, { onDelete: 'set null' }),
+    expiresAt: text().notNull(),
+    redeemedAt: text(),
+    redeemedByApiKeyId: text().references(() => apiKeys.id, { onDelete: 'set null' }),
+  },
+  (table) => [index('idx_computer_grants_computer').on(table.computerId)],
+);
+
+// ─── Worker commands ──────────────────────────────────────────
+// What the home asked a computer to do (docs/homes-build.md, P2 protocol and
+// P2.3). Written in the same transaction as what it acts on, before it's
+// streamed. `seq` is the computer's stream order, set when the command is
+// first streamed, so a command cancelled while queued leaves no gap.
+export const WORKER_COMMAND_KINDS = [
+  'prepare',
+  'send',
+  'interrupt',
+  'stop_task',
+  'stop',
+  'answer_pending_input',
+  'run_script',
+  'write_setup',
+  'git',
+  // Stop everything an execution runs there, for a transfer (P4.2).
+  'quiesce',
+] as const;
+
+export const WORKER_COMMAND_STATES = ['queued', 'sent', 'delivered', 'failed', 'cancelled', 'uncertain', 'stale'] as const;
+
+export interface WorkerCommandActor {
+  source: 'human' | 'ai' | 'system';
+  sessionId?: string | null;
+  apiKeyId?: string | null;
+}
+
+export const workerCommands = sqliteTable(
+  'worker_commands',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    computerId: text()
+      .notNull()
+      .references(() => computers.id, { onDelete: 'cascade' }),
+    seq: integer(),
+    executionId: text(),
+    chatSessionId: text(),
+    // The placement generation the home had when it queued the command.
+    generation: integer(),
+    kind: text({ enum: WORKER_COMMAND_KINDS }).notNull(),
+    payload: text({ mode: 'json' }).$type<unknown>().notNull(),
+    actor: text({ mode: 'json' }).$type<WorkerCommandActor>().notNull(),
+    state: text({ enum: WORKER_COMMAND_STATES }).notNull(),
+    attempts: integer().notNull().default(0),
+    sentAt: text(),
+    deliveredAt: text(),
+    finishedAt: text(),
+    result: text({ mode: 'json' }).$type<unknown>(),
+    error: text(),
+    // For a send: the user's chat event it delivers. Unique, so one message
+    // queues one send however many paths try (P2.4).
+    sourceEventId: text(),
+  },
+  (table) => [
+    uniqueIndex('uniq_worker_commands_source_event')
+      .on(table.sourceEventId)
+      .where(sql`${table.sourceEventId} IS NOT NULL`),
+    uniqueIndex('uniq_worker_commands_computer_seq')
+      .on(table.computerId, table.seq)
+      .where(sql`${table.seq} IS NOT NULL`),
+    index('idx_worker_commands_computer_state').on(table.computerId, table.state),
+    index('idx_worker_commands_chat').on(table.chatSessionId),
+  ],
+);
+
+// ─── Execution placements ─────────────────────────────────────
+// Where an execution runs (docs/homes-build.md, P0.3 Placement, and P2.4).
+// One open placement per execution: the owner, whose generation every
+// execution-scoped command carries. An execution with no row runs on the
+// home's own computer at generation 1, which is every execution made before
+// this build. A continuation ends one placement and opens the next (P4).
+export const executionPlacements = sqliteTable(
+  'execution_placements',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    executionId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => executions.id, { onDelete: 'cascade' }),
+    computerId: text()
+      .notNull()
+      .references(() => computers.id),
+    generation: integer().notNull(),
+    // On that computer. Set when its worktree is prepared.
+    worktreePath: text(),
+    // The commit the placement started from, for a continuation.
+    checkpointSha: text(),
+    startReason: text({ enum: ['created', 'adopted', 'continued'] }).notNull(),
+    endedAt: text(),
+    endReason: text({ enum: ['transferred', 'archived'] }),
+  },
+  (table) => [
+    uniqueIndex('uniq_execution_placements_generation').on(table.executionId, table.generation),
+    uniqueIndex('uniq_execution_placements_open')
+      .on(table.executionId)
+      .where(sql`${table.endedAt} IS NULL`),
+    index('idx_execution_placements_computer').on(table.computerId),
+  ],
+);
+
+// ─── Transfers ─────────────────────────────────────────────────
+// Continue here (docs/homes-spec.md §8.2, P4.2): moving an execution to
+// another computer. The row is the transfer's record and its lock: one
+// active transfer per execution, and messages sent meanwhile are held on it
+// (`held_event_ids`) and delivered once where the work ends up. Kept after it
+// finishes, whichever way.
+export const TRANSFER_STAGES = ['preparing', 'stopping', 'saving', 'setting_up', 'continuing', 'done'] as const;
+export const TRANSFER_STATES = ['active', 'succeeded', 'failed', 'cancelled'] as const;
+
+export const executionTransfers = sqliteTable(
+  'execution_transfers',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    executionId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => executions.id, { onDelete: 'cascade' }),
+    fromComputerId: text()
+      .notNull()
+      .references(() => computers.id),
+    toComputerId: text()
+      .notNull()
+      .references(() => computers.id),
+    // The placement it moves from. The destination's is set when ownership
+    // changes, and never before.
+    fromGeneration: integer().notNull(),
+    toGeneration: integer(),
+    stage: text({ enum: TRANSFER_STAGES }).notNull(),
+    state: text({ enum: TRANSFER_STATES }).notNull(),
+    // Untracked files the person chose to take along. Tracked changes always go.
+    includeUntracked: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
+    // Messages sent while it ran, delivered once where the work ends up.
+    heldEventIds: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
+    // The last chat event the source produced before it stopped.
+    conversationCheckpointEventId: text(),
+    // The Git checkpoint: the branch, the remote it's published on, the commit.
+    branch: text(),
+    remote: text(),
+    checkpointSha: text(),
+    // The destination's worktree, once prepared.
+    targetWorktreePath: text(),
+    // What the destination session starts from (§8.3).
+    handoff: text(),
+    failedStage: text({ enum: TRANSFER_STAGES }),
+    error: text(),
+    finishedAt: text(),
+    requestedByApiKeyId: text(),
+  },
+  (table) => [
+    index('idx_execution_transfers_execution').on(table.executionId),
+    uniqueIndex('uniq_execution_transfers_active')
+      .on(table.executionId)
+      .where(sql`${table.state} = 'active'`),
+  ],
+);
+
+// ─── Native sessions ──────────────────────────────────────────
+// The harness sessions behind a chat, over time (§5.1, P4.3).
+// `chat_sessions.external_session_id` is the current binding; this keeps
+// the earlier ones, with the computer and placement each ran under, when a
+// continuation starts a fresh session somewhere else.
+export const nativeSessions = sqliteTable(
+  'native_sessions',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    chatSessionId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'cascade' }),
+    computerId: text().references(() => computers.id, { onDelete: 'set null' }),
+    placementId: text().references(() => executionPlacements.id, { onDelete: 'set null' }),
+    harness: text().notNull(),
+    nativeSessionId: text().notNull(),
+    startedAt: text().notNull(),
+    endedAt: text(),
+    endReason: text({ enum: ['replaced', 'continued', 'archived'] }),
+  },
+  (table) => [
+    index('idx_native_sessions_chat').on(table.chatSessionId),
+    uniqueIndex('uniq_native_sessions_open')
+      .on(table.chatSessionId)
+      .where(sql`${table.endedAt} IS NULL`),
+  ],
+);
+
+// ─── Review checkouts ─────────────────────────────────────────
+// Open code here (§8.1, P4.1): a published commit of an execution checked
+// out on another computer for review, in a folder of its own. The folder
+// and whatever the person edits in it belong to that computer. This is the
+// home's record of it, for the label ("abc1234 from MacBook") and Refresh.
+export const reviewCheckouts = sqliteTable(
+  'review_checkouts',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    executionId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => executions.id, { onDelete: 'cascade' }),
+    computerId: text()
+      .notNull()
+      .references(() => computers.id, { onDelete: 'cascade' }),
+    // The computer the reviewed work runs on, when it was opened.
+    sourceComputerId: text().references(() => computers.id, { onDelete: 'set null' }),
+    path: text().notNull(),
+    branch: text().notNull(),
+    commitSha: text().notNull(),
+    // Last seen with local edits: refresh leaves it as it is.
+    dirty: integer({ mode: 'boolean' }).notNull(),
+  },
+  (table) => [uniqueIndex('uniq_review_checkouts_execution_computer').on(table.executionId, table.computerId)],
+);
+
+// One row per worker key. Its existence is what makes a key a worker key: a
+// viewing key never gets one, since only redeeming an enroll grant creates a
+// worker key, and it creates a new one.
+export const workerEnrollments = sqliteTable(
+  'worker_enrollments',
+  {
+    apiKeyId: text()
+      .primaryKey()
+      .references(() => apiKeys.id, { onDelete: 'cascade' }),
+    ...timestamps,
+    computerId: text()
+      .notNull()
+      .references(() => computers.id, { onDelete: 'cascade' }),
+    grantId: text().references(() => computerGrants.id, { onDelete: 'set null' }),
+  },
+  (table) => [index('idx_worker_enrollments_computer').on(table.computerId)],
+);
+
+export const home = sqliteTable('home', {
+  id: text().primaryKey(),
+  ...timestamps,
+  // A fact set at creation: a personal home, or a team space.
+  kind: text({ enum: ['personal', 'team'] }).notNull(),
+  name: text().notNull(),
+  // The computer whose in-process runner serves this home. It changes only
+  // when the home moves to another machine.
+  hostComputerId: text()
+    .notNull()
+    .references(() => computers.id),
+});
+
+// ─── Agent setups ─────────────────────────────────────────────
+// What each computer last reported about an agent's folder on it
+// (docs/homes-spec.md §4.2). The authority is the `.ri.local.json` in that
+// folder on that computer. This is the home's observed index, for display
+// and to check a setup before sending work there. The home never edits a
+// computer's paths through it.
+
+export const agentSetups = sqliteTable(
+  'agent_setups',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    workspaceId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => workspaces.id, { onDelete: 'cascade' }),
+    computerId: text()
+      .notNull()
+      .references(() => computers.id, { onDelete: 'cascade' }),
+    // The agent's project folder on that computer. The home's records are the
+    // only place it's kept (docs/homes-spec.md §4.1): the computer checks it.
+    sourcePath: text().notNull(),
+    // Whether the computer found it when it last checked. Null until it has.
+    found: integer({ mode: 'boolean' }),
+    // Retired with setup files (P1.4): their revision. Kept to the next baseline squash.
+    configRevision: text(),
+    // Its linked folders on that computer, as the home resolves them from
+    // `reference_folders` and `folder_links` with the computer's last check.
+    // Derived: written only by `recomputeAgentSetups`, never edited.
+    references: text({ mode: 'json' }).$type<SetupReferenceReport[]>().notNull().default([]),
+    // `ready` once the computer found the project folder and every linked
+    // folder is chosen and found, `unchecked` until it has looked (work can
+    // start: it checks again before it prepares). The file-era values
+    // (missing_file, invalid_config, wrong_home, duplicate) are no longer written.
+    status: text({
+      enum: ['ready', 'unchecked', 'missing_folder', 'missing_file', 'invalid_config', 'wrong_home', 'missing_reference', 'duplicate'],
+    }).notNull(),
+    problem: text(),
+    // When the computer last checked it, or when it was last changed.
+    reportedAt: text().notNull(),
+  },
+  (table) => [
+    uniqueIndex('uniq_agent_setups_agent_computer').on(table.workspaceId, table.computerId),
+    index('idx_agent_setups_computer').on(table.computerId),
+  ],
+);
+
+/**
+ * One harness as a worker found it on its computer: the view the harness
+ * runtime gives (src/lib/harness/runtime.ts `HarnessRuntimeView`), as JSON.
+ */
+export interface WorkerHarnessReport {
+  harness: string;
+  binary: { status: string; command?: string | null; version?: string | null; error?: string };
+  capabilities: Record<string, { supported: boolean; status?: string; reason?: string | null }>;
+}
+
+/** One linked folder of an agent on a computer, as the home resolves it (`recomputeAgentSetups`). */
+export interface SetupReferenceReport {
+  alias: string;
+  value?: string | { agentId: string } | null;
+  form: 'path' | 'agent' | 'omitted' | 'unconfigured';
+  path: string | null;
+  exists: boolean;
+  problem: string | null;
+}
 
 // ─── Workspaces ───────────────────────────────────────────────
 // A workspace is a folder on disk the user organizes around. For git
@@ -764,6 +1142,12 @@ export const workspaces = sqliteTable(
     // and to every execution it starts. Null means none. Capped in the query
     // layer.
     instructions: text(),
+    // The computer this agent's new executions run on, as the person chose
+    // with "Make this the default" (docs/homes-spec.md §3.3, P3.1). Null means
+    // never chosen: resolved at read time to the home when its setup is
+    // usable, otherwise the first computer set up for the agent. A one-off
+    // "Run on" choice never changes it.
+    defaultComputerId: text().references((): AnySQLiteColumn => computers.id, { onDelete: 'set null' }),
     position: integer().notNull().default(0),
     collapsed: integer({ mode: 'boolean' }).notNull(),
     // When true, the Live-session explainer modal is skipped for this workspace
@@ -811,7 +1195,9 @@ export const referenceFolders = sqliteTable(
     // What the user types after `@`. Lowercase `[a-z0-9][a-z0-9._-]*`, so the
     // mention parser never has to disambiguate an alias from a path.
     alias: text().notNull(),
-    // Bare-path target. Absolute. Mutually exclusive with targetWorkspaceId.
+    // Retired in 0011: the home's path for a folder, which moved to
+    // `folder_links` with every other computer's. Read only by the boot step
+    // that moves it (`moveFolderRecords`). Kept to the next baseline squash.
     path: text(),
     // Workspace target. Resolved to that workspace's `cwd` at read time so the
     // reference survives the folder moving. Mutually exclusive with `path`.
@@ -840,12 +1226,35 @@ export const referenceFolders = sqliteTable(
     uniqueIndex('uniq_reference_folders_workspace_alias')
       .on(table.workspaceId, table.alias)
       .where(sql`${table.workspaceId} IS NOT NULL AND ${table.status} = 'active'`),
-    // Exactly one target. The query layer validates this too with a friendlier
-    // message; this is the backstop for anything that reaches SQLite directly.
-    check(
-      'reference_folders_one_target',
-      sql`(${table.path} IS NOT NULL) <> (${table.targetWorkspaceId} IS NOT NULL)`,
-    ),
+  ],
+);
+
+/**
+ * Where a linked folder is on one computer (docs/homes-spec.md §4.1): the
+ * home's record, the only one kept. A linked folder for every agent has one
+ * place per computer, shared by every agent there. A linked folder that's
+ * another agent has no links: it's that agent's project folder there.
+ */
+export const folderLinks = sqliteTable(
+  'folder_links',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    computerId: text()
+      .notNull()
+      .references(() => computers.id, { onDelete: 'cascade' }),
+    referenceFolderId: text()
+      .notNull()
+      .references(() => referenceFolders.id, { onDelete: 'cascade' }),
+    // Where it is on that computer. Null: that computer goes without it.
+    path: text(),
+    // Whether the computer found it when it last checked. Null until it has.
+    found: integer({ mode: 'boolean' }),
+    checkedAt: text(),
+  },
+  (table) => [
+    uniqueIndex('uniq_folder_links_computer_reference').on(table.computerId, table.referenceFolderId),
+    index('idx_folder_links_reference').on(table.referenceFolderId),
   ],
 );
 
@@ -913,19 +1322,11 @@ export const executions = sqliteTable(
     setupScriptStatus: text({ enum: ['running', 'done', 'failed'] }),
     setupScriptError: text(),
 
-    // "Take over locally" lifecycle — lifted from chat_sessions. In takeover
-    // iff `takeover_started_at IS NOT NULL`; all six clear together on
-    // resume/cancel. The token authenticates the local CLI without the bearer
-    // token and expires after one hour.
-    //
-    // `takeoverChatSessionId` records the chat that initiated the takeover
-    // so the resume handoff lands in the exact chat the user started in —
-    // a workspace execution can have multiple sibling chats (scheduled
-    // fires accumulate them) and "most-recently-active" can pick the
-    // wrong one once that happens. ON DELETE SET NULL keeps the
-    // execution-side state valid if the initiating chat is ever hard-
-    // deleted. Legacy executions with NULL fall back to the old "most-
-    // recent active chat" heuristic in `findChatSessionByTakeoverToken`.
+    // Retired: "take over locally" (P4.5, docs/homes-spec.md §8.2). Continue
+    // here replaced it, and nothing reads or writes these now. They stay
+    // until the next baseline squash drops them: SQLite can't drop a
+    // foreign-key column in place, so dropping them now means rebuilding
+    // `executions`, which this history doesn't need.
     takeoverStartedAt: text(),
     takeoverBaseSha: text(),
     takeoverBranch: text(),
@@ -1104,7 +1505,7 @@ export const previewTargets = sqliteTable(
 // One row per chat thread. `type` discriminates: orchestration (main thread),
 // content (scoped to a task/note), execution (CLI-backed work). Execution
 // chats carry workspace_id and point at an `execution_id`; the durable
-// git/worktree/PR/takeover state lives on the `executions` row, read back
+// git/worktree/PR state lives on the `executions` row, read back
 // through `getChatSessionWithExecution`. They may carry external_session_id
 // when bound to a CLI session.
 
@@ -1140,6 +1541,12 @@ export const chatSessions = sqliteTable(
     // execution is ever hard-deleted (workspace deletion cascade), the chat
     // survives as an orphaned-but-readable transcript.
     executionId: text().references((): AnySQLiteColumn => executions.id, { onDelete: 'set null' }),
+    // The computer a chat without an execution runs on (docs/homes-build.md,
+    // P0.3 Placement). Null is the home's own computer, which is right for the
+    // app's main chat, content chats and scheduled orchestrator fires. An
+    // agent main chat fixed to a connected computer has it set. Execution
+    // chats run where their execution's placement says.
+    computerId: text().references((): AnySQLiteColumn => computers.id, { onDelete: 'set null' }),
 
     // Provenance: the run that created this chat. NULL for chats the user
     // opened directly without a run kicking them off (manual chat send from
@@ -1281,6 +1688,9 @@ export const externalSessionImports = sqliteTable(
       .references(() => chatSessions.id, { onDelete: 'cascade' }),
     providerType: text().notNull(),
     externalSessionId: text().notNull(),
+    // The computer whose native files these are (docs/homes-build.md, P2.9).
+    // Null: the home's own. A session's identity is (computer, provider, id).
+    computerId: text().references((): AnySQLiteColumn => computers.id),
     sourceKind: text({ enum: ['file', 'service'] }).notNull(),
     sourcePath: text(),
     sourceSize: integer(),
@@ -1298,10 +1708,15 @@ export const externalSessionImports = sqliteTable(
     lastError: text(),
   },
   (table) => [
-    uniqueIndex('external_session_imports_source_uq').on(
-      table.providerType,
-      table.externalSessionId,
-    ),
+    // One import per native session: per provider on the home's own
+    // computer, and per computer and provider on a connected one. Two partial
+    // indexes, since SQLite treats every NULL as distinct.
+    uniqueIndex('external_session_imports_source_uq')
+      .on(table.providerType, table.externalSessionId)
+      .where(sql`${table.computerId} IS NULL`),
+    uniqueIndex('external_session_imports_remote_source_uq')
+      .on(table.computerId, table.providerType, table.externalSessionId)
+      .where(sql`${table.computerId} IS NOT NULL`),
     index('external_session_imports_status_idx').on(table.status),
   ],
 );
@@ -1340,6 +1755,10 @@ export const chatEvents = sqliteTable(
     externalToolCallId: text(),
     externalParentToolCallId: text(),
     sourcePartIndex: integer().notNull().default(0),
+    // A cumulative provider part's revision (docs/homes-build.md, P2.3): a
+    // replacement applies only with a higher one, so a late replay can't
+    // overwrite newer text. Null for everything else.
+    partRevision: integer(),
     // Files dropped/pasted/uploaded with this message. Same shape as
     // entity attachments (tasks/notes/areas) — references files in
     // <brain>/attachments/<file_name>. Marker tokens in `content`
@@ -1837,6 +2256,12 @@ export const runs = sqliteTable(
     // human-readable detail.
     errorCode: text(),
     errorMessage: text(),
+
+    // The chat event a scheduled fire sends (its prompt). A move that holds
+    // the message delivers it later as this run, under its time limit, and
+    // the run waits `queued` until then (P3 re-check). Null for a manual
+    // send, and for a fire that failed before its prompt was written.
+    sourceEventId: text(),
   },
   (table) => [
     // Per-trigger history.
@@ -1850,6 +2275,8 @@ export const runs = sqliteTable(
     // reason this index exists; it's the hot path. See
     // docs/executions-spec.md §5.
     index('idx_runs_execution_status').on(table.executionId, table.status),
+    // A held message's scheduled run, found when a move delivers it.
+    index('idx_runs_source_event').on(table.sourceEventId),
   ],
 );
 

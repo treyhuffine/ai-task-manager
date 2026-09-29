@@ -15,7 +15,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { FilesToCopySection } from '@/components/workspaces/files-to-copy-section';
 import { WorktreeScriptsSection } from '@/components/workspaces/worktree-scripts-section';
 import { WorkspaceConnectorsSection } from '@/components/workspaces/workspace-connectors-section';
-import { ReferenceFoldersSection } from '@/components/workspaces/reference-folders-section';
+import { AgentFoldersSection } from './agent-folders';
 import type { GhStatus } from '@/lib/workspaces/gh';
 import type { Attachment, UpdateWorkspaceInput, WorkspaceRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils';
 const PURPOSE_MAX = 500;
 const INSTRUCTIONS_MAX = 20_000;
 
-/** The fields the Save button writes. Connectors and reference folders save themselves. */
+/** The fields the Save button writes. Connectors and folders save themselves. */
 interface SetupForm {
   name: string;
   emoji: string | null;
@@ -308,14 +308,9 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
             </label>
           </Section>
 
-          <ReferenceFoldersSection workspaceId={workspace.id} workspaceName={workspace.name} />
+          <AgentFoldersSection workspace={workspace} />
 
-          <Section title="Folder and git">
-            <Field label="Folder" hint="Fixed when the agent was created. Move the folder to relink.">
-              <div className="px-3 py-2 text-xs font-mono bg-muted/40 border border-border rounded-md text-muted-foreground break-all">
-                {workspace.cwd}
-              </div>
-            </Field>
+          <Section title="Git">
             {workspace.isGit && (
               <>
                 <Field label="Base branch">

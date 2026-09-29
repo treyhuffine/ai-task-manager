@@ -1,7 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { mapFileError } from '@/lib/workspaces/file-http';
-import { resolveWorkspaceConflict } from '@/lib/workspaces/write-file';
-import { openWritableWorkspaceFolder } from '../../_folder';
+import { agentFolderWrite } from '../../_folder';
 
 /**
  * Resolve a merge conflict in the agent's folder, say after a merge in the
@@ -22,9 +21,7 @@ export async function POST(
     if (typeof body.content !== 'string') {
       return Response.json({ error: 'Body must include content string' }, { status: 400 });
     }
-    const resolved = openWritableWorkspaceFolder(id);
-    if (!resolved.ok) return resolved.response;
-    return Response.json({ ok: true, ...(await resolveWorkspaceConflict(resolved.folder, body.path, body.content)) });
+    return await agentFolderWrite(id, { kind: 'resolve_conflict', path: body.path, content: body.content });
   } catch (err) {
     return mapFileError(err, '[POST /api/workspaces/:id/file/resolve-conflict]');
   }

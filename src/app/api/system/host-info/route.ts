@@ -3,8 +3,7 @@ import { getAppRoot } from '@/lib/config/paths';
 
 /**
  * Returns identity info about the machine running the app. Used by the
- * settings page to render "Currently connected to: <hostname>" and by
- * the takeover modal to label the host in copy-paste commands.
+ * settings page to render "Currently connected to: <hostname>".
  *
  * Not sensitive — same surface the user would see in `ri doctor`.
  */

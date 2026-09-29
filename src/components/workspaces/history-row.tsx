@@ -12,6 +12,7 @@ import { DiffStatsPair } from './diff-stats';
 import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
 import { executionView } from '@/lib/client/active-view';
+import { preparedFolder } from '@/lib/executions/location';
 
 interface HistoryRowProps {
   session: RailSession;
@@ -47,7 +48,8 @@ export function HistoryRow({
 }: HistoryRowProps) {
   const { activeSessionId, setActiveView } = useDashboard();
   const { data: diffStats } = useDiffStats(
-    session.worktreePath ? session.id : null,
+    // Its folder wherever it runs: an execution elsewhere has its +/- too (P3.5).
+    preparedFolder(session) ? session.id : null,
     session.executionId,
   );
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);

@@ -3,12 +3,14 @@
  * Used by both API route handlers and AI chat tools.
  */
 
+import { createHash, randomBytes } from 'node:crypto';
 import nodePath from 'node:path';
 import os from 'node:os';
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
+  home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, agentSetups, folderLinks,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -31,10 +33,14 @@ import type {
   DeckRecord, CreateDeckInput, UpdateDeckInput,
   UpdateUserStateInput,
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
+  HomeRecord, HomeKind, ComputerRecord, CreateComputerInput, UpdateComputerInput,
+  ComputerGrantRecord, ComputerGrantKind, WorkerEnrollmentRecord, WorkerReportedState, WorkerHarnessReport,
+  WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord, ExecutionTransferRecord, NativeSessionRecord, ReviewCheckoutRecord,
+  AgentSetupRecord, SetupReferenceReport, FolderLinkRecord,
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
   ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
-  ExecutionRecord, ExecutionReviewRecord, ExecutionReviewContext, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution,
+  ExecutionRecord, ExecutionReviewRecord, ExecutionReviewContext, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution, ExecutionLocation,
   PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl,
   ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
   ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput,
@@ -4281,6 +4287,1917 @@ export function listRetryableProviderDisconnectSagas(): HarnessOperationRecord[]
     .orderBy(asc(harnessOperations.createdAt)).all();
 }
 
+// ─── Home and computers (docs/homes-spec.md §5.1) ─────────────
+
+/** This home's identity row, or null before `ensureHomeIdentity` has made it. */
+export function getHome(): HomeRecord | null {
+  return getDb().select().from(home).get() ?? null;
+}
+
+/**
+ * Create this home and the computer it runs on, together. Refuses when a
+ * home already exists: a database holds exactly one. The ids come from the
+ * caller, which writes them to the machine identity file first, so a crash
+ * between the two steps repeats the same ids.
+ */
+export function createHomeIdentity(input: {
+  homeId: string;
+  kind: HomeKind;
+  name: string;
+  host: CreateComputerInput & { id: string };
+}): { home: HomeRecord; computer: ComputerRecord } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const existing = tx.select().from(home).get();
+    if (existing) throw new Error(`This database already belongs to home ${existing.id}.`);
+    const now = new Date().toISOString();
+    const computer = tx
+      .insert(computers)
+      .values({ ...input.host, status: input.host.status ?? 'active', createdAt: now, updatedAt: now })
+      .onConflictDoNothing()
+      .returning()
+      .get() ?? tx.select().from(computers).where(eq(computers.id, input.host.id)).get()!;
+    const row = tx
+      .insert(home)
+      .values({ id: input.homeId, kind: input.kind, name: input.name, hostComputerId: computer.id, createdAt: now, updatedAt: now })
+      .returning()
+      .get();
+    return { home: row, computer };
+  }, { behavior: 'immediate' });
+}
+
+export function createComputer(input: CreateComputerInput): ComputerRecord {
+  const now = new Date().toISOString();
+  return getDb()
+    .insert(computers)
+    .values({ ...input, id: input.id ?? uuidv7(), status: input.status ?? 'active', createdAt: now, updatedAt: now })
+    .returning()
+    .get();
+}
+
+export function getComputer(id: string): ComputerRecord | null {
+  return getDb().select().from(computers).where(eq(computers.id, id)).get() ?? null;
+}
+
+export function listComputers(options: { includeRevoked?: boolean } = {}): ComputerRecord[] {
+  const q = getDb().select().from(computers);
+  return (options.includeRevoked ? q : q.where(eq(computers.status, 'active'))).orderBy(asc(computers.createdAt)).all();
+}
+
+export function updateComputer(id: string, input: UpdateComputerInput): ComputerRecord | null {
+  return getDb()
+    .update(computers)
+    .set({ ...input, updatedAt: new Date().toISOString() })
+    .where(eq(computers.id, id))
+    .returning()
+    .get() ?? null;
+}
+
+/**
+ * Make `computerId` the machine this home runs on. Used when a person
+ * explicitly selects a restored root as the active home (§10.3).
+ */
+export function setHomeHost(computerId: string): HomeRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const current = tx.select().from(home).get();
+    if (!current) throw new Error('This database has no home yet.');
+    const computer = tx.select().from(computers).where(eq(computers.id, computerId)).get();
+    if (!computer || computer.status !== 'active') throw new Error(`Computer ${computerId} is not an active computer of this home.`);
+    return tx
+      .update(home)
+      .set({ hostComputerId: computerId, updatedAt: new Date().toISOString() })
+      .where(eq(home.id, current.id))
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * The home moves to another of its computers (docs/homes-spec.md §10.3:
+ * "Relink only paths belonging to the moved host"). What ran on the old host
+ * without saying so, because the home's own computer needed no record, is
+ * pinned to it now, since its worktrees and native transcripts are there:
+ *
+ * - Executions with no placement are placed on the old host with their
+ *   worktree. The home's own path column follows whichever computer is the
+ *   host: set for work placed on the new host, cleared for the rest.
+ * - An agent's chats outside an execution stay with the old host when the
+ *   agent has no folder on the new one. Other chats outside an execution
+ *   (the app's main chat, and agents set up on the new host) stay with the
+ *   home and start a fresh native session there, the old one being on the
+ *   other computer.
+ * - Terminal-history imports from the old host's disk are read from the old
+ *   host from then on, never from a path on it.
+ * - Each agent's folder at the home becomes its folder on the new host, when
+ *   it has one there.
+ *
+ * The new host's worker enrollment, if it ran work for the home before, is
+ * revoked: the home runs its own work in-process. The old host stays a
+ * computer of the home, ready to enroll as a worker.
+ */
+export function moveHomeHost(newHostId: string): { from: string; to: string; pinnedExecutions: number; pinnedChats: number; freshChats: number } {
+  const db = getDb();
+  const moved = db.transaction((tx) => {
+    const current = tx.select().from(home).get();
+    if (!current) throw new Error('This database has no home yet.');
+    const oldHostId = current.hostComputerId;
+    const computer = tx.select().from(computers).where(eq(computers.id, newHostId)).get();
+    if (!computer || computer.status !== 'active') throw new Error(`Computer ${newHostId} is not an active computer of this home.`);
+    const result = { from: oldHostId, to: newHostId, pinnedExecutions: 0, pinnedChats: 0, freshChats: 0, revokeKeys: [] as string[] };
+    if (oldHostId === newHostId) return result;
+    const now = new Date().toISOString();
+
+    // Work the old host ran as the home.
+    const unplaced = tx
+      .select({ id: executions.id, worktreePath: executions.worktreePath })
+      .from(executions)
+      .where(sql`NOT EXISTS (SELECT 1 FROM ${executionPlacements} WHERE ${executionPlacements.executionId} = ${executions.id})`)
+      .all();
+    for (const e of unplaced) {
+      tx.insert(executionPlacements)
+        .values({ id: uuidv7(), executionId: e.id, computerId: oldHostId, generation: 1, worktreePath: e.worktreePath, startReason: 'created', createdAt: now, updatedAt: now })
+        .run();
+    }
+    result.pinnedExecutions = unplaced.length;
+    // The home's path column: the new host's worktree for work placed there, nothing for the rest.
+    tx.run(sql`UPDATE ${executions} SET worktree_path = (
+      SELECT ${executionPlacements.worktreePath} FROM ${executionPlacements}
+      WHERE ${executionPlacements.executionId} = ${executions.id} AND ${executionPlacements.endedAt} IS NULL AND ${executionPlacements.computerId} = ${newHostId}
+    ), updated_at = ${now}`);
+
+    // Chats outside an execution that ran at the home.
+    const onNewHost = new Set(
+      tx.select({ id: agentSetups.workspaceId }).from(agentSetups).where(eq(agentSetups.computerId, newHostId)).all().map((r) => r.id),
+    );
+    const homeChats = tx
+      .select({ id: chatSessions.id, workspaceId: chatSessions.workspaceId, native: chatSessions.externalSessionId })
+      .from(chatSessions)
+      .where(and(isNull(chatSessions.executionId), isNull(chatSessions.computerId)))
+      .all();
+    for (const c of homeChats) {
+      if (c.workspaceId && !onNewHost.has(c.workspaceId)) {
+        tx.update(chatSessions).set({ computerId: oldHostId, updatedAt: now }).where(eq(chatSessions.id, c.id)).run();
+        result.pinnedChats++;
+      } else if (c.native) {
+        tx.update(nativeSessions)
+          .set({ endedAt: now, endReason: 'continued', updatedAt: now })
+          .where(and(eq(nativeSessions.chatSessionId, c.id), isNull(nativeSessions.endedAt)))
+          .run();
+        tx.update(chatSessions).set({ externalSessionId: null, updatedAt: now }).where(eq(chatSessions.id, c.id)).run();
+        result.freshChats++;
+      }
+    }
+
+    // Terminal-history imports from the old host's own disk.
+    tx.run(sql`UPDATE ${externalSessionImports} SET computer_id = ${oldHostId}, source_path = NULL, updated_at = ${now}
+      WHERE computer_id IS NULL AND NOT EXISTS (
+        SELECT 1 FROM ${externalSessionImports} other
+        WHERE other.computer_id = ${oldHostId} AND other.provider_type = ${externalSessionImports.providerType}
+          AND other.external_session_id = ${externalSessionImports.externalSessionId}
+      )`);
+
+    // Each agent's folder at the home is its folder on the new host.
+    for (const setup of tx.select().from(agentSetups).where(eq(agentSetups.computerId, newHostId)).all()) {
+      tx.update(workspaces).set({ cwd: setup.sourcePath, updatedAt: now }).where(eq(workspaces.id, setup.workspaceId)).run();
+    }
+
+    tx.update(home).set({ hostComputerId: newHostId, updatedAt: now }).where(eq(home.id, current.id)).run();
+    result.revokeKeys = tx
+      .select({ apiKeyId: workerEnrollments.apiKeyId })
+      .from(workerEnrollments)
+      .where(eq(workerEnrollments.computerId, newHostId))
+      .all()
+      .map((r) => r.apiKeyId);
+    return result;
+  }, { behavior: 'immediate' });
+  for (const id of moved.revokeKeys) revokeApiKey(id, 'This computer is the home now, so it runs work itself.');
+  const { revokeKeys: _revoked, ...summary } = moved;
+  return summary;
+}
+
+/** The computer a key belongs to, when one registered with it. */
+export function getComputerForApiKey(apiKeyId: string): ComputerRecord | null {
+  const row = getDb()
+    .select({ computer: getTableColumns(computers) })
+    .from(apiKeys)
+    .innerJoin(computers, eq(apiKeys.computerId, computers.id))
+    .where(eq(apiKeys.id, apiKeyId))
+    .get();
+  return row?.computer ?? null;
+}
+
+/**
+ * Register the computer calling with `apiKeyId`, or refresh its facts when
+ * it registered before. The key is linked to the computer, so later reports
+ * from that key are that computer's. Linking grants no authority to run
+ * work (docs/homes-spec.md §3.1).
+ */
+export function registerComputerForApiKey(input: {
+  apiKeyId: string;
+  name: string;
+  platform?: string | null;
+  hostname?: string | null;
+  /**
+   * The id this home gave the calling machine before, e.g. with an older key.
+   * A key not linked yet is linked to that computer instead of a new one, so
+   * re-pairing keeps the same computer. Never the home's own computer, and
+   * never a removed one.
+   */
+  computerId?: string | null;
+}): { computer: ComputerRecord; created: boolean } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const key = tx.select().from(apiKeys).where(eq(apiKeys.id, input.apiKeyId)).get();
+    if (!key || key.revokedAt) throw new Error('This key is not active.');
+    const now = new Date().toISOString();
+    if (key.computerId) {
+      const computer = tx
+        .update(computers)
+        .set({ platform: input.platform ?? null, hostname: input.hostname ?? null, lastSeenAt: now, updatedAt: now })
+        .where(eq(computers.id, key.computerId))
+        .returning()
+        .get();
+      if (computer) return { computer, created: false };
+    }
+    const hostId = tx.select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
+    if (input.computerId && input.computerId !== hostId) {
+      const previous = tx.select().from(computers).where(eq(computers.id, input.computerId)).get();
+      if (previous && previous.status === 'active') {
+        tx.update(apiKeys).set({ computerId: previous.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
+        const computer = tx
+          .update(computers)
+          .set({ platform: input.platform ?? null, hostname: input.hostname ?? null, lastSeenAt: now, updatedAt: now })
+          .where(eq(computers.id, previous.id))
+          .returning()
+          .get()!;
+        return { computer, created: false };
+      }
+    }
+    const computer = tx
+      .insert(computers)
+      .values({
+        id: uuidv7(),
+        name: input.name,
+        platform: input.platform ?? null,
+        hostname: input.hostname ?? null,
+        status: 'active',
+        lastSeenAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    tx.update(apiKeys).set({ computerId: computer.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
+    return { computer, created: true };
+  }, { behavior: 'immediate' });
+}
+
+// ─── Computer grants and worker enrollment (docs/homes-build.md, P2.2) ───
+
+export const ENROLL_GRANT_TTL_MS = 10 * 60 * 1000;
+export const ASSOCIATE_GRANT_TTL_MS = 2 * 60 * 1000;
+
+export class GrantError extends Error {
+  constructor(
+    readonly code: 'invalid' | 'expired' | 'used' | 'not_allowed',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'GrantError';
+  }
+}
+
+function hostComputerIdIn(tx: Pick<ReturnType<typeof getDb>, 'select'>): string | null {
+  return tx.select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
+}
+
+/**
+ * Issue a single-use grant. An `enroll` grant names the computer that will
+ * become a worker, or none to make a new one. It can't name the home's own
+ * computer, whose runner is in process. An `associate` grant names the
+ * computer whose browser it links. Returns the secret once: only its hash
+ * is kept.
+ */
+export function createComputerGrant(input: {
+  kind: ComputerGrantKind;
+  computerId: string | null;
+  computerName?: string | null;
+  createdByApiKeyId: string | null;
+}): { grant: ComputerGrantRecord; secret: string } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    if (input.computerId) {
+      const computer = tx.select().from(computers).where(eq(computers.id, input.computerId)).get();
+      if (!computer || computer.status !== 'active') throw new GrantError('invalid', 'That computer is not active.');
+      if (input.kind === 'enroll' && computer.id === hostComputerIdIn(tx)) {
+        throw new GrantError('not_allowed', `${computer.name} is this home's own computer. It already runs work.`);
+      }
+    } else if (input.kind === 'associate') {
+      throw new GrantError('invalid', 'An association grant needs a computer.');
+    }
+    const secret = `rg_${randomBytes(24).toString('base64url')}`;
+    const now = new Date();
+    const ttl = input.kind === 'enroll' ? ENROLL_GRANT_TTL_MS : ASSOCIATE_GRANT_TTL_MS;
+    const grant = tx
+      .insert(computerGrants)
+      .values({
+        id: uuidv7(),
+        kind: input.kind,
+        hash: hashGrantSecret(secret),
+        computerId: input.computerId,
+        computerName: input.computerName ?? null,
+        createdByApiKeyId: input.createdByApiKeyId,
+        expiresAt: new Date(now.getTime() + ttl).toISOString(),
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      })
+      .returning()
+      .get();
+    return { grant, secret };
+  }, { behavior: 'immediate' });
+}
+
+export function hashGrantSecret(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex');
+}
+
+/** Find a grant by its secret and check it can still be used. Throws `GrantError` otherwise. */
+function usableGrant(
+  tx: Pick<ReturnType<typeof getDb>, 'select'>,
+  secret: string,
+  kind: ComputerGrantKind,
+): ComputerGrantRecord {
+  const grant = tx.select().from(computerGrants).where(eq(computerGrants.hash, hashGrantSecret(secret.trim()))).get();
+  if (!grant || grant.kind !== kind) throw new GrantError('invalid', 'That code is not valid. Make a new one and try again.');
+  if (grant.redeemedAt) throw new GrantError('used', 'That code was already used. Make a new one.');
+  if (new Date(grant.expiresAt).getTime() <= Date.now()) {
+    throw new GrantError('expired', 'That code has expired. Make a new one.');
+  }
+  return grant;
+}
+
+/**
+ * Redeem an enroll grant: the computer becomes a worker. In one transaction
+ * the home makes the computer if the grant named none, issues a new worker
+ * key bound to it, records the enrollment, revokes any earlier worker key
+ * for that computer (one worker per computer), and marks the grant used.
+ * The key's token is returned once.
+ */
+export function redeemEnrollGrant(input: {
+  secret: string;
+  name: string;
+  platform?: string | null;
+  hostname?: string | null;
+}): {
+  homeId: string;
+  computer: ComputerRecord;
+  key: ApiKeyRecord;
+  token: GeneratedToken;
+  /** Commands the earlier worker never acknowledged, now uncertain. `enrollWorker` finishes their runs. */
+  uncertain: WorkerCommandRecord[];
+} {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const grant = usableGrant(tx, input.secret, 'enroll');
+    const now = new Date().toISOString();
+    const homeRow = tx.select().from(home).get();
+    if (!homeRow) throw new GrantError('invalid', 'This home has no identity yet.');
+    let computer: ComputerRecord;
+    if (grant.computerId) {
+      const existing = tx.select().from(computers).where(eq(computers.id, grant.computerId)).get();
+      if (!existing || existing.status !== 'active') throw new GrantError('invalid', 'That computer was removed.');
+      if (existing.id === homeRow.hostComputerId) {
+        throw new GrantError('not_allowed', `${existing.name} is this home's own computer.`);
+      }
+      computer = tx
+        .update(computers)
+        .set({ platform: input.platform ?? existing.platform, hostname: input.hostname ?? existing.hostname, lastSeenAt: now, updatedAt: now })
+        .where(eq(computers.id, existing.id))
+        .returning()
+        .get()!;
+    } else {
+      computer = tx
+        .insert(computers)
+        .values({
+          id: uuidv7(),
+          name: grant.computerName?.trim() || input.name,
+          platform: input.platform ?? null,
+          hostname: input.hostname ?? null,
+          status: 'active',
+          lastSeenAt: now,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .get();
+    }
+
+    // Commands streamed to an earlier worker and never acknowledged may have
+    // been acted on. A new worker starts with no record of them, so they're
+    // uncertain rather than sent again (docs/homes-build.md, P2.3).
+    const uncertain = tx
+      .update(workerCommands)
+      .set({ state: 'uncertain', error: 'The computer was enrolled again before acknowledging this.', updatedAt: now })
+      .where(and(eq(workerCommands.computerId, computer.id), eq(workerCommands.state, 'sent')))
+      .returning()
+      .all();
+
+    // One worker per computer: an earlier worker key for it stops working.
+    const earlier = tx
+      .select({ apiKeyId: workerEnrollments.apiKeyId })
+      .from(workerEnrollments)
+      .where(eq(workerEnrollments.computerId, computer.id))
+      .all()
+      .map((r) => r.apiKeyId);
+    if (earlier.length > 0) {
+      tx.update(apiKeys)
+        .set({ revokedAt: now, revokedReason: 'Replaced by a new enrollment', updatedAt: now })
+        .where(and(inArray(apiKeys.id, earlier), isNull(apiKeys.revokedAt)))
+        .run();
+    }
+
+    const token = generateToken();
+    const key = tx
+      .insert(apiKeys)
+      .values({
+        id: uuidv7(),
+        name: `${computer.name} worker`,
+        description: 'Runs agents on this computer for the home. Issued by enrollment.',
+        deviceType: 'computer',
+        prefix: token.prefix,
+        suffix: token.suffix,
+        hash: token.hash,
+        env: token.env,
+        computerId: computer.id,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    tx.insert(workerEnrollments)
+      .values({ apiKeyId: key.id, computerId: computer.id, grantId: grant.id, createdAt: now, updatedAt: now })
+      .run();
+    tx.update(computerGrants)
+      .set({ redeemedAt: now, redeemedByApiKeyId: key.id, updatedAt: now })
+      .where(eq(computerGrants.id, grant.id))
+      .run();
+    return { homeId: homeRow.id, computer, key, token, uncertain };
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * Redeem an associate grant with a browser's viewing key: that key is now
+ * known to be on the grant's computer. Identity only, never authority, and
+ * never for a worker key.
+ */
+export function redeemAssociateGrant(input: { secret: string; apiKeyId: string }): ComputerRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const grant = usableGrant(tx, input.secret, 'associate');
+    const key = tx.select().from(apiKeys).where(eq(apiKeys.id, input.apiKeyId)).get();
+    if (!key || key.revokedAt) throw new GrantError('invalid', 'This browser is not signed in.');
+    const worker = tx.select().from(workerEnrollments).where(eq(workerEnrollments.apiKeyId, key.id)).get();
+    if (worker) throw new GrantError('not_allowed', 'A worker key is not a browser.');
+    const computer = tx.select().from(computers).where(eq(computers.id, grant.computerId!)).get();
+    if (!computer || computer.status !== 'active') throw new GrantError('invalid', 'That computer was removed.');
+    const now = new Date().toISOString();
+    tx.update(apiKeys).set({ computerId: computer.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
+    tx.update(computerGrants)
+      .set({ redeemedAt: now, redeemedByApiKeyId: key.id, updatedAt: now })
+      .where(eq(computerGrants.id, grant.id))
+      .run();
+    return computer;
+  }, { behavior: 'immediate' });
+}
+
+/** The enrollment behind an active worker key, with its active computer. Null for any other key. */
+export function getWorkerEnrollment(apiKeyId: string): { enrollment: WorkerEnrollmentRecord; computer: ComputerRecord } | null {
+  const db = getDb();
+  const row = db
+    .select({ enrollment: workerEnrollments, computer: computers, revokedAt: apiKeys.revokedAt })
+    .from(workerEnrollments)
+    .innerJoin(apiKeys, eq(apiKeys.id, workerEnrollments.apiKeyId))
+    .innerJoin(computers, eq(computers.id, workerEnrollments.computerId))
+    .where(eq(workerEnrollments.apiKeyId, apiKeyId))
+    .get();
+  if (!row || row.revokedAt || row.computer.status !== 'active') return null;
+  return { enrollment: row.enrollment, computer: row.computer };
+}
+
+/** A computer's active worker enrollment: an unrevoked worker key on an active computer. */
+export function getWorkerEnrollmentForComputer(computerId: string): WorkerEnrollmentRecord | null {
+  const row = getDb()
+    .select({ enrollment: workerEnrollments })
+    .from(workerEnrollments)
+    .innerJoin(apiKeys, eq(apiKeys.id, workerEnrollments.apiKeyId))
+    .innerJoin(computers, eq(computers.id, workerEnrollments.computerId))
+    .where(and(eq(workerEnrollments.computerId, computerId), isNull(apiKeys.revokedAt), eq(computers.status, 'active')))
+    .get();
+  return row?.enrollment ?? null;
+}
+
+/** Computers with an active worker key, by computer id. */
+export function listEnrolledComputerIds(): Set<string> {
+  const db = getDb();
+  const rows = db
+    .select({ computerId: workerEnrollments.computerId })
+    .from(workerEnrollments)
+    .innerJoin(apiKeys, eq(apiKeys.id, workerEnrollments.apiKeyId))
+    .where(isNull(apiKeys.revokedAt))
+    .all();
+  return new Set(rows.map((r) => r.computerId));
+}
+
+/** Whether a key was issued as a worker key, active or not. The proxy's scope. */
+export function isWorkerApiKey(apiKeyId: string): boolean {
+  const db = getDb();
+  return db.select({ id: workerEnrollments.apiKeyId }).from(workerEnrollments).where(eq(workerEnrollments.apiKeyId, apiKeyId)).get() !== undefined;
+}
+
+/** Store what a worker reported about its computer, and when. */
+export function recordWorkerHeartbeat(
+  computerId: string,
+  report: { protocol: number; version: string; harnesses: WorkerHarnessReport[]; state: WorkerReportedState },
+): ComputerRecord | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+  return (
+    db.update(computers)
+      .set({
+        workerProtocol: report.protocol,
+        workerVersion: report.version,
+        harnesses: report.harnesses,
+        reportedState: report.state,
+        lastSeenAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(computers.id, computerId), eq(computers.status, 'active')))
+      .returning()
+      .get() ?? null
+  );
+}
+
+// ─── Worker commands (docs/homes-build.md, P2 protocol and P2.3) ───
+
+/**
+ * Queue a command for a computer. Call it inside the transaction that writes
+ * what the command acts on (for a send, the user's chat event), so neither
+ * exists without the other. The caller wakes the computer's stream after
+ * commit.
+ */
+export function queueWorkerCommand(input: {
+  id?: string;
+  computerId: string;
+  kind: WorkerCommandKind;
+  payload: unknown;
+  actor: WorkerCommandActor;
+  executionId?: string | null;
+  chatSessionId?: string | null;
+  generation?: number | null;
+  /** For a send: the user's chat event. A second send for it returns the first. */
+  sourceEventId?: string | null;
+}): WorkerCommandRecord {
+  const now = new Date().toISOString();
+  if (input.sourceEventId) {
+    const existing = getDb().select().from(workerCommands).where(eq(workerCommands.sourceEventId, input.sourceEventId)).get();
+    if (existing) return existing;
+  }
+  return getDb()
+    .insert(workerCommands)
+    .values({
+      id: input.id ?? uuidv7(),
+      computerId: input.computerId,
+      kind: input.kind,
+      payload: input.payload ?? {},
+      actor: input.actor,
+      executionId: input.executionId ?? null,
+      chatSessionId: input.chatSessionId ?? null,
+      generation: input.generation ?? null,
+      sourceEventId: input.sourceEventId ?? null,
+      state: 'queued',
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+    .get();
+}
+
+/** The send already queued for a user's chat event, if any. */
+export function getSendForEvent(sourceEventId: string): WorkerCommandRecord | null {
+  return getDb().select().from(workerCommands).where(eq(workerCommands.sourceEventId, sourceEventId)).get() ?? null;
+}
+
+/**
+ * The send this computer was given for a chat that started this turn, or
+ * that carried this run. A worker's report about a turn or a run counts only
+ * when it's about one of its own sends (P2 review fixes).
+ */
+export function sendForTurn(computerId: string, chatSessionId: string, turnId: string): WorkerCommandRecord | null {
+  return sendWhere(computerId, chatSessionId, sql`json_extract(${workerCommands.payload}, '$.turnId') = ${turnId}`);
+}
+
+export function sendForRun(computerId: string, chatSessionId: string, runId: string): WorkerCommandRecord | null {
+  return sendWhere(computerId, chatSessionId, sql`json_extract(${workerCommands.payload}, '$.runId') = ${runId}`);
+}
+
+/**
+ * A computer's commands that won't be carried out now that it no longer runs
+ * agents (P2.8): queued ones are cancelled, since they never left, and sent
+ * ones become uncertain, since they may have arrived. Returns them, for
+ * their runs.
+ */
+export function retireComputerCommands(computerId: string): WorkerCommandRecord[] {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const cancelled = db
+    .update(workerCommands)
+    .set({ state: 'cancelled', error: 'Local execution on this computer was turned off before this reached it.', finishedAt: now, updatedAt: now })
+    .where(and(eq(workerCommands.computerId, computerId), eq(workerCommands.state, 'queued')))
+    .returning()
+    .all();
+  const uncertain = db
+    .update(workerCommands)
+    .set({ state: 'uncertain', error: 'Local execution on this computer was turned off before it acknowledged this.', updatedAt: now })
+    .where(and(eq(workerCommands.computerId, computerId), eq(workerCommands.state, 'sent')))
+    .returning()
+    .all();
+  return [...cancelled, ...uncertain];
+}
+
+/** Sends a computer delivered whose runs are still open: turns under way there. */
+export function deliveredSendsWithOpenRuns(computerId: string): WorkerCommandRecord[] {
+  return getDb()
+    .select(getTableColumns(workerCommands))
+    .from(workerCommands)
+    .innerJoin(runs, sql`${runs.id} = json_extract(${workerCommands.payload}, '$.runId')`)
+    .where(
+      and(
+        eq(workerCommands.computerId, computerId),
+        eq(workerCommands.kind, 'send'),
+        eq(workerCommands.state, 'delivered'),
+        inArray(runs.status, ['queued', 'running']),
+      ),
+    )
+    .all();
+}
+
+/** Whether a send to any computer was saved for this run. */
+export function hasSendForRun(runId: string): boolean {
+  return (
+    getDb()
+      .select({ id: workerCommands.id })
+      .from(workerCommands)
+      .where(and(eq(workerCommands.kind, 'send'), sql`json_extract(${workerCommands.payload}, '$.runId') = ${runId}`))
+      .get() !== undefined
+  );
+}
+
+function sendWhere(computerId: string, chatSessionId: string, match: SQL): WorkerCommandRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(workerCommands)
+      .where(
+        and(
+          eq(workerCommands.computerId, computerId),
+          eq(workerCommands.chatSessionId, chatSessionId),
+          eq(workerCommands.kind, 'send'),
+          match,
+        ),
+      )
+      .get() ?? null
+  );
+}
+
+export function getWorkerCommand(id: string): WorkerCommandRecord | null {
+  return getDb().select().from(workerCommands).where(eq(workerCommands.id, id)).get() ?? null;
+}
+
+export function listWorkerCommands(computerId: string, options: { states?: WorkerCommandState[] } = {}): WorkerCommandRecord[] {
+  const conditions = [eq(workerCommands.computerId, computerId)];
+  if (options.states?.length) conditions.push(inArray(workerCommands.state, options.states));
+  return getDb().select().from(workerCommands).where(and(...conditions)).orderBy(asc(workerCommands.id)).all();
+}
+
+/**
+ * What a computer's stream sends next, after the worker's receipt cursor
+ * `after`: queued commands are numbered now, in the order they were queued,
+ * and marked sent. Then every command numbered after the cursor and still
+ * waiting for an acknowledgement goes out, resends included. An acknowledged
+ * command is never resent: its worker has it. In one transaction, so two
+ * streams can't number the same command twice.
+ */
+/**
+ * Mark stale, and return, the queued or unacknowledged commands whose chat
+ * or execution no longer runs on this computer at their generation (P2.6,
+ * P4). Ownership is checked before a command is sent or resent, not only by
+ * the worker, which can't fence a command for a placement it never saw
+ * replaced.
+ */
+export function staleQueuedCommands(computerId: string): WorkerCommandRecord[] {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const stale: WorkerCommandRecord[] = [];
+  // Queued, and streamed but not acknowledged (P4): a command sent before a
+  // disconnect is resent on reconnect, and one for a placement that has
+  // moved on since must not be. A transfer changes ownership only once the
+  // source's commands are acknowledged, and the worker fences by generation
+  // too, so what's left here was never received.
+  const queued = db
+    .select()
+    .from(workerCommands)
+    .where(and(eq(workerCommands.computerId, computerId), inArray(workerCommands.state, ['queued', 'sent'])))
+    .all();
+  for (const command of queued) {
+    let current: boolean;
+    if (command.executionId) {
+      const placement = placementOf(command.executionId);
+      const reserved = transferReservation(command.executionId);
+      current =
+        (placement?.computerId === computerId && placement.generation === command.generation) ||
+        // A transfer preparing it here, at the generation it will have (P4.2).
+        (reserved?.computerId === computerId && reserved.generation === command.generation);
+    } else if (command.chatSessionId) {
+      current = chatPlacement(command.chatSessionId)?.computerId === computerId;
+    } else {
+      continue;
+    }
+    if (current) continue;
+    const row = db
+      .update(workerCommands)
+      .set({
+        state: 'stale',
+        error: 'The execution had moved to another computer before this reached it.',
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(workerCommands.id, command.id), inArray(workerCommands.state, ['queued', 'sent'])))
+      .returning()
+      .get();
+    if (row) stale.push(row);
+  }
+  return stale;
+}
+
+export function takeCommandsForStream(computerId: string, after: number): WorkerCommandRecord[] {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const now = new Date().toISOString();
+    const queued = tx
+      .select()
+      .from(workerCommands)
+      .where(and(eq(workerCommands.computerId, computerId), eq(workerCommands.state, 'queued')))
+      .orderBy(asc(workerCommands.id))
+      .all();
+    if (queued.length > 0) {
+      let next =
+        (tx
+          .select({ max: sql<number | null>`max(${workerCommands.seq})` })
+          .from(workerCommands)
+          .where(eq(workerCommands.computerId, computerId))
+          .get()?.max ?? 0) + 1;
+      for (const command of queued) {
+        tx.update(workerCommands)
+          .set({ seq: next++, state: 'sent', sentAt: now, attempts: command.attempts + 1, updatedAt: now })
+          .where(eq(workerCommands.id, command.id))
+          .run();
+      }
+    }
+    return tx
+      .select()
+      .from(workerCommands)
+      .where(and(eq(workerCommands.computerId, computerId), gt(workerCommands.seq, after), eq(workerCommands.state, 'sent')))
+      .orderBy(asc(workerCommands.seq))
+      .all();
+  }, { behavior: 'immediate' });
+}
+
+export type WorkerCommandAck = {
+  state: Extract<WorkerCommandState, 'delivered' | 'failed' | 'stale' | 'uncertain'>;
+  result?: unknown;
+  error?: string | null;
+};
+
+/** States a command can't leave, except an uncertain one resolved by reconciliation. */
+const FINAL_COMMAND_STATES = new Set<WorkerCommandState>(['delivered', 'failed', 'stale', 'cancelled']);
+
+/**
+ * Record a worker's acknowledgement, idempotently: the same report again
+ * changes nothing, and a final state stays final. An uncertain command can
+ * still become delivered or failed once reconciled. Returns the command as
+ * the home holds it, or null when this computer has no such command.
+ */
+export function ackWorkerCommand(computerId: string, commandId: string, ack: WorkerCommandAck): WorkerCommandRecord | null {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const command = tx
+      .select()
+      .from(workerCommands)
+      .where(and(eq(workerCommands.id, commandId), eq(workerCommands.computerId, computerId)))
+      .get();
+    if (!command) return null;
+    if (FINAL_COMMAND_STATES.has(command.state) || command.state === ack.state) return command;
+    if (command.state === 'queued') return command; // never streamed: nothing to acknowledge
+    const now = new Date().toISOString();
+    return tx
+      .update(workerCommands)
+      .set({
+        state: ack.state,
+        ...(ack.state === 'delivered' ? { deliveredAt: now } : {}),
+        finishedAt: now,
+        result: ack.result ?? null,
+        error: ack.error ?? null,
+        updatedAt: now,
+      })
+      .where(eq(workerCommands.id, commandId))
+      .returning()
+      .get()!;
+  }, { behavior: 'immediate' });
+}
+
+/** A chat's sends, oldest first: one per message sent to a computer elsewhere (P3.2). */
+export function listSendsForChat(chatSessionId: string): WorkerCommandRecord[] {
+  return getDb()
+    .select()
+    .from(workerCommands)
+    .where(and(eq(workerCommands.chatSessionId, chatSessionId), eq(workerCommands.kind, 'send')))
+    .orderBy(asc(workerCommands.id))
+    .all();
+}
+
+/** A computer's sends not yet delivered or given up on: queued, or sent and unacknowledged. */
+export function listOpenSendsForComputer(computerId: string): WorkerCommandRecord[] {
+  return getDb()
+    .select()
+    .from(workerCommands)
+    .where(and(
+      eq(workerCommands.computerId, computerId),
+      eq(workerCommands.kind, 'send'),
+      inArray(workerCommands.state, ['queued', 'sent']),
+    ))
+    .all();
+}
+
+/** Withdraw a command that hasn't been streamed. A streamed one can't be: stop the execution instead. */
+export function cancelWorkerCommand(commandId: string): WorkerCommandRecord | null {
+  const now = new Date().toISOString();
+  return (
+    getDb()
+      .update(workerCommands)
+      .set({ state: 'cancelled', finishedAt: now, updatedAt: now })
+      .where(and(eq(workerCommands.id, commandId), eq(workerCommands.state, 'queued')))
+      .returning()
+      .get() ?? null
+  );
+}
+
+/** The highest contiguous position of a computer's worker journal the home has stored. */
+export function getAckedEventSeq(computerId: string): number {
+  return getDb().select({ seq: computers.ackedEventSeq }).from(computers).where(eq(computers.id, computerId)).get()?.seq ?? 0;
+}
+
+export function setAckedEventSeq(computerId: string, position: number): void {
+  getDb()
+    .update(computers)
+    .set({ ackedEventSeq: position, updatedAt: new Date().toISOString() })
+    .where(eq(computers.id, computerId))
+    .run();
+}
+
+// ─── Execution placements (docs/homes-build.md, P0.3 and P2.4) ───
+
+/** Where an execution runs, and the generation its commands carry. */
+export interface Placement {
+  computerId: string;
+  generation: number;
+  worktreePath: string | null;
+  /** Null for an execution with no placement row: the home's own computer at generation 1. */
+  placementId: string | null;
+}
+
+export function getOpenPlacement(executionId: string): ExecutionPlacementRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(executionPlacements)
+      .where(and(eq(executionPlacements.executionId, executionId), isNull(executionPlacements.endedAt)))
+      .get() ?? null
+  );
+}
+
+/**
+ * Where an execution runs: its open placement, or the home's own computer
+ * at generation 1 when it has none. Null only before the home has an
+ * identity.
+ */
+export function placementOf(executionId: string): Placement | null {
+  const open = getOpenPlacement(executionId);
+  if (open) {
+    return { computerId: open.computerId, generation: open.generation, worktreePath: open.worktreePath, placementId: open.id };
+  }
+  const host = getHome()?.hostComputerId;
+  if (!host) return null;
+  const execution = getDb().select({ worktreePath: executions.worktreePath }).from(executions).where(eq(executions.id, executionId)).get();
+  return { computerId: host, generation: 1, worktreePath: execution?.worktreePath ?? null, placementId: null };
+}
+
+/**
+ * Place an execution on a computer. A new execution starts at generation 1.
+ * A continuation ends the open placement and opens the next generation; an
+ * execution with no row counts as generation 1 on the home's own computer.
+ */
+export function createPlacement(input: {
+  executionId: string;
+  computerId: string;
+  startReason: ExecutionPlacementRecord['startReason'];
+  worktreePath?: string | null;
+  checkpointSha?: string | null;
+}): ExecutionPlacementRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const now = new Date().toISOString();
+    const latest = tx
+      .select({ max: sql<number | null>`max(${executionPlacements.generation})` })
+      .from(executionPlacements)
+      .where(eq(executionPlacements.executionId, input.executionId))
+      .get()?.max;
+    const base = latest ?? (input.startReason === 'created' ? 0 : 1);
+    tx.update(executionPlacements)
+      .set({ endedAt: now, endReason: 'transferred', updatedAt: now })
+      .where(and(eq(executionPlacements.executionId, input.executionId), isNull(executionPlacements.endedAt)))
+      .run();
+    return tx
+      .insert(executionPlacements)
+      .values({
+        id: uuidv7(),
+        executionId: input.executionId,
+        computerId: input.computerId,
+        generation: base + 1,
+        worktreePath: input.worktreePath ?? null,
+        checkpointSha: input.checkpointSha ?? null,
+        startReason: input.startReason,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
+}
+
+// ─── Transfers (P4.2) ─────────────────────────────────────────
+
+/** Another transfer of this execution is under way. */
+export class TransferConflictError extends Error {
+  constructor(readonly transfer: ExecutionTransferRecord) {
+    super('This execution is already moving to another computer.');
+    this.name = 'TransferConflictError';
+  }
+}
+
+/**
+ * Start a transfer: its record, and the lock. One active transfer per
+ * execution, enforced by a partial unique index, so two starting at once
+ * can't both hold it.
+ *
+ * Try again, in the same transaction: a move that stopped and still waits
+ * for a decision is superseded, and the messages it held come along. So
+ * Try again and Resume can't both take them (P4 review).
+ */
+export function createTransfer(input: {
+  executionId: string;
+  fromComputerId: string;
+  toComputerId: string;
+  fromGeneration: number;
+  includeUntracked: string[];
+  heldEventIds?: string[];
+  requestedByApiKeyId: string | null;
+}): ExecutionTransferRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const active = tx
+      .select()
+      .from(executionTransfers)
+      .where(and(eq(executionTransfers.executionId, input.executionId), eq(executionTransfers.state, 'active')))
+      .get();
+    if (active) throw new TransferConflictError(active);
+    const now = new Date().toISOString();
+    const stopped = tx
+      .select()
+      .from(executionTransfers)
+      .where(eq(executionTransfers.executionId, input.executionId))
+      .orderBy(desc(executionTransfers.id))
+      .limit(1)
+      .get();
+    // A move that stopped, or the delivery of one settled earlier that
+    // stopped short: its messages come along, still in order.
+    let carried: string[] = [];
+    if (stopped && (stopped.state === 'failed' || stopped.heldEventIds.length > 0)) {
+      carried = stopped.heldEventIds;
+      tx.update(executionTransfers)
+        .set({ state: stopped.state === 'failed' ? 'cancelled' : stopped.state, heldEventIds: [], updatedAt: now })
+        .where(eq(executionTransfers.id, stopped.id))
+        .run();
+    }
+    return tx
+      .insert(executionTransfers)
+      .values({
+        id: uuidv7(),
+        createdAt: now,
+        updatedAt: now,
+        executionId: input.executionId,
+        fromComputerId: input.fromComputerId,
+        toComputerId: input.toComputerId,
+        fromGeneration: input.fromGeneration,
+        stage: 'preparing',
+        state: 'active',
+        includeUntracked: input.includeUntracked,
+        heldEventIds: [...new Set([...carried, ...(input.heldEventIds ?? [])])],
+        requestedByApiKeyId: input.requestedByApiKeyId,
+      })
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * Settle a move that stopped, once: Resume on the source (`resumed`, the
+ * move set aside) or Finish on the destination (`finished`). Null when it
+ * was already settled, by this or by Try again: a second click, another
+ * tab, or an overlapping request finds nothing to do (P4 review).
+ */
+export function settleStoppedTransfer(transferId: string, outcome: 'resumed' | 'finished'): ExecutionTransferRecord | null {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const transfer = tx.select().from(executionTransfers).where(eq(executionTransfers.id, transferId)).get();
+    if (!transfer || transfer.state !== 'failed') return null;
+    if ((outcome === 'resumed') !== (transfer.toGeneration === null)) return null;
+    const now = new Date().toISOString();
+    return (
+      tx
+        .update(executionTransfers)
+        // From here `error` says only why delivering its messages stopped;
+        // where the move itself stopped stays in `failedStage`.
+        .set(
+          outcome === 'resumed'
+            ? { state: 'cancelled', error: null, updatedAt: now }
+            : { state: 'succeeded', stage: 'done', error: null, failedStage: null, finishedAt: now, updatedAt: now },
+        )
+        .where(eq(executionTransfers.id, transferId))
+        .returning()
+        .get() ?? null
+    );
+  }, { behavior: 'immediate' });
+}
+
+/** Take one held message off a transfer to deliver it. True only for the one caller that took it. */
+export function takeHeldMessage(transferId: string, eventId: string): boolean {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const transfer = tx.select().from(executionTransfers).where(eq(executionTransfers.id, transferId)).get();
+    if (!transfer?.heldEventIds.includes(eventId)) return false;
+    tx.update(executionTransfers)
+      .set({ heldEventIds: transfer.heldEventIds.filter((id) => id !== eventId), updatedAt: new Date().toISOString() })
+      .where(eq(executionTransfers.id, transferId))
+      .run();
+    return true;
+  }, { behavior: 'immediate' });
+}
+
+/** Whether new messages wait on this transfer (see `holdingTransfer`). */
+function holdsNewMessages(transfer: ExecutionTransferRecord): boolean {
+  return (
+    (transfer.state === 'active' && transfer.toGeneration === null) || transfer.state === 'failed' || transfer.heldEventIds.length > 0
+  );
+}
+
+/**
+ * The transfer new messages wait on, or null: one under way before the
+ * destination has the work, one that stopped and waits for Try again,
+ * Resume or Finish, or one whose held messages are still going out. Nothing
+ * reaches either side meanwhile, and nothing overtakes a held message
+ * (P4 review and re-check).
+ */
+export function holdingTransfer(executionId: string): ExecutionTransferRecord | null {
+  const latest = latestTransfer(executionId);
+  return latest && holdsNewMessages(latest) ? latest : null;
+}
+
+export function getTransfer(id: string): ExecutionTransferRecord | null {
+  return getDb().select().from(executionTransfers).where(eq(executionTransfers.id, id)).get() ?? null;
+}
+
+export function getActiveTransfer(executionId: string): ExecutionTransferRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(executionTransfers)
+      .where(and(eq(executionTransfers.executionId, executionId), eq(executionTransfers.state, 'active')))
+      .get() ?? null
+  );
+}
+
+/** The execution's most recent transfer, whatever became of it. */
+export function latestTransfer(executionId: string): ExecutionTransferRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(executionTransfers)
+      .where(eq(executionTransfers.executionId, executionId))
+      .orderBy(desc(executionTransfers.id))
+      .limit(1)
+      .get() ?? null
+  );
+}
+
+export function updateTransfer(
+  id: string,
+  patch: Partial<Omit<ExecutionTransferRecord, 'id' | 'createdAt' | 'executionId'>>,
+): ExecutionTransferRecord | null {
+  return (
+    getDb()
+      .update(executionTransfers)
+      .set({ ...patch, updatedAt: new Date().toISOString() })
+      .where(eq(executionTransfers.id, id))
+      .returning()
+      .get() ?? null
+  );
+}
+
+/**
+ * Hold a message for the execution's transfer, if one is under way: it's
+ * delivered once, where the work ends up. Returns the transfer holding it,
+ * or null when nothing is. Idempotent.
+ */
+export function holdForTransfer(executionId: string, eventId: string): ExecutionTransferRecord | null {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const latest = tx
+      .select()
+      .from(executionTransfers)
+      .where(eq(executionTransfers.executionId, executionId))
+      .orderBy(desc(executionTransfers.id))
+      .limit(1)
+      .get();
+    // Held while it moves, until the destination owns the work, while a move
+    // that stopped waits for a decision, and behind held messages still
+    // going out (see `holdingTransfer`).
+    if (!latest || !holdsNewMessages(latest)) return null;
+    if (latest.heldEventIds.includes(eventId)) return latest;
+    return tx
+      .update(executionTransfers)
+      .set({ heldEventIds: [...latest.heldEventIds, eventId], updatedAt: new Date().toISOString() })
+      .where(eq(executionTransfers.id, latest.id))
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * Messages a transfer holds that haven't been taken for delivery, by chat.
+ * Whatever became of the move: after Resume or Finish they stay listed until
+ * each is taken, so nothing else sends one meanwhile.
+ */
+export function heldMessages(executionId: string): Map<string, { transfer: ExecutionTransferRecord }> {
+  const out = new Map<string, { transfer: ExecutionTransferRecord }>();
+  const transfer = latestTransfer(executionId);
+  if (!transfer) return out;
+  for (const id of transfer.heldEventIds) out.set(id, { transfer });
+  return out;
+}
+
+/** Moves a restart left under way: nothing in this process is running them. */
+export function listActiveTransfers(): ExecutionTransferRecord[] {
+  return getDb().select().from(executionTransfers).where(eq(executionTransfers.state, 'active')).all();
+}
+
+/** Moves settled by Resume or Finish whose held messages weren't all taken before a restart. */
+export function listTransfersStillDelivering(): ExecutionTransferRecord[] {
+  return getDb()
+    .select()
+    .from(executionTransfers)
+    .where(and(inArray(executionTransfers.state, ['cancelled', 'succeeded']), sql`json_array_length(${executionTransfers.heldEventIds}) > 0`))
+    .all()
+    .filter((t) => latestTransfer(t.executionId)?.id === t.id);
+}
+
+/** Commands of a transfer not yet sent to their computer: a restarted home settles them. */
+export function listQueuedTransferCommands(transfer: ExecutionTransferRecord): WorkerCommandRecord[] {
+  return getDb()
+    .select()
+    .from(workerCommands)
+    .where(
+      and(
+        eq(workerCommands.executionId, transfer.executionId),
+        eq(workerCommands.state, 'queued'),
+        gte(workerCommands.createdAt, transfer.createdAt),
+        sql`(json_extract(${workerCommands.payload}, '$.transferId') = ${transfer.id} OR json_extract(${workerCommands.payload}, '$.transfer.id') = ${transfer.id})`,
+      ),
+    )
+    .all();
+}
+
+/**
+ * The generation a transfer prepares its destination at: one past its
+ * source's, and past every earlier attempt from that source. A computer
+ * that was given a generation by an attempt that stopped may have let go
+ * of it since, and a let-go generation is never taken up again, so Try
+ * again never reuses one. Attempts run one at a time, so these only grow.
+ */
+export function targetGenerationOf(
+  transfer: Pick<ExecutionTransferRecord, 'id' | 'executionId' | 'fromGeneration'>,
+  db: Pick<ReturnType<typeof getDb>, 'select'> = getDb(),
+): number {
+  const earlier = db
+    .select({ n: sql<number>`count(*)` })
+    .from(executionTransfers)
+    .where(
+      and(
+        eq(executionTransfers.executionId, transfer.executionId),
+        eq(executionTransfers.fromGeneration, transfer.fromGeneration),
+        lt(executionTransfers.id, transfer.id),
+      ),
+    )
+    .get();
+  return transfer.fromGeneration + 1 + (earlier?.n ?? 0);
+}
+
+/**
+ * The generation a transfer is preparing on its destination, before it owns
+ * the work (P4.2). Commands for it there aren't stale, and the destination
+ * isn't told to let go of it, while the transfer is active.
+ */
+export function transferReservation(executionId: string): { computerId: string; generation: number } | null {
+  const active = getActiveTransfer(executionId);
+  return active ? { computerId: active.toComputerId, generation: targetGenerationOf(active) } : null;
+}
+
+/**
+ * The ownership change of a transfer, in one transaction (§8.2 step 9): the
+ * source's placement ends as transferred and the destination's opens at the
+ * next generation from the checkpoint. Each chat's native session ends as
+ * continued and its binding is cleared, so the destination starts a fresh
+ * one. The execution's worktree path is the home's own and follows the work:
+ * set when it arrives here, cleared when it leaves.
+ */
+export function continueOwnership(input: {
+  transferId: string;
+  worktreePath: string;
+  checkpointSha: string;
+  branch: string;
+}): { placement: ExecutionPlacementRecord; transfer: ExecutionTransferRecord } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const transfer = tx.select().from(executionTransfers).where(eq(executionTransfers.id, input.transferId)).get();
+    if (!transfer || transfer.state !== 'active') throw new Error('The transfer is no longer under way.');
+    const now = new Date().toISOString();
+    const open = tx
+      .select()
+      .from(executionPlacements)
+      .where(and(eq(executionPlacements.executionId, transfer.executionId), isNull(executionPlacements.endedAt)))
+      .get();
+    const currentGeneration = open?.generation ?? 1;
+    if (currentGeneration !== transfer.fromGeneration) throw new Error('The execution moved while this transfer ran.');
+    if (open) {
+      tx.update(executionPlacements)
+        .set({ endedAt: now, endReason: 'transferred', updatedAt: now })
+        .where(eq(executionPlacements.id, open.id))
+        .run();
+    } else {
+      // Work that began on the home before placements had no row: its first
+      // placement is recorded now, ended, with the worktree it had there, so
+      // a later move back finds it.
+      const execution = tx.select({ worktreePath: executions.worktreePath }).from(executions).where(eq(executions.id, transfer.executionId)).get();
+      tx.insert(executionPlacements)
+        .values({
+          id: uuidv7(),
+          executionId: transfer.executionId,
+          computerId: transfer.fromComputerId,
+          generation: transfer.fromGeneration,
+          worktreePath: execution?.worktreePath ?? null,
+          startReason: 'created',
+          endedAt: now,
+          endReason: 'transferred',
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+    const placement = tx
+      .insert(executionPlacements)
+      .values({
+        id: uuidv7(),
+        executionId: transfer.executionId,
+        computerId: transfer.toComputerId,
+        generation: targetGenerationOf(transfer, tx),
+        worktreePath: input.worktreePath,
+        checkpointSha: input.checkpointSha,
+        startReason: 'continued',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    const chats = tx.select({ id: chatSessions.id }).from(chatSessions).where(eq(chatSessions.executionId, transfer.executionId)).all();
+    const chatIds = chats.map((c) => c.id);
+    if (chatIds.length > 0) {
+      tx.update(nativeSessions)
+        .set({ endedAt: now, endReason: 'continued', updatedAt: now })
+        .where(and(inArray(nativeSessions.chatSessionId, chatIds), isNull(nativeSessions.endedAt)))
+        .run();
+      tx.update(chatSessions).set({ externalSessionId: null, updatedAt: now }).where(inArray(chatSessions.id, chatIds)).run();
+    }
+    const host = tx.select({ hostComputerId: home.hostComputerId }).from(home).get()?.hostComputerId ?? null;
+    tx.update(executions)
+      .set({
+        worktreePath: transfer.toComputerId === host ? input.worktreePath : null,
+        branchName: input.branch,
+        updatedAt: now,
+      })
+      .where(eq(executions.id, transfer.executionId))
+      .run();
+    const updated = tx
+      .update(executionTransfers)
+      .set({ toGeneration: placement.generation, stage: 'continuing', targetWorktreePath: input.worktreePath, updatedAt: now })
+      .where(eq(executionTransfers.id, transfer.id))
+      .returning()
+      .get();
+    return { placement, transfer: updated };
+  }, { behavior: 'immediate' });
+}
+
+/** An execution's chats, oldest first. */
+export function listExecutionChatIds(executionId: string): string[] {
+  return getDb()
+    .select({ id: chatSessions.id })
+    .from(chatSessions)
+    .where(eq(chatSessions.executionId, executionId))
+    .orderBy(asc(chatSessions.id))
+    .all()
+    .map((r) => r.id);
+}
+
+/** The newest event across an execution's chats: a transfer's conversation checkpoint. */
+export function latestChatEventForExecution(executionId: string): string | null {
+  return (
+    getDb()
+      .select({ id: chatEvents.id })
+      .from(chatEvents)
+      .innerJoin(chatSessions, eq(chatSessions.id, chatEvents.sessionId))
+      .where(eq(chatSessions.executionId, executionId))
+      .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id))
+      .limit(1)
+      .get()?.id ?? null
+  );
+}
+
+/** The worktree an execution last had on a computer, from its placement history: where a move back goes. */
+export function previousWorktreeOn(executionId: string, computerId: string): string | null {
+  return (
+    getDb()
+      .select({ worktreePath: executionPlacements.worktreePath })
+      .from(executionPlacements)
+      .where(and(eq(executionPlacements.executionId, executionId), eq(executionPlacements.computerId, computerId), isNotNull(executionPlacements.worktreePath)))
+      .orderBy(desc(executionPlacements.generation))
+      .limit(1)
+      .get()?.worktreePath ?? null
+  );
+}
+
+// ─── Native sessions (P4.3) ───────────────────────────────────
+
+/**
+ * Record the harness session now behind a chat. A different one than the
+ * open record ends that record as replaced. The chat's own binding
+ * (`external_session_id`) is set by the caller, as before.
+ */
+export function recordNativeSession(input: {
+  chatSessionId: string;
+  harness: string;
+  nativeSessionId: string;
+  computerId: string | null;
+  placementId: string | null;
+}): NativeSessionRecord {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const now = new Date().toISOString();
+    const open = tx
+      .select()
+      .from(nativeSessions)
+      .where(and(eq(nativeSessions.chatSessionId, input.chatSessionId), isNull(nativeSessions.endedAt)))
+      .get();
+    if (open?.nativeSessionId === input.nativeSessionId) return open;
+    if (open) {
+      tx.update(nativeSessions).set({ endedAt: now, endReason: 'replaced', updatedAt: now }).where(eq(nativeSessions.id, open.id)).run();
+    }
+    return tx
+      .insert(nativeSessions)
+      .values({ id: uuidv7(), createdAt: now, updatedAt: now, startedAt: now, ...input })
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
+}
+
+export function listNativeSessions(chatSessionId: string): NativeSessionRecord[] {
+  return getDb()
+    .select()
+    .from(nativeSessions)
+    .where(eq(nativeSessions.chatSessionId, chatSessionId))
+    .orderBy(asc(nativeSessions.id))
+    .all();
+}
+
+// ─── Review checkouts (P4.1) ──────────────────────────────────
+
+export function getReviewCheckout(executionId: string, computerId: string): ReviewCheckoutRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(reviewCheckouts)
+      .where(and(eq(reviewCheckouts.executionId, executionId), eq(reviewCheckouts.computerId, computerId)))
+      .get() ?? null
+  );
+}
+
+export function saveReviewCheckout(input: {
+  executionId: string;
+  computerId: string;
+  sourceComputerId: string | null;
+  path: string;
+  branch: string;
+  commitSha: string;
+  dirty: boolean;
+}): ReviewCheckoutRecord {
+  const now = new Date().toISOString();
+  return getDb()
+    .insert(reviewCheckouts)
+    .values({ id: uuidv7(), createdAt: now, updatedAt: now, ...input })
+    .onConflictDoUpdate({
+      target: [reviewCheckouts.executionId, reviewCheckouts.computerId],
+      set: {
+        sourceComputerId: input.sourceComputerId,
+        path: input.path,
+        branch: input.branch,
+        commitSha: input.commitSha,
+        dirty: input.dirty,
+        updatedAt: now,
+      },
+    })
+    .returning()
+    .get();
+}
+
+/** A placement's worktree is gone (archived) until its computer prepares it again (P4.5). */
+export function clearPlacementWorktree(placementId: string): void {
+  getDb()
+    .update(executionPlacements)
+    .set({ worktreePath: null, updatedAt: new Date().toISOString() })
+    .where(eq(executionPlacements.id, placementId))
+    .run();
+}
+
+export function setPlacementWorktree(placementId: string, worktreePath: string, checkpointSha: string | null = null): void {
+  getDb()
+    .update(executionPlacements)
+    .set({ worktreePath, checkpointSha, updatedAt: new Date().toISOString() })
+    .where(eq(executionPlacements.id, placementId))
+    .run();
+}
+
+/**
+ * A connected computer prepared its placement of an execution: record the
+ * worktree there on the placement, and the branch and base on the
+ * execution. `executions.worktree_path` stays the home computer's own path,
+ * so nothing on the home ever looks for the other computer's folder here.
+ */
+export function markPlacementPrepared(
+  executionId: string,
+  generation: number,
+  prepared: { worktreePath: string; branchName: string | null; baseSha: string | null; warning: string | null },
+): ExecutionPlacementRecord | null {
+  const now = new Date().toISOString();
+  const placement = getDb()
+    .update(executionPlacements)
+    .set({ worktreePath: prepared.worktreePath, checkpointSha: prepared.baseSha, updatedAt: now })
+    .where(and(eq(executionPlacements.executionId, executionId), eq(executionPlacements.generation, generation)))
+    .returning()
+    .get();
+  if (!placement) return null;
+  updateExecution(executionId, {
+    branchName: prepared.branchName,
+    baseSha: prepared.baseSha,
+    setupError: null,
+    setupWarning: prepared.warning,
+  });
+  return placement;
+}
+
+export function listOpenPlacementsForComputer(computerId: string): ExecutionPlacementRecord[] {
+  return getDb()
+    .select()
+    .from(executionPlacements)
+    .where(and(eq(executionPlacements.computerId, computerId), isNull(executionPlacements.endedAt)))
+    .all();
+}
+
+/** Whether a computer held an execution at a generation, now or before. */
+export function heldPlacement(executionId: string, computerId: string, generation: number): boolean {
+  return (
+    getDb()
+      .select({ id: executionPlacements.id })
+      .from(executionPlacements)
+      .where(
+        and(
+          eq(executionPlacements.executionId, executionId),
+          eq(executionPlacements.computerId, computerId),
+          eq(executionPlacements.generation, generation),
+        ),
+      )
+      .get() !== undefined
+  );
+}
+
+/** Where a chat runs, for routing its work (P2.4). */
+export interface ChatPlacement {
+  computerId: string;
+  /** The home's own computer. */
+  isHome: boolean;
+  executionId: string | null;
+  /** The execution's placement generation. Null for a chat without an execution. */
+  generation: number | null;
+  worktreePath: string | null;
+}
+
+/**
+ * Where a chat runs: its execution's placement, or for a chat without one,
+ * its own `computer_id`, where null is the home's own computer. Null only
+ * for an unknown chat or a home with no identity yet.
+ */
+export function chatPlacement(chatSessionId: string): ChatPlacement | null {
+  const chat = getDb()
+    .select({ executionId: chatSessions.executionId, computerId: chatSessions.computerId })
+    .from(chatSessions)
+    .where(eq(chatSessions.id, chatSessionId))
+    .get();
+  if (!chat) return null;
+  const host = getHome()?.hostComputerId ?? null;
+  if (chat.executionId) {
+    const placement = placementOf(chat.executionId);
+    if (!placement) return null;
+    return {
+      computerId: placement.computerId,
+      isHome: placement.computerId === host,
+      executionId: chat.executionId,
+      generation: placement.generation,
+      worktreePath: placement.worktreePath,
+    };
+  }
+  const computerId = chat.computerId ?? host;
+  if (!computerId) return null;
+  return { computerId, isHome: computerId === host, executionId: null, generation: null, worktreePath: null };
+}
+
+/**
+ * The connected computer a chat runs on, or null when it runs on the home's
+ * own computer. What a worker's events are checked against.
+ */
+export function getChatComputerId(chatSessionId: string): string | null {
+  const placement = chatPlacement(chatSessionId);
+  return placement && !placement.isHome ? placement.computerId : null;
+}
+
+// ─── Agent setups (docs/homes-spec.md §4.2) ───────────────────
+
+/** Statuses that mean the setup file couldn't be read, so its references are unknown. */
+export type AgentSetupWithComputer = AgentSetupRecord & { computerName: string };
+
+export function listAgentSetups(filter: { workspaceId?: string; computerId?: string } = {}): AgentSetupWithComputer[] {
+  const conds: SQL[] = [];
+  if (filter.workspaceId) conds.push(eq(agentSetups.workspaceId, filter.workspaceId));
+  if (filter.computerId) conds.push(eq(agentSetups.computerId, filter.computerId));
+  return getDb()
+    .select({ ...getTableColumns(agentSetups), computerName: computers.name })
+    .from(agentSetups)
+    .innerJoin(computers, eq(agentSetups.computerId, computers.id))
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(asc(computers.name))
+    .all();
+}
+
+export function getAgentSetup(workspaceId: string, computerId: string): AgentSetupRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(agentSetups)
+      .where(and(eq(agentSetups.workspaceId, workspaceId), eq(agentSetups.computerId, computerId)))
+      .get() ?? null
+  );
+}
+
+// ─── Folder records (docs/homes-spec.md §4.1) ───────────────
+// The home's database is the only place an agent's folders are kept: its
+// project folder on each computer (`agent_setups`), and where each linked
+// folder is on each computer (`folder_links`). The computer checks them and
+// the home records what it found. Each setup's `references` and `status` are
+// derived from these, by `recomputeAgentSetups`, and never edited directly.
+
+export function listFolderLinks(filter: { computerId?: string; referenceFolderId?: string } = {}): FolderLinkRecord[] {
+  const conds: SQL[] = [];
+  if (filter.computerId) conds.push(eq(folderLinks.computerId, filter.computerId));
+  if (filter.referenceFolderId) conds.push(eq(folderLinks.referenceFolderId, filter.referenceFolderId));
+  return getDb().select().from(folderLinks).where(conds.length ? and(...conds) : undefined).all();
+}
+
+export function getFolderLink(computerId: string, referenceFolderId: string): FolderLinkRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(folderLinks)
+      .where(and(eq(folderLinks.computerId, computerId), eq(folderLinks.referenceFolderId, referenceFolderId)))
+      .get() ?? null
+  );
+}
+
+/**
+ * Where a linked folder is on a computer, or null for going without it there.
+ * A new place is unchecked until the computer looks. For a linked folder
+ * every agent uses, this is its place for every agent on that computer.
+ */
+export function setFolderLink(computerId: string, referenceFolderId: string, folder: string | null): FolderLinkRecord {
+  const now = new Date().toISOString();
+  const value = folder === null ? null : nodePath.resolve(folder);
+  const row = getDb().transaction((tx) => {
+    const current = tx
+      .select()
+      .from(folderLinks)
+      .where(and(eq(folderLinks.computerId, computerId), eq(folderLinks.referenceFolderId, referenceFolderId)))
+      .get();
+    const moved = !current || current.path !== value;
+    const values = { path: value, updatedAt: now, ...(moved ? { found: null, checkedAt: null } : {}) };
+    return tx
+      .insert(folderLinks)
+      .values({ id: uuidv7(), computerId, referenceFolderId, createdAt: now, ...values })
+      .onConflictDoUpdate({ target: [folderLinks.computerId, folderLinks.referenceFolderId], set: values })
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
+  recomputeAgentSetups(computerId);
+  return row;
+}
+
+/** Forget where a linked folder is on a computer: it's unchosen there again. */
+export function removeFolderLink(computerId: string, referenceFolderId: string): void {
+  getDb()
+    .delete(folderLinks)
+    .where(and(eq(folderLinks.computerId, computerId), eq(folderLinks.referenceFolderId, referenceFolderId)))
+    .run();
+  recomputeAgentSetups(computerId);
+}
+
+/**
+ * The agent's project folder on a computer. A new place is unchecked until
+ * the computer looks. On the home it's `workspaces.cwd` too, which the rest
+ * of the app still reads for the home's own folder.
+ */
+export function setAgentFolder(workspaceId: string, computerId: string, folder: string): AgentSetupRecord {
+  const now = new Date().toISOString();
+  const sourcePath = nodePath.resolve(folder);
+  getDb().transaction((tx) => {
+    const current = tx
+      .select()
+      .from(agentSetups)
+      .where(and(eq(agentSetups.workspaceId, workspaceId), eq(agentSetups.computerId, computerId)))
+      .get();
+    const moved = !current || current.sourcePath !== sourcePath;
+    const values = { sourcePath, updatedAt: now, reportedAt: now, ...(moved ? { found: null } : {}) };
+    tx.insert(agentSetups)
+      .values({ id: uuidv7(), workspaceId, computerId, createdAt: now, references: [], status: 'unchecked', problem: null, ...values })
+      .onConflictDoUpdate({ target: [agentSetups.workspaceId, agentSetups.computerId], set: values })
+      .run();
+    const isHost = tx.select({ host: home.hostComputerId }).from(home).get()?.host === computerId;
+    if (isHost) {
+      tx.update(workspaces)
+        .set({ cwd: sourcePath, updatedAt: now })
+        .where(and(eq(workspaces.id, workspaceId), sql`${workspaces.cwd} IS NOT ${sourcePath}`))
+        .run();
+    }
+  }, { behavior: 'immediate' });
+  recomputeAgentSetups(computerId);
+  return getAgentSetup(workspaceId, computerId)!;
+}
+
+/**
+ * Take an agent off a computer: its setup there, and where its own linked
+ * folders were there. A linked folder every agent uses keeps its place, for
+ * the others.
+ */
+export function removeAgentSetup(workspaceId: string, computerId: string): boolean {
+  const removed = getDb().transaction((tx) => {
+    const own = tx
+      .select({ id: referenceFolders.id })
+      .from(referenceFolders)
+      .where(eq(referenceFolders.workspaceId, workspaceId))
+      .all()
+      .map((r) => r.id);
+    if (own.length) {
+      tx.delete(folderLinks).where(and(eq(folderLinks.computerId, computerId), inArray(folderLinks.referenceFolderId, own))).run();
+    }
+    return tx
+      .delete(agentSetups)
+      .where(and(eq(agentSetups.workspaceId, workspaceId), eq(agentSetups.computerId, computerId)))
+      .returning()
+      .all().length;
+  }, { behavior: 'immediate' });
+  return removed > 0;
+}
+
+/** Every folder a computer has to check: its agents' project folders and its linked folders. */
+export function foldersToCheck(computerId: string): string[] {
+  const setups = getDb().select({ path: agentSetups.sourcePath }).from(agentSetups).where(eq(agentSetups.computerId, computerId)).all();
+  const links = getDb()
+    .select({ path: folderLinks.path })
+    .from(folderLinks)
+    .where(and(eq(folderLinks.computerId, computerId), isNotNull(folderLinks.path)))
+    .all();
+  return [...new Set([...setups.map((s) => s.path), ...links.map((l) => l.path!)])];
+}
+
+/** What a computer found when it checked its folders, recorded against them. */
+export function recordFolderChecks(computerId: string, results: ReadonlyArray<{ path: string; exists: boolean }>): void {
+  const now = new Date().toISOString();
+  const found = new Map(results.map((r) => [nodePath.resolve(r.path), r.exists]));
+  getDb().transaction((tx) => {
+    for (const row of tx.select().from(agentSetups).where(eq(agentSetups.computerId, computerId)).all()) {
+      const exists = found.get(nodePath.resolve(row.sourcePath));
+      if (exists === undefined) continue;
+      tx.update(agentSetups).set({ found: exists, reportedAt: now, updatedAt: now }).where(eq(agentSetups.id, row.id)).run();
+    }
+    for (const link of tx.select().from(folderLinks).where(eq(folderLinks.computerId, computerId)).all()) {
+      if (!link.path) continue;
+      const exists = found.get(nodePath.resolve(link.path));
+      if (exists === undefined) continue;
+      tx.update(folderLinks).set({ found: exists, checkedAt: now, updatedAt: now }).where(eq(folderLinks.id, link.id)).run();
+    }
+    tx.update(computers).set({ lastSeenAt: now }).where(eq(computers.id, computerId)).run();
+  }, { behavior: 'immediate' });
+  recomputeAgentSetups(computerId);
+}
+
+/**
+ * Each setup's linked folders and status on a computer, from the records:
+ * the linked folders the agent uses (its own, then the ones for every agent),
+ * where each is there, and what the computer last found. `ready` once the
+ * project folder and every linked folder are found. `unchecked` until the
+ * computer has looked (work can start: it checks again before it prepares).
+ * A linked folder not chosen there, or not found, blocks work there.
+ */
+export function recomputeAgentSetups(computerId: string): void {
+  const db = getDb();
+  const computerName = db.select({ name: computers.name }).from(computers).where(eq(computers.id, computerId)).get()?.name ?? 'this computer';
+  const setups = db.select().from(agentSetups).where(eq(agentSetups.computerId, computerId)).all();
+  if (setups.length === 0) return;
+  const links = new Map(listFolderLinks({ computerId }).map((l) => [l.referenceFolderId, l]));
+  const bySetup = new Map(setups.map((s) => [s.workspaceId, s]));
+  const now = new Date().toISOString();
+  db.transaction((tx) => {
+    for (const setup of setups) {
+      const agent = tx.select({ name: workspaces.name }).from(workspaces).where(eq(workspaces.id, setup.workspaceId)).get();
+      if (!agent) continue;
+      // Whether a chosen linked folder hasn't been checked there yet.
+      let linkUnchecked = false;
+      const references: SetupReferenceReport[] = listReferenceFoldersForWorkspace(setup.workspaceId).map((ref) => {
+        if (ref.targetWorkspaceId) {
+          const target = bySetup.get(ref.targetWorkspaceId);
+          const targetName = tx.select({ name: workspaces.name }).from(workspaces).where(eq(workspaces.id, ref.targetWorkspaceId)).get()?.name ?? 'That agent';
+          return {
+            alias: ref.alias,
+            value: { agentId: ref.targetWorkspaceId },
+            form: 'agent' as const,
+            path: target?.sourcePath ?? null,
+            exists: target?.found === true,
+            problem: !target
+              ? `${targetName} isn't on ${computerName} yet.`
+              : target.found === false
+                ? `${targetName}'s folder on ${computerName}, ${target.sourcePath}, isn't there.`
+                : null,
+          };
+        }
+        const link = links.get(ref.id);
+        if (!link) {
+          return { alias: ref.alias, form: 'unconfigured' as const, path: null, exists: false, problem: `Choose where ${ref.alias} is on ${computerName}, or go without it.` };
+        }
+        if (link.path === null) {
+          return { alias: ref.alias, value: null, form: 'omitted' as const, path: null, exists: false, problem: null };
+        }
+        if (link.found === null) linkUnchecked = true;
+        return {
+          alias: ref.alias,
+          value: link.path,
+          form: 'path' as const,
+          path: link.path,
+          exists: link.found === true,
+          problem: link.found === false ? `${ref.alias} isn't at ${link.path} on ${computerName}.` : null,
+        };
+      });
+      const blocking = references.find((r) => r.problem);
+      const unchecked = setup.found === null || linkUnchecked;
+      const status: AgentSetupRecord['status'] =
+        setup.found === false ? 'missing_folder' : blocking ? 'missing_reference' : unchecked ? 'unchecked' : 'ready';
+      const problem =
+        setup.found === false ? `${agent.name}'s folder on ${computerName}, ${setup.sourcePath}, isn't there.` : (blocking?.problem ?? null);
+      tx.update(agentSetups).set({ references, status, problem, updatedAt: now }).where(eq(agentSetups.id, setup.id)).run();
+    }
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * Move what existed before the home's records held every computer's folders
+ * into them (migration 0011), once and idempotently, at boot after the home
+ * has its identity: an agent with no setup anywhere gets its home row from
+ * `workspaces.cwd`, and each linked folder gets a place on each computer from
+ * what its agents last used there (their setup files' reports). The home
+ * falls back to the linked folder's own path when no agent reported one.
+ * Nothing that's already recorded is changed.
+ *
+ * A linked folder every agent uses has one place per computer, so agents that
+ * used different places there are settled in this order: an active agent
+ * before an archived one, then a place someone chose before one that was only
+ * the linked folder's own path carried along, then the latest report. Each
+ * disagreement is returned, to say at boot what was kept.
+ */
+export function moveFolderRecords(): { setups: number; links: number; settled: string[] } {
+  const db = getDb();
+  const host = db.select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
+  if (!host) return { setups: 0, links: 0, settled: [] };
+  const now = new Date().toISOString();
+  let setupsMoved = 0;
+  let linksMoved = 0;
+  const settled: string[] = [];
+  const touched = new Set<string>();
+  db.transaction((tx) => {
+    const withSetups = new Set(tx.select({ id: agentSetups.workspaceId }).from(agentSetups).all().map((r) => r.id));
+    for (const ws of tx.select().from(workspaces).where(eq(workspaces.status, 'active')).all()) {
+      if (withSetups.has(ws.id) || !ws.cwd) continue;
+      tx.insert(agentSetups)
+        .values({ id: uuidv7(), workspaceId: ws.id, computerId: host, sourcePath: ws.cwd, references: [], status: 'unchecked', problem: null, reportedAt: now, createdAt: now, updatedAt: now })
+        .onConflictDoNothing()
+        .run();
+      setupsMoved++;
+      touched.add(host);
+    }
+    const linked = new Set(tx.select({ c: folderLinks.computerId, r: folderLinks.referenceFolderId }).from(folderLinks).all().map((l) => `${l.c}\u0000${l.r}`));
+    const addLink = (computerId: string, referenceFolderId: string, folder: string | null) => {
+      const key = `${computerId}\u0000${referenceFolderId}`;
+      if (linked.has(key)) return;
+      linked.add(key);
+      tx.insert(folderLinks)
+        .values({ id: uuidv7(), computerId, referenceFolderId, path: folder, createdAt: now, updatedAt: now })
+        .onConflictDoNothing()
+        .run();
+      linksMoved++;
+      touched.add(computerId);
+    };
+    const refs = tx.select().from(referenceFolders).where(eq(referenceFolders.status, 'active')).all();
+    const agents = new Map(tx.select({ id: workspaces.id, name: workspaces.name, status: workspaces.status }).from(workspaces).all().map((w) => [w.id, w]));
+    const computerNames = new Map(tx.select({ id: computers.id, name: computers.name }).from(computers).all().map((c) => [c.id, c.name]));
+
+    // Every place an agent last used for a linked folder, by computer and linked folder.
+    type Used = { agentId: string; place: string | null; chosen: boolean; active: boolean; at: string };
+    const used = new Map<string, { computerId: string; refId: string; uses: Used[] }>();
+    for (const setup of tx.select().from(agentSetups).all()) {
+      for (const report of setup.references ?? []) {
+        const ref =
+          refs.find((r) => r.workspaceId === setup.workspaceId && r.alias === report.alias && !r.targetWorkspaceId) ??
+          refs.find((r) => r.workspaceId === null && r.alias === report.alias && !r.targetWorkspaceId);
+        if (!ref) continue;
+        const place = report.form === 'path' && report.path ? nodePath.resolve(report.path) : report.form === 'omitted' ? null : undefined;
+        if (place === undefined) continue;
+        const key = `${setup.computerId}\u0000${ref.id}`;
+        const entry = used.get(key) ?? { computerId: setup.computerId, refId: ref.id, uses: [] };
+        const inherited = setup.computerId === host && !!ref.path && place === nodePath.resolve(ref.path);
+        entry.uses.push({ agentId: setup.workspaceId, place, chosen: !inherited, active: agents.get(setup.workspaceId)?.status === 'active', at: setup.reportedAt });
+        used.set(key, entry);
+      }
+    }
+    for (const { computerId, refId, uses } of used.values()) {
+      uses.sort((a, b) => Number(b.active) - Number(a.active) || Number(b.chosen) - Number(a.chosen) || b.at.localeCompare(a.at));
+      const kept = uses[0]!;
+      const others = uses.filter((u) => u.active && u.place !== kept.place);
+      if (others.length > 0) {
+        const ref = refs.find((r) => r.id === refId)!;
+        const said = (u: Used) => `${agents.get(u.agentId)?.name ?? u.agentId} used ${u.place ?? 'none'}`;
+        settled.push(`@${ref.alias} on ${computerNames.get(computerId) ?? computerId}: kept ${kept.place ?? 'going without'} (${[kept, ...others].map(said).join(', ')})`);
+      }
+      addLink(computerId, refId, kept.place);
+    }
+    for (const ref of refs) {
+      if (ref.path && !ref.targetWorkspaceId) addLink(host, ref.id, nodePath.resolve(ref.path));
+    }
+  }, { behavior: 'immediate' });
+  for (const computerId of touched) recomputeAgentSetups(computerId);
+  return { setups: setupsMoved, links: linksMoved, settled };
+}
+
 // ─── API Keys ─────────────────────────────────────────────────
 
 export function createApiKey(
@@ -4522,6 +6439,22 @@ export function createWorkspace(input: Omit<CreateWorkspaceInput, 'slug'> & { sl
   return readWorkspaceRow(row);
 }
 
+/**
+ * Check a workspace update the way `updateWorkspace` will, without writing,
+ * so a caller can refuse a bad patch before changing anything else (the
+ * folder move in PATCH /api/workspaces/:id). Throws `WorkspaceFieldError`.
+ */
+export function validateWorkspaceUpdate(input: UpdateWorkspaceInput): UpdateWorkspaceInput {
+  const normalized = normalizeScopeFields(input);
+  if (input.name !== undefined && (typeof input.name !== 'string' || !input.name.trim())) {
+    throw new WorkspaceFieldError('Name must be text.');
+  }
+  if (input.cwd !== undefined && (typeof input.cwd !== 'string' || !input.cwd.trim())) {
+    throw new WorkspaceFieldError('Folder must be a path.');
+  }
+  return normalized;
+}
+
 export function updateWorkspace(id: string, input: UpdateWorkspaceInput): WorkspaceRecord | null {
   const db = getDb();
   const { attachments: inputAttachments, ...rest } = normalizeScopeFields(input);
@@ -4656,17 +6589,28 @@ function assertValidReferenceAlias(alias: string): void {
  * Exactly one target. The DB has a CHECK for this as a backstop, but raising
  * here gives the caller a message that says which field to fix.
  */
+/**
+ * A linked folder is a folder, placed per computer (`folder_links`), or
+ * another agent: never both. A folder may have no place yet anywhere, to be
+ * chosen on each computer (docs/homes-spec.md §4.1).
+ */
 function assertOneTarget(path: string | null | undefined, targetWorkspaceId: string | null | undefined): void {
   const hasPath = path != null && path.length > 0;
   const hasWorkspace = targetWorkspaceId != null && targetWorkspaceId.length > 0;
-  if (hasPath === hasWorkspace) {
-    throw new ReferenceFolderError(
-      'invalid_params',
-      hasPath
-        ? 'A reference folder takes either a path or a target workspace, not both.'
-        : 'A reference folder needs either a path or a target workspace.',
-    );
+  if (hasPath && hasWorkspace) {
+    throw new ReferenceFolderError('invalid_params', 'A reference folder takes either a path or a target workspace, not both.');
   }
+}
+
+/** The home computer, where a linked folder's `path` from the API or an action is placed. */
+function hostOf(): string | null {
+  return getDb().select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
+}
+
+/** Every computer's setups, recomputed: after a linked folder's definition changes. */
+export function recomputeAllAgentSetups(): void {
+  const ids = getDb().selectDistinct({ id: agentSetups.computerId }).from(agentSetups).all().map((r) => r.id);
+  for (const id of ids) recomputeAgentSetups(id);
 }
 
 export function getReferenceFolder(id: string): ReferenceFolderRecord | undefined {
@@ -4792,8 +6736,13 @@ export function createReferenceFolder(input: CreateReferenceFolderInput): Refere
   }
 
   const now = new Date().toISOString();
+  // `~` and relative paths are normalized here so every caller (route,
+  // orchestrator action, test) stores the same absolute form. A path is
+  // where it is on the home: the home's link, once the home has an identity.
+  const homePath = input.path ? normalizeReferencePath(input.path) : null;
+  const host = hostOf();
   try {
-    return db
+    const row = db
       .insert(referenceFolders)
       .values({
         ...pickReferenceFolderFields(input),
@@ -4802,9 +6751,7 @@ export function createReferenceFolder(input: CreateReferenceFolderInput): Refere
         // Always born active — caller-supplied status is deliberately ignored
         // (see "ignores caller-supplied status on create").
         status: 'active',
-        // `~` and relative paths are normalized here so every caller (route,
-        // orchestrator action, test) stores the same absolute form.
-        path: input.path ? normalizeReferencePath(input.path) : null,
+        path: host ? null : homePath,
         targetWorkspaceId: input.targetWorkspaceId ?? null,
         description: input.description?.trim() || null,
         // `id` is honoured when supplied so a retried create is idempotent
@@ -4816,6 +6763,10 @@ export function createReferenceFolder(input: CreateReferenceFolderInput): Refere
       })
       .returning()
       .get();
+    if (host && homePath) setFolderLink(host, row.id, homePath);
+    // Every computer's setups now use it: waiting on a place there, until chosen.
+    recomputeAllAgentSetups();
+    return row;
   } catch (err) {
     if (isUniqueViolation(err)) {
       throw new ReferenceFolderError(
@@ -4846,8 +6797,11 @@ export function updateReferenceFolder(
   if (next.description != null) next.description = next.description.trim() || null;
 
   // Target fields are validated against the merged row, so changing one side
-  // of the pair can't silently leave both set.
-  const mergedPath = 'path' in next ? next.path : existing.path;
+  // of the pair can't silently leave both set. A path is the home's link.
+  const host = hostOf();
+  const homePathChange = 'path' in next && host ? { path: next.path ?? null } : null;
+  if (homePathChange) delete next.path;
+  const mergedPath = homePathChange ? homePathChange.path : 'path' in next ? next.path : existing.path;
   const mergedTarget =
     'targetWorkspaceId' in next ? next.targetWorkspaceId : existing.targetWorkspaceId;
   assertOneTarget(mergedPath, mergedTarget);
@@ -4875,10 +6829,15 @@ export function updateReferenceFolder(
   try {
     const row = db
       .update(referenceFolders)
-      .set({ ...next, updatedAt: new Date().toISOString() })
+      .set({ ...next, ...(homePathChange ? { path: null } : {}), updatedAt: new Date().toISOString() })
       .where(eq(referenceFolders.id, id))
       .returning()
       .get();
+    if (homePathChange && host) {
+      if (homePathChange.path) setFolderLink(host, id, homePathChange.path);
+      else removeFolderLink(host, id);
+    }
+    recomputeAllAgentSetups();
     return row ?? null;
   } catch (err) {
     if (isUniqueViolation(err)) {
@@ -4904,6 +6863,8 @@ export function archiveReferenceFolder(id: string): ReferenceFolderRecord | null
     .where(eq(referenceFolders.id, id))
     .returning()
     .get();
+  // No longer used anywhere: every computer's setups no longer wait on it.
+  if (row) recomputeAllAgentSetups();
   return row ?? null;
 }
 
@@ -4949,9 +6910,9 @@ export function withTriggerProvider<T extends TriggerRecord>(row: T): T & { prov
 }
 
 // ─── Executions ───────────────────────────────────────────────
-// A durable work artifact (worktree + branch + PR + takeover state)
-// anchored to a workspace. Chats point at it via executionId. The
-// git/worktree/PR/takeover columns were lifted off chat_sessions; reads
+// A durable work artifact (worktree + branch + PR state) anchored to a
+// workspace. Chats point at it via executionId. The git/worktree/PR
+// columns were lifted off chat_sessions; reads
 // flow through `getChatSessionWithExecution` (flattened) and writes go
 // through the named helpers below. See docs/executions-spec.md.
 
@@ -5106,83 +7067,6 @@ export function setExecutionLabel(executionId: string, label: string | null): Ex
   return updateExecution(executionId, { label: label?.trim() || null });
 }
 
-// ── Takeover lifecycle (all five columns move together) ───────
-
-export function startExecutionTakeover(
-  executionId: string,
-  params: {
-    token: string;
-    branch: string;
-    baseSha: string;
-    expiresAt: string;
-    /** Chat session that initiated the takeover. Optional for backward
-     *  compat with legacy callers; new callers should pass it so the
-     *  resume handoff lands in the exact chat under multi-chat
-     *  executions. */
-    chatSessionId?: string | null;
-  },
-): ExecutionRecord | null {
-  return updateExecution(executionId, {
-    takeoverStartedAt: new Date().toISOString(),
-    takeoverBaseSha: params.baseSha,
-    takeoverBranch: params.branch,
-    takeoverToken: params.token,
-    takeoverTokenExpiresAt: params.expiresAt,
-    takeoverChatSessionId: params.chatSessionId ?? null,
-  });
-}
-
-export function clearExecutionTakeover(executionId: string): ExecutionRecord | null {
-  return updateExecution(executionId, {
-    takeoverStartedAt: null,
-    takeoverBaseSha: null,
-    takeoverBranch: null,
-    takeoverToken: null,
-    takeoverTokenExpiresAt: null,
-    takeoverChatSessionId: null,
-  });
-}
-
-/**
- * Token-based lookup for the takeover CLI/browser flow. The token lives
- * on the execution now; we return the execution's primary chat (most
- * recently active, non-archived) flattened with execution state so the
- * resume/cancel routes can dispatch a handoff message into it. Returns
- * undefined when the token is unknown or already cleared. Expiry is
- * enforced at the route layer so callers can distinguish "expired" from
- * "not found."
- */
-export function findChatSessionByTakeoverToken(token: string): ChatSessionWithExecution | undefined {
-  const db = getDb();
-  const exec = db.select().from(executions).where(eq(executions.takeoverToken, token)).get();
-  if (!exec) return undefined;
-  // Prefer the chat that initiated the takeover (recorded on the
-  // execution at startExecutionTakeover time). This is the only correct
-  // target once executions accumulate multiple chats — scheduled
-  // recurring fires now spawn sibling chats against the same execution,
-  // and "most-recently-active" can resolve to a chat that wasn't part
-  // of the takeover at all.
-  if (exec.takeoverChatSessionId) {
-    const initiating = db
-      .select()
-      .from(chatSessions)
-      .where(eq(chatSessions.id, exec.takeoverChatSessionId))
-      .get();
-    if (initiating) return flattenSessionExecution({ ...initiating, execution: exec });
-    // Initiating chat was hard-deleted while takeover was live (rare,
-    // but the cascade is SET NULL on chat_sessions). Fall through to
-    // the legacy heuristic so the user can still resume *somewhere*.
-  }
-  const chat = db
-    .select()
-    .from(chatSessions)
-    .where(and(eq(chatSessions.executionId, exec.id), eq(chatSessions.status, 'active')))
-    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
-    .get();
-  if (!chat) return undefined;
-  return flattenSessionExecution({ ...chat, execution: exec });
-}
-
 /**
  * Executions whose worktree provisioning began but never completed and
  * never failed cleanly — silent hangs the cold-start reaper marks with a
@@ -5193,6 +7077,7 @@ export function findChatSessionByTakeoverToken(token: string): ChatSessionWithEx
 export function listStuckBootstrapExecutions(maxAgeMinutes = 5): ExecutionRecord[] {
   const db = getDb();
   const cutoff = new Date(Date.now() - maxAgeMinutes * 60_000).toISOString();
+  const host = getHome()?.hostComputerId ?? null;
   return db
     .select()
     .from(executions)
@@ -5203,6 +7088,20 @@ export function listStuckBootstrapExecutions(maxAgeMinutes = 5): ExecutionRecord
         isNull(executions.worktreePath),
         isNull(executions.setupError),
         lte(executions.setupStartedAt, cutoff),
+        // Only the home's own. One placed on a connected computer keeps its
+        // worktree on the placement and is set up by that computer's worker,
+        // whose prepare command settles by its own recovery. Its empty
+        // `worktreePath` here says nothing about a stuck setup (found in the
+        // P2.7 to P2.9 review's live check).
+        notExists(
+          db.select({ one: sql`1` })
+            .from(executionPlacements)
+            .where(and(
+              eq(executionPlacements.executionId, executions.id),
+              isNull(executionPlacements.endedAt),
+              host ? sql`${executionPlacements.computerId} <> ${host}` : sql`1 = 1`,
+            )),
+        ),
       ),
     )
     .all();
@@ -5270,7 +7169,7 @@ export function unarchiveExecution(executionId: string): ExecutionRecord | null 
 /**
  * Normalize a chat row left-joined to executions into the flattened
  * `ChatSessionWithExecution` shape: the execution's durable git/worktree/
- * PR/takeover state hoisted to the top level under the field names the
+ * PR state hoisted to the top level under the field names the
  * columns used to have on chat_sessions. The execution is the sole source
  * of truth. Drizzle returns an all-null object (not null) for an unmatched
  * left join, so we coalesce on the execution's id to decide whether it's
@@ -5295,19 +7194,28 @@ function flattenSessionExecution<T extends ChatSessionRecord>(
     setupWarning: e?.setupWarning ?? null,
     setupScriptStatus: e?.setupScriptStatus ?? null,
     setupScriptError: e?.setupScriptError ?? null,
-    takeoverStartedAt: e?.takeoverStartedAt ?? null,
-    takeoverBaseSha: e?.takeoverBaseSha ?? null,
-    takeoverBranch: e?.takeoverBranch ?? null,
-    takeoverToken: e?.takeoverToken ?? null,
-    takeoverTokenExpiresAt: e?.takeoverTokenExpiresAt ?? null,
+    location: e ? executionLocation(e.id) : null,
   } as T & ChatSessionWithExecution;
 }
 
+/** Where an execution runs, by its computer's name (P3.1). Null before the home has an identity. */
+export function executionLocation(executionId: string): ExecutionLocation | null {
+  const placement = placementOf(executionId);
+  if (!placement) return null;
+  const isHome = placement.computerId === getHome()?.hostComputerId;
+  return {
+    computerId: placement.computerId,
+    name: getComputer(placement.computerId)?.name ?? 'Unknown computer',
+    isHome,
+    folder: isHome ? null : placement.worktreePath,
+  };
+}
+
 /**
- * Single chat session with its execution's git/worktree/PR/takeover state
+ * Single chat session with its execution's git/worktree/PR state
  * flattened on top. Drop-in replacement for `getChatSession` at every
  * call site that reads worktreePath / branchName / baseSha / prNumber
- * / setup_* / takeover_*. Returns null for unknown ids. Synchronous, like
+ * / setup_*. Returns null for unknown ids. Synchronous, like
  * the rest of this layer.
  */
 export function getChatSessionWithExecution(id: string): ChatSessionWithExecution | null {
@@ -5619,9 +7527,11 @@ export function updateChatSession(id: string, input: UpdateChatSessionInput): Ch
   return row ?? null;
 }
 
+/** An import by its native session: on the home's own computer, or on a connected one (P2.9). */
 export function getExternalSessionImportBySource(
   providerType: string,
   externalSessionId: string,
+  computerId: string | null = null,
 ): ExternalSessionImportRecord | undefined {
   const db = getDb();
   return db
@@ -5630,6 +7540,7 @@ export function getExternalSessionImportBySource(
     .where(and(
       eq(externalSessionImports.providerType, providerType),
       eq(externalSessionImports.externalSessionId, externalSessionId),
+      computerId === null ? isNull(externalSessionImports.computerId) : eq(externalSessionImports.computerId, computerId),
     ))
     .get();
 }
@@ -5705,7 +7616,7 @@ export function unarchiveChatSession(id: string): ChatSessionRecord | null {
  *
  * Safe as a hard delete: FK enforcement is ON, so the only children an
  * empty chat could have (chat_events, chat_refs, external_session_imports)
- * cascade, and the SET-NULL refs (execution takeover pointer, runs,
+ * cascade, and the SET-NULL refs (the retired execution takeover pointer, runs,
  * entity_versions) detach cleanly. Chat sessions carry no embedding or
  * markdown mirror, so there's nothing else to reap.
  */
@@ -5719,11 +7630,6 @@ export function deleteChatSessionIfEmpty(id: string): boolean {
   if ((row?.n ?? 0) > 0) return false;
   return db.delete(chatSessions).where(eq(chatSessions.id, id)).run().changes > 0;
 }
-
-// Takeover lifecycle moved to the execution: see `startExecutionTakeover`,
-// `clearExecutionTakeover`, and `findChatSessionByTakeoverToken` in the
-// Executions section above. The token + branch + baseSha now live on the
-// `executions` row, not chat_sessions.
 
 /**
  * Atomically create an execution artifact and its first chat (the chat
@@ -6533,6 +8439,9 @@ export function replaceChatEventPart(input: CreateChatEventInput): ChatEventReco
   if (inserted || !input.externalEventId) return inserted;
 
   const sourcePartIndex = input.sourcePartIndex ?? 0;
+  // A part with a revision replaces only an older one, so a late replay
+  // can't overwrite newer text (docs/homes-build.md, P2.3).
+  const revision = input.partRevision ?? null;
   const row = getDb().update(chatEvents).set({
     role: input.role,
     source: input.source,
@@ -6546,10 +8455,12 @@ export function replaceChatEventPart(input: CreateChatEventInput): ChatEventReco
     externalTurnId: input.externalTurnId,
     externalToolCallId: input.externalToolCallId,
     externalParentToolCallId: input.externalParentToolCallId,
+    ...(revision !== null ? { partRevision: revision } : {}),
   }).where(and(
     eq(chatEvents.sessionId, input.sessionId),
     eq(chatEvents.externalEventId, input.externalEventId),
     eq(chatEvents.sourcePartIndex, sourcePartIndex),
+    revision !== null ? or(isNull(chatEvents.partRevision), lt(chatEvents.partRevision, revision)) : undefined,
   )).returning().get();
   if (!row) return null;
 
@@ -6683,16 +8594,68 @@ export function listRecentChatEvents(sessionId: string, limit = 30): ChatEventRe
  * monotonic-by-creation-time per process, so an id-comparison is a
  * cheap, correct cursor without a separate sequence column.
  */
-export function listChatEventsAfter(sessionId: string, afterId: string, limit = 1000): ChatEventRecord[] {
+/**
+ * What a session's stream missed while a client was away (P3 re-check): the
+ * events written after `afterId`, and the cumulative parts revised in place
+ * since `revisedSince` (the newest `updatedAt` the client has seen, the
+ * home's clock). `complete` is false when that's more than `limit`, when
+ * `afterId` isn't this session's, or when parts may have been revised and
+ * there's no `revisedSince` to find them by: the client can't be brought up
+ * to date from here, and should read the transcript afresh. Nothing is
+ * returned then.
+ *
+ * "After" is in the order the home wrote them (rowid), not by id: a message
+ * keeps the id its sender minted on its own clock, so a phone running ahead
+ * puts its message's id past the replies that follow it.
+ */
+export function listChatEventsToResume(
+  sessionId: string,
+  afterId: string,
+  revisedSince: string | null,
+  limit = 1000,
+): { rows: ChatEventRecord[]; complete: boolean } {
   const db = getDb();
+  const at = db
+    .select({ rowid: sql<number>`rowid` })
+    .from(chatEvents)
+    .where(and(eq(chatEvents.sessionId, sessionId), eq(chatEvents.id, afterId)))
+    .get();
+  if (!at) return { rows: [], complete: false };
+  const written = sql`rowid`;
+  const revisable = and(lte(written, at.rowid), isNotNull(chatEvents.partRevision));
+  if (revisedSince === null) {
+    const revised = db.select({ id: chatEvents.id }).from(chatEvents).where(and(eq(chatEvents.sessionId, sessionId), revisable)).limit(1).get();
+    if (revised) return { rows: [], complete: false };
+  }
+  const missed = revisedSince === null
+    ? gt(written, at.rowid)
+    : or(gt(written, at.rowid), and(revisable, gte(chatEvents.updatedAt, revisedSince)));
   const rows = db
     .select()
     .from(chatEvents)
-    .where(and(eq(chatEvents.sessionId, sessionId), gt(chatEvents.id, afterId)))
+    .where(and(eq(chatEvents.sessionId, sessionId), missed))
     .orderBy(asc(chatEvents.createdAt), asc(chatEvents.id))
-    .limit(limit)
+    .limit(limit + 1)
     .all();
-  return rows.map((r) => hydrateRow(r));
+  if (rows.length > limit) return { rows: [], complete: false };
+  return { rows: rows.map((r) => hydrateRow(r)), complete: true };
+}
+
+/**
+ * Where a session's transcript stands: the event written last, and the
+ * newest change to any (`updatedAt`). A stream client resumes from here once
+ * it has read the transcript. The last written rather than the greatest id:
+ * a message keeps the id its sender minted, on its sender's clock.
+ */
+export function chatEventsPosition(sessionId: string): { after: string | null; since: string | null } {
+  const db = getDb();
+  const last = db.select({ id: chatEvents.id }).from(chatEvents).where(eq(chatEvents.sessionId, sessionId)).orderBy(desc(sql`rowid`)).limit(1).get();
+  const since = db
+    .select({ since: sql<string | null>`max(${chatEvents.updatedAt})` })
+    .from(chatEvents)
+    .where(eq(chatEvents.sessionId, sessionId))
+    .get();
+  return { after: last?.id ?? null, since: since?.since ?? null };
 }
 
 /**
@@ -7338,7 +9301,37 @@ export function updateRun(id: string, input: UpdateRunInput): RunRecord | null {
 
 /** Transition a queued run to running. */
 export function markRunStarted(id: string, startedAt: string = new Date().toISOString()): RunRecord | null {
-  return updateRun(id, { status: 'running', startedAt });
+  return updateRun(id, { status: 'running', startedAt, statusReason: null });
+}
+
+/** Why a scheduled fire waits: a move holds its message (P3 re-check). */
+export const HELD_BY_MOVE = 'held_by_move';
+
+/**
+ * A scheduled fire whose message a move holds: back to `queued`, waiting,
+ * with nothing started. The move delivers it as this run once it settles
+ * (`heldFireFor`). Only a run still under way.
+ */
+export function markRunHeld(id: string): RunRecord | null {
+  return (
+    getDb()
+      .update(runs)
+      .set({ status: 'queued', statusReason: HELD_BY_MOVE, startedAt: null })
+      .where(and(eq(runs.id, id), inArray(runs.status, ['queued', 'running'])))
+      .returning()
+      .get() ?? null
+  );
+}
+
+/** The scheduled fire a held message is, while it still waits for the move to deliver it. */
+export function heldFireFor(eventId: string): RunRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(runs)
+      .where(and(eq(runs.sourceEventId, eventId), eq(runs.status, 'queued'), eq(runs.statusReason, HELD_BY_MOVE)))
+      .get() ?? null
+  );
 }
 
 /** Terminal transition with timing. completedAt defaults to now.
@@ -7415,10 +9408,29 @@ export function markRunCancelled(id: string, reason: string | null = null): RunR
  * leaves an orphan that the mutex check wouldn't catch (it only looks
  * at running). Reap both so the execution-level mutex clears cleanly
  * and the inbox doesn't show a fake spinning run forever.
+ *
+ * A run on a connected computer is kept when a send was saved for it: its
+ * turn didn't die with this process, or it's still waiting to be delivered,
+ * and the worker reports how it ends. One with no send is a dispatch this
+ * process was still preparing when it stopped. No worker ever heard of it,
+ * so it's reaped like any other (docs/homes-build.md, P2 review fixes).
+ *
+ * A scheduled fire a move holds is kept too: its message is saved with the
+ * move, which delivers it as the run once it settles (P3 re-check).
  */
 export function reapStaleRunningRuns(): number {
   const db = getDb();
   const now = new Date().toISOString();
+  const active = db
+    .select({ id: runs.id, chatSessionId: runs.chatSessionId, status: runs.status, statusReason: runs.statusReason })
+    .from(runs)
+    .where(inArray(runs.status, ['queued', 'running']))
+    .all();
+  const ghosts = active
+    .filter((r) => !(r.status === 'queued' && r.statusReason === HELD_BY_MOVE))
+    .filter((r) => !r.chatSessionId || getChatComputerId(r.chatSessionId) === null || !hasSendForRun(r.id))
+    .map((r) => r.id);
+  if (ghosts.length === 0) return 0;
   const result = db
     .update(runs)
     .set({
@@ -7427,7 +9439,7 @@ export function reapStaleRunningRuns(): number {
       errorMessage: 'Process restarted while this run was active.',
       completedAt: now,
     })
-    .where(inArray(runs.status, ['queued', 'running']))
+    .where(and(inArray(runs.id, ghosts), inArray(runs.status, ['queued', 'running'])))
     .returning()
     .all();
   return result.length;
@@ -7439,8 +9451,17 @@ export function findActiveRunForExecution(executionId: string): RunRecord | unde
   return db
     .select()
     .from(runs)
-    .where(and(eq(runs.executionId, executionId), eq(runs.status, 'running')))
+    .where(and(eq(runs.executionId, executionId), activeRun()))
     .get();
+}
+
+/**
+ * Under way, for the concurrency gate: running, or a fire a move holds,
+ * which runs once the move settles. Later fires then wait behind it rather
+ * than pile up behind a stuck move (P3 re-check).
+ */
+function activeRun(): SQL {
+  return or(eq(runs.status, 'running'), and(eq(runs.status, 'queued'), eq(runs.statusReason, HELD_BY_MOVE)))!;
 }
 
 /**
@@ -7489,7 +9510,7 @@ export function findActiveRunForTrigger(triggerId: string): RunRecord | undefine
   return db
     .select()
     .from(runs)
-    .where(and(eq(runs.triggerId, triggerId), eq(runs.status, 'running')))
+    .where(and(eq(runs.triggerId, triggerId), activeRun()))
     .get();
 }
 
@@ -7652,6 +9673,15 @@ export function upsertDelivery(input: CreateNotificationDeliveryInput): boolean 
     .onConflictDoNothing({ target: [notificationDeliveries.dedupeKey, notificationDeliveries.channelId] })
     .run();
   return result.changes > 0;
+}
+
+/** Deliveries still pending since before `before`: queued, committed, and never sent. */
+export function listStrandedDeliveries(before: string): NotificationDeliveryRecord[] {
+  return getDb()
+    .select()
+    .from(notificationDeliveries)
+    .where(and(eq(notificationDeliveries.status, 'pending'), lt(notificationDeliveries.createdAt, before)))
+    .all();
 }
 
 /** All still-processable deliveries for an event across the given channels (pending OR failed → self-heals on re-fire). */

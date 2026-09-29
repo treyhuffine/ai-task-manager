@@ -7,6 +7,7 @@ import { FileTree } from '@/components/executions/file-tree/file-tree';
 import { FileViewer } from '@/components/executions/viewer/file-viewer';
 import { folderStateId, workspaceFolder } from '@/lib/folders/source';
 import type { WorkspaceRecord } from '@/db/types';
+import { useRunOn } from '@/hooks/use-workspaces';
 
 const TREE_PANEL = 'agent-files-tree';
 const VIEWER_PANEL = 'agent-files-viewer';
@@ -24,6 +25,10 @@ const NOOP_STORAGE: LayoutStorage = { getItem: () => null, setItem: () => {} };
 export function AgentFiles({ workspace }: { workspace: WorkspaceRecord }) {
   const archived = workspace.status === 'archived';
   const source = useMemo(() => workspaceFolder(workspace.id, { readOnly: archived }), [workspace.id, archived]);
+  // Its folder on the computer it lives on (P3.5), which the tree reads
+  // there. Null until that's known, which the tree shows as loading.
+  const { data: runOn } = useRunOn(workspace.id);
+  const folder = runOn ? (runOn.livesOn?.folder ?? null) : null;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [storage] = useState<LayoutStorage>(() => (typeof window === 'undefined' ? NOOP_STORAGE : window.localStorage));
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'ri.agent.files.layout', storage });
@@ -41,7 +46,7 @@ export function AgentFiles({ workspace }: { workspace: WorkspaceRecord }) {
           worktreeId={folderStateId(source)}
           selectedPath={selectedPath}
           onSelect={setSelectedPath}
-          worktreePath={workspace.cwd}
+          worktreePath={folder}
         />
       </ResizablePanel>
       <ResizableHandle />

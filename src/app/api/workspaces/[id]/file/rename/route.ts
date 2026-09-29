@@ -1,7 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { mapFileError } from '@/lib/workspaces/file-http';
-import { renameWorkspacePath } from '@/lib/workspaces/write-file';
-import { openWritableWorkspaceFolder } from '../../_folder';
+import { agentFolderWrite } from '../../_folder';
 
 /**
  * Move or rename a file or directory in the agent's folder, refusing to
@@ -18,9 +17,7 @@ export async function POST(
     if (!body || typeof body.from !== 'string' || typeof body.to !== 'string') {
       return Response.json({ error: 'Body must be { from: string, to: string }' }, { status: 400 });
     }
-    const resolved = openWritableWorkspaceFolder(id);
-    if (!resolved.ok) return resolved.response;
-    return Response.json({ ok: true, ...(await renameWorkspacePath(resolved.folder, body.from, body.to)) });
+    return await agentFolderWrite(id, { kind: 'rename', from: body.from, to: body.to });
   } catch (err) {
     return mapFileError(err, '[POST /api/workspaces/:id/file/rename]');
   }

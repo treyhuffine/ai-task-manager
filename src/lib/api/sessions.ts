@@ -8,6 +8,28 @@ import type {
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { SessionRuntimeStatus } from '@/lib/executor/runtime-status';
+import type { MessageDelivery } from '@/lib/workers/delivery';
+import type { TransferView } from '@/lib/transfer/view';
+import type { WorkingState } from '@/lib/transfer/git-checkpoint';
+import { clientIsHost, type OpenTarget } from './fs';
+
+/** A review checkout on the viewer's computer (P4.1). */
+export interface ReviewState {
+  viewer: { id: string; name: string } | null;
+  review: {
+    path: string;
+    sha: string;
+    branch: string;
+    dirty: boolean;
+    source: { computerId: string; name: string } | null;
+    updatedAt: string;
+  } | null;
+}
+
+/** The home's own browser says so, as it does to open apps: the review is then on the home. */
+function hostHeaders(): Record<string, string> | undefined {
+  return clientIsHost() ? { 'x-ri-host': '1' } : undefined;
+}
 
 // ─── Pending-input wire types ─────────────────────────────────
 //
@@ -258,31 +280,6 @@ export interface WipMoveResult {
 
 export type WipApplyResult = WipCopyResult | WipMoveResult;
 
-// ─── Takeover wire types ─────────────────────────────────
-//
-// Mirrors the route response shapes. Server source of truth:
-// `src/app/api/sessions/[id]/takeover/route.ts` and
-// `src/app/api/takeover/[token]/resume/route.ts`.
-
-export interface TakeoverResponse {
-  token: string;
-  expiresAt: string;
-  cliCommand: string;
-  fallbackCommand: string;
-  branch: string;
-  baseSha: string;
-  remoteUrl: string;
-  workspaceId: string;
-  startedAt: string;
-}
-
-export interface ResumeFromTakeoverResponse {
-  ok: true;
-  filesChanged: number;
-  shortstat: string;
-  sessionId: string;
-}
-
 
 /**
  * Wire shape of a rail session row — flattened chat_session + execution
@@ -414,8 +411,8 @@ export interface ExecutionChatHistoryEntry {
 }
 
 export const sessionsApi = {
-  get(id: string): Promise<ChatSessionWithExecution> {
-    return api.get<ChatSessionWithExecution>(`/sessions/${id}`);
+  get(id: string, opts: { signal?: AbortSignal } = {}): Promise<ChatSessionWithExecution> {
+    return api.get<ChatSessionWithExecution>(`/sessions/${id}`, { signal: opts.signal });
   },
 
   update(
@@ -546,8 +543,54 @@ export const sessionsApi = {
     return api.post<AutoMergeResponse>(`/sessions/${id}/auto-merge`, body);
   },
 
-  needsReview(): Promise<ChatSessionWithExecution[]> {
-    return api.get<ChatSessionWithExecution[]>('/sessions/needs-review');
+  /** Where each message sent to a computer elsewhere stands, by chat event id (P3.2). */
+  deliveries(id: string, opts: { signal?: AbortSignal } = {}): Promise<Record<string, MessageDelivery>> {
+    return api.get<Record<string, MessageDelivery>>(`/sessions/${id}/deliveries`, { signal: opts.signal });
+  },
+
+  /** Withdraw a message still waiting in its computer's queue. */
+  cancelDelivery(id: string, eventId: string): Promise<MessageDelivery> {
+    return api.post<MessageDelivery>(`/sessions/${id}/deliveries/${eventId}/cancel`);
+  },
+
+  /** The execution's latest move between computers (P4.2). */
+  transfer(id: string, opts: { signal?: AbortSignal } = {}): Promise<{ transfer: TransferView | null }> {
+    return api.get<{ transfer: TransferView | null }>(`/sessions/${id}/transfer`, { signal: opts.signal });
+  },
+  /** What a move would take from its worktree, read where it runs. */
+  workingState(id: string, opts: { signal?: AbortSignal } = {}): Promise<WorkingState | null> {
+    return api.get<WorkingState | null>(`/sessions/${id}/transfer/working-state`, { signal: opts.signal });
+  },
+  startTransfer(id: string, body: { toComputerId: string; includeUntracked: string[] }): Promise<{ transfer: TransferView }> {
+    return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer`, body);
+  },
+  resumeTransfer(id: string): Promise<{ transfer: TransferView }> {
+    return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer/resume`);
+  },
+  finishTransfer(id: string): Promise<{ transfer: TransferView }> {
+    return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer/finish`);
+  },
+  /** Send them again: held messages whose delivery stopped short. */
+  deliverHeld(id: string): Promise<{ transfer: TransferView }> {
+    return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer/deliver`);
+  },
+
+  /** Open code here (P4.1): this computer's review checkout of the execution, if any. */
+  review(id: string, opts: { signal?: AbortSignal; computerId?: string } = {}): Promise<ReviewState> {
+    const on = opts.computerId ? `?computer=${encodeURIComponent(opts.computerId)}` : '';
+    return api.get<ReviewState>(`/sessions/${id}/review${on}`, { signal: opts.signal, headers: hostHeaders() });
+  },
+  /** Make or refresh it: refreshed only while it has no edits. */
+  openCodeHere(id: string): Promise<ReviewState & { created: boolean; refreshed: boolean; inTheWay?: string[] }> {
+    return api.post<ReviewState & { created: boolean; refreshed: boolean; inTheWay?: string[] }>(`/sessions/${id}/review`, {}, { headers: hostHeaders() });
+  },
+  /** Open it in an app on this computer, through its worker. */
+  openReview(id: string, target: OpenTarget): Promise<{ ok: boolean; reason?: string; message?: string }> {
+    return api.post(`/sessions/${id}/review/open`, { op: 'open', path: null, target });
+  },
+
+  needsReview(opts: { signal?: AbortSignal } = {}): Promise<ChatSessionWithExecution[]> {
+    return api.get<ChatSessionWithExecution[]>('/sessions/needs-review', { signal: opts.signal });
   },
 
   /**
@@ -577,8 +620,8 @@ export const sessionsApi = {
     return api.post<ChatSessionWithExecution>(`/sessions/${id}/unpin`);
   },
 
-  rail(): Promise<RailResponse> {
-    return api.get<RailResponse>('/sessions/rail');
+  rail(opts: { signal?: AbortSignal } = {}): Promise<RailResponse> {
+    return api.get<RailResponse>('/sessions/rail', { signal: opts.signal });
   },
 
   history(): Promise<HistoryResponse> {
@@ -709,8 +752,8 @@ export const sessionsApi = {
     });
   },
 
-  runtimeStatus(id: string): Promise<SessionRuntimeStatus> {
-    return api.get<SessionRuntimeStatus>(`/sessions/${id}/runtime-status`);
+  runtimeStatus(id: string, opts: { signal?: AbortSignal } = {}): Promise<SessionRuntimeStatus> {
+    return api.get<SessionRuntimeStatus>(`/sessions/${id}/runtime-status`, { signal: opts.signal });
   },
 
   interrupt(id: string): Promise<{ ok: true }> {
@@ -745,26 +788,5 @@ export const sessionsApi = {
 
   applyWip(id: string, action: 'copy' | 'move'): Promise<WipApplyResult> {
     return api.post<WipApplyResult>(`/sessions/${id}/wip`, { action });
-  },
-
-  takeover(id: string): Promise<TakeoverResponse> {
-    return api.post<TakeoverResponse>(`/sessions/${id}/takeover`);
-  },
-
-  cancelTakeover(id: string): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/takeover-cancel`);
-  },
-
-  /**
-   * Resume from a browser-initiated "Done — pull my changes" click.
-   * The CLI calls the same endpoint (different transport, same token
-   * in path), but goes through `/api/takeover/<token>/resume` to bypass
-   * bearer-token middleware. The browser sends bearer auth as usual.
-   */
-  resumeFromTakeover(token: string): Promise<ResumeFromTakeoverResponse> {
-    return api.post<ResumeFromTakeoverResponse>(`/takeover/${token}/resume`, undefined, {
-      // The api client sets `baseUrl='/api'` so the URL becomes
-      // `/api/takeover/<token>/resume`. No special-casing needed.
-    });
   },
 };

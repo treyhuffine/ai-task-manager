@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ArrowRightLeft, Copy, X, AlertTriangle, Loader2 } from 'lucide-react';
 import { useSessionWip, useApplyWip } from '@/hooks/use-execution';
+import { apiErrorText } from '@/lib/api/client';
 import type { WipApplyResult } from '@/lib/api/sessions';
 
 interface WipHandoffBannerProps {
@@ -92,7 +93,7 @@ export function WipHandoffBanner({ sessionId, worktreeReady }: WipHandoffBannerP
       </div>
       {apply.isError && (
         <p className="max-w-3xl mx-auto mt-1.5 text-[11px] text-red-500/90">
-          {apply.error.message}
+          {apiErrorText(apply.error)}
         </p>
       )}
     </div>

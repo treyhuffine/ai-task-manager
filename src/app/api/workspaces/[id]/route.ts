@@ -1,5 +1,6 @@
+import path from 'node:path';
 import type { NextRequest } from 'next/server';
-import { getWorkspace, updateWorkspace, WorkspaceFieldError } from '@/lib/db/queries';
+import { getWorkspace, updateWorkspace, validateWorkspaceUpdate, WorkspaceFieldError } from '@/lib/db/queries';
 import type { UpdateWorkspaceInput } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
 import { recycleAgentMainChats, recycleWorkspaceSessions } from '@/lib/executor/adapter';
@@ -28,6 +29,8 @@ async function handleGET(
   }
 }
 
+class WorkspaceMissingError extends Error {}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -37,8 +40,37 @@ export async function PATCH(
     // `connectorScopes` is security-relevant (it governs what a workspace's executions may touch) and
     // must go through PUT /connector-scopes, which validates pins and recycles live sessions. Strip it
     // here so the generic PATCH can't write scopes unvalidated and without a session recycle.
-    const { connectorScopes: _ignored, ...body } = (await request.json()) as UpdateWorkspaceInput;
-    const row = updateWorkspace(id, body);
+    const { connectorScopes: _ignored, ...raw } = (await request.json()) as UpdateWorkspaceInput;
+    // Check the whole patch before changing anything, so a bad field can't
+    // leave the folder already moved.
+    const body = validateWorkspaceUpdate(raw);
+    const before = getWorkspace(id);
+    if (!before) return Response.json({ error: 'Workspace not found' }, { status: 404 });
+
+    if (typeof body.cwd === 'string') body.cwd = path.resolve(body.cwd);
+    // Assigned inside `finish` too, so declared without narrowing to null.
+    let row = null as ReturnType<typeof updateWorkspace>;
+    if (typeof body.cwd === 'string' && body.cwd !== before.cwd) {
+      // A new folder for the agent on the home (docs/homes-spec.md §4.1):
+      // checked first, and recorded once the agent is saved.
+      const { setHomeFolder, SetupError } = await import('@/lib/setups/home-context');
+      try {
+        await setHomeFolder(id, body.cwd, {
+          finish: () => {
+            row = updateWorkspace(id, body);
+            if (!row) throw new WorkspaceMissingError();
+          },
+        });
+      } catch (err) {
+        if (err instanceof WorkspaceMissingError) return Response.json({ error: 'Workspace not found' }, { status: 404 });
+        if (err instanceof SetupError) {
+          return Response.json({ error: err.message }, { status: 400 });
+        }
+        throw err;
+      }
+    } else {
+      row = updateWorkspace(id, body);
+    }
     if (!row) return Response.json({ error: 'Workspace not found' }, { status: 404 });
     // Session config is fixed at spawn (the browser changes the tool set, the
     // instructions and folder are read at spawn), so recycle live sessions to

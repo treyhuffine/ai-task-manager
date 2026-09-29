@@ -2,19 +2,23 @@
 
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
+import { isNewerRevision, type ChatEventDTO } from '@/lib/api/dto/chat-event';
 import type { PendingInput } from '@/lib/api/sessions';
 import { isMutatingToolUse } from '@/lib/executor/mutation-detect';
 import { worktreeScopeFromCache } from '@/hooks/use-execution';
 import { hot } from '@/lib/_debug/hot-path';
+import { invalidateRailSoon } from '@/lib/query/invalidate-rail';
 import {
   withBackgroundTaskStatus,
   withRunningStatus,
   type SessionRuntimeStatus,
 } from '@/lib/executor/runtime-status';
+import type { MessageDelivery } from '@/lib/workers/delivery';
+import { noteDeliveryUpdate } from '@/lib/query/delivery-fence';
+import { pageStream } from '@/lib/realtime/page-stream';
 
 /**
- * Subscribes to the per-session SSE stream and folds every frame into
+ * Subscribes to the session's frames and folds every frame into
  * the matching TanStack Query cache:
  *
  *   - `chat_event`   → appends-with-dedup into `['session', id, 'events']`
@@ -27,12 +31,11 @@ import {
  * fallback if the stream is unavailable; on a healthy stream they're
  * superfluous but harmless (dedup-by-id keeps overlap correct).
  *
- * EventSource auto-reconnects on disconnect with the native
- * `Last-Event-ID` header populated from the last `id:` we emitted (set
- * on `chat_event` frames; runtime/pending have no id since they're
- * last-write-wins and replayed in full on every connect). Server
- * replays missed chat_event rows via `listChatEventsAfter`, so
- * laptop-sleep / network-blip recovery is automatic and lossless.
+ * The frames come over the page's one stream (`pageStream()`, P3
+ * review), which reconnects with the last chat event this page saw, so
+ * the server replays the rows missed (`listChatEventsToResume`): laptop
+ * sleep, a network blip or a hidden tab lose nothing. When it can't
+ * replay all of it, its `ready` says so and the transcript is refetched.
  *
  * Cookie auth carries the session; EventSource can't attach headers
  * but cookies flow natively and `proxy.ts` accepts either Bearer or
@@ -44,8 +47,8 @@ export function useSessionStream(sessionId: string | null): void {
   useEffect(() => {
     if (!sessionId) return;
 
-    const source = new EventSource(`/api/sessions/${sessionId}/stream`);
     const eventsKey = ['session', sessionId, 'events'] as const;
+    const deliveriesKey = ['session', sessionId, 'deliveries'] as const;
     const runtimeKey = ['session', sessionId, 'runtime-status'] as const;
     const pendingKey = ['session', sessionId, 'pending-input'] as const;
     const reconcilingKey = ['session', sessionId, 'reconciling'] as const;
@@ -73,27 +76,30 @@ export function useSessionStream(sessionId: string | null): void {
     // signal to re-fetch the rail. Cheaper than a global SSE channel
     // and snaps the rail's buckets to reality as soon as the viewed
     // session moves between them.
-    const invalidateRail = () => {
-      queryClient.invalidateQueries({ queryKey: ['sessions', 'rail'] });
-      queryClient.invalidateQueries({ queryKey: ['sessions', 'needs-review'] });
-      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
-    };
+    // Coalesced across streams and bursts (invalidateRailSoon).
+    const invalidateRail = () => invalidateRailSoon(queryClient);
 
-    const handleChatEvent = (raw: MessageEvent) => {
+    const handleChatEvent = (data: unknown) => {
       hot('sse chat_event');
-      let event: ChatEventDTO;
-      try {
-        event = JSON.parse(raw.data) as ChatEventDTO;
-      } catch (err) {
-        console.error('[useSessionStream] malformed chat_event frame:', err);
+      const event = data as ChatEventDTO | null;
+      if (!event?.id) {
+        console.error('[useSessionStream] malformed chat_event frame');
         return;
       }
 
       queryClient.setQueryData<ChatEventDTO[]>(eventsKey, (prev) => {
         const list = prev ?? [];
         // Idempotent insert: stream + snapshot can deliver the same row
-        // on first connect or after an invalidation. Skip dupes.
-        if (list.some((e) => e.id === event.id)) return list;
+        // on first connect or after an invalidation. Skip dupes, but take
+        // a newer revision of a part that grows in place (OpenCode's
+        // cumulative text), live or replayed on resume (P3 re-check).
+        const at = list.findIndex((e) => e.id === event.id);
+        if (at >= 0) {
+          if (!isNewerRevision(event, list[at]!)) return list;
+          const out = [...list];
+          out[at] = event;
+          return out;
+        }
 
         // Insert preserving (createdAt ASC, id ASC) — same ordering
         // the listChatEvents query uses. New events almost always
@@ -128,86 +134,117 @@ export function useSessionStream(sessionId: string | null): void {
       }
     };
 
-    const handleRuntime = (raw: MessageEvent) => {
+    const handleRuntime = (frame: unknown) => {
       hot('sse runtime');
-      try {
-        const data = JSON.parse(raw.data) as { running: boolean };
-        queryClient.setQueryData<SessionRuntimeStatus>(runtimeKey, (prev) =>
-          withRunningStatus(prev, data.running));
-        // Working bucket membership just flipped — re-fetch the rail.
-        invalidateRail();
-      } catch (err) {
-        console.error('[useSessionStream] malformed runtime frame:', err);
-      }
+      const data = frame as { running: boolean };
+      queryClient.setQueryData<SessionRuntimeStatus>(runtimeKey, (prev) =>
+        withRunningStatus(prev, data.running));
+      // Working bucket membership just flipped — re-fetch the rail.
+      invalidateRail();
     };
 
-    const handleBackgroundTasks = (raw: MessageEvent) => {
-      try {
-        const data = JSON.parse(raw.data) as { active: boolean; taskIds: string[] };
-        queryClient.setQueryData<SessionRuntimeStatus>(runtimeKey, (prev) =>
-          withBackgroundTaskStatus(prev, data.active, data.taskIds));
-        invalidateRail();
-      } catch (err) {
-        console.error('[useSessionStream] malformed background_tasks frame:', err);
-      }
+    const handleBackgroundTasks = (frame: unknown) => {
+      const data = frame as { active: boolean; taskIds: string[] };
+      queryClient.setQueryData<SessionRuntimeStatus>(runtimeKey, (prev) =>
+        withBackgroundTaskStatus(prev, data.active, data.taskIds));
+      invalidateRail();
     };
 
-    const handlePendingInput = (raw: MessageEvent) => {
+    const handlePendingInput = (frame: unknown) => {
       hot('sse pending_input');
-      try {
-        const data = JSON.parse(raw.data) as { pending: PendingInput[] };
-        queryClient.setQueryData<PendingInput[]>(pendingKey, data.pending);
-        // Needs-approval bucket membership just shifted — re-fetch
-        // so the rail reflects the new pending list.
+      const data = frame as { pending: PendingInput[] };
+      queryClient.setQueryData<PendingInput[]>(pendingKey, data.pending);
+      // Needs-approval bucket membership just shifted — re-fetch
+      // so the rail reflects the new pending list.
+      invalidateRail();
+    };
+
+    const handleReconcile = (frame: unknown) => {
+      const data = frame as { status: 'started' | 'done'; replayed?: number };
+      queryClient.setQueryData<boolean>(reconcilingKey, data.status === 'started');
+    };
+
+    // Where a message sent to a computer elsewhere stands (P3.2).
+    const handleDelivery = (frame: unknown) => {
+      const data = frame as { eventId: string; delivery: MessageDelivery };
+      noteDeliveryUpdate(sessionId, data.eventId);
+      queryClient.setQueryData<Record<string, MessageDelivery>>(deliveriesKey, (prev) => ({ ...(prev ?? {}), [data.eventId]: data.delivery }));
+    };
+
+    // Where a move between computers stands (P4.2). When ownership changes,
+    // where the execution runs, its folder and its messages all change too.
+    const transferKey = ['session', sessionId, 'transfer'] as const;
+    const handleTransfer = (frame: unknown) => {
+      const data = frame as { transfer: { state: string; ownershipChanged: boolean } | null };
+      const prev = queryClient.getQueryData<{ state: string; ownershipChanged: boolean } | null>(transferKey);
+      queryClient.setQueryData(transferKey, data.transfer);
+      if (data.transfer && (data.transfer.ownershipChanged !== prev?.ownershipChanged || data.transfer.state !== prev?.state)) {
+        queryClient.invalidateQueries({ queryKey: ['session', sessionId], exact: true });
+        queryClient.invalidateQueries({ queryKey: deliveriesKey });
+        queryClient.invalidateQueries({ queryKey: treeKey() });
         invalidateRail();
-      } catch (err) {
-        console.error('[useSessionStream] malformed pending_input frame:', err);
       }
     };
 
-    const handleReconcile = (raw: MessageEvent) => {
+    // Refetch authoritative state on every (re)connect, which the chat's
+    // `ready` marks. A fresh start refetches the transcript and runtime too:
+    // the seed alone can't overwrite state left from before a server
+    // restart. A resume replayed all the transcript missed already, parts
+    // revised in place included: the server says it resumed only then, and
+    // otherwise replays nothing (P3 re-check). Deliveries and the move
+    // aren't replayed, so they're refetched either way.
+    const handleReady = (frame: unknown, caughtUp?: () => void) => {
+      const data = frame as { resumed?: boolean; position?: { after?: string | null } } | null;
+      if (data?.resumed !== true) {
+        void readTranscriptAfresh(data?.position?.after ?? null, caughtUp);
+        queryClient.invalidateQueries({ queryKey: runtimeKey });
+      }
+      queryClient.invalidateQueries({ queryKey: deliveriesKey });
+      queryClient.invalidateQueries({ queryKey: transferKey });
+    };
+
+    // The transcript read afresh, then acknowledged to the page stream once
+    // the cache has the event `ready` named as the transcript's last: only
+    // then does the chat resume from there. A read already under way when
+    // `ready` came can't vouch for it (the refetch joins it), so a second
+    // one is asked for before giving up (P3 re-check).
+    const readTranscriptAfresh = async (last: string | null, caughtUp?: () => void) => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          await queryClient.invalidateQueries({ queryKey: eventsKey });
+        } catch {
+          return;
+        }
+        if (!last || queryClient.getQueryData<ChatEventDTO[]>(eventsKey)?.some((e) => e.id === last)) {
+          caughtUp?.();
+          return;
+        }
+      }
+    };
+
+    const handlers: Record<string, (data: unknown, caughtUp?: () => void) => void> = {
+      chat_event: handleChatEvent,
+      delivery: handleDelivery,
+      transfer: handleTransfer,
+      runtime: handleRuntime,
+      background_tasks: handleBackgroundTasks,
+      pending_input: handlePendingInput,
+      reconcile: handleReconcile,
+      ready: handleReady,
+    };
+    // Carried by the page's one stream (P3 review).
+    const unsubscribe = pageStream().subscribeSession(sessionId, (event, data, _id, caughtUp) => {
       try {
-        const data = JSON.parse(raw.data) as { status: 'started' | 'done'; replayed?: number };
-        queryClient.setQueryData<boolean>(reconcilingKey, data.status === 'started');
+        handlers[event]?.(data, caughtUp);
       } catch (err) {
-        console.error('[useSessionStream] malformed reconcile frame:', err);
+        console.error(`[useSessionStream] malformed ${event} frame:`, err);
       }
-    };
-
-    source.addEventListener('chat_event', handleChatEvent);
-    source.addEventListener('runtime', handleRuntime);
-    source.addEventListener('background_tasks', handleBackgroundTasks);
-    source.addEventListener('pending_input', handlePendingInput);
-    source.addEventListener('reconcile', handleReconcile);
-
-    // Refetch authoritative state on every (re)connect. The server's
-    // connect-time seed handles runtime + pending_input + a chat_event
-    // replay since Last-Event-ID, but if the page was open across a
-    // server restart, the React Query caches for `events` and
-    // `runtime-status` can hold stale data that the seed alone won't
-    // overwrite (e.g., events emitted between the old server's death
-    // and the client's reconnect, which the new server's Last-Event-ID
-    // resume can miss if the cap is hit, OR a stale `running:true`
-    // from before the restart). Invalidate to force fresh reads.
-    source.addEventListener('open', () => {
-      queryClient.invalidateQueries({ queryKey: eventsKey });
-      queryClient.invalidateQueries({ queryKey: runtimeKey });
     });
 
-    source.onerror = (err) => {
-      // EventSource auto-reconnects with backoff. We log once for
-      // visibility but otherwise let the browser handle it.
-      console.warn(`[useSessionStream] stream error for ${sessionId}:`, err);
-    };
-
     return () => {
-      source.removeEventListener('chat_event', handleChatEvent);
-      source.removeEventListener('runtime', handleRuntime);
-      source.removeEventListener('background_tasks', handleBackgroundTasks);
-      source.removeEventListener('pending_input', handlePendingInput);
-      source.removeEventListener('reconcile', handleReconcile);
+      unsubscribe();
       if (diffTimer) clearTimeout(diffTimer);
-      source.close();
     };
   }, [sessionId, queryClient]);
 }
+

@@ -535,7 +535,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
             queryClient.invalidateQueries({ queryKey: slashCommandsKey(sessionId) });
           }
         } catch (err) {
-          // Round-trip failed (network, 500, takeover 409, etc.). Put
+          // Round-trip failed (network, 500, a refused send, etc.). Put
           // the user's content back so they can correct and retry —
           // the optimistic bubble is rolled back by the send mutation's
           // onError; the snapshot restore handles the editor side.

@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
-import { getChatSessionWithExecution, getWorkspace, touchSessionActivity } from '@/lib/db/queries';
-import { resolveSessionPr } from '@/lib/github/session-pr';
+import { getChatSessionWithExecution, touchSessionActivity } from '@/lib/db/queries';
+import { githubOnOwner } from '@/lib/executor/owner-git';
+import { whileAdmitted } from '@/lib/transfer/moving';
 
 /**
  * Merge the PR for this session via `@agentex/github`. The caller has
@@ -15,7 +16,7 @@ export interface MergeRequestBody {
   deleteBranch?: boolean;
 }
 
-export async function POST(
+async function handlePOST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -32,45 +33,25 @@ export async function POST(
       );
     }
 
-    const ws = getWorkspace(session.workspaceId);
-    if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
-
-    const { github, GhCommandError, NotInstalledError, NotAuthenticatedError } =
-      await import('@agentex/github');
-    const repo = github.repo(ws.cwd);
-
-    // Resolve the same PR the action bar shows — linked prNumber wins, then
-    // branch/suffix match — so Merge never acts on a different PR than the one
-    // the user is looking at (linked/fork/renamed/duplicate-branch sessions).
-    const pr = await resolveSessionPr(repo, session);
-    if (!pr || pr.state !== 'OPEN') {
-      return Response.json(
-        { error: 'no_open_pr', message: 'No open PR for this session.' },
-        { status: 404 },
-      );
-    }
-
-    try {
-      await repo.merge(pr.number, {
-        method: body.method ?? 'squash',
-        deleteBranch: body.deleteBranch ?? true,
-      });
-      touchSessionActivity(id, 'git');
-      return Response.json({ ok: true, prNumber: pr.number, url: pr.url });
-    } catch (err) {
-      if (err instanceof NotInstalledError || err instanceof NotAuthenticatedError) {
-        return Response.json({ error: err.message }, { status: 412 });
-      }
-      if (err instanceof GhCommandError) {
-        return Response.json(
-          { error: 'merge_failed', message: err.message },
-          { status: 409 },
-        );
-      }
-      throw err;
-    }
+    // In a clone of its repository: the agent's folder here, or on the
+    // computer the agent lives on (P4.5).
+    const res = await githubOnOwner(id, {
+      op: 'merge',
+      prNumber: session.prNumber,
+      branchName: session.branchName,
+      method: body.method ?? 'squash',
+      deleteBranch: body.deleteBranch ?? true,
+    });
+    if (res.ok) touchSessionActivity(id, 'git');
+    return res;
   } catch (err) {
     console.error('[POST /api/sessions/:id/merge]', err);
     return Response.json({ error: String(err) }, { status: 500 });
   }
+}
+
+/** Counted while it runs, and refused while the work moves (P4 review). */
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return whileAdmitted(id, 'merging its pull request', () => handlePOST(request, context));
 }

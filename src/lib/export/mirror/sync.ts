@@ -72,6 +72,31 @@ export class MutationContext {
   }
 }
 
+// ─── One write at a time per entity ──────────────────────────
+
+/**
+ * Two syncs of the same entity can overlap: two quick edits each schedule
+ * one. Each reads the row when it runs, so running them in order leaves the
+ * file with the newest content. In parallel, the older one could finish
+ * last and write stale content over the new.
+ */
+const CHAINS_KEY = Symbol.for('@ri/mirror-entity-chains');
+const chainsRef = globalThis as unknown as { [CHAINS_KEY]?: Map<string, Promise<void>> };
+if (!chainsRef[CHAINS_KEY]) chainsRef[CHAINS_KEY] = new Map();
+const chains = chainsRef[CHAINS_KEY]!;
+
+function inOrder(type: EntityType, id: string, work: () => Promise<void>): Promise<void> {
+  const key = `${type}:${id}`;
+  const next = (chains.get(key) ?? Promise.resolve()).catch(() => void 0).then(work);
+  chains.set(key, next);
+  void next
+    .catch(() => void 0)
+    .finally(() => {
+      if (chains.get(key) === next) chains.delete(key);
+    });
+  return next;
+}
+
 // ─── Single entry points ─────────────────────────────────────
 
 /** Convenience for one-off single-entity sync. */
@@ -86,7 +111,7 @@ export function syncEntity(type: EntityType, id: string): Promise<void> {
 export async function syncDeletion(type: EntityType, id: string): Promise<void> {
   if (!isMirrorEnabled()) return;
   try {
-    await deleteEntityFile(type, id);
+    await inOrder(type, id, () => deleteEntityFile(type, id));
   } catch (err) {
     console.warn(`[mirror] delete failed: ${type}:${id}`, err);
   }
@@ -106,7 +131,7 @@ export async function syncBatch(ctx: MutationContext): Promise<void> {
     await Promise.all(
       expanded.entries().map(async ([type, id]) => {
         try {
-          await syncOne(type, id);
+          await inOrder(type, id, () => syncOne(type, id));
         } catch (err) {
           console.warn(`[mirror] sync failed: ${type}:${id}`, err);
         }

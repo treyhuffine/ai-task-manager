@@ -55,7 +55,9 @@ export function toChatEventDTO(row: ChatEventRecord): ChatEventDTO {
   const raw = asRecord(row.raw);
   return {
     ...row,
-    raw: decodeBackgroundTaskEvent(row.raw) ? row.raw : null,
+    // Kept for a background task's rows, and for a continuation's, whose
+    // handoff is shown under "Continued on MacBook" (P4.3).
+    raw: decodeBackgroundTaskEvent(row.raw) || row.source === 'continuation' ? row.raw : null,
     rawSubtype: str(raw?.subtype),
     rawModel: str(raw?.model),
     rawUsage: raw?.usage ?? null,
@@ -64,4 +66,13 @@ export function toChatEventDTO(row: ChatEventRecord): ChatEventDTO {
 
 export function toChatEventDTOs(rows: readonly ChatEventRecord[]): ChatEventDTO[] {
   return rows.map(toChatEventDTO);
+}
+
+/**
+ * A part revised in place (OpenCode's text grows under one id): whether
+ * `incoming` is a newer revision than `cached`, so it should replace it.
+ * An older or equal one never does (P3 re-check).
+ */
+export function isNewerRevision(incoming: Pick<ChatEventDTO, 'partRevision'>, cached: Pick<ChatEventDTO, 'partRevision'>): boolean {
+  return incoming.partRevision != null && (cached.partRevision == null || incoming.partRevision > cached.partRevision);
 }

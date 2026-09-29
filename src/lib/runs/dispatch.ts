@@ -30,11 +30,13 @@ import type {
 import {
   createExecutionWithChat,
   getExecution,
+  getWorkerCommand,
   updateTrigger,
   createRun,
   markRunStarted,
-  markRunCompleted,
-  markRunFailed,
+  markRunHeld,
+  updateRun,
+  getTrigger,
   setTriggerLastRun,
   findActiveRunForExecution,
   findActiveRunForTrigger,
@@ -42,16 +44,19 @@ import {
   getWorkspace,
   insertChatEvent,
   resetExecutionForReprovision,
+  placementOf,
+  getHome,
 } from '@/lib/db/queries';
-import { notifyRunTerminal } from '@/lib/notifications/emit';
+import { finishRun } from './finish';
+import { withdrawQueuedSend } from '@/lib/workers/undelivered';
 import { withApiLease } from '@/lib/runs/rate-lease';
-import { dispatch as executorDispatch, abort as executorAbort } from '@/lib/executor/adapter';
+import { dispatch as executorDispatch, abort as executorAbort, type DispatchOptions } from '@/lib/executor/adapter';
 import { provisionWorktreeForSession } from '@/lib/sessions/dispatch';
 import { runArtifactBucket } from './artifact-bucket';
 import { budgetGate, BUDGET_DISABLED_REASON } from './budget';
 import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
 import { composeHeartbeatPrompt } from '@/lib/heartbeat/prompt';
-import { settleHeartbeatRun } from '@/lib/heartbeat/quiet';
+import { homeCantRun } from '@/lib/setups/run-on';
 
 export interface DispatchRunArgs {
   trigger: TriggerRecord;
@@ -102,7 +107,33 @@ export async function dispatchRun(args: DispatchRunArgs): Promise<DispatchedRunR
 
   // 1. Resolve the target execution (or null for orchestrator triggers)
   //    + the chat session this run will speak through.
-  const resolved = resolveTarget(trigger);
+  let resolved: ReturnType<typeof resolveTarget>;
+  try {
+    resolved = resolveTarget(trigger);
+  } catch (err) {
+    if (!(err instanceof NotRunnableHere)) throw err;
+    // New work starts on the home and nowhere else (spec §7): an agent
+    // with no folder here fails this fire, saying why, rather than run in
+    // the wrong place or start a second execution elsewhere.
+    const now = new Date().toISOString();
+    const failed = createRun({
+      triggerId: trigger.id,
+      workspaceId: trigger.workspaceId ?? null,
+      executionId: null,
+      chatSessionId: null,
+      harness: trigger.harness,
+      triggerKind,
+      triggerPayload,
+      scheduledFor,
+      status: 'failed',
+      errorCode: 'not_set_up_here',
+      errorMessage: err.message,
+      queuedAt: now,
+      completedAt: now,
+    });
+    setTriggerLastRun(trigger.id, failed.id, 'failed');
+    return { run: failed, chatSession: null };
+  }
 
   // 2. Concurrency gate per docs/executions-spec.md §5. Defer the new
   //    fire per the *firing* trigger's `concurrencyPolicy`, regardless
@@ -227,6 +258,15 @@ export async function dispatchRun(args: DispatchRunArgs): Promise<DispatchedRunR
  * provisioning happens inside `runUnderLease` (awaited so the agent
  * lands in the correct cwd, not the bare workspace).
  */
+/** New work for an agent the home can't run: see `homeCantRun`. */
+class NotRunnableHere extends Error {}
+
+/** Refuse a new execution the home can't run, before creating anything. */
+function assertHomeCanRun(workspaceId: string): void {
+  const problem = homeCantRun(workspaceId);
+  if (problem) throw new NotRunnableHere(problem);
+}
+
 function resolveTarget(trigger: TriggerRecord): {
   execution: ExecutionRecord | null;
   /** Pre-existing reusable chat — set only when we explicitly want to
@@ -246,6 +286,7 @@ function resolveTarget(trigger: TriggerRecord): {
     if (!trigger.workspaceId) {
       throw new Error(`Trigger ${trigger.id} targets workspace but has no workspace_id`);
     }
+    assertHomeCanRun(trigger.workspaceId);
     const ws = getWorkspace(trigger.workspaceId);
     const { execution, session } = createExecutionWithChat({
       workspaceId: trigger.workspaceId,
@@ -269,6 +310,7 @@ function resolveTarget(trigger: TriggerRecord): {
     if (existing && existing.status === 'active') execution = existing;
   }
   if (!execution) {
+    assertHomeCanRun(trigger.workspaceId);
     const ws = getWorkspace(trigger.workspaceId);
     const created = createExecutionWithChat({
       workspaceId: trigger.workspaceId,
@@ -372,22 +414,24 @@ function appendCoalescedMessage(args: {
   triggerPayload: Record<string, unknown> | string | null;
 }): void {
   const content = composeCoalescedContent(args.trigger, args.triggerPayload);
+  let sourceEventId: string | null = null;
   try {
-    insertChatEvent({
+    sourceEventId = insertChatEvent({
       sessionId: args.blockerChatSessionId,
       role: 'user',
       source: 'user',
       content,
       createdAt: new Date().toISOString(),
-    });
+    })?.id ?? null;
   } catch (err) {
     console.warn(`[dispatch] coalesce: failed to persist user event for ${args.blockerChatSessionId}:`, err);
     return;
   }
   // Fire-and-forget — the blocker's run will surface the result when
   // its current turn completes. We catch the rejection ourselves so an
-  // unhandled rejection doesn't trip the Node process.
-  void executorDispatch(args.blockerChatSessionId, content, undefined, { internalCall: true })
+  // unhandled rejection doesn't trip the Node process. Tied to its event,
+  // so a move holding the blocker holds it too, rather than refuse it.
+  void executorDispatch(args.blockerChatSessionId, content, { internalCall: true, sourceEventId })
     .catch((err) => {
       console.warn(`[dispatch] coalesce: executor send failed for ${args.blockerChatSessionId}:`, err);
     });
@@ -442,7 +486,7 @@ async function runUnderLease(
   try {
     const ready = await ensureWorktreeReady(chatSessionId, execution);
     if (!ready.ok) {
-      finalizeRunFailure(runId, trigger.id, new ProvisioningError(ready.error));
+      finalizeRunFailure(runId, new ProvisioningError(ready.error));
       // Auto-pause the trigger. Without this the tick re-fires every
       // minute, each fire failing the same way — the user's inbox fills
       // with identical failure rows until `consecutiveFailures >= 3`
@@ -456,39 +500,122 @@ async function runUnderLease(
       bumpSessionOutcome(chatSessionId);
       return;
     }
-    await withApiLease(async () => {
-      const prompt = promptForTrigger(trigger, triggerPayload);
-      // Persist a user chat_event mirroring the route layer's pattern
-      // for normal sends. Without this, scheduled chats show only the
-      // agent's responses with no record of what triggered them — and
-      // run history becomes ambiguous if the trigger's prompt later
-      // changes. The agent's stream output still arrives via the
-      // adapter's onEvent callback unchanged.
-      try {
-        insertChatEvent({
-          sessionId: chatSessionId,
-          role: 'user',
-          source: 'user',
-          content: prompt,
-          createdAt: new Date().toISOString(),
-        });
-      } catch (err) {
-        console.warn(`[dispatch] failed to persist scheduled prompt event for ${chatSessionId}:`, err);
-      }
-      await runArtifactBucket.runWith(runId, chatSessionId, () =>
-        runWithTimeout(chatSessionId, trigger, () =>
-          executorDispatch(chatSessionId, prompt, undefined, { internalCall: true }),
-        ),
-      );
-    });
-    finalizeRunSuccessIfPending(runId, trigger.id, chatSessionId);
+    const prompt = promptForTrigger(trigger, triggerPayload);
+    // Persist a user chat_event mirroring the route layer's pattern
+    // for normal sends. Without this, scheduled chats show only the
+    // agent's responses with no record of what triggered them — and
+    // run history becomes ambiguous if the trigger's prompt later
+    // changes. The agent's stream output still arrives via the
+    // adapter's onEvent callback unchanged. The run keeps it, so a move
+    // that holds it delivers it as this run (P3 re-check).
+    let sourceEventId: string | null = null;
+    try {
+      sourceEventId = insertChatEvent({
+        sessionId: chatSessionId,
+        role: 'user',
+        source: 'user',
+        content: prompt,
+        createdAt: new Date().toISOString(),
+      })?.id ?? null;
+      if (sourceEventId) updateRun(runId, { sourceEventId });
+    } catch (err) {
+      console.warn(`[dispatch] failed to persist scheduled prompt event for ${chatSessionId}:`, err);
+    }
+    // The prompt's event carries its delivery when the execution runs
+    // on another computer, so the chat shows it waiting (P3.2).
+    const sent = await sendAsRun(runId, chatSessionId, trigger.timeoutSeconds, execution, prompt, { sourceEventId });
+    // Held by a move: it waits, as this run, until the move delivers it.
+    if (sent === 'held') markRunHeld(runId);
+    else finalizeRunSuccessIfPending(runId);
   } catch (err) {
-    finalizeRunFailure(runId, trigger.id, err);
+    finalizeRunFailure(runId, err);
   }
   // The chat's lastOutcomeEventAt is bumped by the event-writer on
   // every assistant message — but a failure before any assistant turn
   // would leave the inbox quiet. Touch it so failed runs surface.
   bumpSessionOutcome(chatSessionId);
+}
+
+/**
+ * Send a scheduled fire's message as its run: under the trigger's time
+ * limit, collecting what it changes, and under the API lease when it runs
+ * here. The lease caps provider sessions on this computer. An execution on
+ * another computer runs on that computer's harness, and can wait there for
+ * hours while it sleeps: holding a lease for that would starve the home's
+ * own scheduled work (P3.4). Says whether a move held it instead.
+ */
+async function sendAsRun(
+  runId: string,
+  chatSessionId: string,
+  timeoutSeconds: number | null,
+  execution: ExecutionRecord | null,
+  message: string,
+  options: Omit<DispatchOptions, 'internalCall' | 'runId' | 'onQueuedCommand' | 'signal' | 'onHeld'>,
+): Promise<'done' | 'held'> {
+  let held = false;
+  const send = () =>
+    runArtifactBucket.runWith(runId, chatSessionId, () =>
+      runWithTimeout(chatSessionId, timeoutSeconds, ({ onQueuedCommand, signal }) =>
+        executorDispatch(chatSessionId, message, {
+          ...options,
+          internalCall: true,
+          runId,
+          onQueuedCommand,
+          signal,
+          onHeld: () => {
+            held = true;
+          },
+        }),
+      ),
+    );
+  if (runsElsewhere(execution)) await send();
+  else await withApiLease(send);
+  return held ? 'held' : 'done';
+}
+
+/**
+ * Deliver a scheduled fire's message that a move held (`deliverHeld`, P3
+ * re-check), as the same run: started now, under its trigger's time limit
+ * from now, and finished by its turn. Held again by another move, it waits
+ * again. A delivery that fails before anything took the message leaves it
+ * held and the run waiting, for the move's "Send them again". Unless its
+ * time ran out: then the run fails on time, and the move lets the message
+ * go (`onAccepted`), so it never runs late.
+ */
+export async function deliverHeldFire(run: RunRecord, message: string, options: DispatchOptions): Promise<void> {
+  const chatSessionId = run.chatSessionId!;
+  const timeoutSeconds = run.triggerId ? (getTrigger(run.triggerId)?.timeoutSeconds ?? null) : null;
+  const execution = run.executionId ? (getExecution(run.executionId) ?? null) : null;
+  let accepted = false;
+  markRunStarted(run.id);
+  try {
+    const sent = await sendAsRun(run.id, chatSessionId, timeoutSeconds, execution, message, {
+      ...options,
+      onAccepted: () => {
+        accepted = true;
+        options.onAccepted?.();
+      },
+    });
+    if (sent === 'held') markRunHeld(run.id);
+    else finalizeRunSuccessIfPending(run.id);
+  } catch (err) {
+    if (accepted || err instanceof RunTimeoutError) {
+      finalizeRunFailure(run.id, err);
+      if (!accepted) options.onAccepted?.();
+    } else {
+      markRunHeld(run.id);
+    }
+    throw err;
+  } finally {
+    bumpSessionOutcome(chatSessionId);
+  }
+}
+
+/** Whether an execution is placed on a computer other than the home. */
+function runsElsewhere(execution: ExecutionRecord | null): boolean {
+  if (!execution) return false;
+  const placement = placementOf(execution.id);
+  return !!placement?.placementId && placement.computerId !== getHome()?.hostComputerId;
 }
 
 /**
@@ -504,6 +631,14 @@ export async function ensureWorktreeReady(
   execution: ExecutionRecord | null,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!execution) return { ok: true };
+  // An execution placed on a connected computer has its worktree there. Its
+  // worker prepares it; the home can't see it, and must never provision one
+  // here instead (P2.4). Nothing to wait for either: a send queued now runs
+  // there after the prepare, since that computer carries out an execution's
+  // commands in order. A preparation that failed is the one thing to say.
+  if (runsElsewhere(execution)) {
+    return execution.setupError ? { ok: false, error: execution.setupError } : { ok: true };
+  }
   const ws = getWorkspace(execution.workspaceId);
   if (!ws) return { ok: false, error: `Workspace ${execution.workspaceId} not found` };
   if (!ws.isGit) return { ok: true };
@@ -587,32 +722,76 @@ class RunTimeoutError extends Error {
  * timeout" so users who don't care can opt out by setting 0; the
  * trigger default (900s / 15min) ships in the create_trigger
  * action.
+ *
+ * The clock is the execution's (P3 review). Here it starts at once. For
+ * an execution on another computer it starts when that computer takes the
+ * message out of its queue: a fire waiting for a laptop that's asleep
+ * waits there, as P3.4 promises, and runs once it wakes, the way the home
+ * fires an overdue trigger once when it next ticks. So a run never fails
+ * on time while its message is still queued to run later.
+ *
+ * Until the message is queued, the same limit bounds preparing it here.
+ * Time running out then fails the run, and the send boundary refuses the
+ * message (`signal`), so it never reaches a queue after the run has failed
+ * (P3 re-check).
  */
 async function runWithTimeout<T>(
   chatSessionId: string,
-  trigger: TriggerRecord,
-  body: () => Promise<T>,
+  seconds: number | null,
+  body: (clock: { onQueuedCommand: (commandId: string) => void; signal?: AbortSignal }) => Promise<T>,
 ): Promise<T> {
-  const seconds = trigger.timeoutSeconds;
-  if (!seconds || seconds <= 0) return body();
+  if (!seconds || seconds <= 0) return body({ onQueuedCommand: () => {} });
+  const expired = new AbortController();
+  let settled = false;
   let timer: NodeJS.Timeout | null = null;
+  let watch: NodeJS.Timeout | null = null;
+  let expire!: (err: Error) => void;
   const timeout = new Promise<never>((_, reject) => {
+    expire = reject;
+  });
+  const start = () => {
+    if (timer || settled) return;
     timer = setTimeout(() => {
+      timer = null;
+      expired.abort();
       // Interrupt is fire-and-forget — the agent's pending `send()`
       // will resolve with an aborted result, but we've already
       // rejected the race. Catch defensively so an unhandled
       // rejection here doesn't trip the process.
       executorAbort(chatSessionId).catch(() => { /* best-effort */ });
-      reject(new RunTimeoutError(seconds));
+      expire(new RunTimeoutError(seconds));
     }, seconds * 1000);
-  });
+  };
+  const onQueuedCommand = (commandId: string) => {
+    if (settled) {
+      // The run is over. The send boundary refuses a send once time is
+      // up, and one it let through reports here in the same tick, so this
+      // shouldn't happen: but a failed run must never leave a message
+      // queued to run when its computer wakes.
+      if (expired.signal.aborted) withdrawQueuedSend(commandId);
+      return;
+    }
+    // Queued for a computer elsewhere: the clock waits for it to take it.
+    if (timer) clearTimeout(timer);
+    timer = null;
+    watch = setInterval(() => {
+      const command = getWorkerCommand(commandId);
+      if (command && command.state === 'queued') return;
+      if (watch) clearInterval(watch);
+      watch = null;
+      start();
+    }, 1_000);
+  };
+  start();
   try {
-    return await Promise.race([body(), timeout]);
+    return await Promise.race([body({ onQueuedCommand, signal: expired.signal }), timeout]);
   } finally {
+    settled = true;
     // Always clear the timer so a fast finish doesn't leak a pending
     // `setTimeout`. Without this, the reject above eventually still
     // fires on a closed chat — harmless but noisy in logs.
     if (timer) clearTimeout(timer);
+    if (watch) clearInterval(watch);
   }
 }
 
@@ -649,33 +828,20 @@ function composePromptWithPayload(
   return `${prompt}\n\n--- trigger payload (JSON) ---\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
 }
 
-function finalizeRunSuccessIfPending(runId: string, triggerId: string | null, chatSessionId: string): void {
-  const completed = markRunCompleted(runId);
-  if (completed && completed.status === 'completed' && triggerId) {
-    setTriggerLastRun(triggerId, runId, 'completed');
-    // A heartbeat check-in with nothing to report archives its own chat, so it
-    // never reaches Unread, and the notifier below skips delivering it.
-    if (triggerId === RESERVED_TRIGGER_IDS.heartbeat) {
-      try {
-        settleHeartbeatRun(runId, chatSessionId);
-      } catch (err) {
-        // The run already completed. Failing to archive a quiet check-in only
-        // leaves it visible in Unread; it must not flip the run to failed.
-        console.warn(`[dispatch] could not settle heartbeat run ${runId}:`, err);
-      }
-    }
-  }
-  // Notifier (best-effort): execution.finished / trigger.run_completed (§2.4).
-  void notifyRunTerminal(runId).catch(() => {});
+/**
+ * The turn's result normally finished the run already (the home sink calls
+ * `finishRun` on `turn_result`), so this is a no-op then. It still covers a
+ * turn that ended without one.
+ */
+function finalizeRunSuccessIfPending(runId: string): void {
+  finishRun(runId, { ok: true });
 }
 
-function finalizeRunFailure(runId: string, triggerId: string | null, err: unknown): void {
+function finalizeRunFailure(runId: string, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
   const errorCode =
     err instanceof ProvisioningError ? 'worktree_setup_failed' :
     err instanceof RunTimeoutError ? 'timeout' :
     'agent_error';
-  markRunFailed(runId, { errorCode, errorMessage: message });
-  if (triggerId) setTriggerLastRun(triggerId, runId, 'failed');
-  void notifyRunTerminal(runId).catch(() => {});
+  finishRun(runId, { ok: false, errorCode, errorMessage: message });
 }

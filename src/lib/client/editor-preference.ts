@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { EDITOR_APPS, type EditorTarget } from '@/lib/fs/known-apps';
 import { fsApi, type OpenInResult } from '@/lib/api/fs';
+import type { Opener } from '@/hooks/use-opener';
 
 /**
  * The user's preferred editor for "Open in editor" actions. Stored
@@ -140,7 +141,7 @@ export interface OpenInEditorOptions {
  * editor — dispatching to the spawn endpoint (known target) or the custom
  * command. The single place every "Open in editor" surface goes through.
  */
-export function useOpenInPreferredEditor(): {
+export function useOpenInPreferredEditor(opener?: Opener | null): {
   /** The current choice's label, for button text. */
   label: string;
   openInEditor: (absPath: string, opts?: OpenInEditorOptions) => Promise<OpenInResult>;
@@ -149,6 +150,18 @@ export function useOpenInPreferredEditor(): {
 
   const openInEditor = useCallback(
     (absPath: string, opts?: OpenInEditorOptions): Promise<OpenInResult> => {
+      // On another computer, through its worker (P3.5): a known app only.
+      // A custom command is this home's, and never runs elsewhere.
+      if (opener?.via === 'worker') {
+        if (choice === 'custom') {
+          return Promise.resolve({
+            ok: false,
+            reason: 'unsupported',
+            message: 'Your custom editor command runs only on the home. Pick an editor app in Settings to open files here.',
+          });
+        }
+        return opener.open(absPath, choice, opts);
+      }
       if (choice === 'custom') {
         if (!customCommand.trim()) {
           return Promise.resolve({
@@ -161,7 +174,7 @@ export function useOpenInPreferredEditor(): {
       }
       return fsApi.openIn(absPath, choice, opts);
     },
-    [choice, customCommand],
+    [choice, customCommand, opener],
   );
 
   return { label: EDITOR_CHOICE_LABELS[choice], openInEditor };

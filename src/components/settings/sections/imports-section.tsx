@@ -14,6 +14,7 @@ import {
 import { api } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type {
   ExternalAgentDiscovery,
@@ -68,8 +69,18 @@ function formatDate(value: string): string {
 }
 
 function selectableSessions(project: ExternalAgentProjectCandidate): ExternalAgentSessionCandidate[] {
-  return project.sessions;
+  return project.sessions.filter((session) => session.importable !== false);
 }
+
+/** A computer history can be read from: this one, or a connected computer's worker (P2.9). */
+interface HistoryComputer {
+  id: string;
+  name: string;
+  isHome: boolean;
+  worker: { enrolled: boolean; connected: boolean } | null;
+}
+
+const THIS_COMPUTER = 'this-computer';
 
 export function formatImportResultSummary(result: ExternalAgentImportResult): string {
   const outcomes: string[] = [];
@@ -117,15 +128,29 @@ export function ExternalAgentImportPanel() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [lastResult, setLastResult] = useState<ExternalAgentImportResult | null>(null);
-  const discovery = useQuery({
-    queryKey: DISCOVERY_KEY,
-    queryFn: () => api.get<ExternalAgentDiscovery>('/imports/agents', { timeoutMs: 60_000 }),
+  // Whose history: this computer's, or a connected computer's (P2.9).
+  const [source, setSource] = useState<string>(THIS_COMPUTER);
+  const computers = useQuery({
+    queryKey: ['computers'],
+    queryFn: () => api.get<HistoryComputer[]>('/computers'),
     staleTime: 30_000,
+  });
+  const elsewhere = (computers.data ?? []).filter((c) => !c.isHome && c.worker?.enrolled);
+  const computerId = source === THIS_COMPUTER ? null : source;
+  const computerName = elsewhere.find((c) => c.id === computerId)?.name ?? null;
+  const discovery = useQuery({
+    queryKey: [...DISCOVERY_KEY, computerId ?? 'here'],
+    queryFn: () => api.get<ExternalAgentDiscovery>(
+      computerId ? `/imports/agents?computerId=${encodeURIComponent(computerId)}` : '/imports/agents',
+      { timeoutMs: 90_000 },
+    ),
+    staleTime: 30_000,
+    retry: false,
   });
   const importMutation = useMutation({
     mutationFn: (sessionKeys: string[]) => api.post<ExternalAgentImportResult>(
       '/imports/agents',
-      { sessionKeys },
+      { sessionKeys, computerId },
       { timeoutMs: 10 * 60_000 },
     ),
     onMutate: () => setLastResult(null),
@@ -158,6 +183,12 @@ export function ExternalAgentImportPanel() {
     }
     return { imports, syncs };
   }, [discovery.data, selected]);
+
+  const chooseSource = (next: string) => {
+    setSource(next);
+    setSelected(new Set());
+    setLastResult(null);
+  };
 
   const toggleSession = (key: string) => {
     setLastResult(null);
@@ -238,18 +269,37 @@ export function ExternalAgentImportPanel() {
       </div>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-[12px] font-medium text-foreground">Local projects and chats</h3>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[12px] font-medium text-foreground">
+            {computerName ? `Projects and chats on ${computerName}` : 'Local projects and chats'}
+          </h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground/85">
-            Local agent history is read, never changed. An imported chat arrives as a
-            read-only mirror that keeps syncing as the original session grows, and it
-            runs in the project folder rather than a worktree if you continue it here.
+            {computerName
+              ? `Ri reads a chat from ${computerName} only when you choose it, and never changes it. It arrives read-only in the agent set up in its folder there, and keeps syncing while ${computerName} is connected.`
+              : 'Local agent history is read, never changed. An imported chat arrives as a read-only mirror that keeps syncing as the original session grows, and it runs in the project folder rather than a worktree if you continue it here.'}
           </p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={refresh} disabled={discovery.isFetching}>
-          <RefreshCw className={cn(discovery.isFetching && 'animate-spin')} />
-          Refresh list
-        </Button>
+        <div className="flex items-center gap-2">
+          {elsewhere.length > 0 && (
+            <Select value={source} onValueChange={chooseSource}>
+              <SelectTrigger size="sm" className="h-8 w-44 text-[12px]" aria-label="Whose history">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={THIS_COMPUTER}>This computer</SelectItem>
+                {elsewhere.map((c) => (
+                  <SelectItem key={c.id} value={c.id} disabled={!c.worker?.connected}>
+                    {c.worker?.connected ? c.name : `${c.name} (not connected)`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Button type="button" variant="outline" size="sm" onClick={refresh} disabled={discovery.isFetching}>
+            <RefreshCw className={cn(discovery.isFetching && 'animate-spin')} />
+            Refresh list
+          </Button>
+        </div>
       </div>
 
       {discovery.isLoading ? (
@@ -258,14 +308,15 @@ export function ExternalAgentImportPanel() {
         </div>
       ) : discovery.isError ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-          Could not scan local agent history. {discovery.error instanceof Error ? discovery.error.message : ''}
+          {computerName ? `Could not read the history on ${computerName}.` : 'Could not scan local agent history.'}{' '}
+          {discovery.error instanceof Error ? discovery.error.message : ''}
         </div>
       ) : !hasRows ? (
         <div className="rounded-lg border border-dashed border-border p-6 text-center">
           <MessageSquare className="mx-auto size-5 text-muted-foreground" />
-          <p className="mt-2 text-sm font-medium text-foreground">No local chats found</p>
+          <p className="mt-2 text-sm font-medium text-foreground">{computerName ? `No chats found on ${computerName}` : 'No local chats found'}</p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Ri checks Claude Code, Codex, and OpenCode history on this machine.
+            Ri checks Claude Code, Codex, and OpenCode history on {computerName ?? 'this machine'}.
           </p>
         </div>
       ) : (
@@ -371,6 +422,9 @@ function ProjectRow({
             </span>
           </span>
           <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground/70">{project.cwd}</span>
+          {project.agent && (
+            <span className="mt-1 block text-[10px] text-muted-foreground">Imports into the {project.agent.name} agent</span>
+          )}
           {!project.pathExists && (
             <span className="mt-1 flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
               <AlertTriangle size={10} /> Folder missing. The chat can still be imported or synced.
@@ -393,17 +447,18 @@ function ProjectRow({
               <Checkbox
                 checked={selected.has(session.key)}
                 onCheckedChange={() => onToggleSession(session.key)}
-                disabled={syncDisabled}
+                disabled={syncDisabled || session.importable === false}
                 aria-label={`Select ${session.label} to ${session.imported ? 'sync' : 'import'}`}
               />
               <MessageSquare size={13} className="shrink-0 text-muted-foreground" />
               <button
                 type="button"
                 onClick={() => onToggleSession(session.key)}
-                disabled={syncDisabled}
+                disabled={syncDisabled || session.importable === false}
                 className="min-w-0 flex-1 text-left"
               >
                 <span className="block truncate text-[12px] text-foreground">{session.label}</span>
+                {session.note && <span className="mt-0.5 block text-[10px] text-muted-foreground">{session.note}</span>}
                 <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
                   <span className={cn(
                     'rounded-full px-1.5 py-0.5 font-medium',
@@ -421,7 +476,7 @@ function ProjectRow({
               )}>
                 {importStatusLabel(session)}
               </span>
-              {session.imported && (
+              {session.imported && session.importable !== false && (
                 <Button
                   type="button"
                   variant="ghost"

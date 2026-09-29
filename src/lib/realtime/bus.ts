@@ -15,18 +15,24 @@
  * cross-cutting channels will namespace similarly. No globbing.
  */
 import type { ChatEventRecord } from '@/db/types';
-import type { PendingInput } from '@/lib/executor/pending-input';
+import type { PendingInput } from '@/lib/runner/pending';
 
 /**
  * Lightweight cross-session signal for rail-facing state. The detailed
  * payload stays on the per-session channel. Dashboard listeners only need to
  * know that their authoritative rail snapshot is stale.
  */
-export type GlobalSessionStreamMessage = {
-  kind: 'session_updated';
-  sessionId: string;
-  reason: 'outcome' | 'runtime' | 'background_task' | 'pending_input' | 'reconcile';
-};
+export type GlobalSessionStreamMessage =
+  | {
+      kind: 'session_updated';
+      sessionId: string;
+      reason: 'outcome' | 'runtime' | 'background_task' | 'pending_input' | 'reconcile' | 'delivery' | 'transfer';
+    }
+  /**
+   * A computer's worker connected, dropped, or reported a new state (awake,
+   * asleep, stopped): what executions there say about it changes (P3.2).
+   */
+  | { kind: 'computer_updated'; computerId: string };
 
 /** Payload variants carried by the in-process realtime bus. */
 export type SessionStreamMessage =
@@ -41,6 +47,14 @@ export type SessionStreamMessage =
    * `chat_event` frames as rows land — this variant just brackets them.
    */
   | { kind: 'reconcile'; status: 'started' | 'done'; replayed?: number }
+  /**
+   * Where a message sent to a computer elsewhere stands (P3.2): waiting,
+   * on its way, delivered, not delivered, or uncertain. Its shape is the
+   * delivery module's (`src/lib/workers/delivery.ts`).
+   */
+  | { kind: 'delivery'; eventId: string; delivery: unknown }
+  /** Where a Continue here stands (P4.2), as `src/lib/transfer/view.ts` shows it. */
+  | { kind: 'transfer'; transfer: unknown }
   | GlobalSessionStreamMessage;
 
 type Listener = (message: SessionStreamMessage) => void;
@@ -97,6 +111,18 @@ function publishGlobal(message: GlobalSessionStreamMessage): void {
   publish(globalSessionChannel, message);
 }
 
+export function publishComputerUpdated(computerId: string): void {
+  publishGlobal({ kind: 'computer_updated', computerId });
+}
+
+/** A transfer moved on (P4.2): each of its chats hears it, and every screen refreshes where the work is. */
+export function publishTransfer(chatSessionIds: string[], transfer: unknown): void {
+  for (const sessionId of chatSessionIds) {
+    publish(sessionChannel(sessionId), { kind: 'transfer', transfer });
+    publishGlobal({ kind: 'session_updated', sessionId, reason: 'transfer' });
+  }
+}
+
 /**
  * Convenience helper. Used by the queries.ts insert path and the
  * messages route's direct user-event write. Keeping the channel
@@ -130,6 +156,11 @@ export function publishBackgroundTaskActivity(
 export function publishPendingInput(sessionId: string, pending: PendingInput[]): void {
   publish(sessionChannel(sessionId), { kind: 'pending_input', pending });
   publishGlobal({ kind: 'session_updated', sessionId, reason: 'pending_input' });
+}
+
+export function publishDelivery(sessionId: string, eventId: string, delivery: unknown): void {
+  publish(sessionChannel(sessionId), { kind: 'delivery', eventId, delivery });
+  publishGlobal({ kind: 'session_updated', sessionId, reason: 'delivery' });
 }
 
 export function publishReconcileStarted(sessionId: string): void {

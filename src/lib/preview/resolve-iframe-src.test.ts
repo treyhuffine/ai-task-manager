@@ -24,6 +24,7 @@ function state(partial: Partial<PreviewState>): PreviewState {
     manualUrls: [],
     setupStatus: null,
     setupError: null,
+    elsewhere: null,
     ...partial,
   };
 }

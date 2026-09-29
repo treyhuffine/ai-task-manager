@@ -54,6 +54,7 @@ import {
   getBrainDir,
 } from '@/lib/config/paths';
 import { readAuthConfig } from '@/lib/auth/config-file';
+import { SOUL_MD_FILENAME, USER_MD_FILENAME } from '@/lib/config/personalization-templates';
 import { SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
 import type { WorkspaceRecord } from '@/db/types';
 
@@ -248,7 +249,9 @@ You are the conductor over the executing agents:
   session starts with none of this conversation. When the user asks for
   something to be built in an agent, start an execution there. Don't route
   it through that agent's main chat with \`send_session_message\`: an
-  execution is the work the user can see, steer, and review.
+  execution is the work the user can see, steer, and review. It runs on the
+  agent's default computer unless you pass \`computerId\` (\`get_workspace\`
+  shows its \`runOn\` choices). One that can't take it is refused with the reason.
 - \`archive_execution\`: close out finished work. It refuses when the
   worktree has uncommitted or unpushed work, and says so. Only pass
   \`force\` when the user has said that work can go.
@@ -259,9 +262,10 @@ You are the conductor over the executing agents:
   \`awaitingInput\`, its turn is **blocked**: queued messages won't reach it
   until the prompt is resolved. Fetch the prompt, then answer it:
   questions (allow=true + answers keyed by question text) when the user's
-  intent is clear from context. **Permission prompts default to surfacing
-  to the user**, approve only what the user explicitly asked for or has
-  delegated to you.
+  intent is clear from context. **Permission prompts belong to the user**:
+  only a person can approve one, in the app. You can deny one with a
+  reason (allow=false + message) to redirect the agent, and otherwise
+  surface it to the user.
 
 Rules: never send to your own session id. Don't poll executions the user
 didn't ask about.
@@ -465,6 +469,61 @@ export interface AgentMainChatReach {
   connectors: boolean;
   /** The agent browser MCP is attached. */
   browser: boolean;
+  /**
+   * The chat runs on a connected computer, where none of the home's files
+   * are (P2.7): its folder is the one there, the persona comes as text,
+   * memory through actions, and an attached file as the path its message
+   * gives.
+   */
+  elsewhere?: { folder: string };
+}
+
+/**
+ * The persona and memory section of an agent's main chat brief. At home it
+ * names the files. Elsewhere it carries USER.md and SOUL.md as they are now,
+ * since nothing of the home's is copied to another computer as a file, and
+ * MEMORY.md stays at the home behind two actions (P2.7, spec §7).
+ */
+function personaSection(appRoot: string, elsewhere: boolean): string {
+  if (!elsewhere) {
+    return `## Personalization & memory
+
+Two user-owned files shape who you're working with and how you show up.
+Read them at the start of the conversation and treat them as authoritative.
+**Never edit them**, they belong to the user:
+
+- \`${path.join(appRoot, 'USER.md')}\`
+- \`${path.join(appRoot, 'SOUL.md')}\`
+
+Your durable cross-session memory is \`${path.join(appRoot, 'MEMORY.md')}\`. Consult
+it for past context and keep it current through your tools. It can grow
+large, so read it when relevant rather than assuming it's already in context.`;
+  }
+  const read = (name: string) => {
+    try {
+      return fs.readFileSync(path.join(appRoot, name), 'utf8').trim() || '(empty)';
+    } catch {
+      return '(not written yet)';
+    }
+  };
+  return `## Personalization & memory
+
+Two user-owned files at the home shape who you're working with and how you
+show up. Treat them as authoritative. They're here as they were when this
+session started, and they belong to the user:
+
+### USER.md
+
+${read(USER_MD_FILENAME)}
+
+### SOUL.md
+
+${read(SOUL_MD_FILENAME)}
+
+Your durable cross-session memory is MEMORY.md, which stays at the home.
+Read it with \`read_memory\` when past context would help. When you learn
+something worth remembering, send it with \`submit_memory_finding\`: the
+home's main chat keeps the file.`;
 }
 
 /**
@@ -543,7 +602,7 @@ brief well, ask one question first.`,
 
 - Name: ${ws.name}
 - Workspace id: \`${id}\` (pass it as \`workspaceId\`)
-- Folder: \`${ws.cwd}\`, ${ws.isGit ? 'a git repository' : 'not a git repository'}. It is your working directory.
+- Folder: \`${reach.elsewhere?.folder ?? ws.cwd}\`, ${ws.isGit ? 'a git repository' : 'not a git repository'}. It is your working directory.
 - Purpose: ${purpose}
 
 ### Standing instructions
@@ -593,24 +652,15 @@ another agent by messaging its main chat, and don't start executions in
 another agent, unless the user asks. A conversation between agents is work
 the user can't see.`,
     tools,
-    `## Personalization & memory
-
-Two user-owned files shape who you're working with and how you show up.
-Read them at the start of the conversation and treat them as authoritative.
-**Never edit them**, they belong to the user:
-
-- \`${path.join(appRoot, 'USER.md')}\`
-- \`${path.join(appRoot, 'SOUL.md')}\`
-
-Your durable cross-session memory is \`${path.join(appRoot, 'MEMORY.md')}\`. Consult
-it for past context and keep it current through your tools. It can grow
-large, so read it when relevant rather than assuming it's already in context.`,
+    personaSection(appRoot, reach.elsewhere !== undefined),
     domainModelSection({ stream: null, executions: 'Seeing the work, and Steering and closing out' }),
     TASK_LIFECYCLE_SECTION,
     reach.browser ? BROWSER_SECTION : '',
     LONG_RUNNING_SECTION,
     RULES_SECTION,
-    entityReferencesSection(`\`${path.join(getAttachmentsDir(), '<name>')}\``),
+    entityReferencesSection(
+      reach.elsewhere ? 'the path on this computer that the message gives in its place' : `\`${path.join(getAttachmentsDir(), '<name>')}\``,
+    ),
     OUTPUT_STYLE_SECTION,
   ];
   return sections.filter(Boolean).join('\n\n');

@@ -1,6 +1,6 @@
 # One Ri: build specification
 
-**Status:** build contract. Updated 2026-09-24.
+**Status:** build contract. Updated 2026-09-26.
 
 **Product promise:** Open Ri anywhere and return to the same work. Use the computer that fits the work without managing separate Ri lives.
 
@@ -16,7 +16,7 @@ Later, deliberately move the home to a Mini or server for always-on availability
 
 An agent remains the same agent on both computers. Its folders do not have to match. The app remembers the association and prepares the correct environment.
 
-Joining a team adds shared tasks and notes. It does not give the team access to personal conversations, files, or execution controls. A teammate can use the team product without installing Ri locally, connecting AI, or creating a personal home.
+My Ri is the place to do personal work and handle relevant shared work across teams. Joining a team brings assigned tasks into that view and adds a team space for browsing all of its shared tasks, notes, and Areas. It does not import the team's organization into personal Areas or require choosing an agent. The team receives no access to personal conversations, files, or execution controls. A teammate can use the team product without installing Ri locally, connecting AI, or creating a personal home.
 
 The UI centers on the work:
 
@@ -59,8 +59,8 @@ The home runs its own execution code in-process through the same execution contr
 | Information | Authority |
 | --- | --- |
 | Personal tasks, notes, agent purpose/instructions, executions, Ri conversation history | Home |
-| Shared tasks, notes, assignments, published output, membership | Owning team space |
-| Private planning and context attached to shared work | Personal home |
+| Shared tasks, notes, team Areas and their record associations, assignments, published output, membership | Owning team space |
+| Personal Areas, private organization and context attached to shared work, saved shared references, personal agent/execution links | Personal home |
 | Agent-to-folder associations and connected-folder paths on a computer | Local project configuration on that computer |
 | Setup availability and reported paths shown in the UI | Home's observed index of worker reports |
 | Working files, toolchains, local environment, native harness resume files | Executing computer |
@@ -73,7 +73,7 @@ The home can index a local setup without owning its configuration. There is one 
 
 Build shared identity and conversation access, local execution, deliberate Git-based continuation, and team tasks/notes.
 
-Do not build personal database replication, continuous filesystem sync, automatic execution failover, an arbitrary remote shell service, universal transcript portability, or a laptop mesh. Non-Git work can run on its configured computer but does not transfer through Ri in this release.
+Do not build personal database replication, continuous filesystem sync, automatic execution failover, a general remote-machine shell service, universal transcript portability, or a laptop mesh. Terminals scoped to Ri executions and configured agent folders are included, as defined in section 5.6. Non-Git work can run on its configured computer but does not transfer through Ri in this release.
 
 Team execution infrastructure, offline collaborative editing, granular per-item permissions, and automatic comment-driven orchestration are outside this build.
 
@@ -97,13 +97,21 @@ A small desktop companion supplies worker installation, start at login, reconnec
 
 ### 3.2 Navigation
 
-Keep the primary navigation about the deck, tasks, notes, and agents. Show team context through a space selector and source labels. An aggregate view is All. Personal means private personal work.
+Keep the primary navigation about the deck, tasks, notes, and agents. The default space is My Ri, which gathers the person's work across sources. The space selector lists My Ri and connected teams by name, such as Acme and Family. Do not call the combined view Personal or add a second All space. A private-only filter may narrow My Ri, but is not another home or space.
 
-Opening a team on the phone must not navigate the laptop away from its execution. Filters, panels, scroll, and focus belong to the viewing surface. Task state and review state belong to the shared work.
+| My Ri | A team space, such as Acme |
+| --- | --- |
+| Private tasks, assigned shared tasks, and shared tasks explicitly added to personal work | All of that team's shared tasks and assignments |
+| Private notes and deliberately saved references to shared notes | The team's shared notes |
+| Personal Areas | The team's own Areas |
+| Personal agents and executions | Deliberately published results, with no team-owned agents or executions in this release |
+| The person's Deck | Ordinary shared task and note views, with no personal Deck |
 
-An agent appears once in the rail regardless of how many computers have its folder. Setup lists the available computers and gaps.
+Keep a shared item's team label visible in My Ri, regardless of its personal Area. Source filters let the person see all their Acme work without creating an Acme Area. Joining a team does not create personal Areas, clone its Area tree, or ask for Area or agent mappings. Section 9 defines personal organization and shared record identity.
 
-Hide agent/execution controls on a team that has no execution capability.
+Selecting a team changes browsing context only. It never stops or relocates personal executions or changes their control targets. Opening a team on the phone must not navigate the laptop away from its execution. Filters, panels, scroll, and focus belong to the viewing surface. Task state and review state belong to the shared work.
+
+An agent appears once in the personal rail regardless of how many computers have its folder or which team's tasks it helps with. Setup lists the available computers and gaps. Team-only participants see useful shared work without empty agent/execution setup. A connected personal user can choose Work with agent on a shared task without exposing personal agents as team-owned resources.
 
 ### 3.3 Starting and replying
 
@@ -111,7 +119,7 @@ For a new execution:
 
 1. Use the agent's saved default computer.
 2. Initially use the home when a usable setup exists there. Otherwise use the first setup the person explicitly enables.
-3. Show a quiet Run on control when there is a choice. With one computer, show its name without requiring another selection.
+3. A plain start asks nothing: it uses the default. Choosing another computer is an escape hatch, never a step: the quiet Run on control in the desktop launcher, and New execution on… in the agent's ⋯ menu on the phone. With one computer there is nothing to choose.
 4. A one-off selection affects that execution. Offer Make this the default in the same menu as an explicit action, not an automatic side effect.
 5. If the selected computer is unavailable or unprepared, explain the problem. Do not silently substitute another computer.
 
@@ -119,22 +127,27 @@ For an existing execution, replies, interruptions, permission answers, file view
 
 Use stable names such as MacBook and Mac Mini. This Mac is a secondary convenience label only when the viewing client is authenticated to the local companion. Hostname, localhost, IP address, and tunnel URL do not establish physical identity.
 
-Keep the computer visible on the execution, including on the phone. Most replies require no thought about it.
+Name the computer on an execution only when it isn't the home, on desktop and phone. The standard case goes unsaid and the exception is always visible, so an unlabeled execution runs on the home. The computer is always in the execution's details, and moving it is in its menu. Most replies require no thought about it.
 
 ### 3.4 Bringing work here
 
-Provide two distinct actions in the execution's location menu:
+Amended after gates B and C started (the simplification pass, [docs/homes-model.md](homes-model.md)). One action per computer in the execution's location menu, named by the computer, from any screen:
 
 | Action | Result |
 | --- | --- |
-| Open code here | Fetch a published Git commit into a local review checkout and open the editor. The running execution stays where it is |
-| Continue here | Stop the source, transfer a checkpoint, prepare the local environment, and continue the same Ri execution here |
+| Move to MacBook | Stop the source, transfer a checkpoint, prepare the environment there, and continue the same Ri execution on MacBook |
 
-On a laptop-owned execution, Continue on Mac Mini uses the same transfer operation for the prepared home computer. Complete that action before closing the laptop. Sleep does not move its work, and a sleeping source cannot complete a transfer. A future sleep reminder is not a prerequisite for this flow.
+Every other computer that runs agents is listed. The page never needs to know which computer it's on, so moving needs no browser linking. Each move says why when it can't happen yet: the source or destination isn't running Ri (with how to start it), a move is already under way, or the work isn't in Git.
 
-When local execution is not installed, the action leads to companion setup. When the project is not set up, offer Use existing folder and Clone repository. Attach the result to the existing agent, not a new agent.
+Complete a move off the laptop before closing it. Sleep does not move its work, and a sleeping source cannot complete a transfer. A future sleep reminder is not a prerequisite for this flow.
 
-A phone can follow, reply to, interrupt, and answer an execution on any connected personal computer. It does not offer Open code here or claim to execute code.
+When the agent isn't on the destination yet, the move sets it up there first, from the app: Copy it from Git (the standard case: the remote of the agent's folder on the home, into Ri's projects folder there, its references coming along beside it as on the home, or reusing one another agent there already has), or Use a folder that's already there. A reference that can't be found is asked about once, with Go without it. The result is the same setup `ri setup attach` makes, attached to the existing agent. The same setup is offered wherever a computer is chosen: New execution on…, and the launcher's Run on control. When local execution is not installed, the action leads to companion setup (P5.4).
+
+Open code here (a read-only review checkout on this computer, §8.1) is built and parked off the menu until it earns a place: seeing work from anywhere already covers the chat, changes, files and terminal, and moving covers working on it locally.
+
+A phone can follow, reply to, interrupt, and answer an execution on any connected personal computer, and move it.
+
+The in-app terminal follows the execution. A laptop viewing a Home-owned execution controls a terminal on Home in that execution's folder. After Continue here succeeds, opening the terminal creates a fresh shell in the laptop's destination worktree. Shell processes do not migrate, and opening a review checkout does not move the execution's terminal. There is no separate global terminal computer toggle. Show the terminal's computer and working folder.
 
 ### 3.5 Connection and delivery states
 
@@ -160,87 +173,46 @@ Keep the name Deck and the current completion, daily generation, and refresh beh
 
 ## 4. Agent identity and local folders
 
-### 4.1 Local files own machine-specific paths
+### 4.1 The home's database holds every computer's folders
 
-Use a gitignored .ri.local.json in the selected source folder. It contains that computer's association to a home and agent, plus its connected-folder mappings. The containing directory is the source folder, so its absolute path is not repeated inside the file.
+Decided after gates B and C (§12.1): an agent's folders on every computer are kept in the home's database, and nowhere else. Setup files in project folders (`.ri.local.json`, P1.4) gave three copies to keep in step, a restore flow for a deleted file, and states like wrong home and duplicate, for independence nothing uses: nothing runs on a computer without its home sending it, and setup happens in the app.
 
-One source folder is associated with one home in this release. Development and production use separate source checkouts or worktrees. The local association file is separate from any committed .ri/skills content, which can travel with the repository.
+What the home keeps:
 
-The home owns the agent's name, purpose, standing instructions, reference definitions, and connector scope. The local file supplies physical paths. The worker reports the resolved setup to the home for display and dispatch validation.
+- **The agent**: its name, purpose, standing instructions, files to copy, scripts and connector scope. Unchanged.
+- **Linked folders**: what the agent uses beside its project, defined once, each with an alias and a description, for one agent or for every agent. A linked folder is a folder, or another agent's project folder.
+- **Per computer**: the agent's project folder there, and where each linked folder is there, or that the computer goes without it. A linked folder for every agent has one place per computer, so every agent on that computer uses it, and changing it there changes it for all of them.
 
-This is the storage decision for the build. Do not implement competing database-owned path editing or a second configuration profile system.
+The computer checks that its folders exist, and reports what it finds: when they change, when it connects, and when work starts there. A folder that's gone blocks work there, with the way to fix it: choose where it is now.
 
-Example on the laptop, in ~/dynamism/ri/.ri.local.json:
+The example layout from before, now as the home keeps it:
 
-~~~json
-{
-  "version": 1,
-  "homeId": "<home-id>",
-  "agents": {
-    "<ri-agent-id>": {
-      "references": {
-        "agentex": "../agentex"
-      }
-    }
-  }
-}
-~~~
-
-On the Mini, in ~/ai-task-manager/.ri.local.json, the same association uses:
-
-~~~json
-{
-  "version": 1,
-  "homeId": "<home-id>",
-  "agents": {
-    "<ri-agent-id>": {
-      "references": {
-        "agentex": "../code/agentex"
-      }
-    }
-  }
-}
-~~~
-
-The result is one agent with two setups:
-
-| Computer | Source folder | Agentex |
+| Computer | Ri's project folder | agentex (for every agent) |
 | --- | --- | --- |
 | MacBook | ~/dynamism/ri | ~/dynamism/agentex |
 | Mac Mini | ~/ai-task-manager | ~/code/agentex |
 
-A project can host several agent identities in the agents map. There is one registered source setup per agent per computer in this release. Review checkouts and execution worktrees are derived locations, not additional source setups.
+A project folder hosts one agent per computer in this release. Review checkouts and execution worktrees are derived locations, not setups.
 
-Reference values have three forms: a path string, an object containing agentId to use that agent's registered source folder on the same computer, or null to explicitly omit that reference on this computer. The agentId form preserves existing references to other agents when their folders move. It resolves only to a source setup, never whichever execution happens to be active.
+### 4.2 Setting up
 
-### 4.2 Setup lifecycle
+In the app, the agent's Setup tab has a switcher across the person's computers. For the one chosen, it shows the agent's project folder there and each linked folder, each with whether it's there, Change and, for a linked folder, Go without it. Add a linked folder defines one and says where it is on that computer. Set up on another computer offers Copy it from Git or Use a folder that's already there (§3.4). Remove from this computer takes the agent off it, on any computer but the home, where the agent lives: its folder there is changed instead.
 
-- The local companion or CLI selects a source folder and attaches an existing agent ID or creates a new agent explicitly.
-- Suggest registered folders and, when the user enables local history discovery, folders already present in that computer's harness history. This is a bounded list read, not a filesystem scan or automatic transcript upload.
-- Matching Git remotes can suggest an agent. They never merge identities or grant access automatically.
-- Write the local file atomically. Ensure Git ignores it, using local exclusion when the repository does not already ignore it. Never commit local paths or credentials as part of setup.
-- A copied file is not enrollment. The worker accepts its home association only after the computer has been enrolled and that source setup enabled locally.
-- Credentials, worker identity, and the list of registered configuration locations live in the worker's private application configuration. That list locates the files, not a second set of folder mappings.
-- The home stores device-qualified registration, health, and last-observed setup revision. It cannot edit a disconnected computer's paths optimistically.
-- UI edits go through the worker to the file, then update the observed index. Use revision checks so a UI edit cannot overwrite a newer manual file edit.
-- Validate the current file and folder existence before start and transfer. Do not execute against an old home cache when the local file changed.
-- Pin the resolved environment to the execution placement. Configuration edits apply to a new start or explicit refresh, not by silently changing the cwd or references underneath a running turn.
-- A renamed source folder is relinked by selecting its new location. Preserve the home/agent association. Do not scan the whole disk.
-- Missing, malformed, duplicate, or wrong-home associations produce a setup error with a relink/edit action.
+Choosing a folder uses a folder browser for that computer: the home lists its folders through its worker, one folder at a time, within the person's home folder, so a folder on the MacBook can be chosen from the phone. A typed path works too, checked on that computer.
 
-If a local file is deleted, including by git clean -fdx, offer Restore setup from the last observed report. First verify the current computer/home/agent association and paths, show what will be restored, and require confirmation. Never overwrite an existing file or silently execute from the cached report. The confirmed write restores the local authority, not a second editable configuration. For a non-Git folder, keep the same local file without implying that Git protects or ignores it.
+A linked folder that isn't chosen on a computer blocks work there until it's chosen or gone without, unless setting up can bring it: a copy brings a linked folder along beside the project as on the home, or uses the one another agent there already has.
 
-Existing global and per-agent reference aliases retain their scope and descriptions in the home. Each computer's effective physical mappings are materialized in its source configurations. Editing a global reference path applies to the selected computer's affected local files through its worker, with per-file revision checks and visible partial failure. It does not change other computers' paths or make the database another path authority. Preserve existing alias shadowing rules. Alias renames must update the affected mappings explicitly rather than guessing from a similar name.
+`ri setup` on a computer does the same through the home: attach, choose a linked folder, relink after a move, detach.
 
-A missing or unconfigured reference blocks that setup until relinked or explicitly omitted with null. An omitted mapping does not grant a substitute path or change shared agent identity. The agent's environment must state which expected references were omitted. Resolve agentId references from the worker's local registration index without a home-only cwd fallback. References to missing setups block in the same way.
+A linked folder that's another agent resolves to that agent's project folder on the same computer.
 
 ### 4.3 Resolution and real dependencies
 
-Relative reference paths resolve from the source directory containing .ri.local.json. Absolute paths remain local to that computer. Never resolve a sibling reference from a generated worktree's directory.
+Each computer's folders are absolute paths on that computer. Never resolve a linked folder from a generated worktree's directory.
 
 Prepare a resolved environment manifest for each execution: source folder, actual execution cwd, connected folders, Git checkpoint, and available capabilities. Deliver it through session instructions and a readable local runtime file outside the source repository. A local harness does not need to query a remote database to discover its own effective paths.
 
-Do not copy .ri.local.json into derived execution/review worktrees or treat a generated manifest as editable setup authority.
+Do not treat a generated manifest as editable setup authority.
 
 Do not rewrite old transcript text to substitute new paths.
 
@@ -267,7 +239,7 @@ Extend existing records rather than create a parallel execution product.
 | Command | Stable command ID, actor, target, ownership generation, payload, delivery state |
 | Worker event | Stable event identity, placement/generation, source sequence and revision where a provider part is cumulative |
 | Space connection | Space ID, member credential, assigned-work cursor/freshness, external record identity |
-| Private overlay | Personal fields associated with a shared task's space ID and task ID |
+| Shared reference and private overlay | Space ID, record kind, and source record ID, with personal inclusion, organization, context, and personal work links kept separately from cached shared fields |
 
 Preserve the existing Ri execution and conversation identities across placement changes. Record native-session binding history, rather than losing the old binding when a new harness session starts.
 
@@ -281,7 +253,7 @@ The worker opens an authenticated outbound SSE command connection to its home an
 
 Use HTTPS for remote addresses. Local development can use loopback HTTP. No inbound laptop service exposed to the network and no laptop-to-laptop connection is required.
 
-The home can send only defined operations against enrolled setups and owned executions. Do not add arbitrary-path filesystem or arbitrary shell endpoints. Starting an execution or a configured project script remains subject to that setup's execution authorization.
+The home can send only defined operations against enrolled setups and owned executions. Do not add arbitrary-path filesystem endpoints or a generic remote run-shell action. Execution-scoped and agent-folder terminals use the same authenticated owner routing, as defined in section 5.6. Starting an execution, a terminal, or a configured project script remains subject to that setup's execution authorization.
 
 Protocol versions must be checked before dispatch. An incompatible worker shows Update Ri on MacBook rather than receiving a command it cannot interpret.
 
@@ -324,6 +296,18 @@ Selection is explicit. Do not automatically upload all local history. Qualify di
 
 Show an imported chat's source computer and read-only state. Reading it on a phone does not enable sending into its terminal or move its native session. Unavailability retains the last imported history and its freshness. Do not edit native files/indexes, move transcripts, or make arbitrary local file paths downloadable. Preserve existing supported adoption on the home, without extending that authority implicitly to connected terminal sessions.
 
+### 5.6 In-app terminals and CLI location
+
+Reuse the existing terminal panel and PTY implementation. Execution terminals run on the execution's owner computer in its working folder. Agent-folder terminals run on the agent's configured computer in its resolved source folder. Resolve the folder on that computer from the owned execution or enabled setup, never from a caller-supplied arbitrary path or the home's compatibility cwd.
+
+Keep Home-owned terminals working from any authorized personal viewing surface. Add terminal creation, listing, input, output, resize, and close through the connected worker for worker-owned work. Use the existing authenticated home/worker association, with no inbound laptop service or general SSH client. Check terminal identity, computer, and current ownership on control operations. A scoped terminal is still a trusted shell, not a promise of filesystem confinement.
+
+Opening the UI elsewhere does not create another shell or change its machine. Reuse existing terminal lifetime and bounded output replay across view changes and reconnects. Terminal input is live interaction, not an offline command queue. Disable input while disconnected and do not replay unconfirmed keystrokes automatically. An unavailable worker shows a location-specific unavailable state, never a fallback shell on Home. Permanent lack of worker-terminal support does not satisfy this requirement.
+
+Continuation stops the source execution's terminals and their owned processes before checkpointing, along with its other writers. The destination offers a fresh terminal after ownership changes. Do not route an old terminal ID to a new shell or carry its pending input forward. Agent-folder terminals remain bound to their own configured folder and do not move with one of the agent's executions.
+
+An ordinary terminal command runs on the machine hosting that shell. Supported Ri CLI data actions reach the connected home API, execution controls target the execution's owner, and local setup actions operate on the invoking computer's configuration. The CLI's connection to Home does not turn the surrounding laptop shell into a Home shell. Imported independent terminal chats remain governed by section 5.5 and are not made controllable by this terminal feature.
+
 ## 6. Trust without a permission platform
 
 The initial security model has a personal owner, enrolled computers, authenticated sessions, and team owner/member roles. It does not introduce a custom policy language or folder-by-folder enterprise ACL system.
@@ -342,7 +326,7 @@ A folder mapping describes the environment. It is not a filesystem sandbox. Pres
 
 Treat task bodies, comments, connector content, and other agents' messages as content with an identified source. Filtering dangerous phrases is not the enforcement mechanism.
 
-Expose only execution-scoped file/diff views to remote clients. Keep local native-editor opening in the companion. Existing preview support must preserve authentication and browser-origin boundaries, and must never advertise a worker's localhost URL as reachable from a phone. A new terminal or preview tunneling platform is outside this build.
+Expose only execution-scoped file/diff views to remote clients. Keep local native-editor opening in the companion. Provide the scoped in-app terminals in section 5.6 through personal authorization, never team membership. Existing preview support must preserve authentication and browser-origin boundaries, and must never advertise a worker's localhost URL as reachable from a phone. A general remote-machine shell service and a new preview tunneling platform remain outside this build.
 
 ## 7. Persona, orchestration, and schedules
 
@@ -365,6 +349,8 @@ Preserve the scheduler's existing overdue behavior: when the home next ticks, an
 ## 8. Reviewing locally and continuing elsewhere
 
 ### 8.1 Open code here
+
+Parked off the menu in the simplification pass (§3.4). The capability below is built and kept.
 
 Git owns code versions and transfer. Ri coordinates existing commit/push/fetch/worktree operations and opens the result. There is no live filesystem copy, background capture of unfinished edits, or separate snapshot format.
 
@@ -392,14 +378,14 @@ The operation is:
 
 1. Validate the destination's local configuration, harness, permissions, Git access, and project recipe.
 2. Acquire a transfer lock for the current ownership generation. Hold new messages at the home.
-3. Stop the source and confirm the harness and its owned tool processes have stopped.
+3. Stop the source and confirm the harness, execution terminals, and their owned tool processes have stopped. Keep unrelated terminals and processes running.
 4. Flush final events and record the acknowledged conversation checkpoint and source Git state.
 5. Prepare a Git checkpoint. Include tracked changes. Surface untracked files for explicit inclusion and exclude ignored/local configuration and secrets. Publish through the configured remote without force-pushing.
 6. Fetch on the destination and verify the exact commit. A matching branch name is insufficient.
 7. Prepare an isolated target worktree, local files, connected folders, and setup scripts.
 8. Create the handoff described below.
 9. Atomically assign the next ownership generation to the destination. Old-generation commands are invalid.
-10. Start the destination session, record the new native binding, append a continuation event, and deliver held messages once.
+10. Start the destination session, record the new native binding, append a continuation event, and deliver held messages once. The terminal now opens a fresh shell in the destination worktree. Source terminal IDs and pending input cannot control it.
 
 Show progress in one surface: Preparing, Saving work, Setting up MacBook, Continuing.
 
@@ -436,7 +422,7 @@ After actual use, test native transfer on two real computers if handoff quality 
 
 ### 9.1 Standalone team product
 
-A team space uses the same application with a separate shared authority and member identities. Its first release includes tasks, notes, assignment, keyword search, attachments, activity attribution, invitations, and supported connector use.
+A team space uses the same application with a separate shared authority and member identities. Its first release includes tasks, notes, shared Areas, assignment, keyword search, attachments, activity attribution, invitations, and supported connector use. Reuse the existing Area concept for organization within the team. Areas do not introduce a new permissions boundary.
 
 Create a new space with its own data root. Do not turn an existing personal home into a team by flipping a flag over private data.
 
@@ -448,7 +434,7 @@ Initial roles are:
 | Role | Authority |
 | --- | --- |
 | Owner | Membership, invitations, space settings, connector administration, and ordinary shared work |
-| Member | Read shared content, create/edit tasks and notes, assign work, change task status, and use explicitly published connector features |
+| Member | Read shared content, create/edit tasks, notes and team Areas, organize shared records, assign work, change task status, and use explicitly published connector features |
 
 All published team records are visible to members in this release. Private per-item sharing and corporate device compliance are outside scope.
 
@@ -476,9 +462,11 @@ The connection is explicitly for shared use. Credentials stay on the space host.
 
 A personal home connects to the space as a member. The space receives no credential for the personal home.
 
-Cache the person's assigned shared tasks with source identity and freshness. Use the stable pair of space ID and external task ID, with a separate local identity where the current task model requires it. Do not merge by title.
+Assigned shared tasks appear automatically in My Ri. A person can also choose Add to my work on a shared task, including one that is unassigned. This saves a reference for personal planning without duplicating the shared task, changing its assignment, or dispatching an agent. Removing an explicitly added reference does not delete the team task or hide an obligation still assigned to the person.
 
-Poll for changes and refresh on focus. A team task appears in the personal deck with its source label and can be handled through ordinary personal planning.
+Cache relevant shared-task projections in the personal home's database with source identity, revision, and freshness. Use the stable pair of space ID and source task ID, with a separate local identity only where the current task model requires it. Distinguish assignment-driven inclusion from an explicitly saved reference. Private overlays and personal links remain separate from cached shared fields. Opening a task through My Ri, a team view, search, or a saved link resolves to the same shared record, with the same shared-field write behavior. Do not merge by title or copy an entire team database into the home.
+
+Poll for changes and refresh on focus. Assigned and deliberately selected shared tasks participate in ordinary personal planning and are eligible for the Deck under its existing rules. An assignment does not automatically put a task on today's Deck or imply a commitment for today. Keep the source team label visible wherever the task appears in My Ri.
 
 Edits to shared fields are online commands to the space. Use idempotency keys and revision checks. If a request conflicts, preserve the person's draft and show the source's current value. If the outcome is unknown, reconcile using the same command ID before retrying. Do not build an offline write outbox.
 
@@ -486,26 +474,40 @@ For shared task/note bodies, keep autosave and add an expected content revision 
 
 On conflict, stop that editor's automatic saves, preserve its local draft, and show that the shared version changed. Offer comparison and an explicit choice to use the shared version or apply the retained draft against the newly acknowledged revision. Never replace a focused editor with a server echo or retry the stale body silently. The same write check applies to human and agent edits, including the direct team UI. Reuse existing version history for comparison/recovery. Presence locks, live co-editing, and automatic text merging are not needed for this initial behavior.
 
-Read/search team notes through the space's authorized API. AI is not the only route to team knowledge.
+The named team view provides ordinary human browsing, filtering, and search of all authorized shared tasks, notes, and team Areas through the space's API. It is a first-class team UI, not an import screen or an agent-only query tool. Browsing does not automatically add records to My Ri. A person can save a shared note reference alongside personal notes without creating a second editable copy. Its team label and shared editing destination remain visible. Bounded read caches follow the same freshness and revocation rules as shared tasks.
 
 ### 9.4 Private and shared fields
 
 | Shared, owned by space | Private, owned by personal home |
 | --- | --- |
-| Title, body, assignment, status, hard deadline, published attachments and results | Area, ordering, energy/effort, snooze, reminders, private context, personal subtasks, linked private notes |
+| Title, body, team Area, assignment, status, hard deadline, published attachments and results | Personal Area, ordering, energy/effort, snooze, reminders, private context, personal subtasks, linked private notes, and personal agent/execution associations |
 | A deliberately published summary or PR link | Raw execution conversation, persona, local paths, personal connector credentials |
+
+Team Areas and personal Areas are independent identities. A shared task may belong to Acme's Engineering Area while the person organizes it under Work in My Ri. The shared Area remains source metadata, and the personal Area belongs to the private overlay. Matching names never merge identities, and renaming or changing the personal Area never changes the team's organization. The person may use one personal Area for a whole team, several Areas, an existing Work Area, or none. Joining a team requires none of these choices. Do not build automatic Area replication or team-to-personal Area mapping rules for this release.
+
+The task surface identifies the shared audience and separates shared content from private planning. Label the private section Only you and the personal Area control Organize for me, distinct from the team's Area. These private fields are visible only through the person's home, not to teammates. A shared edit made from My Ri is still an edit to the team's record, using the same autosave and conflict behavior as the team view. Clear persistent labels should make this understandable without a confirmation dialog for each ordinary edit.
 
 The shared task's body must not absorb private triage context. Shared completion does not publish personal annotations or silently complete private subtasks.
 
-Reassignment or deletion removes the shared obligation from the active projection while retaining private additions with a clear source state. Membership removal blocks new fetches/writes and clears shared-content caches. Preserve private material separately. Revocation cannot erase exports a member already made.
+Reassignment removes assignment-driven inclusion as an obligation. An explicitly saved reference may remain with its current assignee and source state, without continuing to present it as assigned to the person. Deletion removes the active shared obligation and identifies retained private additions or references as source unavailable. Membership removal blocks new fetches/writes and clears shared-content caches, including saved shared-note content. Preserve private material separately. Revocation cannot erase exports a member already made.
 
 ### 9.5 Personal execution and publication
 
-Receiving an assignment never dispatches a personal execution by itself. The person or their explicitly authorized personal automation chooses the agent and computer.
+Receiving an assignment never dispatches a personal execution by itself. Tasks do not have to belong to an agent, and connecting a team requires no agent mapping. Work with agent on a shared task chooses an existing personal agent, suggests one only when there is a reliable association, and otherwise asks the person. Use the agent's normal saved computer default and existing Run on control. The person or their explicitly authorized personal automation chooses the agent and computer.
+
+Link the resulting personal execution to the shared task without duplicating either. An agent helping with Acme work remains one personal agent in the rail, and can help with other work too. Team naming, task linkage, personal Area membership, or computer selection never changes the agent or execution's ownership or visibility. The team UI presents shared work and published results, not personal agent inventories or execution transcripts. A team-only participant needs no agent to complete the same task manually.
 
 Team text, connector results, and future comments are data. They cannot address a personal worker command endpoint or grant execution rights.
 
 When the work is ready, Publish result selects the summary, PR link, or attachment to share and shows the audience. Changing shared task status is also an authorized space command. Do not automatically share the transcript or mark a team task done merely because a personal execution ended.
+
+The everyday acceptance journey is:
+
+1. A teammate assigns Fix the login loop to the person in Acme.
+2. It appears in My Ri with the Acme source label, without an import or organization step.
+3. The person reads the shared description and adds Try the smaller fix first under Only you, optionally organizing it in a personal Area.
+4. Work with agent starts a linked execution with the chosen personal agent and its ordinary computer default.
+5. The person reviews the work, publishes the chosen PR link or summary to Acme, and updates shared status. The teammate sees the shared update, and the private conversation and planning remain private.
 
 ### 9.6 Discussions
 
@@ -521,7 +523,7 @@ This preserves the distinction between discussing work and instructing a running
 
 Keep existing workspace IDs, execution IDs, chat history, wire action names, and single-computer workflows.
 
-Migrate the existing home computer into an enrolled execution computer. Materialize its source-folder associations and effective references into local files without changing selected folders, scripts, or agent identity. Keep compatibility fields only during the migration. Once migrated, path edits go through the file authority and update the observed database fields through the query layer.
+Migrate the existing home computer into an enrolled execution computer. Its agents' folders and linked folders become its rows in the home's folder records (§4.1), without changing selected folders, scripts, or agent identity.
 
 Do not treat an old cwd as a path on every computer. Do not globally rewrite historical message text.
 
@@ -574,77 +576,87 @@ Build the phases in order. Each gate must demonstrate the stated behavior before
 
 ### P0. Recovery and implementation foundation
 
-- [ ] P0.1 Create the implementation worktree and isolated dev setup from section 10.4. Verify every resolved data path, credential, address, and port before starting it. Inventory existing roots and rehearse backup/restore without changing production data.
-- [ ] P0.2 Establish isolated home, worker, and Git fixtures for connection, retry, ownership, and migration tests.
-- [ ] P0.3 Define the records and runner boundary from section 5.1 using existing schema/query/action conventions.
-- [ ] P0.4 Map every current execution control path to that boundary so there is no alternate route that assumes the UI host owns the execution.
+- [x] P0.1 Create the implementation worktree and isolated dev setup from section 10.4. Verify every resolved data path, credential, address, and port before starting it. Inventory existing roots and rehearse backup/restore without changing production data. (7d46930) `pnpm iso` launcher with path, port, token, tunnel and global-skill checks. The dev home runs from this worktree on `~/ri-homes`, and `lsof` showed it holding only its own database. Mac Mini roots inventoried. Backup, verify, restore, development copy and app open rehearsed on production (16.6 s, 3.6 s, 11.5 s), production's root unchanged. The laptop's home is inventoried before P5.1. Details in [build notes](homes-build.md#p01-isolated-development-setup).
+- [x] P0.2 Establish isolated home, worker, and Git fixtures for connection, retry, ownership, and migration tests. Test homes, stand-in computer roots, Git remotes with the §4.1 layouts, a fake harness driven through the real executor (turn, crash and resume, prompt, interrupt: 10 tests pass), and databases built at an older migration. Worker connection fixtures come with the protocol in P2.2. [Build notes](homes-build.md#p02-test-fixtures).
+- [x] P0.3 Define the records and runner boundary from section 5.1 using existing schema/query/action conventions. [Build notes](homes-build.md#p03-records-and-the-runner-boundary): home and computer identity with a machine-local identity file, observed setups, execution placements and native session history, persisted commands, worker event positions, and a runner with no database that reports through one sink.
+- [x] P0.4 Map every current execution control path to that boundary so there is no alternate route that assumes the UI host owns the execution. [Build notes](homes-build.md#p04-execution-entry-points), including eight existing paths that already assume the UI host owns the execution, each assigned to the phase that fixes it.
 
 **Gate:** the isolated development instance runs from its own worktree without affecting production. A restorable baseline and an explicit inventory of execution entry points exist.
 
 ### P1. One home and local setup
 
-- [ ] P1.1 Add stable home and computer identity, separate from credentials and URLs.
-- [ ] P1.2 Add explicit connected installation mode. Prevent database initialization/fallback on connected computers.
-- [ ] P1.3 Route supported connected-device CLI actions through the home API with session attribution.
-- [ ] P1.4 Implement .ri.local.json parsing, atomic/revision-checked writes, local registration, observed setup reports, relinking, and confirmed restoration of a deleted configuration.
-- [ ] P1.5 Migrate the home computer's existing agent and reference paths without changing identities or source layout.
-- [ ] P1.6 Reuse the current remote-address and QR pairing flows for first-run connection and phone access. Show honest home-unavailable states and the fixed home's availability requirements.
-- [ ] P1.7 Verify the two Ri/Agentex layouts from section 4 in isolated fixtures, including monorepo cwd, missing references, malformed/copied/deleted config, rename, and stale configuration reports. Production folders remain untouched.
+- [x] P1.1 Add stable home and computer identity, separate from credentials and URLs. `home` and `computers` tables (migration 0002, new tables only), a machine-local `machine.json` that backups never carry, and `ensureHomeIdentity` at CLI start and server boot. A root whose data came from another computer, or a whole-folder copy on another Mac or in another folder, does no background work and answers 503 on every route but health and session until `ri home claim`. `GET /api/home` returns the stable id. Tests: first boot, restart, crash recovery, restored copy, wrong home, wrong host, claim, proxy 503. The dev home created its identity on restart.
+- [x] P1.2 Add explicit connected installation mode. Prevent database initialization/fallback on connected computers. A folder is a home (database), connected (`connection.json` only) or fresh, and one with both is refused. `getDb()` refuses to create a database on a connected computer. The CLI refuses data commands on fresh and connected folders instead of making a new home. `ri` on a connected computer checks the address still answers for the same home with this computer's key and opens it, and `ri status` reports any role. Tests: roles, the `getDb` refusal, the connection record, the home client against a stand-in home (unauthorized, not active, wrong home, older home, unreachable, timeout), and the CLI guard. Live on the Mac Mini: a stand-in laptop folder connected to the dev home, and after `ri`, `ri status`, `ri agent` and `ri snapshot` it still holds only its connection record.
+- [x] P1.3 Route supported connected-device CLI actions through the home API with session attribution. `POST /api/orchestrator/actions/:name` runs the registry as a remote call and returns the CLI envelope. The proxy forwards the validated key and strips forged copies, the actor comes from the signed session credential only, and path-taking actions refuse any caller that doesn't hold the home's own key. `ri agent` and the trigger commands route there on a connected computer, with no local fallback. Tests: the route (envelope, attribution to the calling chat, forged credential, path refusal), proxy header forwarding, and CLI dispatch against a stand-in home (credential sent, refusal passed through, unreachable, older home). Live: the stand-in laptop created a task on the dev home and wrote nothing locally.
+- [x] P1.4 Implement .ri.local.json parsing, atomic/revision-checked writes, local registration, observed setup reports, relinking, and confirmed restoration of a deleted configuration. `src/lib/setups/`: strict parsing of the three reference forms, a sha256 revision, create-only and revision-checked atomic writes, `.git/info/exclude` when Git doesn't already ignore it, a per-computer registry of setup files, and a resolver that reports ready, missing folder, missing file, invalid, wrong home, missing reference, or duplicate. The home stores reports in `agent_setups` (migration 0003), keeping the last good references through a problem so restore can rebuild them. Connected computers register under their key and keep the same computer when re-paired. Registering doesn't let the home run work on that computer. `ri setup` (attach, ref, relink, restore with confirmation, detach) works on the home and on a connected computer. Tests: 32 for the library, including both §4.1 layouts, plus route tests. Live: one agent set up in the Mini and MacBook layouts on the dev home, a setup file restored after `git clean -fdx`, and a renamed folder relinked.
+- [x] P1.5 Migrate the home computer's existing agent and reference paths without changing identities or source layout. `ri setup adopt` previews and, with `--yes`, writes each existing agent's folder and stored reference paths into that folder's setup file, then registers and reports it. Nothing else changes. Folder choices made on the home now go through setup files: creating an agent, changing its folder, and adding or changing a reference, which follows only mappings that still matched the old value. The home computer's reports keep `workspaces.cwd` as the observed value, so existing code keeps working while it moves to setups. `scripts/plan-adoption.ts` previews any root read-only. For production it plans 9 setup files, one per active agent, with no references, and it wrote nothing. Tests: planning, applying, never replacing a file, the app hooks, reference shadowing, and cwd following a relink. Live on the dev home: detach, then adopt.
+- [x] P1.6 Reuse the current remote-address and QR pairing flows for first-run connection and phone access. Show honest home-unavailable states and the fixed home's availability requirements. `ri` in a fresh folder asks "Start using Ri here" or "Connect to your existing Ri". Without a terminal it starts a home and says how to connect instead. `ri connect` takes the pairing link from the Devices settings (asked for with hidden input when not given), requires HTTPS except on this computer or with `--insecure-http`, confirms the home by id, saves the connection and registers the computer. It can set aside a new, empty home in the folder, deleting nothing. `ri disconnect` undoes the connection. The web app shows "Cannot reach your Ri on <computer>" with Retry once `/api/health` also fails, keeps checking, and refreshes when the home answers. Failed messages stay with their retry. The pairing panel and the connect output explain that phones and other computers reach Ri through the home's computer while it's awake and reachable, and the welcome screen points people who already use Ri to `ri connect`. Tests: link parsing, the HTTPS rule, connecting against a stand-in home, setting aside an empty home, and the reachability store. Live: a fresh stand-in folder connected with a real pairing link. The banner was checked in the dev app with its requests failing: it appeared, and cleared when they recovered.
+- [x] P1.7 Verify the two Ri/Agentex layouts from section 4 in isolated fixtures, including monorepo cwd, missing references, malformed/copied/deleted config, rename, and stale configuration reports. Production folders remain untouched. `src/lib/setups/layouts.acceptance.test.ts` runs one agent on both layouts through the real setup service and index. It covers each computer resolving its own folders with nothing committed, a monorepo subfolder, a reference missing on one computer only, a malformed file, a copied file ignored until registered, a file deleted by `git clean -fdx` and restored after confirmation, a renamed folder relinked, and a stale report replaced from the file with an edit against the stale revision refused (8 tests). The resolver and service suites add 32 more. Checked afterwards: none of production's 20 agent folders has a setup file, and production kept running on the same process.
+
+An independent review of P0 and P1 at 46a2b02 found 11 issues (4 high, 7 medium). A re-check at 8ad4a01 confirmed eight closed, and found six further code cases and three protocol gaps. A targeted review at 1d76d11 found five more code cases in the path walker and folder moves, and three protocol gaps. All are fixed, with every reviewer probe kept as a regression test. See the [build notes](homes-build.md#review-of-p0-and-p1-46a2b02).
 
 **Dogfood gate A:** capture and edit real tasks/notes from laptop and phone against one home. Attach both folder layouts to one Ri agent. No duplicate home or agent is created, and no recurring path selection is required.
 
+Passed on 2026-09-25 with the real MacBook and iPhone against the dev home. There's one home, and the Ri agent is ready in both layouts. The MacBook is connected with no database of its own, and its folder and reference were each chosen once. See the [build notes](homes-build.md#dogfood-gate-a-the-real-laptop-and-phone).
+
 ### P2. Local execution with shared conversation
 
-- [ ] P2.1 Split machine execution from home persistence, scheduling, and notifications while keeping the in-process home runner working.
-- [ ] P2.2 Extend pairing with worker enrollment grants, scoped credentials, and authenticated browser-companion association. Implement outbound SSE/HTTP delivery, version checks, and reconnect using the existing remote-address setup.
-- [ ] P2.3 Add the durable command/event journals, deduplication, cumulative event updates, and uncertain-delivery reconciliation.
-- [ ] P2.4 Route start, send, stop, pending-input answers, and execution-scoped reads to the current placement.
-- [ ] P2.5 Materialize input attachments and upload retained output/artifacts.
-- [ ] P2.6 Enforce actor/target/ownership checks and preserve sender labels. Reject agent attempts to answer human permission requests.
-- [ ] P2.7 Supply resolved local environment and home persona without writing managed instructions into source repositories. Route worker memory findings to home-side updates.
-- [ ] P2.8 Test home outage, worker crash, reconnect, revocation, replay, stale approval, ambiguous acknowledgement, and continued output from an already-running disconnected turn.
-- [ ] P2.9 Reuse local provider history discovery/parsing on connected computers to import explicitly selected terminal sessions read-only. Preserve computer-qualified identity and freshness, deduplicate known Ri bindings, and verify that unselected history stays local.
+- [x] P2.1 Split machine execution from home persistence, scheduling, and notifications while keeping the in-process home runner working. `src/lib/runner/` runs harness sessions from a `SessionSpec` the home builds and reports through a sink, with no database, notification or realtime import (a test walks its import graph). The home sink writes events, publishes live state and finishes runs from each turn's result (`finishRun`), for manual and scheduled runs alike. `adapter.ts` keeps its API, so callers didn't change. The event seam covers every replay path, a quiet heartbeat closes its harness, and idle sessions close after 30 minutes. Tests: 12 through the real executor with the fake harness, plus the boundary. Live on the dev home: a real Claude turn resumed from a spec and finished its run, and a follow-up reused the same process. See the [build notes](homes-build.md#p21-the-runner-split).
+- [x] P2.2 Extend pairing with worker enrollment grants, scoped credentials, and authenticated browser-companion association. Implement outbound SSE/HTTP delivery, version checks, and reconnect using the existing remote-address setup. An owner's key asks for a single-use enroll grant, the computer confirms locally and redeems it, and the home issues a separate worker key recorded in `worker_enrollments` (migration 0004, additive). A viewing key never gains worker authority. The proxy keeps worker keys to `/api/workers/me` and those routes to worker keys. The worker holds an event stream open (hello, requests, pings, revoked), sends heartbeats, reconnects with backoff, replaces a stale stream, and stops on revocation, another protocol (426, "Update Ri on MacBook") or another home. Requests are reads answered over HTTP, the first being a fresh harness report. "This Mac" links a browser through a grant the worker opens in it, with no loopback server. `ri worker enroll | run | status | open | disable | grant`. Tests: 17 over real HTTP through the real proxy and routes, plus the worker in the import boundary. Live on the dev home: the stand-in laptop enrolled, connected, answered a harness request with this Mac's real harnesses, and stopped when revoked, and a real browser linked itself. See the [build notes](homes-build.md#p22-enrollment-and-the-worker-connection).
+- [x] P2.3 Add the durable command/event journals, deduplication, cumulative event updates, and uncertain-delivery reconciliation. The home persists commands (`worker_commands`, migration 0005), numbers them when first streamed, resends only unacknowledged ones, and records acknowledgements idempotently. The worker journals each command received before acting, started before any effect, and finished before acknowledging, never applies one twice, and after a restart settles interrupted commands by their kind's recovery rule, with unknown outcomes reported as uncertain. Everything a worker's runner reports goes to an on-disk event journal and is applied at home in order, once, through the same functions the home's own runner uses, with cumulative parts replaced only by a newer revision. Notifications are queued in the same transaction as their cause and drained after a crash. The send-specific check of native history lands with send in P2.4. Tests: 16 over real HTTP with journals on disk. Live on the dev home: a command reached the stand-in laptop, was journaled and acknowledged, and wasn't redelivered after a restart. See the [build notes](homes-build.md#p23-journals-and-applying-what-a-worker-reports).
+- [x] P2.4 Route start, send, stop, pending-input answers, and execution-scoped reads to the current placement. Executions have placements (migration 0006) with a generation every command carries. A chat on a connected computer goes through a remote runner that queues durable commands, and a computer that can't take a new execution is refused with the reason. Its worker prepares the worktree from its own copy of the agent's folder, runs the setup script as its own never-repeated command, and carries out sends, interrupts, stops and prompt answers with per-kind recovery and the placement fence. Reads are answered by the worker for the execution it prepared. The home mirrors each worker's live state. The P0.4 gaps assigned here (CLI runs in the server, archive stopping the agent's chats, takeover refused on every send path, prompts cleared on interrupt) are closed. Tests: 8 end to end with the worker in its own process, 8 for recovery, and more for the gaps. Live on the dev home: a real Claude execution started on the stand-in laptop, in its own worktree there, answered, and finished its run. See the [build notes](homes-build.md#p24-routing-work-to-the-computer-that-runs-it).
+- [x] P2.5 Materialize input attachments and upload retained output/artifacts. `dispatch` now decides where a message's files are, since only it knows where the chat runs. A chat at home gets home paths, and a chat on a connected computer gets its markers with each file's name, size and sha256, never a home path. The worker fetches each through a route scoped to that send, checks it, keeps it outside the repository, and gives the harness its own path before the message goes in. Retained output: Ri keeps no file a harness produces today (the browser, which does keep files, runs at home), so the artifact upload stays specified for its first producer, and the home drops any file a computer's event names. Tests: 8 over real HTTP, 3 for the send handler, 1 end to end with the worker in its own process, 1 for a chat at home. Live on the dev home: real Claude on the stand-in laptop read an attached image and text file from its own copies. See the [build notes](homes-build.md#p25-attached-files).
+- [x] P2.6 Enforce actor/target/ownership checks and preserve sender labels. Reject agent attempts to answer human permission requests. Every command to a connected computer carries its actor from credentials: a chat's signed session credential makes it that agent, and otherwise the key makes it a person (for actions, only the home's own CLI counts as a person without a session). Only a person approves a permission. An agent can deny one or answer a question. The home refuses an agent approval before it leaves (403 `human_only`), and the runner holding the prompt refuses it again, so one that got past the home is refused on the laptop. The action answers in the server as its caller rather than through the route with the home's key. The home marks a queued command stale instead of sending it when its placement changed while the computer was away, which the worker couldn't know, and fails its run. Sender labels travel in the send's text. Found live and fixed: a stopped worker left its harness sessions running, and idle sessions on a worker never closed. Tests: 3 through the real route and action, 3 end to end with the worker in its own process, and more. Live on the dev home: an agent's approval of real Claude's prompt on the stand-in laptop was refused, and the person's went through. See the [build notes](homes-build.md#p26-who-is-acting).
+- [x] P2 review: 11 reproducible failures in P2.1–P2.6 found by review (a worker finishing another chat's run, recovery before authentication, the home's restart failing laptop runs, torn journal tails, events without generations, runs left running after a worker crash, setup scripts in a live checkout, forged live state, duplicate runs from overlapping retries, re-enrollment leaving runs running, old results charged to new runs) are fixed, with the review's probes kept as regressions. Live on the dev home: a home restart and a worker crash in the middle of real Claude turns on the stand-in laptop each left the run in the right state. See the [build notes](homes-build.md#p2-review-fixes). The re-review's two further findings are fixed too: a dispatch the home stopped before saving its send is reaped at boot, and a turn's cost goes to the message that opened it. One placement probe is recorded as a P4 acceptance check ([build notes](homes-build.md#p2-re-review-fixes)).
+- [x] P2.7 Supply resolved local environment and home persona without writing managed instructions into source repositories. Route worker memory findings to home-side updates. A session elsewhere reaches the home's orchestrator, connectors and browser servers at the address its worker uses, with a token of its own: signed by the home, valid only while the session is placed there at that generation and the worker is enrolled, and only for that session's servers in its own scope. Every execution gets its resolved environment (working folder, the agent's folder, branch and base, connected folders including those left out, tools), resolved from the running computer's own setup files when the session starts, written beside the session instructions outside the repository, and added to them. A main chat elsewhere gets the persona as text and memory through `read_memory` and `submit_memory_finding`, which sends a finding to the home's main chat to record. Tests: 5 for the token through the real proxy, 1 end to end with the worker in its own process, 3 for resolution, 2 for delivery at home and on a laptop, 2 for the brief elsewhere, 3 for memory through a real server. Live on the dev home: real Claude on the stand-in laptop used the home's browser server with its token and described its laptop environment. See the [build notes](homes-build.md#p27-sessions-elsewhere-the-homes-servers-the-environment-persona-and-memory).
+- [x] P2.8 Test home outage, worker crash, reconnect, revocation, replay, stale approval, ambiguous acknowledgement, and continued output from an already-running disconnected turn. Each is tested, end to end with the worker in its own process where it matters: a home that stops mid-turn and comes back gets the turn's output and completed run in order. A crashed worker's cut-off turns are reported and its leftover harness stopped on restart. Resent commands and events apply once. A revoked worker recovers nothing. A stale approval changes nothing. A lost acknowledgement is resent and recorded once. Three gaps were fixed: turning off a computer's local execution now settles its work at home (queued commands cancelled, sent ones uncertain, its runs failed with the reason), a stopping worker's prompts leave the home, and a restarted worker stops the harnesses a crash left running. Live on the dev home: after a SIGKILL mid-turn, the restarted stand-in worker stopped the orphaned Claude and reported the turn cut off. See the [build notes](homes-build.md#p28-faults).
+- [x] P2.9 Reuse local provider history discovery/parsing on connected computers to import explicitly selected terminal sessions read-only. Preserve computer-qualified identity and freshness, deduplicate known Ri bindings, and verify that unselected history stays local. The history import's discovery and reading run on the worker with no database. It lists sessions without their content or place, and reads a chosen one a window at a time from where the home left off, starting over when the transcript was rewritten. At home, imports are keyed by computer, harness and native id (migration 0007), go read-only into the agent set up in that folder there, are placed on that computer, and sync on open and on reconnect while it's connected, keeping what they have while it's away. A session Ri already runs there is recognized rather than imported, and "Continue here" is refused for a session that lives elsewhere. The import panel picks whose history. Claude and Codex import. OpenCode serves history from a running process, so it's listed but not imported from another computer yet. Tests: 4 end to end with the worker in its own process and its own Claude history. Live on the dev home: a real terminal session on the stand-in imported, and a later exchange arrived on open. See the [build notes](homes-build.md#p29-terminal-history-from-connected-computers).
+- [x] P2.7 to P2.9 review: 7 reproducible failures found by review are fixed, with its probes kept as regressions. A session token outlived its archived chat, and came back when its computer enrolled again. A reference folder moved on the laptop left the harness reading and guarding the old path. Cleanup after a worker crash could stop a process Ri never started. A transcript rewritten during an import could leave old events certified by the new file's hash. A selected transcript replaced by a link was followed. A heartbeat read as its worker was turned off restored its live state. The live check found two more, both fixed: a home restart marked laptop executions as stuck setups, and retrying one built a worktree on the home. A re-check found four more, fixed: cached reference paths wired when a laptop had no single setup for the agent, one await left after the final enrollment check, the home importer not checking a transcript's folder, and two workers sharing one root. See the [build notes](homes-build.md#p27-to-p29-review-fixes).
 
 **Gate:** a laptop execution can be followed, messaged, interrupted, and answered from the phone through the home. Retry/reconnect does not silently duplicate a turn or lose acknowledged events.
 
 ### P3. The everyday personal UX
 
-- [ ] P3.1 Implement saved agent defaults, quiet Run on controls with Make this the default, stable location labels, and one rail identity per agent.
-- [ ] P3.2 Add saved/waiting/delivered/uncertain states and cancellation at the correct delivery boundary.
-- [ ] P3.3 Keep per-screen navigation independent and execution controls tied to the owner.
-- [ ] P3.4 Keep personal orchestration/scheduling on the home and pin agent main chats to their configured computer. Preserve the current overdue-trigger behavior and show when a laptop-hosted schedule can run.
-- [ ] P3.5 Route existing diffs/files/previews safely. Provide local editor opening through the companion and truthful unavailable states.
-- [ ] P3.6 Preserve existing deck completion, daily generation, morning-trigger settings, and refresh behavior. Verify that connected screens do not introduce a second scheduler or daily generation authority.
-- [ ] P3.7 Exercise the full flow at phone and laptop widths, with keyboard, voice, and structured pending-input controls.
+- [x] P3.1 Implement saved agent defaults, quiet Run on controls with Make this the default, stable location labels, and one rail identity per agent. A new execution runs on the agent's saved default, or until one is saved the home when its setup is usable, otherwise the first computer set up for it. The launcher's Run on chip picks for one execution, with "Make this the default" as its own item, and a computer that can't take work says why and is never swapped for another. Executions away from the home name their computer in the header on desktop and phone, and rail rows name it too; work on the home is unlabeled (amended 2026-09-28: the standard case goes unsaid, and the phone's agent ⋯ menu has New execution on… to choose another computer). A laptop execution no longer shows "Setting up" forever. "This Mac" waits for the companion (P5.4). See the [build notes](homes-build.md#p31-run-on-saved-defaults-where-an-execution-runs-one-agent-in-the-rail).
+- [x] P3.2 Add saved/waiting/delivered/uncertain states and cancellation at the correct delivery boundary. Each message to a computer elsewhere shows waiting, sending, not delivered (with the reason and Send again) or uncertain, announced live, and nothing once delivered. Cancel withdraws only a message still in the home's queue and settles its run. A message waiting for a computer no longer reads as working: the header says "Waiting for MacBook", "MacBook disconnected, last heard from…" when contact is lost mid-turn, and asleep only when reported. Setup failures name the computer. See the [build notes](homes-build.md#p32-saved-waiting-delivered).
+- [x] P3.3 Keep per-screen navigation independent and execution controls tied to the owner. What a screen shows is its own URL and storage, and no server event navigates a client, verified with two screens at once. The phone's tab follows the view. Every execution control goes to the computer that has the work (closed with P4.5, and the action bar with P4's live check). See the [build notes](homes-build.md#p33-each-screen-its-own).
+- [x] P3.4 Keep personal orchestration/scheduling on the home and pin agent main chats to their configured computer. Preserve the current overdue-trigger behavior and show when a laptop-hosted schedule can run. New scheduled work starts at home whatever the agent's default, an agent set up only elsewhere fails the fire with the reason, and a fire into an execution elsewhere waits there without holding one of the home's API leases. An agent's main chat is pinned at creation (home when set up there, else its saved default) and says where. A laptop home's schedules say "Runs when MacBook is awake". See the [build notes](homes-build.md#p34-one-scheduler-fixed-main-chats).
+- [x] P3.5 Route existing diffs/files/previews safely. Reuse the terminal panel and PTY implementation for Home and worker-owned execution/agent-folder terminals, including authenticated creation, listing, input/output, resize and close. Show the computer/folder, preserve the shell across viewing changes, reject stale ownership, and handle disconnect without replaying unconfirmed input or falling back to Home. Provide local editor opening through the companion. Truthful unavailable states cover actual outages or unsupported preview access, not omission of worker terminals. File changes for an execution elsewhere go to its computer as defined operations fenced by placement generation. Terminals for worker-owned executions and agent folders run there through the worker, with offset-carrying output relayed and resumed from the worker's ring, input refused and turned off while it's away, and never a shell at home. A preview of work elsewhere starts nothing at home, says where it runs, and opens only an address pasted for it. Opening in an app goes to the viewer's own computer through its worker, for a browser linked to it, with known apps only. An agent that lives elsewhere shows its folder there and opens its Files and Terminal there. See the [build notes](homes-build.md#p35-files-previews-terminals-and-editors-where-the-work-is).
+- [x] P3.6 Preserve existing deck completion, daily generation, morning-trigger settings, and refresh behavior. Verify that connected screens do not introduce a second scheduler or daily generation authority. Screens opening the deck at once share one generation at the home, the morning refresh runs at home, and a worker's import graph reaches no scheduler, deck, AI pipeline or scheduled run. See the [build notes](homes-build.md#p36-one-deck-authority).
+- [x] P3.7 Exercise the full flow at phone and laptop widths, with keyboard, voice, and structured pending-input controls. Exercised live on an execution on the stand-in: Enter on the laptop, a permission and a structured question answered on the phone, typing and Send on the phone, and voice recorded and sent at both widths (speech-to-text itself stood in for: no provider on the dev home). Fixed on the way: the phone showed the main chat for an execution link, and the header read "Not started" in a mid-turn gap. See the [build notes](homes-build.md#p37-the-whole-flow-at-phone-and-laptop-widths).
+- [x] P3 review: 5 reproducible failures found by review are fixed, with its probes kept as regressions. Terminal streams used up the browser's connections to the home and stalled the app: a page now follows everything live over one connection, and a hidden terminal or page holds none. A timed-out scheduled run stayed queued to run later: its clock now starts when its computer takes the message. A delivery could go back to Waiting after it was delivered, an exited terminal on a worker couldn't be closed or replayed, and output arriving during a replay was dropped at exit. See the [build notes](homes-build.md#p3-review-fixes). Re-check at d0c788f: 5 more fixed, probes kept. A scheduled run that timed out while its message was being prepared no longer queues it afterwards. A terminal screen moves its place only for output it was shown, so switching tabs or remounting skips nothing. A chat says it resumed only when the replay was complete, revised parts included, and refetches otherwise. Cancel's answer outlasts an older snapshot, and a page opened in the background lets go of its connection. See the [build notes](homes-build.md#re-check-at-d0c788f). Re-check at 15149a7: 5 more fixed, probes kept, and the review loop closed. A scheduled run can't send after it timed out while a session started, and one held by a move waits as its run and runs later under its limit. A chat resumes in the order the home wrote, so a phone's clock can't hide a reply, and only from what the page's transcript really has. A terminal screen rejoins in step only when it saw the terminal's last frame. See the [build notes](homes-build.md#re-check-at-15149a7).
 
 **Dogfood gate B:** use real work across laptop, Mini, and phone over several days in the isolated development setup. Start this use after P2 as soon as the basic flow is usable, then improve it through P3. Include both laptop-hosted and Mini-hosted development homes, without consolidating or replacing the actual homes. Fix repeated instance, location, setup, or delivery confusion before expanding the feature set.
 
 ### P4. Review and continue local work
 
-- [ ] P4.1 Use published Git commits for review worktrees, local setup, checkpoint labels, refresh, and dirty-checkout protection. Do not capture unfinished files while the agent is editing them.
-- [ ] P4.2 Implement the transfer lock, confirmed source stop including owned background tools and preview processes, final event checkpoint, ordinary Git commit/push, destination verification, and generation change. Reuse existing close/stop and preview supervision.
-- [ ] P4.3 Implement fresh-session handoff, prior-history access, native-binding history, and a visible continuation event.
-- [ ] P4.4 Preserve held messages, source artifacts, and recovery actions across every failure stage.
-- [ ] P4.5 Route existing commit/PR/restart/archive helpers through ownership checks and retire only the takeover paths replaced by this flow.
-- [ ] P4.6 Test unavailable source, push rejection, untracked work, divergent/stale branches, failed setup, changed references, and failure before/after ownership changes.
+- [x] P4.1 Use published Git commits for review worktrees, local setup, checkpoint labels, refresh, and dirty-checkout protection. Do not capture unfinished files while the agent is editing them. Open code here checks out the latest published commit, detached, on the viewer's own computer, labeled with the commit and where the work runs. Refresh only while clean, edits kept and never published, with Continue here or a branch of one's own offered for them. Nothing published offers the ordinary commit and push on the source. See the [build notes](homes-build.md#open-code-here-41).
+- [x] P4.2 Implement the transfer lock, confirmed source stop including execution terminals and owned background tools and preview processes, final event checkpoint, ordinary Git commit/push, destination verification, and generation change. Reuse existing close/stop and preview supervision. Continue here, from the location chip: one record and lock, messages held, the source stopped and confirmed (a `quiesce` at a worker), events flushed, a Git checkpoint pushed without force and verified, the destination at the exact commit with its own setup, and ownership changed in one transaction, each attempt on its own generation. See the [build notes](homes-build.md#continue-here-42).
+- [x] P4.3 Implement fresh-session handoff, prior-history access, native-binding history, and a visible continuation event. Open a fresh terminal in the destination worktree, with no migration of shell processes or reuse of source terminal IDs/input. The handoff always carries the task, checkpoint, latest messages, linked tasks and notes and where the history is, with a summary when one can be written, and rides the next message. "Continued on MacBook" once. See the [build notes](homes-build.md#the-handoff-43).
+- [x] P4.4 Preserve held messages, source artifacts, and recovery actions across every failure stage. Before the ownership change: Try again or Resume on the source. After: Finish on the destination. Held messages go only with those. See the [build notes](homes-build.md#when-a-move-stops-44).
+- [x] P4.5 Route existing commit/PR/restart/archive helpers through ownership checks and retire only the takeover paths replaced by this flow. Push, pull base, commit, PR, merge, auto-merge, archive and reopen go to the computer that has the work, and wait while it moves. The takeover routes, commands and UI are gone, their columns kept to the next baseline squash. See the [build notes](homes-build.md#the-controls-follow-the-work-45).
+- [x] P4.6 Test unavailable source, push rejection, untracked work, divergent/stale branches, failed setup, changed references, and failure before/after ownership changes. Include the P2 re-review's placement probe: a command streamed before a disconnect, for a placement changed since, never runs when resent ([recorded](homes-build.md#p4-acceptance-recorded)). Each mapped to its test in the [failure matrix](homes-build.md#the-failure-matrix-46).
+- [x] P4 review: 8 reproducible failures found by review are fixed, with its probes kept as regressions. A checkpoint could push staged or changed local files and secrets, commit a half-done merge's conflict markers, and refuse Try again's own chosen files. Moving a destination forward or refreshing a review could overwrite ignored local files. A send, an archive or a new terminal could reach a source the move had stopped, and a message sent after a move stopped went to the source. A restart left a move under way forever, and two Resumes delivered a message twice. Every operation on an execution now passes one boundary with the move, a stopped move holds new messages until it's settled, and a restart stops an interrupted move where it was. A re-check found three more, fixed: a tracked file turned into a folder took the folder's contents along, a held message nothing took could be lost behind the next, and a file becoming a folder was taken for local data. A final re-check found a message still being prepared taken as delivered, fixed. See the [build notes](homes-build.md#p4-review-fixes).
 
-**Dogfood gate C:** review and continue real work in both directions. The person can tell whether they are viewing, reviewing a checkpoint, or continuing locally, while staying in the same Ri work record. Deliberately interrupt a transfer and recover without lost files or two active owners.
+- [x] Simplification pass, after gates B and C started: the product is measured against a one-page model ([docs/homes-model.md](homes-model.md)). Moves are named by computer from any screen (Move to MacBook), with no browser linking. An agent is set up on a computer from the app, copied from Git or from a folder already there, wherever a computer is chosen. Open code here is parked off the menu. Every "can't" says why and what to do. See the [build notes](homes-build.md#simplification-pass-before-p5).
+
+**Dogfood gate C:** move real work in both directions. The person can tell whether they are viewing or moving it, while staying in the same Ri work record. Deliberately interrupt a move and recover without lost files or two active owners. (Amended in the simplification pass: reviewing a checkpoint is parked.)
 
 ### P5. Existing-data adoption and personal release
 
-- [ ] P5.1 Rehearse reconciliation of selected unique data from isolated copies of the existing two homes. Verify linked records, attachments, and unpublished work without modifying the originals.
-- [ ] P5.2 Demonstrate the worker replacing the old local-home workflow in development, including verification and archival of the simulated retired root. Document the separate production cutover and recovery steps.
-- [ ] P5.3 Implement and rehearse stopped home relocation with stable identity, path relinking, address changes, and prevention of dual writers.
+- [x] P5.1 Rehearse reconciliation of selected unique data from isolated copies of the existing two homes. Verify linked records, attachments, and unpublished work without modifying the originals. `scripts/compare-homes.ts` said what the laptop has that the Mini lacks. Trey chose his own chats, with their work and attachments. `scripts/import-home.ts` brings them in with their ids, placed on the computer they ran on, agents joined by name (active work never joins an archived agent without asking), in one transaction with a manifest. Rehearsed on a fresh copy of production with the laptop's backup: 245 chats, 213 executions and 461,917 messages, each chat identical to the laptop's, every link and attachment whole, nothing unread, and a second run a no-op. `scripts/unpublished-work.ts` found nine folders on the laptop with work no remote has, none of which moves. See the [build notes](homes-build.md#p51-importing-the-laptops-chats-rehearsed).
+- [x] P5.2 Demonstrate the worker replacing the old local-home workflow in development, including verification and archival of the simulated retired root. Document the separate production cutover and recovery steps. `ri home retire` sets a stopped home aside in its own folder with a note (the role marker), never deletes, and a retired folder never grows a new home. End to end over HTTP (`retired-worker.test.ts`): a laptop home's chats imported into the Mini's, the laptop's home retired, and a worker run from the same folder answering the Mini's message in the worktree the work was always in. The switch for Trey's two computers is `docs/homes-cutover.md`. See the [build notes](homes-build.md#p52-p53-retiring-and-moving-a-home).
+- [x] P5.3 Implement and rehearse stopped home relocation with stable identity, path relinking, address changes, and prevention of dual writers. `ri home export` and `ri home import` (stopped, verified), `ri home retire` on the old host, and `ri home claim --as <computer>` on the new one, which relinks what belonged to the old host (`moveHomeHost`: its work placed on it, its agents' chats kept there, home chats starting fresh, its terminal imports read through its worker, home folders following the new host, the new host's worker key revoked). `ri connect --address` follows the home to a new address, only when it's the same home. Rehearsed in tests and with the CLI on scratch folders. See the [build notes](homes-build.md#p52-p53-retiring-and-moving-a-home).
 - [ ] P5.4 Package the small companion with installation, start at login, reconnect/update handling, and local stop controls.
 - [ ] P5.5 Verify that an unfamiliar person can pair a phone, connect a computer, select a project, and recover from disconnection without architectural coaching.
-- [ ] P5.6 Rehearse rollback and document exactly which data and local artifacts are preserved.
+- [x] P5.6 Rehearse rollback and document exactly which data and local artifacts are preserved. Rehearsed on a scratch database: today's main refuses one the homes build upgraded, applying nothing, and opens the backup swapped back in. What's kept and where, and each step's way back, are in `docs/homes-cutover.md`.
 
 **Gate:** the personal journey works without pasted commands after installation, preserves existing work, and supports moving from laptop-as-home to an always-on home.
 
 ### P6. A standalone team without AI
 
 - [ ] P6.1 Add space/member identity, owner/member authorization, invitations, revocation, assignment, and actor-attributed history. Host the space with the existing server/address setup and an independent data root.
-- [ ] P6.2 Build shared tasks, notes, keyword search, attachments, and first-run UI without a personal home or harness requirement.
+- [ ] P6.2 Build shared tasks, notes, team Areas, keyword search, attachments, and first-run UI without a personal home or harness requirement. Reuse Areas for shared organization without per-Area permissions. Team views browse all authorized shared work and published results, with no empty personal Deck or agent/execution setup.
 - [ ] P6.3 Enforce AI-disabled behavior across automatic dispatch, embeddings, background jobs, and model setup. Keep execution/host-command routes unavailable to the team surface.
 - [ ] P6.4 Add atomic content-revision checks to shared-body writes, ordered autosaves, retained drafts, and explicit conflict resolution in the direct team UI and agent actions. Reuse version history, without presence locks or live co-editing.
 - [ ] P6.5 Test invitation expiry/reuse, removal, forged actors, attachment access, simultaneous edits, and zero model calls with an ambient API key present. Verify member and human/agent attribution for local and remote changes.
@@ -656,14 +668,14 @@ Build the phases in order. Each gate must demonstrate the stated behavior before
 
 ### P7. Shared obligations inside personal Ri
 
-- [ ] P7.1 Connect as a space member without granting access back into the personal home.
-- [ ] P7.2 Implement assignment projections, stable source identity, freshness, private overlays, and reassignment/deletion handling.
-- [ ] P7.3 Implement online shared-field commands with idempotency and the same content-revision checks, ordered autosaves, conflict comparison, and draft preservation as the direct team UI.
-- [ ] P7.4 Include assigned work in the personal deck and provide ordinary human browsing/search of shared notes.
-- [ ] P7.5 Implement deliberate result publication with audience selection and no implicit transcript sharing.
-- [ ] P7.6 Test membership revocation, source outages, competing edits, unknown command outcomes, private subtasks, and incoming team content that requests personal execution.
+- [ ] P7.1 Connect as a space member without granting access back into the personal home. Add the My Ri / named-team space selector and persistent source labels. My Ri is the combined personal work view. Context changes never move or stop executions or navigate another device, and joining asks for no Area or agent mapping.
+- [ ] P7.2 Implement assignment projections in the home database, stable source identity, freshness, private overlays, and reassignment/deletion handling. Add explicit Add to my work references without changing assignment or duplicating the source task. Keep team Areas separate from optional personal Area organization, with no automatic copying, name-based merging, or mapping system.
+- [ ] P7.3 Implement online shared-field commands with idempotency and the same content-revision checks, ordered autosaves, conflict comparison, and draft preservation as the direct team UI. Every entry point opens the same shared task. Show its team audience and separate Only you planning and Organize for me controls without adding routine confirmation dialogs.
+- [ ] P7.4 Make assigned and explicitly selected shared work eligible for the Deck under its existing rules, without automatic placement on today's Deck. Provide team browsing/search of tasks, notes and Areas, source filtering in My Ri, and saved shared-note references. Browsing does not import everything or require an agent.
+- [ ] P7.5 Implement Work with agent using an existing personal agent and its normal computer default, keeping the task/execution link private. Preserve one personal agent identity across team work. Implement deliberate result publication with audience selection and no implicit transcript sharing or task completion.
+- [ ] P7.6 Test membership revocation, source outages, competing edits, unknown command outcomes, private subtasks, and incoming team content that requests personal execution. Verify no duplicate task across views, no imported Area tree, independent team/personal Area edits, Add to my work without assignment changes, saved-note identity, and no personal agent/execution exposure in team views.
 
-**Gate:** handle a team assignment in personal Ri, publish its chosen result, and update shared status without leaking private context or granting the team personal-worker authority.
+**Gate:** dogfood the five-step journey in section 9.5 with one teammate who uses no AI. They assign shared work, the person handles it from My Ri with private planning and a personal agent, then deliberately publishes a result and updates shared status. Neither maintains a second task or organization system. Verify that opening the same task in either view stays consistent, unrelated team Areas never enter personal navigation, and no private context or personal-worker authority reaches the team.
 
 ## 12. Dogfood decisions and release acceptance
 
@@ -673,7 +685,7 @@ These questions do not block the build above. Each has a specified initial behav
 
 | Question | Build now | Evidence needed for a later change |
 | --- | --- | --- |
-| Do local files create more friction than they remove? | File-owned machine paths, home-owned work/identity | Repeated setup or repair problems using the real two-computer layout. Do not implement two authorities in advance |
+| Do local files create more friction than they remove? | Decided after gates B and C: yes. Every computer's folders are in the home's database (§4.1) | Setup files gave three copies to keep in step and repair flows, for independence nothing used |
 | Does handoff lose important working context? | Fresh native session with history access | Real continuation failures attributable to lost context. Then run a genuine two-machine native-transfer experiment |
 | Are task/note discussions needed? | Existing execution chat and shared task/note content | Concrete decisions or handoffs lost because no durable task/note thread exists |
 | Must an orchestrator or cron run elsewhere? | One home scheduler/orchestrator, fixed agent main chats | A recurring useful job blocked by placement, not a hypothetical fleet use case |
@@ -696,6 +708,10 @@ Do not turn these questions into speculative backlog checkboxes. Record the prob
 | Home or worker loses contact | Honest availability and delivery state, no automatic reassignment |
 | Laptop-hosted home sleeps with a Mini worker connected | Home remains on the laptop and is shown unavailable. Connecting the Mini did not imply automatic relocation |
 | Selected laptop terminal history is imported | Read-only, correctly attributed to that computer, deduplicated, with no upload of unselected sessions |
+| Laptop UI opens a Home execution's terminal | The existing shell runs on Home in that execution's folder, visibly labeled, and survives a viewing-device change |
+| UI opens a worker-owned terminal | The shell runs on the owner computer in the execution or configured agent folder. Input/output, resize and close work through authenticated routing |
+| Terminal connection drops or worker is unavailable | No fallback shell or replay of unconfirmed input. Reconnect recovers the existing terminal and its available output |
+| Continue here succeeds | Source execution terminals and their owned writers are stopped before checkpointing. A fresh destination shell opens in the local worktree, and stale terminal controls cannot reach it |
 | Replayed command/event | No duplicate turn or stale cumulative update |
 | Permission answer arrives after placement changes | Rejected as stale |
 | Personal worker is revoked | New control is denied and stale queued authority cannot resume |
@@ -704,7 +720,14 @@ Do not turn these questions into speculative backlog checkboxes. Record the prob
 | Continue here with owned background tools or a preview | Source processes are confirmed stopped before publication and ownership changes. Unrelated processes stay running |
 | Transfer fails at any stage | One clear owner, preserved code/history, safe retry/resume |
 | Persona changes at home | Applied on a new/explicitly refreshed personal session, no independent replica |
-| No-AI team has no harness and an API key in its environment | CRUD/search works with zero model calls before connectors are added. The later connector slice meets the same no-AI requirement |
+| No-AI team has no harness and an API key in its environment | Task/note/Area CRUD and search work with zero model calls before connectors are added. The later connector slice meets the same no-AI requirement |
+| Person joins a team with many Areas | Assigned work enters My Ri with team labels. No personal Areas or agents are created, and no mapping is required |
+| Same shared task opens from My Ri and its team | One shared identity and consistent shared edits, with private planning visible only to its owner |
+| Person organizes Acme / Engineering under personal Work | Team Area stays unchanged. Renaming either Area does not rename or merge the other |
+| Person adds an unassigned task to My Ri | One saved reference, unchanged team assignment, no automatic execution or commitment on today's Deck |
+| Person browses a team and saves a note reference | All authorized shared work is browsable without AI or bulk import. The saved note retains its source and shared editing destination |
+| Person chooses Work with agent | One existing personal agent and a linked private execution use the normal computer default. Team views expose only deliberately published output |
+| Person switches spaces on one screen | Other screens keep their navigation and running work keeps its owner and terminal |
 | Two clients or agents edit a shared body | Stale revision rejected, local draft retained, autosave paused, explicit resolution available in direct team and personal views |
 | A member or their agent changes shared work | History identifies the member and human/agent actor on local and remote paths without publishing private session contents |
 | Shared content contains instructions to run personal commands | No direct dispatch or authority expansion |

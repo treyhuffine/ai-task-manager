@@ -20,8 +20,10 @@ import { actions } from '@/lib/orchestrator/registry';
 import { runAction } from '@/lib/orchestrator/dispatch';
 import {
   actorFromSessionCredential,
+  actorOfChat,
   sessionCredentialFromHeaders,
 } from '@/lib/orchestrator/session-credential';
+import { API_KEY_ID_HEADER, API_KEY_SCOPE_HEADER, CALLER_LOCATION_HEADER, SESSION_CHAT_HEADER } from '@/lib/auth/request-key';
 
 const SERVER_INSTRUCTIONS = `${APP_NAME} orchestrator: typed, fine-grained tools for reading and writing the user's productivity brain.
 
@@ -45,12 +47,33 @@ const handler = createMcpHandler(
           inputSchema: action.params,
         },
         async (input: Record<string, unknown>, extra) => {
-          // Which chat is calling, when the session was spawned with a signed
-          // credential (session-credential.ts). Unsigned or unknown: no actor.
-          const actor = actorFromSessionCredential(
-            sessionCredentialFromHeaders(extra?.requestInfo?.headers),
-          );
-          const envelope = await runAction(action.name, input, { remote: true, actor });
+          // Which key called, as the proxy validated it. The home's own
+          // sessions use the home's own key, so their folder paths are the home's.
+          const headers = extra?.requestInfo?.headers;
+          const header = (name: string): string | undefined => {
+            if (!headers) return undefined;
+            if (typeof (headers as unknown as Headers).get === 'function') {
+              return (headers as unknown as Headers).get(name) ?? undefined;
+            }
+            const v = (headers as Record<string, string | string[] | undefined>)[name];
+            return Array.isArray(v) ? v[0] : v;
+          };
+          // Which chat is calling. A session elsewhere is the chat its token
+          // names, as the proxy verified it (P2.7). A session at home is the
+          // chat its signed credential names (session-credential.ts).
+          // Unsigned or unknown: no actor.
+          const sessionChat = header(API_KEY_SCOPE_HEADER) === 'session' ? header(SESSION_CHAT_HEADER) : undefined;
+          const actor = sessionChat
+            ? actorOfChat(sessionChat)
+            : actorFromSessionCredential(sessionCredentialFromHeaders(extra?.requestInfo?.headers));
+          const envelope = await runAction(action.name, input, {
+            remote: true,
+            actor,
+            caller: {
+              location: header(CALLER_LOCATION_HEADER) === 'home' ? 'home' : 'elsewhere',
+              apiKeyId: header(API_KEY_ID_HEADER) ?? null,
+            },
+          });
           return {
             content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }],
             isError: !envelope.ok,

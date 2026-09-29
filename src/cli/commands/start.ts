@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import nodeTls from 'node:tls';
-import { intro, outro, log, spinner } from '@clack/prompts';
+import { intro, outro, log, spinner, select, isCancel, confirm } from '@clack/prompts';
 import pc from 'picocolors';
 import getPort from 'get-port';
 import { acquireServiceOwner } from '@/lib/service/owner';
@@ -14,6 +14,11 @@ import {
   setStaticUrl,
   buildPairingUrl,
 } from '@/lib/auth/bootstrap';
+import { ensureHomeIdentity, HomeIdentityError } from '@/lib/home/identity';
+import { describeRetired, RetiredHomeError, retiredHomes } from '@/lib/home/retired';
+import { getInstallationRole, type InstallationRole } from '@/lib/config/role';
+import { runConnected } from './connected';
+import { runConnect } from './connect';
 import { DEFAULT_PORT, DEV_PORT } from '@/lib/auth/port';
 import { resolveHttp2Enabled, isChainTrustFailure, certCoversHost } from '@/lib/config/http2';
 import {
@@ -134,6 +139,64 @@ async function startForegroundCommand(opts: StartOptions) {
     log.info(pc.dim('Hot-path tracker enabled (NEXT_PUBLIC_HOT=1), see src/lib/_debug/hot-path.ts'));
   }
 
+  // What this folder is decides what `ri` does (docs/homes-spec.md §3.1). A
+  // connected computer keeps no data: it opens the home, and never starts a
+  // server or a database here.
+  let role: InstallationRole;
+  try {
+    role = getInstallationRole();
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+    return;
+  }
+  if (role === 'connected') {
+    await runConnected({ open: opts.open });
+    return;
+  }
+  // First run: start a home here, or connect to the Ri this person already
+  // has. Asked in terms of use, not topology (§3.1). Without a terminal, keep
+  // starting a home, and say how to connect instead.
+  if (role === 'fresh') {
+    // This folder's home was retired: its work lives in another home now, so
+    // the only way on from here is connecting to it (or undoing the retirement).
+    const retired = retiredHomes()[0];
+    if (retired) {
+      log.warn(describeRetired(retired.retired, retired.dir));
+      if (!process.stdin.isTTY) {
+        process.exitCode = 1;
+        return;
+      }
+      const go = await confirm({ message: `Connect this computer to your ${APP_NAME} now?` });
+      if (isCancel(go) || go !== true) {
+        outro('Nothing changed');
+        return;
+      }
+      if (!(await runConnect(undefined, { open: opts.open }))) process.exitCode = 1;
+      return;
+    }
+    if (process.stdin.isTTY) {
+      const choice = await select({
+        message: `Set up ${APP_NAME} on this computer`,
+        options: [
+          { value: 'start', label: `Start using ${APP_NAME} here`, hint: 'your tasks, notes and agents live on this computer' },
+          { value: 'connect', label: `Connect to your existing ${APP_NAME}`, hint: 'use the one you already have, from this computer' },
+        ],
+      });
+      if (isCancel(choice)) {
+        outro('Nothing set up');
+        return;
+      }
+      if (choice === 'connect') {
+        if (!(await runConnect(undefined, { open: opts.open }))) process.exitCode = 1;
+        return;
+      }
+      log.info(pc.dim('You can move your home to an always-on computer later.'));
+    } else {
+      log.info(`Starting a new home here. If you already use ${APP_NAME} on another computer, run \`${APP_SHORT_ID} connect\` instead.`);
+    }
+  }
+
   // Resolve --portless before anything that reads the static URL (auth bootstrap
   // builds pairingUrl from it). Reject early if portless isn't on PATH so the
   // user gets a clear error before we mint tokens or warm anything up.
@@ -175,6 +238,21 @@ async function startForegroundCommand(opts: StartOptions) {
   // Auth first — used by both the health probe and the eventual app session.
   s.start('Bootstrapping auth');
   const info = ensureLocalToken();
+  // A root whose data came from another computer doesn't act as the home
+  // until someone claims it (docs/homes-spec.md §10.3).
+  try {
+    const identity = ensureHomeIdentity();
+    if (identity.created) log.success(`Created your home on ${identity.computer.name}`);
+  } catch (err) {
+    s.stop('Not starting');
+    // A retired home in this folder: say what happened, never open a new one.
+    if (err instanceof HomeIdentityError || err instanceof RetiredHomeError) {
+      log.error(err.message);
+      process.exitCode = 1;
+      return;
+    }
+    throw err;
+  }
   try {
     const projectSkillCleanup = process.env.RI_DESKTOP === '1'
       ? { removed: 0, errors: 0 } : await cleanupKnownProjectSkillLinks();

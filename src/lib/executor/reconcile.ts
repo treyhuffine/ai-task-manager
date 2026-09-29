@@ -48,7 +48,6 @@ import {
   listStuckBootstrapExecutions,
   recordExecutionSetupError,
   getExternalSessionImportForChat,
-  insertChatEvent,
   listChatEventIdentities,
 } from '@/lib/db/queries';
 import {
@@ -57,6 +56,7 @@ import {
 } from '@/lib/realtime/bus';
 import type { ChatSessionRecord, ChatSessionWithExecution } from '@/db/types';
 import { persistStreamEvent, resolveCwd, isRunning } from './adapter';
+import { localEventWriter, type EventWriter } from './event-writer';
 import { codexLiveCoverage, createCodexReplayFilter, mapCodexLineToInput } from './codex-on-disk';
 import { runtimeContextForHarness } from '@/lib/harness/runtime';
 
@@ -127,7 +127,10 @@ const state = globalRef[STATE_KEY]!;
  * same session id are deduped by the in-flight guard above — the
  * second caller returns immediately with `skipped: 'in_flight'`.
  */
-export async function reconcileSession(sessionId: string): Promise<ReconcileResult> {
+export async function reconcileSession(
+  sessionId: string,
+  writer: EventWriter = localEventWriter,
+): Promise<ReconcileResult> {
   if (state.inFlight.has(sessionId)) {
     return { drift: false, replayed: 0, skipped: 'in_flight' };
   }
@@ -157,9 +160,9 @@ export async function reconcileSession(sessionId: string): Promise<ReconcileResu
     }
 
     const provider = session.harness;
-    if (provider === 'claude') return await reconcileClaudeSession(session);
-    if (provider === 'codex') return await reconcileCodexSession(session);
-    if (provider === 'opencode') return await reconcileOpenCodeSession(session);
+    if (provider === 'claude') return await reconcileClaudeSession(session, writer);
+    if (provider === 'codex') return await reconcileCodexSession(session, writer);
+    if (provider === 'opencode') return await reconcileOpenCodeSession(session, writer);
     return { drift: false, replayed: 0, skipped: 'unsupported_provider' };
   } finally {
     state.inFlight.delete(sessionId);
@@ -211,6 +214,7 @@ function isCheckpointNotFound(error: unknown): boolean {
 
 async function reconcileOpenCodeSession(
   session: ChatSessionWithExecution,
+  writer: EventWriter,
 ): Promise<ReconcileResult> {
   if (!session.externalSessionId) {
     return { drift: false, replayed: 0, skipped: 'no_external_session' };
@@ -247,7 +251,7 @@ async function reconcileOpenCodeSession(
       const event = yielded.eventId && !yielded.event.eventId
         ? { ...yielded.event, eventId: yielded.eventId }
         : yielded.event;
-      await persistStreamEvent(session.id, event);
+      await persistStreamEvent(session.id, event, writer);
       replayed++;
       // Advance only after persistence. A crash can replay the last event, but
       // stable OpenCode event ids make that retry an idempotent insert.
@@ -320,7 +324,7 @@ function hasOffsetCursor(session: ChatSessionRecord): boolean {
 
 // ─── Claude ───────────────────────────────────────────────────
 
-async function reconcileClaudeSession(session: ChatSessionWithExecution): Promise<ReconcileResult> {
+async function reconcileClaudeSession(session: ChatSessionWithExecution, writer: EventWriter): Promise<ReconcileResult> {
   if (!session.externalSessionId) {
     return { drift: false, replayed: 0, skipped: 'no_external_session' };
   }
@@ -363,7 +367,7 @@ async function reconcileClaudeSession(session: ChatSessionWithExecution): Promis
       filePath,
       fromOffset: lastOffset,
     })) {
-      await persistStreamEvent(session.id, yielded.event);
+      await persistStreamEvent(session.id, yielded.event, writer);
       replayed++;
       lastOffset = yielded.offset;
       if (yielded.event.eventId) lastEventId = yielded.event.eventId;
@@ -384,7 +388,7 @@ async function reconcileClaudeSession(session: ChatSessionWithExecution): Promis
 
 // ─── Codex ────────────────────────────────────────────────────
 
-async function reconcileCodexSession(session: ChatSessionWithExecution): Promise<ReconcileResult> {
+async function reconcileCodexSession(session: ChatSessionWithExecution, writer: EventWriter): Promise<ReconcileResult> {
   if (!session.externalSessionId) {
     return { drift: false, replayed: 0, skipped: 'no_external_session' };
   }
@@ -445,7 +449,7 @@ async function reconcileCodexSession(session: ChatSessionWithExecution): Promise
       // the ones the mapper would drop.
       if (!isUnseen(yielded.event)) continue;
       const input = mapCodexLineToInput(session.id, yielded.event);
-      if (input && insertChatEvent(input)) replayed++;
+      if (input && (await writer.write(input))) replayed++;
     }
   } catch (err) {
     console.error(`[reconcile] codex replay failed for ${session.id}:`, err);

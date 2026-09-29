@@ -1,10 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { toChatEventDTO } from '@/lib/api/dto/chat-event';
-import { subscribe, sessionChannel, type SessionStreamMessage } from '@/lib/realtime/bus';
-import { listChatEventsAfter } from '@/lib/db/queries';
-import * as executor from '@/lib/executor/adapter';
-import { listForSession as listPendingForSession } from '@/lib/executor/pending-input';
-import type { ChatEventRecord } from '@/db/types';
+import { openSessionFeed } from '@/lib/realtime/session-feed';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,7 +19,9 @@ function sse(event: string, data: unknown, id?: string): Uint8Array {
 }
 
 /**
- * Per-session realtime stream.
+ * Per-session realtime stream. The app's own pages use the page stream
+ * (`/api/live`), which carries this same feed for each chat on screen
+ * over one connection (P3 review); this route stays for other clients.
  *
  * Lifecycle on connect:
  *
@@ -63,63 +60,7 @@ export async function GET(
       const enqueue = (chunk: Uint8Array) => {
         try { controller.enqueue(chunk); } catch { /* closed */ }
       };
-
-      // Both the live publish and the resume replay funnel through here, so
-      // the projection applies to each. It has to match the GET /events route
-      // exactly: a transcript assembled from stream frames and one fetched as
-      // a page must carry the same fields, or a consumer reading `rawSubtype`
-      // works on reload and breaks on live update. See lib/api/dto/chat-event.
-      const writeChatEvent = (event: ChatEventRecord) => {
-        enqueue(sse('chat_event', toChatEventDTO(event), event.id));
-      };
-
-      // Subscribe first — any message arriving while we read the
-      // initial state still gets delivered. The client dedups
-      // chat_events on id; runtime and pending_input are last-write-
-      // wins per session so out-of-order arrivals are self-correcting
-      // (the publish order matches the state-mutation order in-process).
-      unsubscribe = subscribe(sessionChannel(sessionId), (message: SessionStreamMessage) => {
-        switch (message.kind) {
-          case 'chat_event': writeChatEvent(message.event); break;
-          case 'runtime': enqueue(sse('runtime', { running: message.running })); break;
-          case 'background_tasks':
-            enqueue(sse('background_tasks', { active: message.active, taskIds: message.taskIds }));
-            break;
-          case 'pending_input': enqueue(sse('pending_input', { pending: message.pending })); break;
-          case 'reconcile':
-            enqueue(sse('reconcile', { status: message.status, replayed: message.replayed }));
-            break;
-          case 'session_updated': break;
-        }
-      });
-
-      // Resume replay. listChatEventsAfter caps at 1000 — a session
-      // that's drifted further than that on the client almost certainly
-      // wants a fresh snapshot via the GET /events route instead, which
-      // the useSessionStream hook will trigger if the resume returns a
-      // full page.
-      if (lastEventId) {
-        try {
-          const missed = listChatEventsAfter(sessionId, lastEventId);
-          for (const row of missed) writeChatEvent(row);
-        } catch (err) {
-          console.error(`[GET /api/sessions/${sessionId}/stream] resume failed:`, err);
-        }
-      }
-
-      // Seed the client with the current ephemeral state. Both reads
-      // are in-process module-state lookups (Set/Map) — sub-microsecond
-      // and no DB hit. Saves the client from issuing two separate
-      // snapshot fetches just to hydrate the runtime indicator and
-      // pending-input overlay.
-      enqueue(sse('runtime', { running: executor.isRunning(sessionId) }));
-      enqueue(sse('background_tasks', {
-        active: executor.hasBackgroundTasks(sessionId),
-        taskIds: executor.listBackgroundTaskIds(sessionId),
-      }));
-      enqueue(sse('pending_input', { pending: listPendingForSession(sessionId) }));
-      enqueue(sse('ready', { sessionId }));
-
+      unsubscribe = openSessionFeed(sessionId, lastEventId, (event, data, id) => enqueue(sse(event, data, id)));
       // Idle ping; the colon-prefix is a comment line that EventSource
       // ignores but keeps the TCP connection warm against ~30s proxy
       // timeouts.

@@ -1,4 +1,6 @@
 import type { NextRequest } from 'next/server';
+import { writeOnOwner } from '@/lib/executor/owner-files';
+import { whileAdmitted } from '@/lib/transfer/moving';
 import { createWorkspaceFile } from '@/lib/workspaces/write-file';
 import { openSessionWorktree, mapFileError } from '../../_helpers';
 
@@ -10,7 +12,7 @@ import { openSessionWorktree, mapFileError } from '../../_helpers';
  *
  * POST body: `{ path: string }`.
  */
-export async function POST(
+async function handlePOST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -21,6 +23,8 @@ export async function POST(
       return Response.json({ error: 'Body must be { path: string }' }, { status: 400 });
     }
 
+    const owner = await writeOnOwner(id, { kind: 'create_file', path: body.path });
+    if (owner) return owner;
     const resolved = await openSessionWorktree(id);
     if (!resolved.ok) return resolved.response;
 
@@ -29,4 +33,10 @@ export async function POST(
   } catch (err) {
     return mapFileError(err, '[POST /api/sessions/:id/file/create]');
   }
+}
+
+/** A change to its files, counted while it runs: never under a move (P4 review). */
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return whileAdmitted(id, 'changing its files', () => handlePOST(request, context));
 }

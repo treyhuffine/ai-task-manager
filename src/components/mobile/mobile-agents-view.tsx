@@ -1,13 +1,21 @@
 "use client";
 
+import { RunOnSheet } from './run-on-sheet';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import type { AgentTab } from '@/types/dashboard';
 import { useMemo, useState } from 'react';
 import {
   ChevronRight,
+  FileText,
   Folder,
   FolderPlus,
   GitBranch,
   Inbox,
+  Laptop,
+  MoreHorizontal,
   Plus,
+  Settings,
+  SquareTerminal,
 } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import {
@@ -142,13 +150,20 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
   // into the new ExecutionView immediately and let the create land behind it.
   // The label is null until the first message derives one server-side; the
   // header renders "Untitled" in the meantime.
-  const handleCreateExecution = () => {
+  const handleCreateExecution = (computerId?: string) => {
     if (creating) return;
     setCreating(true);
-    const { sessionId, done } = startExecution(qc, { workspaceId: workspace.id });
+    const { sessionId, done } = startExecution(qc, { workspaceId: workspace.id, computerId });
     setMobileTab('agents');
     setActiveView(executionView(sessionId));
     void done.finally(() => setCreating(false));
+  };
+  // + starts where the agent usually runs. Another computer, for this one
+  // execution, is in the agent's ⋯ menu (spec §3.3).
+  const [pickingComputer, setPickingComputer] = useState(false);
+  const openAgentTab = (tab: AgentTab) => {
+    setMobileTab('agents');
+    openAgent(workspace.id, tab);
   };
 
   const linkedArea = workspace.areaId
@@ -202,9 +217,35 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
           </span>
         </button>
         <Badge streaming={streamingCount} review={reviewCount} />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground active:bg-muted/60 transition-colors flex-shrink-0"
+              aria-label={`More for ${workspace.name}`}
+            >
+              <MoreHorizontal size={18} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onSelect={() => setPickingComputer(true)} className="gap-2 py-2.5 text-[14px]">
+              <Laptop size={15} /> New execution on…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => openAgentTab('files')} className="gap-2 py-2.5 text-[14px]">
+              <FileText size={15} /> Files
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => openAgentTab('terminal')} className="gap-2 py-2.5 text-[14px]">
+              <SquareTerminal size={15} /> Terminal
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => openAgentTab('setup')} className="gap-2 py-2.5 text-[14px]">
+              <Settings size={15} /> Setup
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <button
           type="button"
-          onClick={handleCreateExecution}
+          onClick={() => handleCreateExecution()}
           disabled={creating}
           className="w-8 h-8 flex items-center justify-center rounded-lg text-primary active:bg-primary/10 transition-colors flex-shrink-0 disabled:opacity-40"
           aria-label="New execution"
@@ -227,12 +268,21 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
         </button>
       </div>
 
+      <RunOnSheet
+        workspace={workspace}
+        open={pickingComputer}
+        onOpenChange={setPickingComputer}
+        onPick={(computerId) => {
+          setPickingComputer(false);
+          handleCreateExecution(computerId);
+        }}
+      />
       {expanded && (
         <div className="pl-3 pr-1 pt-1 pb-2 space-y-1">
           {childSessions.length === 0 ? (
             <button
               type="button"
-              onClick={handleCreateExecution}
+              onClick={() => handleCreateExecution()}
               disabled={creating}
               className="ml-9 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium text-primary active:bg-primary/10 transition-colors disabled:opacity-40"
             >
@@ -320,6 +370,12 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
           {workspaceLabel && (
             <span className="text-[10px] text-muted-foreground/60 truncate">
               · {workspaceLabel}
+            </span>
+          )}
+          {/* Work away from the home says where (P3.1). The home's own stays quiet. */}
+          {session.location && !session.location.isHome && (
+            <span className="text-[10px] text-muted-foreground/60 truncate">
+              · {session.location.name}
             </span>
           )}
         </span>

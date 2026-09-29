@@ -12,6 +12,7 @@ import {
   GitMerge,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { apiErrorText } from '@/lib/api/client';
 import { useFolderFile, useResolveFileConflict } from '@/hooks/use-folder';
 import type { FolderSource } from '@/lib/folders/source';
 import { FileSkeleton } from '../skeletons';
@@ -85,8 +86,7 @@ export function ConflictView({ source, path }: ConflictViewProps) {
       await resolve.mutateAsync({ path, content: next });
       toast.success('Conflict resolved');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to resolve conflict';
-      toast.error(msg);
+      toast.error(apiErrorText(err));
     }
   }, [parsed, resolutions, resolve, path]);
 

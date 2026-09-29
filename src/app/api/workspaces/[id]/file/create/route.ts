@@ -1,7 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { mapFileError } from '@/lib/workspaces/file-http';
-import { createWorkspaceFile } from '@/lib/workspaces/write-file';
-import { openWritableWorkspaceFolder } from '../../_folder';
+import { agentFolderWrite } from '../../_folder';
 
 /**
  * Create an empty file in the agent's folder, refusing to overwrite (409),
@@ -18,9 +17,7 @@ export async function POST(
     if (!body || typeof body.path !== 'string') {
       return Response.json({ error: 'Body must be { path: string }' }, { status: 400 });
     }
-    const resolved = openWritableWorkspaceFolder(id);
-    if (!resolved.ok) return resolved.response;
-    return Response.json({ ok: true, ...(await createWorkspaceFile(resolved.folder, body.path)) });
+    return await agentFolderWrite(id, { kind: 'create_file', path: body.path });
   } catch (err) {
     return mapFileError(err, '[POST /api/workspaces/:id/file/create]');
   }

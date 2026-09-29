@@ -1,9 +1,11 @@
 import type { NextRequest } from 'next/server';
-import { revokeApiKey, updateApiKey } from '@/lib/db/queries';
+import { getWorkerEnrollment, isWorkerApiKey, listApiKeys, revokeApiKey, updateApiKey } from '@/lib/db/queries';
+import { retireWorker } from '@/lib/workers/retire';
 import type { DeviceType, UpdateApiKeyInput } from '@/db/types';
 
+// `host` is reserved for the home's own key, which `ensureLocalToken` mints.
+// A device can't give itself that label.
 const ALLOWED_DEVICE_TYPES: readonly DeviceType[] = [
-  'host',
   'computer',
   'phone',
   'tablet',
@@ -36,7 +38,14 @@ export async function PATCH(
     }
     if (body.deviceType !== undefined) {
       if (!ALLOWED_DEVICE_TYPES.includes(body.deviceType)) {
-        return Response.json({ error: 'invalid deviceType' }, { status: 400 });
+        return Response.json(
+          { error: body.deviceType === 'host' ? "deviceType 'host' is reserved for the home's own key" : 'invalid deviceType' },
+          { status: 400 },
+        );
+      }
+      const current = listApiKeys({ includeRevoked: true }).find((k) => k.id === id);
+      if (current?.deviceType === 'host') {
+        return Response.json({ error: "The home's own key keeps its type" }, { status: 400 });
       }
       patch.deviceType = body.deviceType;
     }
@@ -63,7 +72,12 @@ export async function DELETE(
   try {
     const { id } = await params;
     const reason = request.nextUrl.searchParams.get('reason') ?? undefined;
-    const row = revokeApiKey(id, reason);
+    // A worker key is retired: its stream closes now, rather than at its
+    // next ping, and its work at home is settled (P2.8).
+    const worker = isWorkerApiKey(id) ? getWorkerEnrollment(id) : null;
+    const row = worker
+      ? retireWorker(id, worker.computer.id, reason ?? 'Local execution turned off by the owner')
+      : revokeApiKey(id, reason);
     if (!row) {
       return Response.json({ error: 'Device not found' }, { status: 404 });
     }

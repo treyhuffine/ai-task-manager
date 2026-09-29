@@ -1,4 +1,6 @@
 import type { NextRequest } from 'next/server';
+import { readOnOwner, writeOnOwner } from '@/lib/executor/owner-files';
+import { whileAdmitted } from '@/lib/transfer/moving';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { fileReadResponse } from '@/lib/workspaces/file-http';
@@ -40,6 +42,9 @@ async function handleGET(
 
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
+    // An execution on a connected computer: its worker answers.
+    const remote = await readOnOwner(id, { kind: 'file', path: relPath, base: wantBase });
+    if (remote) return remote;
     if (!session.workspaceId || !session.worktreePath) {
       return Response.json({ error: 'Workspace has no worktree' }, { status: 404 });
     }
@@ -56,7 +61,7 @@ async function handleGET(
   }
 }
 
-export async function PUT(
+async function handlePUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -72,6 +77,9 @@ export async function PUT(
       return Response.json({ error: 'Body must be { content: string }' }, { status: 400 });
     }
 
+    const owner = await writeOnOwner(id, { kind: 'write', path: relPath, content: body.content });
+    if (owner) return owner;
+
     const resolved = await openSessionWorktree(id);
     if (!resolved.ok) return resolved.response;
 
@@ -82,7 +90,7 @@ export async function PUT(
   }
 }
 
-export async function DELETE(
+async function handleDELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -93,6 +101,9 @@ export async function DELETE(
       return Response.json({ error: 'Missing path parameter' }, { status: 400 });
     }
 
+    const owner = await writeOnOwner(id, { kind: 'delete', path: relPath });
+    if (owner) return owner;
+
     const resolved = await openSessionWorktree(id);
     if (!resolved.ok) return resolved.response;
 
@@ -101,4 +112,16 @@ export async function DELETE(
   } catch (err) {
     return mapFileError(err, '[DELETE /api/sessions/:id/file]');
   }
+}
+
+/** A change to its files, counted while it runs: never under a move (P4 review). */
+export async function PUT(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return whileAdmitted(id, 'changing its files', () => handlePUT(request, context));
+}
+
+/** A change to its files, counted while it runs: never under a move (P4 review). */
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return whileAdmitted(id, 'changing its files', () => handleDELETE(request, context));
 }

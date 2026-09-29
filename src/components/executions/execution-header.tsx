@@ -2,28 +2,32 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, MoreHorizontal, Archive, ArrowUpRight, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, Eye, EyeOff, Pin, PinOff } from 'lucide-react';
+import { locationLabel, preparedFolder } from '@/lib/executions/location';
+import { useComputer, useRunsOnSeveralComputers } from '@/hooks/use-computers';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { HOTKEYS } from '@/constants/commands';
 import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
-import { useUpdateSession } from '@/hooks/use-execution';
+import { useDeliveries, useLastTurnEndedAt, useUpdateSession } from '@/hooks/use-execution';
 import { useMarkSessionRead, useMarkSessionUnread, usePinSession, useUnpinSession } from '@/hooks/use-workspaces';
-import { useClientLocation } from '@/hooks/use-client-location';
+import { useOpener } from '@/hooks/use-opener';
+import { sessionFolder } from '@/lib/folders/source';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
 import { useTranscriptDensity } from '@/lib/client/transcript-density';
 import { revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
-import { fsApi } from '@/lib/api/fs';
 import { cn } from '@/lib/utils';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { useOpenablePr } from '@/hooks/use-execution-actions';
-import { TakeoverButton } from './takeover/takeover-button';
 import { ResyncMenuItem } from './resync-menu-item';
 import { RestartMenuItem } from './restart-menu-item';
 import { deriveExecutionHeaderStatus, describeChatStatus, type ChatStatusTone } from './execution-header-status';
+import { useSteadyRunning } from './steady-running';
+import { LocationMenu, MoveActions } from './transfer/location-menu';
+import { useComputerLabelMode } from '@/lib/client/computer-label-mode';
 import { ExecutionTaskChips } from './execution-task-chips';
 import { BACKGROUND_DOT } from '@/components/workspaces/activity-style';
 import { resumeCommandForHarness } from '@/lib/harness/registry';
@@ -161,6 +165,7 @@ export function ExecutionHeader({
     setDraft(displayLabel ?? '');
   };
 
+  const lastTurnEndedAt = useLastTurnEndedAt(session.id);
   const isPending = pendingInputSessionIds.has(session.id);
   const isArchived = session.status === 'archived';
   const isSetupFailed = !!session.setupError;
@@ -168,21 +173,51 @@ export function ExecutionHeader({
   // hasn't been provisioned yet. setupError wins (separate state) so
   // we don't render "setting up" forever on a failed provision.
   const isSettingUp =
-    !!workspace && workspace.isGit === true && !session.worktreePath && !isSetupFailed;
+    !!workspace && workspace.isGit === true && !preparedFolder(session) && !isSetupFailed;
+  // Which computer it runs on, by name (P3.1): the exception only. Work on
+  // the home is unlabeled unless this browser asked to always show it.
+  const severalComputers = useRunsOnSeveralComputers();
+  const { mode: labelMode } = useComputerLabelMode();
+  const where = locationLabel(session, severalComputers, labelMode);
+  // The chip opens the moves this screen can make (P4.2).
+  const locationChip = where ? <LocationMenu session={session} workspace={workspace} name={where} /> : null;
 
+  // Away from the home, what its computer is doing shapes the status: a
+  // message waiting for it, or a turn under way when it lost contact (P3.2).
+  const remote = session.location && !session.location.isHome ? session.location : null;
+  const computer = useComputer(remote?.computerId);
+  const { data: deliveries } = useDeliveries(remote ? session.id : null);
+  const elsewhere = remote
+    ? {
+        // Until the list loads, assume connected rather than claim it dropped.
+        connected: computer?.worker?.connected ?? true,
+        asleep: computer?.worker?.reportedState === 'asleep',
+        waiting: Object.values(deliveries ?? {}).some((d) => d.state === 'waiting'),
+      }
+    : null;
+
+  // Whichever knows first that a turn ended: the session, or its transcript here.
+  const lastOutcomeEventAt = [session.lastOutcomeEventAt, lastTurnEndedAt].filter(Boolean).sort().at(-1) ?? null;
+  const steadyRunning = useSteadyRunning(isRunning, lastOutcomeEventAt);
   const statusKind = deriveExecutionHeaderStatus({
     isArchived,
     isSetupFailed,
     isSettingUp,
     isPending,
-    isRunning,
+    isRunning: steadyRunning,
     hasBackgroundTasks,
-    lastOutcomeEventAt: session.lastOutcomeEventAt,
+    lastOutcomeEventAt,
     lastViewedAt: session.lastViewedAt,
+    elsewhere,
   });
   // The selected chat's status in words. Status is text with a dot: no
   // border, no hover, so it never reads as a button.
-  const chatStatus = describeChatStatus(statusKind, session.lastOutcomeEventAt, formatCompactRelative);
+  const chatStatus = describeChatStatus(
+    statusKind,
+    lastOutcomeEventAt,
+    formatCompactRelative,
+    remote ? { name: remote.name, lastSeenAt: computer?.lastSeenAt ?? null } : null,
+  );
   const statusEl = (
     <span
       title={chatStatus.title}
@@ -287,11 +322,9 @@ export function ExecutionHeader({
     )
   ) : null;
 
-  const worktreeLinks = session.worktreePath ? (
-    <WorktreeDeepLinks worktreePath={session.worktreePath} />
-  ) : null;
-
-  const takeoverMenuItem = <TakeoverButton session={session} workspace={workspace} />;
+  // Its folder wherever it runs, opened on that computer for a browser there (P3.5).
+  const openFolder = preparedFolder(session);
+  const worktreeLinks = openFolder ? <WorktreeDeepLinks sessionId={session.id} worktreePath={openFolder} /> : null;
 
   // Detect Live mode: git workspace whose session points at the
   // workspace's own cwd instead of a per-session worktree. Non-git
@@ -307,7 +340,7 @@ export function ExecutionHeader({
   // The git box also mounts for a linked PR alone (no worktree, archived,
   // non-git), where it shows just the PR link.
   const showGit =
-    (!!workspace?.isGit && (!!session.worktreePath || !!session.setupError)) || session.prNumber != null;
+    (!!workspace?.isGit && (!!preparedFolder(session) || !!session.setupError)) || session.prNumber != null;
 
   // One menu for passive details and meta actions, shared by both layouts.
   const menu = (align: 'start' | 'end', triggerClass: string, iconSize: number) => (
@@ -349,8 +382,8 @@ export function ExecutionHeader({
             </>
           )}
 
-          <div className="h-px bg-border" />
-          <div className="p-1">{takeoverMenuItem}</div>
+          {/* With no computer chip, moving it lives here (P4.2). */}
+          {!locationChip && <MoveActionsSection session={session} workspace={workspace} />}
 
           <div className="h-px bg-border" />
           <div className="p-2">
@@ -364,6 +397,9 @@ export function ExecutionHeader({
           <div className="h-px bg-border" />
           <div className="p-3 space-y-2.5 text-[12px]">
             <DetailRow label="Agent" value={workspace?.name ?? '-'} valueClass="font-medium text-foreground" />
+            {session.location && (
+              <DetailRow label="Computer" value={session.location.name} valueClass="text-foreground" />
+            )}
             {workspace?.baseBranch && (
               <DetailRow label="Base" value={workspace.baseBranch} valueClass="font-mono text-foreground" />
             )}
@@ -390,8 +426,8 @@ export function ExecutionHeader({
                 )}
               </>
             )}
-            {session.worktreePath && (
-              <DetailRow label="Path" value={session.worktreePath} valueClass="font-mono text-[11px] text-foreground/80 break-all" />
+            {preparedFolder(session) && (
+              <DetailRow label="Path" value={preparedFolder(session)!} valueClass="font-mono text-[11px] text-foreground/80 break-all" />
             )}
             {session.startedAt && (
               <DetailRow label="Started" value={new Date(session.startedAt).toLocaleString()} valueClass="text-foreground/85" />
@@ -440,6 +476,7 @@ export function ExecutionHeader({
           <div className="flex items-center gap-1.5 min-w-0 pl-0.5">
             {statusEl}
             {liveBadge}
+            {locationChip}
           </div>
         </div>
 
@@ -493,6 +530,7 @@ export function ExecutionHeader({
 
         {statusEl}
         {liveBadge}
+        {locationChip}
         {menu('start', 'p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex-shrink-0', 14)}
 
         <span className="flex-1" />
@@ -668,15 +706,15 @@ function LiveBadge({ branch }: { branch: string | null }) {
   );
 }
 
+
 /**
  * "Reveal in Finder" / "Open in editor" links scoped to the worktree
- * root. Both hide when the browser is on a remote client because the
- * worktree path doesn't exist on the user's laptop. Cross-machine work
- * goes through the takeover flow (separate UI surface).
+ * root, opened on the computer it's on for a browser there (P3.5).
+ * Moving the work to another computer goes through the location menu.
  */
-function WorktreeDeepLinks({ worktreePath }: { worktreePath: string }) {
-  const location = useClientLocation();
-  const { label, openInEditor } = useOpenInPreferredEditor();
+function WorktreeDeepLinks({ sessionId, worktreePath }: { sessionId: string; worktreePath: string }) {
+  const { opener } = useOpener(sessionFolder(sessionId), worktreePath);
+  const { label, openInEditor } = useOpenInPreferredEditor(opener);
   const [revealing, setRevealing] = useState(false);
   const [opening, setOpening] = useState(false);
 
@@ -684,14 +722,15 @@ function WorktreeDeepLinks({ worktreePath }: { worktreePath: string }) {
     if (revealing) return;
     setRevealing(true);
     try {
-      const res = await fsApi.openIn(worktreePath, 'finder');
+      if (!opener) return;
+      const res = await opener.open(worktreePath, 'finder');
       if (!res.ok) toast.error(res.message ?? "Couldn't open the folder");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to open the folder');
     } finally {
       setRevealing(false);
     }
-  }, [worktreePath, revealing]);
+  }, [opener, worktreePath, revealing]);
 
   const handleOpenInEditor = useCallback(async () => {
     if (opening) return;
@@ -712,7 +751,7 @@ function WorktreeDeepLinks({ worktreePath }: { worktreePath: string }) {
     }
   }, [worktreePath, opening, openInEditor, label]);
 
-  if (location.kind !== 'host') return null;
+  if (!opener) return null;
 
   const platform = detectClientPlatform();
 
@@ -941,4 +980,14 @@ function parsePrInput(raw: string): number | null {
     return Number.isFinite(n) && n > 0 ? n : null;
   }
   return null;
+}
+
+/** The moves from the … menu, divided off, or nothing when there are none. */
+function MoveActionsSection({ session, workspace }: { session: ChatSessionWithExecution; workspace: WorkspaceRecord | null | undefined }) {
+  if (!session.location || !workspace?.isGit) return null;
+  return (
+    <div className="border-t border-border p-1 empty:hidden">
+      <MoveActions session={session} workspace={workspace} />
+    </div>
+  );
 }

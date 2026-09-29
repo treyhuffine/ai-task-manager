@@ -1,11 +1,10 @@
 import type { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
-import { openWorktreeHandle } from '@/lib/workspaces';
 import { buildOpenPrPrompt } from '@/lib/executor/prompts/open-pr';
 import * as executor from '@/lib/executor/adapter';
-import { getPrStatus, type PrMergeable, type PrStatus } from '@/lib/github/pr-mergeable';
-import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import { withCompression } from '@/lib/api/compression';
+import { githubOnOwner } from '@/lib/executor/owner-git';
+import { executionDiff, executionFolder } from '@/lib/executor/owner-files';
 
 /**
  * PR surface for the execution view's action bar.
@@ -19,60 +18,7 @@ import { withCompression } from '@/lib/api/compression';
  *          when the user clicks Open PR without a prior turn.
  */
 
-export interface PrInfo {
-  number: number;
-  url: string;
-  state: 'OPEN' | 'CLOSED' | 'MERGED';
-  isDraft: boolean;
-  headRefName: string;
-  baseRefName: string;
-  title: string;
-  updatedAt: string;
-  /**
-   * GitHub-reported mergeability. `'UNKNOWN'` either means GitHub hasn't
-   * computed it yet (typically right after a push) or our gh side-call
-   * failed — the action bar treats unknown as in-sync, not as a blocker.
-   * Only populated for OPEN PRs; closed/merged PRs carry `null`.
-   */
-  mergeable: PrMergeable | null;
-  /**
-   * Rolled-up CI check state for an OPEN PR. `null` when the PR has no
-   * checks, when it's closed/merged, or when the gh side-call failed.
-   */
-  checks: PrChecks | null;
-  /**
-   * GitHub's review decision for an OPEN PR (`approved` /
-   * `changes_requested` / `review_required`). `null` when there's no
-   * decision, when it's closed/merged, or when the gh side-call failed.
-   */
-  reviewDecision: PrReviewDecision | null;
-  /** Whether auto-merge ("merge when ready") is enabled on the PR. */
-  autoMergeEnabled: boolean;
-}
-
-/** Fields shared by `@agentex/github`'s PRSummary and PRDetail that we expose. */
-type PrLike = Pick<
-  PrInfo,
-  'number' | 'url' | 'state' | 'isDraft' | 'headRefName' | 'baseRefName' | 'title' | 'updatedAt'
->;
-
-/** Flatten a gh PR + its (open-only) status side-call into the wire shape. */
-function toPrInfo(pr: PrLike, status: PrStatus | null): PrInfo {
-  return {
-    number: pr.number,
-    url: pr.url,
-    state: pr.state,
-    isDraft: pr.isDraft,
-    headRefName: pr.headRefName,
-    baseRefName: pr.baseRefName,
-    title: pr.title,
-    updatedAt: pr.updatedAt,
-    mergeable: status?.mergeable ?? null,
-    checks: status?.checks ?? null,
-    reviewDecision: status?.reviewDecision ?? null,
-    autoMergeEnabled: status?.autoMergeEnabled ?? false,
-  };
-}
+export type { PrInfo } from '@/lib/github/execution-github';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
@@ -86,79 +32,11 @@ async function handleGET(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    if (!session.workspaceId || !session.worktreePath || !session.branchName) {
-      return Response.json({ pr: null });
-    }
-
-    const ws = getWorkspace(session.workspaceId);
-    if (!ws) return Response.json({ pr: null });
-
-    // `@agentex/github` is ESM-only; dynamic import for the same reason
-    // `@agentex/workspace` is loaded lazily in `lib/workspaces/index.ts`.
-    const { github, NotInstalledError, NotAuthenticatedError, RepoNotFoundError, GhCommandError } =
-      await import('@agentex/github');
-    const repo = github.repo(ws.cwd);
-
-    try {
-      // 1. Explicit `prNumber` on the session row wins — used when the
-      //    user linked a PR manually or when the agent stamped it on
-      //    PR creation.
-      if (session.prNumber != null) {
-        try {
-          const pr = await repo.getPR(session.prNumber);
-          const status = pr.state === 'OPEN' ? await getPrStatus(ws.cwd, pr.number) : null;
-          return Response.json({ pr: toPrInfo(pr, status) });
-        } catch (err) {
-          console.warn(
-            `[GET /api/sessions/${id}/pr] linked prNumber=${session.prNumber} lookup failed:`,
-            err instanceof Error ? err.message : String(err),
-          );
-          // Fall through to branch-match below — the linked PR might
-          // have been deleted on GitHub.
-        }
-      }
-
-      // 2. Branch-match fallback — pull all PRs and filter on headRefName.
-      const all = await repo.listPRs({ state: 'all' });
-      // Exact match first; fall back to suffix match for fork-style
-      // refs ("user:branch" / "user/branch") where gh sometimes reports
-      // a qualified head name.
-      let matching = all.filter((p) => p.headRefName === session.branchName);
-      if (matching.length === 0) {
-        matching = all.filter((p) =>
-          session.branchName ? p.headRefName.endsWith(session.branchName) : false,
-        );
-      }
-      // Prefer open; otherwise the most recent.
-      const pr = matching.find((p) => p.state === 'OPEN') ?? matching[0];
-      if (!pr) {
-        // Surface the diagnostic so we can see why we missed. Only
-        // fires when gh actually returned PRs — empty repos stay quiet.
-        if (all.length > 0) {
-          console.warn(
-            `[GET /api/sessions/${id}/pr] no PR matched session branch "${session.branchName}". gh sees ${all.length} PR(s): ${all
-              .slice(0, 6)
-              .map((p) => `#${p.number}=${p.headRefName}`)
-              .join(', ')}${all.length > 6 ? ', …' : ''}`,
-          );
-        }
-        return Response.json({ pr: null });
-      }
-      const status = pr.state === 'OPEN' ? await getPrStatus(ws.cwd, pr.number) : null;
-      return Response.json({ pr: toPrInfo(pr, status) });
-    } catch (err) {
-      if (err instanceof NotInstalledError) {
-        return Response.json({ pr: null, ghStatus: 'not_installed' });
-      }
-      if (err instanceof NotAuthenticatedError) {
-        return Response.json({ pr: null, ghStatus: 'not_authenticated' });
-      }
-      // A local-only repo, or one whose remote isn't on GitHub, has no PR.
-      if (err instanceof RepoNotFoundError || (err instanceof GhCommandError && /no git remotes/i.test(err.message))) {
-        return Response.json({ pr: null });
-      }
-      throw err;
-    }
+    // A branch is all a PR needs. Its worktree may be on another computer.
+    if (!session.workspaceId || !session.branchName) return Response.json({ pr: null });
+    // Where a clone of its repository is: the agent's folder here, or on
+    // the computer the agent lives on (P4.5).
+    return await githubOnOwner(id, { op: 'pr', prNumber: session.prNumber, branchName: session.branchName });
   } catch (err) {
     console.error('[GET /api/sessions/:id/pr]', err);
     return Response.json({ error: String(err) }, { status: 500 });
@@ -182,7 +60,8 @@ export async function POST(
         { status: 409 },
       );
     }
-    if (!session.workspaceId || !session.worktreePath || !session.branchName) {
+    // Its worktree wherever it runs (P4.5).
+    if (!session.workspaceId || !executionFolder(id) || !session.branchName) {
       return Response.json(
         { error: 'noWorktree', message: 'No worktree or branch on this session.' },
         { status: 400 },
@@ -198,16 +77,12 @@ export async function POST(
       );
     }
 
-    const handle = await openWorktreeHandle(session, ws);
-    if (!handle || handle.kind !== 'git') {
-      return Response.json({ error: 'Worktree unavailable' }, { status: 404 });
-    }
-
-    const diff = await handle.git.diff('base');
+    const read = await executionDiff(id);
+    if (!read.ok) return read.response;
     const prompt = buildOpenPrPrompt({
       branch: session.branchName,
       baseBranch: ws.baseBranch,
-      diff,
+      diff: read.diff as Parameters<typeof buildOpenPrPrompt>[0]['diff'],
     });
 
     // Persist the prompt as a user-role event so the transcript shows
@@ -215,7 +90,7 @@ export async function POST(
     // user-typed message. Mark `source: 'system'` so the transcript can
     // render it as an action-bar event rather than an organic user
     // message (the executor still dispatches it as the next turn).
-    insertChatEvent({
+    const event = insertChatEvent({
       sessionId: id,
       role: 'user',
       source: 'user',
@@ -225,8 +100,10 @@ export async function POST(
 
     // Fire-and-forget dispatch into the executor. The agent's reply
     // (drafted title/body and `gh pr create` invocation) streams back
-    // through the existing chat-event pipeline.
-    executor.dispatch(id, prompt).catch((err) => {
+    // through the existing chat-event pipeline. Tied to its event, so it
+    // reaches the harness once wherever the execution runs, and a move in
+    // progress holds it (P4.5).
+    executor.dispatch(id, prompt, { sourceEventId: event?.id ?? null }).catch((err) => {
       console.error(`[POST /api/sessions/:id/pr] dispatch failed for ${id}:`, err);
     });
 
