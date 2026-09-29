@@ -31,10 +31,11 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} dark`}>
       <body className="antialiased">
         <QueryProvider>
+          {/* First, so a pairing link's token is stored before anything else asks. */}
+          <PairingBootstrap />
           <DesktopChrome />
           <QuickCaptureHost />
           <WebAppBootstrap />
-          <PairingBootstrap />
           <TooltipProvider>
             <ConfirmProvider>
               <LifecycleGuardProvider>{children}</LifecycleGuardProvider>

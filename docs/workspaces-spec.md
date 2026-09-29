@@ -5,7 +5,7 @@ Self-contained spec for building the workspace primitive, the execution-session 
 **Foundation docs (read first):**
 
 - `docs/chat-sessions.md` — chat data model. `chat_sessions`, `chat_events`, `chat_attachments`, the three chat types (orchestration / content / execution), the agentex adapter pattern. This spec assumes that doc as baseline and extends it.
-- `CLAUDE.md` — project conventions (queries layer, no raw SQL in routes, types derived from Drizzle, paths via `src/lib/config/paths.ts`).
+- `AGENTS.md` — project conventions (queries layer, no raw SQL in routes, types derived from Drizzle, paths via `src/lib/config/paths.ts`).
 
 ## Library dependencies
 
@@ -472,7 +472,7 @@ Same badge, smaller / less prominent (the children are visible).
 
 ## API + queries
 
-Per `CLAUDE.md`, API routes call into `src/lib/db/queries.ts`. No raw SQL in routes. Types derived from Drizzle.
+Per `AGENTS.md`, API routes call into `src/lib/db/queries.ts`. No raw SQL in routes. Types derived from Drizzle.
 
 Queries to add in `src/lib/db/queries.ts`:
 
@@ -510,7 +510,7 @@ The orchestrator already exposes actions via `src/lib/orchestrator/registry.ts`.
 - `archive_workspace({ id })`
 - `list_workspace_sessions({ workspace_id })`
 
-Keep these thin; they dispatch to the same `queries.ts` functions. Throw `ActionError` with stable codes per `CLAUDE.md`.
+Keep these thin; they dispatch to the same `queries.ts` functions. Throw `ActionError` with stable codes per `AGENTS.md`.
 
 ---
 

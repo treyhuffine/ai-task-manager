@@ -700,7 +700,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             toolsBadgeClass={runDot}
           />
           <TakeoverBanner session={session} />
-          {isGitWorktree && workspace && (
+          {(isGitWorktree || session.prNumber != null) && workspace && (
             // `empty:hidden`: the chip renders nothing in some states (a clean
             // worktree with no branch commits), and the row goes with it.
             <div className="flex-shrink-0 border-b border-border px-3 py-2 empty:hidden">

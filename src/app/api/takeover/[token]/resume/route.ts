@@ -132,7 +132,7 @@ export async function POST(
     }
 
     // Cap the inline patch to keep the synthetic message bounded.
-    // 200k chars matches the attachment text cap documented in CLAUDE.md.
+    // 200k chars matches the attachment text cap documented in AGENTS.md.
     const MAX_PATCH_CHARS = 200_000;
     const patchTrimmed =
       patch.length > MAX_PATCH_CHARS

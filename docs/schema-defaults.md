@@ -48,7 +48,7 @@ provider/model id, a working-hours window, a routing policy. Two problems:
    (no `SET`/`DROP DEFAULT`). Changing or removing one on a populated table
    forces a full-table rebuild, which reassigns rowids and desyncs any
    external-content FTS5 index keyed by rowid (`tasks_fts`, `notes_fts`,
-   `stream_fts`). See `CLAUDE.md` and `drizzle/0016_lyrical_network.sql`.
+   `stream_fts`). See `AGENTS.md` and `drizzle/0016_lyrical_network.sql`.
 
 The convention: **policy lives in the query layer** (as `createTask` sets
 `status: 'todo'`). If a NOT NULL column is forced to keep a default for
@@ -464,7 +464,7 @@ To do in the pass — remove the now-inert policy literals from `schema.ts`:
   are all now supplied by the query layer, so their DB defaults are inert.
 
 Per-column judgment for the NOT NULL enums: the sanctioned end-state in
-`CLAUDE.md` is to KEEP a NOT NULL policy default as an inert backstop rather than
+`AGENTS.md` is to KEEP a NOT NULL policy default as an inert backstop rather than
 remove it (SQLite cannot drop a default without a rowid-safe column swap). Each
 removal you do want ships as a hand-rolled rowid-safe swap in the migration (the
 `drizzle/0016` pattern — never accept drizzle's table rebuild), and any raw

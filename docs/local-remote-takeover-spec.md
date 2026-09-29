@@ -348,7 +348,7 @@ No server persistence — these are per-browser/per-origin preferences.
 
 The CLI is the existing Ri CLI (same binary that runs `ri start`
 on the host). New commands live in `src/cli/commands/` per the
-"shared CLI commands" convention in CLAUDE.md (not orchestrator
+"shared CLI commands" convention in AGENTS.md (not orchestrator
 registry — these are user-facing commands, not agent actions).
 
 ### `ri takeover <url>`
@@ -595,7 +595,7 @@ one is stable.
 - **CLI run on a machine with `<APP>_ROOT` pointing elsewhere.** The
   CLI honors the same env-var overrides as the server (`getAppRoot()`
   helper), so the clone goes wherever the user has Ri configured
-  on that machine. Same precedence as documented in CLAUDE.md.
+  on that machine. Same precedence as documented in AGENTS.md.
 
 ## Reference paths
 
@@ -609,4 +609,4 @@ one is stable.
 - Queries layer: `src/lib/db/queries.ts`
 - Paths helpers: `src/lib/config/paths.ts`
 - Execution view shell: `src/components/executions/execution-view.tsx`
-- CLI command convention: `src/cli/commands/` (per CLAUDE.md)
+- CLI command convention: `src/cli/commands/` (per AGENTS.md)

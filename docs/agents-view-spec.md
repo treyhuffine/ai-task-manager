@@ -97,7 +97,7 @@ Evidence gathered while aligning. Line numbers are as of 2026-09-22.
 - `getDb` (`src/lib/db/index.ts`, around line 325) turns `foreign_keys = ON` and then calls Drizzle's `migrate()`, which runs pending migrations inside one transaction. A `PRAGMA foreign_keys=OFF` inside a migration is ignored inside a transaction.
 - SQLite cannot drop a column that is part of a foreign key. Removing `agent_id` means rebuilding `chat_sessions`, `triggers` and `runs` (create new, copy, drop old, rename).
 - With foreign keys on, `DROP TABLE chat_sessions` performs an implicit delete that fires `ON DELETE CASCADE` on `chat_events`, `chat_refs` and `external_session_imports`. **In prod that is 598,104 chat events.** Rebuilding `runs` and `triggers` would also null out links (`chat_sessions.created_by_run_id`, `task_status_changes.run_id`, `runs.trigger_id`, and others).
-- Good news: no search index depends on these three tables' rowids. `tasks_fts`, `notes_fts` and `stream_fts` key on their own tables, and `chat_events_fts` keys on text ids. Embeddings key on `entity_id`. So the rowid warning in CLAUDE.md does not bite here, though we preserve rowids anyway.
+- Good news: no search index depends on these three tables' rowids. `tasks_fts`, `notes_fts` and `stream_fts` key on their own tables, and `chat_events_fts` keys on text ids. Embeddings key on `entity_id`. So the rowid warning in AGENTS.md does not bite here, though we preserve rowids anyway.
 
 ### 5.4 Caller identity is defined but never set
 
@@ -110,7 +110,7 @@ Evidence gathered while aligning. Line numbers are as of 2026-09-22.
 - ~~**Preview already has a workspace route:** `/api/workspaces/:id/preview`.~~ Wrong, found in Phase 5: previews are per execution (`/api/executions/:id/preview/*`, `preview_targets.execution_id`). The only workspace route is `preview/restore-set`. See the Phase 5 note.
 - **The app's main chat is found by type alone.** `/api/orchestrator-chat` (plus `/history` and `/resume`) uses `listChatSessions({ type: 'orchestration', status: 'active' })`. Agent main chats would leak into it unless filtered by `workspace_id IS NULL`.
 - **Needs Review already excludes interactive orchestration chats** (`listNeedsReviewSessionCandidates`), and the rail lists executions, so agent main chats stay out of both without new code. Verify, don't assume.
-- **The orchestrator surface installs files into the Ri home** (`installOrchestratorSurface`, `claude-md-template.ts`). An agent main chat runs inside the user's own folder, so it must never install files there.
+- **The orchestrator surface installs files into the Ri home** (`installOrchestratorSurface`, `agents-md-template.ts`). An agent main chat runs inside the user's own folder, so it must never install files there.
 - **The write guard** is `disallowedTools: ['Write', 'Edit', 'NotebookEdit']` (`ORCHESTRATOR_DISALLOWED_TOOLS` in `harness-surface.ts`). Codex ignores tool filtering upstream, so there it is prompt-only.
 
 ### 5.6 Instructions today, per chat type
@@ -137,9 +137,9 @@ Removes the cascade trap in §5.3 for this and every future migration. This foll
   - `src/lib/db/migrate.test.ts`. Includes a premise test showing the same rebuild under Drizzle's own runner deletes the children, and a round-trip test that Drizzle's runner and ours agree on what has been applied.
 - [x] Confirm `pnpm db:migrate` (drizzle-kit's own runner, its own connection) does not turn foreign keys on. SQLite's default is off per connection. Note the result here.
   - **It does turn them on.** better-sqlite3 compiles SQLite with foreign keys ON by default, so `drizzle-kit migrate` had the same cascade trap. `pnpm db:migrate` now runs `scripts/db-migrate.ts`, which goes through `getDb` and therefore `runMigrations`.
-- [x] Add a line to CLAUDE.md "Column defaults": migrations run with foreign keys off and are checked after, so a rebuild never cascades. A rebuild still reassigns rowids unless the migration copies `rowid` explicitly, so the FTS warning still applies to FTS-backed tables.
+- [x] Add a line to AGENTS.md "Column defaults": migrations run with foreign keys off and are checked after, so a rebuild never cascades. A rebuild still reassigns rowids unless the migration copies `rowid` explicitly, so the FTS warning still applies to FTS-backed tables.
 
-**Done when:** the tests pass and CLAUDE.md says how migrations treat foreign keys.
+**Done when:** the tests pass and AGENTS.md says how migrations treat foreign keys.
 
 ### Phase 1: Delete the old `agents` table
 
@@ -186,7 +186,7 @@ A first pass shipped this as a hand-edited `0001` migration. Trey asked for it t
 
 Leave "agent" where it means the AI in general: "agent browser", the "Agent (trial)" entity view, the NL MCP's `runMcpAgent`, "the agent surface".
 
-- [x] Add the rule to CLAUDE.md: "harness" is the engine, "agent" in the UI is a workspace's scope.
+- [x] Add the rule to AGENTS.md: "harness" is the engine, "agent" in the UI is a workspace's scope.
   - The harness half landed with Phase 1 (Rules). Add the "agent in the UI" half with Phase 8, when the UI actually says it.
 - [x] Move `src/lib/agents/` (registry, runtime, credentials, opencode, redaction) into `src/lib/harness/`, next to `one-shot.ts`. Move `src/lib/agent-options.ts` to `src/lib/harness/options.ts`.
   - Also moved, same reason: `agent-model-discovery.ts` → `src/lib/harness/model-discovery.ts`, the hooks `use-agent-models` / `use-agent-harnesses` / `use-agent-connection` → `use-harness-models` / `use-harnesses` / `use-harness-connection`, the settings components `agent-settings-panel` / `agent-connection-ui` → `harness-*`, and the onboarding `step-agent` → `step-harness`.
@@ -281,7 +281,7 @@ One registry generates both surfaces, so every item lands on both.
 
 **Briefs and skills**
 
-- [x] Update the orchestrator brief (`harness-surface.ts`, `claude-md-template.ts`) and `skills/orchestrator/SKILL.md`: the new actions, provenance, and "a workspace is what the user calls an agent".
+- [x] Update the orchestrator brief (`harness-surface.ts`, `agents-md-template.ts`) and `skills/orchestrator/SKILL.md`: the new actions, provenance, and "a workspace is what the user calls an agent".
   - SKILL.md also had stale `schedule` action names from before triggers. Fixed.
 - [x] Registry tests for every change above (`registry.triggers.test.ts`, `registry.oversight.test.ts`, new tests for the new actions).
   - `registry.agents.test.ts` covers the new actions, provenance, the capability gate and the executions-only list. Trigger changes were tested with Phase 1. `server-client.test.ts` covers the structured `ServerResponseError`.
@@ -463,7 +463,7 @@ One registry generates both surfaces, so every item lands on both.
   Find them with `grep -rnE "['\">][^'\"<>]*\b[Ww]orkspaces?\b" src/components src/app`. Code identifiers keep "workspace".
   - That grep misses JSX text on its own line, so the sweep ran on every string literal, template and JSX text node through the TypeScript compiler. About 80 strings changed, each reworded rather than swapped (for example "Plain folder, not a git repo", "clone the repo", and "the agent's setup" where the old copy said workspace settings). Copy that called the running engine an "agent" now avoids the word where it would read as the scope. The welcome step and settings header say "harness".
   - **Kept on purpose:** the connector category "Workspace" (Google Workspace and Microsoft 365), beamd's own "workspace" slug, and REST error messages about the `workspace` resource, which the CLI and agents read and which match `/api/workspaces`. Three server strings that surface as product copy did change (the preview's start-command hint, the macOS folder picker title, the imported-chat error).
-- [x] The "agent in the UI" half of the CLAUDE.md glossary. (Added.)
+- [x] The "agent in the UI" half of the AGENTS.md glossary. (Added.)
 
 **Done when:** you can go Home → agent → execution → agent → Home with clicks, the breadcrumb, the hotkey and the browser back button, and no user-visible "workspace" remains.
 
@@ -487,7 +487,7 @@ One registry generates both surfaces, so every item lands on both.
 - [x] `docs/chat-sessions.md`: the Agents section says the table is gone and the harness lives on the chat. (Landed with Phase 1, along with `docs/async-agents-v1.md` and the one stale line in `docs/orchestrator-harness.md`.)
 - [x] `docs/orchestrator-harness.md`: new actions, caller identity, provenance, the agent main chat.
   - Also fixed two stale names there (`ensureAgentSession`, `create_schedule`).
-- [x] CLAUDE.md: the glossary line (Phase 2), the migration note (Phase 0), and a line in the Orchestrator section about agent main chats.
+- [x] AGENTS.md: the glossary line (Phase 2), the migration note (Phase 0), and a line in the Orchestrator section about agent main chats.
   - The "agent in the UI" half of the glossary lands with Phase 8's copy sweep.
 - [x] `pnpm ts`, `pnpm lint`, `pnpm test`, `pnpm smoke`, `pnpm smoke:agent`, `pnpm smoke:harness`, `pnpm build`.
   - `pnpm ts`: no errors in source. The only errors are in the running prod build's generated `.next/types`, which still names the old `/api/agent/*` routes. The cutover `pnpm build` regenerates it.
@@ -543,7 +543,7 @@ Found during the work and left open:
 | Area | Files |
 |---|---|
 | Schema, types, queries | `src/lib/db/schema.ts`, `src/db/types.ts`, `src/lib/db/queries.ts`, `src/lib/db/index.ts`, `drizzle/` |
-| Orchestrator | `src/lib/orchestrator/registry.ts`, `types.ts`, `harness-surface.ts`, `server-client.ts`, `src/app/api/orchestrator/[transport]/route.ts`, `skills/orchestrator/SKILL.md`, `src/lib/config/claude-md-template.ts` |
+| Orchestrator | `src/lib/orchestrator/registry.ts`, `types.ts`, `harness-surface.ts`, `server-client.ts`, `src/app/api/orchestrator/[transport]/route.ts`, `skills/orchestrator/SKILL.md`, `src/lib/config/agents-md-template.ts` |
 | Chats and execution | `src/lib/sessions/dispatch.ts`, `src/lib/executor/adapter.ts`, `src/lib/executor/harness.ts`, `src/lib/executor/reconcile.ts`, `src/lib/sessions/derive-label.ts`, `src/app/api/sessions/[id]/*`, `src/app/api/orchestrator-chat/*`, `src/app/api/document-chat/route.ts` |
 | Triggers and runs | `src/lib/runs/dispatch.ts`, `src/lib/deck/trigger.ts`, `src/lib/stream-triage/triggers.ts`, `src/cli/commands/trigger.ts` |
 | Harness naming | `src/lib/harness/*` (was `src/lib/agents/*` and `src/lib/agent-options.ts`), `src/app/api/harness/*` (was `src/app/api/agent/*`), `src/hooks/use-harness*.ts` |

@@ -9,8 +9,8 @@
  *      `/api/orchestrator-chat`, send a deterministic prompt through
  *      `/api/sessions/:id/messages`, and assert: the task landed in the DB,
  *      the transcript carries an `mcp__orchestrator__*` tool call, and the
- *      surface files (CLAUDE.md / AGENTS.md managed block, MCP config)
- *      were installed at the data root.
+ *      surface files (AGENTS.md managed block, no CLAUDE.md beyond an
+ *      `@AGENTS.md` pointer, MCP config) were installed at the data root.
  *   2. `harness_skills` — switch mode (fresh session), same prompt shape,
  *      and assert: task landed, the session used Bash/CLI (no MCP tool
  *      calls in its transcript).
@@ -215,17 +215,25 @@ async function main() {
     }
 
     // Surface files on disk.
-    const claudeMd = fs.readFileSync(path.join(TEST_ROOT, 'CLAUDE.md'), 'utf8');
     const agentsMd = fs.readFileSync(path.join(TEST_ROOT, 'AGENTS.md'), 'utf8');
-    if (claudeMd.includes(':managed:start') && claudeMd.includes('Your tools (MCP)')) {
-      ok('CLAUDE.md carries the managed MCP brief');
+    if (agentsMd.includes(':managed:start') && agentsMd.includes('Your tools (MCP)')) {
+      ok('AGENTS.md carries the managed MCP brief');
     } else {
-      fail('CLAUDE.md missing managed MCP brief');
+      fail('AGENTS.md missing managed MCP brief');
     }
-    if (agentsMd.includes(':managed:start')) {
-      ok('AGENTS.md installed');
+    // CLAUDE.md hides AGENTS.md from Claude Code, so it may only exist as the
+    // `@AGENTS.md` pointer (written when the installed Claude predates
+    // AGENTS.md support or runs on a third-party API provider).
+    const claudeMdPath = path.join(TEST_ROOT, 'CLAUDE.md');
+    if (!fs.existsSync(claudeMdPath)) {
+      ok('no CLAUDE.md (Claude reads AGENTS.md)');
     } else {
-      fail('AGENTS.md missing managed block');
+      const claudeMd = fs.readFileSync(claudeMdPath, 'utf8');
+      if (claudeMd.includes('@AGENTS.md') && !claudeMd.includes('Your tools (')) {
+        ok('CLAUDE.md is only the @AGENTS.md pointer');
+      } else {
+        fail('CLAUDE.md carries more than the @AGENTS.md pointer');
+      }
     }
     // agentex ≥0.0.20 stages the MCP config itself (0600 temp file outside
     // the data root); the mcp__orchestrator__* tool-call assert above is the
