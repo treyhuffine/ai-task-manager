@@ -1156,6 +1156,8 @@ Live on the dev home, with the stand-in: a throwaway agent's execution on the Mi
 
 Found on the way: a long path overflowed the dialog's card (wrapped now), and the phone sheet imported the move menu for one constant, pulling its whole graph along (moved to `lib/executions/location.ts`).
 
+Found in gate B right after: every Ri execution on the Mac Mini failed to set up ("SourceFileMissingError: … .env.local"). The Ri repository commits an `agentex.workspace.json` that links `.env.local` into each worktree, agentex refuses a link whose file isn't there, and the Mini's copy of Ri has no `.env.local`. The same would hit any fresh copy, including one set up from the app. Worktrees are now made with agentex's step off (`applyFromSource: false`), and Ri brings the repository's local files in itself (`bringLocalFiles`, the same merged list agentex reads): what the folder has is linked or copied, what it doesn't is skipped and named in the chat, and a local file never fails the worktree. The failed setup's button said Pull with a download icon, though it retries the setup: it says Try again now. Test: `local-files.test.ts` (a missing link still makes the worktree and names the file, which fails with the exact error on the old behavior; present files are linked and copied).
+
 ## The standard case goes unsaid (after gate B)
 
 Found in gate B on the phone: + made an execution on the Mac Mini with no way to choose, and every execution carried a computer badge, the home's too. Trey's direction: standard cases with escape hatches, no repeated decisions, and the base case assumed.

@@ -12,6 +12,7 @@
 
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import slugify from '@sindresorhus/slugify';
@@ -94,6 +95,56 @@ async function loadLib(): Promise<AgentexWorkspace> {
   if (cached) return cached;
   cached = await import('@agentex/workspace');
   return cached;
+}
+
+/** The repository's own list of local files for its worktrees, as agentex names it. */
+const WORKSPACE_CONFIG = 'agentex.workspace.json';
+
+/**
+ * Put the repository's own local files into a new worktree: the `fromSource`
+ * block of its agentex.workspace.json (links and copies of files like
+ * .env.local), the source folder's list with the worktree's overriding it
+ * field by field, as agentex reads it. agentex refuses a link whose file
+ * isn't there ("no silent broken symlinks"), and that failed every worktree
+ * on a computer without the file, a fresh copy of the project for one. So
+ * Ri applies it: what's there is brought in, what isn't is skipped and named,
+ * and a local file never fails the worktree. Returns what to tell the person.
+ */
+async function bringLocalFiles(
+  handle: { path: string; copyFromSource(globs: readonly string[]): Promise<void>; linkFromSource(paths: readonly string[]): Promise<void> },
+  source: string,
+  agentName: string,
+): Promise<string | null> {
+  const read = async (dir: string): Promise<{ link?: unknown; copy?: unknown } | null> => {
+    try {
+      const parsed = JSON.parse(await readFile(path.join(dir, WORKSPACE_CONFIG), 'utf8')) as { fromSource?: { link?: unknown; copy?: unknown } };
+      return parsed.fromSource ?? null;
+    } catch {
+      return null;
+    }
+  };
+  const [base, override] = await Promise.all([read(source), read(handle.path)]);
+  const list = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  const link = override?.link !== undefined ? list(override.link) : list(base?.link);
+  const copy = override?.copy !== undefined ? list(override.copy) : list(base?.copy);
+  const missing = link.filter((rel) => !existsSync(path.join(source, rel)));
+  const notes: string[] = [];
+  if (missing.length > 0) {
+    notes.push(`${agentName}'s folder on this computer has no ${missing.join(', ')}, so this worktree has ${missing.length === 1 ? 'none' : 'none of them'}.`);
+  }
+  try {
+    if (copy.length > 0) await handle.copyFromSource(copy);
+    const present = link.filter((rel) => !missing.includes(rel));
+    if (present.length > 0) await handle.linkFromSource(present);
+  } catch (err) {
+    notes.push(`Some local files weren't brought in: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return notes.length > 0 ? notes.join(' ') : null;
+}
+
+function joinWarnings(...warnings: Array<string | null>): string | null {
+  const present = warnings.filter((w): w is string => !!w);
+  return present.length > 0 ? present.join(' ') : null;
 }
 
 /**
@@ -365,10 +416,14 @@ export async function createWorktreeForSession(args: {
         baseBranch,
         path: worktreePath,
         branch,
+        // The repository's local files are brought in below, without
+        // failing the worktree over one this computer doesn't have.
+        applyFromSource: false,
       });
       if (handle.kind !== 'git') {
         throw new Error('Expected git workspace handle');
       }
+      const localFiles = await bringLocalFiles(handle, ws.cwd, ws.name);
       // Copy user-configured files (default `.env*`) into the new worktree
       // so secrets / local configs travel with the session. Failures here
       // shouldn't kill the worktree — log and continue; the user can re-
@@ -381,7 +436,7 @@ export async function createWorktreeForSession(args: {
         path: handle.path,
         branch: handle.git.branch,
         baseSha: handle.git.baseSha,
-        warning,
+        warning: joinWarnings(warning, localFiles),
       };
     } catch (err) {
       if (err instanceof lib.BranchExistsError || lostBranchRace(err, branch)) continue;
@@ -449,12 +504,12 @@ export async function resumeWorktreeForSession(args: {
       path: worktreePath,
       branch,
       reuseBranch: true,
-      // `applyFromSource` defaults true → the lib copies the workspace's
-      // configured `fromSource` block automatically. We still drive the
-      // app-specific `filesToCopy` (env files) explicitly below for parity
-      // with `createWorktreeForSession`.
+      // The repository's local files are brought in below, as for a new
+      // worktree: never failing it over one this computer doesn't have.
+      applyFromSource: false,
     });
     if (handle.kind !== 'git') return null;
+    const localFiles = await bringLocalFiles(handle, ws.cwd, ws.name);
 
     // filesToCopy (.env etc.) + the setupCommand both run in the background
     // after the worktree is marked ready (see `provisionWorktreeForSession`) —
@@ -467,7 +522,7 @@ export async function resumeWorktreeForSession(args: {
       baseSha: handle.git.baseSha,
       // Resume recreates the ORIGINAL branch at its original base — there is
       // no remote refresh to caveat.
-      warning: null,
+      warning: localFiles,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

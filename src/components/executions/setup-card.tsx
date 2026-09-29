@@ -315,9 +315,9 @@ function SetupErrorRow({
           {retry.isPending ? (
             <Loader2 size={11} className="animate-spin" />
           ) : (
-            <ArrowDownToLine size={11} />
+            <RotateCw size={11} />
           )}
-          Pull
+          Try again
         </button>
       </div>
     </div>
