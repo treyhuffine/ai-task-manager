@@ -23,6 +23,7 @@ import { execFile, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
+import { compareSemver, parseSemver } from '@/lib/utils/semver';
 
 // `@beamd/cli` ships as a dependency of Ri, so the per-platform native binary
 // installs automatically — no global install, no npx. We locate it from a
@@ -570,22 +571,4 @@ async function computeBinInfo(): Promise<BeamdBinInfo> {
     outdated: version != null && compareSemver(version, MIN_BEAMD_VERSION) < 0,
     minVersion: MIN_BEAMD_VERSION,
   };
-}
-
-function parseSemver(s: string): string | null {
-  const m = s.match(/\d+\.\d+\.\d+/);
-  return m ? m[0] : null;
-}
-
-/** Compare dotted numeric versions (`x.y.z`). Returns -1 / 0 / 1. */
-function compareSemver(a: string, b: string): number {
-  const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
-  const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < 3; i++) {
-    const da = pa[i] ?? 0;
-    const db = pb[i] ?? 0;
-    if (da > db) return 1;
-    if (da < db) return -1;
-  }
-  return 0;
 }

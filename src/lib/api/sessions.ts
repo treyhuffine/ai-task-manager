@@ -192,6 +192,16 @@ export interface PrResponse {
   ghStatus?: 'not_installed' | 'not_authenticated';
 }
 
+/** A linked PR's number and GitHub address, known without asking GitHub (`GET /sessions/:id/pr-link`). */
+export interface LinkedPr {
+  number: number;
+  url: string;
+}
+
+export interface PrLinkResponse {
+  linked: LinkedPr | null;
+}
+
 export interface MergeRequestBody {
   method?: 'merge' | 'squash' | 'rebase';
   deleteBranch?: boolean;
@@ -515,6 +525,10 @@ export const sessionsApi = {
 
   pr(id: string): Promise<PrResponse> {
     return api.get<PrResponse>(`/sessions/${id}/pr`);
+  },
+
+  prLink(id: string): Promise<PrLinkResponse> {
+    return api.get<PrLinkResponse>(`/sessions/${id}/pr-link`);
   },
 
   openPr(id: string): Promise<{ ok: true }> {

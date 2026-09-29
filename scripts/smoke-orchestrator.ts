@@ -4,7 +4,7 @@
  *
  * Wipes an isolated test data root, runs the bootstrap steps in-process
  * (auth, skill install, DB init), and asserts the filesystem ended up right:
- *   - CLAUDE.md written at the app root
+ *   - AGENTS.md written at the app root, and no CLAUDE.md beside it
  *   - every shipped skill symlinked into .claude/skills/ and .agents/skills/
  *   - data.db created at the app root on first DB touch (no brain/ subfolder)
  *   - .config/config.json populated with a local token
@@ -53,7 +53,7 @@ async function main() {
   const globalBefore = globalSkillDirs.map((p) => fs.existsSync(p));
 
   // Bootstrap in-process. Order matches `ri start --dev`:
-  //   ensureLocalToken → ensureAppRoot (writes CLAUDE.md, config.json)
+  //   ensureLocalToken → ensureAppRoot (writes AGENTS.md, config.json)
   //   installWorkspaceSkills → symlinks
   //   getDb → data.db
   console.log(pc.dim(`  bootstrapping…`));
@@ -75,8 +75,14 @@ async function main() {
       detail: TEST_ROOT,
     },
     {
-      name: 'CLAUDE.md written to app root',
-      run: () => fs.existsSync(path.join(TEST_ROOT, 'CLAUDE.md')),
+      name: 'AGENTS.md written to app root',
+      run: () => fs.existsSync(path.join(TEST_ROOT, 'AGENTS.md')),
+    },
+    {
+      // A CLAUDE.md would hide AGENTS.md from Claude Code. It's opt-in, and
+      // only ever written by an orchestrator session install.
+      name: 'no CLAUDE.md at app root',
+      run: () => !fs.existsSync(path.join(TEST_ROOT, 'CLAUDE.md')),
     },
     {
       name: 'config.json written to .config/',

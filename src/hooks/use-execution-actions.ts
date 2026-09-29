@@ -79,6 +79,46 @@ export function useSessionPr(id: string | null) {
   });
 }
 
+/**
+ * The linked PR's address from the repo remote, never from GitHub. Only
+ * fetched when a PR number is linked, and keyed on it, so linking or
+ * unlinking a PR refetches. See `GET /sessions/:id/pr-link`.
+ */
+export function useSessionPrLink(session: Pick<ChatSessionWithExecution, 'id' | 'prNumber'> | undefined) {
+  const id = session?.id ?? null;
+  const prNumber = session?.prNumber ?? null;
+  return useQuery({
+    queryKey: ['session', id ?? '__none__', 'pr-link', prNumber],
+    queryFn: () => sessionsApi.prLink(id!),
+    enabled: !!id && prNumber != null,
+    // The remote behind an address rarely changes. The number is in the key.
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** A PR the user can open: its number, address, and whether it was closed unmerged. */
+export interface OpenablePr {
+  number: number;
+  url: string;
+  closed: boolean;
+}
+
+/**
+ * The session's PR as a link, whatever state git is in: the live lookup's PR
+ * when GitHub answered, else the linked number with an address built from the
+ * repo remote. Null only when no PR is known at all.
+ */
+export function useOpenablePr(session: ChatSessionWithExecution | undefined): OpenablePr | null {
+  const { data: prResp } = useSessionPr(session?.id ?? null);
+  const { data: prLink } = useSessionPrLink(session);
+  return useMemo(() => {
+    const pr = prResp?.pr;
+    if (pr) return { number: pr.number, url: pr.url, closed: pr.state === 'CLOSED' };
+    const linked = prLink?.linked;
+    return linked ? { number: linked.number, url: linked.url, closed: false } : null;
+  }, [prResp, prLink]);
+}
+
 export function useOpenPr(id: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -152,6 +192,8 @@ export function useHelpWithError(id: string) {
 
 interface UseExecutionActionsResult {
   state: ActionState;
+  /** The session's PR to link to in every state (see `useOpenablePr`). */
+  openablePr: OpenablePr | null;
   commit: ReturnType<typeof useCommit>;
   push: ReturnType<typeof usePush>;
   pullBase: ReturnType<typeof usePullBase>;
@@ -174,6 +216,7 @@ export function useExecutionActions(
   const { data: status } = useSessionStatus(id || null);
   const { data: prResp } = useSessionPr(id || null);
   const { data: transfer } = useTransfer(id || null);
+  const openablePr = useOpenablePr(session);
   const commit = useCommit(id);
   const push = usePush(id);
   const pullBase = usePullBase(id);
@@ -198,7 +241,7 @@ export function useExecutionActions(
     [session, workspaceIsGit, prResp, status, pushNonFastForward, transfer],
   );
 
-  return { state, commit, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts };
+  return { state, openablePr, commit, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts };
 }
 
 export interface ActionStateInput {

@@ -33,7 +33,7 @@ You have two equivalent surfaces. Prefer MCP tools when the user's Claude Code h
 - Workspaces (the user calls a workspace an "agent"): `list_workspaces`, `get_workspace`, `create_workspace`, `update_workspace`, `archive_workspace`, `list_workspace_sessions`
 - Triggers / runs: `list_triggers`, `get_trigger`, `create_trigger`, `update_trigger`, `delete_trigger`, `run_trigger`, `list_runs`, `get_run`, `cancel_run`, `reset_trigger_failures`
 
-**CLI**: `<cli> agent <action> [params]` (the concrete `<cli>` binary is named in the CLAUDE.md at the app's data root). Output is JSON on stdout — pipe to `jq`. Run `<cli> agent <action> --help` to see params, or `<cli> agent describe_paths` to confirm where the app is installed on this machine.
+**CLI**: `<cli> agent <action> [params]` (the concrete `<cli>` binary is named in the AGENTS.md at the app's data root). Output is JSON on stdout — pipe to `jq`. Run `<cli> agent <action> --help` to see params, or `<cli> agent describe_paths` to confirm where the app is installed on this machine.
 
 Both surfaces share the same action registry — same names, same params, same return shape.
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal, Archive, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, Eye, EyeOff, Pin, PinOff } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, Archive, ArrowUpRight, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, Eye, EyeOff, Pin, PinOff } from 'lucide-react';
 import { locationLabel, preparedFolder } from '@/lib/executions/location';
 import { useComputer, useRunsOnSeveralComputers } from '@/hooks/use-computers';
 import { Popover as PopoverPrimitive } from 'radix-ui';
@@ -21,6 +21,7 @@ import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
+import { useOpenablePr } from '@/hooks/use-execution-actions';
 import { ResyncMenuItem } from './resync-menu-item';
 import { RestartMenuItem } from './restart-menu-item';
 import { deriveExecutionHeaderStatus, describeChatStatus, type ChatStatusTone } from './execution-header-status';
@@ -336,7 +337,10 @@ export function ExecutionHeader({
   const providerResumeCommand = session.externalSessionId
     ? resumeCommandForHarness(session.harness, session.externalSessionId)
     : null;
-  const showGit = !!workspace?.isGit && (!!preparedFolder(session) || !!session.setupError);
+  // The git box also mounts for a linked PR alone (no worktree, archived,
+  // non-git), where it shows just the PR link.
+  const showGit =
+    (!!workspace?.isGit && (!!preparedFolder(session) || !!session.setupError)) || session.prNumber != null;
 
   // One menu for passive details and meta actions, shared by both layouts.
   const menu = (align: 'start' | 'end', triggerClass: string, iconSize: number) => (
@@ -383,7 +387,7 @@ export function ExecutionHeader({
 
           <div className="h-px bg-border" />
           <div className="p-2">
-            <LinkPrSection sessionId={session.id} linkedNumber={session.prNumber ?? null} />
+            <LinkPrSection session={session} />
           </div>
 
           <div className="h-px bg-border" />
@@ -856,8 +860,7 @@ function resumeIdLabel(harness: string | null): string {
 
 
 interface LinkPrSectionProps {
-  sessionId: string;
-  linkedNumber: number | null;
+  session: ChatSessionWithExecution;
 }
 
 /**
@@ -866,7 +869,10 @@ interface LinkPrSectionProps {
  * opened from a fork, or the branch was renamed. The route prefers
  * the explicit link when set; clearing it falls back to branch match.
  */
-function LinkPrSection({ sessionId, linkedNumber }: LinkPrSectionProps) {
+function LinkPrSection({ session }: LinkPrSectionProps) {
+  const sessionId = session.id;
+  const linkedNumber = session.prNumber ?? null;
+  const openablePr = useOpenablePr(session);
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | null>(null);
   const update = useUpdateSession();
@@ -900,7 +906,21 @@ function LinkPrSection({ sessionId, linkedNumber }: LinkPrSectionProps) {
       {linkedNumber != null ? (
         <div className="flex items-center justify-between gap-2 px-1 text-[12px]">
           <span className="text-foreground">
-            Linked to <span className="font-mono">#{linkedNumber}</span>
+            Linked to{' '}
+            {openablePr?.number === linkedNumber ? (
+              <a
+                href={openablePr.url}
+                target="_blank"
+                rel="noreferrer"
+                title={`Open PR #${linkedNumber} on GitHub`}
+                className="inline-flex items-center gap-0.5 font-mono underline-offset-2 hover:underline"
+              >
+                #{linkedNumber}
+                <ArrowUpRight size={11} className="opacity-70" />
+              </a>
+            ) : (
+              <span className="font-mono">#{linkedNumber}</span>
+            )}
           </span>
           <button
             type="button"

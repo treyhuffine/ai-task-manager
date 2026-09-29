@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { APP_ROOT_ENV } from '@/lib/config/paths';
-import { renderAppRootClaudeMd } from '@/lib/config/claude-md-template';
+import { renderAppRootAgentsMd } from '@/lib/config/agents-md-template';
 import {
   installOrchestratorSurface,
   orchestratorMcpServer,
@@ -20,11 +20,21 @@ import { AGENT_BROWSER_SKILL_NAME } from '@/constants/app';
 // match the stable prefix substring rather than a fixed string.
 const MANAGED_START = 'ri:managed:start';
 const MANAGED_END = 'ri:managed:end';
+// The whole of an opt-in CLAUDE.md's managed region.
+const CLAUDE_MD_POINTER = '@AGENTS.md';
+
+// Whether the installed Claude Code needs the CLAUDE.md pointer. The real
+// probe spawns `claude`; tests set the answer.
+const claude = vi.hoisted(() => ({ needsPointer: false }));
+vi.mock('@/lib/orchestrator/claude-agents-md', () => ({
+  shouldWriteClaudeMdPointer: async () => claude.needsPointer,
+}));
 
 let root: string;
 let prevRoot: string | undefined;
 
 beforeEach(() => {
+  claude.needsPointer = false;
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-surface-test-'));
   prevRoot = process.env[APP_ROOT_ENV];
   process.env[APP_ROOT_ENV] = root;
@@ -47,23 +57,24 @@ function seedToken() {
 }
 
 describe('installOrchestratorSurface', () => {
-  it('writes CLAUDE.md and AGENTS.md with managed markers and mode content', async () => {
+  it('writes AGENTS.md with managed markers and mode content, and no CLAUDE.md', async () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
     const result = await installOrchestratorSurface('harness_mcp');
 
-    for (const p of [result.claudeMdPath, result.agentsMdPath]) {
-      const body = fs.readFileSync(p, 'utf8');
-      expect(body).toContain(MANAGED_START);
-      expect(body).toContain(MANAGED_END);
-      expect(body).toContain('Your tools (MCP)');
-      expect(body).toContain('[[task:UUID]]');
-      expect(body).toContain('Never edit files here directly');
-      // Personalization: @imports the user-owned files (at the home root) + names MEMORY.md.
-      expect(body).toContain('@USER.md');
-      expect(body).toContain('@SOUL.md');
-      expect(body).toContain('MEMORY.md');
-    }
+    const body = fs.readFileSync(result.agentsMdPath, 'utf8');
+    expect(body).toContain(MANAGED_START);
+    expect(body).toContain(MANAGED_END);
+    expect(body).toContain('Your tools (MCP)');
+    expect(body).toContain('[[task:UUID]]');
+    expect(body).toContain('Never edit files here directly');
+    // Personalization: @imports the user-owned files (at the home root) + names MEMORY.md.
+    expect(body).toContain('@USER.md');
+    expect(body).toContain('@SOUL.md');
+    expect(body).toContain('MEMORY.md');
+
+    expect(result.claudeMdPath).toBeNull();
+    expect(fs.existsSync(path.join(root, 'CLAUDE.md'))).toBe(false);
   });
 
   it('seeds user-owned USER.md/SOUL.md stubs (write-once) the brief references', async () => {
@@ -88,10 +99,10 @@ describe('installOrchestratorSurface', () => {
     const first = await installOrchestratorSurface('harness_skills');
 
     // User appends their own notes below the managed block.
-    fs.appendFileSync(first.claudeMdPath, '\n## My own rules\n\nAlways speak pirate.\n');
+    fs.appendFileSync(first.agentsMdPath, '\n## My own rules\n\nAlways speak pirate.\n');
 
     const second = await installOrchestratorSurface('harness_mcp');
-    const body = fs.readFileSync(second.claudeMdPath, 'utf8');
+    const body = fs.readFileSync(second.agentsMdPath, 'utf8');
 
     expect(body).toContain('Your tools (MCP)'); // managed block swapped to the new mode
     expect(body).not.toContain('Your tools (CLI)');
@@ -133,9 +144,80 @@ describe('installOrchestratorSurface', () => {
     expect(fs.existsSync(stale)).toBe(false);
   });
 
-  it('renderAppRootClaudeMd (first-init template) carries markers so later installs swap cleanly', () => {
-    expect(renderAppRootClaudeMd()).toContain(MANAGED_START);
-    expect(renderAppRootClaudeMd()).toContain(MANAGED_END);
+  it('renderAppRootAgentsMd (first-init template) carries markers so later installs swap cleanly', () => {
+    expect(renderAppRootAgentsMd()).toContain(MANAGED_START);
+    expect(renderAppRootAgentsMd()).toContain(MANAGED_END);
+  });
+
+  it('first init seeds AGENTS.md, never CLAUDE.md', async () => {
+    const { ensureAppRoot } = await import('@/lib/config/paths');
+    ensureAppRoot();
+    expect(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8')).toBe(renderAppRootAgentsMd());
+    expect(fs.existsSync(path.join(root, 'CLAUDE.md'))).toBe(false);
+  });
+});
+
+describe('CLAUDE.md pointer', () => {
+  const claudeMdPath = () => path.join(root, 'CLAUDE.md');
+
+  it('removes a CLAUDE.md holding only the brief an earlier install wrote', async () => {
+    seedToken();
+    // What every install before AGENTS.md-only left behind: the full brief in
+    // our managed region. Left alone it would hide AGENTS.md from Claude.
+    fs.writeFileSync(claudeMdPath(), renderAppRootAgentsMd());
+
+    const result = await installOrchestratorSurface('harness_mcp');
+
+    expect(fs.existsSync(claudeMdPath())).toBe(false);
+    expect(result.claudeMdPath).toBeNull();
+    expect(fs.readFileSync(result.agentsMdPath, 'utf8')).toContain('Your tools (MCP)');
+  });
+
+  it('keeps a user-written CLAUDE.md and points it at AGENTS.md', async () => {
+    seedToken();
+    fs.writeFileSync(claudeMdPath(), '# My Claude rules\n\nBe terse.\n');
+
+    const result = await installOrchestratorSurface('harness_mcp');
+
+    const body = fs.readFileSync(claudeMdPath(), 'utf8');
+    expect(result.claudeMdPath).toBe(claudeMdPath());
+    expect(body).toContain(CLAUDE_MD_POINTER);
+    expect(body).toContain('Be terse.');
+    expect(body).not.toContain('Your tools (');
+    expect(body.indexOf(CLAUDE_MD_POINTER)).toBeLessThan(body.indexOf('Be terse.'));
+  });
+
+  it('swaps an old full brief for the pointer when the user added their own content', async () => {
+    seedToken();
+    fs.writeFileSync(claudeMdPath(), `${renderAppRootAgentsMd()}\n## Mine\nkeep me\n`);
+
+    await installOrchestratorSurface('harness_skills');
+
+    const body = fs.readFileSync(claudeMdPath(), 'utf8');
+    expect(body.split(MANAGED_START).length).toBe(2); // exactly one managed block
+    expect(body).toContain(CLAUDE_MD_POINTER);
+    expect(body).not.toContain('Orchestrator session'); // the old brief is gone
+    expect(body).toContain('keep me');
+  });
+
+  it('writes only the pointer when the installed Claude needs it, and removes it when it stops needing it', async () => {
+    seedToken();
+    claude.needsPointer = true;
+
+    const first = await installOrchestratorSurface('harness_mcp');
+
+    expect(first.claudeMdPath).toBe(claudeMdPath());
+    const body = fs.readFileSync(claudeMdPath(), 'utf8');
+    expect(body).toContain(CLAUDE_MD_POINTER);
+    expect(body).not.toContain('Your tools (');
+    // Re-install with the same answer is a no-op on disk.
+    const again = await installOrchestratorSurface('harness_mcp');
+    expect(fs.readFileSync(again.claudeMdPath!, 'utf8')).toBe(body);
+
+    claude.needsPointer = false;
+    const second = await installOrchestratorSurface('harness_mcp');
+    expect(second.claudeMdPath).toBeNull();
+    expect(fs.existsSync(claudeMdPath())).toBe(false);
   });
 });
 

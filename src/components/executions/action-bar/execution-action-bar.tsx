@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Send, ArrowDownToLine, ArrowUpRight, CheckCircle2, XCircle, Clock, AlertCircle, Archive } from 'lucide-react';
-import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState } from '@/hooks/use-execution-actions';
+import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState, type OpenablePr } from '@/hooks/use-execution-actions';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -47,7 +47,7 @@ interface ExecutionActionBarProps {
  * collapses to nothing (handled at the call site).
  */
 export function ExecutionActionBar({ session, workspace, variant = 'row', fit = false }: ExecutionActionBarProps) {
-  const { state, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts } = useExecutionActions(
+  const { state, openablePr, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts } = useExecutionActions(
     session,
     workspace?.isGit ?? false,
   );
@@ -96,17 +96,20 @@ export function ExecutionActionBar({ session, workspace, variant = 'row', fit = 
     });
   };
 
-  // Hide entirely for non-git, no-worktree, or archived sessions.
+  // No ship actions for non-git, no-worktree, or archived sessions.
   // `setupFailed` is rendered so the user can retry the fetch.
   // `moving` is shown as the move's progress above the composer (see
-  // TransferProgress). The ship actions wait until it arrives.
+  // TransferProgress). The ship actions wait until it arrives. A linked PR
+  // still gets its link.
   if (
     state.kind === 'noWorktree' ||
     state.kind === 'archived' ||
     state.kind === 'cleanNoBranch' ||
     state.kind === 'moving'
   ) {
-    return null;
+    return openablePr ? (
+      <PrChip sessionId={session.id} prNumber={openablePr.number} prUrl={openablePr.url} closed={openablePr.closed} />
+    ) : null;
   }
 
   const handlePush = () => {
@@ -230,6 +233,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row', fit = 
       <>
         <Narrative
           state={state}
+          openablePr={openablePr}
           fit={fit}
           sessionId={session.id}
           push={{ pending: push.isPending, onClick: handlePush }}
@@ -591,6 +595,8 @@ function ReviewBadge({ decision }: { decision: PrReviewDecision }) {
 
 interface NarrativeProps {
   state: ActionState;
+  /** The PR to link to. States that don't carry one render it from here. */
+  openablePr: OpenablePr | null;
   fit?: boolean;
   sessionId: string;
   push: { pending: boolean; onClick: () => void };
@@ -676,7 +682,7 @@ const THEME_BY_STATE: Record<ActionState['kind'], ChipTheme | null> = {
  * (via `justify-between`), and the chip itself is tinted by state so
  * the user can recognize the situation at a glance.
  */
-function Narrative({ state, fit, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeProps) {
+function Narrative({ state, openablePr, fit, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeProps) {
   const theme = THEME_BY_STATE[state.kind];
   if (!theme) return null;
 
@@ -686,6 +692,7 @@ function Narrative({ state, fit, sessionId, push, pullBase, retrySetup, archive,
     >
       <NarrativeBody
         state={state}
+        openablePr={openablePr}
         theme={theme}
         sessionId={sessionId}
         push={push}
@@ -702,16 +709,23 @@ interface NarrativeBodyProps extends NarrativeProps {
   theme: ChipTheme;
 }
 
-function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeBodyProps) {
+function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeBodyProps) {
+  // The PR link for states whose git story doesn't carry the PR (behind base,
+  // diverged, setup failed, dirty on a closed PR, or a lookup that failed).
+  // PR states render their own chip from the lookup.
+  const linkedChip = openablePr ? (
+    <PrChip sessionId={sessionId} prNumber={openablePr.number} prUrl={openablePr.url} closed={openablePr.closed} />
+  ) : null;
   switch (state.kind) {
     case 'setupFailed':
       return (
         <>
           <NarrativeLeft>
+            {linkedChip}
             <span className={`inline-flex items-center gap-1 font-medium px-1 ${theme.text}`}>
               <AlertCircle size={11} />
               {state.prNumber != null
-                ? `Couldn't fetch PR #${state.prNumber}`
+                ? linkedChip ? "Couldn't fetch its branch" : `Couldn't fetch PR #${state.prNumber}`
                 : "Couldn't create worktree"}
             </span>
           </NarrativeLeft>
@@ -730,9 +744,9 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
       return (
         <>
           <NarrativeLeft>
-            {state.pr && (
+            {state.pr ? (
               <PrChip sessionId={sessionId} prNumber={state.pr.prNumber} prUrl={state.pr.prUrl} />
-            )}
+            ) : linkedChip}
             <NarrativeText themed={theme.text}>
               <span className="font-semibold tabular-nums">
                 {state.staged + state.unstaged + state.untracked}
@@ -748,6 +762,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
       return (
         <>
           <NarrativeLeft>
+            {linkedChip}
             <NarrativeText themed={theme.text}>
               <span className="font-semibold tabular-nums">{state.behind}</span> behind base
             </NarrativeText>
@@ -767,6 +782,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
       return (
         <>
           <NarrativeLeft>
+            {linkedChip}
             <NarrativeText themed={theme.text}>
               <span className="font-semibold tabular-nums">{state.ahead}</span>{' '}
               {state.ahead === 1 ? 'commit ahead' : 'commits ahead'}
@@ -781,7 +797,9 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
               variant="secondary"
               title="Push branch to origin"
             />
-            <OpenPrButton sessionId={sessionId} />
+            {/* A PR is already linked (GitHub just didn't confirm it), so
+                don't offer to open a second one. */}
+            {!linkedChip && <OpenPrButton sessionId={sessionId} />}
           </div>
         </>
       );
@@ -869,6 +887,7 @@ function NarrativeBody({ state, theme, sessionId, push, pullBase, retrySetup, ar
       return (
         <>
           <NarrativeLeft>
+            {linkedChip}
             <span className={`inline-flex items-center gap-1 font-medium px-1 ${theme.text}`}>
               <AlertCircle size={11} />
               Diverged from origin
