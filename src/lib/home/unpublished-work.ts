@@ -31,13 +31,32 @@ export interface WorktreeState {
   error: string | null;
 }
 
+/**
+ * One folder executions ran in: a worktree of its own, or the project's own
+ * folder, which every live execution in that project shares.
+ */
+export interface FolderState {
+  path: string;
+  /** Inside the home's own folder (its `.work/worktrees`): it moves if that folder moves. */
+  insideHome: boolean;
+  executions: Array<{ id: string; label: string; agent: string; status: string }>;
+  missing: boolean;
+  branch: string | null;
+  uncommitted: number;
+  unpushed: number;
+  error: string | null;
+}
+
 export interface UnpublishedWorkReport {
   root: string;
+  /** Executions with a folder recorded. */
   worktrees: number;
   here: number;
   withWork: WorktreeState[];
   missing: number;
   errors: WorktreeState[];
+  /** The same, by folder. */
+  folders: FolderState[];
 }
 
 type Row = Record<string, unknown>;
@@ -73,15 +92,38 @@ export function unpublishedWork(root: string): UnpublishedWorkReport {
       )
       .all() as Row[],
   );
+  // Each folder is read once, however many executions share it.
+  const inspected = new Map<string, ReturnType<typeof inspectWorktree>>();
+  const inspect = (folder: string) => {
+    if (!inspected.has(folder)) inspected.set(folder, inspectWorktree(folder));
+    return inspected.get(folder)!;
+  };
   const states: WorktreeState[] = rows.map((r) => ({
     executionId: text(r.id),
     label: text(r.label) || '(unlabeled)',
     agent: text(r.agent),
     status: text(r.status),
     path: text(r.worktree_path),
-    ...inspectWorktree(text(r.worktree_path)),
+    ...inspect(text(r.worktree_path)),
   }));
+  const home = path.resolve(root) + path.sep;
+  const folders = new Map<string, FolderState>();
+  for (const s of states) {
+    const folder = folders.get(s.path) ?? {
+      path: s.path,
+      insideHome: path.resolve(s.path).startsWith(home),
+      executions: [],
+      missing: s.missing,
+      branch: s.branch,
+      uncommitted: s.uncommitted,
+      unpushed: s.unpushed,
+      error: s.error,
+    };
+    folder.executions.push({ id: s.executionId, label: s.label, agent: s.agent, status: s.status });
+    folders.set(s.path, folder);
+  }
   return {
+    folders: [...folders.values()],
     root,
     worktrees: states.length,
     here: states.filter((s) => !s.missing).length,
@@ -92,19 +134,24 @@ export function unpublishedWork(root: string): UnpublishedWorkReport {
 }
 
 export function describeUnpublishedWork(report: UnpublishedWorkReport): string {
+  const here = report.folders.filter((f) => !f.missing);
+  const inside = here.filter((f) => f.insideHome);
+  const withWork = here.filter((f) => !f.error && (f.uncommitted > 0 || f.unpushed > 0));
   const lines = [
-    `${report.worktrees} execution worktrees recorded in ${report.root}: ${report.here} here, ${report.missing} no longer here.`,
-    report.withWork.length
-      ? `${report.withWork.length} have work no remote has:`
-      : "None has work that isn't committed and pushed.",
+    `${report.worktrees} executions in ${report.root} ran in ${report.folders.length} folders: ${here.length} here, ${report.folders.length - here.length} no longer here.`,
+    `${inside.length} of those here are worktrees inside ${report.root}, so they move if that folder moves.`,
+    withWork.length ? `${withWork.length} folders have work no remote has:` : "No folder has work that isn't committed and pushed.",
   ];
-  for (const s of report.withWork) {
-    const what = [s.uncommitted ? `${s.uncommitted} uncommitted` : '', s.unpushed ? `${s.unpushed} unpushed commits` : ''].filter(Boolean).join(', ');
-    lines.push(`  ${s.agent} / ${s.label} [${s.status}]: ${what}${s.branch ? ` on ${s.branch}` : ''}\n    ${s.path}`);
+  for (const f of withWork) {
+    const what = [f.uncommitted ? `${f.uncommitted} uncommitted` : '', f.unpushed ? `${f.unpushed} unpushed commits` : ''].filter(Boolean).join(', ');
+    const agents = [...new Set(f.executions.map((e) => e.agent))].join(', ');
+    const used = f.executions.length === 1 ? `"${f.executions[0]!.label}" [${f.executions[0]!.status}]` : `${f.executions.length} executions`;
+    lines.push(`  ${f.path}${f.insideHome ? ' (inside the home)' : ''}\n    ${what}${f.branch ? ` on ${f.branch}` : ''}. ${agents}: ${used}`);
   }
-  if (report.errors.length) {
-    lines.push(`${report.errors.length} couldn't be read:`);
-    for (const s of report.errors) lines.push(`  ${s.agent} / ${s.label}: ${s.error}\n    ${s.path}`);
+  const unreadable = here.filter((f) => f.error);
+  if (unreadable.length) {
+    lines.push(`${unreadable.length} couldn't be read:`);
+    for (const f of unreadable) lines.push(`  ${f.path}: ${f.error} (${f.executions.length} executions)`);
   }
   return lines.join('\n');
 }

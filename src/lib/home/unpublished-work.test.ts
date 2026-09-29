@@ -35,7 +35,7 @@ afterEach(async () => {
   await home.cleanup();
 });
 
-it('names the worktrees with work no remote has, and the ones no longer here', async () => {
+it('names the folders with work no remote has, and the ones no longer here', async () => {
   const { unpublishedWork, describeUnpublishedWork } = await import('./unpublished-work');
   const before = git(folders.uncommitted, 'status', '--porcelain');
   const report = unpublishedWork(home.root);
@@ -44,7 +44,31 @@ it('names the worktrees with work no remote has, and the ones no longer here', a
     ['uncommitted', 1, 0, 'main'],
     ['unpushed', 0, 1, 'main'],
   ]);
-  expect(describeUnpublishedWork(report)).toContain('App / unpushed [active]: 1 unpushed commits on main');
+  expect(report.folders).toHaveLength(4);
+  const text = describeUnpublishedWork(report);
+  expect(text).toContain('4 executions in');
+  expect(text).toContain('2 folders have work no remote has:');
+  expect(text).toContain(`  ${folders.unpushed}\n    1 unpushed commits on main. App: "unpushed" [active]`);
   // Only read.
   expect(git(folders.uncommitted, 'status', '--porcelain')).toBe(before);
+});
+
+it('reads a folder that live executions share once, and says which are inside the home', async () => {
+  const q = await import('@/lib/db/queries');
+  const { resetDb } = await import('@/lib/db');
+  const agent = q.listWorkspaces({ status: 'active' })[0]!.id;
+  const worktree = fixture.clone(fixture.remote('inside'), path.join(home.root, '.work', 'worktrees', 'app', 'app-1'));
+  fs.writeFileSync(path.join(worktree, 'wip.ts'), 'wip\n');
+  q.createExecutionWithChat({ workspaceId: agent, harness: 'claude', label: 'Live one', worktreePath: folders.uncommitted });
+  q.createExecutionWithChat({ workspaceId: agent, harness: 'claude', label: 'In the home', worktreePath: worktree });
+  resetDb();
+  const { unpublishedWork, describeUnpublishedWork } = await import('./unpublished-work');
+  const report = unpublishedWork(home.root);
+  const shared = report.folders.find((f) => f.path === folders.uncommitted)!;
+  expect(shared.executions.map((e) => e.label).sort()).toEqual(['Live one', 'uncommitted']);
+  expect(report.folders.find((f) => f.path === worktree)).toMatchObject({ insideHome: true, uncommitted: 1 });
+  const text = describeUnpublishedWork(report);
+  expect(text).toContain('1 of those here are worktrees inside');
+  expect(text).toContain(`  ${worktree} (inside the home)`);
+  expect(text).toContain('App: 2 executions');
 });
