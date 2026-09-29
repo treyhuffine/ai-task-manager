@@ -43,7 +43,7 @@ All in the live checkout (`~/ai-task-manager`), with production stopped for the 
    pnpm tsx scripts/home-backup.ts verify "$L"
    pnpm tsx scripts/import-home.ts "$L" --device MacBook --map 019f9547-81be-70e0-8bfb-c04c1dc5792a=019e4cdd-3c13-7646-9320-46c1de0e0cf7
    ```
-   That only says what it would do (the database is brought up to the homes build and gets its identity, as a first start would). Check it: about 245 chats, the laptop's `insiderfinance` joining `insiderfinance-app`, 5 agents new here, no problems. Then the same command with `--apply`.
+   That only says what it would do (the database is brought up to the homes build, gets its identity, and records its agents' folders on the Mini, as a first start would). Check it: about 245 chats, the laptop's `insiderfinance` joining `insiderfinance-app`, 5 agents new here, no problems. Then the same command with `--apply`.
 5. **Start Ri:** `pnpm cli:dev start`. Then check: it opens, `pnpm cli:dev home show` says it runs on the Mac Mini, and an imported laptop chat reads as it did.
 
 ## On the MacBook

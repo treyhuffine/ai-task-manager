@@ -155,6 +155,22 @@ describe('a home that has not started on this version yet', () => {
   });
 });
 
+describe('a home that has not started on this version yet', () => {
+  it("records its agents' folders here first, as its first start would, so an agent both homes have keeps its folder here", async () => {
+    const { getRawDb } = await import('@/lib/db');
+    // The Mini before its first start on this version: its agents' folders are only `workspaces.cwd`.
+    getRawDb().exec('DELETE FROM workspace_setups');
+    const { applyHomeImport } = await import('./import-records');
+    const result = applyHomeImport(options());
+    const q = await import('@/lib/db/queries');
+    const host = q.getHome()!.hostDeviceId;
+    expect(q.getWorkspaceSetup(ids.riOnMini, host)).toMatchObject({ sourcePath: mini.root });
+    expect(q.getWorkspaceSetup(ids.riOnMini, result.device.id!)).toMatchObject({ sourcePath: '/Users/trey/dynamism/ai-task-manager' });
+    // And the boot move at the next start adds nothing.
+    expect(q.moveFolderRecords()).toMatchObject({ setups: 0 });
+  });
+});
+
 describe('importing', () => {
   it('brings the chats and their work, placed on the MacBook where they ran', async () => {
     const { applyHomeImport } = await import('./import-records');

@@ -40,7 +40,7 @@ import type Database from 'better-sqlite3';
 import { uuidv7 } from 'uuidv7';
 import { getAppRoot, getAttachmentsDir } from '@/lib/config/paths';
 import { getDb, getRawDb } from '@/lib/db';
-import { createDevice, getWorkspaceSetup, getHome, listDevices, setAgentFolder } from '@/lib/db/queries';
+import { createDevice, getWorkspaceSetup, getHome, listDevices, moveFolderRecords, setAgentFolder } from '@/lib/db/queries';
 import { ensureHomeIdentity, HomeIdentityError } from './identity';
 import { withSourceDatabase } from './source-db';
 
@@ -129,7 +129,11 @@ function run(options: HomeImportOptions, apply: boolean): HomeImportPlan | HomeI
   if (!deviceName) throw new HomeImportError('Name the device that home ran on.');
 
   // This home as its first start would leave it: up to date, with its
-  // identity. A copy that needs claiming says so rather than being imported into.
+  // identity, and its agents' folders here in its records (the boot move).
+  // The move skips an agent that has a folder anywhere, so it must come
+  // before the laptop's folders do, or an agent both homes have would never
+  // get its folder here. A copy that needs claiming says so rather than
+  // being imported into.
   getDb();
   const dest = getRawDb();
   try {
@@ -138,6 +142,7 @@ function run(options: HomeImportOptions, apply: boolean): HomeImportPlan | HomeI
     if (err instanceof HomeIdentityError) throw new HomeImportError(err.message);
     throw err;
   }
+  moveFolderRecords();
   const home = getHome()!;
 
   return withSourceDatabase(sourceDb, (src) => {
