@@ -14,6 +14,23 @@ Source and packaged launches still default to isolated desktop homes. Sharing an
 
 **Revised delivery decision, 26 September 2026:** build the standalone desktop release from main independently of the experimental Homes branch. Its multi-machine design is not yet a product commitment. Electron connects to a backend, while local service management separately starts, supervises and updates that backend. The CLI and desktop can explicitly select the same local data root. Do not import experimental schemas, enrollment, execution placement or team semantics as a prerequisite. If that experiment is adopted, integrate its connection and worker behavior at this boundary. The multi-machine sections below describe conditional integration requirements, not blockers for a standalone release.
 
+### Remaining work and ownership, 29 September 2026
+
+S1-S33 record completion of the standalone desktop implementation and its stated checks. They do not mean the complete desktop/Home specification or public release is finished. Landing that source on main was safe within its isolated local-beta boundary. It did not integrate experimental Home/worker roles, publish an installer, or migrate live user data.
+
+| Workstream | Current state and remaining work |
+| --- | --- |
+| Standalone desktop features | Implemented: Electron UI, bundled CLI/headless runtime, shared background service, local updates and SQLite recovery, OAuth routing, notifications, menu bar/activity, managed speech and recoverable capture. The recorded package evidence is unsigned macOS arm64. |
+| Independent follow-ups | The pairing startup fix `c96cfab` is on Homes but absent from main at this review and can be reviewed/backported separately. Providers requiring a confidential hosted OAuth exchange still need one, since the existing relay only returns callbacks. If unsupported pre-baseline databases must be adopted without a source checkout, they need a packaged conversion/recovery journey. Current refusal is deliberate protection, not a completed conversion UI. |
+| Home/worker desktop integration | Still implementation work: choose the role before local service/DB startup, enroll a connected computer, connect the viewer safely to its Home, supervise the worker through the shared lifecycle, expose correctly scoped status/stop controls, and preserve native capability boundaries. A branch merge alone does not implement this. |
+| Cross-machine updates | The local updater exists. Negotiated versions/capabilities, per-computer status, safe coordinated activation, old journal compatibility and mixed-release acceptance remain the contract in the cross-machine release section below. |
+| Public distribution and qualification | Configure the actual publisher/feed and any needed relay, produce signed/notarized installers, exercise real installer updates, and complete supported Linux/Intel, login/reboot/sleep, permissions, native notifications, phone/tunnel and live-provider checks. Speech-bearing distribution retains its separate recorded review gate. These are not all blocked on Homes. |
+| Teams | Its authorization, conflict and remote-view integration remains conditional on that product work. It does not block a personal standalone desktop or personal Home/worker release. |
+
+The desktop implementation owner retains the Electron/service integration and release checklist. The Homes implementation owns role, worker, placement and journal semantics, with shared interfaces agreed before either side changes them. Keep the standalone checks green while integrating and record each combined acceptance result explicitly. Do not retire the desktop workstream merely because the local-beta source landed. macOS supervision currently starts with the user's login, not before login or encrypted-disk unlock.
+
+The older D/U checklists mix historical implementation, conditional integration and external qualification. Their unchecked entries need the current implementation matrix and this remaining-work summary to interpret them. The dated historical estimates are not a fresh estimate of work remaining.
+
 ### Main integration and Homes handoff, 28 September 2026
 
 The upstream OAuth return changes are main commits `13933e8` and `1d5f335`. They were already on local main and `origin/main` when this integration began. GitHub had no separate OAuth PR in either configured repository. The eight standalone desktop commits through `6f4ddd2` had not yet landed. Five textual conflicts were resolved in connector connect/callback, MCP callback/reconnect, and common MCP authorization.
@@ -1113,7 +1130,7 @@ These desktop estimates were produced before the multi-machine integration revie
 
 ## Build checklist after the multi-device/teams work
 
-This is the original combined Home/team acceptance checklist. It remains unchecked where it includes conditional multi-machine behavior or external qualification. Standalone code completion is tracked by S1-S19 and the implementation matrix above. The Homes spec controls its own phase ownership.
+This is the original combined Home/team acceptance checklist. It remains unchecked where it includes conditional multi-machine behavior or external qualification. Standalone code completion is tracked by S1-S33 and the implementation matrix above. The Homes spec controls its own phase ownership.
 
 - [ ] D1: Resolve Home/connected/viewer roles before any DB initialization. Adopt an existing installation only through explicit verified ownership and the existing stopped migration/recovery flow. Keep development profiles explicit.
 - [ ] D2: Extract one lifecycle API used by GUI and CLI. Install/status/start/stop/logs/uninstall services without requiring a separate CLI download. Package Home/worker runtime independently of Electron for Mac and Linux.
