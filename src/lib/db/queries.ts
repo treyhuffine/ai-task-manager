@@ -6009,17 +6009,25 @@ export function recomputeAgentSetups(computerId: string): void {
  * Move what existed before the home's records held every computer's folders
  * into them (migration 0011), once and idempotently, at boot after the home
  * has its identity: an agent with no setup anywhere gets its home row from
- * `workspaces.cwd`, each linked folder's home path becomes its home link,
- * and what other computers last reported from their setup files becomes
- * their links. Nothing that's already recorded is changed.
+ * `workspaces.cwd`, and each linked folder gets a place on each computer from
+ * what its agents last used there (their setup files' reports). The home
+ * falls back to the linked folder's own path when no agent reported one.
+ * Nothing that's already recorded is changed.
+ *
+ * A linked folder every agent uses has one place per computer, so agents that
+ * used different places there are settled in this order: an active agent
+ * before an archived one, then a place someone chose before one that was only
+ * the linked folder's own path carried along, then the latest report. Each
+ * disagreement is returned, to say at boot what was kept.
  */
-export function moveFolderRecords(): { setups: number; links: number } {
+export function moveFolderRecords(): { setups: number; links: number; settled: string[] } {
   const db = getDb();
   const host = db.select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
-  if (!host) return { setups: 0, links: 0 };
+  if (!host) return { setups: 0, links: 0, settled: [] };
   const now = new Date().toISOString();
   let setupsMoved = 0;
   let linksMoved = 0;
+  const settled: string[] = [];
   const touched = new Set<string>();
   db.transaction((tx) => {
     const withSetups = new Set(tx.select({ id: agentSetups.workspaceId }).from(agentSetups).all().map((r) => r.id));
@@ -6045,31 +6053,44 @@ export function moveFolderRecords(): { setups: number; links: number } {
       touched.add(computerId);
     };
     const refs = tx.select().from(referenceFolders).where(eq(referenceFolders.status, 'active')).all();
-    for (const ref of refs) {
-      if (ref.path && !ref.targetWorkspaceId) addLink(host, ref.id, nodePath.resolve(ref.path));
-    }
-    // A linked folder every agent uses has one place per computer: where an
-    // active agent there last found it, rather than an archived one.
-    const active = new Set(tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.status, 'active')).all().map((w) => w.id));
-    const reports = tx
-      .select()
-      .from(agentSetups)
-      .all()
-      .sort((a, b) => Number(active.has(b.workspaceId)) - Number(active.has(a.workspaceId)) || b.reportedAt.localeCompare(a.reportedAt));
-    for (const setup of reports) {
-      if (setup.computerId === host) continue;
+    const agents = new Map(tx.select({ id: workspaces.id, name: workspaces.name, status: workspaces.status }).from(workspaces).all().map((w) => [w.id, w]));
+    const computerNames = new Map(tx.select({ id: computers.id, name: computers.name }).from(computers).all().map((c) => [c.id, c.name]));
+
+    // Every place an agent last used for a linked folder, by computer and linked folder.
+    type Used = { agentId: string; place: string | null; chosen: boolean; active: boolean; at: string };
+    const used = new Map<string, { computerId: string; refId: string; uses: Used[] }>();
+    for (const setup of tx.select().from(agentSetups).all()) {
       for (const report of setup.references ?? []) {
         const ref =
           refs.find((r) => r.workspaceId === setup.workspaceId && r.alias === report.alias && !r.targetWorkspaceId) ??
           refs.find((r) => r.workspaceId === null && r.alias === report.alias && !r.targetWorkspaceId);
         if (!ref) continue;
-        if (report.form === 'path' && report.path) addLink(setup.computerId, ref.id, report.path);
-        else if (report.form === 'omitted') addLink(setup.computerId, ref.id, null);
+        const place = report.form === 'path' && report.path ? nodePath.resolve(report.path) : report.form === 'omitted' ? null : undefined;
+        if (place === undefined) continue;
+        const key = `${setup.computerId}\u0000${ref.id}`;
+        const entry = used.get(key) ?? { computerId: setup.computerId, refId: ref.id, uses: [] };
+        const inherited = setup.computerId === host && !!ref.path && place === nodePath.resolve(ref.path);
+        entry.uses.push({ agentId: setup.workspaceId, place, chosen: !inherited, active: agents.get(setup.workspaceId)?.status === 'active', at: setup.reportedAt });
+        used.set(key, entry);
       }
+    }
+    for (const { computerId, refId, uses } of used.values()) {
+      uses.sort((a, b) => Number(b.active) - Number(a.active) || Number(b.chosen) - Number(a.chosen) || b.at.localeCompare(a.at));
+      const kept = uses[0]!;
+      const others = uses.filter((u) => u.active && u.place !== kept.place);
+      if (others.length > 0) {
+        const ref = refs.find((r) => r.id === refId)!;
+        const said = (u: Used) => `${agents.get(u.agentId)?.name ?? u.agentId} used ${u.place ?? 'none'}`;
+        settled.push(`@${ref.alias} on ${computerNames.get(computerId) ?? computerId}: kept ${kept.place ?? 'going without'} (${[kept, ...others].map(said).join(', ')})`);
+      }
+      addLink(computerId, refId, kept.place);
+    }
+    for (const ref of refs) {
+      if (ref.path && !ref.targetWorkspaceId) addLink(host, ref.id, nodePath.resolve(ref.path));
     }
   }, { behavior: 'immediate' });
   for (const computerId of touched) recomputeAgentSetups(computerId);
-  return { setups: setupsMoved, links: linksMoved };
+  return { setups: setupsMoved, links: linksMoved, settled };
 }
 
 // ─── API Keys ─────────────────────────────────────────────────

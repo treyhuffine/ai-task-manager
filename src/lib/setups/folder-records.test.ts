@@ -106,13 +106,13 @@ describe('moving what existed before into the records, at boot', () => {
       references: [{ alias: 'docs', value: '../docs', form: 'path', path: '/Users/trey/docs', exists: true, problem: null }],
     }).run();
     const first = q.moveFolderRecords();
-    expect(first).toEqual({ setups: 0, links: 2 });
+    expect(first).toEqual({ setups: 0, links: 2, settled: [] });
     expect(q.getFolderLink(hostId, docs.id)?.path).toBe('/Users/mini/docs');
     expect(q.getFolderLink(laptopId, docs.id)?.path).toBe('/Users/trey/docs');
-    expect(q.moveFolderRecords()).toEqual({ setups: 0, links: 0 });
+    expect(q.moveFolderRecords()).toEqual({ setups: 0, links: 0, settled: [] });
 
     const legacy = agent('Legacy');
-    expect(q.moveFolderRecords()).toEqual({ setups: 1, links: 0 });
+    expect(q.moveFolderRecords()).toEqual({ setups: 1, links: 0, settled: [] });
     expect(q.getAgentSetup(legacy, hostId)).toMatchObject({ sourcePath: home.root });
   });
   it("takes a shared linked folder's place from an active agent there, not an archived one that reported later", async () => {
@@ -132,6 +132,30 @@ describe('moving what existed before into the records, at boot', () => {
     q.archiveWorkspace(old);
     q.moveFolderRecords();
     expect(q.getFolderLink(laptopId, agentex.id)?.path).toBe('/Users/trey/code/agentex');
+  });
+
+  it("keeps the place an agent on the home chose over the linked folder's own path, and says which it kept when agents disagreed", async () => {
+    const { getDb } = await import('@/lib/db');
+    const { agentSetups, referenceFolders } = await import('@/lib/db/schema');
+    // The dev home's Mac Mini, as it was: agentex's own path an early copy,
+    // Ri's setup file choosing the real one beside it, and the Agentex agent's
+    // setup file carrying agentex's own path along.
+    const ri = agent('Ri');
+    const agentexAgent = agent('Agentex');
+    const agentex = q.createReferenceFolder({ alias: 'agentex' });
+    getDb().update(referenceFolders).set({ path: '/Users/mini/early/agentex' }).run();
+    const report = (id: string, workspaceId: string, place: string, value: string) =>
+      getDb().insert(agentSetups).values({
+        id, workspaceId, computerId: hostId, sourcePath: `/Users/mini/${id}`, status: 'ready', problem: null, reportedAt: '2026-09-28T21:48:33.933Z',
+        references: [{ alias: 'agentex', value, form: 'path', path: place, exists: true, problem: null }],
+      }).run();
+    report('agentex-agent', agentexAgent, '/Users/mini/early/agentex', '/Users/mini/early/agentex');
+    report('ri', ri, '/Users/mini/code/agentex', '../code/agentex');
+    const moved = q.moveFolderRecords();
+    expect(q.getFolderLink(hostId, agentex.id)?.path).toBe('/Users/mini/code/agentex');
+    expect(moved.settled).toEqual([
+      `@agentex on ${q.getComputer(hostId)!.name}: kept /Users/mini/code/agentex (Ri used /Users/mini/code/agentex, Agentex used /Users/mini/early/agentex)`,
+    ]);
   });
 });
 

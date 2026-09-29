@@ -48,6 +48,7 @@ export async function register() {
     const { moveFolderRecords } = await import('@/lib/db/queries');
     const moved = moveFolderRecords();
     if (moved.setups || moved.links) console.log(`[setups] moved ${moved.setups} agent folder(s) and ${moved.links} linked folder(s) into the home's records`);
+    for (const line of moved.settled) console.log(`[setups] agents used different places for ${line}`);
     const { checkHomeFolders } = await import('@/lib/setups/folders');
     await checkHomeFolders();
   } catch (err) {
