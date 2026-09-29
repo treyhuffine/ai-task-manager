@@ -1,5 +1,5 @@
 /**
- * A connected computer's worker, in a process of its own, for tests
+ * A connected device's worker, in a process of its own, for tests
  * (docs/homes-build.md, P2.4). It runs the real worker loop with the real
  * execution handlers and the real local runner, reporting to its own
  * journals, against a home over HTTP. The harness is the fake one, scripted
@@ -68,7 +68,7 @@ async function main(): Promise<void> {
 
   const capability = { supported: true, status: 'supported' };
   const exit = await runWorker({
-    target: { homeUrl, homeId, homeName: 'Test home', computerName: 'Laptop', workerKey },
+    target: { homeUrl, homeId, homeName: 'Test home', deviceName: 'Laptop', workerKey },
     version: 'test',
     signal: controller.signal,
     onSink: installRunnerSink,
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
   });
   // As the real worker does as it stops.
   const { finishWorker } = await import('@/lib/worker/run');
-  await finishWorker({ homeUrl, homeId, homeName: 'Test home', computerName: 'Laptop', workerKey }, 'test', exit);
+  await finishWorker({ homeUrl, homeId, homeName: 'Test home', deviceName: 'Laptop', workerKey }, 'test', exit);
   process.stdout.write(`WORKER_EXIT ${JSON.stringify(exit)}\n`);
   process.exit(0);
 }
@@ -118,7 +118,7 @@ export async function startWorkerProcess(args: {
   homeId: string;
   workerKey: string;
   root: string;
-  /** Environment for that computer, such as where its harnesses keep their history. */
+  /** Environment for that device, such as where its harnesses keep their history. */
   env?: Record<string, string>;
 }): Promise<WorkerProcess> {
   const repo = path.resolve(__dirname, '../../..');

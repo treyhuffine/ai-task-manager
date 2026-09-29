@@ -1,7 +1,7 @@
 /**
  * Continue here, end to end (docs/homes-spec.md §8.2 and §8.3, P4.2 to
  * P4.4): a real worker process for the laptop, real Git (a bare remote, and
- * a clone for each computer), the fake harness on both sides. Work moves from
+ * a clone for each device), the fake harness on both sides. Work moves from
  * the home to the laptop with its tracked changes and the untracked file the
  * person chose, and back. The source is stopped first, the checkpoint is
  * pushed without force, the destination runs its setup and starts a fresh
@@ -10,7 +10,7 @@
  *
  * And the controls that follow the work (P4.5): push, bringing in the base
  * branch, commit, the pull request, archive and reopen happen on the
- * computer that has it, and wait while it moves.
+ * device that has it, and wait while it moves.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -54,11 +54,11 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   const own = identity.ensureHomeIdentity().home;
   homeId = own.id;
-  hostId = own.hostComputerId;
+  hostId = own.hostDeviceId;
   const q = await import('@/lib/db/queries');
-  q.updateComputer(hostId, { name: 'Mini' });
+  q.updateDevice(hostId, { name: 'Mini' });
 
-  // One repository, a clone on each computer.
+  // One repository, a clone on each device.
   remote = path.join(home.root, 'remote.git');
   git(home.root, 'init', '-q', '--bare', '-b', 'main', remote);
   const seed = path.join(home.root, 'seed');
@@ -92,8 +92,8 @@ beforeEach(async () => {
   await setUpAgentOn(workspaceId, hostId, homeClone);
 
   // The laptop: enrolled, its folder as the home records it.
-  const laptopKey = q.createApiKey({ name: 'Laptop CLI', deviceType: 'computer' });
-  laptopId = q.registerComputerForApiKey({ apiKeyId: laptopKey.key.id, name: 'Laptop', platform: 'darwin' }).computer.id;
+  const laptopKey = q.pairDevice({ name: 'Laptop', kind: 'computer' });
+  laptopId = q.registerDeviceForApiKey({ apiKeyId: laptopKey.key.id, name: 'Laptop', platform: 'darwin' }).device.id;
   await setUpAgentOn(workspaceId, laptopId, laptopClone);
 
   server = await startHomeServer();
@@ -113,7 +113,7 @@ beforeEach(async () => {
     body: JSON.stringify({ code: grant.code, name: 'laptop', protocol: WORKER_PROTOCOL, version: 'test' }),
   }).then((r) => r.json() as Promise<{ workerKey: string }>));
   worker = await startWorkerProcess({ homeUrl: server.url, homeId: own.id, workerKey, root: laptopRoot });
-  await until(() => (q.getComputer(laptopId)?.harnesses?.length ?? 0) > 0, "the laptop's harness report");
+  await until(() => (q.getDevice(laptopId)?.harnesses?.length ?? 0) > 0, "the laptop's harness report");
 }, 90_000);
 
 afterEach(async () => {
@@ -186,7 +186,7 @@ describe('Continue here', () => {
     const task = q.createTask({ title: 'Fix the login bug' });
     q.pinSessionRef({ sessionId: chatId, entityType: 'task', entityId: task.id, createdBy: 'user' });
 
-    startTransfer({ chatSessionId: chatId, toComputerId: laptopId, includeUntracked: ['login.ts'], requestedByApiKeyId: null });
+    startTransfer({ chatSessionId: chatId, toDeviceId: laptopId, includeUntracked: ['login.ts'], requestedByApiKeyId: null });
     // Sent while it moves: held, not sent to the home.
     const held = await sendMessage(chatId, 'sent while moving');
     const transfer = await finished(executionId);
@@ -194,7 +194,7 @@ describe('Continue here', () => {
 
     // Ownership: the laptop, at the next generation, from the pushed checkpoint.
     const placement = q.getOpenPlacement(executionId)!;
-    expect(placement).toMatchObject({ computerId: laptopId, generation: 2, startReason: 'continued', checkpointSha: transfer.checkpointSha });
+    expect(placement).toMatchObject({ deviceId: laptopId, generation: 2, startReason: 'continued', checkpointSha: transfer.checkpointSha });
     expect(git(remote, 'rev-parse', `refs/heads/${transfer.branch}`)).toBe(transfer.checkpointSha);
     const there = placement.worktreePath!;
     expect(there.startsWith(laptopRoot)).toBe(true);
@@ -219,17 +219,17 @@ describe('Continue here', () => {
     expect(transfer.handoff).toContain('What Laptop has, its environment and tools, is in your instructions for this session.');
     // A fresh session there, the one at home kept in the history.
     await until(() => q.listNativeSessions(chatId).length === 2, "the laptop's session recorded");
-    expect(q.listNativeSessions(chatId).map((n) => [n.computerId, n.endReason])).toEqual([[hostId, 'continued'], [laptopId, null]]);
+    expect(q.listNativeSessions(chatId).map((n) => [n.deviceId, n.endReason])).toEqual([[hostId, 'continued'], [laptopId, null]]);
     expect(q.getChatSession(chatId)!.externalSessionId).toBe(q.listNativeSessions(chatId)[1].nativeSessionId);
     expect(q.listWorkerCommands(laptopId).filter((c) => c.kind === 'send' && c.sourceEventId === held.id)).toHaveLength(1);
     expect(events().filter((e) => e.role === 'assistant' && (e.content ?? '').startsWith('home: sent while moving'))).toEqual([]);
 
     // And back to the home, into the worktree it had.
     fs.writeFileSync(path.join(there, 'login.ts'), 'export const login = 2;\n');
-    startTransfer({ chatSessionId: chatId, toComputerId: hostId, includeUntracked: [], requestedByApiKeyId: null });
+    startTransfer({ chatSessionId: chatId, toDeviceId: hostId, includeUntracked: [], requestedByApiKeyId: null });
     const back = await finished(executionId);
     expect(back, `${back.failedStage}: ${back.error}`).toMatchObject({ state: 'succeeded', fromGeneration: 2, toGeneration: 3 });
-    expect(q.getOpenPlacement(executionId)).toMatchObject({ computerId: hostId, generation: 3, worktreePath: homeWorktree });
+    expect(q.getOpenPlacement(executionId)).toMatchObject({ deviceId: hostId, generation: 3, worktreePath: homeWorktree });
     expect(q.getExecution(executionId)!.worktreePath).toBe(homeWorktree);
     expect(fs.readFileSync(path.join(homeWorktree, 'login.ts'), 'utf8')).toBe('export const login = 2;\n');
     expect(events().filter((e) => e.source === 'continuation').map((e) => e.content)).toEqual(['Continued on Laptop', 'Continued on Mini']);
@@ -246,7 +246,7 @@ describe('Open code here', () => {
   it("checks out the laptop's published work on the home for review, refreshes it while clean, and keeps edits", async () => {
     const q = await import('@/lib/db/queries');
     const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
-    const session = await dispatchExecutionSession({ workspaceId, computerId: laptopId, label: 'On the laptop' });
+    const session = await dispatchExecutionSession({ workspaceId, deviceId: laptopId, label: 'On the laptop' });
     await until(() => !!q.getOpenPlacement(session.executionId!)?.worktreePath, 'the worktree on the laptop');
     const there = q.getOpenPlacement(session.executionId!)!.worktreePath!;
     const branch = q.getChatSessionWithExecution(session.id)!.branchName!;
@@ -264,7 +264,7 @@ describe('Open code here', () => {
     expect(reviewPath.startsWith(home.workDir)).toBe(true);
     expect(fs.readFileSync(path.join(reviewPath, 'feature.ts'), 'utf8')).toBe('export const v = 1;\n');
     // It stays where it runs.
-    expect(q.getOpenPlacement(session.executionId!)).toMatchObject({ computerId: laptopId, generation: 1 });
+    expect(q.getOpenPlacement(session.executionId!)).toMatchObject({ deviceId: laptopId, generation: 1 });
 
     fs.writeFileSync(path.join(there, 'feature.ts'), 'export const v = 2;\n');
     git(there, 'commit', '-qam', 'v2');
@@ -281,8 +281,8 @@ describe('Open code here', () => {
 
     // Continue on Mini, from anywhere, can say the review checkout there stays apart.
     const { GET } = await import('@/app/api/sessions/[id]/review/route');
-    const on = async (computerId: string) =>
-      (await (await GET(new Request(`http://x/api/sessions/${session.id}/review?computer=${computerId}`) as never, { params: Promise.resolve({ id: session.id }) })).json()) as {
+    const on = async (deviceId: string) =>
+      (await (await GET(new Request(`http://x/api/sessions/${session.id}/review?device=${deviceId}`) as never, { params: Promise.resolve({ id: session.id }) })).json()) as {
         review: { path: string; dirty: boolean } | null;
       };
     expect((await on(hostId)).review).toMatchObject({ path: reviewPath, dirty: true });
@@ -298,11 +298,11 @@ describe('Open code here', () => {
     git(homeWorktree, 'commit', '-q', '-m', 'home work');
     git(homeWorktree, 'push', '-q', 'origin', `HEAD:refs/heads/${branch}`);
     // A browser on the laptop: its viewing key linked to the laptop.
-    const key = q.createApiKey({ name: 'Laptop browser', deviceType: 'other' });
-    const grant = q.createComputerGrant({ kind: 'associate', computerId: laptopId, createdByApiKeyId: null });
+    const key = q.pairDevice({ name: 'Laptop browser', kind: 'other' });
+    const grant = q.createDeviceGrant({ kind: 'associate', deviceId: laptopId, createdByApiKeyId: null });
     q.redeemAssociateGrant({ secret: grant.secret, apiKeyId: key.key.id });
-    const { API_KEY_ID_HEADER, API_KEY_TYPE_HEADER } = await import('@/lib/auth/request-key');
-    const result = await review(chatId, { [API_KEY_ID_HEADER]: key.key.id, [API_KEY_TYPE_HEADER]: 'other' });
+    const { API_KEY_ID_HEADER } = await import('@/lib/auth/request-key');
+    const result = await review(chatId, { [API_KEY_ID_HEADER]: key.key.id });
     expect(result).toMatchObject({ status: 200, body: { viewer: { name: 'Laptop' }, review: { source: { name: 'Mini' }, dirty: false } } });
     const reviewPath = result.body.review.path as string;
     expect(reviewPath.startsWith(laptopRoot)).toBe(true);
@@ -323,29 +323,29 @@ describe('when a move stops', () => {
     const { and, eq, isNull } = await import('drizzle-orm');
     const open = getDb().select().from(executionPlacements).where(and(eq(executionPlacements.executionId, executionId), isNull(executionPlacements.endedAt))).all();
     expect(open.length).toBeLessThanOrEqual(1);
-    return (await import('@/lib/db/queries')).placementOf(executionId)!.computerId;
+    return (await import('@/lib/db/queries')).placementOf(executionId)!.deviceId;
   }
 
   it("won't start while the source is away, and changes nothing", async () => {
     const q = await import('@/lib/db/queries');
     const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
     const { startTransfer } = await import('./continue');
-    const session = await dispatchExecutionSession({ workspaceId, computerId: laptopId, label: 'Away' });
+    const session = await dispatchExecutionSession({ workspaceId, deviceId: laptopId, label: 'Away' });
     await until(() => !!q.getOpenPlacement(session.executionId!)?.worktreePath, 'the worktree on the laptop');
     await worker!.stop();
     worker = null;
-    expect(() => startTransfer({ chatSessionId: session.id, toComputerId: hostId, includeUntracked: [], requestedByApiKeyId: null })).toThrow(/Laptop isn't connected/);
+    expect(() => startTransfer({ chatSessionId: session.id, toDeviceId: hostId, includeUntracked: [], requestedByApiKeyId: null })).toThrow(/Laptop isn't connected/);
     expect(q.latestTransfer(session.executionId!)).toBeNull();
     expect(await owner(session.executionId!)).toBe(laptopId);
   }, 120_000);
 
-  it("won't move to a computer whose setup is missing a reference", async () => {
+  it("won't move to a device whose setup is missing a reference", async () => {
     const q = await import('@/lib/db/queries');
     const { startTransfer } = await import('./continue');
     const { chatId } = await startedAtHome();
     // A linked folder it uses, chosen on the home but not on the laptop.
     q.createReferenceFolder({ workspaceId, alias: 'docs', path: homeClone });
-    expect(() => startTransfer({ chatSessionId: chatId, toComputerId: laptopId, includeUntracked: [], requestedByApiKeyId: null })).toThrow(/docs/);
+    expect(() => startTransfer({ chatSessionId: chatId, toDeviceId: laptopId, includeUntracked: [], requestedByApiKeyId: null })).toThrow(/docs/);
   }, 120_000);
 
   it('stops at Saving work when the push is rejected: the source keeps the work, its held message, and resumes', async () => {
@@ -363,7 +363,7 @@ describe('when a move stops', () => {
     git(other, 'push', '-q', 'origin', branch);
     fs.writeFileSync(path.join(homeWorktree, 'README.md'), 'mine\n');
 
-    startTransfer({ chatSessionId: chatId, toComputerId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
+    startTransfer({ chatSessionId: chatId, toDeviceId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
     const held = await sendMessage(chatId, 'while it tried');
     const transfer = await finished(executionId);
     expect(transfer).toMatchObject({ state: 'failed', failedStage: 'saving', toGeneration: null, heldEventIds: [held.id] });
@@ -402,13 +402,13 @@ describe('when a move stops', () => {
     git(other, 'commit', '-q', '-m', 'theirs');
     git(other, 'push', '-q', 'origin', branch);
 
-    startTransfer({ chatSessionId: chatId, toComputerId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
+    startTransfer({ chatSessionId: chatId, toDeviceId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
     const held = await sendMessage(chatId, 'held across a retry');
     expect(await finished(executionId)).toMatchObject({ state: 'failed', failedStage: 'saving' });
 
     // Brought in on the source, as the error asked, then Try again.
     git(homeWorktree, 'pull', '-q', '--no-rebase', 'origin', branch);
-    startTransfer({ chatSessionId: chatId, toComputerId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
+    startTransfer({ chatSessionId: chatId, toDeviceId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
     // Each attempt reserves its own generation: the retry arrives at 3.
     expect(await finished(executionId)).toMatchObject({ state: 'succeeded', toGeneration: 3, heldEventIds: [] });
     await until(
@@ -424,7 +424,7 @@ describe('when a move stops', () => {
     const q = await import('@/lib/db/queries');
     const { startTransfer, finishOnDestination } = await import('./continue');
     const { chatId, executionId } = await startedAtHome();
-    startTransfer({ chatSessionId: chatId, toComputerId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
+    startTransfer({ chatSessionId: chatId, toDeviceId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
     const moved = await finished(executionId);
     expect(moved.state, `${moved.failedStage}: ${moved.error}`).toBe('succeeded');
     // As if it stopped after the ownership change with a message still held.
@@ -452,7 +452,7 @@ describe('when a move stops', () => {
     git(side, 'commit', '-q', '-m', 'laptop only');
     git(laptopClone, 'worktree', 'remove', side);
 
-    startTransfer({ chatSessionId: chatId, toComputerId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
+    startTransfer({ chatSessionId: chatId, toDeviceId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
     const first = await finished(executionId);
     expect(first).toMatchObject({ state: 'failed', failedStage: 'setting_up', toGeneration: null });
     expect(first.error).toMatch(/commits that aren't in the checkpoint/);
@@ -464,11 +464,11 @@ describe('when a move stops', () => {
     // next heartbeats (every 300ms here) let go of it. Try again never
     // reuses a generation, so it isn't refused as an earlier placement.
     await new Promise((r) => setTimeout(r, 1_000));
-    startTransfer({ chatSessionId: chatId, toComputerId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
+    startTransfer({ chatSessionId: chatId, toDeviceId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
     const second = await finished(executionId);
     expect(second, `${second.failedStage}: ${second.error}`).toMatchObject({ state: 'succeeded', toGeneration: 3 });
     expect(await owner(executionId)).toBe(laptopId);
-    expect(q.getOpenPlacement(executionId)).toMatchObject({ computerId: laptopId, generation: 3 });
+    expect(q.getOpenPlacement(executionId)).toMatchObject({ deviceId: laptopId, generation: 3 });
   }, 180_000);
 
   it('stops at Setting up when the setup script fails there, keeping what it made', async () => {
@@ -476,7 +476,7 @@ describe('when a move stops', () => {
     const { startTransfer } = await import('./continue');
     const { chatId, executionId } = await startedAtHome();
     q.updateWorkspace(workspaceId, { setupCommand: 'echo "no toolchain here" >&2; exit 3' });
-    startTransfer({ chatSessionId: chatId, toComputerId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
+    startTransfer({ chatSessionId: chatId, toDeviceId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
     const transfer = await finished(executionId);
     expect(transfer).toMatchObject({ state: 'failed', failedStage: 'setting_up', toGeneration: null });
     expect(transfer.error).toMatch(/The setup script failed on Laptop/);
@@ -496,7 +496,7 @@ describe('when a move stops', () => {
       const { chatId, executionId } = await startedAtHome();
       // A setup script long enough to kill the laptop in the middle of it.
       q.updateWorkspace(workspaceId, { setupCommand: 'sleep 30' });
-      startTransfer({ chatSessionId: chatId, toComputerId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
+      startTransfer({ chatSessionId: chatId, toDeviceId: laptopId, includeUntracked: [], requestedByApiKeyId: null });
       await until(() => q.latestTransfer(executionId)?.stage === 'setting_up', 'setting up on the laptop');
       await worker!.kill();
       const transfer = await finished(executionId);
@@ -539,7 +539,7 @@ describe('the controls follow the work (P4.5)', () => {
   async function startedOnLaptop(agentId = workspaceId) {
     const q = await import('@/lib/db/queries');
     const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
-    const session = await dispatchExecutionSession({ workspaceId: agentId, computerId: laptopId, label: 'On the laptop' });
+    const session = await dispatchExecutionSession({ workspaceId: agentId, deviceId: laptopId, label: 'On the laptop' });
     await until(() => !!q.getOpenPlacement(session.executionId!)?.worktreePath, 'the worktree on the laptop');
     const there = q.getOpenPlacement(session.executionId!)!.worktreePath!;
     if (q.getWorkspace(agentId)!.setupCommand) {
@@ -642,8 +642,8 @@ describe('the controls follow the work (P4.5)', () => {
     // While the laptop is away: the chip says nothing, a merge says why.
     await worker!.kill();
     worker = null;
-    const { isComputerConnected } = await import('@/lib/workers/hub');
-    await until(() => !isComputerConnected(laptopId), 'the laptop to drop');
+    const { isDeviceConnected } = await import('@/lib/workers/hub');
+    await until(() => !isDeviceConnected(laptopId), 'the laptop to drop');
     expect(await call('pr', chatId, { method: 'GET' })).toMatchObject({ status: 200, body: { pr: null, unavailable: 'Laptop is not connected right now.' } });
     expect(await call('merge', chatId)).toMatchObject({ status: 409, body: { error: 'unavailable', message: 'Laptop is not connected right now.' } });
   }, 180_000);
@@ -676,7 +676,7 @@ describe('the controls follow the work (P4.5)', () => {
     expect(back.startsWith(laptopRoot)).toBe(true);
     expect(git(back, 'branch', '--show-current')).toBe(branch);
     expect(git(back, 'rev-parse', 'HEAD')).toBe(saved);
-    expect(q.getOpenPlacement(executionId)).toMatchObject({ computerId: laptopId });
+    expect(q.getOpenPlacement(executionId)).toMatchObject({ deviceId: laptopId });
   }, 180_000);
 
   it('archives while the laptop is away, and it removes the worktree when it is back', async () => {
@@ -685,8 +685,8 @@ describe('the controls follow the work (P4.5)', () => {
     fs.rmSync(path.join(there, 'SETUP_RAN'));
     await worker!.kill();
     worker = null;
-    const { isComputerConnected } = await import('@/lib/workers/hub');
-    await until(() => !isComputerConnected(laptopId), 'the laptop to drop');
+    const { isDeviceConnected } = await import('@/lib/workers/hub');
+    await until(() => !isDeviceConnected(laptopId), 'the laptop to drop');
 
     expect(await call('archive', chatId)).toMatchObject({ status: 200 });
     expect(q.getExecution(executionId)!.status).toBe('archived');
@@ -702,7 +702,7 @@ describe('the controls follow the work (P4.5)', () => {
   it('waits while the work moves: no file change, push, merge or archive races the save', async () => {
     const q = await import('@/lib/db/queries');
     const { chatId, executionId, there } = await startedOnLaptop();
-    const move = q.createTransfer({ executionId, fromComputerId: laptopId, toComputerId: hostId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
+    const move = q.createTransfer({ executionId, fromDeviceId: laptopId, toDeviceId: hostId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
     const waits = { status: 409, body: { code: 'moving', message: "It's moving to Mini. Try again once it has arrived there." } };
     expect(await call('file', chatId, { method: 'PUT', query: '?path=README.md', body: { content: 'mid-move\n' } })).toMatchObject(waits);
     expect(await call('push', chatId)).toMatchObject(waits);

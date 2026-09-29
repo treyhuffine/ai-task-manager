@@ -522,7 +522,7 @@ async function runUnderLease(
       console.warn(`[dispatch] failed to persist scheduled prompt event for ${chatSessionId}:`, err);
     }
     // The prompt's event carries its delivery when the execution runs
-    // on another computer, so the chat shows it waiting (P3.2).
+    // on another device, so the chat shows it waiting (P3.2).
     const sent = await sendAsRun(runId, chatSessionId, trigger.timeoutSeconds, execution, prompt, { sourceEventId });
     // Held by a move: it waits, as this run, until the move delivers it.
     if (sent === 'held') markRunHeld(runId);
@@ -539,8 +539,8 @@ async function runUnderLease(
 /**
  * Send a scheduled fire's message as its run: under the trigger's time
  * limit, collecting what it changes, and under the API lease when it runs
- * here. The lease caps provider sessions on this computer. An execution on
- * another computer runs on that computer's harness, and can wait there for
+ * here. The lease caps provider sessions on this device. An execution on
+ * another device runs on that device's harness, and can wait there for
  * hours while it sleeps: holding a lease for that would starve the home's
  * own scheduled work (P3.4). Says whether a move held it instead.
  */
@@ -611,11 +611,11 @@ export async function deliverHeldFire(run: RunRecord, message: string, options: 
   }
 }
 
-/** Whether an execution is placed on a computer other than the home. */
+/** Whether an execution is placed on a device other than the home. */
 function runsElsewhere(execution: ExecutionRecord | null): boolean {
   if (!execution) return false;
   const placement = placementOf(execution.id);
-  return !!placement?.placementId && placement.computerId !== getHome()?.hostComputerId;
+  return !!placement?.placementId && placement.deviceId !== getHome()?.hostDeviceId;
 }
 
 /**
@@ -631,10 +631,10 @@ export async function ensureWorktreeReady(
   execution: ExecutionRecord | null,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!execution) return { ok: true };
-  // An execution placed on a connected computer has its worktree there. Its
+  // An execution placed on a connected device has its worktree there. Its
   // worker prepares it; the home can't see it, and must never provision one
   // here instead (P2.4). Nothing to wait for either: a send queued now runs
-  // there after the prepare, since that computer carries out an execution's
+  // there after the prepare, since that device carries out an execution's
   // commands in order. A preparation that failed is the one thing to say.
   if (runsElsewhere(execution)) {
     return execution.setupError ? { ok: false, error: execution.setupError } : { ok: true };
@@ -724,7 +724,7 @@ class RunTimeoutError extends Error {
  * action.
  *
  * The clock is the execution's (P3 review). Here it starts at once. For
- * an execution on another computer it starts when that computer takes the
+ * an execution on another device it starts when that device takes the
  * message out of its queue: a fire waiting for a laptop that's asleep
  * waits there, as P3.4 promises, and runs once it wakes, the way the home
  * fires an overdue trigger once when it next ticks. So a run never fails
@@ -767,11 +767,11 @@ async function runWithTimeout<T>(
       // The run is over. The send boundary refuses a send once time is
       // up, and one it let through reports here in the same tick, so this
       // shouldn't happen: but a failed run must never leave a message
-      // queued to run when its computer wakes.
+      // queued to run when its device wakes.
       if (expired.signal.aborted) withdrawQueuedSend(commandId);
       return;
     }
-    // Queued for a computer elsewhere: the clock waits for it to take it.
+    // Queued for a device elsewhere: the clock waits for it to take it.
     if (timer) clearTimeout(timer);
     timer = null;
     watch = setInterval(() => {

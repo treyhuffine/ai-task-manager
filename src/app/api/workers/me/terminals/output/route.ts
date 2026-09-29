@@ -1,7 +1,7 @@
 /**
  * A worker's terminal output (docs/homes-build.md, P3.5): what its shells
  * printed since the last batch, and which exited. Relayed to whoever is
- * watching those terminals on this computer, and kept nowhere: the worker's
+ * watching those terminals on this device, and kept nowhere: the worker's
  * own ring buffer is what a viewer catches up from.
  */
 
@@ -24,6 +24,6 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return Response.json({ error: 'invalid_params', message: parsed.error.issues[0]?.message }, { status: 400 });
   }
-  deliverTerminalOutput(worker.computer.id, parsed.data);
+  deliverTerminalOutput(worker.device.id, parsed.data);
   return Response.json({ ok: true });
 }

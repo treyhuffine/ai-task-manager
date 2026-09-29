@@ -1,11 +1,11 @@
 /**
- * The runner for a chat that runs on a connected computer
+ * The runner for a chat that runs on a connected device
  * (docs/homes-build.md, P2.4). Each call becomes a durable command for that
- * computer's worker, stamped with the chat's placement generation, and
+ * device's worker, stamped with the chat's placement generation, and
  * returns once it's saved: the worker delivers it when it has it (at once
  * when connected), and what happens comes back through its event journal.
  * So a send is `queued`, not `delivered`, and a stop is `queued`, not yet
- * closed. A message to a computer that's asleep waits, saved.
+ * closed. A message to a device that's asleep waits, saved.
  */
 
 import type { UserInputResponse } from '@agentex/agent';
@@ -13,13 +13,13 @@ import type { WorkerCommandActor, WorkerCommandKind } from '@/db/types';
 import { chatPlacement, queueWorkerCommand } from '@/lib/db/queries';
 import { answerRefusal } from '@/lib/runner/pending';
 import type { ExecutionRunner } from '@/lib/runner/types';
-import { wakeComputer } from '@/lib/workers/hub';
+import { wakeDevice } from '@/lib/workers/hub';
 import type { SendPayload } from '@/lib/workers/protocol';
 import { listForSession } from './live-state';
 
 const SYSTEM: WorkerCommandActor = { source: 'system' };
 
-export function remoteRunnerFor(computerId: string): ExecutionRunner {
+export function remoteRunnerFor(deviceId: string): ExecutionRunner {
   const queue = (
     chatSessionId: string,
     kind: WorkerCommandKind,
@@ -27,11 +27,11 @@ export function remoteRunnerFor(computerId: string): ExecutionRunner {
     extra: { actor?: WorkerCommandActor; sourceEventId?: string | null } = {},
   ) => {
     const placement = chatPlacement(chatSessionId);
-    if (!placement || placement.computerId !== computerId) {
-      throw new Error(`That chat doesn't run on this computer any more.`);
+    if (!placement || placement.deviceId !== deviceId) {
+      throw new Error(`That chat doesn't run on this device any more.`);
     }
     const command = queueWorkerCommand({
-      computerId,
+      deviceId,
       kind,
       payload,
       actor: extra.actor ?? SYSTEM,
@@ -40,13 +40,13 @@ export function remoteRunnerFor(computerId: string): ExecutionRunner {
       generation: placement.generation,
       sourceEventId: extra.sourceEventId ?? null,
     });
-    wakeComputer(computerId);
+    wakeDevice(deviceId);
     return command;
   };
 
   return {
     async send(req) {
-      // A computer elsewhere may have no session for the chat yet, or a
+      // A device elsewhere may have no session for the chat yet, or a
       // stale one: it always gets the spec.
       if (!req.spec) return { status: 'needs_spec' };
       const payload: SendPayload = {
@@ -71,7 +71,7 @@ export function remoteRunnerFor(computerId: string): ExecutionRunner {
       return { closed: false, queued: true };
     },
     answerPendingInput(chatSessionId: string, requestId: string, response: UserInputResponse, actor: WorkerCommandActor) {
-      // Only a prompt this chat raised, as its computer last reported, and
+      // Only a prompt this chat raised, as its device last reported, and
       // only an answer this actor may give. The worker checks both again.
       const pending = listForSession(chatSessionId).find((p) => p.requestId === requestId);
       if (!pending) return { ok: false };

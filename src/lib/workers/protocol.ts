@@ -17,7 +17,7 @@ import type { InputFile, RunnerSignal, SessionSpec } from '@/lib/runner/types';
 
 /**
  * An address at the home, as a session elsewhere is given it: `ri-home:` and
- * a path. The home doesn't know the address a computer reaches it by, so the
+ * a path. The home doesn't know the address a device reaches it by, so the
  * worker puts its own in front (P2.7).
  */
 export const HOME_ADDRESS_SCHEME = 'ri-home:';
@@ -35,8 +35,13 @@ export const HOME_ADDRESS_SCHEME = 'ri-home:';
  * when it connects and whenever they change, and asks it to check them
  * (`check_folders`) and list them for choosing (`list_folders`). A worker on
  * 2 would look for setup files that no longer exist.
+ *
+ * 4: computers are devices (docs/homes-build.md, "Devices"). Every field
+ * that named one says `deviceId` or `deviceName`: the stream's `hello`, the
+ * enrollment's answer, and the commands and requests that carry one. A
+ * worker on 3 would read none of them.
  */
-export const WORKER_PROTOCOL = 3;
+export const WORKER_PROTOCOL = 4;
 export const WORKER_PROTOCOL_HEADER = `x-${APP_SHORT_ID}-worker-protocol`;
 
 export const WORKER_HEARTBEAT_MS = 20_000;
@@ -61,24 +66,24 @@ export type WorkerRequestKind =
   | 'check_folders'
   | 'list_folders';
 
-/** One agent's project folder on the worker's computer, as the home records it. */
+/** One agent's project folder on the worker's device, as the home records it. */
 export interface WorkerFolderSetup {
   agentId: string;
   sourcePath: string;
 }
 
-/** Whether each folder is there, on the worker's computer. */
+/** Whether each folder is there, on the worker's device. */
 export interface CheckFoldersRequest {
   paths: string[];
 }
 
-/** A folder's folders on the worker's computer, for choosing one. Null: the person's home folder. */
+/** A folder's folders on the worker's device, for choosing one. Null: the person's home folder. */
 export interface ListFoldersRequest {
   path: string | null;
 }
 
 /**
- * Read an execution placed on the worker's computer. It names the execution,
+ * Read an execution placed on the worker's device. It names the execution,
  * never a path: the worker finds the worktree it prepared for it, and the
  * agent's folder from its own setup files.
  */
@@ -90,9 +95,9 @@ export interface ReadExecutionRequest {
 }
 
 /**
- * Change an execution placed on the worker's computer (P3.5): one of the
+ * Change an execution placed on the worker's device (P3.5): one of the
  * defined file operations, inside the worktree it prepared. Carries the
- * placement's generation, so a computer the execution has moved away from
+ * placement's generation, so a device the execution has moved away from
  * refuses it.
  */
 export interface WriteExecutionRequest {
@@ -104,7 +109,7 @@ export interface WriteExecutionRequest {
 }
 
 /**
- * Read the folder an agent lives in on the worker's computer (P3.5): its
+ * Read the folder an agent lives in on the worker's device (P3.5): its
  * tree or one file, for the agent view. Names the agent, never a path: the
  * worker finds the folder from its own setup files.
  */
@@ -114,7 +119,7 @@ export interface ReadAgentFolderRequest {
   read: import('@/lib/workspaces/agent-folder-reads').AgentFolderRead;
 }
 
-/** A person's change to an agent's own folder on this computer, from its Files tab. */
+/** A person's change to an agent's own folder on this device, from its Files tab. */
 export interface WriteAgentFolderRequest {
   agentId: string;
   isGit: boolean;
@@ -123,8 +128,8 @@ export interface WriteAgentFolderRequest {
 
 /**
  * Open an execution's worktree or an agent's folder in an app on the
- * worker's computer (P3.5, spec §3.3), for a browser linked to that
- * computer: an editor, a terminal app or the file manager. Names the folder,
+ * worker's device (P3.5, spec §3.3), for a browser linked to that
+ * device: an editor, a terminal app or the file manager. Names the folder,
  * never a path outside it, and only known apps: never a command.
  */
 export type OpenHereRequest =
@@ -134,7 +139,7 @@ export type OpenHereRequest =
       folder:
         | { kind: 'execution'; executionId: string; generation: number }
         | { kind: 'agent'; agentId: string }
-        /** This computer's review checkout of an execution (P4.1). */
+        /** This device's review checkout of an execution (P4.1). */
         | { kind: 'review'; executionId: string; workspaceSlug: string };
       /** Inside the folder, or null for the folder itself. */
       path: string | null;
@@ -146,14 +151,14 @@ export type OpenHereRequest =
 
 /**
  * Open code here (P4.1): a review checkout of an execution's latest
- * published commit on this computer, from its own clone of the agent's
+ * published commit on this device, from its own clone of the agent's
  * repository, in a folder of its own. Refreshed only while clean.
  */
 export interface ReviewCheckoutRequest {
   executionId: string;
   workspace: { id: string; slug: string };
   branch: string;
-  /** The computer the work runs on, for what's said when nothing is published yet. */
+  /** The device the work runs on, for what's said when nothing is published yet. */
   sourceName: string;
 }
 
@@ -173,15 +178,15 @@ export type ReviewCheckoutAnswer =
 
 /**
  * Whose shells a terminal request addresses (P3.5, spec §5.6): an
- * execution's, in the worktree this computer prepared for the placement it
- * holds, or an agent's, in the agent's folder from this computer's own setup
+ * execution's, in the worktree this device prepared for the placement it
+ * holds, or an agent's, in the agent's folder from this device's own setup
  * files. Never a path the caller names.
  */
 export type TerminalScope =
   | { kind: 'execution'; executionId: string; generation: number }
   | { kind: 'agent'; agentId: string };
 
-/** A terminal operation on a worker's computer. Answered as `{ status, body }`, like the file requests. */
+/** A terminal operation on a worker's device. Answered as `{ status, body }`, like the file requests. */
 export type TerminalRequest =
   | { op: 'list'; scope: TerminalScope }
   | { op: 'create'; scope: TerminalScope; cols: number; rows: number }
@@ -203,7 +208,7 @@ export interface TerminalOutputBatch {
 export interface WorkerCommand {
   /** UUIDv7, stable: the idempotency key. */
   id: string;
-  /** Per computer, set when first streamed: where a stream resumes. */
+  /** Per device, set when first streamed: where a stream resumes. */
   seq: number;
   kind: WorkerCommandKind;
   target: { executionId: string | null; chatSessionId: string | null; generation: number | null };
@@ -237,7 +242,7 @@ export interface WorkerCommandAckBody {
 
 /**
  * A chat event as a worker journals it. The envelope names the chat; the row
- * never does. It names no files: a computer's files reach home only through
+ * never does. It names no files: a device's files reach home only through
  * the artifact upload, which comes with the first output Ri keeps
  * (docs/homes-build.md, P2.5).
  */
@@ -245,7 +250,7 @@ export type WorkerChatEvent = Omit<CreateChatEventInput, 'sessionId' | 'id' | 'a
 
 /** One entry of a worker's event journal (P2 protocol, Events). */
 export type WorkerEvent = {
-  /** Contiguous from 1 in this computer's journal. */
+  /** Contiguous from 1 in this device's journal. */
   position: number;
   /** UUIDv7 minted when the worker parsed it; a chat event's id. */
   eventId: string;
@@ -261,19 +266,19 @@ export type WorkerEvent = {
 );
 
 export type WorkerStreamEvent =
-  | { type: 'hello'; homeId: string; computerId: string; protocol: number; ackedEventSeq: number }
+  | { type: 'hello'; homeId: string; deviceId: string; protocol: number; ackedEventSeq: number }
   | { type: 'command'; command: WorkerCommand }
   | { type: 'request'; id: string; kind: WorkerRequestKind; payload: unknown }
   | { type: 'revoked'; message: string }
   | { type: 'folders'; setups: WorkerFolderSetup[] }
   | { type: 'ping' };
 
-/** What's live on the worker's computer, for the home's mirror. */
+/** What's live on the worker's device, for the home's mirror. */
 export interface WorkerLive {
   running: string[];
   pending: PendingInput[];
   backgroundTasks: Record<string, string[]>;
-  /** The placement generation of each chat named above, which the home checks is still this computer's. */
+  /** The placement generation of each chat named above, which the home checks is still this device's. */
   generations?: Record<string, number | null>;
 }
 
@@ -293,10 +298,10 @@ export interface WorkerHeartbeat {
   placements?: WorkerPlacementReport[];
 }
 
-/** The home's answer to a heartbeat: placements this computer no longer holds, whose sessions it stops. */
+/** The home's answer to a heartbeat: placements this device no longer holds, whose sessions it stops. */
 export interface WorkerHeartbeatReply {
   ok: true;
-  /** Placements this computer reported that the home no longer gives it, each through the generation reported. */
+  /** Placements this device reported that the home no longer gives it, each through the generation reported. */
   release: Array<{ executionId: string; generation: number; chatSessionIds: string[] }>;
 }
 
@@ -305,6 +310,6 @@ export type WorkerRequestResult =
   | { ok: false; error: string; unsupported?: boolean };
 
 /** What a home says to a worker on another protocol. */
-export function protocolMismatchMessage(computerName: string): string {
-  return `Update Ri on ${computerName}. It speaks a different version of the home and worker protocol than this home.`;
+export function protocolMismatchMessage(deviceName: string): string {
+  return `Update Ri on ${deviceName}. It speaks a different version of the home and worker protocol than this home.`;
 }

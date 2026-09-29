@@ -14,7 +14,7 @@
  *  - `--input @-` or `--input path.json` reads a JSON blob as the full input,
  *    merged on top of any positional/flag values. This is the agent-friendly
  *    path — hand the action the full params in one blob.
- *  - On a computer connected to a home, actions run on the home over its API
+ *  - On a device connected to a home, actions run on the home over its API
  *    (docs/homes-spec.md §5.3). Nothing is written locally.
  */
 
@@ -78,7 +78,7 @@ export function registerAgentCommand(program: Command) {
         Object.assign(input, blob);
       }
 
-      // On a home this runs here. On a computer connected to a home it runs
+      // On a home this runs here. On a device connected to a home it runs
       // there, with the calling session's credential (src/cli/lib/dispatch.ts).
       const envelope = await dispatchAction(action.name, input);
       if (!envelope.ok) {

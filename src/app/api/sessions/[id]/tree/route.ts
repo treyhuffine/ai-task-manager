@@ -29,7 +29,7 @@ async function handleGET(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    // An execution on a connected computer: its worker reads its worktree.
+    // An execution on a connected device: its worker reads its worktree.
     const remote = await readOnOwner(id, { kind: 'tree' });
     if (remote) return remote;
     if (!session.workspaceId) return Response.json({ entries: [] satisfies TreeEntry[] });

@@ -1,6 +1,6 @@
 /**
  * Retiring a home (docs/homes-spec.md §10.2-10.3): after its records were
- * brought into another home, or the home moved to another computer.
+ * brought into another home, or the home moved to another device.
  * "Retirement writes a durable role marker checked at startup", so the old
  * root never runs as a home beside the new one, and "the old host can then
  * enroll as a worker".
@@ -48,8 +48,8 @@ function describeDatabase(db: Database.Database): Pick<RetiredHome, 'homeId' | '
   const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((t) => t.name));
   const counts: Record<string, number> = {};
   for (const t of COUNTED) if (tables.has(t)) counts[t] = (db.prepare(`SELECT count(*) AS n FROM "${t}"`).get() as { n: number }).n;
-  const home = tables.has('home') ? (db.prepare('SELECT id, name, host_computer_id AS host FROM home LIMIT 1').get() as { id: string; name: string; host: string } | undefined) : undefined;
-  const host = home && tables.has('computers') ? (db.prepare('SELECT name FROM computers WHERE id = ?').get(home.host) as { name: string } | undefined) : undefined;
+  const home = tables.has('home') ? (db.prepare('SELECT id, name, host_device_id AS host FROM home LIMIT 1').get() as { id: string; name: string; host: string } | undefined) : undefined;
+  const host = home && tables.has('devices') ? (db.prepare('SELECT name FROM devices WHERE id = ?').get(home.host) as { name: string } | undefined) : undefined;
   return { homeId: home?.id ?? null, homeName: home?.name ?? 'My Ri', host: host?.name ?? null, counts };
 }
 

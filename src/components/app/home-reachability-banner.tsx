@@ -3,7 +3,7 @@
 /**
  * "Cannot reach your Ri on Mac Mini" (docs/homes-spec.md §3.5).
  *
- * Shown on any screen while the home doesn't answer. It names the computer
+ * Shown on any screen while the home doesn't answer. It names the device
  * the home runs on, keeps checking quietly, and refreshes everything once
  * the home is back. Unsent messages stay in the chat as failed messages
  * with a retry, and drafts stay in the composer, so nothing typed is lost.
@@ -43,7 +43,7 @@ export function HomeReachabilityBanner() {
   const queryClient = useQueryClient();
   const [checking, setChecking] = useState(false);
 
-  // Which computer the home runs on, remembered so an offline screen can say it.
+  // Which device the home runs on, remembered so an offline screen can say it.
   const { data: home } = useQuery({
     queryKey: ['home'],
     queryFn: async () => {

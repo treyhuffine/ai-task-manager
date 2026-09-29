@@ -2,7 +2,7 @@
  * How a worker calls its home (docs/homes-build.md, P2.2). Every request
  * carries the worker key and the protocol version. A 426, 401 or 403 means
  * the worker must stop, not retry: the home speaks another protocol, or this
- * computer's local execution was turned off.
+ * device's local execution was turned off.
  */
 
 import os from 'node:os';
@@ -13,7 +13,7 @@ export interface WorkerTarget {
   homeUrl: string;
   homeId: string;
   homeName: string;
-  computerName: string;
+  deviceName: string;
   workerKey: string;
 }
 
@@ -67,12 +67,12 @@ export async function workerFetch(
   }
   if (res.status === 426) {
     const body = (await res.json().catch(() => null)) as { message?: string } | null;
-    throw new WorkerStoppedError('protocol', body?.message ?? `Update Ri on ${target.computerName}.`);
+    throw new WorkerStoppedError('protocol', body?.message ?? `Update Ri on ${target.deviceName}.`);
   }
   if (res.status === 401 || res.status === 403) {
     throw new WorkerStoppedError(
       'revoked',
-      `${target.homeName} no longer accepts this computer as a worker. Enroll it again to run agents here.`,
+      `${target.homeName} no longer accepts this device as a worker. Enroll it again to run agents here.`,
     );
   }
   if (res.status >= 500) {

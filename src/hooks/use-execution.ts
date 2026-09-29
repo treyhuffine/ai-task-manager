@@ -628,7 +628,7 @@ interface InternalSendInput extends SendMessageInput {
 }
 
 /**
- * Where each message this chat sent to a computer elsewhere stands (P3.2),
+ * Where each message this chat sent to a device elsewhere stands (P3.2),
  * by chat event id. Kept current by the session stream's `delivery` frames.
  */
 export function useDeliveries(sessionId: string | null) {
@@ -647,7 +647,7 @@ export function useDeliveries(sessionId: string | null) {
   });
 }
 
-/** Withdraw a message still waiting in its computer's queue. */
+/** Withdraw a message still waiting in its device's queue. */
 export function useCancelDelivery(sessionId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -667,7 +667,7 @@ export function useCancelDelivery(sessionId: string) {
 
 // ─── Continue here (P4.2) ─────────────────────────────────────
 
-/** The execution's latest move between computers: fetched, then kept current by the session stream. */
+/** The execution's latest move between devices: fetched, then kept current by the session stream. */
 export function useTransfer(sessionId: string | null) {
   return useQuery({
     queryKey: ['session', sessionId, 'transfer'],
@@ -690,7 +690,7 @@ export function useWorkingState(sessionId: string | null, enabled: boolean) {
 export function useStartTransfer(sessionId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { toComputerId: string; includeUntracked: string[] }) => sessionsApi.startTransfer(sessionId, body),
+    mutationFn: (body: { toDeviceId: string; includeUntracked: string[] }) => sessionsApi.startTransfer(sessionId, body),
     onSuccess: ({ transfer }) => qc.setQueryData(['session', sessionId, 'transfer'], transfer),
   });
 }
@@ -722,7 +722,7 @@ export function useFinishTransfer(sessionId: string) {
   });
 }
 
-/** Open code here (P4.1): this computer's review checkout of the execution. */
+/** Open code here (P4.1): this device's review checkout of the execution. */
 export function useReview(sessionId: string | null) {
   return useQuery({
     queryKey: ['session', sessionId, 'review'],
@@ -732,12 +732,12 @@ export function useReview(sessionId: string | null) {
   });
 }
 
-/** The review checkout another computer has of it, if any: Continue there says it stays apart. */
-export function useReviewOn(sessionId: string | null, computerId: string | null, enabled: boolean) {
+/** The review checkout another device has of it, if any: Continue there says it stays apart. */
+export function useReviewOn(sessionId: string | null, deviceId: string | null, enabled: boolean) {
   return useQuery({
-    queryKey: ['session', sessionId, 'review', computerId],
-    queryFn: ({ signal }) => sessionsApi.review(sessionId!, { signal, computerId: computerId! }),
-    enabled: enabled && !!sessionId && !!computerId,
+    queryKey: ['session', sessionId, 'review', deviceId],
+    queryFn: ({ signal }) => sessionsApi.review(sessionId!, { signal, deviceId: deviceId! }),
+    enabled: enabled && !!sessionId && !!deviceId,
     staleTime: 15_000,
   });
 }

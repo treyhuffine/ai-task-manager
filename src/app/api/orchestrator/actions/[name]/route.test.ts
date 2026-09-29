@@ -4,10 +4,10 @@ import path from 'node:path';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
-import { API_KEY_ID_HEADER, API_KEY_TYPE_HEADER, CALLER_LOCATION_HEADER } from '@/lib/auth/request-key';
+import { API_KEY_ID_HEADER, CALLER_LOCATION_HEADER } from '@/lib/auth/request-key';
 
 /**
- * A connected computer's CLI runs actions on its home through this route,
+ * A connected device's CLI runs actions on its home through this route,
  * with provenance from credentials only (docs/homes-spec.md §5.3, §6).
  */
 
@@ -29,8 +29,8 @@ function post(name: string, body: unknown, headers: Record<string, string>) {
   });
 }
 
-const fromLaptop = { [API_KEY_ID_HEADER]: 'key-laptop', [API_KEY_TYPE_HEADER]: 'computer', [CALLER_LOCATION_HEADER]: 'elsewhere' };
-const fromHome = { [API_KEY_ID_HEADER]: 'key-host', [API_KEY_TYPE_HEADER]: 'host', [CALLER_LOCATION_HEADER]: 'home' };
+const fromLaptop = { [API_KEY_ID_HEADER]: 'key-laptop', [CALLER_LOCATION_HEADER]: 'elsewhere' };
+const fromHome = { [API_KEY_ID_HEADER]: 'key-host', [CALLER_LOCATION_HEADER]: 'home' };
 
 async function call(name: string, body: unknown, headers: Record<string, string>) {
   const { POST } = await import('./route');
@@ -84,13 +84,13 @@ describe('POST /api/orchestrator/actions/:name', () => {
     expect(forged.body.ok).toBe(true);
   });
 
-  it("refuses a folder path from another computer, which would name a folder on the home's disk", async () => {
+  it("refuses a folder path from another device, which would name a folder on the home's disk", async () => {
     const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-actions-folder-'));
     try {
       const fromElsewhere = await call('create_workspace', { name: 'app', cwd: folder }, fromLaptop);
       expect(fromElsewhere.body.ok).toBe(false);
       expect(fromElsewhere.body.error?.code).toBe('unsupported');
-      expect(fromElsewhere.body.error?.message).toMatch(/another computer/);
+      expect(fromElsewhere.body.error?.message).toMatch(/another device/);
 
       const onHome = await call('create_workspace', { name: 'app', cwd: folder }, fromHome);
       expect(onHome.body.ok).toBe(true);
@@ -100,19 +100,14 @@ describe('POST /api/orchestrator/actions/:name', () => {
   });
 });
 
-describe('computers and setups over the route', () => {
-  it("registers a computer under its key, and only that key records that computer's folders", async () => {
+describe('devices and setups over the route', () => {
+  it("records a device's details and folders on its key's device, and only there", async () => {
     const q = await import('@/lib/db/queries');
-    const laptopKey = q.createApiKey({ name: 'MacBook', deviceType: 'computer' }).key;
-    const asLaptop = { [API_KEY_ID_HEADER]: laptopKey.id, [API_KEY_TYPE_HEADER]: 'computer', [CALLER_LOCATION_HEADER]: 'elsewhere' };
+    const laptop = q.pairDevice({ name: 'MacBook', kind: 'computer' });
+    const asLaptop = { [API_KEY_ID_HEADER]: laptop.key.id, [CALLER_LOCATION_HEADER]: 'elsewhere' };
 
-    const before = await call('set_agent_folder', { agent: 'Ri', folder: '/Users/trey/dynamism/ri' }, asLaptop);
-    expect(before.body.error?.code).toBe('conflict');
-
-    const registered = await call('register_computer', { name: 'MacBook', platform: 'darwin' }, asLaptop);
-    expect(registered.body.ok).toBe(true);
-    const again = await call('register_computer', { name: 'MacBook', platform: 'darwin' }, asLaptop);
-    expect((again.body.result as unknown as { created: boolean }).created).toBe(false);
+    const registered = await call('register_device', { name: 'AI-MacBook', platform: 'darwin' }, asLaptop);
+    expect(registered.body.result).toMatchObject({ device: { id: laptop.device.id, name: 'MacBook', platform: 'darwin' }, created: false });
 
     const ws = q.createWorkspace({
       name: 'Ri',
@@ -124,54 +119,65 @@ describe('computers and setups over the route', () => {
       browserEnabled: false,
     });
     // The laptop isn't connected here, so its folder is taken as it is, and checked when it is.
-    const stored = await call('set_agent_folder', { agent: ws.id, folder: '/Users/trey/dynamism/ri' }, asLaptop);
+    const stored = await call('set_workspace_folder', { agent: ws.id, folder: '/Users/trey/dynamism/ri' }, asLaptop);
     expect(stored.body.ok).toBe(true);
 
-    await call('rename_computer', { name: 'Trey’s MacBook' }, asLaptop);
-    await call('rename_computer', { name: 'MacBook' }, asLaptop);
-    const listed = await call('list_agent_setups', { workspaceId: ws.id }, fromHome);
-    const rows = listed.body.result as unknown as Array<{ computerName: string; sourcePath: string }>;
-    expect(rows).toEqual([expect.objectContaining({ computerName: 'MacBook', sourcePath: '/Users/trey/dynamism/ri' })]);
+    await call('rename_device', { name: 'Trey’s MacBook' }, asLaptop);
+    await call('rename_device', { name: 'MacBook' }, asLaptop);
+    const listed = await call('list_workspace_setups', { workspaceId: ws.id }, fromHome);
+    const rows = listed.body.result as unknown as Array<{ deviceName: string; sourcePath: string }>;
+    expect(rows).toEqual([expect.objectContaining({ deviceName: 'MacBook', sourcePath: '/Users/trey/dynamism/ri' })]);
 
-    // Another key has no computer, so it can't record folders as the MacBook.
-    const phoneKey = q.createApiKey({ name: 'Phone', deviceType: 'phone' }).key;
-    const asPhone = { [API_KEY_ID_HEADER]: phoneKey.id, [API_KEY_TYPE_HEADER]: 'phone', [CALLER_LOCATION_HEADER]: 'elsewhere' };
-    const spoof = await call('set_agent_folder', { agent: ws.id, folder: '/Users/trey/elsewhere' }, asPhone);
-    expect(spoof.body.error?.code).toBe('conflict');
+    // Another device's key records on its own device, never the MacBook's.
+    const phone = q.pairDevice({ name: 'Phone', kind: 'phone' });
+    const asPhone = { [API_KEY_ID_HEADER]: phone.key.id, [CALLER_LOCATION_HEADER]: 'elsewhere' };
+    await call('set_workspace_folder', { agent: ws.id, folder: '/Users/trey/elsewhere' }, asPhone);
+    expect(q.getWorkspaceSetup(ws.id, laptop.device.id)?.sourcePath).toBe('/Users/trey/dynamism/ri');
+    expect(q.getWorkspaceSetup(ws.id, phone.device.id)?.sourcePath).toBe('/Users/trey/elsewhere');
+
+    // A key the home never gave a device can't record folders at all.
+    const orphan = q.createApiKey({ name: 'Orphan', deviceId: null }).key;
+    const asOrphan = { [API_KEY_ID_HEADER]: orphan.id, [CALLER_LOCATION_HEADER]: 'elsewhere' };
+    const refused = await call('set_workspace_folder', { agent: ws.id, folder: '/tmp/x' }, asOrphan);
+    expect(refused.body.error?.code).toBe('conflict');
   });
 
-  it('keeps the same computer when it pairs again with a new key, and never binds to the home itself', async () => {
+  it('keeps the same device when it pairs again with a new key, and never binds to the home itself', async () => {
     const q = await import('@/lib/db/queries');
-    const as = (id: string) => ({ [API_KEY_ID_HEADER]: id, [API_KEY_TYPE_HEADER]: 'computer', [CALLER_LOCATION_HEADER]: 'elsewhere' });
-    const first = q.createApiKey({ name: 'MacBook', deviceType: 'computer' }).key;
-    const made = await call('register_computer', { name: 'MacBook' }, as(first.id));
-    const computerId = (made.body.result as unknown as { computer: { id: string } }).computer.id;
+    const as = (id: string) => ({ [API_KEY_ID_HEADER]: id, [CALLER_LOCATION_HEADER]: 'elsewhere' });
+    const first = q.pairDevice({ name: 'MacBook', kind: 'computer' }).key;
+    const made = await call('register_device', { name: 'MacBook' }, as(first.id));
+    const deviceId = (made.body.result as unknown as { device: { id: string } }).device.id;
 
-    const second = q.createApiKey({ name: 'MacBook, re-paired', deviceType: 'computer' }).key;
-    const again = await call('register_computer', { name: 'MacBook', computerId }, as(second.id));
-    expect((again.body.result as unknown as { computer: { id: string }; created: boolean })).toMatchObject({
-      computer: { id: computerId },
+    // Paired again: the new pairing made a device of its own, which the key
+    // leaves for the device it was, and which then goes.
+    const second = q.pairDevice({ name: 'MacBook again', kind: 'computer' });
+    const again = await call('register_device', { name: 'MacBook', deviceId }, as(second.key.id));
+    expect((again.body.result as unknown as { device: { id: string }; created: boolean })).toMatchObject({
+      device: { id: deviceId },
       created: false,
     });
-    expect(q.listComputers().filter((c) => c.name === 'MacBook')).toHaveLength(1);
+    expect(q.getApiKey(second.key.id)?.deviceId).toBe(deviceId);
+    expect(q.getDevice(second.device.id)?.status).toBe('revoked');
+    expect(q.listDevices().map((d) => d.name)).toEqual(['MacBook']);
 
     const { ensureHomeIdentity, resetHomeIdentityCache } = await import('@/lib/home/identity');
     resetHomeIdentityCache();
-    const hostId = ensureHomeIdentity().computer.id;
-    const third = q.createApiKey({ name: 'Sneaky', deviceType: 'computer' }).key;
-    const sneaky = await call('register_computer', { name: 'Sneaky', computerId: hostId }, as(third.id));
-    expect((sneaky.body.result as unknown as { computer: { id: string } }).computer.id).not.toBe(hostId);
+    const hostId = ensureHomeIdentity().device.id;
+    const third = q.pairDevice({ name: 'Sneaky', kind: 'computer' }).key;
+    const sneaky = await call('register_device', { name: 'Sneaky', deviceId: hostId }, as(third.id));
+    expect((sneaky.body.result as unknown as { device: { id: string } }).device.id).not.toBe(hostId);
     resetHomeIdentityCache();
   });
 
-  it("gives the home's own callers the host computer", async () => {
+  it("gives the home's own callers the host device", async () => {
     const { ensureHomeIdentity, resetHomeIdentityCache } = await import('@/lib/home/identity');
     resetHomeIdentityCache();
-    const host = ensureHomeIdentity().computer;
+    const host = ensureHomeIdentity().device;
     const q = await import('@/lib/db/queries');
     const ws = q.createWorkspace({ name: 'Home agent', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
-    const set = await call('set_agent_folder', { agent: ws.id, folder: home.root }, fromHome);
-    expect((set.body.result as unknown as { computerId: string }).computerId).toBe(host.id);
+    const set = await call('set_workspace_folder', { agent: ws.id, folder: home.root }, fromHome);
+    expect((set.body.result as unknown as { deviceId: string }).deviceId).toBe(host.id);
     resetHomeIdentityCache();
   });
 });

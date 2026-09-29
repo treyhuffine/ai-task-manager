@@ -21,8 +21,8 @@ import {
   SquareCheckBig,
   X,
 } from 'lucide-react';
-import { useRunOn, useSetDefaultComputer, useWorkspaces, useWorkspacePRs } from '@/hooks/use-workspaces';
-import { useRunsOnSeveralComputers } from '@/hooks/use-computers';
+import { useRunOn, useSetDefaultDevice, useWorkspaces, useWorkspacePRs } from '@/hooks/use-workspaces';
+import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
 import { useUserState } from '@/hooks/use-user-state';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -133,15 +133,15 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
   // Where it runs (P3.1): the agent's default, unless picked for this one
   // execution. A pick never sticks: the next launch starts from the default
   // again, and saving a new default is its own action.
-  const severalComputers = useRunsOnSeveralComputers();
+  const severalDevices = useRunsOnSeveralDevices();
   const { data: runOn } = useRunOn(workspaceId);
-  const setDefaultComputer = useSetDefaultComputer(workspaceId);
-  const [runOnPick, setRunOnPick] = useState<{ workspaceId: string; computerId: string } | null>(null);
+  const setDefaultDevice = useSetDefaultDevice(workspaceId);
+  const [runOnPick, setRunOnPick] = useState<{ workspaceId: string; deviceId: string } | null>(null);
   const runOnTarget =
-    (runOnPick && runOnPick.workspaceId === workspaceId ? runOnPick.computerId : null) ?? runOn?.defaultId ?? null;
-  const runOnChoice = runOn?.choices.find((c) => c.computerId === runOnTarget) ?? null;
-  // A computer that can't take the work blocks the start, with why. Never
-  // another computer in its place.
+    (runOnPick && runOnPick.workspaceId === workspaceId ? runOnPick.deviceId : null) ?? runOn?.defaultId ?? null;
+  const runOnChoice = runOn?.choices.find((c) => c.deviceId === runOnTarget) ?? null;
+  // A device that can't take the work blocks the start, with why. Never
+  // another device in its place.
   const runOnProblem = runOnChoice && !runOnChoice.ready ? runOnChoice.problem : null;
 
   // The editor owns its own document; we only mirror "is there anything to
@@ -496,7 +496,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
           effort,
           message: send ? { content, attachments: output.attachments } : null,
           taskId: seed?.taskId ?? null,
-          computerId: runOnTarget,
+          deviceId: runOnTarget,
         });
         persistPrefs();
         clearComposerIfSent(send);
@@ -629,14 +629,14 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
                 workspaceId={workspaceId}
                 onChange={setWorkspaceId}
               />
-              {!continuation && severalComputers && runOn && workspaceId && (
+              {!continuation && severalDevices && runOn && workspaceId && (
                 <RunOnControl
                   agent={{ id: workspaceId, name: workspace?.name ?? 'This agent' }}
                   runOn={runOn}
                   value={runOnTarget}
-                  onChange={(computerId) => setRunOnPick({ workspaceId, computerId })}
-                  onMakeDefault={(computerId) => setDefaultComputer.mutate(computerId, { onSuccess: () => setRunOnPick(null) })}
-                  savingDefault={setDefaultComputer.isPending}
+                  onChange={(deviceId) => setRunOnPick({ workspaceId, deviceId })}
+                  onMakeDefault={(deviceId) => setDefaultDevice.mutate(deviceId, { onSuccess: () => setRunOnPick(null) })}
+                  savingDefault={setDefaultDevice.isPending}
                   disabled={launching}
                 />
               )}

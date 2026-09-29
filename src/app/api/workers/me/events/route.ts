@@ -48,13 +48,13 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'invalid_params', message: parsed.error.issues[0]?.message }, { status: 400 });
   }
   const { gone } = parsed.data;
-  if (gone !== undefined && gone > getAckedEventSeq(worker.computer.id)) {
+  if (gone !== undefined && gone > getAckedEventSeq(worker.device.id)) {
     console.warn(
-      `[workers] ${worker.computer.name} no longer has events up to position ${gone}, past what this home stored. ` +
+      `[workers] ${worker.device.name} no longer has events up to position ${gone}, past what this home stored. ` +
         'They are skipped: the home was probably restored from an older backup.',
     );
-    setAckedEventSeq(worker.computer.id, gone);
+    setAckedEventSeq(worker.device.id, gone);
   }
-  const result = applyWorkerEvents(worker.computer.id, parsed.data.events as unknown as WorkerEvent[]);
+  const result = applyWorkerEvents(worker.device.id, parsed.data.events as unknown as WorkerEvent[]);
   return Response.json(result);
 }

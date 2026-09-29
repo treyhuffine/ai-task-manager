@@ -1,6 +1,6 @@
 /**
  * Push an execution's branch and bring its base branch in, the same way
- * here or on the computer it runs on (P4.5).
+ * here or on the device it runs on (P4.5).
  *
  * A worktree starts from `origin/main` (the base refreshed from its remote)
  * and records that as its base, and its branch tracks it. So until the
@@ -43,7 +43,7 @@ export async function pushExecutionBranch(handle: { path: string; git: { push():
  * the agent's base branch when that's another kind of ref, or a pull
  * request's head (`refs/agentex/pr/<N>`), refetched so pulling a session
  * started from a PR picks up what was pushed to it since. Everything runs in
- * the worktree's own repository, so it works on whichever computer has it.
+ * the worktree's own repository, so it works on whichever device has it.
  *
  * A base that can't be fetched fails loudly rather than merging a stale ref.
  * A conflict throws the library's `MergeConflictError` and leaves the

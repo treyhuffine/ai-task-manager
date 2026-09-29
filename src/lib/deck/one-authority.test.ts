@@ -64,9 +64,9 @@ describe("today's deck", () => {
     expect(generateDeck).toHaveBeenCalledTimes(1);
   });
 
-  it('is refreshed in the morning by a run at home, whatever computers are connected', async () => {
+  it('is refreshed in the morning by a run at home, whatever devices are connected', async () => {
     const q = await import('@/lib/db/queries');
-    const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'MacBook', createdByApiKeyId: null });
+    const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'MacBook', createdByApiKeyId: null });
     q.redeemEnrollGrant({ secret: grant.secret, name: 'MacBook' });
     const { ensureMorningDeckTrigger } = await import('./trigger');
     ensureMorningDeckTrigger();

@@ -1,9 +1,9 @@
 /**
- * Setting an agent up on a computer from the app (docs/homes-model.md): the
- * home says what the computer needs to know (the agent's remote, and where
- * its linked folders sit beside it on the home), the computer copies it down
+ * Setting an agent up on a device from the app (docs/homes-model.md): the
+ * home says what the device needs to know (the agent's remote, and where
+ * its linked folders sit beside it on the home), the device copies it down
  * or uses a folder already there, and the home records where they are, the
- * only place they're kept (docs/homes-spec.md §4.1). The computer's side
+ * only place they're kept (docs/homes-spec.md §4.1). The device's side
  * runs through the real worker handler, in-process, and checks its folders
  * the same way.
  */
@@ -11,8 +11,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTestComputer, createTestHome, type TestComputer, type TestHome } from '@/test/fixtures/home';
-import { createTwoComputerLayout, type TwoComputerLayout } from '@/test/fixtures/git';
+import { createTestDevice, createTestHome, type TestDevice, type TestHome } from '@/test/fixtures/home';
+import { createTwoDeviceLayout, type TwoDeviceLayout } from '@/test/fixtures/git';
 import type { CommandJournal } from '@/lib/worker/command-journal';
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -22,12 +22,12 @@ vi.mock('@/lib/workers/hub', async (original) => {
   const real = await original<typeof import('@/lib/workers/hub')>();
   return {
     ...real,
-    isComputerConnected: () => hub.connected,
+    isDeviceConnected: () => hub.connected,
     sendToWorker: () => hub.connected,
-    requestWorker: async (computerId: string, kind: string, payload: unknown) => {
+    requestWorker: async (deviceId: string, kind: string, payload: unknown) => {
       hub.requests.push({ kind, payload });
-      if (!hub.connected) throw new real.WorkerUnavailableError(computerId);
-      if (hub.unsupported) throw new real.WorkerRequestError(`This computer doesn't know the request "${kind}". Update Ri here.`);
+      if (!hub.connected) throw new real.WorkerUnavailableError(deviceId);
+      if (hub.unsupported) throw new real.WorkerRequestError(`This device doesn't know the request "${kind}". Update Ri here.`);
       // The laptop's worker.
       const { executionRequests } = await import('@/lib/worker/handlers');
       return executionRequests({ journal: {} as CommandJournal, homeId: homeId() })(kind as never, payload);
@@ -36,8 +36,8 @@ vi.mock('@/lib/workers/hub', async (original) => {
 });
 
 let home: TestHome;
-let layout: TwoComputerLayout;
-let laptop: TestComputer;
+let layout: TwoDeviceLayout;
+let laptop: TestDevice;
 let agentId: string;
 let laptopId: string;
 
@@ -50,8 +50,8 @@ beforeEach(async () => {
   hub.unsupported = false;
   hub.requests = [];
   home = await createTestHome({ prefix: 'ri-set-up-agent-' });
-  layout = createTwoComputerLayout();
-  laptop = createTestComputer('laptop');
+  layout = createTwoDeviceLayout();
+  laptop = createTestDevice('laptop');
   const identity = await import('@/lib/home/identity');
   identity.resetHomeIdentityCache();
   (globalThis as { __homeId?: string }).__homeId = identity.ensureHomeIdentity().home.id;
@@ -61,8 +61,8 @@ beforeEach(async () => {
   q.createReferenceFolder({ alias: 'agentex', path: layout.mini.agentex, description: 'The agent library' });
   const { setHomeFolder } = await import('./home-context');
   await setHomeFolder(agentId, layout.mini.app);
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'Laptop', createdByApiKeyId: null });
-  laptopId = q.redeemEnrollGrant({ secret: grant.secret, name: 'Laptop' }).computer.id;
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'Laptop', createdByApiKeyId: null });
+  laptopId = q.redeemEnrollGrant({ secret: grant.secret, name: 'Laptop' }).device.id;
 });
 
 afterEach(async () => {
@@ -79,7 +79,7 @@ describe('what it would do', () => {
     const plan = await planSetup(agentId, laptopId);
     expect(plan).toMatchObject({
       agentName: 'Ri',
-      computerName: 'Laptop',
+      deviceName: 'Laptop',
       remote: layout.appRemote,
       defaultFolder: path.join(getAppRoot(), 'projects', 'ri'),
       existing: null,
@@ -104,11 +104,11 @@ describe('setting it up', () => {
     // Nothing about the agent was written into the folders.
     expect(fs.existsSync(path.join(target, '.ri.local.json'))).toBe(false);
     const q = await import('@/lib/db/queries');
-    expect(q.getAgentSetup(agentId, laptopId)).toMatchObject({ sourcePath: target, found: true, status: 'ready' });
+    expect(q.getWorkspaceSetup(agentId, laptopId)).toMatchObject({ sourcePath: target, found: true, status: 'ready' });
     const ref = q.listReferenceFoldersForWorkspace(agentId)[0]!;
     expect(q.getFolderLink(laptopId, ref.id)).toMatchObject({ path: agentex, found: true });
     const { runOnFor } = await import('./run-on');
-    expect(runOnFor(agentId)!.choices.find((c) => c.computerId === laptopId)).toMatchObject({ ready: true, needsSetup: false });
+    expect(runOnFor(agentId)!.choices.find((c) => c.deviceId === laptopId)).toMatchObject({ ready: true, needsSetup: false });
   });
 
   it('uses a folder already there, and asks about a linked folder it can not find or copy', async () => {
@@ -132,14 +132,14 @@ describe('setting it up', () => {
     const sharedAgentex = path.join(laptop.userDir, 'projects', 'code', 'agentex');
     // A second agent on the home, laid out differently beside agentex.
     const docsRemote = layout.git.remote('docs');
-    const docsHome = layout.git.clone(docsRemote, path.join(layout.mini.computer.userDir, 'writing', 'docs'));
+    const docsHome = layout.git.clone(docsRemote, path.join(layout.mini.device.userDir, 'writing', 'docs'));
     const docsId = q.createWorkspace({ name: 'Docs', cwd: docsHome, isGit: true, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false }).id;
     const { setHomeFolder } = await import('./home-context');
     await setHomeFolder(docsId, docsHome);
     const result = await applySetup(docsId, laptopId, { how: 'copy', folder: path.join(laptop.userDir, 'elsewhere', 'docs') });
     expect(result.status).toBe('ready');
     expect(result.copied).toEqual([path.join(laptop.userDir, 'elsewhere', 'docs')]);
-    expect(q.getAgentSetup(docsId, laptopId)!.references[0]).toMatchObject({ alias: 'agentex', path: sharedAgentex });
+    expect(q.getWorkspaceSetup(docsId, laptopId)!.references[0]).toMatchObject({ alias: 'agentex', path: sharedAgentex });
   });
 
   it('uses a copy that is already where it would go, rather than copying again', async () => {
@@ -168,12 +168,12 @@ describe('setting it up', () => {
     const { applySetup } = await import('./set-up-agent');
     await expect(applySetup(agentId, laptopId, { how: 'copy', folder: target })).rejects.toThrow(/Couldn't copy/);
     expect(fs.existsSync(target)).toBe(false);
-    expect(q.getAgentSetup(agentId, laptopId)).toBeNull();
+    expect(q.getWorkspaceSetup(agentId, laptopId)).toBeNull();
   });
 });
 
-describe('when the computer can not do it', () => {
-  it('says the computer is not running Ri', async () => {
+describe('when the device can not do it', () => {
+  it('says the device is not running Ri', async () => {
     hub.connected = false;
     const { planSetup, SetupUnavailableError } = await import('./set-up-agent');
     await expect(planSetup(agentId, laptopId)).rejects.toBeInstanceOf(SetupUnavailableError);

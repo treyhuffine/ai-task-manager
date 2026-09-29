@@ -601,7 +601,7 @@ export function FileTree({
 
 function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
-    // `message` first: a change refused on another computer says why there
+    // `message` first: a change refused on another device says why there
     // (not connected, unconfirmed) and keeps a code in `error`.
     const body = err.body as { error?: string; message?: string; code?: string } | null;
     if (body?.message) return body.message;

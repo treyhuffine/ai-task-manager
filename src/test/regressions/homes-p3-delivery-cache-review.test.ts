@@ -34,13 +34,13 @@ it('does not let an older HTTP delivery snapshot overwrite a newer stream acknow
   useSessionStream('chat');
   await new Promise((r) => setTimeout(r, 50));
   const request = client.fetchQuery(state.options as FetchQueryOptions);
-  const delivered = { state: 'delivered', computerName: 'Laptop', connected: true, cancellable: false };
+  const delivered = { state: 'delivered', deviceName: 'Laptop', connected: true, cancellable: false };
   const update = new Event('session') as Event & { data: string };
   update.data = JSON.stringify({ s: 'chat', e: 'delivery', d: { eventId: 'message', delivery: delivered } });
   opened.at(-1)!.dispatchEvent(update);
   expect(client.getQueryData(['session', 'chat', 'deliveries'])).toEqual({ message: delivered });
   // The GET was captured before the worker connected and acknowledged.
-  respond({ message: { state: 'waiting', computerName: 'Laptop', connected: false, cancellable: true } });
+  respond({ message: { state: 'waiting', deviceName: 'Laptop', connected: false, cancellable: true } });
   await request;
   expect(client.getQueryData(['session', 'chat', 'deliveries'])).toEqual({ message: delivered });
 });

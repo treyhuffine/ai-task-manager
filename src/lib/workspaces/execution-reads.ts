@@ -2,7 +2,7 @@
  * Reading an execution's worktree for the viewer (docs/homes-build.md,
  * P2.4): its tree, one file, its diff, git status, diff stats, and work in
  * progress in the agent's own folder. Filesystem and git only, no database,
- * so a connected computer's worker answers these for the executions placed
+ * so a connected device's worker answers these for the executions placed
  * there, with the same shapes the home's routes give for its own.
  */
 
@@ -14,10 +14,10 @@ import { readWorktreeDiffStats } from './diff-stats';
 import { detectSourceWip } from './wip';
 import { workingState } from '@/lib/transfer/git-checkpoint';
 
-/** Where an execution's files are on the computer answering. */
+/** Where an execution's files are on the device answering. */
 export interface ExecutionLocation {
   worktreePath: string;
-  /** The agent's own folder on that computer. */
+  /** The agent's own folder on that device. */
   source: string;
   isGit: boolean;
   baseBranch: string | null;

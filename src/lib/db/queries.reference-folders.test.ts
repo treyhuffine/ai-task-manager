@@ -83,7 +83,7 @@ describe('reference folder queries', () => {
     expect(() =>
       q.createReferenceFolder({ workspaceId: frontend.id, alias: 'both', path: '/tmp/api', targetWorkspaceId: backend.id }),
     ).toThrow(/not both/);
-    // Chosen later, on each computer (docs/homes-spec.md §4.1).
+    // Chosen later, on each device (docs/homes-spec.md §4.1).
     const placeless = q.createReferenceFolder({ workspaceId: frontend.id, alias: 'later' });
     expect(placeless).toMatchObject({ alias: 'later', path: null, targetWorkspaceId: null });
   });

@@ -1,23 +1,23 @@
 import type { NextRequest } from 'next/server';
-import { createReferenceFolder, getComputer, getWorkspace, ReferenceFolderError } from '@/lib/db/queries';
+import { createReferenceFolder, getDevice, getWorkspace, ReferenceFolderError } from '@/lib/db/queries';
 import { agentFoldersEverywhere, chooseLinkedFolder, FolderError } from '@/lib/setups/folders';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * An agent's folders on each of the person's computers (docs/homes-spec.md
+ * An agent's folders on each of the person's devices (docs/homes-spec.md
  * §4.1-4.2): its project folder there and each linked folder's place there,
- * as the home records them and each computer last found them.
+ * as the home records them and each device last found them.
  */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!getWorkspace(id)) return Response.json({ error: 'not_found' }, { status: 404 });
-  return Response.json({ computers: agentFoldersEverywhere(id) });
+  return Response.json({ devices: agentFoldersEverywhere(id) });
 }
 
 /**
  * Add a linked folder: its alias and description, for this agent or every
- * agent, and where it is on the computer it was added from. Other computers
+ * agent, and where it is on the device it was added from. Other devices
  * choose their own place for it.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -27,12 +27,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     alias?: unknown;
     description?: unknown;
     forEveryAgent?: unknown;
-    computerId?: unknown;
+    deviceId?: unknown;
     folder?: unknown;
   };
   if (typeof body.alias !== 'string' || !body.alias.trim()) return Response.json({ error: 'invalid_params', message: 'Name it.' }, { status: 400 });
-  if (typeof body.computerId !== 'string' || !getComputer(body.computerId)) {
-    return Response.json({ error: 'invalid_params', message: 'Say which computer it is on.' }, { status: 400 });
+  if (typeof body.deviceId !== 'string' || !getDevice(body.deviceId)) {
+    return Response.json({ error: 'invalid_params', message: 'Say which device it is on.' }, { status: 400 });
   }
   if (typeof body.folder !== 'string' || !body.folder.trim()) return Response.json({ error: 'invalid_params', message: 'Choose where it is.' }, { status: 400 });
   let refId: string;
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     throw err;
   }
   try {
-    await chooseLinkedFolder(refId, body.computerId, body.folder);
+    await chooseLinkedFolder(refId, body.deviceId, body.folder);
   } catch (err) {
     if (err instanceof FolderError) {
       // Nothing half-made: the linked folder goes with its place.
@@ -59,5 +59,5 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     throw err;
   }
-  return Response.json({ computers: agentFoldersEverywhere(id) }, { status: 201 });
+  return Response.json({ devices: agentFoldersEverywhere(id) }, { status: 201 });
 }

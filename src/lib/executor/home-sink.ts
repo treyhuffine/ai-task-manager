@@ -3,7 +3,7 @@
  * home's records (docs/homes-build.md, P2.1 and P2.3).
  *
  * Each event and signal is applied in its own transaction through the same
- * functions a connected computer's journaled events go through
+ * functions a connected device's journaled events go through
  * (`apply.ts`), so every placement behaves the same way. There's no journal
  * here, because there's no network in between.
  */

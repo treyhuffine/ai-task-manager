@@ -1,38 +1,38 @@
 /**
- * Where a message sent to a computer elsewhere stands (docs/homes-spec.md
+ * Where a message sent to a device elsewhere stands (docs/homes-spec.md
  * §3.5, P3.2). Saving it at the home is not delivering it to the harness, so
  * each message a chat elsewhere sends carries its own state, from its send
  * command:
  *
- *   waiting        saved at the home, its computer not connected
+ *   waiting        saved at the home, its device not connected
  *   sending        on its way: queued while connected, or streamed and not
  *                  yet acknowledged
  *   delivered      the harness has it
  *   not_delivered  failed, withdrawn, or the execution moved first
  *   uncertain      it may or may not have reached the harness, and the
  *                  worker couldn't tell from the native history
- *   held           saved while the execution moves to another computer
+ *   held           saved while the execution moves to another device
  *                  (P4.2), and sent once, where it ends up
  *
  * Every change is announced on the chat's stream after it commits, from the
  * places a send changes state: queued by dispatch, streamed to the worker,
  * acknowledged, withdrawn, found stale, uncertain after re-enrollment, or
- * settled when local execution is turned off. A computer connecting or
+ * settled when local execution is turned off. A device connecting or
  * dropping changes what its open sends say, so that's announced too.
  */
 
 import type { WorkerCommandRecord } from '@/db/types';
-import { getChatEventById, getChatSession, getComputer, getWorkerCommand, heldMessages, listOpenSendsForComputer, listSendsForChat } from '@/lib/db/queries';
+import { getChatEventById, getChatSession, getDevice, getWorkerCommand, heldMessages, listOpenSendsForDevice, listSendsForChat } from '@/lib/db/queries';
 import { publishDelivery } from '@/lib/realtime/bus';
-import { isComputerConnected } from './hub';
+import { isDeviceConnected } from './hub';
 
 export type DeliveryState = 'waiting' | 'sending' | 'delivered' | 'not_delivered' | 'uncertain' | 'held';
 
 export interface MessageDelivery {
   state: DeliveryState;
-  computerId: string;
-  /** The computer's name, as the person named it. */
-  computerName: string;
+  deviceId: string;
+  /** The device's name, as the person named it. */
+  deviceName: string;
   /** Its worker is connected now. */
   connected: boolean;
   /** Why it wasn't delivered, or why delivery can't be confirmed. */
@@ -44,15 +44,15 @@ export interface MessageDelivery {
 const NOT_DELIVERED: Record<string, string> = {
   failed: "It couldn't be delivered.",
   cancelled: 'It was withdrawn before it was delivered.',
-  stale: 'The execution moved to another computer first.',
+  stale: 'The execution moved to another device first.',
 };
 
 export function deliveryOf(command: WorkerCommandRecord): MessageDelivery | null {
   if (command.kind !== 'send') return null;
-  const connected = isComputerConnected(command.computerId);
+  const connected = isDeviceConnected(command.deviceId);
   const base = {
-    computerId: command.computerId,
-    computerName: getComputer(command.computerId)?.name ?? 'the other computer',
+    deviceId: command.deviceId,
+    deviceName: getDevice(command.deviceId)?.name ?? 'the other device',
     connected,
     reason: null,
     cancellable: false,
@@ -65,13 +65,13 @@ export function deliveryOf(command: WorkerCommandRecord): MessageDelivery | null
     case 'delivered':
       return { ...base, state: 'delivered' };
     case 'uncertain':
-      return { ...base, state: 'uncertain', reason: command.error ?? 'Its computer restarted before confirming it.' };
+      return { ...base, state: 'uncertain', reason: command.error ?? 'Its device restarted before confirming it.' };
     default:
       return { ...base, state: 'not_delivered', reason: command.error ?? NOT_DELIVERED[command.state] ?? null };
   }
 }
 
-/** Every message the chat sent to a computer elsewhere, or that a move holds, by its chat event id. */
+/** Every message the chat sent to a device elsewhere, or that a move holds, by its chat event id. */
 export function deliveriesForChat(chatSessionId: string): Record<string, MessageDelivery> {
   const out: Record<string, MessageDelivery> = {};
   for (const command of listSendsForChat(chatSessionId)) {
@@ -90,19 +90,19 @@ export function deliveriesForChat(chatSessionId: string): Record<string, Message
 
 /** A message a move holds (P4.2). If the move stopped, why, and it waits for Try again or Resume. */
 function heldDelivery(transfer: {
-  toComputerId: string;
-  fromComputerId: string;
+  toDeviceId: string;
+  fromDeviceId: string;
   state: string;
   toGeneration: number | null;
   error: string | null;
 }): MessageDelivery {
-  const to = getComputer(transfer.toComputerId)?.name ?? 'the other computer';
-  const from = getComputer(transfer.fromComputerId)?.name ?? 'the other computer';
+  const to = getDevice(transfer.toDeviceId)?.name ?? 'the other device';
+  const from = getDevice(transfer.fromDeviceId)?.name ?? 'the other device';
   return {
     state: 'held',
-    computerId: transfer.toComputerId,
-    computerName: to,
-    connected: isComputerConnected(transfer.toComputerId),
+    deviceId: transfer.toDeviceId,
+    deviceName: to,
+    connected: isDeviceConnected(transfer.toDeviceId),
     reason:
       transfer.state === 'failed'
         ? transfer.toGeneration === null
@@ -134,7 +134,7 @@ export function announceDelivery(command: WorkerCommandRecord | string | null | 
   if (delivery) publishDelivery(record.chatSessionId, record.sourceEventId, delivery);
 }
 
-/** A computer connected or dropped: what its open sends say changes. */
-export function announceOpenSends(computerId: string): void {
-  for (const command of listOpenSendsForComputer(computerId)) announceDelivery(command);
+/** A device connected or dropped: what its open sends say changes. */
+export function announceOpenSends(deviceId: string): void {
+  for (const command of listOpenSendsForDevice(deviceId)) announceDelivery(command);
 }

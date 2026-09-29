@@ -1,10 +1,10 @@
 /**
- * Whether the home's computer is a laptop: whether it has a battery (spec §7,
+ * Whether the home's device is a laptop: whether it has a battery (spec §7,
  * P3.4). A home on a laptop runs its schedules only while the laptop is
  * awake, and the schedule screens say so. It explains the one scheduler
  * there is, and adds nothing to it.
  *
- * Read once per process: a computer doesn't grow or lose a battery.
+ * Read once per process: a device doesn't grow or lose a battery.
  */
 
 import { execFile } from 'node:child_process';

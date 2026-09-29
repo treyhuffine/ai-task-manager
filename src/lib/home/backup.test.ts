@@ -50,7 +50,7 @@ function seedHome() {
   write('.config/browser/profiles/agent/Cookies', 'cookies');
   write('.config/tls/leaf.pem', 'cert');
   write('.config/cli-config.json', '{"editor":"cursor"}');
-  write('.config/machine.json', '{"version":1,"homeId":"h","computerId":"c"}');
+  write('.config/machine.json', '{"version":1,"homeId":"h","deviceId":"c"}');
   write('.work/worktrees/x/file', 'scratch');
   write('tasks/t0.md', 'mirror');
   write('data.db.bak-old', 'old copy');

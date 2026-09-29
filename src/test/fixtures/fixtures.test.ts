@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createGitFixture, createTwoComputerLayout, git } from './git';
-import { createTestComputer, createTestHome, type TestHome } from './home';
+import { createGitFixture, createTwoDeviceLayout, git } from './git';
+import { createTestDevice, createTestHome, type TestHome } from './home';
 import { installFakeHarness, type FakeHarness } from './fake-harness';
 import { createDatabaseAt, migrationTags } from './migrations';
 
@@ -29,10 +29,10 @@ describe('createTestHome', () => {
   });
 });
 
-describe('createTestComputer', () => {
+describe('createTestDevice', () => {
   it('makes a separate root without a database or environment changes', () => {
     const before = process.env.RI_ROOT;
-    const laptop = createTestComputer('laptop');
+    const laptop = createTestDevice('laptop');
     expect(fs.existsSync(laptop.configDir)).toBe(true);
     expect(fs.existsSync(path.join(laptop.root, 'ri', 'data.db'))).toBe(false);
     expect(process.env.RI_ROOT).toBe(before);
@@ -59,7 +59,7 @@ describe('git fixtures', () => {
   });
 
   it("builds the spec's two layouts of one agent", () => {
-    const layout = createTwoComputerLayout();
+    const layout = createTwoDeviceLayout();
     try {
       expect(layout.macbook.app.endsWith('/home/dynamism/ri')).toBe(true);
       expect(layout.macbook.agentexRelative).toBe('../agentex');
@@ -73,7 +73,7 @@ describe('git fixtures', () => {
   });
 
   it('puts a monorepo agent in its subfolder', () => {
-    const layout = createTwoComputerLayout({ monorepoSubdir: 'apps/web' });
+    const layout = createTwoDeviceLayout({ monorepoSubdir: 'apps/web' });
     try {
       expect(layout.mini.app.endsWith('/ai-task-manager/apps/web')).toBe(true);
       expect(fs.existsSync(path.join(layout.mini.app, 'package.json'))).toBe(true);

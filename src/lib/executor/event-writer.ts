@@ -5,7 +5,7 @@
  * writes through this interface (defined with the runner, in
  * `src/lib/runner/types.ts`). This is the plain database writer, used by
  * transcript replay on the home. A live session writes through the home
- * sink's writer, which adds run telemetry, and a connected computer's
+ * sink's writer, which adds run telemetry, and a connected device's
  * worker writes to its journal (docs/homes-build.md, P2).
  */
 

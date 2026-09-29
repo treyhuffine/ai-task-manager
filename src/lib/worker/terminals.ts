@@ -1,8 +1,8 @@
 /**
- * In-app terminals on a connected computer (docs/homes-build.md, P3.5,
+ * In-app terminals on a connected device (docs/homes-build.md, P3.5,
  * spec §5.6). The same PTY manager the home uses, run by the worker: a shell
- * in an execution's worktree, for the placement this computer holds, or in
- * an agent's folder from this computer's own setup files. The home asks for
+ * in an execution's worktree, for the placement this device holds, or in
+ * an agent's folder from this device's own setup files. The home asks for
  * each operation as a `terminal` request, and output comes back as batches
  * the worker posts, each chunk carrying its offset so the home and a viewer
  * can tell a continuation from a gap.
@@ -10,7 +10,7 @@
  * Output is never queued for a home that isn't listening: a batch that
  * can't be posted is dropped, and the ring buffer here is what a viewer
  * catches up from when it reconnects. Input is never queued either: an
- * operation arrives as a request while the computer is connected, or not at
+ * operation arrives as a request while the device is connected, or not at
  * all.
  */
 
@@ -33,7 +33,7 @@ export interface PtyHost {
 
 export interface WorkerTerminalsOptions {
   journal: Pick<CommandJournal, 'preparedWorktree' | 'released' | 'highestGeneration'>;
-  /** The agent's folder on this computer, from its setup files. */
+  /** The agent's folder on this device, from its setup files. */
   agentFolder: (agentId: string) => string | null;
   /** Post a batch to the home. A rejection drops it. */
   post: (batch: TerminalOutputBatch) => Promise<void>;
@@ -77,23 +77,23 @@ export class WorkerTerminals {
   }
 
   /**
-   * Whether this computer may act for the scope, and where its shells start.
+   * Whether this device may act for the scope, and where its shells start.
    * An execution needs the worktree prepared here and the placement still
-   * this computer's, at this generation. An agent needs its folder set up here.
+   * this device's, at this generation. An agent needs its folder set up here.
    */
   private place(scope: TerminalScope): { cwd: string } | ReadAnswer {
     if (scope.kind === 'agent') {
       const folder = this.options.agentFolder(scope.agentId);
-      if (!folder) return answer(409, { error: 'not_set_up', message: "This agent isn't set up on this computer." });
+      if (!folder) return answer(409, { error: 'not_set_up', message: "This agent isn't set up on this device." });
       return { cwd: folder };
     }
     const { journal } = this.options;
     const newest = journal.highestGeneration(scope.executionId);
     if (journal.released(scope.executionId, scope.generation) || (newest !== null && scope.generation < newest)) {
-      return answer(409, { error: 'moved', message: 'This execution no longer runs on this computer.' });
+      return answer(409, { error: 'moved', message: 'This execution no longer runs on this device.' });
     }
     const worktree = journal.preparedWorktree(scope.executionId);
-    if (!worktree) return answer(409, { error: 'not_prepared', message: "This execution isn't set up on this computer yet." });
+    if (!worktree) return answer(409, { error: 'not_prepared', message: "This execution isn't set up on this device yet." });
     return { cwd: worktree };
   }
 

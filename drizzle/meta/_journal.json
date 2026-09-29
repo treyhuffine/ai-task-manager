@@ -19,71 +19,8 @@
     {
       "idx": 2,
       "version": "6",
-      "when": 1790284860576,
-      "tag": "0002_supreme_beyonder",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1790286047718,
-      "tag": "0003_luxuriant_screwball",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1790354899756,
-      "tag": "0004_low_roulette",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1790356475696,
-      "tag": "0005_clumsy_clint_barton",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1790357459413,
-      "tag": "0006_noisy_sebastian_shaw",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1790376409907,
-      "tag": "0007_real_thunderbolts",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1790451845059,
-      "tag": "0008_fearless_red_hulk",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1790460228669,
-      "tag": "0009_lucky_secret_warriors",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "6",
-      "when": 1790623378909,
-      "tag": "0010_worried_gateway",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "6",
-      "when": 1790696493220,
-      "tag": "0011_nice_mister_sinister",
+      "when": 1790723709997,
+      "tag": "0002_misty_archangel",
       "breakpoints": true
     }
   ]

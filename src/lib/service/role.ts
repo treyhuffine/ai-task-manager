@@ -1,5 +1,5 @@
 /**
- * What the background service on this computer is for, decided before it
+ * What the background service on this device is for, decided before it
  * starts anything or opens a database (docs/homes-spec.md §3.1,
  * docs/desktop.md "Main integration and Homes handoff", item 1). Read from
  * files only: the connection record, the worker enrollment, and a retired
@@ -24,7 +24,7 @@ import { readWorkerConfig } from '@/lib/worker/config';
 export type ServiceRole =
   | { role: 'home' }
   | { role: 'first-run' }
-  | { role: 'worker'; home: { url: string; name: string }; computerName: string }
+  | { role: 'worker'; home: { url: string; name: string }; deviceName: string }
   | { role: 'viewer'; home: { url: string; name: string } }
   | { role: 'retired'; message: string }
   | { role: 'conflict'; message: string };
@@ -50,7 +50,7 @@ export function resolveServiceRole(): ServiceRole {
   } catch {
     // An enrollment this version can't read runs nothing until it's enrolled again.
   }
-  if (worker && worker.homeId === connection.homeId) return { role: 'worker', home, computerName: worker.computerName };
+  if (worker && worker.homeId === connection.homeId) return { role: 'worker', home, deviceName: worker.deviceName };
   return { role: 'viewer', home };
 }
 
@@ -66,9 +66,9 @@ export function describeServiceRole(role: ServiceRole): string | null {
     case 'first-run':
       return null;
     case 'worker':
-      return `This computer runs work for ${role.home.name} at ${role.home.url}, which keeps the data. Run its worker here (\`ri worker run\`), not a home.`;
+      return `This device runs work for ${role.home.name} at ${role.home.url}, which keeps the data. Run its worker here (\`ri worker run\`), not a home.`;
     case 'viewer':
-      return `This computer is connected to ${role.home.name} at ${role.home.url}, where the data lives. Nothing runs here.`;
+      return `This device is connected to ${role.home.name} at ${role.home.url}, where the data lives. Nothing runs here.`;
     case 'retired':
     case 'conflict':
       return role.message;

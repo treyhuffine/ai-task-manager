@@ -22,7 +22,7 @@ let home: TestHome;
 let server: HomeServer;
 let homeId: string;
 let laptopKey: string;
-let computerId: string;
+let deviceId: string;
 let target: WorkerTarget;
 let journalDir: string;
 const running: AbortController[] = [];
@@ -34,9 +34,9 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
-  const laptop = q.createApiKey({ name: 'MacBook CLI', deviceType: 'computer' });
+  const laptop = q.pairDevice({ name: 'MacBook', kind: 'computer' });
   laptopKey = laptop.token.plaintext;
-  computerId = q.registerComputerForApiKey({ apiKeyId: laptop.key.id, name: 'MacBook', platform: 'darwin' }).computer.id;
+  deviceId = q.registerDeviceForApiKey({ apiKeyId: laptop.key.id, name: 'MacBook', platform: 'darwin' }).device.id;
   server = await startHomeServer();
   target = await enroll();
 });
@@ -63,7 +63,7 @@ async function enroll(): Promise<WorkerTarget> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ code: grant.code, name: 'mac', protocol: WORKER_PROTOCOL, version: 'test' }),
   }).then((r) => r.json() as Promise<{ workerKey: string }>);
-  return { homeUrl: server.url, homeId, homeName: 'My Ri', computerName: 'MacBook', workerKey: enrolled.workerKey };
+  return { homeUrl: server.url, homeId, homeName: 'My Ri', deviceName: 'MacBook', workerKey: enrolled.workerKey };
 }
 
 async function journals(name = 'a') {
@@ -128,9 +128,9 @@ function counting(recovery: CommandKindHandler['recover'] = async () => ({ state
 
 async function queue(kind: WorkerCommandKind = 'interrupt', chatSessionId: string | null = null) {
   const q = await import('@/lib/db/queries');
-  const { wakeComputer } = await import('@/lib/workers/hub');
-  const command = q.queueWorkerCommand({ computerId, kind, payload: { n: 1 }, actor: { source: 'human' }, chatSessionId });
-  wakeComputer(computerId);
+  const { wakeDevice } = await import('@/lib/workers/hub');
+  const command = q.queueWorkerCommand({ deviceId, kind, payload: { n: 1 }, actor: { source: 'human' }, chatSessionId });
+  wakeDevice(deviceId);
   return command;
 }
 
@@ -165,7 +165,7 @@ describe('commands', () => {
     processor.receive(j.commands.get(command.id)!.command);
     await processor.idle();
     const hub = await import('@/lib/workers/hub');
-    hub._dropWorkerStreams(computerId);
+    hub._dropWorkerStreams(deviceId);
     await until(() => statuses.filter((s) => s.state === 'connected').length === 2, 'a reconnect');
     expect(runs).toEqual([command.id]);
   });
@@ -173,7 +173,7 @@ describe('commands', () => {
   it('left unfinished by a restart go through their recovery rule, not run again', async () => {
     const command = await queue();
     const q = await import('@/lib/db/queries');
-    const [sent] = q.takeCommandsForStream(computerId, 0);
+    const [sent] = q.takeCommandsForStream(deviceId, 0);
     const j = await journals();
     const wire = {
       id: sent!.id,
@@ -198,7 +198,7 @@ describe('commands', () => {
   it('resend an acknowledgement the home never confirmed', async () => {
     const command = await queue();
     const q = await import('@/lib/db/queries');
-    const [sent] = q.takeCommandsForStream(computerId, 0);
+    const [sent] = q.takeCommandsForStream(deviceId, 0);
     const j = await journals();
     const wire = {
       id: sent!.id,
@@ -228,7 +228,7 @@ describe('commands', () => {
     const b = await queue();
     const c = await queue();
     const q = await import('@/lib/db/queries');
-    const sent = q.takeCommandsForStream(computerId, 0);
+    const sent = q.takeCommandsForStream(deviceId, 0);
     expect(sent.map((s) => s.seq)).toEqual([1, 2, 3]);
     const j = await journals();
     const wire = (i: number) => ({
@@ -258,7 +258,7 @@ describe('commands', () => {
     const first = await queue();
     const second = await queue();
     expect(q.cancelWorkerCommand(first.id)?.state).toBe('cancelled');
-    const sent = q.takeCommandsForStream(computerId, 0);
+    const sent = q.takeCommandsForStream(deviceId, 0);
     expect(sent.map((s) => [s.id, s.seq])).toEqual([[second.id, 1]]);
     expect(q.cancelWorkerCommand(second.id)).toBeNull(); // already streamed
   });
@@ -266,13 +266,13 @@ describe('commands', () => {
   it('streamed to a worker that is replaced become uncertain, not resent', async () => {
     const command = await queue();
     const q = await import('@/lib/db/queries');
-    q.takeCommandsForStream(computerId, 0);
+    q.takeCommandsForStream(deviceId, 0);
     target = await enroll();
     expect(await stateOf(command.id)).toBe('uncertain');
-    expect(q.takeCommandsForStream(computerId, 0)).toEqual([]);
+    expect(q.takeCommandsForStream(deviceId, 0)).toEqual([]);
   });
 
-  it("a kind this computer doesn't handle fails with what to do", async () => {
+  it("a kind this device doesn't handle fails with what to do", async () => {
     const statuses: WorkerStatus[] = [];
     await start({ statuses });
     await until(() => statuses.some((s) => s.state === 'connected'), 'the worker to connect');
@@ -287,7 +287,7 @@ describe('events', () => {
   async function chatOnWorker() {
     const q = await import('@/lib/db/queries');
     const chat = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active', permissionMode: 'auto_all' });
-    q.updateChatSession(chat.id, { computerId } as never);
+    q.updateChatSession(chat.id, { deviceId } as never);
     return chat;
   }
 
@@ -315,14 +315,14 @@ describe('events', () => {
     // result counts only for one of its own sends.
     const q0 = await import('@/lib/db/queries');
     const send = q0.queueWorkerCommand({
-      computerId,
+      deviceId,
       kind: 'send',
       payload: { runId: run.id, turnId: 't1' },
       actor: { source: 'human' },
       chatSessionId: chat.id,
     });
-    q0.takeCommandsForStream(computerId, 0);
-    q0.ackWorkerCommand(computerId, send.id, { state: 'delivered' });
+    q0.takeCommandsForStream(deviceId, 0);
+    q0.ackWorkerCommand(deviceId, send.id, { state: 'delivered' });
     let sink: import('@/lib/runner/types').RunnerSink | null = null;
     const j = await journals();
     await start({ journals: j, onSink: (s) => (sink = s) });
@@ -332,7 +332,7 @@ describe('events', () => {
     sink!.signal(chat.id, { type: 'turn_result', turnId: 't1', runId: run.id, ok: true, error: null });
 
     const q = await import('@/lib/db/queries');
-    await until(() => q.getAckedEventSeq(computerId) === 3, 'the home to store all three');
+    await until(() => q.getAckedEventSeq(deviceId) === 3, 'the home to store all three');
     expect(q.listChatEvents(chat.id).map((e) => e.content)).toContain('Hello from the laptop');
     expect(q.getChatSession(chat.id)?.externalSessionId).toBe('native-1');
     expect(q.getRun(run.id)?.status).toBe('completed');
@@ -350,7 +350,7 @@ describe('events', () => {
     // A new process opens the same journal and posts it.
     await start({ journals: await journals() });
     const q = await import('@/lib/db/queries');
-    await until(() => q.getAckedEventSeq(computerId) === 1, 'the home to store it');
+    await until(() => q.getAckedEventSeq(deviceId) === 1, 'the home to store it');
     expect(q.listChatEvents(chat.id).some((e) => e.content === 'Written while offline')).toBe(true);
   });
 
@@ -368,19 +368,19 @@ describe('events', () => {
       chatEvent: { role: 'assistant', source: 'agent', content },
       cumulative: false,
     });
-    expect(applyWorkerEvents(computerId, [event(1, 'one'), event(2, 'two')]).acked).toBe(2);
-    expect(applyWorkerEvents(computerId, [event(1, 'one'), event(2, 'two')]).acked).toBe(2);
-    expect(applyWorkerEvents(computerId, [event(4, 'four')]).acked).toBe(2);
+    expect(applyWorkerEvents(deviceId, [event(1, 'one'), event(2, 'two')]).acked).toBe(2);
+    expect(applyWorkerEvents(deviceId, [event(1, 'one'), event(2, 'two')]).acked).toBe(2);
+    expect(applyWorkerEvents(deviceId, [event(4, 'four')]).acked).toBe(2);
     const contents = q.listChatEvents(chat.id).map((e) => e.content);
     expect(contents.filter((c) => c === 'one')).toHaveLength(1);
     expect(contents).not.toContain('four');
   });
 
-  it("for a chat that doesn't run on this computer are refused, and the journal moves on", async () => {
+  it("for a chat that doesn't run on this device are refused, and the journal moves on", async () => {
     const q = await import('@/lib/db/queries');
     const elsewhere = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active', permissionMode: 'auto_all' });
     const { applyWorkerEvents } = await import('@/lib/executor/apply');
-    const result = applyWorkerEvents(computerId, [
+    const result = applyWorkerEvents(deviceId, [
       {
         position: 1,
         eventId: 'e1',
@@ -400,7 +400,7 @@ describe('events', () => {
     const q = await import('@/lib/db/queries');
     const ws = q.createWorkspace({ name: 'Demo', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
     const created = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'placed here' });
-    q.createPlacement({ executionId: created.execution.id, computerId, startReason: 'created' });
+    q.createPlacement({ executionId: created.execution.id, deviceId, startReason: 'created' });
     const { applyWorkerEvents } = await import('@/lib/executor/apply');
     const event = (position: number, generation: number | null) => ({
       position,
@@ -412,20 +412,20 @@ describe('events', () => {
       chatEvent: { role: 'assistant' as const, source: 'agent' as const, content: `generation ${generation}` },
       cumulative: false,
     });
-    expect(applyWorkerEvents(computerId, [event(1, null), event(2, 1)])).toEqual({ acked: 2, refused: [1] });
+    expect(applyWorkerEvents(deviceId, [event(1, null), event(2, 1)])).toEqual({ acked: 2, refused: [1] });
     expect(q.listChatEvents(created.session.id).map((e) => e.content)).toEqual(['generation 1']);
   });
 
-  it("charge a result to its own run, from any placement, and never to a run this computer wasn't sent", async () => {
+  it("charge a result to its own run, from any placement, and never to a run this device wasn't sent", async () => {
     const q = await import('@/lib/db/queries');
     const identity = await import('@/lib/home/identity');
     const ws = q.createWorkspace({ name: 'Demo', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
     const created = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'moves home' });
     const chatId = created.session.id;
-    q.createPlacement({ executionId: created.execution.id, computerId, startReason: 'created' });
+    q.createPlacement({ executionId: created.execution.id, deviceId, startReason: 'created' });
     const laptopRun = await manualRun(chatId);
     q.queueWorkerCommand({
-      computerId,
+      deviceId,
       kind: 'send',
       payload: { runId: laptopRun.id, turnId: 'laptop-turn' },
       actor: { source: 'human' },
@@ -434,7 +434,7 @@ describe('events', () => {
       generation: 1,
     });
     // It moves home, and a run starts there.
-    q.createPlacement({ executionId: created.execution.id, computerId: identity.ensureHomeIdentity().computer.id, startReason: 'continued' });
+    q.createPlacement({ executionId: created.execution.id, deviceId: identity.ensureHomeIdentity().device.id, startReason: 'continued' });
     const homeRun = await manualRun(chatId);
     const { beginRun } = await import('@/lib/runs/artifact-bucket');
     beginRun(homeRun.id, chatId);
@@ -451,7 +451,7 @@ describe('events', () => {
       chatEvent: { role: 'system' as const, source: 'result' as const, content: 'done', raw: { type: 'result', costUsd } as never },
       cumulative: false,
     });
-    applyWorkerEvents(computerId, [result(1, laptopRun.id, 3), result(2, homeRun.id, 5)]);
+    applyWorkerEvents(deviceId, [result(1, laptopRun.id, 3), result(2, homeRun.id, 5)]);
     expect(q.getRun(laptopRun.id)?.costUsd).toBe(3);
     expect(q.getRun(homeRun.id)?.costUsd ?? 0).toBe(0);
     expect(q.listChatEvents(chatId).filter((e) => e.source === 'result')).toHaveLength(2);
@@ -462,13 +462,13 @@ describe('events', () => {
   it('from a cleared journal number on after what the home holds', async () => {
     const chat = await chatOnWorker();
     const q = await import('@/lib/db/queries');
-    q.setAckedEventSeq(computerId, 7);
+    q.setAckedEventSeq(deviceId, 7);
     let sink: import('@/lib/runner/types').RunnerSink | null = null;
     const statuses: WorkerStatus[] = [];
     await start({ journals: await journals('fresh'), onSink: (s) => (sink = s), statuses });
     await until(() => statuses.some((s) => s.state === 'connected'), 'the worker to connect');
     await sink!.writer.write({ sessionId: chat.id, role: 'assistant', source: 'agent', content: 'After a reinstall' });
-    await until(() => q.getAckedEventSeq(computerId) === 8, 'the home to store it');
+    await until(() => q.getAckedEventSeq(deviceId) === 8, 'the home to store it');
     expect(q.listChatEvents(chat.id).some((e) => e.content === 'After a reinstall')).toBe(true);
   });
 
@@ -481,26 +481,26 @@ describe('events', () => {
     for (const n of [1, 2, 3]) await sink.writer.write({ sessionId: chat.id, role: 'assistant', source: 'agent', content: `old ${n}` });
     j.events.ack(3); // the home took them, then lost them in a restore
     await sink.writer.write({ sessionId: chat.id, role: 'assistant', source: 'agent', content: 'new' });
-    expect(q.getAckedEventSeq(computerId)).toBe(0);
+    expect(q.getAckedEventSeq(deviceId)).toBe(0);
 
     const { EventPoster } = await import('@/lib/worker/poster');
     await new EventPoster(target, j.events).kick();
-    expect(q.getAckedEventSeq(computerId)).toBe(4);
+    expect(q.getAckedEventSeq(deviceId)).toBe(4);
     expect(q.listChatEvents(chat.id).some((e) => e.content === 'new')).toBe(true);
   });
 });
 
 describe('placements in the heartbeat', () => {
-  it('are answered with the ones this computer no longer holds, to stop', async () => {
+  it('are answered with the ones this device no longer holds, to stop', async () => {
     const q = await import('@/lib/db/queries');
     const ws = q.createWorkspace({ name: 'Demo', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
     const kept = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'kept' });
     const moved = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'moved' });
-    q.createPlacement({ executionId: kept.execution.id, computerId, startReason: 'created' });
-    q.createPlacement({ executionId: moved.execution.id, computerId, startReason: 'created' });
-    // The second moves on: continued on the home's own computer.
+    q.createPlacement({ executionId: kept.execution.id, deviceId, startReason: 'created' });
+    q.createPlacement({ executionId: moved.execution.id, deviceId, startReason: 'created' });
+    // The second moves on: continued on the home's own device.
     const identity = await import('@/lib/home/identity');
-    q.createPlacement({ executionId: moved.execution.id, computerId: identity.ensureHomeIdentity().computer.id, startReason: 'continued' });
+    q.createPlacement({ executionId: moved.execution.id, deviceId: identity.ensureHomeIdentity().device.id, startReason: 'continued' });
 
     const { sendHeartbeat } = await import('@/lib/worker/run');
     const reply = await sendHeartbeat(target, 'test', 'awake', async () => [], {
@@ -518,12 +518,12 @@ describe('placements in the heartbeat', () => {
     _resetRemoteLive();
   });
 
-  it("mirror only this computer's chats, at the generation it runs them", async () => {
+  it("mirror only this device's chats, at the generation it runs them", async () => {
     const q = await import('@/lib/db/queries');
     const ws = q.createWorkspace({ name: 'Demo', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
     const here = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'here, placed again' });
-    q.createPlacement({ executionId: here.execution.id, computerId, startReason: 'created' });
-    q.createPlacement({ executionId: here.execution.id, computerId, startReason: 'continued' });
+    q.createPlacement({ executionId: here.execution.id, deviceId, startReason: 'created' });
+    q.createPlacement({ executionId: here.execution.id, deviceId, startReason: 'continued' });
     const homeOnly = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'home only' });
     const { sendHeartbeat } = await import('@/lib/worker/run');
     const live = await import('@/lib/executor/live-state');

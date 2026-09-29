@@ -467,7 +467,7 @@ function FileHeaderMoreMenu({
 }
 
 interface RevealButtonProps {
-  /** Whose folder it is, which says which computer the file is on (P3.5). */
+  /** Whose folder it is, which says which device the file is on (P3.5). */
   source: FolderSource;
   /** Absolute path of the folder the file lives in. */
   root: string | null;
@@ -481,7 +481,7 @@ interface RevealButtonProps {
  * user's laptop.
  */
 function RevealButton({ source, root, path }: RevealButtonProps) {
-  // Opens on the computer the file is on, for a browser there (P3.5).
+  // Opens on the device the file is on, for a browser there (P3.5).
   const { opener } = useOpener(source, root);
   const { label, openInEditor } = useOpenInPreferredEditor(opener);
   const worktreePath = root;

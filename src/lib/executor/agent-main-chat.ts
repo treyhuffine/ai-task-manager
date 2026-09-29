@@ -47,7 +47,7 @@ export interface AgentMainChatSpawnArgs {
   /** No provider session to resume yet, so this spawn starts the conversation. */
   freshSession: boolean;
   /**
-   * It runs on a connected computer, where none of the home's files are
+   * It runs on a connected device, where none of the home's files are
    * (P2.7): its folder there. Its reference folders are wired by the runner
    * there, from where they resolve when the session starts (`agentFolders`
    * on the spec), so none are wired here.

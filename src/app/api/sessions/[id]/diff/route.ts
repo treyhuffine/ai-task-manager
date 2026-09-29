@@ -25,7 +25,7 @@ async function handleGET(
 
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    // An execution on a connected computer: its worker answers.
+    // An execution on a connected device: its worker answers.
     const remote = await readOnOwner(id, { kind: 'diff', file: fileFilter });
     if (remote) return remote;
     if (!session.worktreePath || !session.workspaceId) return Response.json(null);

@@ -14,7 +14,7 @@ import {
 import {
   createWorkspace,
   getChatSessionWithExecution,
-  getComputer,
+  getDevice,
   getExternalSessionImportForChat,
   getWorkspace,
   listWorkspaces,
@@ -153,9 +153,9 @@ export async function discoverExternalAgentSessions(): Promise<ExternalAgentDisc
   const { candidates, available, completed } = await discoverCandidatesInternal();
   const db = getDb();
   const scannedAt = new Date().toISOString();
-  // This computer's own imports. One from a connected computer is that
-  // computer's (P2.9, `remote.ts`), and never missing from here.
-  const ledgers = db.select().from(externalSessionImports).where(isNull(externalSessionImports.computerId)).all();
+  // This device's own imports. One from a connected device is that
+  // device's (P2.9, `remote.ts`), and never missing from here.
+  const ledgers = db.select().from(externalSessionImports).where(isNull(externalSessionImports.deviceId)).all();
   const ledgerBySource = new Map(ledgers.map((ledger) => [
     syncLockKey(ledger.providerType as ExternalAgentSource, ledger.externalSessionId),
     ledger,
@@ -245,7 +245,7 @@ export async function discoverExternalAgentSessions(): Promise<ExternalAgentDisc
     .innerJoin(chatSessions, eq(externalSessionImports.chatSessionId, chatSessions.id))
     .leftJoin(executions, eq(chatSessions.executionId, executions.id))
     .leftJoin(workspaces, eq(chatSessions.workspaceId, workspaces.id))
-    .where(isNull(externalSessionImports.computerId))
+    .where(isNull(externalSessionImports.deviceId))
     .all();
 
   for (const row of missingRows) {
@@ -833,8 +833,8 @@ export async function syncImportedSession(
 ): Promise<ImportedSessionSyncResult> {
   const ledger = getExternalSessionImportForChat(chatSessionId);
   if (!ledger) return { replayed: 0, skipped: 'not_imported' };
-  // A connected computer's session is read from that computer (P2.9).
-  if (ledger.computerId) {
+  // A connected device's session is read from that device (P2.9).
+  if (ledger.deviceId) {
     const { syncRemoteImport } = await import('./remote');
     return syncRemoteImport(chatSessionId);
   }
@@ -876,8 +876,8 @@ export async function syncAllImportedSessions(): Promise<{
       // to from this app owns a live provider session, and that transcript is
       // its history now. The imported one stops being the source of truth.
       isNull(chatSessions.externalSessionId),
-      // This computer's own. A connected computer's are synced from there.
-      isNull(externalSessionImports.computerId),
+      // This device's own. A connected device's are synced from there.
+      isNull(externalSessionImports.deviceId),
     ))
     .all()
     .map((row) => row.ledger);
@@ -948,10 +948,10 @@ export function takeOverImportedSession(chatSessionId: string): ImportedTakeover
   if (!session) throw new Error('Chat not found.');
   const ledger = getExternalSessionImportForChat(chatSessionId);
   if (!ledger) throw new Error('This chat was not imported.');
-  // Read-only here: continuing it would move a session between computers,
+  // Read-only here: continuing it would move a session between devices,
   // which comes with P4 (docs/homes-build.md, P2.9).
-  if (ledger.computerId) {
-    const on = getComputer(ledger.computerId)?.name ?? 'another computer';
+  if (ledger.deviceId) {
+    const on = getDevice(ledger.deviceId)?.name ?? 'another device';
     throw new Error(`This session lives on ${on}. It can be read here, and continued in a terminal there.`);
   }
   if (ledger.status === 'missing') {
@@ -1026,7 +1026,7 @@ export async function importExternalAgentSessions(sessionKeys: string[]): Promis
         .where(and(
           eq(externalSessionImports.providerType, parsed.source),
           eq(externalSessionImports.externalSessionId, parsed.externalSessionId),
-          isNull(externalSessionImports.computerId),
+          isNull(externalSessionImports.deviceId),
         ))
         .get();
       const candidate = byKey.get(key);
@@ -1121,7 +1121,7 @@ export async function refreshExternalAgentSessions(
     throw new Error(`Select at most ${MAX_IMPORT_SELECTION} chats per refresh.`);
   }
   const db = getDb();
-  const ledgers = db.select().from(externalSessionImports).where(isNull(externalSessionImports.computerId)).all()
+  const ledgers = db.select().from(externalSessionImports).where(isNull(externalSessionImports.deviceId)).all()
     .filter((ledger) => uniqueIds.includes(ledger.chatSessionId));
   const keys = ledgers.map((ledger) => sessionKey(
     ledger.providerType as ExternalAgentSource,

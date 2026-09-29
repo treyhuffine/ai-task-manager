@@ -1,75 +1,51 @@
-import type { NextRequest } from 'next/server';
-import { createApiKey, listApiKeys } from '@/lib/db/queries';
-import { deviceTypeFromUserAgent } from '@/lib/auth/device-type';
-import type { CreateApiKeyInput, DeviceType } from '@/db/types';
-import { withCompression } from '@/lib/api/compression';
+/**
+ * This home's devices (docs/homes-spec.md §5.1): GET lists each device once,
+ * with whether it runs agents and the keys it signs in with. POST pairs a
+ * new one: the device and its first key, whose token comes back once.
+ */
 
-// `host` is reserved for the home's own key, which `ensureLocalToken` mints.
-// A device can't give itself that label.
-const ALLOWED_DEVICE_TYPES: readonly DeviceType[] = [
-  'computer',
-  'phone',
-  'tablet',
-  'service',
-  'other',
-];
+import type { NextRequest } from 'next/server';
+import { z } from 'zod';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { deviceKindFromUserAgent } from '@/lib/auth/device-kind';
+import { pairDevice } from '@/lib/db/queries';
+import { DEVICE_KINDS } from '@/lib/db/schema';
+import { listDeviceViews } from '@/lib/devices/views';
+import { withCompression } from '@/lib/api/compression';
+import { publishDeviceUpdated } from '@/lib/realtime/bus';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 export const GET = withCompression(handleGET);
 
 async function handleGET(request: NextRequest) {
-  try {
-    const includeRevoked = request.nextUrl.searchParams.get('includeRevoked') === '1';
-    const rows = listApiKeys({ includeRevoked });
-    return Response.json(rows);
-  } catch (err) {
-    console.error('[GET /api/devices]', err);
-    return Response.json({ error: String(err) }, { status: 500 });
-  }
+  const includeRevoked = request.nextUrl.searchParams.get('includeRevoked') === '1';
+  const callerKeyId = getRequestKey(request.headers)?.apiKeyId ?? null;
+  return Response.json(await listDeviceViews({ includeRevoked, callerKeyId }));
 }
 
+const pairBody = z.object({
+  name: z.string().trim().min(1, 'Name the device.').max(80),
+  kind: z.enum(DEVICE_KINDS).optional(),
+  description: z.string().max(500).nullish(),
+  expiresAt: z.string().datetime().nullish(),
+});
+
 export async function POST(request: NextRequest) {
-  try {
-    const body = (await request.json()) as {
-      name?: string;
-      description?: string | null;
-      deviceType?: DeviceType;
-      expiresAt?: string | null;
-    };
-
-    const name = body.name?.trim();
-    if (!name) {
-      return Response.json({ error: 'name is required' }, { status: 400 });
-    }
-
-    if (body.deviceType === 'host') {
-      return Response.json({ error: "deviceType 'host' is reserved for the home's own key" }, { status: 400 });
-    }
-    const deviceType: DeviceType =
-      body.deviceType && ALLOWED_DEVICE_TYPES.includes(body.deviceType)
-        ? body.deviceType
-        : deviceTypeFromUserAgent(request.headers.get('user-agent'));
-
-    const input: CreateApiKeyInput = {
-      name,
-      description: body.description ?? null,
-      deviceType,
-      expiresAt: body.expiresAt ?? null,
-    };
-
-    const { key, token } = createApiKey(input);
-    // Client builds pairing URLs from `plaintext` + window.location /
-    // server-known base URLs — no need to return a pre-baked one here.
-    return Response.json(
-      {
-        key,
-        plaintext: token.plaintext,
-      },
-      { status: 201 },
-    );
-  } catch (err) {
-    console.error('[POST /api/devices]', err);
-    return Response.json({ error: String(err) }, { status: 400 });
+  const parsed = pairBody.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
+    return Response.json({ error: 'invalid_params', message: parsed.error.issues[0]?.message }, { status: 400 });
   }
+  const { device, key, token } = pairDevice({
+    name: parsed.data.name,
+    kind: parsed.data.kind ?? deviceKindFromUserAgent(request.headers.get('user-agent')),
+    description: parsed.data.description ?? null,
+    expiresAt: parsed.data.expiresAt ?? null,
+  });
+  publishDeviceUpdated(device.id);
+  const views = await listDeviceViews({ callerKeyId: getRequestKey(request.headers)?.apiKeyId ?? null });
+  const view = views.find((d) => d.id === device.id)!;
+  // The client builds pairing URLs from `plaintext` and the base URLs it
+  // knows: no need to return one here.
+  return Response.json({ device: view, key: view.keys.find((k) => k.id === key.id)!, plaintext: token.plaintext }, { status: 201 });
 }

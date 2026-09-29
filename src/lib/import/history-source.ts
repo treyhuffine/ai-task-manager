@@ -1,11 +1,11 @@
 /**
  * A harness's local session history, listed and read without a database
  * (docs/homes-build.md, P2.9): the half of the history import that runs on
- * the computer with the native files. The home runs it for its own, and a
- * connected computer's worker runs it for its own and answers the home's
+ * the device with the native files. The home runs it for its own, and a
+ * connected device's worker runs it for its own and answers the home's
  * `list_history` and `read_history` requests with it. Listing gives what a
  * person needs to choose a session, and reading gives one window of a
- * chosen transcript: nothing else of a computer's history leaves it.
+ * chosen transcript: nothing else of a device's history leaves it.
  *
  * Moved out of `external-agents.ts`, which keeps the ledger, the chats and
  * the commits.
@@ -417,9 +417,9 @@ export function codedError(code: string, message: string): Error & { code: strin
   return Object.assign(new Error(message), { code });
 }
 
-// ─── For the home, from a connected computer (P2.9) ──────────
+// ─── For the home, from a connected device (P2.9) ──────────
 
-/** A session as a connected computer lists it: enough to choose it, and nothing of its content or where it's stored. */
+/** A session as a connected device lists it: enough to choose it, and nothing of its content or where it's stored. */
 export interface ListedHistorySession {
   key: string;
   source: ExternalAgentSource;
@@ -429,7 +429,7 @@ export interface ListedHistorySession {
   startedAt: string;
   updatedAt: string;
   branchName: string | null;
-  /** Kept in a file this computer can read. OpenCode serves its history from a running process instead. */
+  /** Kept in a file this device can read. OpenCode serves its history from a running process instead. */
   readable: boolean;
   /** The transcript's size, for a file: how far a reader must be to have all of it. */
   size: number | null;

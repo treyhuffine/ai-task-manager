@@ -19,8 +19,8 @@
  *   setup script there would change production's repositories.
  *
  * - **Identity.** A development copy is a different home. It gets a new home
- *   id and a new host computer (this machine, written to its own
- *   `machine.json`), and the original's computers are revoked in the copy.
+ *   id and a new host device (this machine, written to its own
+ *   `machine.json`), and the original's devices are revoked in the copy.
  *
  * This clears the first three and detaches every folder path by moving it
  * under `<root>/.detached/`, where it does not exist. Every folder action in
@@ -97,7 +97,7 @@ export function prepareDevelopmentCopy(root: string): DevCopyReport {
 
   // Assigned inside the transaction callback, so hold it in an object that
   // TypeScript doesn't narrow back to null.
-  const identity: { value: { homeId: string; computerId: string } | null } = { value: null };
+  const identity: { value: { homeId: string; deviceId: string } | null } = { value: null };
   const db = new Database(dbPath);
   try {
     const tables = new Set(
@@ -159,45 +159,45 @@ export function prepareDevelopmentCopy(root: string): DevCopyReport {
             WHERE external_session_id IS NOT NULL OR external_transcript_path IS NOT NULL`,
         );
       }
-      if (tables.has('home') && tables.has('computers')) {
-        const original = db.prepare('SELECT id, name, host_computer_id AS host FROM home').get() as
+      if (tables.has('home') && tables.has('devices')) {
+        const original = db.prepare('SELECT id, name, host_device_id AS host FROM home').get() as
           | { id: string; name: string; host: string | null }
           | undefined;
         if (original) {
           const homeId = uuidv7();
-          const computerId = uuidv7();
+          const deviceId = uuidv7();
           run(
-            'computers revoked',
-            "UPDATE computers SET status = 'revoked', revoked_at = ? WHERE status = 'active'",
+            'devices revoked',
+            "UPDATE devices SET status = 'revoked', revoked_at = ?, worker_key_id = NULL WHERE status = 'active'",
             now,
           );
           db.prepare(
-            `INSERT INTO computers (id, created_at, updated_at, name, platform, hostname, status)
-             VALUES (?, ?, ?, ?, ?, ?, 'active')`,
-          ).run(computerId, now, now, os.hostname().replace(/\.local$/, ''), process.platform, os.hostname());
-          db.prepare('UPDATE home SET id = ?, name = ?, host_computer_id = ?, updated_at = ?').run(
+            `INSERT INTO devices (id, created_at, updated_at, name, kind, platform, hostname, status)
+             VALUES (?, ?, ?, ?, 'computer', ?, ?, 'active')`,
+          ).run(deviceId, now, now, os.hostname().replace(/\.local$/, ''), process.platform, os.hostname());
+          db.prepare('UPDATE home SET id = ?, name = ?, host_device_id = ?, updated_at = ?').run(
             homeId,
             original.name.endsWith(' (dev copy)') ? original.name : `${original.name} (dev copy)`,
-            computerId,
+            deviceId,
             now,
           );
           // The original home's own folders become this one's (their paths
           // are detached below), so the copy's agents are still at home.
           if (original.host) {
-            for (const table of ['agent_setups', 'folder_links']) {
-              if (tables.has(table)) db.prepare(`UPDATE "${table}" SET computer_id = ? WHERE computer_id = ?`).run(computerId, original.host);
+            for (const table of ['workspace_setups', 'folder_links']) {
+              if (tables.has(table)) db.prepare(`UPDATE "${table}" SET device_id = ? WHERE device_id = ?`).run(deviceId, original.host);
             }
           }
           report.homeId = homeId;
-          identity.value = { homeId, computerId };
+          identity.value = { homeId, deviceId };
         }
       }
       detach('workspaces', 'cwd');
       detach('workspaces', 'worktree_root');
       detach('executions', 'worktree_path');
       detach('reference_folders', 'path');
-      // Every computer's folders, as the home records them (docs/homes-spec.md §4.1).
-      detach('agent_setups', 'source_path');
+      // Every device's folders, as the home records them (docs/homes-spec.md §4.1).
+      detach('workspace_setups', 'source_path');
       detach('folder_links', 'path');
       detach('external_session_imports', 'source_path');
     })();

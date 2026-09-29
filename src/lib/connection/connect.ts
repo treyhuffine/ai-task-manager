@@ -1,15 +1,15 @@
 /**
- * Connecting this computer to an existing home (docs/homes-spec.md §3.1).
+ * Connecting this device to an existing home (docs/homes-spec.md §3.1).
  *
  * The person gets a pairing link from their home the way they pair a phone
  * today (Settings, Devices: the QR code or its link, `<address>/#token=...`).
  * Connecting checks that the address answers as a Ri home with that key,
- * learns the home's stable id, name and computer, and saves the connection.
+ * learns the home's stable id, name and device, and saves the connection.
  * The home's address is only where to find it: the id is what later checks
  * compare. No new account, identity service, or tunnel is involved.
  *
  * Remote homes must use HTTPS. Plain HTTP is accepted only for this
- * computer's own loopback address, or when the person explicitly allows it
+ * device's own loopback address, or when the person explicitly allows it
  * for a trusted home network.
  */
 
@@ -68,7 +68,7 @@ export interface ConnectResult {
 
 /**
  * Check the home answers as a Ri home and accepts this key. Saves nothing,
- * so callers can check before changing anything on this computer.
+ * so callers can check before changing anything on this device.
  */
 export async function verifyPairingLink(link: ParsedPairingLink, opts: { allowInsecureHttp?: boolean } = {}): Promise<HomeSummary> {
   assertSecureAddress(link.homeUrl, opts);
@@ -87,7 +87,7 @@ export async function verifyPairingLink(link: ParsedPairingLink, opts: { allowIn
     throw err;
   }
   if (res.status === 404) {
-    throw new ConnectError(`${link.homeUrl} runs an older version of Ri that can't accept connected computers. Update it first.`);
+    throw new ConnectError(`${link.homeUrl} runs an older version of Ri that can't accept connected devices. Update it first.`);
   }
   if (!res.ok) throw new ConnectError(`${link.homeUrl} answered with HTTP ${res.status}.`);
   const home = (await res.json().catch(() => null)) as HomeSummary | null;
@@ -104,7 +104,7 @@ export function saveConnection(link: ParsedPairingLink, home: HomeSummary): Conn
     homeHostName: home.host?.name ?? null,
     credential: link.token,
     connectedAt: new Date().toISOString(),
-    computerId: null,
+    deviceId: null,
   });
 }
 
@@ -117,7 +117,7 @@ export async function connectToHome(link: ParsedPairingLink, opts: { allowInsecu
 /**
  * The home answers at a new address now (docs/homes-spec.md §10.3: "guide
  * clients and workers through address replacement without changing their
- * work identity"): re-point this computer, with its key and its identity as
+ * work identity"): re-point this device, with its key and its identity as
  * they are, once the new address answers as the same home and accepts the key.
  */
 export async function changeHomeAddress(
@@ -140,7 +140,7 @@ export async function changeHomeAddress(
     if (err instanceof HomeRequestError) {
       throw new ConnectError(
         err.problem === 'unauthorized'
-          ? `${homeUrl} didn't accept this computer's key, so it isn't ${current.homeName} as this computer knows it.`
+          ? `${homeUrl} didn't accept this device's key, so it isn't ${current.homeName} as this device knows it.`
           : err.message,
       );
     }

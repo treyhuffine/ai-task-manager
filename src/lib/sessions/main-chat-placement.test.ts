@@ -1,5 +1,5 @@
 /**
- * An agent's main chat has a fixed computer (spec §7, P3.4): the home when
+ * An agent's main chat has a fixed device (spec §7, P3.4): the home when
  * the agent is set up there, otherwise its saved default. The chat keeps it,
  * and a message waits for it while it's away rather than running at home. A
  * new chat applies the rule again. The app's own main chat is the home's.
@@ -27,11 +27,11 @@ beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-main-chat-placement-' });
   const identity = await import('@/lib/home/identity');
   identity.resetHomeIdentityCache();
-  hostId = identity.ensureHomeIdentity().home.hostComputerId!;
+  hostId = identity.ensureHomeIdentity().home.hostDeviceId!;
   const q = await import('@/lib/db/queries');
   const enroll = (name: string) => {
-    const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: name, createdByApiKeyId: null });
-    const id = q.redeemEnrollGrant({ secret: grant.secret, name }).computer.id;
+    const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: name, createdByApiKeyId: null });
+    const id = q.redeemEnrollGrant({ secret: grant.secret, name }).device.id;
     q.recordWorkerHeartbeat(id, { protocol: WORKER_PROTOCOL, version: 'test', harnesses: HARNESSES, state: 'awake' });
     return id;
   };
@@ -49,8 +49,8 @@ afterEach(async () => {
   await home.cleanup();
 });
 
-async function setUpOn(computerId: string) {
-  await setUpAgentOn(agentId, computerId, computerId === hostId ? home.root : '/Users/trey/code/ri');
+async function setUpOn(deviceId: string) {
+  await setUpAgentOn(agentId, deviceId, deviceId === hostId ? home.root : '/Users/trey/code/ri');
 }
 
 async function placementOfMainChat(scope: string | null) {
@@ -61,51 +61,51 @@ async function placementOfMainChat(scope: string | null) {
 }
 
 describe("an agent's main chat", () => {
-  it('runs on the home when the agent is set up there, even with another computer saved as its default', async () => {
+  it('runs on the home when the agent is set up there, even with another device saved as its default', async () => {
     await setUpOn(hostId);
     await setUpOn(laptopId);
-    (await import('@/lib/setups/run-on')).setDefaultComputer(agentId, laptopId);
+    (await import('@/lib/setups/run-on')).setDefaultDevice(agentId, laptopId);
     const { chat, placement } = await placementOfMainChat(agentId);
-    expect(chat.computerId).toBeNull();
-    expect(placement).toMatchObject({ computerId: hostId, isHome: true });
+    expect(chat.deviceId).toBeNull();
+    expect(placement).toMatchObject({ deviceId: hostId, isHome: true });
   });
 
   it('runs on the home for an agent from before setups, and the app main chat always does', async () => {
     expect((await placementOfMainChat(agentId)).placement).toMatchObject({ isHome: true });
     await setUpOn(laptopId);
-    expect((await placementOfMainChat(null)).placement).toMatchObject({ computerId: hostId, isHome: true });
+    expect((await placementOfMainChat(null)).placement).toMatchObject({ deviceId: hostId, isHome: true });
   });
 
   it("is pinned to the agent's saved default when the agent isn't set up on the home", async () => {
     await setUpOn(laptopId);
     await setUpOn(desktopId);
-    (await import('@/lib/setups/run-on')).setDefaultComputer(agentId, desktopId);
+    (await import('@/lib/setups/run-on')).setDefaultDevice(agentId, desktopId);
     const { chat, placement } = await placementOfMainChat(agentId);
-    expect(chat.computerId).toBe(desktopId);
-    expect(placement).toMatchObject({ computerId: desktopId, isHome: false, executionId: null });
+    expect(chat.deviceId).toBe(desktopId);
+    expect(placement).toMatchObject({ deviceId: desktopId, isHome: false, executionId: null });
   });
 
-  it('is pinned to the first computer set up for it when nothing is saved', async () => {
+  it('is pinned to the first device set up for it when nothing is saved', async () => {
     await setUpOn(laptopId);
     await setUpOn(desktopId);
-    expect((await placementOfMainChat(agentId)).chat.computerId).toBe(laptopId);
+    expect((await placementOfMainChat(agentId)).chat.deviceId).toBe(laptopId);
   });
 
-  it('keeps its computer when the default changes, and a new chat applies the rule again', async () => {
+  it('keeps its device when the default changes, and a new chat applies the rule again', async () => {
     await setUpOn(laptopId);
     await setUpOn(desktopId);
     const runOn = await import('@/lib/setups/run-on');
     const { ensureMainChat, startNewMainChat } = await import('./main-chat');
     const first = await ensureMainChat(agentId);
-    expect(first.computerId).toBe(laptopId);
-    runOn.setDefaultComputer(agentId, desktopId);
+    expect(first.deviceId).toBe(laptopId);
+    runOn.setDefaultDevice(agentId, desktopId);
     expect((await ensureMainChat(agentId)).id).toBe(first.id);
-    expect((await ensureMainChat(agentId)).computerId).toBe(laptopId);
+    expect((await ensureMainChat(agentId)).deviceId).toBe(laptopId);
     const second = await startNewMainChat(agentId);
-    expect(second.computerId).toBe(desktopId);
+    expect(second.deviceId).toBe(desktopId);
   });
 
-  it("waits for its computer while it's away, instead of running at home", async () => {
+  it("waits for its device while it's away, instead of running at home", async () => {
     await setUpOn(laptopId);
     const q = await import('@/lib/db/queries');
     const executor = await import('@/lib/executor/adapter');
@@ -117,7 +117,7 @@ describe("an agent's main chat", () => {
     void executor.dispatch(chat.id, 'What changed today?', { sourceEventId: message.id, onQueued: () => queued() }).catch(() => {});
     await onQueue;
     expect(q.listWorkerCommands(laptopId).map((c) => [c.kind, c.state])).toContainEqual(['send', 'queued']);
-    expect(deliveriesForChat(chat.id)[message.id]).toMatchObject({ state: 'waiting', computerName: 'MacBook' });
+    expect(deliveriesForChat(chat.id)[message.id]).toMatchObject({ state: 'waiting', deviceName: 'MacBook' });
     expect(fake.sessions).toEqual([]);
   });
 });

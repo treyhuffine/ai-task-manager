@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     if (!body.cwd) return Response.json({ error: 'cwd is required' }, { status: 400 });
 
     const cwd = path.resolve(body.cwd);
-    // The folder becomes this agent's setup on this computer: check it can
+    // The folder becomes this agent's setup on this device: check it can
     // be before creating anything (docs/homes-spec.md §4.2).
     try {
       assertHomeFolderUsable(cwd);
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
       browserEnabled: body.browserEnabled ?? true,
       ...(connectorScopes !== undefined ? { connectorScopes } : {}),
     });
-    // The folder is this computer's setup for the agent, kept in the folder's
+    // The folder is this device's setup for the agent, kept in the folder's
     // own `.ri.local.json` (docs/homes-spec.md §4). If that fails after the
     // check above (a race, a disk error), the new agent is archived rather
     // than left without a folder, and the reason returned.

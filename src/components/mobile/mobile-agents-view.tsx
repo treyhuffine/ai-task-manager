@@ -150,17 +150,17 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
   // into the new ExecutionView immediately and let the create land behind it.
   // The label is null until the first message derives one server-side; the
   // header renders "Untitled" in the meantime.
-  const handleCreateExecution = (computerId?: string) => {
+  const handleCreateExecution = (deviceId?: string) => {
     if (creating) return;
     setCreating(true);
-    const { sessionId, done } = startExecution(qc, { workspaceId: workspace.id, computerId });
+    const { sessionId, done } = startExecution(qc, { workspaceId: workspace.id, deviceId });
     setMobileTab('agents');
     setActiveView(executionView(sessionId));
     void done.finally(() => setCreating(false));
   };
-  // + starts where the agent usually runs. Another computer, for this one
+  // + starts where the agent usually runs. Another device, for this one
   // execution, is in the agent's ⋯ menu (spec §3.3).
-  const [pickingComputer, setPickingComputer] = useState(false);
+  const [pickingDevice, setPickingDevice] = useState(false);
   const openAgentTab = (tab: AgentTab) => {
     setMobileTab('agents');
     openAgent(workspace.id, tab);
@@ -228,7 +228,7 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuItem onSelect={() => setPickingComputer(true)} className="gap-2 py-2.5 text-[14px]">
+            <DropdownMenuItem onSelect={() => setPickingDevice(true)} className="gap-2 py-2.5 text-[14px]">
               <Laptop size={15} /> New execution on…
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -270,11 +270,11 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
 
       <RunOnSheet
         workspace={workspace}
-        open={pickingComputer}
-        onOpenChange={setPickingComputer}
-        onPick={(computerId) => {
-          setPickingComputer(false);
-          handleCreateExecution(computerId);
+        open={pickingDevice}
+        onOpenChange={setPickingDevice}
+        onPick={(deviceId) => {
+          setPickingDevice(false);
+          handleCreateExecution(deviceId);
         }}
       />
       {expanded && (

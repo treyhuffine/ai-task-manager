@@ -1,5 +1,5 @@
 /**
- * Moving a home to another computer (docs/homes-spec.md §10.3, P5.3): "a
+ * Moving a home to another device (docs/homes-spec.md §10.3, P5.3): "a
  * guided, stopped export/import", with the same home id, and the old host
  * retired before the new one takes over.
  *
@@ -7,11 +7,11 @@
  * 2. On the new host, in a folder of its own: `ri home import <dir>`. The
  *    home is there but not active: a restored home waits to be claimed.
  * 3. On the old host: `ri home retire`, so it never runs beside the new one.
- * 4. On the new host: `ri home claim`, naming which computer of the home this
+ * 4. On the new host: `ri home claim`, naming which device of the home this
  *    is (`moveHomeHost` pins what ran on the old host to it), then `ri start`.
  * 5. The old host connects to the new home (`ri connect`) and can enroll as a
  *    worker in the same folder, its worktrees where they were. Other
- *    computers keep their identity and follow a new address with
+ *    devices keep their identity and follow a new address with
  *    `ri connect --address <url>`.
  */
 

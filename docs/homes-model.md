@@ -9,7 +9,8 @@ Your Ri lives on one computer. Your other computers can do work for it. Each pie
 ## The pieces
 
 - **Your Ri.** One computer holds everything: tasks, notes, agents, every chat. For you that's the Mac Mini, because it's always on. Your phone and your laptop's browser are windows onto it.
-- **Your computers.** The Mac Mini and your MacBook. Any of them can run work. A computer runs work once Ri is running on it, and it only runs work for your Ri.
+- **Your devices.** The Mac Mini, your MacBook and your phone: everything that reaches your Ri. Settings, Devices lists each one once, with what it signs in with.
+- **Computers that run agents.** The Mac Mini always does, because your Ri lives there. Your MacBook does once you turn that on there (`ri worker enroll`), and Devices marks it Runs agents. A computer only runs agents for your Ri. A phone is a window.
 - **Agents.** A project, like Ri. It's one agent no matter how many computers it's on. On each computer it has a folder, which can be in a different place on each.
 - **Work.** One piece of work (an execution) is a chat with an agent, in its own copy of the project, on one computer.
 
@@ -42,4 +43,4 @@ Your Ri lives on one computer. Your other computers can do work for it. Each pie
 ## Not in the everyday product
 
 - **Opening a read-only copy** on the computer you're at, without moving the work. It's built, and parked off the menu until it earns a place.
-- **Knowing which computer your browser is on.** Not needed: you move work by naming the computer.
+- **Which device your browser is on** shows only in Settings, Devices (This device). You move work by naming the computer, so nothing else needs it.

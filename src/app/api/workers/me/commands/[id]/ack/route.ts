@@ -23,7 +23,7 @@ import {
   setExecutionSetupScript,
 } from '@/lib/db/queries';
 import type { WorkerCommandRecord } from '@/db/types';
-import { wakeComputer } from '@/lib/workers/hub';
+import { wakeDevice } from '@/lib/workers/hub';
 import type { PreparePayload, PrepareResult, SetupScriptPayload } from '@/lib/worker/handlers';
 import { inTransaction } from '@/lib/effects/after-commit';
 import { readWorkerBody, requireWorker } from '@/lib/workers/route-auth';
@@ -42,14 +42,14 @@ function recordPrepared(command: WorkerCommandRecord, after: { tasks: Array<() =
   // execution's: it still runs where it did until ownership changes.
   if ((command.payload as PreparePayload).transfer) return;
   if (command.state !== 'delivered') {
-    recordExecutionSetupError(command.executionId, command.error ?? 'The computer could not prepare this execution.');
+    recordExecutionSetupError(command.executionId, command.error ?? 'The device could not prepare this execution.');
     return;
   }
   const prepared = command.result as PrepareResult;
   const placement = markPlacementPrepared(command.executionId, command.generation, prepared);
   const { workspace, live } = command.payload as PreparePayload;
   // The setup script is for a fresh worktree. Decided by how the execution
-  // was prepared, never by comparing this home's paths with the computer's:
+  // was prepared, never by comparing this home's paths with the device's:
   // live mode and a plain folder work in the agent's own folder there.
   const isolated = prepared.isolated === true && !live && workspace.isGit;
   if (!placement || !workspace.setupCommand?.trim() || !isolated) return;
@@ -61,7 +61,7 @@ function recordPrepared(command: WorkerCommandRecord, after: { tasks: Array<() =
     branchName: prepared.branchName,
   };
   queueWorkerCommand({
-    computerId: command.computerId,
+    deviceId: command.deviceId,
     kind: 'run_script',
     payload: script,
     actor: { source: 'system' },
@@ -70,7 +70,7 @@ function recordPrepared(command: WorkerCommandRecord, after: { tasks: Array<() =
     generation: command.generation,
   });
   setExecutionSetupScript(command.executionId, 'running', null);
-  after.tasks.push(() => wakeComputer(command.computerId));
+  after.tasks.push(() => wakeDevice(command.deviceId));
 }
 
 function recordSetupScript(command: WorkerCommandRecord): void {
@@ -98,14 +98,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const ack = parsed.data;
   const command = inTransaction((after) => {
     const before = getWorkerCommand(id);
-    const recorded = ackWorkerCommand(worker.computer.id, id, ack);
+    const recorded = ackWorkerCommand(worker.device.id, id, ack);
     if (!recorded || !before || before.state === recorded.state) return recorded;
     settleUndelivered(recorded, after);
     if (recorded.kind === 'prepare') recordPrepared(recorded, after);
     if (recorded.kind === 'run_script') recordSetupScript(recorded);
     return recorded;
   });
-  if (!command) return Response.json({ error: 'not_found', message: 'This computer has no such command.' }, { status: 404 });
+  if (!command) return Response.json({ error: 'not_found', message: 'This device has no such command.' }, { status: 404 });
   // A send's message shows as delivered (P3.2).
   announceDelivery(command);
   return Response.json({ state: command.state });

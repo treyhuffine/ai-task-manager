@@ -1,7 +1,7 @@
 /**
  * Redeem an enroll grant (docs/homes-build.md, P2.2). The grant in the body
  * is the only credential this route takes: the proxy lets it through without
- * a key, since a computer being enrolled has no worker key yet. The home
+ * a key, since a device being enrolled has no worker key yet. The home
  * issues the worker key and records the enrollment in one transaction, and
  * the grant can't be used again.
  */
@@ -43,8 +43,8 @@ export async function POST(request: Request) {
       {
         homeId: enrolled.homeId,
         homeName: getHome()?.name ?? null,
-        computerId: enrolled.computer.id,
-        computerName: enrolled.computer.name,
+        deviceId: enrolled.device.id,
+        deviceName: enrolled.device.name,
         workerKey: enrolled.token.plaintext,
       },
       { status: 201 },

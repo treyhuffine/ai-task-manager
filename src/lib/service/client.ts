@@ -17,7 +17,7 @@ export interface ServiceStatus {
   origin?: string;
   error?: string;
   /**
-   * What this computer is for (src/lib/service/role.ts). A computer connected
+   * What this device is for (src/lib/service/role.ts). A device connected
    * to a home elsewhere doesn't run a home: `home` is where its window goes.
    */
   role?: import('./role').ServiceRole['role'];

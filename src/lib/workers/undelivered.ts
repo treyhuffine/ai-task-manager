@@ -15,7 +15,7 @@ import { announceDelivery } from './delivery';
 
 const UNDELIVERED: Record<string, { code: string; message: string }> = {
   failed: { code: 'delivery_failed', message: "The message couldn't be delivered." },
-  stale: { code: 'placement_moved', message: 'The execution had moved to another computer.' },
+  stale: { code: 'placement_moved', message: 'The execution had moved to another device.' },
   uncertain: { code: 'delivery_uncertain', message: 'Message delivery could not be confirmed.' },
   cancelled: { code: 'delivery_cancelled', message: 'The message was withdrawn before it was delivered.' },
 };
@@ -32,7 +32,7 @@ export function settleUndelivered(command: WorkerCommandRecord, after: AfterComm
 }
 
 /**
- * Withdraw a send still waiting in its computer's queue: cancelled, its run
+ * Withdraw a send still waiting in its device's queue: cancelled, its run
  * finished and its turn settled with it, and shown as not delivered. Null
  * when it isn't waiting any more: it has left for the worker, or was settled.
  */

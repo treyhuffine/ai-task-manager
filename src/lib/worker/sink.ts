@@ -1,6 +1,6 @@
 /**
  * The worker's runner sink (docs/homes-build.md, P2.3): everything the
- * runner on this computer reports goes into the event journal, flushed to
+ * runner on this device reports goes into the event journal, flushed to
  * disk, and the poster sends it to the home. The same runner code that runs
  * in the home's server reports here instead.
  */

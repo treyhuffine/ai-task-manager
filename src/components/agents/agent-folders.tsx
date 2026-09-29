@@ -1,12 +1,12 @@
 'use client';
 
 /**
- * An agent's folders on each of the person's computers (docs/homes-spec.md
+ * An agent's folders on each of the person's devices (docs/homes-spec.md
  * §4.1-4.2): its project folder, and the folders it links to beside it,
- * which it can read but never change. A switcher across the computers, and
+ * which it can read but never change. A switcher across the devices, and
  * for the one chosen, each folder with whether it's there, Change, and for a
  * linked folder, Go without it. The home's records are the only place these
- * are kept, so any screen can change any computer's.
+ * are kept, so any screen can change any device's.
  */
 
 import { useState, type ReactNode } from 'react';
@@ -32,9 +32,9 @@ import type { AgentFoldersOn, LinkedFolderOn } from '@/lib/setups/folders';
 import type { ReferenceFolderGitState, WorkspaceRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
 
-type Computer = { id: string; name: string };
+type Device = { id: string; name: string };
 
-/** How a computer stands for this agent, for its dot in the switcher. */
+/** How a device stands for this agent, for its dot in the switcher. */
 function standing(c: AgentFoldersOn): 'none' | 'ready' | 'unchecked' | 'problem' {
   if (!c.setup) return 'none';
   if (c.setup.status === 'ready') return 'ready';
@@ -54,15 +54,15 @@ function gitSummary(git: ReferenceFolderGitState | null | undefined): string | n
 export function AgentFoldersSection({ workspace }: { workspace: WorkspaceRecord }) {
   const { data, isLoading, error } = useAgentFolders(workspace.id);
   const [chosenId, setChosenId] = useState<string | null>(null);
-  const computers = data?.computers ?? [];
-  const selected = computers.find((c) => c.computerId === chosenId) ?? computers[0] ?? null;
+  const devices = data?.devices ?? [];
+  const selected = devices.find((c) => c.deviceId === chosenId) ?? devices[0] ?? null;
 
   return (
     <section className="space-y-3">
       <div>
         <h3 className="text-sm font-semibold text-foreground">Folders</h3>
         <p className="mt-0.5 text-[11px] text-muted-foreground/75">
-          Where {workspace.name} is on each of your computers, and the folders it links to beside it. Its executions and
+          Where {workspace.name} is on each of your devices, and the folders it links to beside it. Its executions and
           main chat can read linked folders and are told never to change them.
         </p>
       </div>
@@ -74,18 +74,18 @@ export function AgentFoldersSection({ workspace }: { workspace: WorkspaceRecord 
       )}
       {error && <p className="text-[12px] text-destructive">{apiErrorText(error)}</p>}
 
-      {computers.length > 1 && (
-        <div role="tablist" aria-label="Computers" className="flex flex-wrap gap-1.5">
-          {computers.map((c) => {
+      {devices.length > 1 && (
+        <div role="tablist" aria-label="Devices" className="flex flex-wrap gap-1.5">
+          {devices.map((c) => {
             const s = standing(c);
-            const active = c.computerId === selected?.computerId;
+            const active = c.deviceId === selected?.deviceId;
             return (
               <button
-                key={c.computerId}
+                key={c.deviceId}
                 type="button"
                 role="tab"
                 aria-selected={active}
-                onClick={() => setChosenId(c.computerId)}
+                onClick={() => setChosenId(c.deviceId)}
                 className={cn(
                   'flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] transition-colors',
                   active ? 'border-primary/60 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -110,11 +110,11 @@ export function AgentFoldersSection({ workspace }: { workspace: WorkspaceRecord 
         </div>
       )}
 
-      {selected && <OnComputer key={selected.computerId} workspace={workspace} on={selected} />}
+      {selected && <OnDevice key={selected.deviceId} workspace={workspace} on={selected} />}
 
-      {computers.length === 1 && (
+      {devices.length === 1 && (
         <p className="text-[10.5px] text-muted-foreground/60">
-          Your other computers show here once Ri runs on them, connected to this one.
+          Your other devices show here once Ri runs on them, connected to this one.
         </p>
       )}
 
@@ -123,11 +123,11 @@ export function AgentFoldersSection({ workspace }: { workspace: WorkspaceRecord 
   );
 }
 
-/** The agent's folders on one computer. */
-function OnComputer({ workspace, on }: { workspace: WorkspaceRecord; on: AgentFoldersOn }) {
+/** The agent's folders on one device. */
+function OnDevice({ workspace, on }: { workspace: WorkspaceRecord; on: AgentFoldersOn }) {
   const change = useChangeAgentFolders(workspace.id);
   const confirm = useConfirm();
-  const computer: Computer = { id: on.computerId, name: on.name };
+  const device: Device = { id: on.deviceId, name: on.name };
   const [settingUp, setSettingUp] = useState(false);
   const [choosing, setChoosing] = useState<null | { kind: 'project' } | { kind: 'linked'; ref: LinkedFolderOn }>(null);
   const [defining, setDefining] = useState<null | { editing: LinkedFolderDefinition | null }>(null);
@@ -152,7 +152,7 @@ function OnComputer({ workspace, on }: { workspace: WorkspaceRecord; on: AgentFo
         <SetupAgentDialog
           workspaceId={workspace.id}
           agentName={workspace.name}
-          computer={computer}
+          device={device}
           open={settingUp}
           onOpenChange={setSettingUp}
         />
@@ -168,7 +168,7 @@ function OnComputer({ workspace, on }: { workspace: WorkspaceRecord; on: AgentFo
       tone: 'destructive',
     });
     if (!ok) return;
-    change.remove.mutate(on.computerId, {
+    change.remove.mutate(on.deviceId, {
       onSuccess: () => toast.success(`${workspace.name} removed from ${on.name}`),
       onError: (err) => toast.error(apiErrorText(err)),
     });
@@ -176,7 +176,7 @@ function OnComputer({ workspace, on }: { workspace: WorkspaceRecord; on: AgentFo
 
   const goWithout = (ref: LinkedFolderOn) =>
     change.linked.mutate(
-      { computerId: on.computerId, referenceFolderId: ref.referenceFolderId, folder: null },
+      { deviceId: on.deviceId, referenceFolderId: ref.referenceFolderId, folder: null },
       { onError: (err) => toast.error(apiErrorText(err)) },
     );
 
@@ -201,7 +201,7 @@ function OnComputer({ workspace, on }: { workspace: WorkspaceRecord; on: AgentFo
         title="Project folder"
         path={setup.folder}
         state={projectState}
-        computerName={on.name}
+        deviceName={on.name}
         actions={
           <RowButton onClick={() => setChoosing({ kind: 'project' })} emphasis={projectState === 'missing'}>
             Change
@@ -231,7 +231,7 @@ function OnComputer({ workspace, on }: { workspace: WorkspaceRecord; on: AgentFo
               <LinkedRow
                 key={ref.referenceFolderId}
                 refOn={ref}
-                computerName={on.name}
+                deviceName={on.name}
                 git={gitOf(ref.referenceFolderId)}
                 onChange={() => setChoosing({ kind: 'linked', ref })}
                 onGoWithout={() => goWithout(ref)}
@@ -270,7 +270,7 @@ function OnComputer({ workspace, on }: { workspace: WorkspaceRecord; on: AgentFo
       <ChooseFolderDialog
         open={choosing !== null}
         onOpenChange={(open) => !open && setChoosing(null)}
-        computer={computer}
+        device={device}
         browsable={on.connected}
         title={
           choosing?.kind === 'linked'
@@ -281,16 +281,16 @@ function OnComputer({ workspace, on }: { workspace: WorkspaceRecord; on: AgentFo
           choosing?.kind === 'linked'
             ? choosing.ref.forEveryAgent
               ? `Every agent on ${on.name} uses this place for it.`
-              : `Only ${on.name} changes. Your other computers keep their own place for it.`
+              : `Only ${on.name} changes. Your other devices keep their own place for it.`
             : on.isHome
               ? `Its live sessions restart in the new folder. Only ${on.name} changes.`
-              : `Only ${on.name} changes. Your other computers keep their own folder for it.`
+              : `Only ${on.name} changes. Your other devices keep their own folder for it.`
         }
         initial={choosing?.kind === 'linked' ? (choosing.ref.path ?? '') : setup.folder}
         onSave={(folder) =>
           choosing?.kind === 'linked'
-            ? change.linked.mutateAsync({ computerId: on.computerId, referenceFolderId: choosing.ref.referenceFolderId, folder })
-            : change.project.mutateAsync({ computerId: on.computerId, folder })
+            ? change.linked.mutateAsync({ deviceId: on.deviceId, referenceFolderId: choosing.ref.referenceFolderId, folder })
+            : change.project.mutateAsync({ deviceId: on.deviceId, folder })
         }
       />
 
@@ -311,27 +311,27 @@ function FolderRow({
   title,
   path,
   state,
-  computerName,
+  deviceName,
   actions,
 }: {
   title: string;
   path: string;
   state: RowState;
-  computerName: string;
+  deviceName: string;
   actions: ReactNode;
 }) {
   return (
     <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
       <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <PathLine path={path} state={state} computerName={computerName} />
+        <PathLine path={path} state={state} deviceName={deviceName} />
         <div className="flex shrink-0 items-center gap-1">{actions}</div>
       </div>
     </div>
   );
 }
 
-function PathLine({ path, state, computerName }: { path: string; state: RowState; computerName: string }) {
+function PathLine({ path, state, deviceName }: { path: string; state: RowState; deviceName: string }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       <span
@@ -343,7 +343,7 @@ function PathLine({ path, state, computerName }: { path: string; state: RowState
       {state === 'found' && <Check size={12} className="shrink-0 text-emerald-500" aria-label="There" />}
       {state === 'missing' && <span className="shrink-0 text-[10.5px] text-destructive">Not there</span>}
       {state === 'unchecked' && (
-        <span className="shrink-0 text-[10.5px] text-muted-foreground/70" title={`Checked when ${computerName} is running Ri`}>
+        <span className="shrink-0 text-[10.5px] text-muted-foreground/70" title={`Checked when ${deviceName} is running Ri`}>
           Not checked yet
         </span>
       )}
@@ -353,7 +353,7 @@ function PathLine({ path, state, computerName }: { path: string; state: RowState
 
 function LinkedRow({
   refOn,
-  computerName,
+  deviceName,
   git,
   onChange,
   onGoWithout,
@@ -361,7 +361,7 @@ function LinkedRow({
   pending,
 }: {
   refOn: LinkedFolderOn;
-  computerName: string;
+  deviceName: string;
   git: ReferenceFolderGitState | null | undefined;
   onChange: () => void;
   onGoWithout: () => void;
@@ -398,21 +398,21 @@ function LinkedRow({
       <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         {agent ? (
           refOn.path ? (
-            <PathLine path={refOn.path} state={state === 'missing' ? 'missing' : state === 'found' ? 'found' : 'unchecked'} computerName={computerName} />
+            <PathLine path={refOn.path} state={state === 'missing' ? 'missing' : state === 'found' ? 'found' : 'unchecked'} deviceName={deviceName} />
           ) : (
             <span className="text-[10.5px] text-muted-foreground">
-              {agent.name} isn&apos;t on {computerName}, so this goes without it there.
+              {agent.name} isn&apos;t on {deviceName}, so this goes without it there.
             </span>
           )
         ) : state === 'omitted' ? (
-          <span className="text-[10.5px] text-muted-foreground">Going without it on {computerName}.</span>
+          <span className="text-[10.5px] text-muted-foreground">Going without it on {deviceName}.</span>
         ) : state === 'unchosen' ? (
           <span className="flex items-center gap-1 text-[10.5px] text-amber-600 dark:text-amber-400">
             <AlertTriangle size={10} className="shrink-0" />
-            Not chosen on {computerName} yet.
+            Not chosen on {deviceName} yet.
           </span>
         ) : (
-          <PathLine path={refOn.path ?? ''} state={state} computerName={computerName} />
+          <PathLine path={refOn.path ?? ''} state={state} deviceName={deviceName} />
         )}
         {!agent && (
           <div className="flex shrink-0 items-center gap-1">
@@ -464,11 +464,11 @@ function RowButton({
   );
 }
 
-/** Choose a folder on a computer: typed, or browsed there. Checked there on save. */
+/** Choose a folder on a device: typed, or browsed there. Checked there on save. */
 function ChooseFolderDialog({
   open,
   onOpenChange,
-  computer,
+  device,
   browsable,
   title,
   description,
@@ -477,7 +477,7 @@ function ChooseFolderDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  computer: Computer;
+  device: Device;
   browsable: boolean;
   title: string;
   description: string;
@@ -491,7 +491,7 @@ function ChooseFolderDialog({
         {/* Mounted each time it opens: every open starts from where the folder is now. */}
         {open && (
           <ChooseFolderBody
-            computer={computer}
+            device={device}
             browsable={browsable}
             title={title}
             description={description}
@@ -507,7 +507,7 @@ function ChooseFolderDialog({
 }
 
 function ChooseFolderBody({
-  computer,
+  device,
   browsable,
   title,
   description,
@@ -516,7 +516,7 @@ function ChooseFolderBody({
   onBusy,
   onDone,
 }: {
-  computer: Computer;
+  device: Device;
   browsable: boolean;
   title: string;
   description: string;
@@ -532,7 +532,7 @@ function ChooseFolderBody({
 
   const save = async () => {
     if (!folder.trim()) {
-      setProblem(`Type where it is on ${computer.name}, or browse for it.`);
+      setProblem(`Type where it is on ${device.name}, or browse for it.`);
       return;
     }
     setProblem(null);
@@ -562,10 +562,10 @@ function ChooseFolderBody({
         }}
         className="space-y-2"
       >
-        <FolderField value={folder} onChange={setFolder} computer={computer} browsable={browsable} placeholder="~/code/project" autoFocus />
+        <FolderField value={folder} onChange={setFolder} device={device} browsable={browsable} placeholder="~/code/project" autoFocus />
         {!browsable && (
           <p className="text-[11px] text-muted-foreground/75">
-            {computer.name} isn&apos;t running Ri right now, so type the whole path. It&apos;s checked there when it&apos;s back.
+            {device.name} isn&apos;t running Ri right now, so type the whole path. It&apos;s checked there when it&apos;s back.
           </p>
         )}
         {problem && <p className="text-[12px] text-destructive">{problem}</p>}
@@ -584,9 +584,9 @@ function ChooseFolderBody({
 }
 
 /**
- * Add a linked folder, placed on the computer it's added from, or edit what
+ * Add a linked folder, placed on the device it's added from, or edit what
  * one is. Another agent needs no place: it's that agent's folder on each
- * computer.
+ * device.
  */
 function LinkedFolderDefiner({
   workspace,
@@ -628,7 +628,7 @@ function LinkedFolderDefiner({
     }
     if (input.path) {
       change.add.mutate(
-        { alias: input.alias, description: input.description, forEveryAgent: input.workspaceId === null, computerId: on.computerId, folder: input.path },
+        { alias: input.alias, description: input.description, forEveryAgent: input.workspaceId === null, deviceId: on.deviceId, folder: input.path },
         {
           onSuccess: () => {
             toast.success(`@${draft.alias} added`);
@@ -666,8 +666,8 @@ function LinkedFolderDefiner({
     const ok = await confirm({
       title: `Remove @${editing.alias}?`,
       description: everyAgent
-        ? 'Every agent has it, so removing it takes it from all of them, on every computer. Nothing on disk is touched.'
-        : `${workspace.name} and its executions stop being told about it, on every computer. Nothing on disk is touched.`,
+        ? 'Every agent has it, so removing it takes it from all of them, on every device. Nothing on disk is touched.'
+        : `${workspace.name} and its executions stop being told about it, on every device. Nothing on disk is touched.`,
       confirmLabel: 'Remove',
       tone: 'destructive',
     });
@@ -695,7 +695,7 @@ function LinkedFolderDefiner({
       saving={create.isPending || update.isPending || change.add.isPending}
       error={error}
       onSubmit={submit}
-      computer={{ id: on.computerId, name: on.name }}
+      device={{ id: on.deviceId, name: on.name }}
       browsable={on.connected}
       onRemove={editing ? removeIt : undefined}
     />

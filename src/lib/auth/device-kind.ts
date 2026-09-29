@@ -1,10 +1,10 @@
-import type { DeviceType } from '@/db/types';
+import type { DeviceKind } from '@/db/types';
 
 /**
- * Best-effort UA → DeviceType mapping. Not a full UA parser — just enough to
+ * Best-effort UA → device kind. Not a full UA parser — just enough to
  * default the label when a remote device pairs.
  */
-export function deviceTypeFromUserAgent(ua: string | null | undefined): DeviceType {
+export function deviceKindFromUserAgent(ua: string | null | undefined): DeviceKind {
   if (!ua) return 'other';
   const s = ua.toLowerCase();
 

@@ -257,7 +257,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // Worktree just landed (provisioning finished) → pull the file tree + diff
   // immediately. The tree was fetched empty while `worktreePath` was null, and
   // nothing else refetches it on this transition.
-  // Its folder wherever it runs (P3.1): the worktree here, or the one its computer prepared.
+  // Its folder wherever it runs (P3.1): the worktree here, or the one its device prepared.
   const folder = session ? preparedFolder(session) : null;
   const prevWorktreeRef = useRef(!!folder);
   useEffect(() => {
@@ -545,7 +545,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     sessionId: session.id,
     workspaceId: session.workspaceId ?? null,
     worktreeId,
-    // Its folder wherever it runs: the Files view's paths and Open are on that computer (P3.5).
+    // Its folder wherever it runs: the Files view's paths and Open are on that device (P3.5).
     worktreePath: preparedFolder(session),
     baseBranch: workspace?.baseBranch ?? null,
     chatLabel,
@@ -627,7 +627,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             work as a strip attached to the top of the composer. No rule
             above it, so it reads as one piece with the conversation. */}
         <div className={cn('flex-shrink-0 bg-background', clearBox)}>
-          {/* A move to another computer, while it runs or once it stopped (P4.2). */}
+          {/* A move to another device, while it runs or once it stopped (P4.2). */}
           <div className="space-y-1.5 px-3 pt-2 empty:hidden">
             <TransferProgress sessionId={session.id} />
             <ReviewBar session={session} workspace={workspace} />

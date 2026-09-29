@@ -1,7 +1,7 @@
 /**
- * What this computer can run: each enabled harness as its runtime sees it
+ * What this device can run: each enabled harness as its runtime sees it
  * here (installed, version, capabilities). The home stores the report from
- * each heartbeat, and later builds session specs for this computer from it.
+ * each heartbeat, and later builds session specs for this device from it.
  */
 
 import type { WorkerHarnessReport } from '@/db/types';

@@ -1,8 +1,8 @@
 /**
- * The home's relay of a terminal on another computer (P3.5): a viewer gets
+ * The home's relay of a terminal on another device (P3.5): a viewer gets
  * the replay, then output spliced on by offset, whatever arrived while the
  * replay was on its way. Output out of step ends the stream so its
- * reconnect catches up, and another computer can't write into it.
+ * reconnect catches up, and another device can't write into it.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,9 +16,9 @@ vi.mock('@/lib/workers/hub', () => ({
   },
 }));
 
-import { _resetRemoteTerminals, computerTerminalsGone, deliverTerminalOutput, remoteTerminalStream } from './remote';
+import { _resetRemoteTerminals, deviceTerminalsGone, deliverTerminalOutput, remoteTerminalStream } from './remote';
 
-const place = { computerId: 'laptop', computerName: 'MacBook', scope: { kind: 'execution' as const, executionId: 'e1', generation: 1 } };
+const place = { deviceId: 'laptop', deviceName: 'MacBook', scope: { kind: 'execution' as const, executionId: 'e1', generation: 1 } };
 
 function open(since?: number) {
   const res = remoteTerminalStream(new Request('http://x', { headers: since === undefined ? {} : { 'last-event-id': String(since) } }), place, 't1');
@@ -90,13 +90,13 @@ describe('a remote terminal stream', () => {
     expect(view.closed()).toBe(true);
   });
 
-  it("ignores output from another computer, and says when its own computer drops", async () => {
+  it("ignores output from another device, and says when its own device drops", async () => {
     requestWorker.mockResolvedValueOnce({ status: 200, body: { replay: 'hi', offset: 2, gap: false, exited: false, exitCode: null } });
     const view = open();
     await tick();
     deliverTerminalOutput('desktop', { chunks: [{ terminalId: 't1', data: 'evil', offset: 6 }], exits: [{ terminalId: 't1', code: 0, signal: null }] });
     await tick();
-    computerTerminalsGone('laptop', 'MacBook');
+    deviceTerminalsGone('laptop', 'MacBook');
     await tick();
     expect(view.events.map((e) => e.event)).toEqual(['ready', 'data', 'unavailable']);
     expect(view.closed()).toBe(true);

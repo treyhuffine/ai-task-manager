@@ -1,9 +1,9 @@
 /**
  * `<app> home show` and `<app> home claim`.
  *
- * `show` prints this root's home and the computer it runs on.
+ * `show` prints this root's home and the device it runs on.
  *
- * `claim` makes this computer the host of the home in this root. A root
+ * `claim` makes this device the host of the home in this root. A root
  * whose data came from somewhere else (a restored backup, a copied folder,
  * a moved home) refuses to act as the home until it is claimed, so two
  * copies never run as one (docs/homes-spec.md §10.3). Claim only the copy
@@ -30,7 +30,7 @@ export function registerHomeCommand(program: Command) {
 
   home
     .command('show')
-    .description('Show the home in this root and the computer it runs on')
+    .description('Show the home in this root and the device it runs on')
     .action(() => {
       const retired = retiredHomes()[0];
       if (retired && !fs.existsSync(getDbPath())) {
@@ -41,7 +41,7 @@ export function registerHomeCommand(program: Command) {
       console.log(`${pc.bold(status.home.name)} ${pc.dim(status.home.id)}`);
       console.log(`  root: ${getAppRoot()}`);
       if (status.state === 'active') {
-        console.log(`  runs on: ${status.computer.name} ${pc.dim(status.computer.id)}`);
+        console.log(`  runs on: ${status.device.name} ${pc.dim(status.device.id)}`);
       } else {
         console.log(pc.yellow(`  not active here: ${describeNeedsClaim(status.reason)}`));
       }
@@ -49,35 +49,38 @@ export function registerHomeCommand(program: Command) {
 
   home
     .command('claim')
-    .description('Make this computer the home for the data in this root')
-    .option('--as <computer>', "which of the home's computers this is, by name or id, or `new`")
+    .description('Make this device the home for the data in this root')
+    .option('--as <device>', "which of the home's devices this is, by name or id, or `new`")
     .action(async (opts: { as?: string }) => {
       const before = resolveHomeIdentity();
       if (before.state === 'active' && !opts.as) {
-        console.log(`${before.home.name} already runs on this computer (${before.computer.name}).`);
+        console.log(`${before.home.name} already runs on this device (${before.device.name}).`);
         return;
       }
-      const { listComputers, getComputer } = await import('@/lib/db/queries');
-      const computers = listComputers();
+      const { listDevices, getDevice } = await import('@/lib/db/queries');
+      const devices = listDevices();
       let as: string | undefined;
       if (opts.as) {
         const wanted = opts.as.trim();
-        const match = wanted.toLowerCase() === 'new' ? 'new' : computers.find((c) => c.id === wanted || c.name.toLowerCase() === wanted.toLowerCase())?.id;
+        const match = wanted.toLowerCase() === 'new' ? 'new' : devices.find((c) => c.id === wanted || c.name.toLowerCase() === wanted.toLowerCase())?.id;
         if (!match) {
-          console.error(`${wanted} isn't a computer of this home. Its computers: ${computers.map((c) => c.name).join(', ')}, or \`new\`.`);
+          console.error(`${wanted} isn't a device of this home. Its devices: ${devices.map((c) => c.name).join(', ')}, or \`new\`.`);
           process.exitCode = 1;
           return;
         }
         as = match;
-      } else if (process.stdin.isTTY && computers.length > 0) {
-        // Restored on the computer that ran it, moved to one that already ran
+      } else if (process.stdin.isTTY && devices.some((d) => d.kind === 'computer')) {
+        // Restored on the device that ran it, moved to one that already ran
         // its work, or new to it: the person knows, so ask rather than guess.
-        const host = getComputer(before.home.hostComputerId);
+        // Only computers: a home never runs on a phone.
+        const host = getDevice(before.home.hostDeviceId);
         const choice = await select({
-          message: 'Which computer is this?',
+          message: 'Which device is this?',
           options: [
-            ...computers.map((c) => ({ value: c.id, label: c.name, hint: c.id === host?.id ? 'hosted this home until now' : 'one of its computers' })),
-            { value: 'new', label: 'A computer new to this home' },
+            ...devices
+              .filter((d) => d.kind === 'computer')
+              .map((c) => ({ value: c.id, label: c.name, hint: c.id === host?.id ? 'hosted this home until now' : 'one of its devices' })),
+            { value: 'new', label: 'A device new to this home' },
           ],
         });
         if (isCancel(choice)) {
@@ -87,9 +90,9 @@ export function registerHomeCommand(program: Command) {
         as = String(choice);
       }
       const after = claimHome({ as });
-      console.log(pc.green(`${after.home.name} now runs on ${after.computer.name}.`));
+      console.log(pc.green(`${after.home.name} now runs on ${after.device.name}.`));
       if (after.moved) {
-        const from = getComputer(after.moved.from)?.name ?? 'the computer it ran on';
+        const from = getDevice(after.moved.from)?.name ?? 'the device it ran on';
         console.log(
           pc.dim(
             `  What ran on ${from} stays there: ${count(after.moved.pinnedExecutions, 'execution')} and ${count(after.moved.pinnedChats, 'chat')}. ` +
@@ -102,7 +105,7 @@ export function registerHomeCommand(program: Command) {
 
   home
     .command('export <dir>')
-    .description('Export this stopped home, verified, to move it to another computer')
+    .description('Export this stopped home, verified, to move it to another device')
     .action(async (dir: string) => {
       const { exportHome, MoveError } = await import('@/lib/home/move');
       try {
@@ -112,7 +115,7 @@ export function registerHomeCommand(program: Command) {
         console.log(
           [
             '  Next:',
-            `  1. Copy ${dir} to the computer that will be your home.`,
+            `  1. Copy ${dir} to the device that will be your home.`,
             '  2. There, in a folder of its own: `ri home import <dir>`.',
             '  3. Here: `ri home retire --to <its address>`, so this one never runs beside it.',
             '  4. There: `ri home claim`, then `ri start`.',
@@ -184,7 +187,7 @@ export function registerHomeCommand(program: Command) {
         const done = retireHome({ successor: opts.to ?? null });
         console.log(pc.green(`Retired ${done.retired.homeName}. Its data is in ${done.dir}.`));
         console.log(pc.dim('  Worktrees and everything else in this folder stay where they are.'));
-        console.log(pc.dim('  To use this computer with your home now: `ri connect`, then `ri worker enroll` to run work here.'));
+        console.log(pc.dim('  To use this device with your home now: `ri connect`, then `ri worker enroll` to run work here.'));
       } catch (err) {
         if (err instanceof RetireError) {
           console.error(err.message);

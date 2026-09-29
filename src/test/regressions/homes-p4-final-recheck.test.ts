@@ -37,7 +37,7 @@ beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-p4-recheck-' });
   const identity = await import('@/lib/home/identity');
   identity.resetHomeIdentityCache();
-  hostId = identity.ensureHomeIdentity().home.hostComputerId;
+  hostId = identity.ensureHomeIdentity().home.hostDeviceId;
   remote = path.join(home.root, 'remote.git');
   git(home.root, 'init', '-q', '--bare', '-b', 'main', remote);
   repo = clone('source');
@@ -49,8 +49,8 @@ beforeEach(async () => {
   worktree = path.join(home.root, 'worktree');
   git(repo, 'worktree', 'add', '-q', '-b', branch, worktree, 'main');
   const q = await import('@/lib/db/queries');
-  const key = q.createApiKey({ name: 'Review companion', deviceType: 'computer' });
-  otherId = q.registerComputerForApiKey({ apiKeyId: key.key.id, name: 'Review companion', platform: 'darwin' }).computer.id;
+  const key = q.pairDevice({ name: 'Review companion', kind: 'computer' });
+  otherId = q.registerDeviceForApiKey({ apiKeyId: key.key.id, name: 'Review companion', platform: 'darwin' }).device.id;
   const workspace = q.createWorkspace({ name: 'Review', cwd: repo, isGit: true, baseBranch: 'main', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
   const created = q.createExecutionWithChat({ workspaceId: workspace.id, harness: 'claude', label: 'Review' });
   executionId = created.execution.id;
@@ -103,7 +103,7 @@ it('preserves an ignored descendant when an incoming commit replaces its folder 
 
 it('the retry HTTP route refuses a concurrent retry and sends a held message once', async () => {
   const q = await import('@/lib/db/queries');
-  const transfer = q.createTransfer({ executionId, fromComputerId: hostId, toComputerId: otherId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
+  const transfer = q.createTransfer({ executionId, fromDeviceId: hostId, toDeviceId: otherId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
   const event = q.insertChatEvent({ sessionId: chatId, role: 'user', source: 'user', content: 'retry once', createdAt: new Date().toISOString() })!;
   q.holdForTransfer(executionId, event.id);
   q.updateTransfer(transfer.id, { state: 'cancelled', error: 'earlier preparation failure' });
@@ -131,7 +131,7 @@ it('does not acknowledge a held event merely because an earlier dispatch is stil
   const event = q.insertChatEvent({ sessionId: chatId, role: 'user', source: 'user', content: 'still preparing', createdAt: new Date().toISOString() })!;
   const original = executor.dispatch(chatId, event.content!, { sourceEventId: event.id }).catch(() => undefined);
   await reached;
-  const transfer = q.createTransfer({ executionId, fromComputerId: hostId, toComputerId: otherId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
+  const transfer = q.createTransfer({ executionId, fromDeviceId: hostId, toDeviceId: otherId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
   q.updateTransfer(transfer.id, { state: 'failed', stage: 'saving', failedStage: 'saving', error: 'push failed' });
   // Opening the chat during the failed move re-fires the orphan and correctly holds it.
   const health = await import('@/lib/executor/health');

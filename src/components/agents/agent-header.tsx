@@ -154,8 +154,8 @@ function CountPill({
 }
 
 /**
- * The agent's folder, on the computer it lives on (P3.5): its folder there
- * and that computer's name when it isn't the home. An agent set up only on
+ * The agent's folder, on the device it lives on (P3.5): its folder there
+ * and that device's name when it isn't the home. An agent set up only on
  * a laptop has no folder at home to show.
  */
 function AgentFolderLine({ workspace }: { workspace: WorkspaceRecord }) {

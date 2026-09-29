@@ -1,12 +1,12 @@
 import type { NextRequest } from 'next/server';
-import { getComputer, getSendForEvent } from '@/lib/db/queries';
+import { getDevice, getSendForEvent } from '@/lib/db/queries';
 import { deliveryOf } from '@/lib/workers/delivery';
 import { withdrawQueuedSend } from '@/lib/workers/undelivered';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Withdraw a message still waiting in its computer's queue (P3.2). Only one
+ * Withdraw a message still waiting in its device's queue (P3.2). Only one
  * that hasn't crossed the delivery boundary: once it's been streamed to the
  * worker it may be running, and only stopping the execution can prevent
  * that. Its run is finished and its turn settled with it, and it shows as
@@ -22,7 +22,7 @@ export async function POST(
     return Response.json({ error: 'not_found', message: 'That message has nothing waiting to withdraw.' }, { status: 404 });
   }
   const onItsWay = () => {
-    const name = getComputer(send.computerId)?.name ?? 'its computer';
+    const name = getDevice(send.deviceId)?.name ?? 'its device';
     return Response.json(
       { error: 'on_its_way', message: `It's already on its way to ${name}. Stop the execution to keep it from running.` },
       { status: 409 },

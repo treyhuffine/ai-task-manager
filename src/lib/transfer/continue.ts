@@ -1,11 +1,11 @@
 /**
  * Continue here (docs/homes-spec.md §8.2 and §8.3, P4.2 to P4.4): move an
- * execution to another computer. The same Ri execution, chat history, task
- * links and agent. Its computer, working folder and harness session change.
+ * execution to another device. The same Ri execution, chat history, task
+ * links and agent. Its device, working folder and harness session change.
  *
- * The home runs every transfer, whichever computers it moves between:
+ * The home runs every transfer, whichever devices it moves between:
  *
- *   1. Check both computers can take part, and take the transfer's lock.
+ *   1. Check both devices can take part, and take the transfer's lock.
  *      From here, messages sent to the execution are held.
  *   2. Stopping: the source stops everything the execution runs there, and
  *      confirms it (harness, background tasks, terminals, preview), and its
@@ -32,7 +32,7 @@ import {
   createTransfer,
   getChatEventById,
   getChatSessionWithExecution,
-  getComputer,
+  getDevice,
   getExecution,
   getHome,
   getNote,
@@ -50,9 +50,9 @@ import {
   insertChatEvent,
   latestChatEventForExecution,
   latestTransfer,
-  listAgentSetups,
+  listWorkspaceSetups,
   listChatEvents,
-  listEnrolledComputerIds,
+  listEnrolledDeviceIds,
   listExecutionChatIds,
   placementOf,
   previousWorktreeOn,
@@ -60,7 +60,7 @@ import {
   TransferConflictError,
   updateTransfer,
 } from '@/lib/db/queries';
-import { isComputerConnected, wakeComputer } from '@/lib/workers/hub';
+import { isDeviceConnected, wakeDevice } from '@/lib/workers/hub';
 import { awaitWorkerCommand, CommandFailedError } from '@/lib/workers/await-command';
 import { publishTransfer } from '@/lib/realtime/bus';
 import { runOnFor } from '@/lib/setups/run-on';
@@ -76,7 +76,7 @@ export class TransferError extends Error {
       | 'not_found'
       | 'archived'
       | 'not_git'
-      | 'same_computer'
+      | 'same_device'
       | 'destination_not_ready'
       | 'source_unreachable'
       | 'destination_unreachable'
@@ -91,7 +91,7 @@ export class TransferError extends Error {
   }
 }
 
-/** How long each step on a connected computer may take before the transfer stops there. */
+/** How long each step on a connected device may take before the transfer stops there. */
 export const STEP_TIMEOUTS_MS = {
   drain: 30_000,
   quiesce: 2 * 60_000,
@@ -100,31 +100,31 @@ export const STEP_TIMEOUTS_MS = {
   setup: 16 * 60_000,
 };
 
-export function computerName(computerId: string): string {
-  return getComputer(computerId)?.name ?? 'another computer';
+export function deviceName(deviceId: string): string {
+  return getDevice(deviceId)?.name ?? 'another device';
 }
 
 export function viewOf(transfer: ExecutionTransferRecord): TransferView {
-  return transferView(transfer, computerName, delivering.has(transfer.id));
+  return transferView(transfer, deviceName, delivering.has(transfer.id));
 }
 
 function announce(transfer: ExecutionTransferRecord): void {
   publishTransfer(listExecutionChatIds(transfer.executionId), viewOf(transfer));
 }
 
-/** Why the work can't move to this computer now, or null when it can. */
-function destinationProblem(workspaceId: string, harness: string, toComputerId: string): string | null {
-  const host = getHome()?.hostComputerId ?? null;
-  const name = computerName(toComputerId);
-  const computer = getComputer(toComputerId);
-  if (!computer || computer.status !== 'active') return `${name} is no longer connected to this home.`;
-  const choice = runOnFor(workspaceId)?.choices.find((c) => c.computerId === toComputerId);
+/** Why the work can't move to this device now, or null when it can. */
+function destinationProblem(workspaceId: string, harness: string, toDeviceId: string): string | null {
+  const host = getHome()?.hostDeviceId ?? null;
+  const name = deviceName(toDeviceId);
+  const device = getDevice(toDeviceId);
+  if (!device || device.status !== 'active') return `${name} is no longer connected to this home.`;
+  const choice = runOnFor(workspaceId)?.choices.find((c) => c.deviceId === toDeviceId);
   if (!choice) return `${getWorkspace(workspaceId)?.name ?? 'The agent'} isn't on ${name} yet. Set it up there first.`;
   if (!choice.ready) return choice.problem ?? `${name} can't take this work yet.`;
-  if (toComputerId === host) return null;
-  if (!listEnrolledComputerIds().has(toComputerId)) return `${name} isn't set up to run agents. Run \`ri worker enroll\` there first.`;
-  if (!isComputerConnected(toComputerId)) return `${name} isn't running Ri right now. Start Ri on ${name}, then move it.`;
-  const report = computer.harnesses?.find((h) => h.harness === harness);
+  if (toDeviceId === host) return null;
+  if (!listEnrolledDeviceIds().has(toDeviceId)) return `${name} isn't set up to run agents. Run \`ri worker enroll\` there first.`;
+  if (!isDeviceConnected(toDeviceId)) return `${name} isn't running Ri right now. Start Ri on ${name}, then move it.`;
+  const report = device.harnesses?.find((h) => h.harness === harness);
   if (report && report.binary.status !== 'supported') return `${name} can't run ${harness} right now.`;
   return null;
 }
@@ -132,7 +132,7 @@ function destinationProblem(workspaceId: string, harness: string, toComputerId: 
 export interface StartTransferInput {
   /** The chat it was asked from: "Continued on MacBook" is recorded there. */
   chatSessionId: string;
-  toComputerId: string;
+  toDeviceId: string;
   includeUntracked: string[];
   requestedByApiKeyId: string | null;
   actor?: WorkerCommandActor;
@@ -150,16 +150,16 @@ export function startTransfer(input: StartTransferInput): ExecutionTransferRecor
   if (!execution || !workspace) throw new TransferError('not_found', 'Execution not found.', 404);
   if (execution.status === 'archived') throw new TransferError('archived', 'An archived execution stays where it was.');
   if (!workspace.isGit) {
-    throw new TransferError('not_git', "Work that isn't in a Git repository runs on its own computer, and doesn't move through Ri yet.");
+    throw new TransferError('not_git', "Work that isn't in a Git repository runs on its own device, and doesn't move through Ri yet.");
   }
   const placement = placementOf(execution.id);
-  if (!placement) throw new TransferError('not_found', 'This home has no computer yet.');
-  if (placement.computerId === input.toComputerId) throw new TransferError('same_computer', `It already runs on ${computerName(input.toComputerId)}.`);
-  const host = getHome()?.hostComputerId ?? null;
-  if (placement.computerId !== host && !isComputerConnected(placement.computerId)) {
+  if (!placement) throw new TransferError('not_found', 'This home has no device yet.');
+  if (placement.deviceId === input.toDeviceId) throw new TransferError('same_device', `It already runs on ${deviceName(input.toDeviceId)}.`);
+  const host = getHome()?.hostDeviceId ?? null;
+  if (placement.deviceId !== host && !isDeviceConnected(placement.deviceId)) {
     throw new TransferError(
       'source_unreachable',
-      `${computerName(placement.computerId)} isn't connected, so its work can't be saved and moved. Wait for it, or keep following it here.`,
+      `${deviceName(placement.deviceId)} isn't connected, so its work can't be saved and moved. Wait for it, or keep following it here.`,
     );
   }
   // Not under a change already running on it: archiving, a push, a file
@@ -171,7 +171,7 @@ export function startTransfer(input: StartTransferInput): ExecutionTransferRecor
   if (earlier && delivering.has(earlier.id)) {
     throw new TransferError('busy', 'Messages it held are still going out. Continue once they have.');
   }
-  const problem = destinationProblem(workspace.id, session.harness, input.toComputerId);
+  const problem = destinationProblem(workspace.id, session.harness, input.toDeviceId);
   if (problem) throw new TransferError('destination_not_ready', problem);
 
   // A move that stopped earlier is superseded in the lock's transaction, and
@@ -180,8 +180,8 @@ export function startTransfer(input: StartTransferInput): ExecutionTransferRecor
   try {
     transfer = createTransfer({
       executionId: execution.id,
-      fromComputerId: placement.computerId,
-      toComputerId: input.toComputerId,
+      fromDeviceId: placement.deviceId,
+      toDeviceId: input.toDeviceId,
       fromGeneration: placement.generation,
       includeUntracked: input.includeUntracked,
       requestedByApiKeyId: input.requestedByApiKeyId,
@@ -207,9 +207,9 @@ async function awaitCommand(commandId: string, timeoutMs: number, what: string):
   }
 }
 
-function queueOn(computerId: string, kind: 'quiesce' | 'git' | 'prepare' | 'run_script', payload: unknown, transfer: ExecutionTransferRecord, generation: number, chatSessionId: string | null, actor?: WorkerCommandActor) {
+function queueOn(deviceId: string, kind: 'quiesce' | 'git' | 'prepare' | 'run_script', payload: unknown, transfer: ExecutionTransferRecord, generation: number, chatSessionId: string | null, actor?: WorkerCommandActor) {
   const command = queueWorkerCommand({
-    computerId,
+    deviceId,
     kind,
     payload,
     actor: actor ?? { source: 'system' },
@@ -217,28 +217,28 @@ function queueOn(computerId: string, kind: 'quiesce' | 'git' | 'prepare' | 'run_
     chatSessionId,
     generation,
   });
-  wakeComputer(computerId);
+  wakeDevice(deviceId);
   return command;
 }
 
 async function stopSource(transfer: ExecutionTransferRecord, chats: string[], actor?: WorkerCommandActor): Promise<void> {
-  const host = getHome()?.hostComputerId ?? null;
+  const host = getHome()?.hostDeviceId ?? null;
   // A message let through before the lock reaches the source first, so the
   // stop that follows is the last thing it gets. Anything later is held.
   if (!(await drainSends(transfer.executionId, STEP_TIMEOUTS_MS.drain))) {
-    throw new StepFailed(`A message was still on its way to ${computerName(transfer.fromComputerId)}. Try again in a moment.`);
+    throw new StepFailed(`A message was still on its way to ${deviceName(transfer.fromDeviceId)}. Try again in a moment.`);
   }
-  if (transfer.fromComputerId !== host) {
+  if (transfer.fromDeviceId !== host) {
     const payload: QuiescePayload = { chatSessionIds: chats, transferId: transfer.id };
-    const command = queueOn(transfer.fromComputerId, 'quiesce', payload, transfer, transfer.fromGeneration, chats[0] ?? null, actor);
-    await awaitCommand(command.id, STEP_TIMEOUTS_MS.quiesce, `Stopping it on ${computerName(transfer.fromComputerId)}`);
+    const command = queueOn(transfer.fromDeviceId, 'quiesce', payload, transfer, transfer.fromGeneration, chats[0] ?? null, actor);
+    await awaitCommand(command.id, STEP_TIMEOUTS_MS.quiesce, `Stopping it on ${deviceName(transfer.fromDeviceId)}`);
     return;
   }
   // Here: the harness closed and confirmed gone, with its background tasks,
   // the execution's terminals, and its preview.
   const execution = getExecution(transfer.executionId);
   if (execution?.setupScriptStatus === 'running') {
-    throw new StepFailed(`Its setup script is still running on ${computerName(host)}. Continue once it has finished.`);
+    throw new StepFailed(`Its setup script is still running on ${deviceName(host)}. Continue once it has finished.`);
   }
   const executor = await import('@/lib/executor/adapter');
   const live = await import('@/lib/executor/live-state');
@@ -252,21 +252,21 @@ async function stopSource(transfer: ExecutionTransferRecord, chats: string[], ac
   killAllForOwner(transfer.executionId);
   const { stopPreview } = await import('@/lib/preview/service');
   await stopPreview(transfer.executionId);
-  if (problems.length > 0) throw new StepFailed(`It couldn't be stopped on ${computerName(host)}: ${[...new Set(problems)].join(' ')}`);
+  if (problems.length > 0) throw new StepFailed(`It couldn't be stopped on ${deviceName(host)}: ${[...new Set(problems)].join(' ')}`);
 }
 
 async function saveOnSource(transfer: ExecutionTransferRecord, actor?: WorkerCommandActor): Promise<SavedCheckpoint> {
   const execution = getExecution(transfer.executionId)!;
   const workspace = getWorkspace(execution.workspaceId)!;
-  const message = `Checkpoint: continuing on ${computerName(transfer.toComputerId)}`;
-  const host = getHome()?.hostComputerId ?? null;
-  const from = computerName(transfer.fromComputerId);
-  // Said from wherever it's read: which computer has to bring the commits in.
+  const message = `Checkpoint: continuing on ${deviceName(transfer.toDeviceId)}`;
+  const host = getHome()?.hostDeviceId ?? null;
+  const from = deviceName(transfer.fromDeviceId);
+  // Said from wherever it's read: which device has to bring the commits in.
   const rejected = (code: string | undefined) =>
     code === 'push_rejected'
       ? new StepFailed(`Its branch on the remote has commits the work on ${from} doesn't have. Nothing was forced. Resume on ${from}, bring them in, then continue again.`)
       : null;
-  if (transfer.fromComputerId !== host) {
+  if (transfer.fromDeviceId !== host) {
     const payload: GitPayload = {
       op: 'checkpoint',
       message,
@@ -274,7 +274,7 @@ async function saveOnSource(transfer: ExecutionTransferRecord, actor?: WorkerCom
       filesToCopy: workspace.filesToCopy ?? [],
       transferId: transfer.id,
     };
-    const command = queueOn(transfer.fromComputerId, 'git', payload, transfer, transfer.fromGeneration, null, actor);
+    const command = queueOn(transfer.fromDeviceId, 'git', payload, transfer, transfer.fromGeneration, null, actor);
     try {
       return (await awaitWorkerCommand(command.id, STEP_TIMEOUTS_MS.checkpoint, `Saving the work on ${from}`)) as SavedCheckpoint;
     } catch (err) {
@@ -293,8 +293,8 @@ async function saveOnSource(transfer: ExecutionTransferRecord, actor?: WorkerCom
 
 /** The folder this home keeps an agent in: its setup here, or its folder from before setups. */
 function homeAgentFolder(workspaceId: string): string | null {
-  const host = getHome()?.hostComputerId ?? null;
-  const setup = host ? listAgentSetups({ workspaceId }).find((s) => s.computerId === host) : undefined;
+  const host = getHome()?.hostDeviceId ?? null;
+  const setup = host ? listWorkspaceSetups({ workspaceId }).find((s) => s.deviceId === host) : undefined;
   return setup?.sourcePath ?? getWorkspace(workspaceId)?.cwd ?? null;
 }
 
@@ -307,11 +307,11 @@ async function prepareDestination(
   const execution = getExecution(transfer.executionId)!;
   const workspace = getWorkspace(execution.workspaceId)!;
   const generation = targetGenerationOf(transfer);
-  const host = getHome()?.hostComputerId ?? null;
-  const to = computerName(transfer.toComputerId);
+  const host = getHome()?.hostDeviceId ?? null;
+  const to = deviceName(transfer.toDeviceId);
   const setup = workspace.setupCommand?.trim() || null;
 
-  if (transfer.toComputerId !== host) {
+  if (transfer.toDeviceId !== host) {
     const payload: PreparePayload = {
       workspace,
       chatSessionId,
@@ -321,7 +321,7 @@ async function prepareDestination(
       live: false,
       transfer: { id: transfer.id, checkpoint: { remote: checkpoint.remote, branch: checkpoint.branch, sha: checkpoint.sha } },
     };
-    const command = queueOn(transfer.toComputerId, 'prepare', payload, transfer, generation, chatSessionId, actor);
+    const command = queueOn(transfer.toDeviceId, 'prepare', payload, transfer, generation, chatSessionId, actor);
     const prepared = (await awaitCommand(command.id, STEP_TIMEOUTS_MS.prepare, `Setting up ${to}`)) as PrepareResult;
     updateTransfer(transfer.id, { targetWorktreePath: prepared.worktreePath });
     if (setup) {
@@ -333,7 +333,7 @@ async function prepareDestination(
         branchName: prepared.branchName,
         transferId: transfer.id,
       };
-      const run = queueOn(transfer.toComputerId, 'run_script', script, transfer, generation, chatSessionId, actor);
+      const run = queueOn(transfer.toDeviceId, 'run_script', script, transfer, generation, chatSessionId, actor);
       const outcome = (await awaitCommand(run.id, STEP_TIMEOUTS_MS.setup, `The setup script on ${to}`)) as { ok: boolean; output: string };
       if (!outcome.ok) throw new StepFailed(`The setup script failed on ${to}:\n${outcome.output}`);
     }
@@ -343,7 +343,7 @@ async function prepareDestination(
   // Here.
   const repo = homeAgentFolder(workspace.id);
   if (!repo || !fs.existsSync(repo)) throw new StepFailed(`${workspace.name}'s folder isn't on ${to}.`);
-  const before = previousWorktreeOn(execution.id, transfer.toComputerId);
+  const before = previousWorktreeOn(execution.id, transfer.toDeviceId);
   const earlier = before && before !== repo ? before : null;
   const { buildWorktreeLeaf, defaultWorktreeRoot, runWorktreeScript } = await import('@/lib/workspaces/index');
   const target = earlier ?? path.join(workspace.worktreeRoot ?? defaultWorktreeRoot(workspace.slug), buildWorktreeLeaf(workspace.slug, chatSessionId));
@@ -382,8 +382,8 @@ async function writeHandoff(transfer: ExecutionTransferRecord, checkpoint: Saved
   const input: HandoffInput = {
     executionLabel: execution.label ?? null,
     agentName: workspace.name,
-    fromComputer: computerName(transfer.fromComputerId),
-    toComputer: computerName(transfer.toComputerId),
+    fromDevice: deviceName(transfer.fromDeviceId),
+    toDevice: deviceName(transfer.toDeviceId),
     checkpoint: { branch: checkpoint.branch, sha: checkpoint.sha, files: checkpoint.files },
     messages,
     chatSessionIds: chats,
@@ -414,7 +414,7 @@ export function isDelivering(transferId: string): boolean {
 
 /**
  * Deliver the messages a transfer holds, in order, to wherever the work is
- * now. Each stays held, first in line, until its harness (or its computer's
+ * now. Each stays held, first in line, until its harness (or its device's
  * queue) has it, and only then is taken off the list; the next goes then,
  * not once the last one's turn is over. One that nothing took stops the
  * delivery where it is, with the rest behind it, and says why: nothing
@@ -436,7 +436,7 @@ export async function deliverHeld(transfer: ExecutionTransferRecord, actor?: Wor
       } catch (err) {
         stopped = true;
         const current = getTransfer(transfer.id)!;
-        const where = computerName(current.toGeneration === null ? current.fromComputerId : current.toComputerId);
+        const where = deviceName(current.toGeneration === null ? current.fromDeviceId : current.toDeviceId);
         const count = current.heldEventIds.length;
         const reason = err instanceof Error ? err.message : String(err);
         const updated = updateTransfer(transfer.id, {
@@ -512,11 +512,11 @@ async function runTransfer(transferId: string, input: StartTransferInput): Promi
       sessionId: chats.includes(input.chatSessionId) ? input.chatSessionId : chats[chats.length - 1],
       role: 'system',
       source: 'continuation',
-      content: `Continued on ${computerName(transfer.toComputerId)}`,
+      content: `Continued on ${deviceName(transfer.toDeviceId)}`,
       raw: {
         transferId: transfer.id,
-        from: computerName(transfer.fromComputerId),
-        to: computerName(transfer.toComputerId),
+        from: deviceName(transfer.fromDeviceId),
+        to: deviceName(transfer.toDeviceId),
         checkpoint: { branch: checkpoint.branch, sha: checkpoint.sha },
         handoff,
       },
@@ -573,8 +573,8 @@ export async function finishOnDestination(executionId: string, actor?: WorkerCom
  * When the home starts (P4 review): moves a restart interrupted. Nothing in
  * this process is running them, so each stops where it was, holding what it
  * held: Try again or Resume before the destination owned the work, Finish
- * after. Commands it queued that no computer has taken yet are withdrawn.
- * One a computer took finishes there first, in order, before anything new
+ * after. Commands it queued that no device has taken yet are withdrawn.
+ * One a device took finishes there first, in order, before anything new
  * for the execution reaches it. And a move settled by Resume or Finish goes
  * on delivering the messages it hadn't sent yet.
  */
@@ -585,8 +585,8 @@ export function recoverInterruptedTransfers(): { stopped: number; delivering: nu
     for (const command of listQueuedTransferCommands(transfer)) cancelWorkerCommand(command.id);
     const next =
       transfer.toGeneration === null
-        ? `Nothing was lost: Try again, or resume on ${computerName(transfer.fromComputerId)}.`
-        : `${computerName(transfer.toComputerId)} has the work: finish there to deliver what it held.`;
+        ? `Nothing was lost: Try again, or resume on ${deviceName(transfer.fromDeviceId)}.`
+        : `${deviceName(transfer.toDeviceId)} has the work: finish there to deliver what it held.`;
     const stopped = updateTransfer(transfer.id, {
       state: 'failed',
       failedStage: transfer.stage,

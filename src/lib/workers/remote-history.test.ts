@@ -1,10 +1,10 @@
 /**
- * Terminal history from a connected computer (docs/homes-build.md, P2.9),
+ * Terminal history from a connected device (docs/homes-build.md, P2.9),
  * end to end: the worker in a process of its own with its own Claude history,
  * the home in this process behind its real proxy and routes. Listing gives
  * what a person needs to choose and nothing of a transcript. A chosen session
  * imports read-only into the agent set up in that folder there, and stays
- * fresh from that computer while it's connected.
+ * fresh from that device while it's connected.
  */
 
 import fs from 'node:fs';
@@ -26,7 +26,7 @@ let server: HomeServer;
 let worker: WorkerProcess | null = null;
 let laptopRoot: string;
 let claudeHome: string;
-let computerId: string;
+let deviceId: string;
 let homeId: string;
 let workerKey: string;
 let agentId: string;
@@ -69,7 +69,7 @@ beforeEach(async () => {
   ]));
   writeJsonl(fileOf(ELSEWHERE, other), transcript(ELSEWHERE, other, [
     { role: 'user', text: 'Private notes from another folder', at: '2026-09-21T10:00:00.000Z' },
-    { role: 'assistant', text: 'Something only this computer should hold.', at: '2026-09-21T10:00:05.000Z' },
+    { role: 'assistant', text: 'Something only this device should hold.', at: '2026-09-21T10:00:05.000Z' },
   ]));
   writeJsonl(fileOf(RUN_BY_RI, demo), transcript(RUN_BY_RI, demo, [
     { role: 'user', text: 'Started from Ri', at: '2026-09-22T10:00:00.000Z' },
@@ -80,8 +80,8 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
-  const laptop = q.createApiKey({ name: 'Laptop CLI', deviceType: 'computer' });
-  computerId = q.registerComputerForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).computer.id;
+  const laptop = q.pairDevice({ name: 'Laptop', kind: 'computer' });
+  deviceId = q.registerDeviceForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).device.id;
   server = await startHomeServer();
   const grant = await fetch(`${server.url}/api/workers/grants`, {
     method: 'POST',
@@ -97,10 +97,10 @@ beforeEach(async () => {
   // The Demo agent, set up in the demo folder on the laptop.
   const ws = q.createWorkspace({ name: 'Demo', cwd: path.join(home.root, 'demo-on-the-mini'), isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
   agentId = ws.id;
-  await setUpAgentOn(agentId, computerId, demo);
+  await setUpAgentOn(agentId, deviceId, demo);
   // And a session Ri runs there itself.
   const ours = q.createExecutionWithChat({ workspaceId: agentId, harness: 'claude', label: 'Ri run' });
-  q.createPlacement({ executionId: ours.execution.id, computerId, startReason: 'created', worktreePath: demo });
+  q.createPlacement({ executionId: ours.execution.id, deviceId, startReason: 'created', worktreePath: demo });
   q.updateChatSession(ours.session.id, { externalSessionId: RUN_BY_RI });
 
   worker = await startWorker();
@@ -125,8 +125,8 @@ async function startWorker(): Promise<WorkerProcess> {
     root: laptopRoot,
     env: { CLAUDE_CONFIG_DIR: claudeHome, CODEX_HOME: path.join(laptopRoot, 'codex') },
   });
-  const { isComputerConnected } = await import('@/lib/workers/hub');
-  await until(() => isComputerConnected(computerId) && (q.getComputer(computerId)?.harnesses?.length ?? 0) > 0, 'the laptop');
+  const { isDeviceConnected } = await import('@/lib/workers/hub');
+  await until(() => isDeviceConnected(deviceId) && (q.getDevice(deviceId)?.harnesses?.length ?? 0) > 0, 'the laptop');
   return started;
 }
 
@@ -141,16 +141,16 @@ async function until(check: () => boolean, what: string, ms = 20_000): Promise<v
 
 const keyOf = (id: string) => `claude:${Buffer.from(id, 'utf8').toString('base64url')}`;
 
-describe('terminal history on a connected computer', () => {
+describe('terminal history on a connected device', () => {
   it("is listed by folder, with what Ri already has of it, and without a transcript's content or place", async () => {
     const { requestWorker } = await import('@/lib/workers/hub');
-    const raw = JSON.stringify(await requestWorker(computerId, 'list_history', null, 60_000));
-    expect(raw).not.toContain('Something only this computer should hold.');
+    const raw = JSON.stringify(await requestWorker(deviceId, 'list_history', null, 60_000));
+    expect(raw).not.toContain('Something only this device should hold.');
     expect(raw).not.toContain(claudeHome);
 
     const { discoverRemoteSessions } = await import('@/lib/import/remote');
-    const found = await discoverRemoteSessions(computerId);
-    expect(found.computer).toEqual({ id: computerId, name: 'Laptop' });
+    const found = await discoverRemoteSessions(deviceId);
+    expect(found.device).toEqual({ id: deviceId, name: 'Laptop' });
     const byFolder = new Map(found.projects.map((p) => [p.cwd, p]));
     expect(byFolder.get(demo)?.agent).toEqual({ id: agentId, name: 'Demo' });
     expect(byFolder.get(other)?.agent).toBeNull();
@@ -160,10 +160,10 @@ describe('terminal history on a connected computer', () => {
     expect(session(RUN_BY_RI)).toMatchObject({ importable: false, imported: true, note: 'Ri runs this session there.' });
   }, 60_000);
 
-  it('imports a chosen session read-only into the agent there, placed on that computer, and only that one', async () => {
+  it('imports a chosen session read-only into the agent there, placed on that device, and only that one', async () => {
     const q = await import('@/lib/db/queries');
     const { importRemoteSessions } = await import('@/lib/import/remote');
-    const result = await importRemoteSessions(computerId, [keyOf(IN_AGENT), keyOf(ELSEWHERE), keyOf(RUN_BY_RI)]);
+    const result = await importRemoteSessions(deviceId, [keyOf(IN_AGENT), keyOf(ELSEWHERE), keyOf(RUN_BY_RI)]);
     expect(result).toMatchObject({ importedSessions: 1, skippedSessions: 1 });
     expect(result.failures).toEqual([{ key: keyOf(ELSEWHERE), error: `Set ${other} up as an agent on Laptop to import its sessions.` }]);
 
@@ -171,8 +171,8 @@ describe('terminal history on a connected computer', () => {
     const chat = q.getChatSessionWithExecution(chatId)!;
     expect(chat).toMatchObject({ surfaceKind: 'imported_agent', workspaceId: agentId });
     expect(chat.execution?.worktreePath ?? null).toBeNull();
-    expect(q.getOpenPlacement(chat.executionId!)).toMatchObject({ computerId, worktreePath: demo, startReason: 'adopted' });
-    expect(q.getExternalSessionImportForChat(chatId)).toMatchObject({ computerId, sourcePath: null, status: 'current' });
+    expect(q.getOpenPlacement(chat.executionId!)).toMatchObject({ deviceId, worktreePath: demo, startReason: 'adopted' });
+    expect(q.getExternalSessionImportForChat(chatId)).toMatchObject({ deviceId, sourcePath: null, status: 'current' });
     expect(q.listChatEvents(chatId).map((e) => e.content)).toEqual(['Tidy the readme', 'The readme is tidy.']);
     // Nothing of the session that wasn't chosen reached the home.
     expect(JSON.stringify(q.listChatEvents(chatId))).not.toContain('Private notes');
@@ -181,10 +181,10 @@ describe('terminal history on a connected computer', () => {
     expect(() => takeOverImportedSession(chatId)).toThrow('This session lives on Laptop. It can be read here, and continued in a terminal there.');
   }, 60_000);
 
-  it('stays fresh from that computer, starts over when its transcript was rewritten, and keeps what it has while away', async () => {
+  it('stays fresh from that device, starts over when its transcript was rewritten, and keeps what it has while away', async () => {
     const q = await import('@/lib/db/queries');
     const { importRemoteSessions, syncRemoteImport } = await import('@/lib/import/remote');
-    const chatId = (await importRemoteSessions(computerId, [keyOf(IN_AGENT)])).sessions[0]!.chatSessionId;
+    const chatId = (await importRemoteSessions(deviceId, [keyOf(IN_AGENT)])).sessions[0]!.chatSessionId;
     const contents = () => q.listChatEvents(chatId).map((e) => e.content);
 
     // More work in the laptop's terminal.
@@ -193,7 +193,7 @@ describe('terminal history on a connected computer', () => {
     ])[0]).replace(`"${IN_AGENT}-0"`, `"${IN_AGENT}-2"`) + '\n');
     const { discoverRemoteSessions } = await import('@/lib/import/remote');
     const statusNow = async () =>
-      (await discoverRemoteSessions(computerId)).projects.flatMap((p) => p.sessions).find((s) => s.externalSessionId === IN_AGENT)!.importStatus;
+      (await discoverRemoteSessions(deviceId)).projects.flatMap((p) => p.sessions).find((s) => s.externalSessionId === IN_AGENT)!.importStatus;
     expect(await statusNow()).toBe('changed');
     expect(await syncRemoteImport(chatId)).toEqual({ replayed: 1 });
     expect(contents()).toEqual(['Tidy the readme', 'The readme is tidy.', 'And the changelog']);
@@ -210,33 +210,33 @@ describe('terminal history on a connected computer', () => {
     // Away: nothing changes, and it says so.
     await worker!.stop();
     worker = null;
-    const { isComputerConnected } = await import('@/lib/workers/hub');
-    await until(() => !isComputerConnected(computerId), 'the laptop to go');
+    const { isDeviceConnected } = await import('@/lib/workers/hub');
+    await until(() => !isDeviceConnected(deviceId), 'the laptop to go');
     expect(await syncRemoteImport(chatId)).toEqual({ replayed: 0, skipped: 'offline' });
     expect(contents()).toEqual(['Tidy the readme, again']);
   }, 90_000);
 });
 
 describe('an imported session\'s identity', () => {
-  it('is qualified by computer, so the same native id on two computers is two sessions', async () => {
+  it('is qualified by device, so the same native id on two devices is two sessions', async () => {
     const q = await import('@/lib/db/queries');
     const { getDb } = await import('@/lib/db');
     const { externalSessionImports } = await import('@/lib/db/schema');
-    const insert = (chatSessionId: string, computer: string | null) =>
+    const insert = (chatSessionId: string, device: string | null) =>
       getDb().insert(externalSessionImports).values({
         id: `${chatSessionId}-ledger`,
         chatSessionId,
         providerType: 'claude',
         externalSessionId: 'same-native-id',
-        computerId: computer,
+        deviceId: device,
         sourceKind: 'file',
         syncOffset: 0,
         status: 'current',
       }).run();
     const chat = () => q.createChatSession({ type: 'execution', harness: 'claude', status: 'active' }).id;
     insert(chat(), null);
-    insert(chat(), computerId);
-    expect(() => insert(chat(), computerId)).toThrow(/UNIQUE/);
+    insert(chat(), deviceId);
+    expect(() => insert(chat(), deviceId)).toThrow(/UNIQUE/);
     expect(() => insert(chat(), null)).toThrow(/UNIQUE/);
   });
 });

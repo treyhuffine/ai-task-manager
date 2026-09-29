@@ -3,7 +3,7 @@
  * command inventories and pending prompts (docs/homes-build.md, P2.1 and
  * P2.4). Routes, the rail and health read here rather than from a runner
  * directly: the home's own runner for chats that run here, and the mirror of
- * each connected computer's reported state (`remote-live.ts`) for chats that
+ * each connected device's reported state (`remote-live.ts`) for chats that
  * run there.
  *
  * Light on purpose: it imports no agent engine, so status routes stay cheap
@@ -30,7 +30,7 @@ export function isRunning(chatSessionId: string): boolean {
   return local.isRunning(chatSessionId) || remoteChat(chatSessionId)?.running === true;
 }
 
-/** Every session with a turn in flight, here or on a connected computer. Seeds the rail's Working bucket. */
+/** Every session with a turn in flight, here or on a connected device. Seeds the rail's Working bucket. */
 export function listRunningSessions(): string[] {
   return union(local.listRunningSessions(), listRemoteRunning());
 }
@@ -52,12 +52,12 @@ export function getSessionInventory(chatSessionId: string): RuntimeCommandInvent
   return local.getSessionInventory(chatSessionId) ?? remoteChat(chatSessionId)?.inventory ?? null;
 }
 
-/** Whether this computer holds a live harness process for the chat. */
+/** Whether this device holds a live harness process for the chat. */
 export function hasHarnessSession(chatSessionId: string): boolean {
   return local.hasHarnessSession(chatSessionId);
 }
 
-/** Sends active in this computer's runner. */
+/** Sends active in this device's runner. */
 export function activeSendCount(chatSessionId: string): number {
   return local.activeSendCount(chatSessionId);
 }

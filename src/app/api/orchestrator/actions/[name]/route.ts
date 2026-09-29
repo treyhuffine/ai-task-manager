@@ -1,7 +1,7 @@
 /**
  * POST /api/orchestrator/actions/:name: run one orchestrator action.
  *
- * The JSON twin of `ri agent <name>` for computers connected to this home
+ * The JSON twin of `ri agent <name>` for devices connected to this home
  * (docs/homes-spec.md §5.3: "Connected-device CLI actions use the home API
  * and preserve the caller's signed session identity"). The body is the
  * action's params. The response is always the same envelope the CLI and the

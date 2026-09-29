@@ -1,7 +1,7 @@
 /**
  * Dispatch a message already in the chat, as the messages route would have
  * when it was sent: entity markers expanded, file markers expanded or left
- * for the computer the chat runs on, labeled with the chat that sent it, and
+ * for the device the chat runs on, labeled with the chat that sent it, and
  * tied to its own event so it reaches the harness once (P4.2). Used for the
  * messages a transfer held, delivered once where the work ended up. A
  * scheduled fire's message goes as its run, under its time limit (P3
@@ -28,7 +28,7 @@ export async function redispatchStoredMessage(
   }
   const attachments = (event.attachments ?? []) as Attachment[];
   const expanded = await expandMarkers(expandEntityMarkers(event.content, event.sessionId), attachments);
-  // Resolves once the harness (or its computer's queue) has it, not when the
+  // Resolves once the harness (or its device's queue) has it, not when the
   // turn is over: messages delivered one after another keep their order
   // without each waiting on the last one's whole turn. Only `onAccepted`
   // says it was taken. A dispatch that failed, or ended without anything

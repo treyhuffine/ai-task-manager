@@ -10,7 +10,7 @@ import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
-  home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, agentSetups, folderLinks,
+  home, devices, deviceGrants, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -33,10 +33,10 @@ import type {
   DeckRecord, CreateDeckInput, UpdateDeckInput,
   UpdateUserStateInput,
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
-  HomeRecord, HomeKind, ComputerRecord, CreateComputerInput, UpdateComputerInput,
-  ComputerGrantRecord, ComputerGrantKind, WorkerEnrollmentRecord, WorkerReportedState, WorkerHarnessReport,
+  HomeRecord, HomeKind, DeviceRecord, CreateDeviceInput, UpdateDeviceInput,
+  DeviceGrantRecord, DeviceGrantKind, DeviceKind, WorkerReportedState, WorkerHarnessReport,
   WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord, ExecutionTransferRecord, NativeSessionRecord, ReviewCheckoutRecord,
-  AgentSetupRecord, SetupReferenceReport, FolderLinkRecord,
+  WorkspaceSetupRecord, SetupReferenceReport, FolderLinkRecord,
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
   ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
@@ -4287,7 +4287,9 @@ export function listRetryableProviderDisconnectSagas(): HarnessOperationRecord[]
     .orderBy(asc(harnessOperations.createdAt)).all();
 }
 
-// ─── Home and computers (docs/homes-spec.md §5.1) ─────────────
+// ─── Home and devices (docs/homes-spec.md §5.1) ─────────────
+
+type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 
 /** This home's identity row, or null before `ensureHomeIdentity` has made it. */
 export function getHome(): HomeRecord | null {
@@ -4295,7 +4297,7 @@ export function getHome(): HomeRecord | null {
 }
 
 /**
- * Create this home and the computer it runs on, together. Refuses when a
+ * Create this home and the device it runs on, together. Refuses when a
  * home already exists: a database holds exactly one. The ids come from the
  * caller, which writes them to the machine identity file first, so a crash
  * between the two steps repeats the same ids.
@@ -4304,69 +4306,171 @@ export function createHomeIdentity(input: {
   homeId: string;
   kind: HomeKind;
   name: string;
-  host: CreateComputerInput & { id: string };
-}): { home: HomeRecord; computer: ComputerRecord } {
+  host: CreateDeviceInput & { id: string };
+}): { home: HomeRecord; device: DeviceRecord } {
   const db = getDb();
   return db.transaction((tx) => {
     const existing = tx.select().from(home).get();
     if (existing) throw new Error(`This database already belongs to home ${existing.id}.`);
     const now = new Date().toISOString();
-    const computer = tx
-      .insert(computers)
+    const device = tx
+      .insert(devices)
       .values({ ...input.host, status: input.host.status ?? 'active', createdAt: now, updatedAt: now })
       .onConflictDoNothing()
       .returning()
-      .get() ?? tx.select().from(computers).where(eq(computers.id, input.host.id)).get()!;
+      .get() ?? tx.select().from(devices).where(eq(devices.id, input.host.id)).get()!;
     const row = tx
       .insert(home)
-      .values({ id: input.homeId, kind: input.kind, name: input.name, hostComputerId: computer.id, createdAt: now, updatedAt: now })
+      .values({ id: input.homeId, kind: input.kind, name: input.name, hostDeviceId: device.id, createdAt: now, updatedAt: now })
       .returning()
       .get();
-    return { home: row, computer };
+    return { home: row, device };
   }, { behavior: 'immediate' });
 }
 
-export function createComputer(input: CreateComputerInput): ComputerRecord {
+export function createDevice(input: CreateDeviceInput): DeviceRecord {
   const now = new Date().toISOString();
   return getDb()
-    .insert(computers)
+    .insert(devices)
     .values({ ...input, id: input.id ?? uuidv7(), status: input.status ?? 'active', createdAt: now, updatedAt: now })
     .returning()
     .get();
 }
 
-export function getComputer(id: string): ComputerRecord | null {
-  return getDb().select().from(computers).where(eq(computers.id, id)).get() ?? null;
+export function getDevice(id: string): DeviceRecord | null {
+  return getDb().select().from(devices).where(eq(devices.id, id)).get() ?? null;
 }
 
-export function listComputers(options: { includeRevoked?: boolean } = {}): ComputerRecord[] {
-  const q = getDb().select().from(computers);
-  return (options.includeRevoked ? q : q.where(eq(computers.status, 'active'))).orderBy(asc(computers.createdAt)).all();
+export function listDevices(options: { includeRevoked?: boolean } = {}): DeviceRecord[] {
+  const q = getDb().select().from(devices);
+  return (options.includeRevoked ? q : q.where(eq(devices.status, 'active'))).orderBy(asc(devices.createdAt)).all();
 }
 
-export function updateComputer(id: string, input: UpdateComputerInput): ComputerRecord | null {
+export function updateDevice(id: string, input: UpdateDeviceInput): DeviceRecord | null {
   return getDb()
-    .update(computers)
+    .update(devices)
     .set({ ...input, updatedAt: new Date().toISOString() })
-    .where(eq(computers.id, id))
+    .where(eq(devices.id, id))
     .returning()
     .get() ?? null;
 }
 
 /**
- * Make `computerId` the machine this home runs on. Used when a person
+ * Pair a new device: the device and its first key, together (Settings,
+ * Devices, and `ri pair`). The key's token is returned once.
+ */
+export function pairDevice(input: {
+  name: string;
+  kind: DeviceKind;
+  description?: string | null;
+  expiresAt?: string | null;
+}): { device: DeviceRecord; key: ApiKeyRecord; token: GeneratedToken } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const now = new Date().toISOString();
+    const device = tx
+      .insert(devices)
+      .values({ id: uuidv7(), name: input.name, kind: input.kind, status: 'active', createdAt: now, updatedAt: now })
+      .returning()
+      .get();
+    const { key, token } = insertApiKey(tx, {
+      name: input.name,
+      description: input.description ?? null,
+      expiresAt: input.expiresAt ?? null,
+      deviceId: device.id,
+    });
+    return { device, key, token };
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * Another key for a device already paired: a new pairing link for it, e.g.
+ * a phone that lost its sign-in, or another browser on the same computer.
+ */
+export function addDeviceKey(deviceId: string, input: { name?: string; expiresAt?: string | null } = {}): { key: ApiKeyRecord; token: GeneratedToken } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const device = tx.select().from(devices).where(eq(devices.id, deviceId)).get();
+    if (!device || device.status !== 'active') throw new Error('That device was removed.');
+    return insertApiKey(tx, { name: input.name ?? device.name, expiresAt: input.expiresAt ?? null, deviceId: device.id });
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * Keys without a device are the home's own: only the home mints one before
+ * its identity exists (`ensureLocalToken` at first start, and every key a
+ * database had before devices, which the homes migration leaves for this).
+ * They belong to the device the home runs on. Returns how many it gave.
+ */
+export function giveHostItsKeys(): number {
+  const db = getDb();
+  const host = db.select({ id: home.hostDeviceId }).from(home).get()?.id;
+  if (!host) return 0;
+  return db
+    .update(apiKeys)
+    .set({ deviceId: host, updatedAt: new Date().toISOString() })
+    .where(isNull(apiKeys.deviceId))
+    .run().changes;
+}
+
+/**
+ * A device left with no active key, no worker and no home to be is gone:
+ * it was made for a key that moved to the device it's really on (re-pairing,
+ * or "This Mac"). Its records stay, removed.
+ */
+function retireIfEmpty(tx: Tx, deviceId: string | null, now: string): void {
+  if (!deviceId) return;
+  if (tx.select({ id: home.id }).from(home).where(eq(home.hostDeviceId, deviceId)).get()) return;
+  const device = tx.select().from(devices).where(eq(devices.id, deviceId)).get();
+  if (!device || device.status !== 'active' || device.workerKeyId) return;
+  const key = tx.select({ id: apiKeys.id }).from(apiKeys).where(and(eq(apiKeys.deviceId, deviceId), isNull(apiKeys.revokedAt))).get();
+  if (key) return;
+  tx.update(devices).set({ status: 'revoked', revokedAt: now, updatedAt: now }).where(eq(devices.id, deviceId)).run();
+}
+
+/**
+ * Remove a device: every key it has stops working, its worker with them,
+ * and it leaves the list. The home's own device can't be removed: it's
+ * where the home runs. Returns the device's worker key, when it had one,
+ * so the caller settles that worker's work (`retireWorker`).
+ */
+export function removeDevice(id: string, reason: string): { device: DeviceRecord; workerKeyId: string | null } | null {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const device = tx.select().from(devices).where(eq(devices.id, id)).get();
+    if (!device || device.status !== 'active') return null;
+    if (tx.select({ id: home.id }).from(home).where(eq(home.hostDeviceId, id)).get()) {
+      throw new Error(`${device.name} is where this home runs. It can't be removed.`);
+    }
+    const now = new Date().toISOString();
+    tx.update(apiKeys)
+      .set({ revokedAt: now, revokedReason: reason, updatedAt: now })
+      .where(and(eq(apiKeys.deviceId, id), isNull(apiKeys.revokedAt)))
+      .run();
+    const row = tx
+      .update(devices)
+      .set({ status: 'revoked', revokedAt: now, workerKeyId: null, updatedAt: now })
+      .where(eq(devices.id, id))
+      .returning()
+      .get()!;
+    return { device: row, workerKeyId: device.workerKeyId };
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * Make `deviceId` the machine this home runs on. Used when a person
  * explicitly selects a restored root as the active home (§10.3).
  */
-export function setHomeHost(computerId: string): HomeRecord {
+export function setHomeHost(deviceId: string): HomeRecord {
   const db = getDb();
   return db.transaction((tx) => {
     const current = tx.select().from(home).get();
     if (!current) throw new Error('This database has no home yet.');
-    const computer = tx.select().from(computers).where(eq(computers.id, computerId)).get();
-    if (!computer || computer.status !== 'active') throw new Error(`Computer ${computerId} is not an active computer of this home.`);
+    const device = tx.select().from(devices).where(eq(devices.id, deviceId)).get();
+    if (!device || device.status !== 'active') throw new Error(`Device ${deviceId} is not an active device of this home.`);
     return tx
       .update(home)
-      .set({ hostComputerId: computerId, updatedAt: new Date().toISOString() })
+      .set({ hostDeviceId: deviceId, updatedAt: new Date().toISOString() })
       .where(eq(home.id, current.id))
       .returning()
       .get();
@@ -4374,36 +4478,36 @@ export function setHomeHost(computerId: string): HomeRecord {
 }
 
 /**
- * The home moves to another of its computers (docs/homes-spec.md §10.3:
+ * The home moves to another of its devices (docs/homes-spec.md §10.3:
  * "Relink only paths belonging to the moved host"). What ran on the old host
- * without saying so, because the home's own computer needed no record, is
+ * without saying so, because the home's own device needed no record, is
  * pinned to it now, since its worktrees and native transcripts are there:
  *
  * - Executions with no placement are placed on the old host with their
- *   worktree. The home's own path column follows whichever computer is the
+ *   worktree. The home's own path column follows whichever device is the
  *   host: set for work placed on the new host, cleared for the rest.
  * - An agent's chats outside an execution stay with the old host when the
  *   agent has no folder on the new one. Other chats outside an execution
  *   (the app's main chat, and agents set up on the new host) stay with the
  *   home and start a fresh native session there, the old one being on the
- *   other computer.
+ *   other device.
  * - Terminal-history imports from the old host's disk are read from the old
  *   host from then on, never from a path on it.
  * - Each agent's folder at the home becomes its folder on the new host, when
  *   it has one there.
  *
- * The new host's worker enrollment, if it ran work for the home before, is
- * revoked: the home runs its own work in-process. The old host stays a
- * computer of the home, ready to enroll as a worker.
+ * The new host's worker key, if it ran agents for the home before, is
+ * revoked: the home runs its own agents in process. The old host stays a
+ * device of the home, ready to enroll as a worker.
  */
 export function moveHomeHost(newHostId: string): { from: string; to: string; pinnedExecutions: number; pinnedChats: number; freshChats: number } {
   const db = getDb();
   const moved = db.transaction((tx) => {
     const current = tx.select().from(home).get();
     if (!current) throw new Error('This database has no home yet.');
-    const oldHostId = current.hostComputerId;
-    const computer = tx.select().from(computers).where(eq(computers.id, newHostId)).get();
-    if (!computer || computer.status !== 'active') throw new Error(`Computer ${newHostId} is not an active computer of this home.`);
+    const oldHostId = current.hostDeviceId;
+    const device = tx.select().from(devices).where(eq(devices.id, newHostId)).get();
+    if (!device || device.status !== 'active') throw new Error(`Device ${newHostId} is not an active device of this home.`);
     const result = { from: oldHostId, to: newHostId, pinnedExecutions: 0, pinnedChats: 0, freshChats: 0, revokeKeys: [] as string[] };
     if (oldHostId === newHostId) return result;
     const now = new Date().toISOString();
@@ -4416,28 +4520,28 @@ export function moveHomeHost(newHostId: string): { from: string; to: string; pin
       .all();
     for (const e of unplaced) {
       tx.insert(executionPlacements)
-        .values({ id: uuidv7(), executionId: e.id, computerId: oldHostId, generation: 1, worktreePath: e.worktreePath, startReason: 'created', createdAt: now, updatedAt: now })
+        .values({ id: uuidv7(), executionId: e.id, deviceId: oldHostId, generation: 1, worktreePath: e.worktreePath, startReason: 'created', createdAt: now, updatedAt: now })
         .run();
     }
     result.pinnedExecutions = unplaced.length;
     // The home's path column: the new host's worktree for work placed there, nothing for the rest.
     tx.run(sql`UPDATE ${executions} SET worktree_path = (
       SELECT ${executionPlacements.worktreePath} FROM ${executionPlacements}
-      WHERE ${executionPlacements.executionId} = ${executions.id} AND ${executionPlacements.endedAt} IS NULL AND ${executionPlacements.computerId} = ${newHostId}
+      WHERE ${executionPlacements.executionId} = ${executions.id} AND ${executionPlacements.endedAt} IS NULL AND ${executionPlacements.deviceId} = ${newHostId}
     ), updated_at = ${now}`);
 
     // Chats outside an execution that ran at the home.
     const onNewHost = new Set(
-      tx.select({ id: agentSetups.workspaceId }).from(agentSetups).where(eq(agentSetups.computerId, newHostId)).all().map((r) => r.id),
+      tx.select({ id: workspaceSetups.workspaceId }).from(workspaceSetups).where(eq(workspaceSetups.deviceId, newHostId)).all().map((r) => r.id),
     );
     const homeChats = tx
       .select({ id: chatSessions.id, workspaceId: chatSessions.workspaceId, native: chatSessions.externalSessionId })
       .from(chatSessions)
-      .where(and(isNull(chatSessions.executionId), isNull(chatSessions.computerId)))
+      .where(and(isNull(chatSessions.executionId), isNull(chatSessions.deviceId)))
       .all();
     for (const c of homeChats) {
       if (c.workspaceId && !onNewHost.has(c.workspaceId)) {
-        tx.update(chatSessions).set({ computerId: oldHostId, updatedAt: now }).where(eq(chatSessions.id, c.id)).run();
+        tx.update(chatSessions).set({ deviceId: oldHostId, updatedAt: now }).where(eq(chatSessions.id, c.id)).run();
         result.pinnedChats++;
       } else if (c.native) {
         tx.update(nativeSessions)
@@ -4450,110 +4554,100 @@ export function moveHomeHost(newHostId: string): { from: string; to: string; pin
     }
 
     // Terminal-history imports from the old host's own disk.
-    tx.run(sql`UPDATE ${externalSessionImports} SET computer_id = ${oldHostId}, source_path = NULL, updated_at = ${now}
-      WHERE computer_id IS NULL AND NOT EXISTS (
+    tx.run(sql`UPDATE ${externalSessionImports} SET device_id = ${oldHostId}, source_path = NULL, updated_at = ${now}
+      WHERE device_id IS NULL AND NOT EXISTS (
         SELECT 1 FROM ${externalSessionImports} other
-        WHERE other.computer_id = ${oldHostId} AND other.provider_type = ${externalSessionImports.providerType}
+        WHERE other.device_id = ${oldHostId} AND other.provider_type = ${externalSessionImports.providerType}
           AND other.external_session_id = ${externalSessionImports.externalSessionId}
       )`);
 
     // Each agent's folder at the home is its folder on the new host.
-    for (const setup of tx.select().from(agentSetups).where(eq(agentSetups.computerId, newHostId)).all()) {
+    for (const setup of tx.select().from(workspaceSetups).where(eq(workspaceSetups.deviceId, newHostId)).all()) {
       tx.update(workspaces).set({ cwd: setup.sourcePath, updatedAt: now }).where(eq(workspaces.id, setup.workspaceId)).run();
     }
 
-    tx.update(home).set({ hostComputerId: newHostId, updatedAt: now }).where(eq(home.id, current.id)).run();
-    result.revokeKeys = tx
-      .select({ apiKeyId: workerEnrollments.apiKeyId })
-      .from(workerEnrollments)
-      .where(eq(workerEnrollments.computerId, newHostId))
-      .all()
-      .map((r) => r.apiKeyId);
+    tx.update(home).set({ hostDeviceId: newHostId, updatedAt: now }).where(eq(home.id, current.id)).run();
+    result.revokeKeys = device.workerKeyId ? [device.workerKeyId] : [];
     return result;
   }, { behavior: 'immediate' });
-  for (const id of moved.revokeKeys) revokeApiKey(id, 'This computer is the home now, so it runs work itself.');
+  for (const id of moved.revokeKeys) revokeApiKey(id, 'This device is the home now, so it runs agents itself.');
   const { revokeKeys: _revoked, ...summary } = moved;
   return summary;
 }
 
-/** The computer a key belongs to, when one registered with it. */
-export function getComputerForApiKey(apiKeyId: string): ComputerRecord | null {
+/** The device a key belongs to. */
+export function getDeviceForApiKey(apiKeyId: string): DeviceRecord | null {
   const row = getDb()
-    .select({ computer: getTableColumns(computers) })
+    .select({ device: getTableColumns(devices) })
     .from(apiKeys)
-    .innerJoin(computers, eq(apiKeys.computerId, computers.id))
+    .innerJoin(devices, eq(apiKeys.deviceId, devices.id))
     .where(eq(apiKeys.id, apiKeyId))
     .get();
-  return row?.computer ?? null;
+  return row?.device ?? null;
 }
 
 /**
- * Register the computer calling with `apiKeyId`, or refresh its facts when
- * it registered before. The key is linked to the computer, so later reports
- * from that key are that computer's. Linking grants no authority to run
- * work (docs/homes-spec.md §3.1).
+ * A computer calling with `apiKeyId` says what it is: its facts are stored
+ * on the key's device (docs/homes-spec.md §3.1). Being on a device grants
+ * no authority to run work. The device keeps the name the person gave it
+ * when pairing: a report never renames it.
  */
-export function registerComputerForApiKey(input: {
+export function registerDeviceForApiKey(input: {
   apiKeyId: string;
   name: string;
   platform?: string | null;
   hostname?: string | null;
   /**
-   * The id this home gave the calling machine before, e.g. with an older key.
-   * A key not linked yet is linked to that computer instead of a new one, so
-   * re-pairing keeps the same computer. Never the home's own computer, and
-   * never a removed one.
+   * The id this home gave the calling machine before, e.g. with an older key
+   * or when it enrolled. The key moves to that device, so re-pairing keeps
+   * one device, and the device the new pairing made is removed once it has
+   * no key left. Never the home's own device, and never a removed one.
    */
-  computerId?: string | null;
-}): { computer: ComputerRecord; created: boolean } {
+  deviceId?: string | null;
+}): { device: DeviceRecord; created: boolean } {
   const db = getDb();
   return db.transaction((tx) => {
     const key = tx.select().from(apiKeys).where(eq(apiKeys.id, input.apiKeyId)).get();
     if (!key || key.revokedAt) throw new Error('This key is not active.');
     const now = new Date().toISOString();
-    if (key.computerId) {
-      const computer = tx
-        .update(computers)
-        .set({ platform: input.platform ?? null, hostname: input.hostname ?? null, lastSeenAt: now, updatedAt: now })
-        .where(eq(computers.id, key.computerId))
-        .returning()
-        .get();
-      if (computer) return { computer, created: false };
-    }
-    const hostId = tx.select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
-    if (input.computerId && input.computerId !== hostId) {
-      const previous = tx.select().from(computers).where(eq(computers.id, input.computerId)).get();
-      if (previous && previous.status === 'active') {
-        tx.update(apiKeys).set({ computerId: previous.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
-        const computer = tx
-          .update(computers)
-          .set({ platform: input.platform ?? null, hostname: input.hostname ?? null, lastSeenAt: now, updatedAt: now })
-          .where(eq(computers.id, previous.id))
-          .returning()
-          .get()!;
-        return { computer, created: false };
+    // What it reports, leaving what it doesn't say as it was.
+    const facts = {
+      ...(input.platform !== undefined ? { platform: input.platform } : {}),
+      ...(input.hostname !== undefined ? { hostname: input.hostname } : {}),
+      lastSeenAt: now,
+      updatedAt: now,
+    };
+    const hostId = tx.select({ host: home.hostDeviceId }).from(home).get()?.host ?? null;
+    if (input.deviceId && input.deviceId !== key.deviceId && input.deviceId !== hostId && key.deviceId !== hostId) {
+      const remembered = tx.select().from(devices).where(eq(devices.id, input.deviceId)).get();
+      if (remembered && remembered.status === 'active') {
+        tx.update(apiKeys).set({ deviceId: remembered.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
+        retireIfEmpty(tx, key.deviceId, now);
+        const device = tx.update(devices).set(facts).where(eq(devices.id, remembered.id)).returning().get()!;
+        return { device, created: false };
       }
     }
-    const computer = tx
-      .insert(computers)
-      .values({
-        id: uuidv7(),
-        name: input.name,
-        platform: input.platform ?? null,
-        hostname: input.hostname ?? null,
-        status: 'active',
-        lastSeenAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
+    if (key.deviceId) {
+      const device = tx
+        .update(devices)
+        .set(facts)
+        .where(and(eq(devices.id, key.deviceId), eq(devices.status, 'active')))
+        .returning()
+        .get();
+      if (device) return { device, created: false };
+    }
+    // A key with no device, or on a removed one: it gets a device of its own.
+    const device = tx
+      .insert(devices)
+      .values({ id: uuidv7(), name: input.name, kind: 'computer', status: 'active', platform: input.platform ?? null, hostname: input.hostname ?? null, lastSeenAt: now, updatedAt: now, createdAt: now })
       .returning()
       .get();
-    tx.update(apiKeys).set({ computerId: computer.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
-    return { computer, created: true };
+    tx.update(apiKeys).set({ deviceId: device.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
+    return { device, created: true };
   }, { behavior: 'immediate' });
 }
 
-// ─── Computer grants and worker enrollment (docs/homes-build.md, P2.2) ───
+// ─── Device grants and workers (docs/homes-build.md, P2.2) ───
 
 export const ENROLL_GRANT_TTL_MS = 10 * 60 * 1000;
 export const ASSOCIATE_GRANT_TTL_MS = 2 * 60 * 1000;
@@ -4568,45 +4662,45 @@ export class GrantError extends Error {
   }
 }
 
-function hostComputerIdIn(tx: Pick<ReturnType<typeof getDb>, 'select'>): string | null {
-  return tx.select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
+function hostDeviceIdIn(tx: Pick<ReturnType<typeof getDb>, 'select'>): string | null {
+  return tx.select({ host: home.hostDeviceId }).from(home).get()?.host ?? null;
 }
 
 /**
- * Issue a single-use grant. An `enroll` grant names the computer that will
- * become a worker, or none to make a new one. It can't name the home's own
- * computer, whose runner is in process. An `associate` grant names the
- * computer whose browser it links. Returns the secret once: only its hash
+ * Issue a single-use grant. An `enroll` grant names the device that will
+ * run agents, or none to make a new one. It can't name the home's own
+ * device, whose runner is in process. An `associate` grant names the
+ * device whose browser it links. Returns the secret once: only its hash
  * is kept.
  */
-export function createComputerGrant(input: {
-  kind: ComputerGrantKind;
-  computerId: string | null;
-  computerName?: string | null;
+export function createDeviceGrant(input: {
+  kind: DeviceGrantKind;
+  deviceId: string | null;
+  deviceName?: string | null;
   createdByApiKeyId: string | null;
-}): { grant: ComputerGrantRecord; secret: string } {
+}): { grant: DeviceGrantRecord; secret: string } {
   const db = getDb();
   return db.transaction((tx) => {
-    if (input.computerId) {
-      const computer = tx.select().from(computers).where(eq(computers.id, input.computerId)).get();
-      if (!computer || computer.status !== 'active') throw new GrantError('invalid', 'That computer is not active.');
-      if (input.kind === 'enroll' && computer.id === hostComputerIdIn(tx)) {
-        throw new GrantError('not_allowed', `${computer.name} is this home's own computer. It already runs work.`);
+    if (input.deviceId) {
+      const device = tx.select().from(devices).where(eq(devices.id, input.deviceId)).get();
+      if (!device || device.status !== 'active') throw new GrantError('invalid', 'That device is not active.');
+      if (input.kind === 'enroll' && device.id === hostDeviceIdIn(tx)) {
+        throw new GrantError('not_allowed', `${device.name} is where this home runs. It already runs agents.`);
       }
     } else if (input.kind === 'associate') {
-      throw new GrantError('invalid', 'An association grant needs a computer.');
+      throw new GrantError('invalid', 'An association grant needs a device.');
     }
     const secret = `rg_${randomBytes(24).toString('base64url')}`;
     const now = new Date();
     const ttl = input.kind === 'enroll' ? ENROLL_GRANT_TTL_MS : ASSOCIATE_GRANT_TTL_MS;
     const grant = tx
-      .insert(computerGrants)
+      .insert(deviceGrants)
       .values({
         id: uuidv7(),
         kind: input.kind,
         hash: hashGrantSecret(secret),
-        computerId: input.computerId,
-        computerName: input.computerName ?? null,
+        deviceId: input.deviceId,
+        deviceName: input.deviceName ?? null,
         createdByApiKeyId: input.createdByApiKeyId,
         expiresAt: new Date(now.getTime() + ttl).toISOString(),
         createdAt: now.toISOString(),
@@ -4626,9 +4720,9 @@ export function hashGrantSecret(secret: string): string {
 function usableGrant(
   tx: Pick<ReturnType<typeof getDb>, 'select'>,
   secret: string,
-  kind: ComputerGrantKind,
-): ComputerGrantRecord {
-  const grant = tx.select().from(computerGrants).where(eq(computerGrants.hash, hashGrantSecret(secret.trim()))).get();
+  kind: DeviceGrantKind,
+): DeviceGrantRecord {
+  const grant = tx.select().from(deviceGrants).where(eq(deviceGrants.hash, hashGrantSecret(secret.trim()))).get();
   if (!grant || grant.kind !== kind) throw new GrantError('invalid', 'That code is not valid. Make a new one and try again.');
   if (grant.redeemedAt) throw new GrantError('used', 'That code was already used. Make a new one.');
   if (new Date(grant.expiresAt).getTime() <= Date.now()) {
@@ -4638,11 +4732,10 @@ function usableGrant(
 }
 
 /**
- * Redeem an enroll grant: the computer becomes a worker. In one transaction
- * the home makes the computer if the grant named none, issues a new worker
- * key bound to it, records the enrollment, revokes any earlier worker key
- * for that computer (one worker per computer), and marks the grant used.
- * The key's token is returned once.
+ * Redeem an enroll grant: the device runs agents. In one transaction the
+ * home makes the device if the grant named none, issues it a new worker
+ * key, which replaces any earlier one (one worker per device), and marks
+ * the grant used. The key's token is returned once.
  */
 export function redeemEnrollGrant(input: {
   secret: string;
@@ -4651,7 +4744,7 @@ export function redeemEnrollGrant(input: {
   hostname?: string | null;
 }): {
   homeId: string;
-  computer: ComputerRecord;
+  device: DeviceRecord;
   key: ApiKeyRecord;
   token: GeneratedToken;
   /** Commands the earlier worker never acknowledged, now uncertain. `enrollWorker` finishes their runs. */
@@ -4663,29 +4756,22 @@ export function redeemEnrollGrant(input: {
     const now = new Date().toISOString();
     const homeRow = tx.select().from(home).get();
     if (!homeRow) throw new GrantError('invalid', 'This home has no identity yet.');
-    let computer: ComputerRecord;
-    if (grant.computerId) {
-      const existing = tx.select().from(computers).where(eq(computers.id, grant.computerId)).get();
-      if (!existing || existing.status !== 'active') throw new GrantError('invalid', 'That computer was removed.');
-      if (existing.id === homeRow.hostComputerId) {
-        throw new GrantError('not_allowed', `${existing.name} is this home's own computer.`);
+    let device: DeviceRecord;
+    if (grant.deviceId) {
+      const existing = tx.select().from(devices).where(eq(devices.id, grant.deviceId)).get();
+      if (!existing || existing.status !== 'active') throw new GrantError('invalid', 'That device was removed.');
+      if (existing.id === homeRow.hostDeviceId) {
+        throw new GrantError('not_allowed', `${existing.name} is where this home runs.`);
       }
-      computer = tx
-        .update(computers)
-        .set({ platform: input.platform ?? existing.platform, hostname: input.hostname ?? existing.hostname, lastSeenAt: now, updatedAt: now })
-        .where(eq(computers.id, existing.id))
-        .returning()
-        .get()!;
+      device = existing;
     } else {
-      computer = tx
-        .insert(computers)
+      device = tx
+        .insert(devices)
         .values({
           id: uuidv7(),
-          name: grant.computerName?.trim() || input.name,
-          platform: input.platform ?? null,
-          hostname: input.hostname ?? null,
+          name: grant.deviceName?.trim() || input.name,
+          kind: 'computer',
           status: 'active',
-          lastSeenAt: now,
           createdAt: now,
           updatedAt: now,
         })
@@ -4698,132 +4784,124 @@ export function redeemEnrollGrant(input: {
     // uncertain rather than sent again (docs/homes-build.md, P2.3).
     const uncertain = tx
       .update(workerCommands)
-      .set({ state: 'uncertain', error: 'The computer was enrolled again before acknowledging this.', updatedAt: now })
-      .where(and(eq(workerCommands.computerId, computer.id), eq(workerCommands.state, 'sent')))
+      .set({ state: 'uncertain', error: 'The device was enrolled again before acknowledging this.', updatedAt: now })
+      .where(and(eq(workerCommands.deviceId, device.id), eq(workerCommands.state, 'sent')))
       .returning()
       .all();
 
-    // One worker per computer: an earlier worker key for it stops working.
-    const earlier = tx
-      .select({ apiKeyId: workerEnrollments.apiKeyId })
-      .from(workerEnrollments)
-      .where(eq(workerEnrollments.computerId, computer.id))
-      .all()
-      .map((r) => r.apiKeyId);
-    if (earlier.length > 0) {
+    // One worker per device: its earlier worker key stops working.
+    if (device.workerKeyId) {
       tx.update(apiKeys)
         .set({ revokedAt: now, revokedReason: 'Replaced by a new enrollment', updatedAt: now })
-        .where(and(inArray(apiKeys.id, earlier), isNull(apiKeys.revokedAt)))
+        .where(and(eq(apiKeys.id, device.workerKeyId), isNull(apiKeys.revokedAt)))
         .run();
     }
 
-    const token = generateToken();
-    const key = tx
-      .insert(apiKeys)
-      .values({
-        id: uuidv7(),
-        name: `${computer.name} worker`,
-        description: 'Runs agents on this computer for the home. Issued by enrollment.',
-        deviceType: 'computer',
-        prefix: token.prefix,
-        suffix: token.suffix,
-        hash: token.hash,
-        env: token.env,
-        computerId: computer.id,
-        createdAt: now,
+    const { key, token } = insertApiKey(tx, {
+      name: `${device.name} worker`,
+      description: 'Runs agents on this device for the home. Issued by enrollment.',
+      deviceId: device.id,
+    });
+    device = tx
+      .update(devices)
+      .set({
+        workerKeyId: key.id,
+        platform: input.platform ?? device.platform,
+        hostname: input.hostname ?? device.hostname,
+        lastSeenAt: now,
         updatedAt: now,
       })
+      .where(eq(devices.id, device.id))
       .returning()
-      .get();
-    tx.insert(workerEnrollments)
-      .values({ apiKeyId: key.id, computerId: computer.id, grantId: grant.id, createdAt: now, updatedAt: now })
-      .run();
-    tx.update(computerGrants)
+      .get()!;
+    tx.update(deviceGrants)
       .set({ redeemedAt: now, redeemedByApiKeyId: key.id, updatedAt: now })
-      .where(eq(computerGrants.id, grant.id))
+      .where(eq(deviceGrants.id, grant.id))
       .run();
-    return { homeId: homeRow.id, computer, key, token, uncertain };
+    return { homeId: homeRow.id, device, key, token, uncertain };
   }, { behavior: 'immediate' });
 }
 
 /**
- * Redeem an associate grant with a browser's viewing key: that key is now
- * known to be on the grant's computer. Identity only, never authority, and
- * never for a worker key.
+ * Redeem an associate grant with a browser's viewing key: that key moves to
+ * the grant's device, where the browser is ("This Mac"). The device the key
+ * was paired as is removed once it has no key left. Identity only, never
+ * authority, and never for a worker key.
  */
-export function redeemAssociateGrant(input: { secret: string; apiKeyId: string }): ComputerRecord {
+export function redeemAssociateGrant(input: { secret: string; apiKeyId: string }): DeviceRecord {
   const db = getDb();
   return db.transaction((tx) => {
     const grant = usableGrant(tx, input.secret, 'associate');
     const key = tx.select().from(apiKeys).where(eq(apiKeys.id, input.apiKeyId)).get();
     if (!key || key.revokedAt) throw new GrantError('invalid', 'This browser is not signed in.');
-    const worker = tx.select().from(workerEnrollments).where(eq(workerEnrollments.apiKeyId, key.id)).get();
-    if (worker) throw new GrantError('not_allowed', 'A worker key is not a browser.');
-    const computer = tx.select().from(computers).where(eq(computers.id, grant.computerId!)).get();
-    if (!computer || computer.status !== 'active') throw new GrantError('invalid', 'That computer was removed.');
+    if (tx.select({ id: devices.id }).from(devices).where(eq(devices.workerKeyId, key.id)).get()) {
+      throw new GrantError('not_allowed', 'A worker key is not a browser.');
+    }
+    const device = tx.select().from(devices).where(eq(devices.id, grant.deviceId!)).get();
+    if (!device || device.status !== 'active') throw new GrantError('invalid', 'That device was removed.');
     const now = new Date().toISOString();
-    tx.update(apiKeys).set({ computerId: computer.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
-    tx.update(computerGrants)
+    if (key.deviceId && key.deviceId === hostDeviceIdIn(tx)) {
+      throw new GrantError('not_allowed', "This browser signs in with the home's own key. It stays the home's.");
+    }
+    if (key.deviceId !== device.id) {
+      tx.update(apiKeys).set({ deviceId: device.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
+      retireIfEmpty(tx, key.deviceId, now);
+    }
+    tx.update(deviceGrants)
       .set({ redeemedAt: now, redeemedByApiKeyId: key.id, updatedAt: now })
-      .where(eq(computerGrants.id, grant.id))
+      .where(eq(deviceGrants.id, grant.id))
       .run();
-    return computer;
+    return device;
   }, { behavior: 'immediate' });
 }
 
-/** The enrollment behind an active worker key, with its active computer. Null for any other key. */
-export function getWorkerEnrollment(apiKeyId: string): { enrollment: WorkerEnrollmentRecord; computer: ComputerRecord } | null {
-  const db = getDb();
-  const row = db
-    .select({ enrollment: workerEnrollments, computer: computers, revokedAt: apiKeys.revokedAt })
-    .from(workerEnrollments)
-    .innerJoin(apiKeys, eq(apiKeys.id, workerEnrollments.apiKeyId))
-    .innerJoin(computers, eq(computers.id, workerEnrollments.computerId))
-    .where(eq(workerEnrollments.apiKeyId, apiKeyId))
-    .get();
-  if (!row || row.revokedAt || row.computer.status !== 'active') return null;
-  return { enrollment: row.enrollment, computer: row.computer };
-}
-
-/** A computer's active worker enrollment: an unrevoked worker key on an active computer. */
-export function getWorkerEnrollmentForComputer(computerId: string): WorkerEnrollmentRecord | null {
+/** The active device an active worker key runs agents for. Null for any other key. */
+export function getWorkerDevice(apiKeyId: string): DeviceRecord | null {
   const row = getDb()
-    .select({ enrollment: workerEnrollments })
-    .from(workerEnrollments)
-    .innerJoin(apiKeys, eq(apiKeys.id, workerEnrollments.apiKeyId))
-    .innerJoin(computers, eq(computers.id, workerEnrollments.computerId))
-    .where(and(eq(workerEnrollments.computerId, computerId), isNull(apiKeys.revokedAt), eq(computers.status, 'active')))
+    .select({ device: getTableColumns(devices) })
+    .from(devices)
+    .innerJoin(apiKeys, eq(apiKeys.id, devices.workerKeyId))
+    .where(and(eq(devices.workerKeyId, apiKeyId), eq(devices.status, 'active'), isNull(apiKeys.revokedAt)))
     .get();
-  return row?.enrollment ?? null;
+  return row?.device ?? null;
 }
 
-/** Computers with an active worker key, by computer id. */
-export function listEnrolledComputerIds(): Set<string> {
-  const db = getDb();
-  const rows = db
-    .select({ computerId: workerEnrollments.computerId })
-    .from(workerEnrollments)
-    .innerJoin(apiKeys, eq(apiKeys.id, workerEnrollments.apiKeyId))
-    .where(isNull(apiKeys.revokedAt))
+/** The key a device's worker runs agents with, while it's active. */
+export function getWorkerKeyId(deviceId: string): string | null {
+  const row = getDb()
+    .select({ keyId: apiKeys.id })
+    .from(devices)
+    .innerJoin(apiKeys, eq(apiKeys.id, devices.workerKeyId))
+    .where(and(eq(devices.id, deviceId), eq(devices.status, 'active'), isNull(apiKeys.revokedAt)))
+    .get();
+  return row?.keyId ?? null;
+}
+
+/** The devices with an active worker key: every device that runs agents, besides the home's own. */
+export function listEnrolledDeviceIds(): Set<string> {
+  const rows = getDb()
+    .select({ deviceId: devices.id })
+    .from(devices)
+    .innerJoin(apiKeys, eq(apiKeys.id, devices.workerKeyId))
+    .where(and(eq(devices.status, 'active'), isNull(apiKeys.revokedAt)))
     .all();
-  return new Set(rows.map((r) => r.computerId));
+  return new Set(rows.map((r) => r.deviceId));
 }
 
-/** Whether a key was issued as a worker key, active or not. The proxy's scope. */
+/** Whether a key is a device's worker key. The proxy's scope. */
 export function isWorkerApiKey(apiKeyId: string): boolean {
-  const db = getDb();
-  return db.select({ id: workerEnrollments.apiKeyId }).from(workerEnrollments).where(eq(workerEnrollments.apiKeyId, apiKeyId)).get() !== undefined;
+  return getDb().select({ id: devices.id }).from(devices).where(eq(devices.workerKeyId, apiKeyId)).get() !== undefined;
 }
 
-/** Store what a worker reported about its computer, and when. */
+/** Store what a worker reported about its device, and when. */
 export function recordWorkerHeartbeat(
-  computerId: string,
+  deviceId: string,
   report: { protocol: number; version: string; harnesses: WorkerHarnessReport[]; state: WorkerReportedState },
-): ComputerRecord | null {
+): DeviceRecord | null {
   const db = getDb();
   const now = new Date().toISOString();
   return (
-    db.update(computers)
+    db.update(devices)
       .set({
         workerProtocol: report.protocol,
         workerVersion: report.version,
@@ -4832,7 +4910,7 @@ export function recordWorkerHeartbeat(
         lastSeenAt: now,
         updatedAt: now,
       })
-      .where(and(eq(computers.id, computerId), eq(computers.status, 'active')))
+      .where(and(eq(devices.id, deviceId), eq(devices.status, 'active')))
       .returning()
       .get() ?? null
   );
@@ -4841,14 +4919,14 @@ export function recordWorkerHeartbeat(
 // ─── Worker commands (docs/homes-build.md, P2 protocol and P2.3) ───
 
 /**
- * Queue a command for a computer. Call it inside the transaction that writes
+ * Queue a command for a device. Call it inside the transaction that writes
  * what the command acts on (for a send, the user's chat event), so neither
- * exists without the other. The caller wakes the computer's stream after
+ * exists without the other. The caller wakes the device's stream after
  * commit.
  */
 export function queueWorkerCommand(input: {
   id?: string;
-  computerId: string;
+  deviceId: string;
   kind: WorkerCommandKind;
   payload: unknown;
   actor: WorkerCommandActor;
@@ -4867,7 +4945,7 @@ export function queueWorkerCommand(input: {
     .insert(workerCommands)
     .values({
       id: input.id ?? uuidv7(),
-      computerId: input.computerId,
+      deviceId: input.deviceId,
       kind: input.kind,
       payload: input.payload ?? {},
       actor: input.actor,
@@ -4889,51 +4967,51 @@ export function getSendForEvent(sourceEventId: string): WorkerCommandRecord | nu
 }
 
 /**
- * The send this computer was given for a chat that started this turn, or
+ * The send this device was given for a chat that started this turn, or
  * that carried this run. A worker's report about a turn or a run counts only
  * when it's about one of its own sends (P2 review fixes).
  */
-export function sendForTurn(computerId: string, chatSessionId: string, turnId: string): WorkerCommandRecord | null {
-  return sendWhere(computerId, chatSessionId, sql`json_extract(${workerCommands.payload}, '$.turnId') = ${turnId}`);
+export function sendForTurn(deviceId: string, chatSessionId: string, turnId: string): WorkerCommandRecord | null {
+  return sendWhere(deviceId, chatSessionId, sql`json_extract(${workerCommands.payload}, '$.turnId') = ${turnId}`);
 }
 
-export function sendForRun(computerId: string, chatSessionId: string, runId: string): WorkerCommandRecord | null {
-  return sendWhere(computerId, chatSessionId, sql`json_extract(${workerCommands.payload}, '$.runId') = ${runId}`);
+export function sendForRun(deviceId: string, chatSessionId: string, runId: string): WorkerCommandRecord | null {
+  return sendWhere(deviceId, chatSessionId, sql`json_extract(${workerCommands.payload}, '$.runId') = ${runId}`);
 }
 
 /**
- * A computer's commands that won't be carried out now that it no longer runs
+ * A device's commands that won't be carried out now that it no longer runs
  * agents (P2.8): queued ones are cancelled, since they never left, and sent
  * ones become uncertain, since they may have arrived. Returns them, for
  * their runs.
  */
-export function retireComputerCommands(computerId: string): WorkerCommandRecord[] {
+export function retireDeviceCommands(deviceId: string): WorkerCommandRecord[] {
   const db = getDb();
   const now = new Date().toISOString();
   const cancelled = db
     .update(workerCommands)
-    .set({ state: 'cancelled', error: 'Local execution on this computer was turned off before this reached it.', finishedAt: now, updatedAt: now })
-    .where(and(eq(workerCommands.computerId, computerId), eq(workerCommands.state, 'queued')))
+    .set({ state: 'cancelled', error: 'Local execution on this device was turned off before this reached it.', finishedAt: now, updatedAt: now })
+    .where(and(eq(workerCommands.deviceId, deviceId), eq(workerCommands.state, 'queued')))
     .returning()
     .all();
   const uncertain = db
     .update(workerCommands)
-    .set({ state: 'uncertain', error: 'Local execution on this computer was turned off before it acknowledged this.', updatedAt: now })
-    .where(and(eq(workerCommands.computerId, computerId), eq(workerCommands.state, 'sent')))
+    .set({ state: 'uncertain', error: 'Local execution on this device was turned off before it acknowledged this.', updatedAt: now })
+    .where(and(eq(workerCommands.deviceId, deviceId), eq(workerCommands.state, 'sent')))
     .returning()
     .all();
   return [...cancelled, ...uncertain];
 }
 
-/** Sends a computer delivered whose runs are still open: turns under way there. */
-export function deliveredSendsWithOpenRuns(computerId: string): WorkerCommandRecord[] {
+/** Sends a device delivered whose runs are still open: turns under way there. */
+export function deliveredSendsWithOpenRuns(deviceId: string): WorkerCommandRecord[] {
   return getDb()
     .select(getTableColumns(workerCommands))
     .from(workerCommands)
     .innerJoin(runs, sql`${runs.id} = json_extract(${workerCommands.payload}, '$.runId')`)
     .where(
       and(
-        eq(workerCommands.computerId, computerId),
+        eq(workerCommands.deviceId, deviceId),
         eq(workerCommands.kind, 'send'),
         eq(workerCommands.state, 'delivered'),
         inArray(runs.status, ['queued', 'running']),
@@ -4942,7 +5020,7 @@ export function deliveredSendsWithOpenRuns(computerId: string): WorkerCommandRec
     .all();
 }
 
-/** Whether a send to any computer was saved for this run. */
+/** Whether a send to any device was saved for this run. */
 export function hasSendForRun(runId: string): boolean {
   return (
     getDb()
@@ -4953,14 +5031,14 @@ export function hasSendForRun(runId: string): boolean {
   );
 }
 
-function sendWhere(computerId: string, chatSessionId: string, match: SQL): WorkerCommandRecord | null {
+function sendWhere(deviceId: string, chatSessionId: string, match: SQL): WorkerCommandRecord | null {
   return (
     getDb()
       .select()
       .from(workerCommands)
       .where(
         and(
-          eq(workerCommands.computerId, computerId),
+          eq(workerCommands.deviceId, deviceId),
           eq(workerCommands.chatSessionId, chatSessionId),
           eq(workerCommands.kind, 'send'),
           match,
@@ -4974,14 +5052,14 @@ export function getWorkerCommand(id: string): WorkerCommandRecord | null {
   return getDb().select().from(workerCommands).where(eq(workerCommands.id, id)).get() ?? null;
 }
 
-export function listWorkerCommands(computerId: string, options: { states?: WorkerCommandState[] } = {}): WorkerCommandRecord[] {
-  const conditions = [eq(workerCommands.computerId, computerId)];
+export function listWorkerCommands(deviceId: string, options: { states?: WorkerCommandState[] } = {}): WorkerCommandRecord[] {
+  const conditions = [eq(workerCommands.deviceId, deviceId)];
   if (options.states?.length) conditions.push(inArray(workerCommands.state, options.states));
   return getDb().select().from(workerCommands).where(and(...conditions)).orderBy(asc(workerCommands.id)).all();
 }
 
 /**
- * What a computer's stream sends next, after the worker's receipt cursor
+ * What a device's stream sends next, after the worker's receipt cursor
  * `after`: queued commands are numbered now, in the order they were queued,
  * and marked sent. Then every command numbered after the cursor and still
  * waiting for an acknowledgement goes out, resends included. An acknowledged
@@ -4990,12 +5068,12 @@ export function listWorkerCommands(computerId: string, options: { states?: Worke
  */
 /**
  * Mark stale, and return, the queued or unacknowledged commands whose chat
- * or execution no longer runs on this computer at their generation (P2.6,
+ * or execution no longer runs on this device at their generation (P2.6,
  * P4). Ownership is checked before a command is sent or resent, not only by
  * the worker, which can't fence a command for a placement it never saw
  * replaced.
  */
-export function staleQueuedCommands(computerId: string): WorkerCommandRecord[] {
+export function staleQueuedCommands(deviceId: string): WorkerCommandRecord[] {
   const db = getDb();
   const now = new Date().toISOString();
   const stale: WorkerCommandRecord[] = [];
@@ -5007,7 +5085,7 @@ export function staleQueuedCommands(computerId: string): WorkerCommandRecord[] {
   const queued = db
     .select()
     .from(workerCommands)
-    .where(and(eq(workerCommands.computerId, computerId), inArray(workerCommands.state, ['queued', 'sent'])))
+    .where(and(eq(workerCommands.deviceId, deviceId), inArray(workerCommands.state, ['queued', 'sent'])))
     .all();
   for (const command of queued) {
     let current: boolean;
@@ -5015,11 +5093,11 @@ export function staleQueuedCommands(computerId: string): WorkerCommandRecord[] {
       const placement = placementOf(command.executionId);
       const reserved = transferReservation(command.executionId);
       current =
-        (placement?.computerId === computerId && placement.generation === command.generation) ||
+        (placement?.deviceId === deviceId && placement.generation === command.generation) ||
         // A transfer preparing it here, at the generation it will have (P4.2).
-        (reserved?.computerId === computerId && reserved.generation === command.generation);
+        (reserved?.deviceId === deviceId && reserved.generation === command.generation);
     } else if (command.chatSessionId) {
-      current = chatPlacement(command.chatSessionId)?.computerId === computerId;
+      current = chatPlacement(command.chatSessionId)?.deviceId === deviceId;
     } else {
       continue;
     }
@@ -5028,7 +5106,7 @@ export function staleQueuedCommands(computerId: string): WorkerCommandRecord[] {
       .update(workerCommands)
       .set({
         state: 'stale',
-        error: 'The execution had moved to another computer before this reached it.',
+        error: 'The execution had moved to another device before this reached it.',
         finishedAt: now,
         updatedAt: now,
       })
@@ -5040,14 +5118,14 @@ export function staleQueuedCommands(computerId: string): WorkerCommandRecord[] {
   return stale;
 }
 
-export function takeCommandsForStream(computerId: string, after: number): WorkerCommandRecord[] {
+export function takeCommandsForStream(deviceId: string, after: number): WorkerCommandRecord[] {
   const db = getDb();
   return db.transaction((tx) => {
     const now = new Date().toISOString();
     const queued = tx
       .select()
       .from(workerCommands)
-      .where(and(eq(workerCommands.computerId, computerId), eq(workerCommands.state, 'queued')))
+      .where(and(eq(workerCommands.deviceId, deviceId), eq(workerCommands.state, 'queued')))
       .orderBy(asc(workerCommands.id))
       .all();
     if (queued.length > 0) {
@@ -5055,7 +5133,7 @@ export function takeCommandsForStream(computerId: string, after: number): Worker
         (tx
           .select({ max: sql<number | null>`max(${workerCommands.seq})` })
           .from(workerCommands)
-          .where(eq(workerCommands.computerId, computerId))
+          .where(eq(workerCommands.deviceId, deviceId))
           .get()?.max ?? 0) + 1;
       for (const command of queued) {
         tx.update(workerCommands)
@@ -5067,7 +5145,7 @@ export function takeCommandsForStream(computerId: string, after: number): Worker
     return tx
       .select()
       .from(workerCommands)
-      .where(and(eq(workerCommands.computerId, computerId), gt(workerCommands.seq, after), eq(workerCommands.state, 'sent')))
+      .where(and(eq(workerCommands.deviceId, deviceId), gt(workerCommands.seq, after), eq(workerCommands.state, 'sent')))
       .orderBy(asc(workerCommands.seq))
       .all();
   }, { behavior: 'immediate' });
@@ -5086,15 +5164,15 @@ const FINAL_COMMAND_STATES = new Set<WorkerCommandState>(['delivered', 'failed',
  * Record a worker's acknowledgement, idempotently: the same report again
  * changes nothing, and a final state stays final. An uncertain command can
  * still become delivered or failed once reconciled. Returns the command as
- * the home holds it, or null when this computer has no such command.
+ * the home holds it, or null when this device has no such command.
  */
-export function ackWorkerCommand(computerId: string, commandId: string, ack: WorkerCommandAck): WorkerCommandRecord | null {
+export function ackWorkerCommand(deviceId: string, commandId: string, ack: WorkerCommandAck): WorkerCommandRecord | null {
   const db = getDb();
   return db.transaction((tx) => {
     const command = tx
       .select()
       .from(workerCommands)
-      .where(and(eq(workerCommands.id, commandId), eq(workerCommands.computerId, computerId)))
+      .where(and(eq(workerCommands.id, commandId), eq(workerCommands.deviceId, deviceId)))
       .get();
     if (!command) return null;
     if (FINAL_COMMAND_STATES.has(command.state) || command.state === ack.state) return command;
@@ -5116,7 +5194,7 @@ export function ackWorkerCommand(computerId: string, commandId: string, ack: Wor
   }, { behavior: 'immediate' });
 }
 
-/** A chat's sends, oldest first: one per message sent to a computer elsewhere (P3.2). */
+/** A chat's sends, oldest first: one per message sent to a device elsewhere (P3.2). */
 export function listSendsForChat(chatSessionId: string): WorkerCommandRecord[] {
   return getDb()
     .select()
@@ -5126,13 +5204,13 @@ export function listSendsForChat(chatSessionId: string): WorkerCommandRecord[] {
     .all();
 }
 
-/** A computer's sends not yet delivered or given up on: queued, or sent and unacknowledged. */
-export function listOpenSendsForComputer(computerId: string): WorkerCommandRecord[] {
+/** A device's sends not yet delivered or given up on: queued, or sent and unacknowledged. */
+export function listOpenSendsForDevice(deviceId: string): WorkerCommandRecord[] {
   return getDb()
     .select()
     .from(workerCommands)
     .where(and(
-      eq(workerCommands.computerId, computerId),
+      eq(workerCommands.deviceId, deviceId),
       eq(workerCommands.kind, 'send'),
       inArray(workerCommands.state, ['queued', 'sent']),
     ))
@@ -5152,16 +5230,16 @@ export function cancelWorkerCommand(commandId: string): WorkerCommandRecord | nu
   );
 }
 
-/** The highest contiguous position of a computer's worker journal the home has stored. */
-export function getAckedEventSeq(computerId: string): number {
-  return getDb().select({ seq: computers.ackedEventSeq }).from(computers).where(eq(computers.id, computerId)).get()?.seq ?? 0;
+/** The highest contiguous position of a device's worker journal the home has stored. */
+export function getAckedEventSeq(deviceId: string): number {
+  return getDb().select({ seq: devices.ackedEventSeq }).from(devices).where(eq(devices.id, deviceId)).get()?.seq ?? 0;
 }
 
-export function setAckedEventSeq(computerId: string, position: number): void {
+export function setAckedEventSeq(deviceId: string, position: number): void {
   getDb()
-    .update(computers)
+    .update(devices)
     .set({ ackedEventSeq: position, updatedAt: new Date().toISOString() })
-    .where(eq(computers.id, computerId))
+    .where(eq(devices.id, deviceId))
     .run();
 }
 
@@ -5169,10 +5247,10 @@ export function setAckedEventSeq(computerId: string, position: number): void {
 
 /** Where an execution runs, and the generation its commands carry. */
 export interface Placement {
-  computerId: string;
+  deviceId: string;
   generation: number;
   worktreePath: string | null;
-  /** Null for an execution with no placement row: the home's own computer at generation 1. */
+  /** Null for an execution with no placement row: the home's own device at generation 1. */
   placementId: string | null;
 }
 
@@ -5187,29 +5265,29 @@ export function getOpenPlacement(executionId: string): ExecutionPlacementRecord 
 }
 
 /**
- * Where an execution runs: its open placement, or the home's own computer
+ * Where an execution runs: its open placement, or the home's own device
  * at generation 1 when it has none. Null only before the home has an
  * identity.
  */
 export function placementOf(executionId: string): Placement | null {
   const open = getOpenPlacement(executionId);
   if (open) {
-    return { computerId: open.computerId, generation: open.generation, worktreePath: open.worktreePath, placementId: open.id };
+    return { deviceId: open.deviceId, generation: open.generation, worktreePath: open.worktreePath, placementId: open.id };
   }
-  const host = getHome()?.hostComputerId;
+  const host = getHome()?.hostDeviceId;
   if (!host) return null;
   const execution = getDb().select({ worktreePath: executions.worktreePath }).from(executions).where(eq(executions.id, executionId)).get();
-  return { computerId: host, generation: 1, worktreePath: execution?.worktreePath ?? null, placementId: null };
+  return { deviceId: host, generation: 1, worktreePath: execution?.worktreePath ?? null, placementId: null };
 }
 
 /**
- * Place an execution on a computer. A new execution starts at generation 1.
+ * Place an execution on a device. A new execution starts at generation 1.
  * A continuation ends the open placement and opens the next generation; an
- * execution with no row counts as generation 1 on the home's own computer.
+ * execution with no row counts as generation 1 on the home's own device.
  */
 export function createPlacement(input: {
   executionId: string;
-  computerId: string;
+  deviceId: string;
   startReason: ExecutionPlacementRecord['startReason'];
   worktreePath?: string | null;
   checkpointSha?: string | null;
@@ -5232,7 +5310,7 @@ export function createPlacement(input: {
       .values({
         id: uuidv7(),
         executionId: input.executionId,
-        computerId: input.computerId,
+        deviceId: input.deviceId,
         generation: base + 1,
         worktreePath: input.worktreePath ?? null,
         checkpointSha: input.checkpointSha ?? null,
@@ -5250,7 +5328,7 @@ export function createPlacement(input: {
 /** Another transfer of this execution is under way. */
 export class TransferConflictError extends Error {
   constructor(readonly transfer: ExecutionTransferRecord) {
-    super('This execution is already moving to another computer.');
+    super('This execution is already moving to another device.');
     this.name = 'TransferConflictError';
   }
 }
@@ -5266,8 +5344,8 @@ export class TransferConflictError extends Error {
  */
 export function createTransfer(input: {
   executionId: string;
-  fromComputerId: string;
-  toComputerId: string;
+  fromDeviceId: string;
+  toDeviceId: string;
   fromGeneration: number;
   includeUntracked: string[];
   heldEventIds?: string[];
@@ -5306,8 +5384,8 @@ export function createTransfer(input: {
         createdAt: now,
         updatedAt: now,
         executionId: input.executionId,
-        fromComputerId: input.fromComputerId,
-        toComputerId: input.toComputerId,
+        fromDeviceId: input.fromDeviceId,
+        toDeviceId: input.toDeviceId,
         fromGeneration: input.fromGeneration,
         stage: 'preparing',
         state: 'active',
@@ -5481,7 +5559,7 @@ export function listTransfersStillDelivering(): ExecutionTransferRecord[] {
     .filter((t) => latestTransfer(t.executionId)?.id === t.id);
 }
 
-/** Commands of a transfer not yet sent to their computer: a restarted home settles them. */
+/** Commands of a transfer not yet sent to their device: a restarted home settles them. */
 export function listQueuedTransferCommands(transfer: ExecutionTransferRecord): WorkerCommandRecord[] {
   return getDb()
     .select()
@@ -5499,7 +5577,7 @@ export function listQueuedTransferCommands(transfer: ExecutionTransferRecord): W
 
 /**
  * The generation a transfer prepares its destination at: one past its
- * source's, and past every earlier attempt from that source. A computer
+ * source's, and past every earlier attempt from that source. A device
  * that was given a generation by an attempt that stopped may have let go
  * of it since, and a let-go generation is never taken up again, so Try
  * again never reuses one. Attempts run one at a time, so these only grow.
@@ -5527,9 +5605,9 @@ export function targetGenerationOf(
  * the work (P4.2). Commands for it there aren't stale, and the destination
  * isn't told to let go of it, while the transfer is active.
  */
-export function transferReservation(executionId: string): { computerId: string; generation: number } | null {
+export function transferReservation(executionId: string): { deviceId: string; generation: number } | null {
   const active = getActiveTransfer(executionId);
-  return active ? { computerId: active.toComputerId, generation: targetGenerationOf(active) } : null;
+  return active ? { deviceId: active.toDeviceId, generation: targetGenerationOf(active) } : null;
 }
 
 /**
@@ -5572,7 +5650,7 @@ export function continueOwnership(input: {
         .values({
           id: uuidv7(),
           executionId: transfer.executionId,
-          computerId: transfer.fromComputerId,
+          deviceId: transfer.fromDeviceId,
           generation: transfer.fromGeneration,
           worktreePath: execution?.worktreePath ?? null,
           startReason: 'created',
@@ -5588,7 +5666,7 @@ export function continueOwnership(input: {
       .values({
         id: uuidv7(),
         executionId: transfer.executionId,
-        computerId: transfer.toComputerId,
+        deviceId: transfer.toDeviceId,
         generation: targetGenerationOf(transfer, tx),
         worktreePath: input.worktreePath,
         checkpointSha: input.checkpointSha,
@@ -5607,10 +5685,10 @@ export function continueOwnership(input: {
         .run();
       tx.update(chatSessions).set({ externalSessionId: null, updatedAt: now }).where(inArray(chatSessions.id, chatIds)).run();
     }
-    const host = tx.select({ hostComputerId: home.hostComputerId }).from(home).get()?.hostComputerId ?? null;
+    const host = tx.select({ hostDeviceId: home.hostDeviceId }).from(home).get()?.hostDeviceId ?? null;
     tx.update(executions)
       .set({
-        worktreePath: transfer.toComputerId === host ? input.worktreePath : null,
+        worktreePath: transfer.toDeviceId === host ? input.worktreePath : null,
         branchName: input.branch,
         updatedAt: now,
       })
@@ -5651,13 +5729,13 @@ export function latestChatEventForExecution(executionId: string): string | null 
   );
 }
 
-/** The worktree an execution last had on a computer, from its placement history: where a move back goes. */
-export function previousWorktreeOn(executionId: string, computerId: string): string | null {
+/** The worktree an execution last had on a device, from its placement history: where a move back goes. */
+export function previousWorktreeOn(executionId: string, deviceId: string): string | null {
   return (
     getDb()
       .select({ worktreePath: executionPlacements.worktreePath })
       .from(executionPlacements)
-      .where(and(eq(executionPlacements.executionId, executionId), eq(executionPlacements.computerId, computerId), isNotNull(executionPlacements.worktreePath)))
+      .where(and(eq(executionPlacements.executionId, executionId), eq(executionPlacements.deviceId, deviceId), isNotNull(executionPlacements.worktreePath)))
       .orderBy(desc(executionPlacements.generation))
       .limit(1)
       .get()?.worktreePath ?? null
@@ -5675,7 +5753,7 @@ export function recordNativeSession(input: {
   chatSessionId: string;
   harness: string;
   nativeSessionId: string;
-  computerId: string | null;
+  deviceId: string | null;
   placementId: string | null;
 }): NativeSessionRecord {
   const db = getDb();
@@ -5709,20 +5787,20 @@ export function listNativeSessions(chatSessionId: string): NativeSessionRecord[]
 
 // ─── Review checkouts (P4.1) ──────────────────────────────────
 
-export function getReviewCheckout(executionId: string, computerId: string): ReviewCheckoutRecord | null {
+export function getReviewCheckout(executionId: string, deviceId: string): ReviewCheckoutRecord | null {
   return (
     getDb()
       .select()
       .from(reviewCheckouts)
-      .where(and(eq(reviewCheckouts.executionId, executionId), eq(reviewCheckouts.computerId, computerId)))
+      .where(and(eq(reviewCheckouts.executionId, executionId), eq(reviewCheckouts.deviceId, deviceId)))
       .get() ?? null
   );
 }
 
 export function saveReviewCheckout(input: {
   executionId: string;
-  computerId: string;
-  sourceComputerId: string | null;
+  deviceId: string;
+  sourceDeviceId: string | null;
   path: string;
   branch: string;
   commitSha: string;
@@ -5733,9 +5811,9 @@ export function saveReviewCheckout(input: {
     .insert(reviewCheckouts)
     .values({ id: uuidv7(), createdAt: now, updatedAt: now, ...input })
     .onConflictDoUpdate({
-      target: [reviewCheckouts.executionId, reviewCheckouts.computerId],
+      target: [reviewCheckouts.executionId, reviewCheckouts.deviceId],
       set: {
-        sourceComputerId: input.sourceComputerId,
+        sourceDeviceId: input.sourceDeviceId,
         path: input.path,
         branch: input.branch,
         commitSha: input.commitSha,
@@ -5747,7 +5825,7 @@ export function saveReviewCheckout(input: {
     .get();
 }
 
-/** A placement's worktree is gone (archived) until its computer prepares it again (P4.5). */
+/** A placement's worktree is gone (archived) until its device prepares it again (P4.5). */
 export function clearPlacementWorktree(placementId: string): void {
   getDb()
     .update(executionPlacements)
@@ -5765,10 +5843,10 @@ export function setPlacementWorktree(placementId: string, worktreePath: string, 
 }
 
 /**
- * A connected computer prepared its placement of an execution: record the
+ * A connected device prepared its placement of an execution: record the
  * worktree there on the placement, and the branch and base on the
- * execution. `executions.worktree_path` stays the home computer's own path,
- * so nothing on the home ever looks for the other computer's folder here.
+ * execution. `executions.worktree_path` stays the home device's own path,
+ * so nothing on the home ever looks for the other device's folder here.
  */
 export function markPlacementPrepared(
   executionId: string,
@@ -5792,16 +5870,16 @@ export function markPlacementPrepared(
   return placement;
 }
 
-export function listOpenPlacementsForComputer(computerId: string): ExecutionPlacementRecord[] {
+export function listOpenPlacementsForDevice(deviceId: string): ExecutionPlacementRecord[] {
   return getDb()
     .select()
     .from(executionPlacements)
-    .where(and(eq(executionPlacements.computerId, computerId), isNull(executionPlacements.endedAt)))
+    .where(and(eq(executionPlacements.deviceId, deviceId), isNull(executionPlacements.endedAt)))
     .all();
 }
 
-/** Whether a computer held an execution at a generation, now or before. */
-export function heldPlacement(executionId: string, computerId: string, generation: number): boolean {
+/** Whether a device held an execution at a generation, now or before. */
+export function heldPlacement(executionId: string, deviceId: string, generation: number): boolean {
   return (
     getDb()
       .select({ id: executionPlacements.id })
@@ -5809,7 +5887,7 @@ export function heldPlacement(executionId: string, computerId: string, generatio
       .where(
         and(
           eq(executionPlacements.executionId, executionId),
-          eq(executionPlacements.computerId, computerId),
+          eq(executionPlacements.deviceId, deviceId),
           eq(executionPlacements.generation, generation),
         ),
       )
@@ -5819,8 +5897,8 @@ export function heldPlacement(executionId: string, computerId: string, generatio
 
 /** Where a chat runs, for routing its work (P2.4). */
 export interface ChatPlacement {
-  computerId: string;
-  /** The home's own computer. */
+  deviceId: string;
+  /** The home's own device. */
   isHome: boolean;
   executionId: string | null;
   /** The execution's placement generation. Null for a chat without an execution. */
@@ -5830,151 +5908,151 @@ export interface ChatPlacement {
 
 /**
  * Where a chat runs: its execution's placement, or for a chat without one,
- * its own `computer_id`, where null is the home's own computer. Null only
+ * its own `device_id`, where null is the home's own device. Null only
  * for an unknown chat or a home with no identity yet.
  */
 export function chatPlacement(chatSessionId: string): ChatPlacement | null {
   const chat = getDb()
-    .select({ executionId: chatSessions.executionId, computerId: chatSessions.computerId })
+    .select({ executionId: chatSessions.executionId, deviceId: chatSessions.deviceId })
     .from(chatSessions)
     .where(eq(chatSessions.id, chatSessionId))
     .get();
   if (!chat) return null;
-  const host = getHome()?.hostComputerId ?? null;
+  const host = getHome()?.hostDeviceId ?? null;
   if (chat.executionId) {
     const placement = placementOf(chat.executionId);
     if (!placement) return null;
     return {
-      computerId: placement.computerId,
-      isHome: placement.computerId === host,
+      deviceId: placement.deviceId,
+      isHome: placement.deviceId === host,
       executionId: chat.executionId,
       generation: placement.generation,
       worktreePath: placement.worktreePath,
     };
   }
-  const computerId = chat.computerId ?? host;
-  if (!computerId) return null;
-  return { computerId, isHome: computerId === host, executionId: null, generation: null, worktreePath: null };
+  const deviceId = chat.deviceId ?? host;
+  if (!deviceId) return null;
+  return { deviceId, isHome: deviceId === host, executionId: null, generation: null, worktreePath: null };
 }
 
 /**
- * The connected computer a chat runs on, or null when it runs on the home's
- * own computer. What a worker's events are checked against.
+ * The connected device a chat runs on, or null when it runs on the home's
+ * own device. What a worker's events are checked against.
  */
-export function getChatComputerId(chatSessionId: string): string | null {
+export function getChatDeviceId(chatSessionId: string): string | null {
   const placement = chatPlacement(chatSessionId);
-  return placement && !placement.isHome ? placement.computerId : null;
+  return placement && !placement.isHome ? placement.deviceId : null;
 }
 
 // ─── Agent setups (docs/homes-spec.md §4.2) ───────────────────
 
 /** Statuses that mean the setup file couldn't be read, so its references are unknown. */
-export type AgentSetupWithComputer = AgentSetupRecord & { computerName: string };
+export type WorkspaceSetupWithDevice = WorkspaceSetupRecord & { deviceName: string };
 
-export function listAgentSetups(filter: { workspaceId?: string; computerId?: string } = {}): AgentSetupWithComputer[] {
+export function listWorkspaceSetups(filter: { workspaceId?: string; deviceId?: string } = {}): WorkspaceSetupWithDevice[] {
   const conds: SQL[] = [];
-  if (filter.workspaceId) conds.push(eq(agentSetups.workspaceId, filter.workspaceId));
-  if (filter.computerId) conds.push(eq(agentSetups.computerId, filter.computerId));
+  if (filter.workspaceId) conds.push(eq(workspaceSetups.workspaceId, filter.workspaceId));
+  if (filter.deviceId) conds.push(eq(workspaceSetups.deviceId, filter.deviceId));
   return getDb()
-    .select({ ...getTableColumns(agentSetups), computerName: computers.name })
-    .from(agentSetups)
-    .innerJoin(computers, eq(agentSetups.computerId, computers.id))
+    .select({ ...getTableColumns(workspaceSetups), deviceName: devices.name })
+    .from(workspaceSetups)
+    .innerJoin(devices, eq(workspaceSetups.deviceId, devices.id))
     .where(conds.length ? and(...conds) : undefined)
-    .orderBy(asc(computers.name))
+    .orderBy(asc(devices.name))
     .all();
 }
 
-export function getAgentSetup(workspaceId: string, computerId: string): AgentSetupRecord | null {
+export function getWorkspaceSetup(workspaceId: string, deviceId: string): WorkspaceSetupRecord | null {
   return (
     getDb()
       .select()
-      .from(agentSetups)
-      .where(and(eq(agentSetups.workspaceId, workspaceId), eq(agentSetups.computerId, computerId)))
+      .from(workspaceSetups)
+      .where(and(eq(workspaceSetups.workspaceId, workspaceId), eq(workspaceSetups.deviceId, deviceId)))
       .get() ?? null
   );
 }
 
 // ─── Folder records (docs/homes-spec.md §4.1) ───────────────
 // The home's database is the only place an agent's folders are kept: its
-// project folder on each computer (`agent_setups`), and where each linked
-// folder is on each computer (`folder_links`). The computer checks them and
+// project folder on each device (`workspace_setups`), and where each linked
+// folder is on each device (`folder_links`). The device checks them and
 // the home records what it found. Each setup's `references` and `status` are
-// derived from these, by `recomputeAgentSetups`, and never edited directly.
+// derived from these, by `recomputeWorkspaceSetups`, and never edited directly.
 
-export function listFolderLinks(filter: { computerId?: string; referenceFolderId?: string } = {}): FolderLinkRecord[] {
+export function listFolderLinks(filter: { deviceId?: string; referenceFolderId?: string } = {}): FolderLinkRecord[] {
   const conds: SQL[] = [];
-  if (filter.computerId) conds.push(eq(folderLinks.computerId, filter.computerId));
+  if (filter.deviceId) conds.push(eq(folderLinks.deviceId, filter.deviceId));
   if (filter.referenceFolderId) conds.push(eq(folderLinks.referenceFolderId, filter.referenceFolderId));
   return getDb().select().from(folderLinks).where(conds.length ? and(...conds) : undefined).all();
 }
 
-export function getFolderLink(computerId: string, referenceFolderId: string): FolderLinkRecord | null {
+export function getFolderLink(deviceId: string, referenceFolderId: string): FolderLinkRecord | null {
   return (
     getDb()
       .select()
       .from(folderLinks)
-      .where(and(eq(folderLinks.computerId, computerId), eq(folderLinks.referenceFolderId, referenceFolderId)))
+      .where(and(eq(folderLinks.deviceId, deviceId), eq(folderLinks.referenceFolderId, referenceFolderId)))
       .get() ?? null
   );
 }
 
 /**
- * Where a linked folder is on a computer, or null for going without it there.
- * A new place is unchecked until the computer looks. For a linked folder
- * every agent uses, this is its place for every agent on that computer.
+ * Where a linked folder is on a device, or null for going without it there.
+ * A new place is unchecked until the device looks. For a linked folder
+ * every agent uses, this is its place for every agent on that device.
  */
-export function setFolderLink(computerId: string, referenceFolderId: string, folder: string | null): FolderLinkRecord {
+export function setFolderLink(deviceId: string, referenceFolderId: string, folder: string | null): FolderLinkRecord {
   const now = new Date().toISOString();
   const value = folder === null ? null : nodePath.resolve(folder);
   const row = getDb().transaction((tx) => {
     const current = tx
       .select()
       .from(folderLinks)
-      .where(and(eq(folderLinks.computerId, computerId), eq(folderLinks.referenceFolderId, referenceFolderId)))
+      .where(and(eq(folderLinks.deviceId, deviceId), eq(folderLinks.referenceFolderId, referenceFolderId)))
       .get();
     const moved = !current || current.path !== value;
     const values = { path: value, updatedAt: now, ...(moved ? { found: null, checkedAt: null } : {}) };
     return tx
       .insert(folderLinks)
-      .values({ id: uuidv7(), computerId, referenceFolderId, createdAt: now, ...values })
-      .onConflictDoUpdate({ target: [folderLinks.computerId, folderLinks.referenceFolderId], set: values })
+      .values({ id: uuidv7(), deviceId, referenceFolderId, createdAt: now, ...values })
+      .onConflictDoUpdate({ target: [folderLinks.deviceId, folderLinks.referenceFolderId], set: values })
       .returning()
       .get();
   }, { behavior: 'immediate' });
-  recomputeAgentSetups(computerId);
+  recomputeWorkspaceSetups(deviceId);
   return row;
 }
 
-/** Forget where a linked folder is on a computer: it's unchosen there again. */
-export function removeFolderLink(computerId: string, referenceFolderId: string): void {
+/** Forget where a linked folder is on a device: it's unchosen there again. */
+export function removeFolderLink(deviceId: string, referenceFolderId: string): void {
   getDb()
     .delete(folderLinks)
-    .where(and(eq(folderLinks.computerId, computerId), eq(folderLinks.referenceFolderId, referenceFolderId)))
+    .where(and(eq(folderLinks.deviceId, deviceId), eq(folderLinks.referenceFolderId, referenceFolderId)))
     .run();
-  recomputeAgentSetups(computerId);
+  recomputeWorkspaceSetups(deviceId);
 }
 
 /**
- * The agent's project folder on a computer. A new place is unchecked until
- * the computer looks. On the home it's `workspaces.cwd` too, which the rest
+ * The agent's project folder on a device. A new place is unchecked until
+ * the device looks. On the home it's `workspaces.cwd` too, which the rest
  * of the app still reads for the home's own folder.
  */
-export function setAgentFolder(workspaceId: string, computerId: string, folder: string): AgentSetupRecord {
+export function setAgentFolder(workspaceId: string, deviceId: string, folder: string): WorkspaceSetupRecord {
   const now = new Date().toISOString();
   const sourcePath = nodePath.resolve(folder);
   getDb().transaction((tx) => {
     const current = tx
       .select()
-      .from(agentSetups)
-      .where(and(eq(agentSetups.workspaceId, workspaceId), eq(agentSetups.computerId, computerId)))
+      .from(workspaceSetups)
+      .where(and(eq(workspaceSetups.workspaceId, workspaceId), eq(workspaceSetups.deviceId, deviceId)))
       .get();
     const moved = !current || current.sourcePath !== sourcePath;
     const values = { sourcePath, updatedAt: now, reportedAt: now, ...(moved ? { found: null } : {}) };
-    tx.insert(agentSetups)
-      .values({ id: uuidv7(), workspaceId, computerId, createdAt: now, references: [], status: 'unchecked', problem: null, ...values })
-      .onConflictDoUpdate({ target: [agentSetups.workspaceId, agentSetups.computerId], set: values })
+    tx.insert(workspaceSetups)
+      .values({ id: uuidv7(), workspaceId, deviceId, createdAt: now, references: [], status: 'unchecked', problem: null, ...values })
+      .onConflictDoUpdate({ target: [workspaceSetups.workspaceId, workspaceSetups.deviceId], set: values })
       .run();
-    const isHost = tx.select({ host: home.hostComputerId }).from(home).get()?.host === computerId;
+    const isHost = tx.select({ host: home.hostDeviceId }).from(home).get()?.host === deviceId;
     if (isHost) {
       tx.update(workspaces)
         .set({ cwd: sourcePath, updatedAt: now })
@@ -5982,16 +6060,16 @@ export function setAgentFolder(workspaceId: string, computerId: string, folder: 
         .run();
     }
   }, { behavior: 'immediate' });
-  recomputeAgentSetups(computerId);
-  return getAgentSetup(workspaceId, computerId)!;
+  recomputeWorkspaceSetups(deviceId);
+  return getWorkspaceSetup(workspaceId, deviceId)!;
 }
 
 /**
- * Take an agent off a computer: its setup there, and where its own linked
+ * Take an agent off a device: its setup there, and where its own linked
  * folders were there. A linked folder every agent uses keeps its place, for
  * the others.
  */
-export function removeAgentSetup(workspaceId: string, computerId: string): boolean {
+export function removeWorkspaceSetup(workspaceId: string, deviceId: string): boolean {
   const removed = getDb().transaction((tx) => {
     const own = tx
       .select({ id: referenceFolders.id })
@@ -6000,63 +6078,63 @@ export function removeAgentSetup(workspaceId: string, computerId: string): boole
       .all()
       .map((r) => r.id);
     if (own.length) {
-      tx.delete(folderLinks).where(and(eq(folderLinks.computerId, computerId), inArray(folderLinks.referenceFolderId, own))).run();
+      tx.delete(folderLinks).where(and(eq(folderLinks.deviceId, deviceId), inArray(folderLinks.referenceFolderId, own))).run();
     }
     return tx
-      .delete(agentSetups)
-      .where(and(eq(agentSetups.workspaceId, workspaceId), eq(agentSetups.computerId, computerId)))
+      .delete(workspaceSetups)
+      .where(and(eq(workspaceSetups.workspaceId, workspaceId), eq(workspaceSetups.deviceId, deviceId)))
       .returning()
       .all().length;
   }, { behavior: 'immediate' });
   return removed > 0;
 }
 
-/** Every folder a computer has to check: its agents' project folders and its linked folders. */
-export function foldersToCheck(computerId: string): string[] {
-  const setups = getDb().select({ path: agentSetups.sourcePath }).from(agentSetups).where(eq(agentSetups.computerId, computerId)).all();
+/** Every folder a device has to check: its agents' project folders and its linked folders. */
+export function foldersToCheck(deviceId: string): string[] {
+  const setups = getDb().select({ path: workspaceSetups.sourcePath }).from(workspaceSetups).where(eq(workspaceSetups.deviceId, deviceId)).all();
   const links = getDb()
     .select({ path: folderLinks.path })
     .from(folderLinks)
-    .where(and(eq(folderLinks.computerId, computerId), isNotNull(folderLinks.path)))
+    .where(and(eq(folderLinks.deviceId, deviceId), isNotNull(folderLinks.path)))
     .all();
   return [...new Set([...setups.map((s) => s.path), ...links.map((l) => l.path!)])];
 }
 
-/** What a computer found when it checked its folders, recorded against them. */
-export function recordFolderChecks(computerId: string, results: ReadonlyArray<{ path: string; exists: boolean }>): void {
+/** What a device found when it checked its folders, recorded against them. */
+export function recordFolderChecks(deviceId: string, results: ReadonlyArray<{ path: string; exists: boolean }>): void {
   const now = new Date().toISOString();
   const found = new Map(results.map((r) => [nodePath.resolve(r.path), r.exists]));
   getDb().transaction((tx) => {
-    for (const row of tx.select().from(agentSetups).where(eq(agentSetups.computerId, computerId)).all()) {
+    for (const row of tx.select().from(workspaceSetups).where(eq(workspaceSetups.deviceId, deviceId)).all()) {
       const exists = found.get(nodePath.resolve(row.sourcePath));
       if (exists === undefined) continue;
-      tx.update(agentSetups).set({ found: exists, reportedAt: now, updatedAt: now }).where(eq(agentSetups.id, row.id)).run();
+      tx.update(workspaceSetups).set({ found: exists, reportedAt: now, updatedAt: now }).where(eq(workspaceSetups.id, row.id)).run();
     }
-    for (const link of tx.select().from(folderLinks).where(eq(folderLinks.computerId, computerId)).all()) {
+    for (const link of tx.select().from(folderLinks).where(eq(folderLinks.deviceId, deviceId)).all()) {
       if (!link.path) continue;
       const exists = found.get(nodePath.resolve(link.path));
       if (exists === undefined) continue;
       tx.update(folderLinks).set({ found: exists, checkedAt: now, updatedAt: now }).where(eq(folderLinks.id, link.id)).run();
     }
-    tx.update(computers).set({ lastSeenAt: now }).where(eq(computers.id, computerId)).run();
+    tx.update(devices).set({ lastSeenAt: now }).where(eq(devices.id, deviceId)).run();
   }, { behavior: 'immediate' });
-  recomputeAgentSetups(computerId);
+  recomputeWorkspaceSetups(deviceId);
 }
 
 /**
- * Each setup's linked folders and status on a computer, from the records:
+ * Each setup's linked folders and status on a device, from the records:
  * the linked folders the agent uses (its own, then the ones for every agent),
- * where each is there, and what the computer last found. `ready` once the
+ * where each is there, and what the device last found. `ready` once the
  * project folder and every linked folder are found. `unchecked` until the
- * computer has looked (work can start: it checks again before it prepares).
+ * device has looked (work can start: it checks again before it prepares).
  * A linked folder not chosen there, or not found, blocks work there.
  */
-export function recomputeAgentSetups(computerId: string): void {
+export function recomputeWorkspaceSetups(deviceId: string): void {
   const db = getDb();
-  const computerName = db.select({ name: computers.name }).from(computers).where(eq(computers.id, computerId)).get()?.name ?? 'this computer';
-  const setups = db.select().from(agentSetups).where(eq(agentSetups.computerId, computerId)).all();
+  const deviceName = db.select({ name: devices.name }).from(devices).where(eq(devices.id, deviceId)).get()?.name ?? 'this device';
+  const setups = db.select().from(workspaceSetups).where(eq(workspaceSetups.deviceId, deviceId)).all();
   if (setups.length === 0) return;
-  const links = new Map(listFolderLinks({ computerId }).map((l) => [l.referenceFolderId, l]));
+  const links = new Map(listFolderLinks({ deviceId }).map((l) => [l.referenceFolderId, l]));
   const bySetup = new Map(setups.map((s) => [s.workspaceId, s]));
   const now = new Date().toISOString();
   db.transaction((tx) => {
@@ -6076,15 +6154,15 @@ export function recomputeAgentSetups(computerId: string): void {
             path: target?.sourcePath ?? null,
             exists: target?.found === true,
             problem: !target
-              ? `${targetName} isn't on ${computerName} yet.`
+              ? `${targetName} isn't on ${deviceName} yet.`
               : target.found === false
-                ? `${targetName}'s folder on ${computerName}, ${target.sourcePath}, isn't there.`
+                ? `${targetName}'s folder on ${deviceName}, ${target.sourcePath}, isn't there.`
                 : null,
           };
         }
         const link = links.get(ref.id);
         if (!link) {
-          return { alias: ref.alias, form: 'unconfigured' as const, path: null, exists: false, problem: `Choose where ${ref.alias} is on ${computerName}, or go without it.` };
+          return { alias: ref.alias, form: 'unconfigured' as const, path: null, exists: false, problem: `Choose where ${ref.alias} is on ${deviceName}, or go without it.` };
         }
         if (link.path === null) {
           return { alias: ref.alias, value: null, form: 'omitted' as const, path: null, exists: false, problem: null };
@@ -6096,30 +6174,30 @@ export function recomputeAgentSetups(computerId: string): void {
           form: 'path' as const,
           path: link.path,
           exists: link.found === true,
-          problem: link.found === false ? `${ref.alias} isn't at ${link.path} on ${computerName}.` : null,
+          problem: link.found === false ? `${ref.alias} isn't at ${link.path} on ${deviceName}.` : null,
         };
       });
       const blocking = references.find((r) => r.problem);
       const unchecked = setup.found === null || linkUnchecked;
-      const status: AgentSetupRecord['status'] =
+      const status: WorkspaceSetupRecord['status'] =
         setup.found === false ? 'missing_folder' : blocking ? 'missing_reference' : unchecked ? 'unchecked' : 'ready';
       const problem =
-        setup.found === false ? `${agent.name}'s folder on ${computerName}, ${setup.sourcePath}, isn't there.` : (blocking?.problem ?? null);
-      tx.update(agentSetups).set({ references, status, problem, updatedAt: now }).where(eq(agentSetups.id, setup.id)).run();
+        setup.found === false ? `${agent.name}'s folder on ${deviceName}, ${setup.sourcePath}, isn't there.` : (blocking?.problem ?? null);
+      tx.update(workspaceSetups).set({ references, status, problem, updatedAt: now }).where(eq(workspaceSetups.id, setup.id)).run();
     }
   }, { behavior: 'immediate' });
 }
 
 /**
- * Move what existed before the home's records held every computer's folders
+ * Move what existed before the home's records held every device's folders
  * into them (migration 0011), once and idempotently, at boot after the home
  * has its identity: an agent with no setup anywhere gets its home row from
- * `workspaces.cwd`, and each linked folder gets a place on each computer from
+ * `workspaces.cwd`, and each linked folder gets a place on each device from
  * what its agents last used there (their setup files' reports). The home
  * falls back to the linked folder's own path when no agent reported one.
  * Nothing that's already recorded is changed.
  *
- * A linked folder every agent uses has one place per computer, so agents that
+ * A linked folder every agent uses has one place per device, so agents that
  * used different places there are settled in this order: an active agent
  * before an archived one, then a place someone chose before one that was only
  * the linked folder's own path carried along, then the latest report. Each
@@ -6127,7 +6205,7 @@ export function recomputeAgentSetups(computerId: string): void {
  */
 export function moveFolderRecords(): { setups: number; links: number; settled: string[] } {
   const db = getDb();
-  const host = db.select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
+  const host = db.select({ host: home.hostDeviceId }).from(home).get()?.host ?? null;
   if (!host) return { setups: 0, links: 0, settled: [] };
   const now = new Date().toISOString();
   let setupsMoved = 0;
@@ -6135,36 +6213,36 @@ export function moveFolderRecords(): { setups: number; links: number; settled: s
   const settled: string[] = [];
   const touched = new Set<string>();
   db.transaction((tx) => {
-    const withSetups = new Set(tx.select({ id: agentSetups.workspaceId }).from(agentSetups).all().map((r) => r.id));
+    const withSetups = new Set(tx.select({ id: workspaceSetups.workspaceId }).from(workspaceSetups).all().map((r) => r.id));
     for (const ws of tx.select().from(workspaces).where(eq(workspaces.status, 'active')).all()) {
       if (withSetups.has(ws.id) || !ws.cwd) continue;
-      tx.insert(agentSetups)
-        .values({ id: uuidv7(), workspaceId: ws.id, computerId: host, sourcePath: ws.cwd, references: [], status: 'unchecked', problem: null, reportedAt: now, createdAt: now, updatedAt: now })
+      tx.insert(workspaceSetups)
+        .values({ id: uuidv7(), workspaceId: ws.id, deviceId: host, sourcePath: ws.cwd, references: [], status: 'unchecked', problem: null, reportedAt: now, createdAt: now, updatedAt: now })
         .onConflictDoNothing()
         .run();
       setupsMoved++;
       touched.add(host);
     }
-    const linked = new Set(tx.select({ c: folderLinks.computerId, r: folderLinks.referenceFolderId }).from(folderLinks).all().map((l) => `${l.c}\u0000${l.r}`));
-    const addLink = (computerId: string, referenceFolderId: string, folder: string | null) => {
-      const key = `${computerId}\u0000${referenceFolderId}`;
+    const linked = new Set(tx.select({ c: folderLinks.deviceId, r: folderLinks.referenceFolderId }).from(folderLinks).all().map((l) => `${l.c}\u0000${l.r}`));
+    const addLink = (deviceId: string, referenceFolderId: string, folder: string | null) => {
+      const key = `${deviceId}\u0000${referenceFolderId}`;
       if (linked.has(key)) return;
       linked.add(key);
       tx.insert(folderLinks)
-        .values({ id: uuidv7(), computerId, referenceFolderId, path: folder, createdAt: now, updatedAt: now })
+        .values({ id: uuidv7(), deviceId, referenceFolderId, path: folder, createdAt: now, updatedAt: now })
         .onConflictDoNothing()
         .run();
       linksMoved++;
-      touched.add(computerId);
+      touched.add(deviceId);
     };
     const refs = tx.select().from(referenceFolders).where(eq(referenceFolders.status, 'active')).all();
     const agents = new Map(tx.select({ id: workspaces.id, name: workspaces.name, status: workspaces.status }).from(workspaces).all().map((w) => [w.id, w]));
-    const computerNames = new Map(tx.select({ id: computers.id, name: computers.name }).from(computers).all().map((c) => [c.id, c.name]));
+    const deviceNames = new Map(tx.select({ id: devices.id, name: devices.name }).from(devices).all().map((c) => [c.id, c.name]));
 
-    // Every place an agent last used for a linked folder, by computer and linked folder.
+    // Every place an agent last used for a linked folder, by device and linked folder.
     type Used = { agentId: string; place: string | null; chosen: boolean; active: boolean; at: string };
-    const used = new Map<string, { computerId: string; refId: string; uses: Used[] }>();
-    for (const setup of tx.select().from(agentSetups).all()) {
+    const used = new Map<string, { deviceId: string; refId: string; uses: Used[] }>();
+    for (const setup of tx.select().from(workspaceSetups).all()) {
       for (const report of setup.references ?? []) {
         const ref =
           refs.find((r) => r.workspaceId === setup.workspaceId && r.alias === report.alias && !r.targetWorkspaceId) ??
@@ -6172,45 +6250,45 @@ export function moveFolderRecords(): { setups: number; links: number; settled: s
         if (!ref) continue;
         const place = report.form === 'path' && report.path ? nodePath.resolve(report.path) : report.form === 'omitted' ? null : undefined;
         if (place === undefined) continue;
-        const key = `${setup.computerId}\u0000${ref.id}`;
-        const entry = used.get(key) ?? { computerId: setup.computerId, refId: ref.id, uses: [] };
-        const inherited = setup.computerId === host && !!ref.path && place === nodePath.resolve(ref.path);
+        const key = `${setup.deviceId}\u0000${ref.id}`;
+        const entry = used.get(key) ?? { deviceId: setup.deviceId, refId: ref.id, uses: [] };
+        const inherited = setup.deviceId === host && !!ref.path && place === nodePath.resolve(ref.path);
         entry.uses.push({ agentId: setup.workspaceId, place, chosen: !inherited, active: agents.get(setup.workspaceId)?.status === 'active', at: setup.reportedAt });
         used.set(key, entry);
       }
     }
-    for (const { computerId, refId, uses } of used.values()) {
+    for (const { deviceId, refId, uses } of used.values()) {
       uses.sort((a, b) => Number(b.active) - Number(a.active) || Number(b.chosen) - Number(a.chosen) || b.at.localeCompare(a.at));
       const kept = uses[0]!;
       const others = uses.filter((u) => u.active && u.place !== kept.place);
       if (others.length > 0) {
         const ref = refs.find((r) => r.id === refId)!;
         const said = (u: Used) => `${agents.get(u.agentId)?.name ?? u.agentId} used ${u.place ?? 'none'}`;
-        settled.push(`@${ref.alias} on ${computerNames.get(computerId) ?? computerId}: kept ${kept.place ?? 'going without'} (${[kept, ...others].map(said).join(', ')})`);
+        settled.push(`@${ref.alias} on ${deviceNames.get(deviceId) ?? deviceId}: kept ${kept.place ?? 'going without'} (${[kept, ...others].map(said).join(', ')})`);
       }
-      addLink(computerId, refId, kept.place);
+      addLink(deviceId, refId, kept.place);
     }
     for (const ref of refs) {
       if (ref.path && !ref.targetWorkspaceId) addLink(host, ref.id, nodePath.resolve(ref.path));
     }
   }, { behavior: 'immediate' });
-  for (const computerId of touched) recomputeAgentSetups(computerId);
+  for (const deviceId of touched) recomputeWorkspaceSetups(deviceId);
   return { setups: setupsMoved, links: linksMoved, settled };
 }
 
 // ─── API Keys ─────────────────────────────────────────────────
 
-export function createApiKey(
+/** Insert a key on a device, inside a transaction. */
+function insertApiKey(
+  tx: Pick<ReturnType<typeof getDb>, 'insert'>,
   input: CreateApiKeyInput,
 ): { key: ApiKeyRecord; token: GeneratedToken } {
-  const db = getDb();
   const now = new Date().toISOString();
   // Defer to getTokenEnv() (env-aware: 'test' only under AUTH_TOKEN_ENV=test,
   // else 'live') rather than hardcoding 'live', which would mislabel keys minted
   // in a test environment. An explicit input.env still wins.
   const token = generateToken(input.env);
-
-  const key = db
+  const key = tx
     .insert(apiKeys)
     .values({
       ...input,
@@ -6219,14 +6297,20 @@ export function createApiKey(
       suffix: token.suffix,
       hash: token.hash,
       env: token.env,
-      deviceType: input.deviceType ?? 'other',
       createdAt: now,
       updatedAt: now,
     })
     .returning()
     .get();
-
   return { key, token };
+}
+
+/**
+ * A key on a device that exists. A new device pairs with `pairDevice`,
+ * which makes the device and its key together.
+ */
+export function createApiKey(input: CreateApiKeyInput): { key: ApiKeyRecord; token: GeneratedToken } {
+  return insertApiKey(getDb(), input);
 }
 
 export function listApiKeys(options: { includeRevoked?: boolean } = {}): ApiKeyRecord[] {
@@ -6236,6 +6320,10 @@ export function listApiKeys(options: { includeRevoked?: boolean } = {}): ApiKeyR
     ? q.orderBy(desc(apiKeys.createdAt)).all()
     : q.where(isNull(apiKeys.revokedAt)).orderBy(desc(apiKeys.createdAt)).all();
   return rows;
+}
+
+export function getApiKey(id: string): ApiKeyRecord | null {
+  return getDb().select().from(apiKeys).where(eq(apiKeys.id, id)).get() ?? null;
 }
 
 export function findApiKeyByHash(hash: string): ApiKeyRecord | undefined {
@@ -6255,16 +6343,23 @@ export function updateApiKey(id: string, input: UpdateApiKeyInput): ApiKeyRecord
   return row ?? null;
 }
 
+/**
+ * Stop a key working. A device whose worker ran with it stops running agents
+ * (its worker's work is settled by `retireWorker`, which calls this).
+ */
 export function revokeApiKey(id: string, reason?: string): ApiKeyRecord | null {
   const db = getDb();
-  const now = new Date().toISOString();
-  const row = db
-    .update(apiKeys)
-    .set({ revokedAt: now, revokedReason: reason ?? null, updatedAt: now })
-    .where(eq(apiKeys.id, id))
-    .returning()
-    .get();
-  return row ?? null;
+  return db.transaction((tx) => {
+    const now = new Date().toISOString();
+    const row = tx
+      .update(apiKeys)
+      .set({ revokedAt: now, revokedReason: reason ?? null, updatedAt: now })
+      .where(eq(apiKeys.id, id))
+      .returning()
+      .get();
+    tx.update(devices).set({ workerKeyId: null, updatedAt: now }).where(eq(devices.workerKeyId, id)).run();
+    return row ?? null;
+  }, { behavior: 'immediate' });
 }
 
 export function touchApiKey(
@@ -6590,9 +6685,9 @@ function assertValidReferenceAlias(alias: string): void {
  * here gives the caller a message that says which field to fix.
  */
 /**
- * A linked folder is a folder, placed per computer (`folder_links`), or
+ * A linked folder is a folder, placed per device (`folder_links`), or
  * another agent: never both. A folder may have no place yet anywhere, to be
- * chosen on each computer (docs/homes-spec.md §4.1).
+ * chosen on each device (docs/homes-spec.md §4.1).
  */
 function assertOneTarget(path: string | null | undefined, targetWorkspaceId: string | null | undefined): void {
   const hasPath = path != null && path.length > 0;
@@ -6602,15 +6697,15 @@ function assertOneTarget(path: string | null | undefined, targetWorkspaceId: str
   }
 }
 
-/** The home computer, where a linked folder's `path` from the API or an action is placed. */
+/** The home device, where a linked folder's `path` from the API or an action is placed. */
 function hostOf(): string | null {
-  return getDb().select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
+  return getDb().select({ host: home.hostDeviceId }).from(home).get()?.host ?? null;
 }
 
-/** Every computer's setups, recomputed: after a linked folder's definition changes. */
-export function recomputeAllAgentSetups(): void {
-  const ids = getDb().selectDistinct({ id: agentSetups.computerId }).from(agentSetups).all().map((r) => r.id);
-  for (const id of ids) recomputeAgentSetups(id);
+/** Every device's setups, recomputed: after a linked folder's definition changes. */
+export function recomputeAllWorkspaceSetups(): void {
+  const ids = getDb().selectDistinct({ id: workspaceSetups.deviceId }).from(workspaceSetups).all().map((r) => r.id);
+  for (const id of ids) recomputeWorkspaceSetups(id);
 }
 
 export function getReferenceFolder(id: string): ReferenceFolderRecord | undefined {
@@ -6764,8 +6859,8 @@ export function createReferenceFolder(input: CreateReferenceFolderInput): Refere
       .returning()
       .get();
     if (host && homePath) setFolderLink(host, row.id, homePath);
-    // Every computer's setups now use it: waiting on a place there, until chosen.
-    recomputeAllAgentSetups();
+    // Every device's setups now use it: waiting on a place there, until chosen.
+    recomputeAllWorkspaceSetups();
     return row;
   } catch (err) {
     if (isUniqueViolation(err)) {
@@ -6837,7 +6932,7 @@ export function updateReferenceFolder(
       if (homePathChange.path) setFolderLink(host, id, homePathChange.path);
       else removeFolderLink(host, id);
     }
-    recomputeAllAgentSetups();
+    recomputeAllWorkspaceSetups();
     return row ?? null;
   } catch (err) {
     if (isUniqueViolation(err)) {
@@ -6863,8 +6958,8 @@ export function archiveReferenceFolder(id: string): ReferenceFolderRecord | null
     .where(eq(referenceFolders.id, id))
     .returning()
     .get();
-  // No longer used anywhere: every computer's setups no longer wait on it.
-  if (row) recomputeAllAgentSetups();
+  // No longer used anywhere: every device's setups no longer wait on it.
+  if (row) recomputeAllWorkspaceSetups();
   return row ?? null;
 }
 
@@ -7077,7 +7172,7 @@ export function setExecutionLabel(executionId: string, label: string | null): Ex
 export function listStuckBootstrapExecutions(maxAgeMinutes = 5): ExecutionRecord[] {
   const db = getDb();
   const cutoff = new Date(Date.now() - maxAgeMinutes * 60_000).toISOString();
-  const host = getHome()?.hostComputerId ?? null;
+  const host = getHome()?.hostDeviceId ?? null;
   return db
     .select()
     .from(executions)
@@ -7088,8 +7183,8 @@ export function listStuckBootstrapExecutions(maxAgeMinutes = 5): ExecutionRecord
         isNull(executions.worktreePath),
         isNull(executions.setupError),
         lte(executions.setupStartedAt, cutoff),
-        // Only the home's own. One placed on a connected computer keeps its
-        // worktree on the placement and is set up by that computer's worker,
+        // Only the home's own. One placed on a connected device keeps its
+        // worktree on the placement and is set up by that device's worker,
         // whose prepare command settles by its own recovery. Its empty
         // `worktreePath` here says nothing about a stuck setup (found in the
         // P2.7 to P2.9 review's live check).
@@ -7099,7 +7194,7 @@ export function listStuckBootstrapExecutions(maxAgeMinutes = 5): ExecutionRecord
             .where(and(
               eq(executionPlacements.executionId, executions.id),
               isNull(executionPlacements.endedAt),
-              host ? sql`${executionPlacements.computerId} <> ${host}` : sql`1 = 1`,
+              host ? sql`${executionPlacements.deviceId} <> ${host}` : sql`1 = 1`,
             )),
         ),
       ),
@@ -7198,14 +7293,14 @@ function flattenSessionExecution<T extends ChatSessionRecord>(
   } as T & ChatSessionWithExecution;
 }
 
-/** Where an execution runs, by its computer's name (P3.1). Null before the home has an identity. */
+/** Where an execution runs, by its device's name (P3.1). Null before the home has an identity. */
 export function executionLocation(executionId: string): ExecutionLocation | null {
   const placement = placementOf(executionId);
   if (!placement) return null;
-  const isHome = placement.computerId === getHome()?.hostComputerId;
+  const isHome = placement.deviceId === getHome()?.hostDeviceId;
   return {
-    computerId: placement.computerId,
-    name: getComputer(placement.computerId)?.name ?? 'Unknown computer',
+    deviceId: placement.deviceId,
+    name: getDevice(placement.deviceId)?.name ?? 'Unknown device',
     isHome,
     folder: isHome ? null : placement.worktreePath,
   };
@@ -7527,11 +7622,11 @@ export function updateChatSession(id: string, input: UpdateChatSessionInput): Ch
   return row ?? null;
 }
 
-/** An import by its native session: on the home's own computer, or on a connected one (P2.9). */
+/** An import by its native session: on the home's own device, or on a connected one (P2.9). */
 export function getExternalSessionImportBySource(
   providerType: string,
   externalSessionId: string,
-  computerId: string | null = null,
+  deviceId: string | null = null,
 ): ExternalSessionImportRecord | undefined {
   const db = getDb();
   return db
@@ -7540,7 +7635,7 @@ export function getExternalSessionImportBySource(
     .where(and(
       eq(externalSessionImports.providerType, providerType),
       eq(externalSessionImports.externalSessionId, externalSessionId),
-      computerId === null ? isNull(externalSessionImports.computerId) : eq(externalSessionImports.computerId, computerId),
+      deviceId === null ? isNull(externalSessionImports.deviceId) : eq(externalSessionImports.deviceId, deviceId),
     ))
     .get();
 }
@@ -9409,7 +9504,7 @@ export function markRunCancelled(id: string, reason: string | null = null): RunR
  * at running). Reap both so the execution-level mutex clears cleanly
  * and the inbox doesn't show a fake spinning run forever.
  *
- * A run on a connected computer is kept when a send was saved for it: its
+ * A run on a connected device is kept when a send was saved for it: its
  * turn didn't die with this process, or it's still waiting to be delivered,
  * and the worker reports how it ends. One with no send is a dispatch this
  * process was still preparing when it stopped. No worker ever heard of it,
@@ -9428,7 +9523,7 @@ export function reapStaleRunningRuns(): number {
     .all();
   const ghosts = active
     .filter((r) => !(r.status === 'queued' && r.statusReason === HELD_BY_MOVE))
-    .filter((r) => !r.chatSessionId || getChatComputerId(r.chatSessionId) === null || !hasSendForRun(r.id))
+    .filter((r) => !r.chatSessionId || getChatDeviceId(r.chatSessionId) === null || !hasSendForRun(r.id))
     .map((r) => r.id);
   if (ghosts.length === 0) return 0;
   const result = db

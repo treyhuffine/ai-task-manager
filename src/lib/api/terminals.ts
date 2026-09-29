@@ -10,8 +10,8 @@ export interface TerminalDescriptor {
   exited: boolean;
   exitCode: number | null;
   createdAt: string;
-  /** Where the shell runs (P3.5): its computer's name, and whether that's the home's. */
-  computerName: string | null;
+  /** Where the shell runs (P3.5): its device's name, and whether that's the home's. */
+  deviceName: string | null;
   isHome: boolean;
 }
 

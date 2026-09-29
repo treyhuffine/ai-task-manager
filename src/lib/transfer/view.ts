@@ -10,8 +10,8 @@ export interface TransferView {
   executionId: string;
   state: ExecutionTransferRecord['state'];
   stage: TransferStage;
-  from: { computerId: string; name: string };
-  to: { computerId: string; name: string };
+  from: { deviceId: string; name: string };
+  to: { deviceId: string; name: string };
   /** Set once the destination owns the work. */
   ownershipChanged: boolean;
   failedStage: TransferStage | null;
@@ -32,7 +32,7 @@ export interface TransferView {
 
 export function transferView(
   transfer: ExecutionTransferRecord,
-  names: (computerId: string) => string,
+  names: (deviceId: string) => string,
   delivering = false,
 ): TransferView {
   return {
@@ -40,8 +40,8 @@ export function transferView(
     executionId: transfer.executionId,
     state: transfer.state,
     stage: transfer.stage,
-    from: { computerId: transfer.fromComputerId, name: names(transfer.fromComputerId) },
-    to: { computerId: transfer.toComputerId, name: names(transfer.toComputerId) },
+    from: { deviceId: transfer.fromDeviceId, name: names(transfer.fromDeviceId) },
+    to: { deviceId: transfer.toDeviceId, name: names(transfer.toDeviceId) },
     ownershipChanged: transfer.toGeneration !== null,
     failedStage: transfer.failedStage,
     error: transfer.error,

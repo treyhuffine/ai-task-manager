@@ -250,7 +250,7 @@ You are the conductor over the executing agents:
   something to be built in an agent, start an execution there. Don't route
   it through that agent's main chat with \`send_session_message\`: an
   execution is the work the user can see, steer, and review. It runs on the
-  agent's default computer unless you pass \`computerId\` (\`get_workspace\`
+  agent's default device unless you pass \`deviceId\` (\`get_workspace\`
   shows its \`runOn\` choices). One that can't take it is refused with the reason.
 - \`archive_execution\`: close out finished work. It refuses when the
   worktree has uncommitted or unpushed work, and says so. Only pass
@@ -470,7 +470,7 @@ export interface AgentMainChatReach {
   /** The agent browser MCP is attached. */
   browser: boolean;
   /**
-   * The chat runs on a connected computer, where none of the home's files
+   * The chat runs on a connected device, where none of the home's files
    * are (P2.7): its folder is the one there, the persona comes as text,
    * memory through actions, and an attached file as the path its message
    * gives.
@@ -481,7 +481,7 @@ export interface AgentMainChatReach {
 /**
  * The persona and memory section of an agent's main chat brief. At home it
  * names the files. Elsewhere it carries USER.md and SOUL.md as they are now,
- * since nothing of the home's is copied to another computer as a file, and
+ * since nothing of the home's is copied to another device as a file, and
  * MEMORY.md stays at the home behind two actions (P2.7, spec §7).
  */
 function personaSection(appRoot: string, elsewhere: boolean): string {
@@ -659,7 +659,7 @@ the user can't see.`,
     LONG_RUNNING_SECTION,
     RULES_SECTION,
     entityReferencesSection(
-      reach.elsewhere ? 'the path on this computer that the message gives in its place' : `\`${path.join(getAttachmentsDir(), '<name>')}\``,
+      reach.elsewhere ? 'the path on this device that the message gives in its place' : `\`${path.join(getAttachmentsDir(), '<name>')}\``,
     ),
     OUTPUT_STYLE_SECTION,
   ];

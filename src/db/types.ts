@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, agentSetups, folderLinks,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, devices, deviceGrants, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -165,13 +165,13 @@ export type UpdateDeckInput = Partial<Omit<CreateDeckInput, 'createdAt'>>;
 
 export type HomeRecord = InferSelectModel<typeof home>;
 export type HomeKind = HomeRecord['kind'];
-export type ComputerRecord = InferSelectModel<typeof computers>;
-export type CreateComputerInput = PolicyOptional<Omit<InferInsertModel<typeof computers>, 'id'>, 'status'> & { id?: string };
-export type UpdateComputerInput = Partial<Pick<ComputerRecord, 'name' | 'platform' | 'hostname' | 'lastSeenAt'>>;
-export type ComputerGrantRecord = InferSelectModel<typeof computerGrants>;
-export type ComputerGrantKind = ComputerGrantRecord['kind'];
-export type WorkerEnrollmentRecord = InferSelectModel<typeof workerEnrollments>;
-export type WorkerReportedState = NonNullable<ComputerRecord['reportedState']>;
+export type DeviceRecord = InferSelectModel<typeof devices>;
+export type DeviceKind = DeviceRecord['kind'];
+export type CreateDeviceInput = PolicyOptional<Omit<InferInsertModel<typeof devices>, 'id'>, 'status'> & { id?: string };
+export type UpdateDeviceInput = Partial<Pick<DeviceRecord, 'name' | 'kind' | 'platform' | 'hostname' | 'lastSeenAt'>>;
+export type DeviceGrantRecord = InferSelectModel<typeof deviceGrants>;
+export type DeviceGrantKind = DeviceGrantRecord['kind'];
+export type WorkerReportedState = NonNullable<DeviceRecord['reportedState']>;
 export type WorkerCommandRecord = InferSelectModel<typeof workerCommands>;
 export type WorkerCommandKind = WorkerCommandRecord['kind'];
 export type WorkerCommandState = WorkerCommandRecord['state'];
@@ -181,16 +181,19 @@ export type TransferStage = ExecutionTransferRecord['stage'];
 export type TransferState = ExecutionTransferRecord['state'];
 export type NativeSessionRecord = InferSelectModel<typeof nativeSessions>;
 export type ReviewCheckoutRecord = InferSelectModel<typeof reviewCheckouts>;
-export type AgentSetupRecord = InferSelectModel<typeof agentSetups>;
-export type AgentSetupStatus = AgentSetupRecord['status'];
+export type WorkspaceSetupRecord = InferSelectModel<typeof workspaceSetups>;
+export type WorkspaceSetupStatus = WorkspaceSetupRecord['status'];
 export type FolderLinkRecord = InferSelectModel<typeof folderLinks>;
 
 export type ApiKeyRecord = InferSelectModel<typeof apiKeys>;
-export type CreateApiKeyInput = PolicyOptional<Omit<InferInsertModel<typeof apiKeys>, 'id' | 'prefix' | 'suffix' | 'hash'>, 'deviceType' | 'env'>;
+// A key always says which device it belongs to. Null only for the home's own
+// key made before the home's identity, which gives it the home's device.
+export type CreateApiKeyInput = PolicyOptional<Omit<InferInsertModel<typeof apiKeys>, 'id' | 'prefix' | 'suffix' | 'hash' | 'deviceId'>, 'env'> & {
+  deviceId: string | null;
+};
 // Only user-editable metadata is exposed — secret material and audit timestamps
 // stay internal and cannot be mutated via the API.
-export type UpdateApiKeyInput = Partial<Pick<CreateApiKeyInput, 'name' | 'description' | 'deviceType'>>;
-export type DeviceType = NonNullable<ApiKeyRecord['deviceType']>;
+export type UpdateApiKeyInput = Partial<Pick<CreateApiKeyInput, 'name' | 'description'>>;
 
 // ─── Workspaces ───────────────────────────────────────────────
 
@@ -328,15 +331,15 @@ export type ChatSessionWithExecution = ChatSessionRecord & {
 
 /**
  * Where an execution runs (docs/homes-spec.md §3.3, P3.1): its placement's
- * computer, or the home's own. Shown on the execution by its stable name.
+ * device, or the home's own. Shown on the execution by its stable name.
  */
 export interface ExecutionLocation {
-  computerId: string;
-  /** The computer's name, as the person named it: MacBook, Mac Mini. Never a hostname or address. */
+  deviceId: string;
+  /** The device's name, as the person named it: MacBook, Mac Mini. Never a hostname or address. */
   name: string;
   isHome: boolean;
   /**
-   * Elsewhere, the folder its computer prepared for it, or null until it has.
+   * Elsewhere, the folder its device prepared for it, or null until it has.
    * The execution's own `worktreePath` is only ever a folder on the home.
    */
   folder: string | null;

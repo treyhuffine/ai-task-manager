@@ -107,7 +107,7 @@ export async function POST(
     // bare id, so a client can't make a message look like it came from a
     // chat that didn't send it. See src/lib/orchestrator/session-credential.ts.
     const senderSessionId = verifySessionCredential(request.headers.get(SESSION_CREDENTIAL_HEADER));
-    // Who is sending, for the command a connected computer gets (P2.6).
+    // Who is sending, for the command a connected device gets (P2.6).
     const actor = actorFromRequest(request.headers);
     if (senderSessionId === id) {
       return Response.json({ error: 'A chat cannot send a message to itself.' }, { status: 400 });
@@ -211,7 +211,7 @@ export async function POST(
     // inline `<task>` / `<note>` / `<scratchpad>` tags. File markers
     // second — the ones the agent can't read itself expand to `<attachment>`
     // text. The rest stay markers, which dispatch turns into paths on the
-    // computer the chat runs on.
+    // device the chat runs on.
     const entityExpanded = expandEntityMarkers(content, id);
     const expanded = await expandMarkers(entityExpanded, attachments);
     // First-message titling is for task-shaped threads (executions, content):
@@ -252,7 +252,7 @@ export async function POST(
       // nested dispatch takes its own reference, so the runtime flag remains
       // true until both preparation and the actual root turn have settled.
       const preparationRef = executor.beginDispatchPreparation(id);
-      // Released once: when a message to a computer elsewhere is saved in its
+      // Released once: when a message to a device elsewhere is saved in its
       // queue (from then on its delivery state and the worker say what the
       // chat is doing), or when the dispatch settles.
       let held = true;

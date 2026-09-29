@@ -52,7 +52,7 @@ export class EventJournal {
   }
 
   /**
-   * The home already holds positions up to `homeAcked` from this computer,
+   * The home already holds positions up to `homeAcked` from this device,
    * past anything in this journal: it was cleared or this is a new install.
    * Number on from there, or the home would take new events for replays.
    */

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, MoreHorizontal, Archive, ArrowUpRight, FolderOpen, SquareArrowOutUpRight, Zap, Copy, Check, Loader2, Rows3, Eye, EyeOff, Pin, PinOff } from 'lucide-react';
 import { locationLabel, preparedFolder } from '@/lib/executions/location';
-import { useComputer, useRunsOnSeveralComputers } from '@/hooks/use-computers';
+import { useDevice, useRunsOnSeveralDevices } from '@/hooks/use-devices';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -27,7 +27,7 @@ import { RestartMenuItem } from './restart-menu-item';
 import { deriveExecutionHeaderStatus, describeChatStatus, type ChatStatusTone } from './execution-header-status';
 import { useSteadyRunning } from './steady-running';
 import { LocationMenu, MoveActions } from './transfer/location-menu';
-import { useComputerLabelMode } from '@/lib/client/computer-label-mode';
+import { useDeviceLabelMode } from '@/lib/client/device-label-mode';
 import { ExecutionTaskChips } from './execution-task-chips';
 import { BACKGROUND_DOT } from '@/components/workspaces/activity-style';
 import { resumeCommandForHarness } from '@/lib/harness/registry';
@@ -174,24 +174,24 @@ export function ExecutionHeader({
   // we don't render "setting up" forever on a failed provision.
   const isSettingUp =
     !!workspace && workspace.isGit === true && !preparedFolder(session) && !isSetupFailed;
-  // Which computer it runs on, by name (P3.1): the exception only. Work on
+  // Which device it runs on, by name (P3.1): the exception only. Work on
   // the home is unlabeled unless this browser asked to always show it.
-  const severalComputers = useRunsOnSeveralComputers();
-  const { mode: labelMode } = useComputerLabelMode();
-  const where = locationLabel(session, severalComputers, labelMode);
+  const severalDevices = useRunsOnSeveralDevices();
+  const { mode: labelMode } = useDeviceLabelMode();
+  const where = locationLabel(session, severalDevices, labelMode);
   // The chip opens the moves this screen can make (P4.2).
   const locationChip = where ? <LocationMenu session={session} workspace={workspace} name={where} /> : null;
 
-  // Away from the home, what its computer is doing shapes the status: a
+  // Away from the home, what its device is doing shapes the status: a
   // message waiting for it, or a turn under way when it lost contact (P3.2).
   const remote = session.location && !session.location.isHome ? session.location : null;
-  const computer = useComputer(remote?.computerId);
+  const device = useDevice(remote?.deviceId);
   const { data: deliveries } = useDeliveries(remote ? session.id : null);
   const elsewhere = remote
     ? {
         // Until the list loads, assume connected rather than claim it dropped.
-        connected: computer?.worker?.connected ?? true,
-        asleep: computer?.worker?.reportedState === 'asleep',
+        connected: device?.worker?.connected ?? true,
+        asleep: device?.worker?.reportedState === 'asleep',
         waiting: Object.values(deliveries ?? {}).some((d) => d.state === 'waiting'),
       }
     : null;
@@ -216,7 +216,7 @@ export function ExecutionHeader({
     statusKind,
     lastOutcomeEventAt,
     formatCompactRelative,
-    remote ? { name: remote.name, lastSeenAt: computer?.lastSeenAt ?? null } : null,
+    remote ? { name: remote.name, lastSeenAt: device?.lastSeenAt ?? null } : null,
   );
   const statusEl = (
     <span
@@ -322,7 +322,7 @@ export function ExecutionHeader({
     )
   ) : null;
 
-  // Its folder wherever it runs, opened on that computer for a browser there (P3.5).
+  // Its folder wherever it runs, opened on that device for a browser there (P3.5).
   const openFolder = preparedFolder(session);
   const worktreeLinks = openFolder ? <WorktreeDeepLinks sessionId={session.id} worktreePath={openFolder} /> : null;
 
@@ -382,7 +382,7 @@ export function ExecutionHeader({
             </>
           )}
 
-          {/* With no computer chip, moving it lives here (P4.2). */}
+          {/* With no device chip, moving it lives here (P4.2). */}
           {!locationChip && <MoveActionsSection session={session} workspace={workspace} />}
 
           <div className="h-px bg-border" />
@@ -398,7 +398,7 @@ export function ExecutionHeader({
           <div className="p-3 space-y-2.5 text-[12px]">
             <DetailRow label="Agent" value={workspace?.name ?? '-'} valueClass="font-medium text-foreground" />
             {session.location && (
-              <DetailRow label="Computer" value={session.location.name} valueClass="text-foreground" />
+              <DetailRow label="Device" value={session.location.name} valueClass="text-foreground" />
             )}
             {workspace?.baseBranch && (
               <DetailRow label="Base" value={workspace.baseBranch} valueClass="font-mono text-foreground" />
@@ -709,8 +709,8 @@ function LiveBadge({ branch }: { branch: string | null }) {
 
 /**
  * "Reveal in Finder" / "Open in editor" links scoped to the worktree
- * root, opened on the computer it's on for a browser there (P3.5).
- * Moving the work to another computer goes through the location menu.
+ * root, opened on the device it's on for a browser there (P3.5).
+ * Moving the work to another device goes through the location menu.
  */
 function WorktreeDeepLinks({ sessionId, worktreePath }: { sessionId: string; worktreePath: string }) {
   const { opener } = useOpener(sessionFolder(sessionId), worktreePath);

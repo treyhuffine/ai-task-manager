@@ -8,7 +8,7 @@ export default function manifest(): MetadataRoute.Manifest {
     id: '/',
     name: APP_NAME,
     short_name: APP_NAME,
-    description: 'Your tasks, notes, and agents, connected to your Ri computer.',
+    description: 'Your tasks, notes, and agents, connected to your Ri home.',
     start_url: '/',
     scope: '/',
     display: 'standalone',

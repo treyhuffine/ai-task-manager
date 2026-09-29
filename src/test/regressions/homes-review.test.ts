@@ -61,20 +61,19 @@ function request(url: string, method: string, body: unknown, token?: string) {
 const forwarded = (res: Response, name: string) => res.headers.get(`x-middleware-request-${name}`);
 
 describe('1. only the home’s own key counts as the home machine', () => {
-  it('a paired key cannot give itself the host label', async () => {
-    const { key, token } = q.createApiKey({ name: 'Laptop', deviceType: 'computer' });
+  it('a paired device cannot label itself the home', async () => {
+    const { device, token } = q.pairDevice({ name: 'Laptop', kind: 'computer' });
     const { PATCH } = await import('@/app/api/devices/[id]/route');
-    const res = await PATCH(request(`/api/devices/${key.id}`, 'PATCH', { deviceType: 'host' }, token.plaintext), {
-      params: Promise.resolve({ id: key.id }),
+    const res = await PATCH(request(`/api/devices/${device.id}`, 'PATCH', { kind: 'host' }, token.plaintext), {
+      params: Promise.resolve({ id: device.id }),
     });
     expect(res.status).toBe(400);
-    const next = proxy(request('/api/orchestrator/actions/register_computer', 'POST', {}, token.plaintext));
-    expect(forwarded(next, 'x-ri-api-key-type')).toBe('computer');
+    const next = proxy(request('/api/orchestrator/actions/register_device', 'POST', {}, token.plaintext));
     expect(forwarded(next, 'x-ri-caller-location')).toBe('elsewhere');
   });
 
-  it('a key labelled host that is not the home’s own key is still elsewhere', () => {
-    const { token } = q.createApiKey({ name: 'Imposter', deviceType: 'host' });
+  it('a key on the home’s device that is not the home’s own key is still elsewhere', () => {
+    const { token } = q.addDeviceKey(ensureHomeIdentity().device.id);
     const next = proxy(request('/api/tasks', 'GET', undefined, token.plaintext));
     expect(forwarded(next, 'x-ri-caller-location')).toBe('elsewhere');
   });
@@ -86,9 +85,9 @@ describe('1. only the home’s own key counts as the home machine', () => {
     expect(forwarded(next, 'x-ri-caller-location')).toBe('home');
   });
 
-  it('device creation refuses the host label', async () => {
+  it('pairing refuses the host label', async () => {
     const { POST } = await import('@/app/api/devices/route');
-    const res = await POST(request('/api/devices', 'POST', { name: 'Sneaky', deviceType: 'host' }));
+    const res = await POST(request('/api/devices', 'POST', { name: 'Sneaky', kind: 'host' }));
     expect(res.status).toBe(400);
   });
 });
@@ -135,7 +134,7 @@ describe('4. a failed folder change keeps the previous setup', () => {
     const res = await PATCH(request(`/api/workspaces/${ws.id}`, 'PATCH', { cwd: missing }), { params: Promise.resolve({ id: ws.id }) });
     expect(res.status).toBe(400);
     expect(q.getWorkspace(ws.id)?.cwd).toBe(source);
-    expect(q.listAgentSetups({ workspaceId: ws.id })[0]).toMatchObject({ sourcePath: source, status: 'ready' });
+    expect(q.listWorkspaceSetups({ workspaceId: ws.id })[0]).toMatchObject({ sourcePath: source, status: 'ready' });
   });
 
   it('refuses to create an agent in a folder that does not exist', async () => {
@@ -153,7 +152,7 @@ describe('4. a failed folder change keeps the previous setup', () => {
     const { PATCH } = await import('@/app/api/workspaces/[id]/route');
     const res = await PATCH(request(`/api/workspaces/${ws.id}`, 'PATCH', { cwd: b }), { params: Promise.resolve({ id: ws.id }) });
     expect(res.status).toBe(200);
-    expect(q.listAgentSetups({ workspaceId: ws.id })).toEqual([expect.objectContaining({ sourcePath: b, status: 'ready' })]);
+    expect(q.listWorkspaceSetups({ workspaceId: ws.id })).toEqual([expect.objectContaining({ sourcePath: b, status: 'ready' })]);
     expect(q.getWorkspace(ws.id)?.cwd).toBe(b);
   });
 });
@@ -206,16 +205,16 @@ describe('6. detaching one agent from a shared folder', () => {
     const b = workspace('B', source);
     await setHomeFolder(a.id, source);
     await setHomeFolder(b.id, source);
-    const host = ensureHomeIdentity().computer.id;
-    expect(q.removeAgentSetup(a.id, host)).toBe(true);
-    expect(q.removeAgentSetup(a.id, host)).toBe(false);
-    expect(q.listAgentSetups({ workspaceId: a.id })).toEqual([]);
-    expect(q.listAgentSetups({ workspaceId: b.id })).toEqual([expect.objectContaining({ sourcePath: source })]);
+    const host = ensureHomeIdentity().device.id;
+    expect(q.removeWorkspaceSetup(a.id, host)).toBe(true);
+    expect(q.removeWorkspaceSetup(a.id, host)).toBe(false);
+    expect(q.listWorkspaceSetups({ workspaceId: a.id })).toEqual([]);
+    expect(q.listWorkspaceSetups({ workspaceId: b.id })).toEqual([expect.objectContaining({ sourcePath: source })]);
   });
 });
 
 describe('7. renaming a reference', () => {
-  it("keeps this computer's own value under the new name", async () => {
+  it("keeps this device's own value under the new name", async () => {
     const source = folder('app');
     const referenceDir = folder('reference');
     const ws = workspace('App', source);
@@ -223,13 +222,13 @@ describe('7. renaming a reference', () => {
     const { POST } = await import('@/app/api/reference-folders/route');
     const made = await POST(request('/api/reference-folders', 'POST', { alias: 'docs', path: referenceDir }));
     const ref = (await made.json()) as { id: string };
-    const host = ensureHomeIdentity().computer.id;
+    const host = ensureHomeIdentity().device.id;
     const local = folder('local-reference');
     q.setFolderLink(host, ref.id, local);
     const { PATCH } = await import('@/app/api/reference-folders/[id]/route');
     await PATCH(request(`/api/reference-folders/${ref.id}`, 'PATCH', { alias: 'guides' }), { params: Promise.resolve({ id: ref.id }) });
     expect(q.getFolderLink(host, ref.id)?.path).toBe(local);
-    expect(q.getAgentSetup(ws.id, host)!.references).toEqual([expect.objectContaining({ alias: 'guides', path: local })]);
+    expect(q.getWorkspaceSetup(ws.id, host)!.references).toEqual([expect.objectContaining({ alias: 'guides', path: local })]);
   });
 });
 

@@ -1,8 +1,8 @@
 /**
- * The known editors and terminals installed on this computer, each with its
+ * The known editors and terminals installed on this device, each with its
  * real icon where the platform gives one (macOS). Answered by the home for a
- * browser on its own computer (`GET /api/fs/installed-apps`) and by a worker
- * for a browser on the computer it runs on (P3.5).
+ * browser on its own device (`GET /api/fs/installed-apps`) and by a worker
+ * for a browser on the device it runs on (P3.5).
  */
 
 import { detectInstalledApps, type DetectedApp } from './detect-apps';

@@ -19,16 +19,16 @@ import {
 
 export interface WorkerConnection {
   readonly id: string;
-  readonly computerId: string;
+  readonly deviceId: string;
   readonly openedAt: number;
   send(event: WorkerStreamEvent): void;
-  /** Send whatever commands are waiting for this computer. */
+  /** Send whatever commands are waiting for this device. */
   wake(): void;
   close(): void;
 }
 
 interface PendingRequest {
-  computerId: string;
+  deviceId: string;
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -45,8 +45,8 @@ if (!globalRef[HUB_KEY]) globalRef[HUB_KEY] = { connections: new Map(), pending:
 const hub = globalRef[HUB_KEY]!;
 
 export class WorkerUnavailableError extends Error {
-  constructor(readonly computerId: string) {
-    super('That computer is not connected to its home right now.');
+  constructor(readonly deviceId: string) {
+    super('That device is not connected to its home right now.');
     this.name = 'WorkerUnavailableError';
   }
 }
@@ -63,28 +63,28 @@ export class WorkerRequestError extends Error {
 
 /** Track a newly opened stream. Returns the function that forgets it. */
 export function registerConnection(connection: WorkerConnection): () => void {
-  const list = hub.connections.get(connection.computerId) ?? [];
-  hub.connections.set(connection.computerId, [...list, connection]);
+  const list = hub.connections.get(connection.deviceId) ?? [];
+  hub.connections.set(connection.deviceId, [...list, connection]);
   return () => {
-    const remaining = (hub.connections.get(connection.computerId) ?? []).filter((c) => c.id !== connection.id);
-    if (remaining.length > 0) hub.connections.set(connection.computerId, remaining);
-    else hub.connections.delete(connection.computerId);
+    const remaining = (hub.connections.get(connection.deviceId) ?? []).filter((c) => c.id !== connection.id);
+    if (remaining.length > 0) hub.connections.set(connection.deviceId, remaining);
+    else hub.connections.delete(connection.deviceId);
   };
 }
 
-/** A command was queued for this computer: its stream sends it now, if it's connected. */
-export function wakeComputer(computerId: string): void {
-  const connection = newest(computerId);
+/** A command was queued for this device: its stream sends it now, if it's connected. */
+export function wakeDevice(deviceId: string): void {
+  const connection = newest(deviceId);
   try {
     connection?.wake();
   } catch (err) {
-    console.warn(`[workers] could not wake the stream of ${computerId}:`, err);
+    console.warn(`[workers] could not wake the stream of ${deviceId}:`, err);
   }
 }
 
-/** Send one event to a computer's worker, when it's connected. Says whether it was sent. */
-export function sendToWorker(computerId: string, event: WorkerStreamEvent): boolean {
-  const connection = newest(computerId);
+/** Send one event to a device's worker, when it's connected. Says whether it was sent. */
+export function sendToWorker(deviceId: string, event: WorkerStreamEvent): boolean {
+  const connection = newest(deviceId);
   if (!connection) return false;
   try {
     connection.send(event);
@@ -94,12 +94,12 @@ export function sendToWorker(computerId: string, event: WorkerStreamEvent): bool
   }
 }
 
-export function isComputerConnected(computerId: string): boolean {
-  return (hub.connections.get(computerId)?.length ?? 0) > 0;
+export function isDeviceConnected(deviceId: string): boolean {
+  return (hub.connections.get(deviceId)?.length ?? 0) > 0;
 }
 
-function newest(computerId: string): WorkerConnection | null {
-  const list = hub.connections.get(computerId);
+function newest(deviceId: string): WorkerConnection | null {
+  const list = hub.connections.get(deviceId);
   if (!list || list.length === 0) return null;
   return list.reduce((a, b) => (b.openedAt >= a.openedAt ? b : a));
 }
@@ -111,38 +111,38 @@ function newest(computerId: string): WorkerConnection | null {
  * in time.
  */
 export function requestWorker(
-  computerId: string,
+  deviceId: string,
   kind: WorkerRequestKind,
   payload: unknown = null,
   timeoutMs = WORKER_REQUEST_TIMEOUT_MS,
 ): Promise<unknown> {
-  const connection = newest(computerId);
-  if (!connection) return Promise.reject(new WorkerUnavailableError(computerId));
+  const connection = newest(deviceId);
+  if (!connection) return Promise.reject(new WorkerUnavailableError(deviceId));
   const id = uuidv7();
   return new Promise<unknown>((resolve, reject) => {
     const timer = setTimeout(() => {
       hub.pending.delete(id);
-      reject(new WorkerRequestError(`The computer didn't answer within ${Math.round(timeoutMs / 1000)} seconds.`));
+      reject(new WorkerRequestError(`The device didn't answer within ${Math.round(timeoutMs / 1000)} seconds.`));
     }, timeoutMs);
     timer.unref?.();
-    hub.pending.set(id, { computerId, resolve, reject, timer });
+    hub.pending.set(id, { deviceId, resolve, reject, timer });
     try {
       connection.send({ type: 'request', id, kind, payload });
     } catch {
       clearTimeout(timer);
       hub.pending.delete(id);
-      reject(new WorkerUnavailableError(computerId));
+      reject(new WorkerUnavailableError(deviceId));
     }
   });
 }
 
 /**
- * A worker's answer to a request. Only the computer that was asked can
+ * A worker's answer to a request. Only the device that was asked can
  * answer. Returns false for an unknown, expired or someone else's request.
  */
-export function settleRequest(computerId: string, requestId: string, result: WorkerRequestResult): boolean {
+export function settleRequest(deviceId: string, requestId: string, result: WorkerRequestResult): boolean {
   const pending = hub.pending.get(requestId);
-  if (!pending || pending.computerId !== computerId) return false;
+  if (!pending || pending.deviceId !== deviceId) return false;
   hub.pending.delete(requestId);
   clearTimeout(pending.timer);
   if (result.ok) pending.resolve(result.value);
@@ -150,9 +150,9 @@ export function settleRequest(computerId: string, requestId: string, result: Wor
   return true;
 }
 
-/** Tell every stream of a computer it was revoked, and close them. */
-export function disconnectComputer(computerId: string, message: string): void {
-  for (const connection of hub.connections.get(computerId) ?? []) {
+/** Tell every stream of a device it was revoked, and close them. */
+export function disconnectDevice(deviceId: string, message: string): void {
+  for (const connection of hub.connections.get(deviceId) ?? []) {
     try {
       connection.send({ type: 'revoked', message });
     } catch {
@@ -160,12 +160,12 @@ export function disconnectComputer(computerId: string, message: string): void {
     }
     connection.close();
   }
-  hub.connections.delete(computerId);
+  hub.connections.delete(deviceId);
 }
 
-/** Test helper: drop a computer's streams without revoking it, as a network failure would. */
-export function _dropWorkerStreams(computerId: string): void {
-  for (const connection of hub.connections.get(computerId) ?? []) connection.close();
+/** Test helper: drop a device's streams without revoking it, as a network failure would. */
+export function _dropWorkerStreams(deviceId: string): void {
+  for (const connection of hub.connections.get(deviceId) ?? []) connection.close();
 }
 
 /** Test helper. */

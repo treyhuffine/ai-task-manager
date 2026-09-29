@@ -5,7 +5,7 @@ import { deliveriesForChat } from '@/lib/workers/delivery';
 export const dynamic = 'force-dynamic';
 
 /**
- * Where each message this chat sent to a computer elsewhere stands, by chat
+ * Where each message this chat sent to a device elsewhere stands, by chat
  * event id (P3.2). Empty for a chat at home: its messages reach the harness
  * as they're sent. Live changes come on the session stream as `delivery`.
  */

@@ -1,7 +1,7 @@
 /**
- * This computer's folders, for its home (docs/homes-spec.md §4.1-4.2):
+ * This device's folders, for its home (docs/homes-spec.md §4.1-4.2):
  * whether the ones it records are there, and a folder's folders for choosing
- * one. Runs on a worker for its computer and on the home for its own. No
+ * one. Runs on a worker for its device and on the home for its own. No
  * database: the home records what these find.
  */
 

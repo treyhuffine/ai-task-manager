@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { listWorkspaceExecutions, getWorkspace } from '@/lib/db/queries';
 import type { EffortLevel } from '@/db/types';
 import {
-  ComputerUnavailableForDispatch,
+  DeviceUnavailableForDispatch,
   dispatchExecutionSession,
   WorkspaceNotFoundForDispatch,
   TaskNotStartableForDispatch,
@@ -53,8 +53,8 @@ export async function POST(
       prNumber?: number | null;
       liveMode?: boolean;
       taskId?: string | null;
-      /** Run on this computer. Omitted: the agent's default (P3.1). */
-      computerId?: string | null;
+      /** Run on this device. Omitted: the agent's default (P3.1). */
+      deviceId?: string | null;
     } = await request.json().catch(() => ({}));
     if (!getWorkspace(id)) {
       return Response.json({ error: 'Workspace not found' }, { status: 404 });
@@ -95,7 +95,7 @@ export async function POST(
       prNumber: typeof body.prNumber === 'number' ? body.prNumber : null,
       liveMode: !!body.liveMode,
       taskId: typeof body.taskId === 'string' ? body.taskId : null,
-      computerId: typeof body.computerId === 'string' ? body.computerId : null,
+      deviceId: typeof body.deviceId === 'string' ? body.deviceId : null,
       actor: actorFromRequest(request.headers),
     });
     return Response.json(row, { status: 201 });
@@ -103,7 +103,7 @@ export async function POST(
     if (err instanceof WorkspaceNotFoundForDispatch) {
       return Response.json({ error: 'Workspace not found' }, { status: 404 });
     }
-    if (err instanceof ComputerUnavailableForDispatch) {
+    if (err instanceof DeviceUnavailableForDispatch) {
       return Response.json({ error: err.name, message: err.message }, { status: 409 });
     }
     if (err instanceof TaskNotStartableForDispatch) {

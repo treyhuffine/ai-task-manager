@@ -1,11 +1,11 @@
 /**
  * `<app> connect [link]` and `<app> disconnect`.
  *
- * Connect this computer to your existing Ri (docs/homes-spec.md §3.1). The
+ * Connect this device to your existing Ri (docs/homes-spec.md §3.1). The
  * link is the pairing link from your home's Devices settings, the same one
  * its QR code opens for a phone. Without a link argument it is asked for with
  * hidden input, so the key stays out of your shell history. A connected
- * computer keeps no data of its own: it opens your home, runs `ri` commands
+ * device keeps no data of its own: it opens your home, runs `ri` commands
  * against it, and keeps only its own agent folders' setups.
  */
 
@@ -16,13 +16,13 @@ import { APP_SHORT_ID } from '@/constants/app';
 import { getInstallationRole } from '@/lib/config/role';
 import {
   readConnection,
-  rememberComputerId,
-  rememberedComputerId,
+  rememberDeviceId,
+  rememberedDeviceId,
   removeConnection,
   writeConnection,
 } from '@/lib/connection/config';
 import { changeHomeAddress, ConnectError, parsePairingLink, saveConnection, verifyPairingLink } from '@/lib/connection/connect';
-import { thisComputerFacts } from '@/lib/home/computer-name';
+import { thisDeviceFacts } from '@/lib/home/device-name';
 import { describeHomeUse, setAsideUnusedHome } from '@/lib/home/set-aside';
 import { readLiveServerRuntime } from '@/lib/server-runtime/record';
 import { openBrowser } from '../lib/browser';
@@ -44,15 +44,15 @@ async function askForLink(): Promise<string | null> {
 }
 
 /**
- * Connect, register this computer with the home, and open it. Returns false
- * when it didn't connect. Nothing on this computer changes until the home
+ * Connect, register this device with the home, and open it. Returns false
+ * when it didn't connect. Nothing on this device changes until the home
  * has accepted the link: a bad link leaves everything as it was.
  */
 export async function runConnect(linkArg: string | undefined, opts: ConnectOptions): Promise<boolean> {
   const role = getInstallationRole();
   if (role === 'connected') {
     const current = readConnection();
-    log.error(`This computer is already connected to ${current?.homeName} at ${current?.homeUrl}. Run \`${APP_SHORT_ID} disconnect\` first to connect it elsewhere.`);
+    log.error(`This device is already connected to ${current?.homeName} at ${current?.homeUrl}. Run \`${APP_SHORT_ID} disconnect\` first to connect it elsewhere.`);
     return false;
   }
   if (role === 'home') {
@@ -103,19 +103,19 @@ export async function runConnect(linkArg: string | undefined, opts: ConnectOptio
   }
 
   const connection = saveConnection(link, home);
-  const registered = await dispatchAction('register_computer', {
-    ...thisComputerFacts(),
-    computerId: rememberedComputerId(home.id),
+  const registered = await dispatchAction('register_device', {
+    ...thisDeviceFacts(),
+    deviceId: rememberedDeviceId(home.id),
   });
   if (registered.ok) {
-    const computerId = (registered.result as { computer: { id: string } }).computer.id;
-    writeConnection({ ...connection, computerId });
-    rememberComputerId(home.id, computerId);
+    const deviceId = (registered.result as { device: { id: string } }).device.id;
+    writeConnection({ ...connection, deviceId });
+    rememberDeviceId(home.id, deviceId);
   }
   log.success(`Connected to ${pc.bold(home.name)} on ${home.host.name}, at ${connection.homeUrl}`);
   log.info(
     pc.dim(
-      `Your data stays in ${home.name}. Its computer, ${home.host.name}, needs to be awake and reachable for this computer and your phone to use it.`,
+      `Your data stays in ${home.name}. Its device, ${home.host.name}, needs to be awake and reachable for this device and your phone to use it.`,
     ),
   );
   if (opts.open ?? true) await openBrowser(connection.homeUrl);
@@ -125,16 +125,16 @@ export async function runConnect(linkArg: string | undefined, opts: ConnectOptio
 export function registerConnectCommands(program: Command) {
   program
     .command('connect [link]')
-    .description('Connect this computer to your existing Ri, with a pairing link from its Devices settings')
+    .description('Connect this device to your existing Ri, with a pairing link from its Devices settings')
     .option('--insecure-http', 'allow a plain http:// address on a home network you trust')
     .option('--no-open', "don't open your Ri in the browser")
     .option('-y, --yes', 'set aside an unused new home in this folder without asking')
-    .option('--address <url>', 'your home answers at a new address: follow it, keeping this computer as it is')
+    .option('--address <url>', 'your home answers at a new address: follow it, keeping this device as it is')
     .action(async (link: string | undefined, opts: ConnectOptions & { address?: string }) => {
       if (opts.address) {
         const current = readConnection();
         if (!current) {
-          log.error(`This computer isn't connected yet. Connect with a pairing link: \`${APP_SHORT_ID} connect '<link>'\`.`);
+          log.error(`This device isn't connected yet. Connect with a pairing link: \`${APP_SHORT_ID} connect '<link>'\`.`);
           process.exitCode = 1;
           return;
         }
@@ -158,16 +158,16 @@ export function registerConnectCommands(program: Command) {
 
   program
     .command('disconnect')
-    .description('Disconnect this computer from your Ri. Your data stays there.')
+    .description('Disconnect this device from your Ri. Your data stays there.')
     .action(() => {
       const connection = readConnection();
       if (getInstallationRole() !== 'connected' || !connection) {
-        console.error('This computer is not connected to a home.');
+        console.error('This device is not connected to a home.');
         process.exitCode = 1;
         return;
       }
       removeConnection();
       console.log(`Disconnected from ${connection.homeName} (${connection.homeUrl}). Your data stays there.`);
-      console.log(pc.dim("This computer's agent folders keep their setup files, ready if it connects again."));
+      console.log(pc.dim("This device's agent folders keep their setup files, ready if it connects again."));
     });
 }

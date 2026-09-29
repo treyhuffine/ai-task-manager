@@ -97,7 +97,7 @@ export function ToolsList({
     );
   const runDetail =
     status === 'elsewhere'
-      ? `on ${c.elsewhere?.computerName ?? 'another computer'}`
+      ? `on ${c.elsewhere?.deviceName ?? 'another device'}`
       : status === 'not-configured'
       ? 'No start command yet'
       : status === 'running' && port
@@ -113,7 +113,7 @@ export function ToolsList({
   // The interface row: opens Preview, and only starts anything when it says so.
   const previewRight =
     status === 'elsewhere' ? (
-      <span className="truncate">{c.url ? hostOf(c.url) : `On ${c.elsewhere?.computerName ?? 'another computer'}`}</span>
+      <span className="truncate">{c.url ? hostOf(c.url) : `On ${c.elsewhere?.deviceName ?? 'another device'}`}</span>
     ) : status === 'not-configured' ? (
       <span>Needs a start command</span>
     ) : status === 'running' || c.url ? (

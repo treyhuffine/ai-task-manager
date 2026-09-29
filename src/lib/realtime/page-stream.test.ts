@@ -227,7 +227,7 @@ describe('where each left off is what it was handed (P3 re-check)', () => {
     vi.advanceTimersByTime(50);
     sources[0]!.frame('terminal', { k: '/sessions/chat:t1', e: 'data', d: 'a', i: '1' });
     hide();
-    // Its computer dropped: no output, so the offset stays where the screen left it.
+    // Its device dropped: no output, so the offset stays where the screen left it.
     sources[0]!.frame('terminal', { k: '/sessions/chat:t1', e: 'unavailable', d: { message: 'away' } });
     const got: string[] = [];
     stream.subscribeTerminal('/sessions/chat', 't1', a, (e) => got.push(e));

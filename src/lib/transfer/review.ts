@@ -1,7 +1,7 @@
 /**
- * Open code here on this computer (docs/homes-spec.md §8.1, P4.1): the
+ * Open code here on this device (docs/homes-spec.md §8.1, P4.1): the
  * execution's latest published commit, checked out for review in a folder of
- * this computer's own, from its own clone of the agent's repository. The
+ * this device's own, from its own clone of the agent's repository. The
  * execution keeps running where it is, and nothing here is published to it.
  * Git and the filesystem only, so the home and a worker run the same code.
  */
@@ -17,7 +17,7 @@ export async function reviewHere(args: {
   branch: string;
   sourceName: string;
 }): Promise<ReviewCheckoutAnswer> {
-  if (!args.repo) return { ok: false, code: 'not_set_up', message: "The agent isn't set up on this computer. Attach its folder here first." };
+  if (!args.repo) return { ok: false, code: 'not_set_up', message: "The agent isn't set up on this device. Attach its folder here first." };
   const published = await publishedCommit(args.repo, args.branch);
   if (!published) {
     return {

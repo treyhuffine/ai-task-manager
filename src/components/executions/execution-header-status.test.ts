@@ -93,25 +93,25 @@ describe('describeChatStatus', () => {
   });
 });
 
-describe('an execution on another computer (P3.2)', () => {
+describe('an execution on another device (P3.2)', () => {
   const base = {
     isArchived: false, isSetupFailed: false, isSettingUp: false, isPending: false,
     hasBackgroundTasks: false, lastOutcomeEventAt: null, lastViewedAt: null,
   };
-  it('waits for its computer, rather than working, while a message waits', () => {
+  it('waits for its device, rather than working, while a message waits', () => {
     expect(deriveExecutionHeaderStatus({ ...base, isRunning: false, elsewhere: { connected: false, asleep: false, waiting: true } })).toBe('waiting');
   });
-  it('says its computer disconnected mid-turn, never that it stopped', () => {
+  it('says its device disconnected mid-turn, never that it stopped', () => {
     expect(deriveExecutionHeaderStatus({ ...base, isRunning: true, elsewhere: { connected: false, asleep: false, waiting: false } })).toBe('disconnected');
   });
-  it('says asleep only when the computer said so', () => {
+  it('says asleep only when the device said so', () => {
     expect(deriveExecutionHeaderStatus({ ...base, isRunning: true, elsewhere: { connected: false, asleep: true, waiting: false } })).toBe('asleep');
     expect(deriveExecutionHeaderStatus({ ...base, isRunning: false, elsewhere: { connected: false, asleep: true, waiting: true } })).toBe('asleep');
   });
-  it('works as usual while its computer is connected', () => {
+  it('works as usual while its device is connected', () => {
     expect(deriveExecutionHeaderStatus({ ...base, isRunning: true, elsewhere: { connected: true, asleep: false, waiting: false } })).toBe('working');
   });
-  it('names the computer and when it was last heard from', () => {
+  it('names the device and when it was last heard from', () => {
     const ago = () => '4m';
     expect(describeChatStatus('waiting', null, ago, { name: 'MacBook', lastSeenAt: 'x' })).toMatchObject({ label: 'Waiting for MacBook', detail: 'your message is saved' });
     expect(describeChatStatus('disconnected', null, ago, { name: 'MacBook', lastSeenAt: 'x' })).toMatchObject({ label: 'MacBook disconnected', detail: 'last heard from 4m ago' });

@@ -2,8 +2,8 @@ import { api } from './client';
 import type { InstalledAppsResponse, OpenInClientOptions, OpenInResult, OpenTarget } from './fs';
 
 /**
- * Opening a folder in an app on the computer it's on, through that
- * computer's worker, for a browser on that computer (P3.5). Every call takes
+ * Opening a folder in an app on the device it's on, through that
+ * device's worker, for a browser on that device (P3.5). Every call takes
  * the folder's route base (`folderApiBase`) and a path inside the folder.
  */
 export const openApi = {

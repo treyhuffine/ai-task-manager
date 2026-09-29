@@ -47,7 +47,7 @@ export function openSessionFeed(
       case 'delivery': emit('delivery', { eventId: message.eventId, delivery: message.delivery }); break;
       case 'transfer': emit('transfer', { transfer: message.transfer }); break;
       case 'session_updated': break;
-      case 'computer_updated': break;
+      case 'device_updated': break;
     }
   });
 

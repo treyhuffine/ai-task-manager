@@ -19,8 +19,8 @@ export function useGlobalSessionStream(): void {
     const refresh = () => invalidateRailSoon(queryClient, { includeChatStrips: true });
     return pageStream().subscribeGlobal((event) => {
       if (event === 'session_updated' || event === 'ready') refresh();
-      // A computer connected, dropped, or reported sleep (P3.2).
-      if (event === 'computer_updated') queryClient.invalidateQueries({ queryKey: ['computers'] });
+      // A device connected, dropped, or reported sleep (P3.2).
+      if (event === 'device_updated') queryClient.invalidateQueries({ queryKey: ['devices'] });
     });
   }, [queryClient]);
 }

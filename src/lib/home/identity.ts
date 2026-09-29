@@ -1,14 +1,14 @@
 /**
- * Home and computer identity (docs/homes-spec.md §2.2, §5.1, §10.3).
+ * Home and device identity (docs/homes-spec.md §2.2, §5.1, §10.3).
  *
  * A home has a stable id that no address or machine change alters, and a
- * host computer whose in-process runner serves it. The database says which
- * home it is and which computer hosts it. The machine says which computer it
+ * host device whose in-process runner serves it. The database says which
+ * home it is and which device hosts it. The machine says which device it
  * is, in `<config>/machine.json`. The two must agree before this root acts
  * as the home:
  *
  * - No home row yet (a new database, or one from before this build): make
- *   the home and this machine's computer row. The ids are written to
+ *   the home and this machine's device row. The ids are written to
  *   `machine.json` first, so a crash between the two steps repeats them.
  * - Home row and matching `machine.json`: active.
  * - Anything else means the database came from somewhere else: a restored
@@ -18,7 +18,7 @@
  *
  * `machine.json` also records this machine's fingerprint and the folder's
  * real location. A whole-folder copy carries `machine.json` along, so a copy
- * on another computer (Migration Assistant, a disk clone) or in another
+ * on another device (Migration Assistant, a disk clone) or in another
  * folder needs claiming too. What this can't stop: after a copy is claimed,
  * the original still runs where it is until it's retired (P5.3).
  */
@@ -30,23 +30,24 @@ import { getAppRoot, getMachineIdentityPath, getDbPath } from '@/lib/config/path
 import { canonicalPath } from '@/lib/config/canonical-path';
 import { machineFingerprint } from './machine-fingerprint';
 import {
-  createComputer,
+  createDevice,
   createHomeIdentity,
-  getComputer,
+  getDevice,
   getHome,
+  giveHostItsKeys,
   moveHomeHost,
 } from '@/lib/db/queries';
-import type { ComputerRecord, HomeKind, HomeRecord } from '@/db/types';
-import { thisComputerFacts } from './computer-name';
+import type { DeviceRecord, HomeKind, HomeRecord } from '@/db/types';
+import { thisDeviceFacts } from './device-name';
 
-export { defaultComputerName } from './computer-name';
+export { defaultDeviceName } from './device-name';
 
 export const MACHINE_IDENTITY_VERSION = 1;
 
 export interface MachineIdentity {
   version: number;
   homeId: string;
-  computerId: string;
+  deviceId: string;
   createdAt: string;
   /** This machine's fingerprint when written (src/lib/home/machine-fingerprint.ts). */
   machine?: string | null;
@@ -64,15 +65,15 @@ export type NeedsClaimReason =
   | 'no_machine_identity'
   /** This machine's identity belongs to a different home. */
   | 'other_home'
-  /** The home is hosted by another computer, e.g. after a move. */
+  /** The home is hosted by another device, e.g. after a move. */
   | 'other_host'
-  /** The whole folder was copied or moved here from another computer. */
+  /** The whole folder was copied or moved here from another device. */
   | 'other_machine'
-  /** The whole folder was copied or moved to another place on this computer. */
+  /** The whole folder was copied or moved to another place on this device. */
   | 'moved_or_copied';
 
 export type HomeIdentityStatus =
-  | { state: 'active'; home: HomeRecord; computer: ComputerRecord; created: boolean }
+  | { state: 'active'; home: HomeRecord; device: DeviceRecord; created: boolean }
   | { state: 'needs_claim'; home: HomeRecord; reason: NeedsClaimReason; machine: MachineIdentity | null };
 
 export class HomeIdentityError extends Error {
@@ -88,14 +89,16 @@ export class HomeIdentityError extends Error {
 export function readMachineIdentity(): MachineIdentity | null {
   const file = getMachineIdentityPath();
   if (!fs.existsSync(file)) return null;
-  const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<MachineIdentity>;
-  if (typeof parsed.homeId !== 'string' || typeof parsed.computerId !== 'string') {
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<MachineIdentity> & { computerId?: string };
+  // Written as `computerId` before devices were named devices (2026-09-29).
+  parsed.deviceId ??= parsed.computerId;
+  if (typeof parsed.homeId !== 'string' || typeof parsed.deviceId !== 'string') {
     throw new Error(`${file} is malformed. Move it aside and run \`ri home claim\` to rebuild it.`);
   }
   return {
     version: parsed.version ?? MACHINE_IDENTITY_VERSION,
     homeId: parsed.homeId,
-    computerId: parsed.computerId,
+    deviceId: parsed.deviceId,
     createdAt: parsed.createdAt ?? new Date().toISOString(),
     ...(parsed.machine !== undefined ? { machine: parsed.machine } : {}),
     ...(parsed.root !== undefined ? { root: parsed.root } : {}),
@@ -152,15 +155,15 @@ export function resolveHomeIdentity(opts: ResolveOptions = {}): HomeIdentityStat
 
   if (!current) {
     const ids =
-      machine ?? writeMachineIdentityOnce({ homeId: uuidv7(), computerId: uuidv7(), createdAt: new Date().toISOString() });
+      machine ?? writeMachineIdentityOnce({ homeId: uuidv7(), deviceId: uuidv7(), createdAt: new Date().toISOString() });
     try {
       const made = createHomeIdentity({
         homeId: ids.homeId,
         kind: opts.kind ?? 'personal',
         name: opts.name ?? 'My Ri',
-        host: { id: ids.computerId, ...thisComputerFacts() },
+        host: { id: ids.deviceId, kind: 'computer', ...thisDeviceFacts() },
       });
-      return { state: 'active', home: made.home, computer: made.computer, created: true };
+      return { state: 'active', home: made.home, device: made.device, created: true };
     } catch (err) {
       // Another process made the home first. Its row decides.
       if (!getHome()) throw err;
@@ -170,7 +173,7 @@ export function resolveHomeIdentity(opts: ResolveOptions = {}): HomeIdentityStat
 
   if (!machine) return { state: 'needs_claim', home: current, reason: 'no_machine_identity', machine };
   if (machine.homeId !== current.id) return { state: 'needs_claim', home: current, reason: 'other_home', machine };
-  if (machine.computerId !== current.hostComputerId) {
+  if (machine.deviceId !== current.hostDeviceId) {
     return { state: 'needs_claim', home: current, reason: 'other_host', machine };
   }
   const here = binding();
@@ -182,22 +185,22 @@ export function resolveHomeIdentity(opts: ResolveOptions = {}): HomeIdentityStat
   }
   // Written before identities were bound to a machine and folder: bind now.
   if (machine.machine === undefined || machine.root === undefined) {
-    writeMachineIdentity({ homeId: machine.homeId, computerId: machine.computerId, createdAt: machine.createdAt });
+    writeMachineIdentity({ homeId: machine.homeId, deviceId: machine.deviceId, createdAt: machine.createdAt });
   }
-  const computer = getComputer(current.hostComputerId);
-  if (!computer) throw new Error(`Home ${current.id} names host ${current.hostComputerId}, which does not exist.`);
-  return { state: 'active', home: current, computer, created: false };
+  const device = getDevice(current.hostDeviceId);
+  if (!device) throw new Error(`Home ${current.id} names host ${current.hostDeviceId}, which does not exist.`);
+  return { state: 'active', home: current, device, created: false };
 }
 
 export function describeNeedsClaim(reason: NeedsClaimReason): string {
   const why = {
-    no_machine_identity: 'This data was restored or copied here, so this computer is not recorded as its host.',
-    other_home: 'This computer belongs to a different home than the data in this folder.',
-    other_host: 'This home is hosted by another computer.',
-    other_machine: 'This home was copied or moved here from another computer, which may still be running it.',
-    moved_or_copied: 'This home was copied or moved to this folder from another place on this computer.',
+    no_machine_identity: 'This data was restored or copied here, so this device is not recorded as its host.',
+    other_home: 'This device belongs to a different home than the data in this folder.',
+    other_host: 'This home is hosted by another device.',
+    other_machine: 'This home was copied or moved here from another device, which may still be running it.',
+    moved_or_copied: 'This home was copied or moved to this folder from another place on this device.',
   }[reason];
-  return `${why} If this computer should now be the home, run \`ri home claim\`. Until then it will not act as the home, so two copies never run as one.`;
+  return `${why} If this device should now be the home, run \`ri home claim\`. Until then it will not act as the home, so two copies never run as one.`;
 }
 
 /**
@@ -205,7 +208,7 @@ export function describeNeedsClaim(reason: NeedsClaimReason): string {
  * process runs. The rows are read fresh on every call, so a rename shows at
  * once, and the check against `machine.json` isn't repeated per request.
  */
-let verified: { dbPath: string; homeId: string; computerId: string } | null = null;
+let verified: { dbPath: string; homeId: string; deviceId: string } | null = null;
 
 /**
  * The identity for boot paths and handlers, made on first use. Throws
@@ -215,9 +218,9 @@ export function ensureHomeIdentity(opts: ResolveOptions = {}): Extract<HomeIdent
   const dbPath = getDbPath();
   if (verified && verified.dbPath === dbPath) {
     const current = getHome();
-    const computer = current ? getComputer(verified.computerId) : null;
-    if (current && computer && current.id === verified.homeId && current.hostComputerId === verified.computerId) {
-      return { state: 'active', home: current, computer, created: false };
+    const device = current ? getDevice(verified.deviceId) : null;
+    if (current && device && current.id === verified.homeId && current.hostDeviceId === verified.deviceId) {
+      return { state: 'active', home: current, device, created: false };
     }
     verified = null;
   }
@@ -225,7 +228,9 @@ export function ensureHomeIdentity(opts: ResolveOptions = {}): Extract<HomeIdent
   if (status.state === 'needs_claim') {
     throw new HomeIdentityError(describeNeedsClaim(status.reason), status.reason);
   }
-  verified = { dbPath, homeId: status.home.id, computerId: status.computer.id };
+  // The home's own keys made before its identity are its device's.
+  giveHostItsKeys();
+  verified = { dbPath, homeId: status.home.id, deviceId: status.device.id };
   return status;
 }
 
@@ -246,9 +251,9 @@ export function resetHomeIdentityCache(): void {
 
 export interface ClaimOptions {
   /**
-   * Which of the home's computers this machine is: an existing one's id (the
-   * host, when a backup is restored on the same computer, or the always-on
-   * computer the home moves to), or `new` for a computer new to the home.
+   * Which of the home's devices this machine is: an existing one's id (the
+   * host, when a backup is restored on the same device, or the always-on
+   * device the home moves to), or `new` for a device new to the home.
    * Without it, this machine's own record when the home already knows it,
    * else a new one.
    */
@@ -258,31 +263,31 @@ export interface ClaimOptions {
 /**
  * Make this machine the host of the home in this root (§10.3: a restored
  * root is explicitly selected as the active home). When that's a different
- * computer from the one that hosted it, what ran there is pinned to it
- * (`moveHomeHost`), and it stays a computer of the home.
+ * device from the one that hosted it, what ran there is pinned to it
+ * (`moveHomeHost`), and it stays a device of the home.
  */
 export function claimHome(opts: ClaimOptions = {}): Extract<HomeIdentityStatus, { state: 'active' }> & { moved: ReturnType<typeof moveHomeHost> | null } {
   const status = resolveHomeIdentity();
   if (status.state === 'active' && !opts.as) return { ...status, moved: null };
-  let computer: ComputerRecord;
+  let device: DeviceRecord;
   if (opts.as === 'new') {
-    computer = createComputer(thisComputerFacts());
+    device = createDevice({ kind: 'computer', ...thisDeviceFacts() });
   } else if (opts.as) {
-    const named = getComputer(opts.as);
-    if (!named || named.status !== 'active') throw new Error(`${opts.as} is not an active computer of this home.`);
-    computer = named;
+    const named = getDevice(opts.as);
+    if (!named || named.status !== 'active') throw new Error(`${opts.as} is not an active device of this home.`);
+    device = named;
   } else {
-    // The computer row this machine already has, unless the folder came from
-    // different hardware: then this is a new computer, and the old one stays
-    // a computer of the home.
+    // The device row this machine already has, unless the folder came from
+    // different hardware: then this is a new device, and the old one stays
+    // a device of the home.
     const needs = status as Extract<HomeIdentityStatus, { state: 'needs_claim' }>;
     const sameHardware = needs.reason !== 'other_machine';
     const known =
-      sameHardware && needs.machine && needs.machine.homeId === needs.home.id ? getComputer(needs.machine.computerId) : null;
-    computer = known && known.status === 'active' ? known : createComputer(thisComputerFacts());
+      sameHardware && needs.machine && needs.machine.homeId === needs.home.id ? getDevice(needs.machine.deviceId) : null;
+    device = known && known.status === 'active' ? known : createDevice({ kind: 'computer', ...thisDeviceFacts() });
   }
-  const moved = moveHomeHost(computer.id);
-  writeMachineIdentity({ homeId: status.home.id, computerId: computer.id, createdAt: new Date().toISOString() });
+  const moved = moveHomeHost(device.id);
+  writeMachineIdentity({ homeId: status.home.id, deviceId: device.id, createdAt: new Date().toISOString() });
   resetHomeIdentityCache();
   return { ...ensureHomeIdentity(), moved: moved.from === moved.to ? null : moved };
 }

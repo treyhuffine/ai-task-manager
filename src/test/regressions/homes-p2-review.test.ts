@@ -21,7 +21,7 @@ let server: HomeServer;
 let q: typeof import('@/lib/db/queries');
 let homeId: string;
 let hostId: string;
-let computerId: string;
+let deviceId: string;
 let workerKey: string;
 let workerKeyId: string;
 let workspace: ReturnType<typeof q.createWorkspace>;
@@ -36,18 +36,18 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   const own = identity.ensureHomeIdentity().home;
   homeId = own.id;
-  hostId = own.hostComputerId;
+  hostId = own.hostDeviceId;
   q = await import('@/lib/db/queries');
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'Review laptop', createdByApiKeyId: null });
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'Review laptop', createdByApiKeyId: null });
   const enrollment = q.redeemEnrollGrant({ secret: grant.secret, name: 'Review laptop' });
-  computerId = enrollment.computer.id;
+  deviceId = enrollment.device.id;
   workerKey = enrollment.token.plaintext;
   workerKeyId = enrollment.key.id;
   workspace = q.createWorkspace({ name: 'Review', cwd: path.join(home.root, 'source'), isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
   const created = q.createExecutionWithChat({ workspaceId: workspace.id, harness: 'claude', label: 'Review execution' });
   chatId = created.session.id;
   executionId = created.execution.id;
-  q.createPlacement({ executionId, computerId, startReason: 'created', worktreePath: path.join(home.root, 'laptop-source') });
+  q.createPlacement({ executionId, deviceId, startReason: 'created', worktreePath: path.join(home.root, 'laptop-source') });
   server = await startHomeServer();
 });
 
@@ -65,7 +65,7 @@ afterEach(async () => {
 });
 
 function target() {
-  return { homeId, homeUrl: server.url, homeName: 'Review home', computerName: 'Review laptop', workerKey };
+  return { homeId, homeUrl: server.url, homeName: 'Review home', deviceName: 'Review laptop', workerKey };
 }
 
 async function post(route: string, body: unknown) {
@@ -118,8 +118,8 @@ it('the real worker sink preserves old-placement events as history after a move'
   await server.close();
   await sink.writer.write({ sessionId: chatId, role: 'assistant', source: 'agent', content: 'Output before moving' });
   const buffered = events.pending();
-  q.createPlacement({ executionId, computerId: hostId, startReason: 'continued' });
-  const result = (await import('@/lib/executor/apply')).applyWorkerEvents(computerId, buffered);
+  q.createPlacement({ executionId, deviceId: hostId, startReason: 'continued' });
+  const result = (await import('@/lib/executor/apply')).applyWorkerEvents(deviceId, buffered);
   expect(result.refused).toEqual([]);
   expect(q.listChatEvents(chatId).some((e) => e.content === 'Output before moving')).toBe(true);
 });
@@ -128,8 +128,8 @@ it('recovery performs no side effects before a revoked worker is authenticated',
   const { CommandJournal } = await import('@/lib/worker/command-journal');
   const { EventJournal } = await import('@/lib/worker/event-journal');
   const { runWorker } = await import('@/lib/worker/run');
-  const command = q.queueWorkerCommand({ computerId, kind: 'run_script', payload: { script: 'setup', workspaceId: workspace.id, command: 'printf executed > review-revoked-script.txt', worktreePath: home.root, branchName: null }, actor: { source: 'human' }, executionId, chatSessionId: chatId, generation: 1 });
-  q.takeCommandsForStream(computerId, 0);
+  const command = q.queueWorkerCommand({ deviceId, kind: 'run_script', payload: { script: 'setup', workspaceId: workspace.id, command: 'printf executed > review-revoked-script.txt', worktreePath: home.root, branchName: null }, actor: { source: 'human' }, executionId, chatSessionId: chatId, generation: 1 });
+  q.takeCommandsForStream(deviceId, 0);
   const commands = new CommandJournal(homeId, path.join(home.workDir, 'commands.jsonl'));
   commands.received(wire(q.getWorkerCommand(command.id)!));
   q.revokeApiKey(workerKeyId, 'Review revocation');
@@ -168,18 +168,18 @@ it('a command journal repairs a torn final line before appending again', async (
 });
 
 it('live mode on a different filesystem does not run the worktree setup script in the source folder', async () => {
-  const command = q.queueWorkerCommand({ computerId, kind: 'prepare', payload: { workspace: { ...workspace, isGit: true, setupCommand: 'echo setup' }, chatSessionId: chatId, label: null, baseBranch: null, prNumber: null, live: true }, actor: { source: 'human' }, executionId, chatSessionId: chatId, generation: 1 });
-  q.takeCommandsForStream(computerId, 0);
+  const command = q.queueWorkerCommand({ deviceId, kind: 'prepare', payload: { workspace: { ...workspace, isGit: true, setupCommand: 'echo setup' }, chatSessionId: chatId, label: null, baseBranch: null, prNumber: null, live: true }, actor: { source: 'human' }, executionId, chatSessionId: chatId, generation: 1 });
+  q.takeCommandsForStream(deviceId, 0);
   const response = await post(`/api/workers/me/commands/${command.id}/ack`, { state: 'delivered', result: { worktreePath: path.join(home.root, 'different-laptop-source'), branchName: 'main', baseSha: 'abc', warning: null } });
   expect(response.status).toBe(200);
-  expect(q.listWorkerCommands(computerId).filter((c) => c.kind === 'run_script')).toEqual([]);
+  expect(q.listWorkerCommands(deviceId).filter((c) => c.kind === 'run_script')).toEqual([]);
 });
 
 it('re-enrolling a worker settles runs for commands it marks uncertain', async () => {
   const run = makeRun();
-  const command = q.queueWorkerCommand({ computerId, kind: 'send', payload: { runId: run.id, turnId: 'reenrollment-turn' }, actor: { source: 'human' }, executionId, chatSessionId: chatId, generation: 1 });
-  q.takeCommandsForStream(computerId, 0);
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId, createdByApiKeyId: null });
+  const command = q.queueWorkerCommand({ deviceId, kind: 'send', payload: { runId: run.id, turnId: 'reenrollment-turn' }, actor: { source: 'human' }, executionId, chatSessionId: chatId, generation: 1 });
+  q.takeCommandsForStream(deviceId, 0);
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId, createdByApiKeyId: null });
   const { enrollWorker } = await import('@/lib/workers/enroll');
   enrollWorker({ secret: grant.secret, name: 'Review laptop again' });
   expect(q.getWorkerCommand(command.id)?.state).toBe('uncertain');
@@ -199,7 +199,7 @@ async function launchWorker() {
   const { startWorkerProcess } = await import('@/test/fixtures/worker-process');
   fs.mkdirSync(path.join(home.root, 'laptop-source'), { recursive: true });
   subprocess = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: path.join(home.root, 'laptop-root') });
-  await until(() => !!q.getComputer(computerId)?.harnesses?.length, 'worker heartbeat');
+  await until(() => !!q.getDevice(deviceId)?.harnesses?.length, 'worker heartbeat');
 }
 
 it('a delivered turn interrupted by a worker process restart eventually leaves running', async () => {
@@ -208,8 +208,8 @@ it('a delivered turn interrupted by a worker process restart eventually leaves r
   await launchWorker();
   const { dispatch } = await import('@/lib/executor/adapter');
   void dispatch(chatId, 'LONG review turn').catch(() => {});
-  await until(() => q.listWorkerCommands(computerId).some((c) => c.kind === 'send' && c.state === 'delivered'), 'send acknowledgement');
-  const command = q.listWorkerCommands(computerId).find((c) => c.kind === 'send')!;
+  await until(() => q.listWorkerCommands(deviceId).some((c) => c.kind === 'send' && c.state === 'delivered'), 'send acknowledgement');
+  const command = q.listWorkerCommands(deviceId).find((c) => c.kind === 'send')!;
   const { runId } = command.payload as { runId: string };
   expect(q.getRun(runId)?.status).toBe('running');
   await subprocess!.stop();
@@ -230,12 +230,12 @@ it('two overlapping dispatches of one source event do not create an orphan run',
   void dispatch(chatId, 'same send', { sourceEventId: message.id }).catch(() => {});
   void dispatch(chatId, 'same send', { sourceEventId: message.id }).catch(() => {});
   await until(() => q.listRuns({}).some((r) => r.chatSessionId === chatId && r.status === 'completed'), 'completed turn');
-  expect(q.listWorkerCommands(computerId).filter((c) => c.kind === 'send')).toHaveLength(1);
+  expect(q.listWorkerCommands(deviceId).filter((c) => c.kind === 'send')).toHaveLength(1);
   expect(q.listRuns({}).filter((r) => r.chatSessionId === chatId)).toHaveLength(1);
 }, 30000);
 
 it('an explicitly old-generation result never charges the current run', async () => {
-  const moved = q.createPlacement({ executionId, computerId: hostId, startReason: 'continued' });
+  const moved = q.createPlacement({ executionId, deviceId: hostId, startReason: 'continued' });
   expect(moved.generation).toBe(2);
   const currentRun = makeRun();
   (await import('@/lib/runs/artifact-bucket')).beginRun(currentRun.id, chatId);
@@ -245,9 +245,9 @@ it('an explicitly old-generation result never charges the current run', async ()
   expect(q.getRun(currentRun.id)?.costUsd ?? 0).toBe(0);
 });
 
-it('home startup does not fail a turn still running on a connected computer', async () => {
+it('home startup does not fail a turn still running on a connected device', async () => {
   const run = makeRun();
-  q.queueWorkerCommand({ computerId, kind: 'send', payload: { runId: run.id, turnId: 'survived-home-restart' }, actor: { source: 'human' }, executionId, chatSessionId: chatId, generation: 1 });
+  q.queueWorkerCommand({ deviceId, kind: 'send', payload: { runId: run.id, turnId: 'survived-home-restart' }, actor: { source: 'human' }, executionId, chatSessionId: chatId, generation: 1 });
   // startScheduler calls this unconditionally when the home boots.
   q.reapStaleRunningRuns();
   // The already-running laptop finishes normally after the home returns.
@@ -256,23 +256,24 @@ it('home startup does not fail a turn still running on a connected computer', as
   expect(q.getRun(run.id)?.status).toBe('completed');
 });
 
-it('migrations 0004 through 0006 preserve populated chat records and the set-null FK', async () => {
+it('the homes migration preserves populated chat records and the set-null FK', async () => {
   const Database = (await import('better-sqlite3')).default;
   const { createDatabaseAt, migrationTags } = await import('@/test/fixtures/migrations');
   const { runMigrations } = await import('@/lib/db/migrate');
   const file = path.join(home.root, 'pre-p2.db');
-  createDatabaseAt(file, migrationTags()[3]!);
+  // Built as a database before the homes build is: the baseline and 0001.
+  createDatabaseAt(file, migrationTags()[1]!);
   const sqlite = new Database(file);
   try {
     sqlite.prepare("INSERT INTO chat_sessions (id, type, status, permission_mode, harness) VALUES ('old-chat', 'orchestration', 'active', 'ask', 'claude')").run();
     sqlite.prepare("INSERT INTO chat_events (id, session_id, role, source, content) VALUES ('old-event', 'old-chat', 'assistant', 'agent', 'preserve me')").run();
     const before = sqlite.prepare('SELECT rowid, * FROM chat_events').all() as Array<{ rowid: number; id: string; session_id: string; content: string }>;
-    // 0004 onwards: every migration after the one the database was built at.
-    expect(runMigrations(sqlite, path.resolve('drizzle')).applied).toBe(migrationTags().length - 4);
+    // Every migration after the one the database was built at.
+    expect(runMigrations(sqlite, path.resolve('drizzle')).applied).toBe(migrationTags().length - 2);
     expect(sqlite.prepare('SELECT rowid, id, session_id, content FROM chat_events').all()).toEqual(
       before.map((row) => ({ rowid: row.rowid, id: row.id, session_id: row.session_id, content: row.content })),
     );
-    const fk = (sqlite.pragma('foreign_key_list(chat_sessions)') as Array<{ from: string; on_delete: string }>).find((x) => x.from === 'computer_id');
+    const fk = (sqlite.pragma('foreign_key_list(chat_sessions)') as Array<{ from: string; on_delete: string }>).find((x) => x.from === 'device_id');
     expect(fk?.on_delete).toBe('SET NULL');
     expect(sqlite.pragma('foreign_key_check')).toEqual([]);
   } finally { sqlite.close(); }

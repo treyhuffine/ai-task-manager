@@ -2,12 +2,12 @@
  * `[[file:<fileName>]]` markers in a message, and where they point.
  *
  * A file the agent reads itself (text, code, images, PDF, JSON, XML) reaches
- * it as a path on the computer the agent runs on: the home's attachments
+ * it as a path on the device the agent runs on: the home's attachments
  * directory for a chat that runs at home, and the worker's own copy for one
- * on a connected computer (docs/homes-build.md, P2.5). Everything else is
+ * on a connected device (docs/homes-build.md, P2.5). Everything else is
  * extracted to text at home (`expand-markers.ts`).
  *
- * No database and no extractors here, so a connected computer's worker
+ * No database and no extractors here, so a connected device's worker
  * places the files it fetched with the same rule the home uses.
  */
 

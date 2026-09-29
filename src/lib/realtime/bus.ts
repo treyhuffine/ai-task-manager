@@ -29,10 +29,10 @@ export type GlobalSessionStreamMessage =
       reason: 'outcome' | 'runtime' | 'background_task' | 'pending_input' | 'reconcile' | 'delivery' | 'transfer';
     }
   /**
-   * A computer's worker connected, dropped, or reported a new state (awake,
+   * A device's worker connected, dropped, or reported a new state (awake,
    * asleep, stopped): what executions there say about it changes (P3.2).
    */
-  | { kind: 'computer_updated'; computerId: string };
+  | { kind: 'device_updated'; deviceId: string };
 
 /** Payload variants carried by the in-process realtime bus. */
 export type SessionStreamMessage =
@@ -48,7 +48,7 @@ export type SessionStreamMessage =
    */
   | { kind: 'reconcile'; status: 'started' | 'done'; replayed?: number }
   /**
-   * Where a message sent to a computer elsewhere stands (P3.2): waiting,
+   * Where a message sent to a device elsewhere stands (P3.2): waiting,
    * on its way, delivered, not delivered, or uncertain. Its shape is the
    * delivery module's (`src/lib/workers/delivery.ts`).
    */
@@ -111,8 +111,8 @@ function publishGlobal(message: GlobalSessionStreamMessage): void {
   publish(globalSessionChannel, message);
 }
 
-export function publishComputerUpdated(computerId: string): void {
-  publishGlobal({ kind: 'computer_updated', computerId });
+export function publishDeviceUpdated(deviceId: string): void {
+  publishGlobal({ kind: 'device_updated', deviceId });
 }
 
 /** A transfer moved on (P4.2): each of its chats hears it, and every screen refreshes where the work is. */

@@ -148,7 +148,7 @@ void acceptance('browser-notifications-smoke', async fixture => {
     // phone uses. A cookie alone does not satisfy PairingBootstrap's client
     // state, and the browser must not inherit the desktop owner's capability.
     const pairing = await api<{ plaintext: string }>(fixture.page!, '/api/devices', 'POST', {
-      name: 'Browser notification acceptance', deviceType: 'computer', expiresAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
+      name: 'Browser notification acceptance', kind: 'computer', expiresAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
     });
     assert.equal((await context.cookies(origin)).some(cookie => cookie.name === SESSION_COOKIE_NAME), false);
     try {

@@ -8,7 +8,7 @@
  * a laptop.
  */
 
-import { useLaptopHome } from '@/hooks/use-computers';
+import { useLaptopHome } from '@/hooks/use-devices';
 import { cn } from '@/lib/utils';
 
 export function AwakeNote({ lead = 'Runs', className }: { lead?: string; className?: string }) {

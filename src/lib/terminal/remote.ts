@@ -1,6 +1,6 @@
 /**
- * Terminals on a connected computer, seen from the home (docs/homes-build.md,
- * P3.5, spec §5.6). The shell runs there, under that computer's worker. The
+ * Terminals on a connected device, seen from the home (docs/homes-build.md,
+ * P3.5, spec §5.6). The shell runs there, under that device's worker. The
  * home forwards each operation as a `terminal` request and relays output the
  * worker posts to whoever is watching, with the same stream the home's own
  * terminals give: `ready`, `data` with its offset as the event id, `exit`.
@@ -10,7 +10,7 @@
  * out of step with what a viewer has (a batch the worker had to drop, or
  * trimmed) ends that viewer's stream, and its reconnect catches it up.
  *
- * When the computer isn't connected the stream says so (`unavailable`) and
+ * When the device isn't connected the stream says so (`unavailable`) and
  * closes, and the browser keeps trying. Nothing here ever starts a shell at
  * home in its place.
  */
@@ -19,15 +19,15 @@ import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib
 import type { TerminalOutputBatch, TerminalRequest, TerminalScope } from '@/lib/workers/protocol';
 import type { ReadAnswer } from '@/lib/workspaces/execution-reads';
 
-/** Where a remote terminal lives: the computer, by id and name, and whose shells. */
+/** Where a remote terminal lives: the device, by id and name, and whose shells. */
 export interface RemoteTerminalPlace {
-  computerId: string;
-  computerName: string;
+  deviceId: string;
+  deviceName: string;
   scope: TerminalScope;
 }
 
 interface Watcher {
-  computerId: string;
+  deviceId: string;
   onChunk: (chunk: { data: string; offset: number }) => void;
   onExit: (exit: { code: number | null; signal: number | null }) => void;
   onGone: (message: string) => void;
@@ -55,46 +55,46 @@ function watch(terminalId: string, watcher: Watcher): () => void {
 
 /**
  * Output a worker posted. Only reaches viewers watching that terminal on
- * that computer: a worker can't write into another computer's terminal.
+ * that device: a worker can't write into another device's terminal.
  */
-export function deliverTerminalOutput(computerId: string, batch: TerminalOutputBatch): void {
+export function deliverTerminalOutput(deviceId: string, batch: TerminalOutputBatch): void {
   for (const chunk of batch.chunks ?? []) {
     for (const w of state.watchers.get(chunk.terminalId) ?? []) {
-      if (w.computerId === computerId) w.onChunk({ data: chunk.data, offset: chunk.offset });
+      if (w.deviceId === deviceId) w.onChunk({ data: chunk.data, offset: chunk.offset });
     }
   }
   for (const exit of batch.exits ?? []) {
     for (const w of state.watchers.get(exit.terminalId) ?? []) {
-      if (w.computerId === computerId) w.onExit({ code: exit.code, signal: exit.signal });
+      if (w.deviceId === deviceId) w.onExit({ code: exit.code, signal: exit.signal });
     }
   }
 }
 
-/** The computer dropped: every stream showing its terminals says so and closes. */
-export function computerTerminalsGone(computerId: string, computerName: string): void {
+/** The device dropped: every stream showing its terminals says so and closes. */
+export function deviceTerminalsGone(deviceId: string, deviceName: string): void {
   for (const set of state.watchers.values()) {
     for (const w of [...set]) {
-      if (w.computerId === computerId) w.onGone(unavailableMessage(computerName));
+      if (w.deviceId === deviceId) w.onGone(unavailableMessage(deviceName));
     }
   }
 }
 
-export function unavailableMessage(computerName: string): string {
-  return `${computerName} isn't connected. Its terminals are still there and come back when it reconnects.`;
+export function unavailableMessage(deviceName: string): string {
+  return `${deviceName} isn't connected. Its terminals are still there and come back when it reconnects.`;
 }
 
-/** One operation on the computer's terminals, as `{ status, body }`. */
+/** One operation on the device's terminals, as `{ status, body }`. */
 export async function askTerminal(place: RemoteTerminalPlace, request: TerminalRequest): Promise<ReadAnswer> {
   try {
-    return (await requestWorker(place.computerId, 'terminal', request)) as ReadAnswer;
+    return (await requestWorker(place.deviceId, 'terminal', request)) as ReadAnswer;
   } catch (err) {
     if (err instanceof WorkerUnavailableError) {
-      return { status: 409, body: { error: 'unavailable', message: unavailableMessage(place.computerName) } };
+      return { status: 409, body: { error: 'unavailable', message: unavailableMessage(place.deviceName) } };
     }
     if (err instanceof WorkerRequestError) {
       const message = err.unsupported
-        ? `${place.computerName} runs an older Ri without terminals from here. Update Ri there.`
-        : `${place.computerName} didn't answer: ${err.message}`;
+        ? `${place.deviceName} runs an older Ri without terminals from here. Update Ri there.`
+        : `${place.deviceName} didn't answer: ${err.message}`;
       // Not a 5xx: clients read gateway statuses as the home being unreachable.
       return { status: 424, body: { error: 'unconfirmed', message } };
     }
@@ -128,7 +128,7 @@ interface Replay {
 }
 
 /**
- * The output stream of a terminal on another computer. Starts watching
+ * The output stream of a terminal on another device. Starts watching
  * before asking for the replay, so nothing printed in between is lost, then
  * splices live output on by offset.
  */
@@ -163,7 +163,7 @@ export function remoteTerminalStream(request: Request, place: RemoteTerminalPlac
         if (chunk.offset <= at) return; // already seen
         if (start > at) {
           // Output the viewer never got: end this stream, and its reconnect
-          // catches up from the computer's ring.
+          // catches up from the device's ring.
           close();
           return;
         }
@@ -172,7 +172,7 @@ export function remoteTerminalStream(request: Request, place: RemoteTerminalPlac
       };
 
       stopWatching = watch(terminalId, {
-        computerId: place.computerId,
+        deviceId: place.deviceId,
         onChunk: (chunk) => (at < 0 ? early.push(chunk) : send(chunk)),
         onExit: (exit) => {
           if (at < 0) {
@@ -191,14 +191,14 @@ export function remoteTerminalStream(request: Request, place: RemoteTerminalPlac
       const answer = await askTerminal(place, { op: 'replay', scope: place.scope, terminalId, since });
       if (closed) return;
       if (answer.status === 404) {
-        // The shell is gone there (its computer restarted, or it was closed).
+        // The shell is gone there (its device restarted, or it was closed).
         enqueue(sse('exit', { code: null, signal: null, gone: true }));
         close();
         return;
       }
       if (answer.status !== 200) {
         const body = answer.body as { message?: string; error?: string } | null;
-        enqueue(sse('unavailable', { message: body?.message ?? body?.error ?? unavailableMessage(place.computerName) }));
+        enqueue(sse('unavailable', { message: body?.message ?? body?.error ?? unavailableMessage(place.deviceName) }));
         close();
         return;
       }
@@ -209,7 +209,7 @@ export function remoteTerminalStream(request: Request, place: RemoteTerminalPlac
       // Output that arrived while the replay was on its way comes first, then
       // the exit, so the last of it isn't lost (P3 review). One that can't be
       // spliced on ends the stream without an exit: the reconnect catches up
-      // from the computer's ring, and ends with the exit there.
+      // from the device's ring, and ends with the exit there.
       for (const chunk of early.splice(0)) {
         send(chunk);
         if (closed) return;

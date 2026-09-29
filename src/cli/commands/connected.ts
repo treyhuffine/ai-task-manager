@@ -1,9 +1,9 @@
 /**
- * `ri` on a connected computer (docs/homes-spec.md §3.1, §3.5).
+ * `ri` on a connected device (docs/homes-spec.md §3.1, §3.5).
  *
  * The data lives in the home, so nothing starts here and no database opens.
- * `ri` checks that the saved address still answers for this computer's home
- * with this computer's credential, says so plainly either way, and opens the
+ * `ri` checks that the saved address still answers for this device's home
+ * with this device's credential, says so plainly either way, and opens the
  * home in the browser. From P2 on it also makes sure the worker is running.
  */
 
@@ -16,7 +16,7 @@ import { openBrowser } from '../lib/browser';
 
 export async function runConnected(opts: { open: boolean }): Promise<void> {
   const connection = readConnection();
-  if (!connection) throw new Error('This computer has no connection to a home.');
+  if (!connection) throw new Error('This device has no connection to a home.');
 
   try {
     const home = await checkHome(connection);

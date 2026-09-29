@@ -19,7 +19,7 @@ describe('P3 independent terminal review', () => {
     let reply!: (x: unknown) => void;
     requestWorker.mockImplementationOnce(() => new Promise((r) => { reply = r; }));
     const res = remoteTerminalStream(new Request('http://test.invalid'), {
-      computerId: 'laptop', computerName: 'Laptop',
+      deviceId: 'laptop', deviceName: 'Laptop',
       scope: { kind: 'execution', executionId: 'e1', generation: 1 },
     }, 't1');
     const text = res.text();

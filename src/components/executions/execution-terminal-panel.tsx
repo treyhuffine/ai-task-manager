@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, Terminal as TerminalIcon, X } from 'lucide-react';
 import { terminalsUnavailable, useTerminals, useCreateTerminal, useKillTerminal } from '@/hooks/use-terminals';
-import { useRunsOnSeveralComputers } from '@/hooks/use-computers';
+import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
 import type { TerminalDescriptor } from '@/lib/api/terminals';
 import { useFolderRoot, useFolderScope } from '@/hooks/use-folder';
 import { folderApiBase, type FolderSource } from '@/lib/folders/source';
@@ -51,9 +51,9 @@ export function ExecutionTerminalPanel({
   headerExtra,
 }: ExecutionTerminalPanelProps) {
   const { data: terminals = [], isLoading, error: listError } = useTerminals(source);
-  // Its computer isn't connected (P3.5): the shells are there, out of reach.
+  // Its device isn't connected (P3.5): the shells are there, out of reach.
   const unavailable = terminalsUnavailable(listError);
-  const severalComputers = useRunsOnSeveralComputers();
+  const severalDevices = useRunsOnSeveralDevices();
   const createTerminal = useCreateTerminal(source);
   const killTerminal = useKillTerminal(source);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -89,7 +89,7 @@ export function ExecutionTerminalPanel({
   // panel the user hasn't expanded yet. Skip when a previous attempt
   // errored — otherwise we'd hammer the API. The user can retry from
   // the error state.
-  // Never when the list couldn't be read: an away computer's shells are
+  // Never when the list couldn't be read: an away device's shells are
   // still there, and a new one would be a second shell (spec §5.6).
   useEffect(() => {
     if (disabled || isLoading || collapsed || listError) return;
@@ -173,7 +173,7 @@ export function ExecutionTerminalPanel({
             </button>
           )}
         </div>
-        <TerminalWhere terminal={terminals.find((t) => t.id === activeId) ?? null} showComputer={severalComputers} />
+        <TerminalWhere terminal={terminals.find((t) => t.id === activeId) ?? null} showDevice={severalDevices} />
         {headerExtra}
         {onToggleCollapsed && (
           <button
@@ -236,20 +236,20 @@ export function ExecutionTerminalPanel({
 }
 
 /**
- * Where the shell on screen runs (spec §5.6): its folder, and its computer
+ * Where the shell on screen runs (spec §5.6): its folder, and its device
  * when work here runs on more than one, or when it isn't the home.
  */
-function TerminalWhere({ terminal, showComputer }: { terminal: TerminalDescriptor | null; showComputer: boolean }) {
+function TerminalWhere({ terminal, showDevice }: { terminal: TerminalDescriptor | null; showDevice: boolean }) {
   if (!terminal) return null;
   const folder = terminal.cwd.split('/').filter(Boolean).slice(-2).join('/');
-  const computer = terminal.computerName && (showComputer || !terminal.isHome) ? terminal.computerName : null;
+  const device = terminal.deviceName && (showDevice || !terminal.isHome) ? terminal.deviceName : null;
   return (
     <span
       className="hidden @md:block max-w-[40%] truncate px-2 text-[10px] text-zinc-500"
-      title={computer ? `${terminal.cwd} on ${computer}` : terminal.cwd}
+      title={device ? `${terminal.cwd} on ${device}` : terminal.cwd}
     >
-      {computer && <span className="text-zinc-400">{computer}</span>}
-      {computer && ' · '}
+      {device && <span className="text-zinc-400">{device}</span>}
+      {device && ' · '}
       {folder}
     </span>
   );

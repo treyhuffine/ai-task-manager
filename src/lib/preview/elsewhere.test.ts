@@ -1,5 +1,5 @@
 /**
- * Previews of work on another computer (P3.5, spec §6): never started here,
+ * Previews of work on another device (P3.5, spec §6): never started here,
  * where the only folder is the agent's checkout at home, never given a local
  * address to another device, and saying where it runs. A URL pasted for it,
  * the person's own tunnel, is the one address it gets.
@@ -21,8 +21,8 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   identity.ensureHomeIdentity();
   const q = await import('@/lib/db/queries');
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'MacBook', createdByApiKeyId: null });
-  const laptopId = q.redeemEnrollGrant({ secret: grant.secret, name: 'MacBook' }).computer.id;
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'MacBook', createdByApiKeyId: null });
+  const laptopId = q.redeemEnrollGrant({ secret: grant.secret, name: 'MacBook' }).device.id;
   // The agent's checkout at home, which a home preview would have started in.
   const checkout = path.join(home.root, 'demo');
   fs.mkdirSync(checkout, { recursive: true });
@@ -31,7 +31,7 @@ beforeEach(async () => {
     startCommand: `touch ${MARK} && sleep 30`,
   }).id;
   executionId = q.createExecutionWithChat({ workspaceId, harness: 'claude', label: 'On the laptop' }).execution.id;
-  q.createPlacement({ executionId, computerId: laptopId, startReason: 'created', worktreePath: '/Users/trey/code/demo/.work/demo-1' });
+  q.createPlacement({ executionId, deviceId: laptopId, startReason: 'created', worktreePath: '/Users/trey/code/demo/.work/demo-1' });
 });
 
 afterEach(async () => {
@@ -39,7 +39,7 @@ afterEach(async () => {
   await home.cleanup();
 });
 
-describe('a preview of work on another computer', () => {
+describe('a preview of work on another device', () => {
   it('starts nothing here, locally or for a remote viewer, and says where it runs', async () => {
     const service = await import('./service');
     const q = await import('@/lib/db/queries');
@@ -49,7 +49,7 @@ describe('a preview of work on another computer', () => {
         serverStatus: 'idle',
         localUrl: null,
         remoteUrl: null,
-        elsewhere: { computerName: 'MacBook', folder: '/Users/trey/code/demo/.work/demo-1' },
+        elsewhere: { deviceName: 'MacBook', folder: '/Users/trey/code/demo/.work/demo-1' },
       });
     }
     expect(q.listPreviewTargetsForExecution(executionId)).toEqual([]);
@@ -57,7 +57,7 @@ describe('a preview of work on another computer', () => {
     expect(getSupervisor().liveKeys()).toEqual([]);
     await new Promise((r) => setTimeout(r, 200));
     expect(fs.existsSync(path.join(home.root, 'demo', MARK))).toBe(false);
-    expect(service.getPreviewState(executionId)).toMatchObject({ serverStatus: 'idle', elsewhere: { computerName: 'MacBook' } });
+    expect(service.getPreviewState(executionId)).toMatchObject({ serverStatus: 'idle', elsewhere: { deviceName: 'MacBook' } });
   });
 
   it('gives a viewer elsewhere the address pasted for it, as given', async () => {

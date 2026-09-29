@@ -5,7 +5,7 @@
  * or one of the documented runtime/segment configs.
  */
 
-import { chatPlacement, getChatSessionWithExecution, getComputer, getWorkspace } from '@/lib/db/queries';
+import { chatPlacement, getChatSessionWithExecution, getDevice, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import type { Workspace } from '@agentex/workspace';
 
@@ -20,8 +20,8 @@ export type WorktreeResolution =
  * check every mutating handler would otherwise repeat.
  *
  * Only for an execution that runs here. One elsewhere has its folder on
- * that computer, and the same path on this disk could be a different
- * folder, so it's refused: its routes ask its computer (`writeOnOwner`).
+ * that device, and the same path on this disk could be a different
+ * folder, so it's refused: its routes ask its device (`writeOnOwner`).
  */
 export async function openSessionWorktree(id: string): Promise<WorktreeResolution> {
   const session = getChatSessionWithExecution(id);
@@ -30,7 +30,7 @@ export async function openSessionWorktree(id: string): Promise<WorktreeResolutio
   }
   const placement = chatPlacement(id);
   if (placement && !placement.isHome) {
-    const name = getComputer(placement.computerId)?.name ?? 'another computer';
+    const name = getDevice(placement.deviceId)?.name ?? 'another device';
     return {
       ok: false,
       response: Response.json({ error: 'elsewhere', message: `This execution's files are on ${name}.` }, { status: 409 }),

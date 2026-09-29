@@ -4,7 +4,7 @@
  * Adapted after ece748f: the phone's hold on + became the agent's ⋯ menu
  * ("New execution on…"), so the probe opens the sheet from a real dropdown
  * item, as the agents list does, instead of a long press. + is a plain tap.
- * And at the simplification pass: moves are named by computer ("Move to
+ * And at the simplification pass: moves are named by device ("Move to
  * Review worker"), and the fixture hooks gain the setup ones. And when setup
  * gained a folder browser (Browse, through lib/api/fs), the client location
  * stub gains isHostnameClaimed. */
@@ -14,21 +14,21 @@ import type { AddressInfo } from 'node:net';
 import { chromium } from 'playwright-core';
 import { expect, it } from 'vitest';
 
-it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a computer without starting twice', async () => {
+it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a device without starting twice', async () => {
   const require = createRequire(import.meta.url);
   const { build } = createRequire(require.resolve('tsx/package.json'))('esbuild');
   const stub = `
     const record = (kind, value) => window.actions.push({kind, value});
-    export const useComputers = () => ({data:[{id:'home',name:'Review home',isHome:true},{id:'worker',name:'Review worker',isHome:false,worker:{connected:true}}]});
-    export const useThisComputer = () => ({id:'worker',name:'Review worker'});
+    export const useDevices = () => ({data:[{id:'home',name:'Review home',isHome:true},{id:'worker',name:'Review worker',isHome:false,worker:{connected:true}}]});
+    export const useThisDevice = () => ({id:'worker',name:'Review worker'});
     export const useClientLocation = () => ({kind:'remote'});
     export const isHostnameClaimed = () => false;
-    export const useRunOn = () => ({data:{defaultId:'home',choices:[{computerId:'home',name:'Review home',isHome:true,ready:true,connected:true},{computerId:'worker',name:'Review worker',isHome:false,ready:true,connected:true}]}});
-    export const useSetDefaultComputer = () => ({isPending:false,mutate:(id)=>record('default',id)});
+    export const useRunOn = () => ({data:{defaultId:'home',choices:[{deviceId:'home',name:'Review home',isHome:true,ready:true,connected:true},{deviceId:'worker',name:'Review worker',isHome:false,ready:true,connected:true}]}});
+    export const useSetDefaultDevice = () => ({isPending:false,mutate:(id)=>record('default',id)});
     export const useTransfer = () => ({data:null});
     export const useWorkingState = () => ({data:{changed:[],untracked:[],localOnly:[],branch:'review'},isLoading:false});
     export const useReviewOn = () => ({data:{review:null}});
-    export const useStartTransfer = () => ({isPending:false,mutate:(input,options)=>{record('move',input.toComputerId);options.onSuccess();}});
+    export const useStartTransfer = () => ({isPending:false,mutate:(input,options)=>{record('move',input.toDeviceId);options.onSuccess();}});
     export const useCommit = () => ({mutate:()=>{}});
     export const useOpenCodeHere = () => ({isPending:false,mutate:()=>record('review','worker')});
     export const useOpenReview = () => () => {};
@@ -43,18 +43,18 @@ it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a co
       import {MoveActions} from '@/components/executions/transfer/location-menu';
       import {RunOnSheet} from '@/components/mobile/run-on-sheet';
       import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '@/components/ui/dropdown-menu';
-      import {useComputerLabelMode} from '@/lib/client/computer-label-mode';
+      import {useDeviceLabelMode} from '@/lib/client/device-label-mode';
       import {locationLabel} from '@/lib/executions/location';
       window.actions=[];
       function App(){
         const [open,setOpen]=useState(false);
-        const labels=useComputerLabelMode();
-        const session={id:'chat',status:'active',location:{computerId:'home',name:'Review home',isHome:true}};
+        const labels=useDeviceLabelMode();
+        const session={id:'chat',status:'active',location:{deviceId:'home',name:'Review home',isHome:true}};
         const workspace={id:'agent',name:'Review agent',isGit:true};
         const start=(id)=>window.actions.push({kind:'start',value:id??'default'});
         return <>
           <output id="label">{locationLabel(session,true,labels.mode)??'unlabeled'}</output>
-          <button onClick={()=>labels.setMode('always')}>Name all computers</button>
+          <button onClick={()=>labels.setMode('always')}>Name all devices</button>
           <Popover.Root><Popover.Trigger>Execution menu</Popover.Trigger><Popover.Portal><Popover.Content>
             <MoveActions session={session} workspace={workspace}/>
           </Popover.Content></Popover.Portal></Popover.Root>
@@ -72,7 +72,7 @@ it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a co
       onResolve(options: {filter: RegExp}, fn: () => {path: string; namespace: string}): void;
       onLoad(options: {filter: RegExp; namespace: string}, fn: () => {contents: string; loader: string}): void;
     }) {
-      api.onResolve({ filter: /^(?:@\/hooks\/use-(?:computers|opener|client-location|workspaces|execution)|\.\/review-bar)$/ }, () => ({ path: 'fixture-hooks', namespace: 'fixture' }));
+      api.onResolve({ filter: /^(?:@\/hooks\/use-(?:devices|opener|client-location|workspaces|execution)|\.\/review-bar)$/ }, () => ({ path: 'fixture-hooks', namespace: 'fixture' }));
       api.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: stub, loader: 'js' }));
     } }],
   });
@@ -88,7 +88,7 @@ it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a co
     await page.goto(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
     await page.locator('#plus').waitFor();
     expect(await page.locator('#label').textContent()).toBe('unlabeled');
-    await page.getByRole('button', { name: 'Name all computers' }).click();
+    await page.getByRole('button', { name: 'Name all devices' }).click();
     expect(await page.locator('#label').textContent()).toBe('Review home');
     await page.getByRole('button', { name: 'Execution menu' }).click();
     await page.getByRole('button', { name: 'Move to Review worker' }).click();

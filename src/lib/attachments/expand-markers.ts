@@ -4,8 +4,8 @@
  *
  *   - For mimes the agent reads itself (text, code, images, PDF, JSON,
  *     XML): the marker stays. `executor.dispatch` turns it into the file's
- *     path on the computer the chat runs on, which only it knows: the
- *     home's attachments directory, or a connected computer's copy
+ *     path on the device the chat runs on, which only it knows: the
+ *     home's attachments directory, or a connected device's copy
  *     (`markers.ts`, docs/homes-build.md P2.5).
  *   - For non-natively-readable mimes (docx, xlsx, audio): extract
  *     to text and inline it wrapped in `<attachment>` tags so the

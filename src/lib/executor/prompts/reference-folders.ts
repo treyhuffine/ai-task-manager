@@ -13,7 +13,7 @@
 
 import type { ResolvedReferenceFolder } from '@/db/types';
 
-/** What the block says about a folder. A folder resolved on another computer has no Git summary. */
+/** What the block says about a folder. A folder resolved on another device has no Git summary. */
 export type PromptReferenceFolder = Pick<ResolvedReferenceFolder, 'alias' | 'absolutePath' | 'description' | 'git'>;
 
 /**

@@ -3,7 +3,7 @@
  * connecting must never silently create a home, and a first-run choice is
  * never a trap).
  *
- * Someone who meant to connect this computer to their existing Ri, but
+ * Someone who meant to connect this device to their existing Ri, but
  * started a new one here, can connect instead as long as the new home is
  * still empty: no tasks, notes, agents, stream items or chats, and
  * onboarding not finished. Its database and identity are moved into

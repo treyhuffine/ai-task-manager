@@ -45,7 +45,7 @@ beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-p4-recheck-' });
   const identity = await import('@/lib/home/identity');
   identity.resetHomeIdentityCache();
-  hostId = identity.ensureHomeIdentity().home.hostComputerId;
+  hostId = identity.ensureHomeIdentity().home.hostDeviceId;
   remote = path.join(home.root, 'remote.git');
   git(home.root, 'init', '-q', '--bare', '-b', 'main', remote);
   repo = clone('source');
@@ -57,8 +57,8 @@ beforeEach(async () => {
   worktree = path.join(home.root, 'worktree');
   git(repo, 'worktree', 'add', '-q', '-b', branch, worktree, 'main');
   const q = await import('@/lib/db/queries');
-  const key = q.createApiKey({ name: 'Review companion', deviceType: 'computer' });
-  otherId = q.registerComputerForApiKey({ apiKeyId: key.key.id, name: 'Review companion', platform: 'darwin' }).computer.id;
+  const key = q.pairDevice({ name: 'Review companion', kind: 'computer' });
+  otherId = q.registerDeviceForApiKey({ apiKeyId: key.key.id, name: 'Review companion', platform: 'darwin' }).device.id;
   const workspace = q.createWorkspace({ name: 'Review', cwd: repo, isGit: true, baseBranch: 'main', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
   const created = q.createExecutionWithChat({ workspaceId: workspace.id, harness: 'claude', label: 'Review' });
   executionId = created.execution.id;
@@ -106,7 +106,7 @@ it('allows a clean tracked file-to-directory refactor in a reused destination', 
 
 it('keeps a held message recoverable when preparation fails before any send is accepted', async () => {
   const q = await import('@/lib/db/queries');
-  const transfer = q.createTransfer({ executionId, fromComputerId: hostId, toComputerId: otherId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
+  const transfer = q.createTransfer({ executionId, fromDeviceId: hostId, toDeviceId: otherId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
   const first = q.insertChatEvent({ sessionId: chatId, role: 'user', source: 'user', content: 'first instruction', createdAt: new Date().toISOString() })!;
   const second = q.insertChatEvent({ sessionId: chatId, role: 'user', source: 'user', content: 'second instruction', createdAt: new Date().toISOString() })!;
   q.holdForTransfer(executionId, first.id);
@@ -118,7 +118,7 @@ it('keeps a held message recoverable when preparation fails before any send is a
   const resumed = await resumeOnSource(executionId);
   // Nothing took the first: it stays first in line, the second behind it, and the card says why.
   expect(resumed).toMatchObject({ state: 'cancelled', heldEventIds: [first.id, second.id] });
-  expect(viewOf(resumed)).toMatchObject({ heldCount: 2, delivering: false, error: '2 held messages didn\'t reach ' + q.getComputer(hostId)!.name + ': temporary model discovery failure' });
+  expect(viewOf(resumed)).toMatchObject({ heldCount: 2, delivering: false, error: '2 held messages didn\'t reach ' + q.getDevice(hostId)!.name + ': temporary model discovery failure' });
   expect(fake.sessions.flatMap((s) => s.messages)).toEqual([]);
   const { deliveriesForChat } = await import('@/lib/workers/delivery');
   expect(deliveriesForChat(chatId)[first.id]).toMatchObject({ state: 'held' });

@@ -180,7 +180,7 @@ function PreviewBody({ controller: c, processControls, onOpenRun, onOpenWorkspac
     />
   );
 
-  // Work on another computer: its app runs there (P3.5). A tunnel of the
+  // Work on another device: its app runs there (P3.5). A tunnel of the
   // person's own, pasted here, is the one way to open it on this screen.
   if (c.elsewhere) {
     return (
@@ -190,7 +190,7 @@ function PreviewBody({ controller: c, processControls, onOpenRun, onOpenWorkspac
             urls={state?.manualUrls ?? []}
             onSave={(urls: PreviewManualUrl[]) => c.saveUrls(urls)}
             isSaving={c.isSavingUrls}
-            description={`Reach it through your own tunnel from ${c.elsewhere.computerName}? Paste its address to open it here.`}
+            description={`Reach it through your own tunnel from ${c.elsewhere.deviceName}? Paste its address to open it here.`}
           />
         </div>
       </RunsElsewhere>

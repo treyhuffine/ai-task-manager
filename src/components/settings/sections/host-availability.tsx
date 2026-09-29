@@ -25,12 +25,12 @@ export function HostAvailability() {
     <h3 className="text-[12px] font-medium">Host availability</h3>
     <div className="space-y-3 rounded-lg border p-3">
       <div className="flex items-center justify-between gap-3">
-        <div><p className="text-sm font-medium">Keep the host awake while plugged in</p><p className="text-xs text-muted-foreground">Applies to the computer running your Ri server, including when the desktop app is closed or quit. Its screen can still sleep.</p></div>
+        <div><p className="text-sm font-medium">Keep the host awake while plugged in</p><p className="text-xs text-muted-foreground">Applies to the device running your Ri server, including when the desktop app is closed or quit. Its screen can still sleep.</p></div>
         <Switch aria-label="Keep the host awake while plugged in" checked={status?.enabled ?? false} disabled={busy || !managed || !owner || !status || !!query.error || !!service.error || status.phase === 'unsupported'} onCheckedChange={enabled => void change(enabled)} />
       </div>
       <p role="status" className="text-xs text-muted-foreground">{service.error ? 'The service is unreachable.' : !service.data ? 'Checking the host…' : !managed ? 'A managed background service is required.' : !owner ? 'Manage this preference from the installation owner’s desktop or local CLI.' : query.error ? 'Availability status is unavailable.' : status?.detail ?? 'Checking power and sleep settings…'}</p>
       {(query.error || service.error || status?.phase === 'unavailable') && <Button variant="outline" size="sm" disabled={busy} onClick={() => { void service.refetch(); if (status && owner && !service.error) void change(status.enabled); else void query.refetch(); }}>Retry availability check</Button>}
-      <p className="text-xs text-muted-foreground">Phone access also needs a working network and your remote access URL. This does not wake a shut-down computer or override closing a laptop lid.</p>
+      <p className="text-xs text-muted-foreground">Phone access also needs a working network and your remote access URL. This does not wake a shut-down device or override closing a laptop lid.</p>
     </div>
   </section>;
 }

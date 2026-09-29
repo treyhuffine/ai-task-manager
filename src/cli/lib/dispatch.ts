@@ -1,10 +1,10 @@
 /**
- * Run an orchestrator action from the CLI wherever this computer's data is
+ * Run an orchestrator action from the CLI wherever this device's data is
  * (docs/homes-spec.md §5.3).
  *
  * - On a home: in this process, as the trusted local CLI.
- * - On a connected computer: on the home, through
- *   `POST /api/orchestrator/actions/:name`, with this computer's key and the
+ * - On a connected device: on the home, through
+ *   `POST /api/orchestrator/actions/:name`, with this device's key and the
  *   calling harness session's signed credential when there is one. The home
  *   runs it as a remote call. If the home can't be reached the action fails
  *   and says so. Nothing is written locally.
@@ -34,7 +34,7 @@ export async function dispatchAction(name: string, input: unknown): Promise<Disp
 export async function runActionAtHome(name: string, input: unknown): Promise<DispatchEnvelope> {
   const connection = readConnection();
   if (!connection) {
-    return { ok: false, action: name, error: { code: 'not_connected', message: 'This computer is not connected to a home.' } };
+    return { ok: false, action: name, error: { code: 'not_connected', message: 'This device is not connected to a home.' } };
   }
   const credential = process.env[SESSION_CREDENTIAL_ENV];
   try {
@@ -49,7 +49,7 @@ export async function runActionAtHome(name: string, input: unknown): Promise<Dis
         action: name,
         error: {
           code: 'unsupported',
-          message: `${connection.homeName} runs an older version of Ri that can't take actions from connected computers. Update it, then try again.`,
+          message: `${connection.homeName} runs an older version of Ri that can't take actions from connected devices. Update it, then try again.`,
         },
       };
     }

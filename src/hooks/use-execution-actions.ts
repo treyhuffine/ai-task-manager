@@ -55,7 +55,7 @@ export type ActionState =
    *  fetch + create flow once the user fixes the underlying cause. */
   | { kind: 'setupFailed'; error: string; prNumber: number | null }
   | { kind: 'noWorktree' }
-  /** Moving to another computer, which doesn't have it yet (P4.5). The
+  /** Moving to another device, which doesn't have it yet (P4.5). The
    *  move's progress replaces the bar: a commit, push or merge would race
    *  the save, and the server refuses them until it arrives. */
   | { kind: 'moving'; to: string };
@@ -264,8 +264,8 @@ export function deriveActionState({ session, workspaceIsGit, transfer, pushNonFa
     return { kind: 'moving', to: transfer.to.name };
   }
   // Its worktree wherever it runs (P3.3, P4.5): the home's own path, or
-  // the folder on the computer it runs on. Every control on the bar goes
-  // to that computer.
+  // the folder on the device it runs on. Every control on the bar goes
+  // to that device.
   const folder = preparedFolder(session);
   // Failed-setup wins over noWorktree so the user gets the retry
   // affordance instead of an empty pill while sitting on a stuck row.

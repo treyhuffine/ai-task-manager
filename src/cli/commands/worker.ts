@@ -1,16 +1,16 @@
 /**
- * `<app> worker`: run agents on this computer for your home
+ * `<app> worker`: run agents on this device for your home
  * (docs/homes-build.md, P2.2).
  *
  *   ri worker enroll [--code <code>] [--yes]   let your home run agents here
  *   ri worker run                              connect and stay connected
- *   ri worker status                           this computer's enrollment
- *   ri worker open                             open your Ri in this computer's browser, as This Mac
+ *   ri worker status                           this device's enrollment
+ *   ri worker open                             open your Ri in this device's browser, as This Mac
  *   ri worker disable                          stop running agents here
- *   ri worker grant [--computer <name>] [--name <new>]   on the home: a code for another computer to enroll with
+ *   ri worker grant [--device <name>] [--name <new>]   on the home: a code for another device to enroll with
  *
- * Enrolling asks first, on this computer: that's the local approval. The
- * home issues this computer a worker key of its own, separate from the key
+ * Enrolling asks first, on this device: that's the local approval. The
+ * home issues this device a worker key of its own, separate from the key
  * it's connected with, which never gains that authority.
  */
 
@@ -19,12 +19,14 @@ import readline from 'node:readline/promises';
 import pc from 'picocolors';
 import type { Command } from 'commander';
 import { APP_SHORT_ID } from '@/constants/app';
-import { readConnection, type ConnectionConfig } from '@/lib/connection/config';
+import { readConnection, rememberDeviceId, writeConnection, type ConnectionConfig } from '@/lib/connection/config';
 import { homeFetch, HomeRequestError } from '@/lib/connection/home-client';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 import { readWorkerConfig, removeWorkerConfig, writeWorkerConfig, type WorkerConfig } from '@/lib/worker/config';
 import { workerFetch, WorkerNetworkError, WorkerStoppedError, type WorkerTarget } from '@/lib/worker/client';
+import { thisDeviceFacts } from '@/lib/home/device-name';
 import { openBrowser } from '../lib/browser';
+import { dispatchAction } from '../lib/dispatch';
 
 function workerVersion(): string {
   return process.env.npm_package_version ?? 'dev';
@@ -51,14 +53,14 @@ async function roleHere(): Promise<'home' | 'connected' | 'fresh'> {
   return getInstallationRole();
 }
 
-/** The connection and enrollment this computer works from, or a reason it can't. */
+/** The connection and enrollment this device works from, or a reason it can't. */
 function enrolledTarget(): { connection: ConnectionConfig; worker: WorkerConfig; target: WorkerTarget } | string {
   const connection = readConnection();
-  if (!connection) return `This computer isn't connected to a home. Run \`${APP_SHORT_ID} connect\` first.`;
+  if (!connection) return `This device isn't connected to a home. Run \`${APP_SHORT_ID} connect\` first.`;
   const worker = readWorkerConfig();
-  if (!worker) return `This computer isn't enrolled to run agents. Run \`${APP_SHORT_ID} worker enroll\` first.`;
+  if (!worker) return `This device isn't enrolled to run agents. Run \`${APP_SHORT_ID} worker enroll\` first.`;
   if (worker.homeId !== connection.homeId) {
-    return `This computer's enrollment is for a different home than it's connected to. Run \`${APP_SHORT_ID} worker enroll\` again.`;
+    return `This device's enrollment is for a different home than it's connected to. Run \`${APP_SHORT_ID} worker enroll\` again.`;
   }
   return {
     connection,
@@ -67,7 +69,7 @@ function enrolledTarget(): { connection: ConnectionConfig; worker: WorkerConfig;
       homeUrl: connection.homeUrl,
       homeId: connection.homeId,
       homeName: connection.homeName,
-      computerName: worker.computerName,
+      deviceName: worker.deviceName,
       workerKey: worker.workerKey,
     },
   };
@@ -76,17 +78,17 @@ function enrolledTarget(): { connection: ConnectionConfig; worker: WorkerConfig;
 async function enroll(opts: { code?: string; yes?: boolean }): Promise<void> {
   const role = await roleHere();
   if (role === 'home') {
-    return fail(`This computer is your home. Its agents already run here, so it doesn't enroll as a worker.`);
+    return fail(`This device is your home. Its agents already run here, so it doesn't enroll as a worker.`);
   }
   const connection = readConnection();
-  if (!connection) return fail(`This computer isn't connected to a home. Run \`${APP_SHORT_ID} connect\` first.`);
+  if (!connection) return fail(`This device isn't connected to a home. Run \`${APP_SHORT_ID} connect\` first.`);
 
   console.log(
-    `Enrolling lets ${pc.bold(connection.homeName)} run agents on this computer: in the folders you set up ` +
+    `Enrolling lets ${pc.bold(connection.homeName)} run agents on this device: in the folders you set up ` +
       `for them, with the harnesses installed here, under the permissions you choose for each session. ` +
       `You can turn it off here with \`${APP_SHORT_ID} worker disable\`, or from your home's Devices settings.`,
   );
-  if (!opts.yes && !(await confirm('Enroll this computer?'))) {
+  if (!opts.yes && !(await confirm('Enroll this device?'))) {
     console.log('Nothing changed.');
     return;
   }
@@ -94,7 +96,7 @@ async function enroll(opts: { code?: string; yes?: boolean }): Promise<void> {
   try {
     let code = opts.code?.trim();
     if (!code) {
-      // Ask the home for a grant for this computer, with its viewing key.
+      // Ask the home for a grant for this device, with its viewing key.
       const res = await homeFetch(connection, '/api/workers/grants', { method: 'POST', body: '{}' });
       const body = (await res.json().catch(() => null)) as { code?: string; message?: string } | null;
       if (!res.ok || !body?.code) {
@@ -115,26 +117,33 @@ async function enroll(opts: { code?: string; yes?: boolean }): Promise<void> {
     });
     const body = (await res.json().catch(() => null)) as {
       homeId?: string;
-      computerId?: string;
-      computerName?: string;
+      deviceId?: string;
+      deviceName?: string;
       workerKey?: string;
       message?: string;
     } | null;
-    if (!res.ok || !body?.workerKey || !body.homeId || !body.computerId) {
+    if (!res.ok || !body?.workerKey || !body.homeId || !body.deviceId) {
       return fail(body?.message ?? `${connection.homeName} refused the enrollment (HTTP ${res.status}).`);
     }
     if (body.homeId !== connection.homeId) {
-      return fail(`${connection.homeUrl} enrolled this computer with a different home. Nothing was saved.`);
+      return fail(`${connection.homeUrl} enrolled this device with a different home. Nothing was saved.`);
     }
     writeWorkerConfig({
       homeId: body.homeId,
-      computerId: body.computerId,
-      computerName: body.computerName ?? 'this computer',
+      deviceId: body.deviceId,
+      deviceName: body.deviceName ?? 'this device',
       workerKey: body.workerKey,
       enrolledAt: new Date().toISOString(),
     });
+    // This computer's own key joins the device it enrolled as, so the home
+    // shows it once, whichever device the code named.
+    const joined = await dispatchAction('register_device', { ...thisDeviceFacts(), deviceId: body.deviceId });
+    if (joined.ok) {
+      writeConnection({ ...connection, deviceId: body.deviceId });
+      rememberDeviceId(body.homeId, body.deviceId);
+    }
     console.log(
-      `${pc.green('Enrolled.')} ${pc.bold(body.computerName ?? 'This computer')} can run agents for ${connection.homeName}. ` +
+      `${pc.green('Enrolled.')} ${pc.bold(body.deviceName ?? 'This device')} can run agents for ${connection.homeName}. ` +
         `Run \`${APP_SHORT_ID} worker run\` to connect.`,
     );
   } catch (err) {
@@ -156,7 +165,7 @@ async function run(): Promise<void> {
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
 
-  console.log(`${pc.bold(target.computerName)} worker for ${target.homeName}, at ${target.homeUrl}. Ctrl-C to stop.`);
+  console.log(`${pc.bold(target.deviceName)} worker for ${target.homeName}, at ${target.homeUrl}. Ctrl-C to stop.`);
   const { installRunnerSink } = await import('@/lib/runner/sink');
   const { executionHandlers, executionRequests } = await import('@/lib/worker/handlers');
   const { closeIdleSessions } = await import('@/lib/runner/local-runner');
@@ -166,7 +175,7 @@ async function run(): Promise<void> {
     target,
     version: workerVersion(),
     signal: controller.signal,
-    // This computer's runner reports to the worker's journal.
+    // This device's runner reports to the worker's journal.
     onSink: installRunnerSink,
     handlers: (journal, extras) => executionHandlers({ journal, ...extras }),
     requests: (journal) => executionRequests({ journal, homeId: target.homeId }),
@@ -201,7 +210,7 @@ async function status(): Promise<void> {
     return;
   }
   const { worker, target } = found;
-  console.log(`${pc.bold(worker.computerName)} is enrolled with ${target.homeName} (${target.homeUrl}) since ${worker.enrolledAt}.`);
+  console.log(`${pc.bold(worker.deviceName)} is enrolled with ${target.homeName} (${target.homeUrl}) since ${worker.enrolledAt}.`);
   try {
     const { sendHeartbeat } = await import('@/lib/worker/run');
     await sendHeartbeat(target, workerVersion());
@@ -221,7 +230,7 @@ async function open(): Promise<void> {
     const body = (await res.json().catch(() => null)) as { code?: string } | null;
     if (!res.ok || !body?.code) return fail(`${target.homeName} didn't issue a code (HTTP ${res.status}).`);
     await openBrowser(`${target.homeUrl}/#associate=${encodeURIComponent(body.code)}`);
-    console.log(`Opened ${target.homeName} in this computer's browser.`);
+    console.log(`Opened ${target.homeName} in this device's browser.`);
   } catch (err) {
     if (err instanceof WorkerStoppedError || err instanceof WorkerNetworkError) return fail(err.message);
     throw err;
@@ -241,34 +250,34 @@ async function disable(): Promise<void> {
     }
   }
   removeWorkerConfig();
-  console.log(`${found.worker.computerName} no longer runs agents for ${found.target.homeName}. It stays connected.`);
+  console.log(`${found.worker.deviceName} no longer runs agents for ${found.target.homeName}. It stays connected.`);
 }
 
-async function grant(opts: { computer?: string; name?: string }): Promise<void> {
+async function grant(opts: { device?: string; name?: string }): Promise<void> {
   if ((await roleHere()) !== 'home') {
-    return fail(`Make enrollment codes on your home. On this computer, \`${APP_SHORT_ID} worker enroll\` makes its own.`);
+    return fail(`Make enrollment codes on your home. On this device, \`${APP_SHORT_ID} worker enroll\` makes its own.`);
   }
-  const { createComputerGrant, GrantError, listComputers } = await import('@/lib/db/queries');
-  let computerId: string | null = null;
-  if (opts.computer) {
-    const wanted = opts.computer.toLowerCase();
-    const match = listComputers().filter((c) => c.id === opts.computer || c.name.toLowerCase() === wanted);
+  const { createDeviceGrant, GrantError, listDevices } = await import('@/lib/db/queries');
+  let deviceId: string | null = null;
+  if (opts.device) {
+    const wanted = opts.device.toLowerCase();
+    const match = listDevices().filter((c) => c.id === opts.device || c.name.toLowerCase() === wanted);
     if (match.length !== 1) {
-      return fail(match.length === 0 ? `No computer is named "${opts.computer}".` : `More than one computer is named "${opts.computer}". Use its id.`);
+      return fail(match.length === 0 ? `No device is named "${opts.device}".` : `More than one device is named "${opts.device}". Use its id.`);
     }
-    computerId = match[0]!.id;
+    deviceId = match[0]!.id;
   } else if (!opts.name) {
-    return fail('Name the computer: --computer <existing name> or --name <new name>.');
+    return fail('Name the device: --device <existing name> or --name <new name>.');
   }
   try {
-    const { grant: issued, secret } = createComputerGrant({
+    const { grant: issued, secret } = createDeviceGrant({
       kind: 'enroll',
-      computerId,
-      computerName: opts.name ?? null,
+      deviceId,
+      deviceName: opts.name ?? null,
       createdByApiKeyId: null,
     });
     console.log(secret);
-    console.log(pc.dim(`Works once, until ${new Date(issued.expiresAt).toLocaleTimeString()}. On that computer: ${APP_SHORT_ID} worker enroll --code <code>`));
+    console.log(pc.dim(`Works once, until ${new Date(issued.expiresAt).toLocaleTimeString()}. On that device: ${APP_SHORT_ID} worker enroll --code <code>`));
   } catch (err) {
     if (err instanceof GrantError) return fail(err.message);
     throw err;
@@ -276,21 +285,21 @@ async function grant(opts: { computer?: string; name?: string }): Promise<void> 
 }
 
 export function registerWorkerCommand(program: Command) {
-  const worker = program.command('worker').description('Run agents on this computer for your home');
+  const worker = program.command('worker').description('Run agents on this device for your home');
   worker
     .command('enroll')
-    .description('Let your home run agents on this computer')
+    .description('Let your home run agents on this device')
     .option('--code <code>', 'an enrollment code made on your home')
     .option('-y, --yes', 'enroll without asking')
     .action(enroll);
   worker.command('run').description('Connect to your home and stay connected').action(run);
-  worker.command('status').description("This computer's enrollment").action(status);
-  worker.command('open').description("Open your Ri in this computer's browser, as This Mac").action(open);
-  worker.command('disable').description('Stop running agents on this computer').action(disable);
+  worker.command('status').description("This device's enrollment").action(status);
+  worker.command('open').description("Open your Ri in this device's browser, as This Mac").action(open);
+  worker.command('disable').description('Stop running agents on this device').action(disable);
   worker
     .command('grant')
-    .description('On your home: make a code another computer enrolls with')
-    .option('--computer <name>', 'an existing computer, by name or id')
-    .option('--name <name>', 'a name for a new computer')
+    .description('On your home: make a code another device enrolls with')
+    .option('--device <name>', 'an existing device, by name or id')
+    .option('--name <name>', 'a name for a new device')
     .action(grant);
 }

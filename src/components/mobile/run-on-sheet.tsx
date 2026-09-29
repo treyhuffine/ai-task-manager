@@ -4,9 +4,9 @@
  * Where a new execution starts, when it isn't the usual place (spec §3.3,
  * P3.1 on the phone). A plain + starts on the agent's default, the home
  * unless it was changed, with nothing to decide. "New execution on…" in the
- * agent's ⋯ menu opens this: each computer that can take the agent's work,
+ * agent's ⋯ menu opens this: each device that can take the agent's work,
  * the default marked, and Make this the default as its own action. Picking
- * one starts that one execution there and changes nothing else. A computer
+ * one starts that one execution there and changes nothing else. A device
  * the agent isn't on yet sets it up there first, then starts
  * (docs/homes-model.md).
  */
@@ -16,7 +16,7 @@ import { Check, Laptop, Loader2 } from 'lucide-react';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { SetupAgentDialog } from '@/components/agents/setup-agent-dialog';
 import { START_RI } from '@/lib/executions/location';
-import { useRunOn, useSetDefaultComputer } from '@/hooks/use-workspaces';
+import { useRunOn, useSetDefaultDevice } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 
 export function RunOnSheet({
@@ -28,10 +28,10 @@ export function RunOnSheet({
   workspace: { id: string; name: string };
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onPick: (computerId: string) => void;
+  onPick: (deviceId: string) => void;
 }) {
   const { data: runOn, isLoading } = useRunOn(open ? workspace.id : null);
-  const setDefault = useSetDefaultComputer(workspace.id);
+  const setDefault = useSetDefaultDevice(workspace.id);
   const [settingUp, setSettingUp] = useState<{ id: string; name: string } | null>(null);
   return (
     <>
@@ -46,14 +46,14 @@ export function RunOnSheet({
           ) : (
             <ul className="space-y-1">
               {runOn.choices.map((choice) => {
-                const isDefault = choice.computerId === runOn.defaultId;
+                const isDefault = choice.deviceId === runOn.defaultId;
                 const canSetUp = choice.needsSetup && choice.connected;
                 return (
-                  <li key={choice.computerId} className="flex items-center gap-2">
+                  <li key={choice.deviceId} className="flex items-center gap-2">
                     <button
                       type="button"
                       disabled={!choice.ready && !canSetUp}
-                      onClick={() => (canSetUp ? setSettingUp({ id: choice.computerId, name: choice.name }) : onPick(choice.computerId))}
+                      onClick={() => (canSetUp ? setSettingUp({ id: choice.deviceId, name: choice.name }) : onPick(choice.deviceId))}
                       className={cn(
                         'flex flex-1 items-start gap-3 rounded-xl px-3 py-2.5 text-left active:bg-muted/60 disabled:opacity-50',
                         isDefault && 'bg-muted/40',
@@ -85,7 +85,7 @@ export function RunOnSheet({
                       <button
                         type="button"
                         disabled={setDefault.isPending}
-                        onClick={() => setDefault.mutate(choice.computerId)}
+                        onClick={() => setDefault.mutate(choice.deviceId)}
                         className="flex-shrink-0 rounded-lg px-2 py-1.5 text-[12px] text-primary active:bg-primary/10 disabled:opacity-50"
                       >
                         Make default
@@ -102,7 +102,7 @@ export function RunOnSheet({
         <SetupAgentDialog
           workspaceId={workspace.id}
           agentName={workspace.name}
-          computer={settingUp}
+          device={settingUp}
           open={!!settingUp}
           onOpenChange={(next) => !next && setSettingUp(null)}
           onReady={() => {

@@ -29,7 +29,7 @@ describe('refusalFor', () => {
   });
 
   it('refuses data commands on a fresh folder instead of making a new home', () => {
-    expect(refusalFor('agent')).toMatch(/isn't set up on this computer yet/);
+    expect(refusalFor('agent')).toMatch(/isn't set up on this device yet/);
     expect(refusalFor('snapshot')).toMatch(/isn't set up/);
     expect(fs.existsSync(path.join(root, 'data.db'))).toBe(false);
   });
@@ -50,7 +50,7 @@ describe('refusalFor', () => {
     expect(refusalFor('home', 'show')).toMatch(/isn't set up/);
   });
 
-  it('names the home on a connected computer', () => {
+  it('names the home on a connected device', () => {
     fs.mkdirSync(path.join(root, '.config'), { recursive: true });
     fs.writeFileSync(
       path.join(root, '.config', 'connection.json'),

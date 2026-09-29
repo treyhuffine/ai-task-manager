@@ -62,7 +62,7 @@ import { installHomeSink } from './home-sink';
 import { activeSendCount } from './live-state';
 import { runnerFor } from './placement';
 import { buildSessionSpec } from './session-spec';
-import { harnessCapabilitiesOn, workingFolderOn } from './computers';
+import { harnessCapabilitiesOn, workingFolderOn } from './devices';
 import { describeInputFiles, placeFilesAtHome } from './input-files';
 import { awaitTurn, forgetTurn } from './turns';
 
@@ -82,7 +82,7 @@ const startingSends = startingRef[STARTING_KEY]!;
 
 /**
  * What became of an attempt to send a message: its harness or its
- * computer's queue has it; it was held, or the work changed hands, so it
+ * device's queue has it; it was held, or the work changed hands, so it
  * starts over; or it failed before anything took it.
  */
 type SendAttempt = { kind: 'accepted' } | { kind: 'again' } | { kind: 'failed'; error: unknown };
@@ -93,7 +93,7 @@ interface Sending {
 }
 
 /**
- * Messages being sent right now, here or to a connected computer, by their
+ * Messages being sent right now, here or to a connected device, by their
  * chat event, with what became of the attempt once it's known. A second
  * dispatch of one waits for that rather than making a run of its own:
  * being prepared isn't being accepted (P4 final re-check). On globalThis
@@ -183,21 +183,21 @@ export interface DispatchOptions {
   actor?: WorkerCommandActor;
   /**
    * The message's files. Their `[[file:]]` markers become paths on the
-   * computer the chat runs on, which is known only here (P2.5).
+   * device the chat runs on, which is known only here (P2.5).
    */
   attachments?: Attachment[];
   /**
-   * Called once the message is saved in its computer's queue, for a chat
-   * elsewhere (P3.2). From then on what the chat is doing is its computer's
+   * Called once the message is saved in its device's queue, for a chat
+   * elsewhere (P3.2). From then on what the chat is doing is its device's
    * to say: running when the worker reports its turn, and the message's
    * delivery state until then. A caller holding the chat busy for the
-   * dispatch lets go here, so a message waiting for a computer that's away
+   * dispatch lets go here, so a message waiting for a device that's away
    * doesn't read as working.
    */
   onQueued?: () => void;
   /**
-   * The command a message to a computer elsewhere waits in, once it's
-   * queued: a scheduled run starts its clock only when that computer takes
+   * The command a message to a device elsewhere waits in, once it's
+   * queued: a scheduled run starts its clock only when that device takes
    * it (P3 review).
    */
   onQueuedCommand?: (commandId: string) => void;
@@ -216,7 +216,7 @@ export interface DispatchOptions {
   signal?: AbortSignal;
   /**
    * Called once the next message can follow this one: when the chat's
-   * harness has it and takes messages mid-turn, or its computer's queue has
+   * harness has it and takes messages mid-turn, or its device's queue has
    * it (a worker takes them in turn), or a move holds it. For a harness here
    * that takes one message at a time, when its turn is over. What a delivery
    * of several messages in order waits for, rather than every whole turn.
@@ -281,11 +281,11 @@ async function dispatchOnce(
   const session = getChatSessionWithExecution(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
   // An import nobody has taken over has no session to resume. A send would
-  // start a blank one under a transcript it never saw, on whichever computer
+  // start a blank one under a transcript it never saw, on whichever device
   // the import came from, whoever is sending.
   if (isImportMirror(session)) throw new ExecutorError('invalid_state', IMPORT_MIRROR_REFUSAL);
 
-  // Moving to another computer (P4.2): the message is saved and held, and
+  // Moving to another device (P4.2): the message is saved and held, and
   // goes once to wherever the work ends up. Nothing reaches the source while
   // it's being stopped and saved, nor either side while a move that stopped
   // waits for Try again, Resume or Finish (P4 review).
@@ -307,11 +307,11 @@ async function dispatchOnce(
     }
   }
 
-  // Where the chat runs. A chat on a connected computer runs in its folder
+  // Where the chat runs. A chat on a connected device runs in its folder
   // there, which the home never looks for on its own disk (P2.4).
   const placement = chatPlacement(chatSessionId);
   const remote = placement && !placement.isHome ? placement : null;
-  // This message already went to its computer's queue, or is on its way
+  // This message already went to its device's queue, or is on its way
   // there or to the harness here, by another path (the original send, an
   // earlier retry, a second Resume, or one overlapping this): its run and
   // its turn are that send's. A second one would only make a run and wait on
@@ -361,8 +361,8 @@ function holdHere(chatSessionId: string, executionId: string, options: DispatchO
     throw new ExecutorError(
       'invalid_state',
       holding.state === 'active'
-        ? 'This execution is moving to another computer. Send again once it has arrived.'
-        : 'Its move to another computer stopped. Try again, resume it or finish it, then send again.',
+        ? 'This execution is moving to another device. Send again once it has arrived.'
+        : 'Its move to another device stopped. Try again, resume it or finish it, then send again.',
     );
   }
   const held = holdForTransfer(executionId, options.sourceEventId);
@@ -375,11 +375,11 @@ function holdHere(chatSessionId: string, executionId: string, options: DispatchO
   return true;
 }
 
-/** How a send ended up: with the harness here, in its computer's queue, or held by a move. */
+/** How a send ended up: with the harness here, in its device's queue, or held by a move. */
 interface Delivered {
   turn: Promise<void>;
   outcome: 'sent' | 'queued' | 'held';
-  /** The command it waits in, when queued for a computer elsewhere. */
+  /** The command it waits in, when queued for a device elsewhere. */
   commandId?: string;
   /** Another message can follow it now, rather than when its turn is over. */
   acceptsMore: boolean;
@@ -413,7 +413,7 @@ async function dispatchTo(
   if (!isHarnessEnabled(providerId)) {
     throw new ExecutorError('unsupported', `${providerId} is disabled by the rollout configuration`);
   }
-  // The home's own catalog stands in for a connected computer's: same
+  // The home's own catalog stands in for a connected device's: same
   // accounts, and the harness there refuses a model it doesn't have.
   const catalog = await getHarnessModelCatalog(providerId, { cwd: remote ? undefined : cwd });
   if (session.model && !catalog.some((model) => model.id === session.model)) {
@@ -480,9 +480,9 @@ async function dispatchTo(
 
   // Provider capability gate, before a run exists, so a refused send leaves
   // none behind. The runner checks the same things again. On a connected
-  // computer the capabilities are what its worker reported, and its runner
+  // device the capabilities are what its worker reported, and its runner
   // holds the one-at-a-time gate.
-  const caps = await harnessCapabilitiesOn(remote ?? { computerId: '', isHome: true }, selection.providerId, remote ? undefined : cwd);
+  const caps = await harnessCapabilitiesOn(remote ?? { deviceId: '', isHome: true }, selection.providerId, remote ? undefined : cwd);
   if (!caps.sessions) {
     throw new ExecutorError('unsupported', caps.sessionsReason ?? `${selection.providerId} sessions are unavailable`);
   }
@@ -559,8 +559,8 @@ async function deliver(
     preparedWorktreeOf: preparing,
   });
   // A live session here needs no spec, so a follow-up does no spec work. A
-  // connected computer always gets one. Attached files: paths here for a chat
-  // at home. A connected computer gets the markers as they are and the files
+  // connected device always gets one. Attached files: paths here for a chat
+  // at home. A connected device gets the markers as they are and the files
   // beside them, and places its own copies.
   const spec = !remote && isHarnessSessionAlive(chatSessionId) ? null : await buildSpec();
   const attachments = options.attachments ?? [];
@@ -568,7 +568,7 @@ async function deliver(
 
   // The send boundary (P4 review). Everything above can take a while, and a
   // move can start or stop meanwhile, or finish and hand the work to another
-  // computer. So here, in the same tick as the send is counted: a move under
+  // device. So here, in the same tick as the send is counted: a move under
   // way, or one that stopped, holds the message; work that changed hands
   // starts the send over for its new owner; otherwise the send is counted
   // until its harness has it, and a move stops the source only after that.
@@ -578,7 +578,7 @@ async function deliver(
     if (holdHere(chatSessionId, session.executionId, options)) return held;
   }
   const now = chatPlacement(chatSessionId);
-  if (now?.computerId !== placement?.computerId || now?.generation !== placement?.generation) throw new StartOver();
+  if (now?.deviceId !== placement?.deviceId || now?.generation !== placement?.generation) throw new StartOver();
   const admitted = admitSend(session.executionId);
   if (!admitted) {
     if (session.executionId && holdHere(chatSessionId, session.executionId, options)) return held;
@@ -856,8 +856,8 @@ export function resolveCwd(session: {
 
 /** Called only after the service closes admission. Cached idle harnesses can
  * resume from their native histories after an update. Busy turns, tasks and
- * permission waits are never interrupted by maintenance. Only this computer's
- * own sessions: a connected computer's worker keeps its own. */
+ * permission waits are never interrupted by maintenance. Only this device's
+ * own sessions: a connected device's worker keeps its own. */
 export async function closeIdleHarnessesForMaintenance(): Promise<void> {
   if (readMaintenance()?.phase !== 'draining') throw new Error('Maintenance admission must be closed first');
   const { closeIdleForMaintenance } = await import('@/lib/runner/local-runner');

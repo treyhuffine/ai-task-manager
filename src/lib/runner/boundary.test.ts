@@ -1,7 +1,7 @@
 /**
  * The runner and the worker never read the database, notify, or publish to
  * the realtime bus (docs/homes-build.md, P2.1 and P2.2): they run on a
- * connected computer, which has none of those. This walks their real import
+ * connected device, which has none of those. This walks their real import
  * graph, through every module they reach, and fails with the chain that
  * crosses the line.
  *
@@ -60,7 +60,7 @@ function runtimeImports(file: string): { local: string[]; packages: string[] } {
 
 /**
  * What a worker must never load on top of that (P3.6, spec §7): the home is
- * the one scheduler and the one deck generator, so a connected computer
+ * the one scheduler and the one deck generator, so a connected device
  * reaches neither the scheduler nor the deck and its AI pipeline.
  */
 const WORKER_FORBIDDEN_PATHS = ['lib/scheduler/', 'lib/deck/', 'lib/ai/', 'lib/runs/'].map((p) => path.join(SRC, p));

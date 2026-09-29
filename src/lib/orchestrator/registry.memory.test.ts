@@ -26,7 +26,7 @@ beforeEach(async () => {
   // The home's own key, as the server's self-calls use it.
   const q = await import('@/lib/db/queries');
   const { writeAuthConfig } = await import('@/lib/auth/config-file');
-  writeAuthConfig({ localToken: q.createApiKey({ name: 'Home', deviceType: 'computer' }).token.plaintext });
+  writeAuthConfig({ localToken: q.pairDevice({ name: 'Home', kind: 'computer' }).token.plaintext });
   server = await startHomeServer();
   process.env.RI_PUBLIC_BASE_URL = server.url;
   fake = installFakeHarness('claude');

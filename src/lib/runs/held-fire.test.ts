@@ -24,7 +24,7 @@ beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-held-fire-' });
   const identity = await import('@/lib/home/identity');
   identity.resetHomeIdentityCache();
-  const hostId = identity.ensureHomeIdentity().home.hostComputerId;
+  const hostId = identity.ensureHomeIdentity().home.hostDeviceId;
   q = await import('@/lib/db/queries');
   const repo = path.join(home.root, 'repo');
   const worktree = path.join(home.root, 'execution');
@@ -39,8 +39,8 @@ beforeEach(async () => {
   executionId = q.createExecutionWithChat({ workspaceId: workspace.id, harness: 'claude', label: 'Held' }).execution.id;
   q.updateExecution(executionId, { worktreePath: worktree, branchName: 'held', baseSha: git('rev-parse', 'HEAD') });
   trigger = q.createTrigger({ name: 'Hourly', workspaceId: workspace.id, owningExecutionId: executionId, targetKind: 'workspace', harness: 'claude', prompt: 'Sweep', kind: 'cron', cronExpression: '0 * * * *', timeoutSeconds: 60 });
-  const destination = q.createComputer({ name: 'Elsewhere', platform: 'darwin', hostname: 'fixture-only' });
-  transfer = q.createTransfer({ executionId, fromComputerId: hostId, toComputerId: destination.id, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
+  const destination = q.createDevice({ name: 'Elsewhere', platform: 'darwin', hostname: 'fixture-only' , kind: 'computer' });
+  transfer = q.createTransfer({ executionId, fromDeviceId: hostId, toDeviceId: destination.id, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
   fake = installFakeHarness('claude');
 });
 

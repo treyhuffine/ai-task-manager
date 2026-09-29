@@ -1,5 +1,5 @@
 /**
- * What the background service on a computer is for, decided from its files
+ * What the background service on a device is for, decided from its files
  * before anything opens a database (docs/desktop.md handoff item 1).
  */
 
@@ -43,16 +43,16 @@ it('runs a home where there is one, and on a first run', () => {
   expect(describeServiceRole(role)).toBeNull();
 });
 
-it("runs the worker where the computer is enrolled with the home it's connected to, and nothing where it isn't", () => {
+it("runs the worker where the device is enrolled with the home it's connected to, and nothing where it isn't", () => {
   write(path.join(config(), 'connection.json'), connection);
   expect(resolveServiceRole()).toEqual({ role: 'viewer', home: { url: 'https://ri-trey.beamd.run', name: 'My Ri' } });
-  write(path.join(config(), 'worker.json'), { version: 1, homeId: 'home-1', computerId: 'c', computerName: 'MacBook', workerKey: 'w', enrolledAt: 'x' });
+  write(path.join(config(), 'worker.json'), { version: 1, homeId: 'home-1', deviceId: 'c', deviceName: 'MacBook', workerKey: 'w', enrolledAt: 'x' });
   const role = resolveServiceRole();
-  expect(role).toEqual({ role: 'worker', home: { url: 'https://ri-trey.beamd.run', name: 'My Ri' }, computerName: 'MacBook' });
+  expect(role).toEqual({ role: 'worker', home: { url: 'https://ri-trey.beamd.run', name: 'My Ri' }, deviceName: 'MacBook' });
   expect(servesHome(role)).toBe(false);
   expect(describeServiceRole(role)).toMatch(/runs work for My Ri at https:\/\/ri-trey\.beamd\.run/);
   // Enrolled with another home: nothing runs here.
-  write(path.join(config(), 'worker.json'), { version: 1, homeId: 'home-2', computerId: 'c', computerName: 'MacBook', workerKey: 'w', enrolledAt: 'x' });
+  write(path.join(config(), 'worker.json'), { version: 1, homeId: 'home-2', deviceId: 'c', deviceName: 'MacBook', workerKey: 'w', enrolledAt: 'x' });
   expect(resolveServiceRole().role).toBe('viewer');
 });
 

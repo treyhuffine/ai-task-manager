@@ -1,6 +1,6 @@
 /**
  * Provider stream events to `chat_events` rows. Pure: the runner parses on
- * the computer that ran the harness, so each row's id is minted there, and
+ * the device that ran the harness, so each row's id is minted there, and
  * a replay of the same event produces the same row.
  */
 

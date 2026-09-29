@@ -1,7 +1,7 @@
 /**
  * Who is acting, from the credentials a request or action carries
  * (docs/homes-spec.md §6, P2.6), never from anything the caller says about
- * itself. It goes on every command to a connected computer and decides what
+ * itself. It goes on every command to a connected device and decides what
  * the actor may answer.
  *
  * - A chat's signed session credential makes the actor that agent.
@@ -11,12 +11,12 @@
  *   from the home's own CLI (run here, or passed to the server with the
  *   home's key). Over HTTP with any other key it's an agent, as its
  *   transport says: treating an unknown remote caller as a person would let
- *   an agent on another computer approve for the user with a key it found
+ *   an agent on another device approve for the user with a key it found
  *   on disk. A person there answers in the app.
  *
  * An agent holding the home's own key file can still pass for a person on
  * the home. That's the limit of credentials on one machine (the isolation is
- * paths, not keys), and why sessions on connected computers get tokens of
+ * paths, not keys), and why sessions on connected devices get tokens of
  * their own (P2.7).
  */
 

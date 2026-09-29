@@ -1,10 +1,10 @@
 /**
- * Files attached to a message sent to this computer (docs/homes-build.md,
+ * Files attached to a message sent to this device (docs/homes-build.md,
  * "Attachments and artifacts", P2.5). Before the message goes in, the worker
  * fetches each file the send names through the worker attachment route,
  * checks its size and sha256, and keeps it under
  * `<workDir>/attachments/<homeId>/<chat>/`, outside any repository. The
- * harness gets this computer's path where each marker was.
+ * harness gets this device's path where each marker was.
  *
  * A file is written to a temporary name, flushed, and renamed only once it
  * checks out, so a file under its own name is always whole. A copy already
@@ -33,7 +33,7 @@ const PLAIN_ID = /^[A-Za-z0-9_-]+$/;
 
 export function inputFilesDir(homeId: string, chatSessionId: string): string {
   if (!PLAIN_ID.test(homeId) || !PLAIN_ID.test(chatSessionId)) {
-    throw new InputFileError(`"${chatSessionId}" isn't a chat id this computer can keep files for.`);
+    throw new InputFileError(`"${chatSessionId}" isn't a chat id this device can keep files for.`);
   }
   return path.join(getWorkDir(), 'attachments', homeId, chatSessionId);
 }
@@ -137,7 +137,7 @@ async function fetchOne(args: FetchInputFilesArgs, file: InputFile, dest: string
     fs.rmSync(temp, { force: true });
     if (err instanceof InputFileError || err instanceof WorkerStoppedError) throw err;
     if ((err as NodeJS.ErrnoException).syscall) {
-      throw new InputFileError(`Couldn't save ${file.originalName} on this computer: ${(err as Error).message}`);
+      throw new InputFileError(`Couldn't save ${file.originalName} on this device: ${(err as Error).message}`);
     }
     // Anything else is the connection dropping mid-file.
     throw new InputFileError(`${file.originalName} stopped arriving from ${target.homeName}.`, true);

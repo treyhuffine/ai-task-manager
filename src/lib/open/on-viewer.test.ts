@@ -1,14 +1,14 @@
 /**
- * Opening an execution's or agent's folder on the viewer's own computer
+ * Opening an execution's or agent's folder on the viewer's own device
  * (P3.5, spec §3.3): only for a browser whose viewing key is linked to the
- * computer the files are on, through that computer's worker, with known
+ * device the files are on, through that device's worker, with known
  * apps only. Everyone else is told where the files are.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { setUpAgentOn } from '@/test/fixtures/setups';
-import { API_KEY_ID_HEADER, API_KEY_TYPE_HEADER } from '@/lib/auth/request-key';
+import { API_KEY_ID_HEADER } from '@/lib/auth/request-key';
 
 const requestWorker = vi.fn();
 vi.mock('@/lib/workers/hub', async (importOriginal) => ({
@@ -30,14 +30,14 @@ beforeEach(async () => {
   identity.ensureHomeIdentity();
   const q = await import('@/lib/db/queries');
   const enroll = (name: string) => {
-    const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: name, createdByApiKeyId: null });
-    return q.redeemEnrollGrant({ secret: grant.secret, name }).computer.id;
+    const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: name, createdByApiKeyId: null });
+    return q.redeemEnrollGrant({ secret: grant.secret, name }).device.id;
   };
   laptopId = enroll('MacBook');
   desktopId = enroll('Studio');
   agentId = q.createWorkspace({ name: 'Ri', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false }).id;
   const there = q.createExecutionWithChat({ workspaceId: agentId, harness: 'claude', label: 'On the laptop' });
-  q.createPlacement({ executionId: there.execution.id, computerId: laptopId, startReason: 'created', worktreePath: '/Users/trey/code/ri/.work/ri-1' });
+  q.createPlacement({ executionId: there.execution.id, deviceId: laptopId, startReason: 'created', worktreePath: '/Users/trey/code/ri/.work/ri-1' });
   chatId = there.session.id;
   homeChatId = q.createExecutionWithChat({ workspaceId: agentId, harness: 'claude', label: 'At home' }).session.id;
   await setUpAgentOn(agentId, laptopId, '/Users/trey/code/ri');
@@ -50,15 +50,15 @@ afterEach(async () => {
   await home.cleanup();
 });
 
-/** A browser's viewing key, linked to a computer the way "This Mac" links it. */
-async function browserOn(computerId: string | null): Promise<Record<string, string>> {
+/** A browser's viewing key, linked to a device the way "This Mac" links it. */
+async function browserOn(deviceId: string | null): Promise<Record<string, string>> {
   const q = await import('@/lib/db/queries');
-  const key = q.createApiKey({ name: 'Browser', deviceType: 'other' });
-  if (computerId) {
-    const grant = q.createComputerGrant({ kind: 'associate', computerId, createdByApiKeyId: null });
+  const key = q.pairDevice({ name: 'Browser', kind: 'other' });
+  if (deviceId) {
+    const grant = q.createDeviceGrant({ kind: 'associate', deviceId, createdByApiKeyId: null });
     q.redeemAssociateGrant({ secret: grant.secret, apiKeyId: key.key.id });
   }
-  return { [API_KEY_ID_HEADER]: key.key.id, [API_KEY_TYPE_HEADER]: 'other' };
+  return { [API_KEY_ID_HEADER]: key.key.id };
 }
 
 async function open(kind: 'sessions' | 'workspaces', id: string, headers: Record<string, string>, body: unknown) {
@@ -70,8 +70,8 @@ async function open(kind: 'sessions' | 'workspaces', id: string, headers: Record
   return { status: res.status, body: await res.json() };
 }
 
-describe('opening files on the viewer’s own computer', () => {
-  it('opens an execution’s worktree through its computer’s worker, for a browser on that computer', async () => {
+describe('opening files on the viewer’s own device', () => {
+  it('opens an execution’s worktree through its device’s worker, for a browser on that device', async () => {
     const onLaptop = await browserOn(laptopId);
     expect(await open('sessions', chatId, onLaptop, { op: 'open', path: 'src/app.ts', target: 'vscode', line: 4 })).toEqual({ status: 200, body: { ok: true } });
     const q = await import('@/lib/db/queries');

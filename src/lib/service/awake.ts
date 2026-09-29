@@ -132,7 +132,7 @@ export class ServiceAwake {
       if (!this.state.enabled) {
         await this.release();
         if (!this.running || revision !== this.revision) return;
-        this.state = { enabled: false, phase: 'off', power: 'unknown', detail: 'Ri follows this computer’s sleep settings.' };
+        this.state = { enabled: false, phase: 'off', power: 'unknown', detail: 'Ri follows this device’s sleep settings.' };
         return;
       }
       if (!['darwin', 'linux'].includes(this.dependencies.platform)) {
@@ -161,7 +161,7 @@ export class ServiceAwake {
         await previous?.handle.stop();
       }
       if (!this.running || revision !== this.revision) return;
-      this.state = { ...this.state, phase: 'active', detail: 'Keeping this computer awake on external power. The display can still sleep.' };
+      this.state = { ...this.state, phase: 'active', detail: 'Keeping this device awake on external power. The display can still sleep.' };
     } catch (error) {
       await this.release().catch(() => {});
       if (this.running && revision === this.revision) this.state = { ...this.state, phase: 'unavailable', detail: error instanceof Error ? error.message : 'Sleep inhibition is unavailable.' };

@@ -5,7 +5,7 @@
  * (a transfer, a push the person is waiting on) waits here.
  */
 
-import { getComputer, getWorkerCommand } from '@/lib/db/queries';
+import { getDevice, getWorkerCommand } from '@/lib/db/queries';
 
 export class CommandFailedError extends Error {
   constructor(
@@ -27,7 +27,7 @@ export async function awaitWorkerCommand(commandId: string, timeoutMs: number, w
       throw new CommandFailedError(command.error ?? `${what} didn't finish.`, command.result);
     }
     if (Date.now() > deadline) {
-      throw new CommandFailedError(`${what} didn't finish in time on ${getComputer(command.computerId)?.name ?? 'its computer'}.`);
+      throw new CommandFailedError(`${what} didn't finish in time on ${getDevice(command.deviceId)?.name ?? 'its device'}.`);
     }
     await new Promise((r) => setTimeout(r, 250));
   }

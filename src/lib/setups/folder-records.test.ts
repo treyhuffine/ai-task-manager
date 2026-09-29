@@ -1,7 +1,7 @@
 /**
- * The home's records of every computer's folders (docs/homes-spec.md §4.1):
+ * The home's records of every device's folders (docs/homes-spec.md §4.1):
  * the only place an agent's folders are kept. A linked folder for every agent
- * has one place per computer. Each setup's status follows what the computer
+ * has one place per device. Each setup's status follows what the device
  * found. What existed before moves in once, at boot.
  */
 
@@ -20,10 +20,10 @@ beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-folder-records-' });
   const identity = await import('@/lib/home/identity');
   identity.resetHomeIdentityCache();
-  hostId = identity.ensureHomeIdentity().computer.id;
+  hostId = identity.ensureHomeIdentity().device.id;
   q = await import('@/lib/db/queries');
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'MacBook', createdByApiKeyId: null });
-  laptopId = q.redeemEnrollGrant({ secret: grant.secret, name: 'MacBook' }).computer.id;
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'MacBook', createdByApiKeyId: null });
+  laptopId = q.redeemEnrollGrant({ secret: grant.secret, name: 'MacBook' }).device.id;
 });
 afterEach(async () => {
   (await import('@/lib/home/identity')).resetHomeIdentityCache();
@@ -34,14 +34,14 @@ const agent = (name: string) =>
   q.createWorkspace({ name, cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false }).id;
 
 describe('a linked folder for every agent', () => {
-  it('has one place per computer, used by every agent there, and changing it there changes it for all', () => {
+  it('has one place per device, used by every agent there, and changing it there changes it for all', () => {
     const ri = agent('Ri');
     const docs = agent('Docs');
     const agentex = q.createReferenceFolder({ alias: 'agentex' });
     q.setAgentFolder(ri, laptopId, '/Users/trey/ri');
     q.setAgentFolder(docs, laptopId, '/Users/trey/docs');
     q.setFolderLink(laptopId, agentex.id, '/Users/trey/agentex');
-    const place = (id: string) => q.getAgentSetup(id, laptopId)!.references.find((r) => r.alias === 'agentex')?.path;
+    const place = (id: string) => q.getWorkspaceSetup(id, laptopId)!.references.find((r) => r.alias === 'agentex')?.path;
     expect([place(ri), place(docs)]).toEqual(['/Users/trey/agentex', '/Users/trey/agentex']);
     q.setFolderLink(laptopId, agentex.id, '/Users/trey/code/agentex');
     expect([place(ri), place(docs)]).toEqual(['/Users/trey/code/agentex', '/Users/trey/code/agentex']);
@@ -51,14 +51,14 @@ describe('a linked folder for every agent', () => {
 });
 
 describe("a setup's status", () => {
-  it("follows what the computer found: not checked, ready, or its folder gone, saying where", () => {
+  it("follows what the device found: not checked, ready, or its folder gone, saying where", () => {
     const ri = agent('Ri');
     q.setAgentFolder(ri, laptopId, '/Users/trey/ri');
-    expect(q.getAgentSetup(ri, laptopId)).toMatchObject({ status: 'unchecked', found: null, problem: null });
+    expect(q.getWorkspaceSetup(ri, laptopId)).toMatchObject({ status: 'unchecked', found: null, problem: null });
     q.recordFolderChecks(laptopId, [{ path: '/Users/trey/ri', exists: true }]);
-    expect(q.getAgentSetup(ri, laptopId)).toMatchObject({ status: 'ready', found: true });
+    expect(q.getWorkspaceSetup(ri, laptopId)).toMatchObject({ status: 'ready', found: true });
     q.recordFolderChecks(laptopId, [{ path: '/Users/trey/ri', exists: false }]);
-    expect(q.getAgentSetup(ri, laptopId)).toMatchObject({ status: 'missing_folder', problem: "Ri's folder on MacBook, /Users/trey/ri, isn't there." });
+    expect(q.getWorkspaceSetup(ri, laptopId)).toMatchObject({ status: 'missing_folder', problem: "Ri's folder on MacBook, /Users/trey/ri, isn't there." });
   });
 
   it('waits on a linked folder not chosen there, and is ready once it is, or gone without', () => {
@@ -66,17 +66,17 @@ describe("a setup's status", () => {
     const docs = q.createReferenceFolder({ workspaceId: ri, alias: 'docs' });
     q.setAgentFolder(ri, laptopId, '/Users/trey/ri');
     q.recordFolderChecks(laptopId, [{ path: '/Users/trey/ri', exists: true }]);
-    expect(q.getAgentSetup(ri, laptopId)).toMatchObject({ status: 'missing_reference', problem: 'Choose where docs is on MacBook, or go without it.' });
+    expect(q.getWorkspaceSetup(ri, laptopId)).toMatchObject({ status: 'missing_reference', problem: 'Choose where docs is on MacBook, or go without it.' });
     q.setFolderLink(laptopId, docs.id, null);
-    expect(q.getAgentSetup(ri, laptopId)).toMatchObject({ status: 'ready' });
-    expect(q.getAgentSetup(ri, laptopId)!.references).toEqual([expect.objectContaining({ alias: 'docs', form: 'omitted' })]);
+    expect(q.getWorkspaceSetup(ri, laptopId)).toMatchObject({ status: 'ready' });
+    expect(q.getWorkspaceSetup(ri, laptopId)!.references).toEqual([expect.objectContaining({ alias: 'docs', form: 'omitted' })]);
     q.setFolderLink(laptopId, docs.id, '/Users/trey/docs');
     q.recordFolderChecks(laptopId, [{ path: '/Users/trey/docs', exists: false }]);
-    expect(q.getAgentSetup(ri, laptopId)).toMatchObject({ status: 'missing_reference', problem: "docs isn't at /Users/trey/docs on MacBook." });
+    expect(q.getWorkspaceSetup(ri, laptopId)).toMatchObject({ status: 'missing_reference', problem: "docs isn't at /Users/trey/docs on MacBook." });
   });
 });
 
-describe('taking an agent off a computer', () => {
+describe('taking an agent off a device', () => {
   it("forgets its folder and its own linked folders there, and keeps one every agent uses", () => {
     const ri = agent('Ri');
     const own = q.createReferenceFolder({ workspaceId: ri, alias: 'notes' });
@@ -84,24 +84,24 @@ describe('taking an agent off a computer', () => {
     q.setAgentFolder(ri, laptopId, '/Users/trey/ri');
     q.setFolderLink(laptopId, own.id, '/Users/trey/notes');
     q.setFolderLink(laptopId, shared.id, '/Users/trey/agentex');
-    expect(q.removeAgentSetup(ri, laptopId)).toBe(true);
-    expect(q.getAgentSetup(ri, laptopId)).toBeNull();
+    expect(q.removeWorkspaceSetup(ri, laptopId)).toBe(true);
+    expect(q.getWorkspaceSetup(ri, laptopId)).toBeNull();
     expect(q.getFolderLink(laptopId, own.id)).toBeNull();
     expect(q.getFolderLink(laptopId, shared.id)?.path).toBe('/Users/trey/agentex');
   });
 });
 
 describe('moving what existed before into the records, at boot', () => {
-  it("gives an agent its home row, a linked folder its home place, and another computer's last report its places, once", async () => {
+  it("gives an agent its home row, a linked folder its home place, and another device's last report its places, once", async () => {
     const ri = agent('Ri');
     const { getDb } = await import('@/lib/db');
-    const { agentSetups, referenceFolders } = await import('@/lib/db/schema');
+    const { workspaceSetups, referenceFolders } = await import('@/lib/db/schema');
     // As an older home had them: a linked folder with its home path on it,
     // and a laptop's report from its setup file.
     const docs = q.createReferenceFolder({ alias: 'docs' });
     getDb().update(referenceFolders).set({ path: '/Users/mini/docs' }).run();
-    getDb().insert(agentSetups).values({
-      id: 'laptop-setup', workspaceId: ri, computerId: laptopId, sourcePath: '/Users/trey/ri', status: 'ready', problem: null,
+    getDb().insert(workspaceSetups).values({
+      id: 'laptop-setup', workspaceId: ri, deviceId: laptopId, sourcePath: '/Users/trey/ri', status: 'ready', problem: null,
       reportedAt: new Date().toISOString(),
       references: [{ alias: 'docs', value: '../docs', form: 'path', path: '/Users/trey/docs', exists: true, problem: null }],
     }).run();
@@ -113,17 +113,17 @@ describe('moving what existed before into the records, at boot', () => {
 
     const legacy = agent('Legacy');
     expect(q.moveFolderRecords()).toEqual({ setups: 1, links: 0, settled: [] });
-    expect(q.getAgentSetup(legacy, hostId)).toMatchObject({ sourcePath: home.root });
+    expect(q.getWorkspaceSetup(legacy, hostId)).toMatchObject({ sourcePath: home.root });
   });
   it("takes a shared linked folder's place from an active agent there, not an archived one that reported later", async () => {
     const { getDb } = await import('@/lib/db');
-    const { agentSetups } = await import('@/lib/db/schema');
+    const { workspaceSetups } = await import('@/lib/db/schema');
     const ri = agent('Ri');
     const old = agent('Old');
     const agentex = q.createReferenceFolder({ alias: 'agentex' });
     const report = (id: string, workspaceId: string, at: string, place: string) =>
-      getDb().insert(agentSetups).values({
-        id, workspaceId, computerId: laptopId, sourcePath: `/Users/trey/${id}`, status: 'ready', problem: null, reportedAt: at,
+      getDb().insert(workspaceSetups).values({
+        id, workspaceId, deviceId: laptopId, sourcePath: `/Users/trey/${id}`, status: 'ready', problem: null, reportedAt: at,
         references: [{ alias: 'agentex', value: place, form: 'path', path: place, exists: true, problem: null }],
       }).run();
     // The archived one first, and later: neither order nor time decides it.
@@ -136,7 +136,7 @@ describe('moving what existed before into the records, at boot', () => {
 
   it("keeps the place an agent on the home chose over the linked folder's own path, and says which it kept when agents disagreed", async () => {
     const { getDb } = await import('@/lib/db');
-    const { agentSetups, referenceFolders } = await import('@/lib/db/schema');
+    const { workspaceSetups, referenceFolders } = await import('@/lib/db/schema');
     // The dev home's Mac Mini, as it was: agentex's own path an early copy,
     // Ri's setup file choosing the real one beside it, and the Agentex agent's
     // setup file carrying agentex's own path along.
@@ -145,8 +145,8 @@ describe('moving what existed before into the records, at boot', () => {
     const agentex = q.createReferenceFolder({ alias: 'agentex' });
     getDb().update(referenceFolders).set({ path: '/Users/mini/early/agentex' }).run();
     const report = (id: string, workspaceId: string, place: string, value: string) =>
-      getDb().insert(agentSetups).values({
-        id, workspaceId, computerId: hostId, sourcePath: `/Users/mini/${id}`, status: 'ready', problem: null, reportedAt: '2026-09-28T21:48:33.933Z',
+      getDb().insert(workspaceSetups).values({
+        id, workspaceId, deviceId: hostId, sourcePath: `/Users/mini/${id}`, status: 'ready', problem: null, reportedAt: '2026-09-28T21:48:33.933Z',
         references: [{ alias: 'agentex', value, form: 'path', path: place, exists: true, problem: null }],
       }).run();
     report('agentex-agent', agentexAgent, '/Users/mini/early/agentex', '/Users/mini/early/agentex');
@@ -154,12 +154,12 @@ describe('moving what existed before into the records, at boot', () => {
     const moved = q.moveFolderRecords();
     expect(q.getFolderLink(hostId, agentex.id)?.path).toBe('/Users/mini/code/agentex');
     expect(moved.settled).toEqual([
-      `@agentex on ${q.getComputer(hostId)!.name}: kept /Users/mini/code/agentex (Ri used /Users/mini/code/agentex, Agentex used /Users/mini/early/agentex)`,
+      `@agentex on ${q.getDevice(hostId)!.name}: kept /Users/mini/code/agentex (Ri used /Users/mini/code/agentex, Agentex used /Users/mini/early/agentex)`,
     ]);
   });
 });
 
-describe("this computer's folders", () => {
+describe("this device's folders", () => {
   it('lists a folder within the home folder, marks projects, leaves hidden ones out, and refuses outside it', async () => {
     const { listFoldersHere, FolderListingError, checkFoldersHere } = await import('./folders-here');
     const base = fs.mkdtempSync(path.join(os.homedir(), '.ri-folders-test-'));

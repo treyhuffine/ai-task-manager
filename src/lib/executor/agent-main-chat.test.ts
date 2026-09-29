@@ -233,7 +233,7 @@ describe('prepareAgentMainChatSpawn', () => {
   });
 });
 
-describe('on a connected computer (P2.7)', () => {
+describe('on a connected device (P2.7)', () => {
   it("carries the persona as text and memory as actions, and names none of the home's files", async () => {
     fs.writeFileSync(path.join(ROOT, 'USER.md'), 'Trey. Prefers terse answers.\n');
     fs.writeFileSync(path.join(ROOT, 'SOUL.md'), 'Dry, direct.\n');
@@ -254,11 +254,11 @@ describe('on a connected computer (P2.7)', () => {
   it("reaches the home's servers with its own token, at the address its worker gives", async () => {
     fs.writeFileSync(path.join(ROOT, 'USER.md'), 'Trey.\n');
     const seeded = await seed();
-    // A token is issued to the computer's enrolled worker, so there is one.
+    // A token is issued to the device's enrolled worker, so there is one.
     (await import('@/lib/home/identity')).ensureHomeIdentity();
     const q = await import('@/lib/db/queries');
-    const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'Laptop', createdByApiKeyId: null });
-    const laptop = q.redeemEnrollGrant({ secret: grant.secret, name: 'Laptop' }).computer.id;
+    const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'Laptop', createdByApiKeyId: null });
+    const laptop = q.redeemEnrollGrant({ secret: grant.secret, name: 'Laptop' }).device.id;
     const { buildSessionSpec } = await import('./session-spec');
     const spec = await buildSessionSpec(
       {
@@ -276,7 +276,7 @@ describe('on a connected computer (P2.7)', () => {
         modelVariant: null,
         effort: null,
       },
-      { computerId: laptop, isHome: false, generation: null },
+      { deviceId: laptop, isHome: false, generation: null },
     );
     const orchestrator = spec.mcpServers.find((s) => s.name === 'orchestrator') as { url: string; headers: Record<string, string> };
     expect(orchestrator.url).toBe('ri-home:/api/orchestrator/mcp');

@@ -1,6 +1,6 @@
 /**
  * A worker's answer to a request the home sent down its stream
- * (docs/homes-build.md, P2.2). Only the computer that was asked can answer,
+ * (docs/homes-build.md, P2.2). Only the device that was asked can answer,
  * and only while the home is still waiting.
  */
 
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return Response.json({ error: 'invalid_params', message: parsed.error.issues[0]?.message }, { status: 400 });
   }
   const result = parsed.data.ok ? { ok: true as const, value: parsed.data.value ?? null } : parsed.data;
-  const settled = settleRequest(worker.computer.id, id, result);
+  const settled = settleRequest(worker.device.id, id, result);
   if (!settled) return Response.json({ error: 'gone', message: 'Nothing is waiting for that answer.' }, { status: 410 });
   return Response.json({ ok: true });
 }

@@ -51,7 +51,7 @@ it('stops a worker before it opens anything when another holds the root', async 
   const held = await acquireWorkerLock(lockFile);
   const { runWorker } = await import('./run');
   const exit = await runWorker({
-    target: { homeUrl: 'http://127.0.0.1:9', homeId: 'home', homeName: 'Home', computerId: 'c', computerName: 'Laptop', workerKey: 'k' } as never,
+    target: { homeUrl: 'http://127.0.0.1:9', homeId: 'home', homeName: 'Home', deviceId: 'c', deviceName: 'Laptop', workerKey: 'k' } as never,
     version: 'test',
     lockFile,
     processRecordFile: path.join(dir, 'work', 'worker-processes.json'),

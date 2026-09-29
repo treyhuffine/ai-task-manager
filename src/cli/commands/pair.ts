@@ -30,8 +30,9 @@ import {
   getRunningPort,
   setRunningPort,
 } from '@/lib/auth/bootstrap';
-import { createApiKey } from '@/lib/db/queries';
-import type { DeviceType } from '@/db/types';
+import { pairDevice } from '@/lib/db/queries';
+import { DEVICE_KINDS } from '@/lib/db/schema';
+import type { DeviceKind } from '@/db/types';
 import { readLiveServerRuntime } from '@/lib/server-runtime/record';
 import { probeHealth } from '../lib/server';
 import { renderTerminalQr } from '../lib/qr';
@@ -48,15 +49,6 @@ function isHttp2LoopbackMode(): boolean {
 
 const BASE_URL_EXAMPLE = `https://${APP_SHORT_ID}.example.com`;
 
-/** Device types the CLI is willing to assign. Excludes 'host' — that's
- *  reserved for the internal host-machine token and minted elsewhere. */
-const ALLOWED_CLI_TYPES: readonly DeviceType[] = [
-  'computer',
-  'phone',
-  'tablet',
-  'service',
-  'other',
-];
 
 export interface PairOptions {
   setUrl?: string;
@@ -94,11 +86,11 @@ export async function pairCommand(opts: PairOptions = {}) {
   }
 
   // Validate --type before doing anything irreversible.
-  const deviceType = resolveDeviceType(opts.type);
-  if (deviceType === null) {
+  const kind = resolveDeviceKind(opts.type);
+  if (kind === null) {
     console.error(
       pc.red(
-        `Invalid --type "${opts.type}". Must be one of: ${ALLOWED_CLI_TYPES.join(', ')}.`,
+        `Invalid --type "${opts.type}". Must be one of: ${DEVICE_KINDS.join(', ')}.`,
       ),
     );
     process.exit(1);
@@ -149,11 +141,11 @@ export async function pairCommand(opts: PairOptions = {}) {
     process.exit(1);
   }
 
-  // Mint a fresh per-device key for this invocation.
+  // A new device, with its own key, for this invocation.
   const name = (opts.name ?? '').trim() || defaultDeviceName();
-  const { key, token } = createApiKey({
+  const { device, token } = pairDevice({
     name,
-    deviceType: deviceType,
+    kind,
     description: `Paired via \`${APP_SHORT_ID} pair\` from ${os.hostname()}`,
   });
 
@@ -163,7 +155,7 @@ export async function pairCommand(opts: PairOptions = {}) {
   console.log();
   console.log(
     pc.bold(`${APP_SHORT_ID} pair`) +
-      pc.dim(`: created device "${key.name}" (${key.deviceType})`),
+      pc.dim(`: created device "${device.name}" (${device.kind})`),
   );
   console.log();
   console.log(await renderTerminalQr(primaryUrl));
@@ -186,7 +178,7 @@ export async function pairCommand(opts: PairOptions = {}) {
   console.log();
   console.log(
     pc.dim(
-      `Rename or revoke this device anytime from the Devices sheet in the web app's top bar.`,
+      `Rename or remove this device anytime in Settings, under Devices.`,
     ),
   );
 
@@ -233,15 +225,13 @@ function defaultDeviceName(): string {
 }
 
 /**
- * Returns the resolved DeviceType, `'other'` when unspecified, or `null`
- * when the caller passed an unknown string (→ exit with error).
+ * Returns the device's kind, `'other'` when unspecified, or `null` when the
+ * caller passed an unknown string (→ exit with error).
  */
-function resolveDeviceType(raw: string | undefined): DeviceType | null {
+function resolveDeviceKind(raw: string | undefined): DeviceKind | null {
   if (!raw) return 'other';
   const lower = raw.toLowerCase();
-  return (ALLOWED_CLI_TYPES as readonly string[]).includes(lower)
-    ? (lower as DeviceType)
-    : null;
+  return (DEVICE_KINDS as readonly string[]).includes(lower) ? (lower as DeviceKind) : null;
 }
 
 /**

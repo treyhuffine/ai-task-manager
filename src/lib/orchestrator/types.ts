@@ -34,7 +34,7 @@ export interface ActionContext {
   /**
    * Who is calling, from the credential the transport validated, never from
    * the caller's claim. `home` covers the home's own CLI and sessions (its
-   * host key). `elsewhere` is any other computer, phone or service, reached
+   * host key). `elsewhere` is any other device, phone or service, reached
    * over HTTP. Absent means the transport didn't say, which handlers treat
    * as `elsewhere`. Actions that resolve a folder path from their input do
    * it on the home's disk, so they refuse callers elsewhere

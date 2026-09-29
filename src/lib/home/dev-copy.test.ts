@@ -52,9 +52,9 @@ beforeAll(async () => {
   const identity = await import('@/lib/home/identity');
   getDb();
   const original = identity.resolveHomeIdentity({ name: 'Trey' });
-  ids0 = { home: original.home.id, host: original.home.hostComputerId };
+  ids0 = { home: original.home.id, host: original.home.hostDeviceId };
   identity.resetHomeIdentityCache();
-  q.createApiKey({ name: 'Phone', deviceType: 'phone' });
+  q.pairDevice({ name: 'Phone', kind: 'phone' });
   const ws = q.createWorkspace({
     name: 'app',
     cwd: PROD_CWD,
@@ -134,9 +134,9 @@ describe('prepareDevelopmentCopy', () => {
       "SELECT l.path FROM folder_links l JOIN reference_folders r ON r.id = l.reference_folder_id WHERE r.alias = 'docs'",
     );
     expect(link.path.endsWith('/.detached/Users/someone/docs')).toBe(true);
-    // And it belongs to the copy's own home computer, not the original's.
+    // And it belongs to the copy's own home device, not the original's.
     const owner = one<{ ok: number }>(
-      'SELECT count(*) AS ok FROM folder_links l JOIN home h ON h.host_computer_id = l.computer_id',
+      'SELECT count(*) AS ok FROM folder_links l JOIN home h ON h.host_device_id = l.device_id',
     );
     expect(owner.ok).toBe(1);
     db.close();
@@ -151,9 +151,9 @@ describe('prepareDevelopmentCopy', () => {
     expect(status.state).toBe('active');
     expect(status.home.id).not.toBe(ids0.home);
     expect(status.home.name).toBe('Trey (dev copy)');
-    expect(status.home.hostComputerId).not.toBe(ids0.host);
-    const { getComputer } = await import('@/lib/db/queries');
-    expect(getComputer(ids0.host)?.status).toBe('revoked');
+    expect(status.home.hostDeviceId).not.toBe(ids0.host);
+    const { getDevice } = await import('@/lib/db/queries');
+    expect(getDevice(ids0.host)?.status).toBe('revoked');
     resetDb();
   });
 

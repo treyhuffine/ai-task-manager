@@ -73,7 +73,7 @@ export function ExecutionTerminalInstance({
   /** Attaches the WebGL renderer once, on first activation. See the note where it is set. */
   const attachGpuRef = useRef<(() => void) | null>(null);
   /**
-   * Why input is off: the shell's computer isn't connected (P3.5). Keys typed
+   * Why input is off: the shell's device isn't connected (P3.5). Keys typed
    * meanwhile are dropped, never kept to send when it's back (spec §5.6).
    */
   const [offline, setOffline] = useState<string | null>(null);
@@ -173,7 +173,7 @@ export function ExecutionTerminalInstance({
 
     const isMac = detectIsMac();
 
-    // Input is live only while the shell's computer is reachable.
+    // Input is live only while the shell's device is reachable.
     let inputOff = false;
     const goOffline = (message: string | null) => {
       inputOff = message !== null;
@@ -340,10 +340,10 @@ export function ExecutionTerminalInstance({
           case 'error':
             finish('[this terminal is gone]');
             break;
-          // Its computer dropped, or can't be reached now: the page stream
+          // Its device dropped, or can't be reached now: the page stream
           // keeps trying, and `ready` turns input back on.
           case 'unavailable':
-            goOfflineRef.current?.((data as { message?: string } | null)?.message ?? 'Its computer is not connected.');
+            goOfflineRef.current?.((data as { message?: string } | null)?.message ?? 'Its device is not connected.');
             break;
         }
       },

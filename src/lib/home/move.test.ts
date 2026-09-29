@@ -1,9 +1,9 @@
 /**
- * Moving a home from a laptop to an always-on computer (docs/homes-spec.md
+ * Moving a home from a laptop to an always-on device (docs/homes-spec.md
  * §10.3, P5.3): exported stopped, imported elsewhere with the same id, the
  * old host retired, and the new one claimed. What ran on the laptop without
  * saying so is pinned to it, since its worktrees and native transcripts are
- * there, and the laptop stays a computer of the home, ready to run its work.
+ * there, and the laptop stays a device of the home, ready to run its work.
  */
 
 import fs from 'node:fs';
@@ -32,7 +32,7 @@ async function seedLaptopHome(): Promise<void> {
   identity.resetHomeIdentityCache();
   const made = identity.ensureHomeIdentity();
   ids.home = made.home.id;
-  ids.laptopHost = made.computer.id;
+  ids.laptopHost = made.device.id;
   const q = await import('@/lib/db/queries');
   const ws = (name: string, cwd: string) =>
     q.createWorkspace({ name, cwd, isGit: true, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false }).id;
@@ -41,9 +41,9 @@ async function seedLaptopHome(): Promise<void> {
   q.setAgentFolder(ids.ri, ids.laptopHost, '/Users/trey/ri-app');
   q.setAgentFolder(ids.docs, ids.laptopHost, '/Users/trey/docs');
   // The Mini already ran the home's work: enrolled, with Docs set up there.
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'Mac Mini', createdByApiKeyId: null });
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'Mac Mini', createdByApiKeyId: null });
   const enrolled = q.redeemEnrollGrant({ secret: grant.secret, name: 'Mac Mini' });
-  ids.mini = enrolled.computer.id;
+  ids.mini = enrolled.device.id;
   ids.miniKey = enrolled.key.id;
   q.setAgentFolder(ids.docs, ids.mini, '/Users/mini/docs');
   // Work the laptop ran as the home (no placement), and work continued onto the Mini.
@@ -51,11 +51,11 @@ async function seedLaptopHome(): Promise<void> {
   ids.laptopWork = here.execution.id;
   const there = q.createExecutionWithChat({ workspaceId: ids.docs, harness: 'claude', label: 'On the Mini', worktreePath: null });
   ids.miniWork = there.execution.id;
-  q.createPlacement({ executionId: ids.miniWork, computerId: ids.mini, startReason: 'created', worktreePath: '/Users/mini/.work/worktrees/docs/docs-1' });
+  q.createPlacement({ executionId: ids.miniWork, deviceId: ids.mini, startReason: 'created', worktreePath: '/Users/mini/.work/worktrees/docs/docs-1' });
   // Main chats with native sessions on the laptop, and a terminal import from its disk.
   const main = (workspaceId: string | null, native: string) => {
     const c = q.createChatSession({ type: 'orchestration', harness: 'claude', workspaceId, externalSessionId: native });
-    q.recordNativeSession({ chatSessionId: c.id, harness: 'claude', nativeSessionId: native, computerId: null, placementId: null });
+    q.recordNativeSession({ chatSessionId: c.id, harness: 'claude', nativeSessionId: native, deviceId: null, placementId: null });
     return c.id;
   };
   ids.appMain = main(null, 'native-app');
@@ -89,39 +89,39 @@ describe('the home moving to the Mini', () => {
     const q = await import('@/lib/db/queries');
     const moved = q.moveHomeHost(ids.mini);
     expect(moved).toMatchObject({ from: ids.laptopHost, to: ids.mini, pinnedExecutions: 1 });
-    expect(q.getHome()!.hostComputerId).toBe(ids.mini);
+    expect(q.getHome()!.hostDeviceId).toBe(ids.mini);
 
     // The laptop's work stays there, with its worktree. The Mini's work is home work now.
-    expect(q.getOpenPlacement(ids.laptopWork)).toMatchObject({ computerId: ids.laptopHost, worktreePath: '/Users/trey/ri/.work/worktrees/ri/ri-1', generation: 1 });
+    expect(q.getOpenPlacement(ids.laptopWork)).toMatchObject({ deviceId: ids.laptopHost, worktreePath: '/Users/trey/ri/.work/worktrees/ri/ri-1', generation: 1 });
     expect(q.getExecution(ids.laptopWork)!.worktreePath).toBeNull();
     expect(q.getExecution(ids.miniWork)!.worktreePath).toBe('/Users/mini/.work/worktrees/docs/docs-1');
     const laptopChat = q.listWorkspaceExecutions(ids.ri).find((c) => c.executionId === ids.laptopWork)!;
-    expect(q.chatPlacement(laptopChat.id)).toMatchObject({ computerId: ids.laptopHost, isHome: false });
+    expect(q.chatPlacement(laptopChat.id)).toMatchObject({ deviceId: ids.laptopHost, isHome: false });
 
     // Ri lives only on the laptop: its main chat stays there, with its native session.
-    expect(q.getChatSession(ids.riMain)).toMatchObject({ computerId: ids.laptopHost, externalSessionId: 'native-ri' });
+    expect(q.getChatSession(ids.riMain)).toMatchObject({ deviceId: ids.laptopHost, externalSessionId: 'native-ri' });
     // Docs is set up on the Mini, and the app's main chat is the home's: fresh sessions here.
     for (const id of [ids.docsMain, ids.appMain]) {
-      expect(q.getChatSession(id)).toMatchObject({ computerId: null, externalSessionId: null });
+      expect(q.getChatSession(id)).toMatchObject({ deviceId: null, externalSessionId: null });
       expect(q.listNativeSessions(id).every((n) => n.endedAt !== null)).toBe(true);
     }
     // Ri's terminal import is a Ri chat outside an execution too: it stays on the laptop.
-    expect(q.getChatSession(ids.terminal)!.computerId).toBe(ids.laptopHost);
+    expect(q.getChatSession(ids.terminal)!.deviceId).toBe(ids.laptopHost);
     expect(moved).toMatchObject({ pinnedChats: 2, freshChats: 2 });
 
     // The terminal import is read from the laptop now, never a path on it.
-    expect(q.getExternalSessionImportForChat(ids.terminal)).toMatchObject({ computerId: ids.laptopHost, sourcePath: null });
+    expect(q.getExternalSessionImportForChat(ids.terminal)).toMatchObject({ deviceId: ids.laptopHost, sourcePath: null });
     // Each agent's home folder is its folder on the Mini, where it has one.
     expect(q.getWorkspace(ids.docs)!.cwd).toBe('/Users/mini/docs');
     expect(q.getWorkspace(ids.ri)!.cwd).toBe('/Users/trey/ri-app');
     const { runOnFor } = await import('@/lib/setups/run-on');
-    expect(runOnFor(ids.ri)!.livesOn).toMatchObject({ computerId: ids.laptopHost, isHome: false });
-    expect(runOnFor(ids.docs)!.livesOn).toMatchObject({ computerId: ids.mini, isHome: true, folder: '/Users/mini/docs' });
+    expect(runOnFor(ids.ri)!.livesOn).toMatchObject({ deviceId: ids.laptopHost, isHome: false });
+    expect(runOnFor(ids.docs)!.livesOn).toMatchObject({ deviceId: ids.mini, isHome: true, folder: '/Users/mini/docs' });
 
     // The Mini runs its own work now: its worker key is revoked. The laptop stays, ready to enroll.
     const { getRawDb } = await import('@/lib/db');
     expect((getRawDb().prepare('SELECT revoked_at FROM api_keys WHERE id = ?').get(ids.miniKey) as { revoked_at: string | null }).revoked_at).not.toBeNull();
-    expect(q.getComputer(ids.laptopHost)!.status).toBe('active');
+    expect(q.getDevice(ids.laptopHost)!.status).toBe('active');
   });
 
   it('changes nothing when the host stays the same', async () => {
@@ -163,13 +163,13 @@ describe('export, import, retire, claim', () => {
       expect(() => importHome(out)).toThrow('This folder already has a home. Import into a folder of its own.');
       expect(identity.resolveHomeIdentity()).toMatchObject({ state: 'needs_claim', reason: 'no_machine_identity' });
 
-      // Claimed as the Mini it already knew: the same computer, now the host.
+      // Claimed as the Mini it already knew: the same device, now the host.
       const claimed = identity.claimHome({ as: ids.mini });
       expect(claimed.home.id).toBe(ids.home);
-      expect(claimed.computer.id).toBe(ids.mini);
+      expect(claimed.device.id).toBe(ids.mini);
       expect(claimed.moved).toMatchObject({ from: ids.laptopHost, to: ids.mini, pinnedExecutions: 1 });
       const q = await import('@/lib/db/queries');
-      expect(q.getOpenPlacement(ids.laptopWork)!.computerId).toBe(ids.laptopHost);
+      expect(q.getOpenPlacement(ids.laptopWork)!.deviceId).toBe(ids.laptopHost);
       expect(identity.isHomeActive()).toBe(true);
     } finally {
       resetDb();
@@ -183,14 +183,14 @@ describe('export, import, retire, claim', () => {
     }
   });
 
-  it('claims a restore on the computer that ran it as that computer, moving nothing', async () => {
+  it('claims a restore on the device that ran it as that device, moving nothing', async () => {
     const { resetDb } = await import('@/lib/db');
     resetDb();
     fs.rmSync(path.join(laptop.configDir, 'machine.json'));
     const identity = await import('@/lib/home/identity');
     identity.resetHomeIdentityCache();
     const claimed = identity.claimHome({ as: ids.laptopHost });
-    expect(claimed.computer.id).toBe(ids.laptopHost);
+    expect(claimed.device.id).toBe(ids.laptopHost);
     expect(claimed.moved).toBeNull();
     const q = await import('@/lib/db/queries');
     expect(q.getOpenPlacement(ids.laptopWork)).toBeNull();

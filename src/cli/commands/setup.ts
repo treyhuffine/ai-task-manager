@@ -1,26 +1,26 @@
 /**
- * `<app> setup`: an agent's folders on this computer (docs/homes-spec.md
+ * `<app> setup`: an agent's folders on this device (docs/homes-spec.md
  * §4.1-4.2). The home's records are the only place they're kept: these
  * commands record them there, and nothing is written in the folders.
  *
- *   ri setup                                  this computer's agents and their folders
+ *   ri setup                                  this device's agents and their folders
  *   ri setup attach <agent> [folder] [--link alias=folder|omit ...]
  *   ri setup link <agent> <alias> <folder|omit>   where a linked folder is here, or go without it
  *   ri setup relink <agent> <folder>          after renaming or moving the folder
  *   ri setup detach <agent>
  *
- * The same commands work on the home and on a connected computer.
+ * The same commands work on the home and on a connected device.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import pc from 'picocolors';
 import { Command } from 'commander';
-import type { AgentSetupWithComputer } from '@/lib/db/queries';
+import type { WorkspaceSetupWithDevice } from '@/lib/db/queries';
 import { dispatchAction } from '../lib/dispatch';
-import { SetupCommandError, thisComputerId, unwrap } from '../lib/setup-link';
+import { SetupCommandError, thisDeviceId, unwrap } from '../lib/setup-link';
 
-/** A folder on this computer, as typed: absolute, and there. */
+/** A folder on this device, as typed: absolute, and there. */
 function folderHere(typed: string): string {
   const dir = path.resolve(typed.startsWith('~/') ? path.join(process.env.HOME ?? '', typed.slice(2)) : typed);
   let isDir = false;
@@ -37,12 +37,12 @@ function folderHere(typed: string): string {
 function linkValue(raw: string): string | null {
   if (raw === 'omit') return null;
   if (raw.startsWith('agent:')) {
-    throw new SetupCommandError('A linked folder that is another agent is that agent\'s own folder on each computer: set that agent up here instead.');
+    throw new SetupCommandError('A linked folder that is another agent is that agent\'s own folder on each device: set that agent up here instead.');
   }
   return folderHere(raw);
 }
 
-function printSetup(setup: AgentSetupWithComputer, name: string): void {
+function printSetup(setup: WorkspaceSetupWithDevice, name: string): void {
   const mark = setup.status === 'ready' ? pc.green('ready') : pc.yellow(setup.status.replace(/_/g, ' '));
   console.log(`${pc.bold(name)}  ${mark}`);
   console.log(`  ${pc.dim('folder')}  ${setup.sourcePath}`);
@@ -67,11 +67,11 @@ async function run(fn: () => Promise<void>): Promise<void> {
   }
 }
 
-async function recorded(agent: string, computerId: string): Promise<AgentSetupWithComputer | null> {
-  const setups = unwrap<AgentSetupWithComputer[]>(await dispatchAction('list_agent_setups', {}));
+async function recorded(agent: string, deviceId: string): Promise<WorkspaceSetupWithDevice | null> {
+  const setups = unwrap<WorkspaceSetupWithDevice[]>(await dispatchAction('list_workspace_setups', {}));
   const names = await agentNames();
   const id = names.has(agent) ? agent : [...names].find(([, n]) => n.toLowerCase() === agent.toLowerCase())?.[0] ?? agent;
-  return setups.find((s) => s.workspaceId === id && s.computerId === computerId) ?? null;
+  return setups.find((s) => s.workspaceId === id && s.deviceId === deviceId) ?? null;
 }
 
 async function agentNames(): Promise<Map<string, string>> {
@@ -86,20 +86,20 @@ function collect(value: string, previous: string[] = []): string[] {
 export function registerSetupCommand(program: Command) {
   const setup = program
     .command('setup')
-    .description("Your agents' folders on this computer, as your home records them")
+    .description("Your agents' folders on this device, as your home records them")
     .action(async () => {
       await run(async () => {
-        const computerId = await thisComputerId();
-        const setups = unwrap<Array<AgentSetupWithComputer & { agentName: string | null }>>(await dispatchAction('list_agent_setups', {})).filter(
-          (s) => s.computerId === computerId,
+        const deviceId = await thisDeviceId();
+        const setups = unwrap<Array<WorkspaceSetupWithDevice & { workspaceName: string | null }>>(await dispatchAction('list_workspace_setups', {})).filter(
+          (s) => s.deviceId === deviceId,
         );
         if (setups.length === 0) {
-          console.log('No agent is set up on this computer yet. Use `ri setup attach <agent> <folder>`, or set it up from the app.');
+          console.log('No agent is set up on this device yet. Use `ri setup attach <agent> <folder>`, or set it up from the app.');
           return;
         }
-        console.log(pc.dim(`${setups[0]!.computerName}\n`));
+        console.log(pc.dim(`${setups[0]!.deviceName}\n`));
         for (const s of setups) {
-          printSetup(s, s.agentName ?? s.workspaceId);
+          printSetup(s, s.workspaceName ?? s.workspaceId);
           console.log();
         }
       });
@@ -107,11 +107,11 @@ export function registerSetupCommand(program: Command) {
 
   setup
     .command('attach <agent> [folder]')
-    .description('Record the folder an agent is in on this computer (default: the current folder)')
+    .description('Record the folder an agent is in on this device (default: the current folder)')
     .option('--link <alias=folder>', "where a linked folder is here, or alias=omit to go without it", collect)
     .action(async (agent: string, folder: string | undefined, opts: { link?: string[] }) => {
       await run(async () => {
-        const computerId = await thisComputerId();
+        const deviceId = await thisDeviceId();
         const dir = folderHere(folder ?? process.cwd());
         const links: Array<[string, string | null]> = [];
         for (const pair of opts.link ?? []) {
@@ -119,11 +119,11 @@ export function registerSetupCommand(program: Command) {
           if (eq <= 0) throw new SetupCommandError(`--link needs alias=folder, got "${pair}"`);
           links.push([pair.slice(0, eq), linkValue(pair.slice(eq + 1))]);
         }
-        unwrap(await dispatchAction('set_agent_folder', { agent, folder: dir, computerId }));
+        unwrap(await dispatchAction('set_workspace_folder', { agent, folder: dir, deviceId }));
         for (const [alias, value] of links) {
-          unwrap(await dispatchAction('set_linked_folder', { agent, alias, folder: value, computerId }));
+          unwrap(await dispatchAction('set_linked_folder', { agent, alias, folder: value, deviceId }));
         }
-        const now = await recorded(agent, computerId);
+        const now = await recorded(agent, deviceId);
         if (now) printSetup(now, agent);
       });
     });
@@ -131,12 +131,12 @@ export function registerSetupCommand(program: Command) {
   for (const name of ['link', 'ref']) {
     setup
       .command(`${name} <agent> <alias> <folder>`)
-      .description(name === 'link' ? "Where one of an agent's linked folders is on this computer, or omit to go without it" : 'Same as link')
+      .description(name === 'link' ? "Where one of an agent's linked folders is on this device, or omit to go without it" : 'Same as link')
       .action(async (agent: string, alias: string, raw: string) => {
         await run(async () => {
-          const computerId = await thisComputerId();
-          unwrap(await dispatchAction('set_linked_folder', { agent, alias, folder: linkValue(raw), computerId }));
-          const now = await recorded(agent, computerId);
+          const deviceId = await thisDeviceId();
+          unwrap(await dispatchAction('set_linked_folder', { agent, alias, folder: linkValue(raw), deviceId }));
+          const now = await recorded(agent, deviceId);
           if (now) printSetup(now, agent);
         });
       });
@@ -144,24 +144,24 @@ export function registerSetupCommand(program: Command) {
 
   setup
     .command('relink <agent> <folder>')
-    .description("Record an agent's folder's new place on this computer, after a rename or move")
+    .description("Record an agent's folder's new place on this device, after a rename or move")
     .action(async (agent: string, folder: string) => {
       await run(async () => {
-        const computerId = await thisComputerId();
-        unwrap(await dispatchAction('set_agent_folder', { agent, folder: folderHere(folder), computerId }));
-        const now = await recorded(agent, computerId);
+        const deviceId = await thisDeviceId();
+        unwrap(await dispatchAction('set_workspace_folder', { agent, folder: folderHere(folder), deviceId }));
+        const now = await recorded(agent, deviceId);
         if (now) printSetup(now, agent);
       });
     });
 
   setup
     .command('detach <agent>')
-    .description('Take an agent off this computer. Its folder itself is untouched.')
+    .description('Take an agent off this device. Its folder itself is untouched.')
     .action(async (agent: string) => {
       await run(async () => {
-        const computerId = await thisComputerId();
-        unwrap(await dispatchAction('remove_agent_setup', { agent, computerId }));
-        console.log(`Took ${agent} off this computer.`);
+        const deviceId = await thisDeviceId();
+        unwrap(await dispatchAction('remove_workspace_setup', { agent, deviceId }));
+        console.log(`Took ${agent} off this device.`);
       });
     });
 }

@@ -423,7 +423,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
     }
 
     case 'continuation': {
-      // Continued on another computer (P4.3): once in the chat, with the
+      // Continued on another device (P4.3): once in the chat, with the
       // handoff the fresh session there started from.
       const info = (event.raw ?? {}) as { from?: string; checkpoint?: { sha?: string }; handoff?: string };
       return (
@@ -808,7 +808,7 @@ function FailedSendBadge({
 }
 
 /**
- * Where a message sent to a computer elsewhere stands (docs/homes-spec.md
+ * Where a message sent to a device elsewhere stands (docs/homes-spec.md
  * §3.5, P3.2). Nothing once it's delivered, or for a chat at home, where a
  * message reaches the harness as it's sent. Waiting and on its way can be
  * withdrawn while still in the home's queue. Not delivered and uncertain
@@ -831,7 +831,7 @@ function DeliveryLine({
   const send = useSendMessage(sessionId);
   const delivery = deliveries?.[eventId];
   if (!delivery || delivery.state === 'delivered') return null;
-  const name = delivery.computerName;
+  const name = delivery.deviceName;
 
   let text: string;
   let tone: 'muted' | 'warn' = 'muted';
@@ -851,7 +851,7 @@ function DeliveryLine({
       tone = 'warn';
       break;
     case 'held':
-      // Moving to another computer (P4.2): it goes there once it arrives.
+      // Moving to another device (P4.2): it goes there once it arrives.
       text = delivery.reason ?? `Held while this moves to ${name}. It goes there once it arrives.`;
       if (delivery.reason) tone = 'warn';
       break;

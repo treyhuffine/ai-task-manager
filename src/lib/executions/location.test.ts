@@ -3,7 +3,7 @@ import { locationLabel, preparedFolder } from './location';
 
 const at = (location: { isHome: boolean; folder: string | null } | null, worktreePath: string | null = null) => ({
   worktreePath,
-  location: location && { computerId: 'c', name: location.isHome ? 'Mac Mini' : 'MacBook', ...location },
+  location: location && { deviceId: 'c', name: location.isHome ? 'Mac Mini' : 'MacBook', ...location },
 });
 
 describe('preparedFolder', () => {
@@ -17,14 +17,14 @@ describe('preparedFolder', () => {
 });
 
 describe('locationLabel', () => {
-  it('names only the exception: a computer away from the home, never the home', () => {
+  it('names only the exception: a device away from the home, never the home', () => {
     expect(locationLabel(at({ isHome: false, folder: null }), false)).toBe('MacBook');
     expect(locationLabel(at({ isHome: false, folder: null }), true)).toBe('MacBook');
     expect(locationLabel(at({ isHome: true, folder: null }), true)).toBeNull();
     expect(locationLabel(at(null), true)).toBeNull();
   });
 
-  it('names the home too when asked to always, once there are other computers', () => {
+  it('names the home too when asked to always, once there are other devices', () => {
     expect(locationLabel(at({ isHome: false, folder: null }), false, 'always')).toBe('MacBook');
     expect(locationLabel(at({ isHome: true, folder: null }), false, 'always')).toBeNull();
     expect(locationLabel(at({ isHome: true, folder: null }), true, 'always')).toBe('Mac Mini');

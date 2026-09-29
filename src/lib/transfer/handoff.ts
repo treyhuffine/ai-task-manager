@@ -12,8 +12,8 @@ import type { ChatEventRecord } from '@/db/types';
 export interface HandoffInput {
   executionLabel: string | null;
   agentName: string;
-  fromComputer: string;
-  toComputer: string;
+  fromDevice: string;
+  toDevice: string;
   checkpoint: { branch: string; sha: string; files: string[] };
   /** Recent messages, oldest first, across the execution's chats. */
   messages: Array<Pick<ChatEventRecord, 'role' | 'source' | 'content' | 'sessionId' | 'createdAt'>>;
@@ -43,7 +43,7 @@ export function recentConversation(input: HandoffInput, count = MESSAGES): strin
 /** The part that never depends on a model. */
 export function deterministicHandoff(input: HandoffInput): string {
   const lines: string[] = [];
-  lines.push(`This work was continued here on ${input.toComputer}, from ${input.fromComputer}.`);
+  lines.push(`This work was continued here on ${input.toDevice}, from ${input.fromDevice}.`);
   lines.push(
     'You are starting a fresh session: you have not seen the earlier one. What it was doing is below, and its whole conversation is at the home.',
   );
@@ -69,13 +69,13 @@ export function deterministicHandoff(input: HandoffInput): string {
   lines.push(
     `The earlier conversation: read it with the get_session_messages action for chat ${input.chatSessionIds.join(', ')}.`,
   );
-  lines.push(`What ${input.toComputer} has, its environment and tools, is in your instructions for this session.`);
+  lines.push(`What ${input.toDevice} has, its environment and tools, is in your instructions for this session.`);
   return lines.join('\n');
 }
 
 export function summaryPrompt(input: HandoffInput): string {
   return [
-    'Write a handoff for an AI coding agent that is about to continue this work in a fresh session on another computer.',
+    'Write a handoff for an AI coding agent that is about to continue this work in a fresh session on another device.',
     'Use short labeled lines: Goal, Done so far, Key decisions, Next action, Open questions. At most 180 words. No preamble.',
     `Task: ${input.executionLabel ?? `work in ${input.agentName}`}`,
     `Checkpoint: ${input.checkpoint.branch} at ${input.checkpoint.sha.slice(0, 12)}`,

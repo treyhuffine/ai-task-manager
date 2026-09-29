@@ -335,7 +335,7 @@ export function getDb(dbPath?: string): DB {
     }
   }
 
-  // A computer connected to a home elsewhere keeps no data of its own. Refuse
+  // A device connected to a home elsewhere keeps no data of its own. Refuse
   // here, where every connection opens, so no command can quietly start a
   // second home on it or use a database beside a connection record
   // (docs/homes-spec.md §3.1).

@@ -1,5 +1,5 @@
 /**
- * Running an execution on a connected computer (docs/homes-build.md, P2.4),
+ * Running an execution on a connected device (docs/homes-build.md, P2.4),
  * end to end: the home in this process behind its real proxy and routes,
  * and the worker in a process of its own, as on a laptop, with its own root,
  * journals and runner. The harness there is the fake one (see
@@ -19,7 +19,7 @@ let home: TestHome;
 let server: HomeServer;
 let worker: WorkerProcess | null = null;
 let laptopRoot: string;
-let computerId: string;
+let deviceId: string;
 let executionId: string;
 let chatId: string;
 let homeId: string;
@@ -34,9 +34,9 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
-  const laptop = q.createApiKey({ name: 'Laptop CLI', deviceType: 'computer' });
+  const laptop = q.pairDevice({ name: 'Laptop', kind: 'computer' });
   laptopKey = { id: laptop.key.id, token: laptop.token.plaintext };
-  computerId = q.registerComputerForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).computer.id;
+  deviceId = q.registerDeviceForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).device.id;
   server = await startHomeServer();
 
   const grant = await fetch(`${server.url}/api/workers/grants`, {
@@ -66,10 +66,10 @@ beforeEach(async () => {
   const created = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Remote work' });
   executionId = created.execution.id;
   chatId = created.session.id;
-  q.createPlacement({ executionId, computerId, startReason: 'created', worktreePath: worktree });
+  q.createPlacement({ executionId, deviceId, startReason: 'created', worktreePath: worktree });
 
   worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
-  await until(() => (q.getComputer(computerId)?.harnesses?.length ?? 0) > 0, "the laptop's harness report");
+  await until(() => (q.getDevice(deviceId)?.harnesses?.length ?? 0) > 0, "the laptop's harness report");
 }, 60_000);
 
 afterEach(async () => {
@@ -100,7 +100,7 @@ async function userMessage(content: string) {
   return q.insertChatEvent({ sessionId: chatId, role: 'user', source: 'user', content, createdAt: new Date().toISOString() })!;
 }
 
-describe('an execution on a connected computer', () => {
+describe('an execution on a connected device', () => {
   it('runs a turn there, and the home gets its conversation and finishes its run', async () => {
     const { dispatch } = await import('@/lib/executor/adapter');
     const q = await import('@/lib/db/queries');
@@ -112,8 +112,8 @@ describe('an execution on a connected computer', () => {
     const run = q.listRuns({}).find((r) => r.chatSessionId === chatId);
     expect(run).toMatchObject({ status: 'completed', triggerKind: 'manual' });
     // The acknowledgement travels apart from the turn's events, and may land after them.
-    await until(() => q.listWorkerCommands(computerId)[0]?.state === 'delivered', 'the acknowledgement');
-    const [command] = q.listWorkerCommands(computerId);
+    await until(() => q.listWorkerCommands(deviceId)[0]?.state === 'delivered', 'the acknowledgement');
+    const [command] = q.listWorkerCommands(deviceId);
     expect(command).toMatchObject({ kind: 'send', state: 'delivered', sourceEventId: message.id, generation: 1 });
     expect(q.getChatSession(chatId)?.externalSessionId).toMatch(/^fake-/);
   }, 60_000);
@@ -140,7 +140,7 @@ describe('an execution on a connected computer', () => {
     const copy = path.join(laptopRoot, '.work', 'attachments', homeId, chatId, notes.fileName);
     expect(q.listChatEvents(chatId).some((e) => e.content === `ok: read ${copy}`)).toBe(true);
     expect(fs.readFileSync(copy, 'utf8')).toBe('shopping list');
-    const [command] = q.listWorkerCommands(computerId);
+    const [command] = q.listWorkerCommands(deviceId);
     expect(command!.payload).toMatchObject({
       message: content,
       attachments: [{ fileName: notes.fileName, originalName: 'notes.txt', size: 13, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) }],
@@ -188,7 +188,7 @@ describe('an execution on a connected computer', () => {
     await dispatch(chatId, 'only once', { sourceEventId: message.id });
     // The health check's orphan re-fire, or a retry, for the same message.
     await dispatch(chatId, 'only once', { sourceEventId: message.id });
-    expect(q.listWorkerCommands(computerId).filter((c) => c.kind === 'send')).toHaveLength(1);
+    expect(q.listWorkerCommands(deviceId).filter((c) => c.kind === 'send')).toHaveLength(1);
     expect(q.listRuns({}).filter((r) => r.chatSessionId === chatId)).toHaveLength(1);
     expect(q.listChatEvents(chatId).filter((e) => e.content === 'ok: only once')).toHaveLength(1);
   }, 60_000);
@@ -213,7 +213,7 @@ describe('an execution on a connected computer', () => {
   it('lets only a person approve a permission there, checked at home and again on the laptop', async () => {
     const { dispatch, answerPendingInput } = await import('@/lib/executor/adapter');
     const live = await import('@/lib/executor/live-state');
-    const { wakeComputer } = await import('@/lib/workers/hub');
+    const { wakeDevice } = await import('@/lib/workers/hub');
     const { HUMAN_ONLY_APPROVAL } = await import('@/lib/runner/pending');
     const q = await import('@/lib/db/queries');
     q.updateChatSession(chatId, { permissionMode: 'ask' });
@@ -222,7 +222,7 @@ describe('an execution on a connected computer', () => {
     const { requestId } = live.listForSession(chatId)[0]!;
     const allow = { allow: true, updatedInput: { command: 'ls' } };
     const agent = { source: 'ai' as const, sessionId: 'orchestrator-chat', apiKeyId: null };
-    const answers = () => q.listWorkerCommands(computerId).filter((c) => c.kind === 'answer_pending_input');
+    const answers = () => q.listWorkerCommands(deviceId).filter((c) => c.kind === 'answer_pending_input');
 
     // The home refuses it, and nothing goes to the laptop.
     expect(answerPendingInput(chatId, requestId, allow, agent)).toEqual({ ok: false, refused: HUMAN_ONLY_APPROVAL });
@@ -230,7 +230,7 @@ describe('an execution on a connected computer', () => {
 
     // One that got past the home anyway is refused on the laptop, and the prompt still waits.
     const smuggled = q.queueWorkerCommand({
-      computerId,
+      deviceId,
       kind: 'answer_pending_input',
       payload: { requestId, response: allow },
       actor: agent,
@@ -238,7 +238,7 @@ describe('an execution on a connected computer', () => {
       executionId,
       generation: 1,
     });
-    wakeComputer(computerId);
+    wakeDevice(deviceId);
     await until(() => q.getWorkerCommand(smuggled.id)?.state === 'failed', "the laptop's refusal");
     expect(q.getWorkerCommand(smuggled.id)?.error).toBe(HUMAN_ONLY_APPROVAL);
     expect(live.listForSession(chatId)).toHaveLength(1);
@@ -262,7 +262,7 @@ describe('an execution on a connected computer', () => {
         body: JSON.stringify({ content }),
       });
     const sendOf = (content: string) =>
-      q.listWorkerCommands(computerId).find((c) => c.kind === 'send' && (c.payload as { message: string }).message.endsWith(content));
+      q.listWorkerCommands(deviceId).find((c) => c.kind === 'send' && (c.payload as { message: string }).message.endsWith(content));
 
     expect((await post('from the phone')).status).toBe(201);
     await until(() => q.listChatEvents(chatId).some((e) => e.content === 'ok: from the phone'), 'the reply');
@@ -287,13 +287,13 @@ describe('an execution on a connected computer', () => {
       () => null,
       (err: Error) => err.message,
     );
-    await until(() => q.listWorkerCommands(computerId).some((c) => c.kind === 'send'), 'the saved send');
+    await until(() => q.listWorkerCommands(deviceId).some((c) => c.kind === 'send'), 'the saved send');
     // Placed again meanwhile, as a move does (P3).
-    q.createPlacement({ executionId, computerId, startReason: 'continued', worktreePath: path.join(laptopRoot, 'worktrees', 'demo-1') });
+    q.createPlacement({ executionId, deviceId, startReason: 'continued', worktreePath: path.join(laptopRoot, 'worktrees', 'demo-1') });
 
     worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
-    expect(await turn).toBe('The execution had moved to another computer before this reached it.');
-    const [send] = q.listWorkerCommands(computerId).filter((c) => c.kind === 'send');
+    expect(await turn).toBe('The execution had moved to another device before this reached it.');
+    const [send] = q.listWorkerCommands(deviceId).filter((c) => c.kind === 'send');
     expect(send).toMatchObject({ state: 'stale', seq: null });
     expect(q.listRuns({}).find((r) => r.chatSessionId === chatId)).toMatchObject({ status: 'failed', errorCode: 'placement_moved' });
     expect(q.listChatEvents(chatId).some((e) => e.content === 'ok: sent while away')).toBe(false);
@@ -313,11 +313,11 @@ describe('an execution on a connected computer', () => {
     const { dispatch } = await import('@/lib/executor/adapter');
     const q = await import('@/lib/db/queries');
     // The execution continues in a new placement on the same laptop.
-    q.createPlacement({ executionId, computerId, startReason: 'continued', worktreePath: path.join(laptopRoot, 'worktrees', 'demo-1') });
+    q.createPlacement({ executionId, deviceId, startReason: 'continued', worktreePath: path.join(laptopRoot, 'worktrees', 'demo-1') });
     await dispatch(chatId, 'on generation two');
-    const { wakeComputer } = await import('@/lib/workers/hub');
+    const { wakeDevice } = await import('@/lib/workers/hub');
     const old = q.queueWorkerCommand({
-      computerId,
+      deviceId,
       kind: 'interrupt',
       payload: null,
       actor: { source: 'human' },
@@ -325,7 +325,7 @@ describe('an execution on a connected computer', () => {
       executionId,
       generation: 1,
     });
-    wakeComputer(computerId);
+    wakeDevice(deviceId);
     await until(() => q.getWorkerCommand(old.id)?.state === 'stale', 'the stale refusal');
   }, 60_000);
 });

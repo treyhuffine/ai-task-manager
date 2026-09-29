@@ -136,8 +136,8 @@ export async function healthCheckSession(
     return { classification: 'healthy', fixes, redispatched, replayed, error };
   }
 
-  // A chat on a connected computer (P2.4): its harness, its native history
-  // and its live state are that computer's. The home neither reconciles a
+  // A chat on a connected device (P2.4): its harness, its native history
+  // and its live state are that device's. The home neither reconciles a
   // transcript it doesn't have nor clears state it only mirrors. What's left
   // is making sure a message that never reached the queue gets there, which
   // the message's own id makes safe to repeat.
@@ -146,9 +146,9 @@ export async function healthCheckSession(
 
   // 1. DB ↔ transcript. reconcileSession is itself idempotent and
   //    deduped — calling it from multiple triggers is safe. A session
-  //    imported from a connected computer is synced from there, through the
+  //    imported from a connected device is synced from there, through the
   //    importer (P2.9).
-  if (!remote || getExternalSessionImportForChat(sessionId)?.computerId) {
+  if (!remote || getExternalSessionImportForChat(sessionId)?.deviceId) {
     try {
       const recon = await reconcileSession(sessionId);
       replayed = recon.replayed;
@@ -163,7 +163,7 @@ export async function healthCheckSession(
   }
 
   // 2. In-memory ↔ reality. For a chat elsewhere, "alive" is what its
-  //    computer last reported: working, or not.
+  //    device last reported: working, or not.
   const alive = remote ? isRunning(sessionId) : isHarnessSessionAlive(sessionId);
   const wasRunning = isRunning(sessionId);
 
@@ -230,7 +230,7 @@ export async function healthCheckSession(
         // prevents thrash if dispatch keeps failing.
         // Same label the messages route adds when another chat sent it.
         // The orphan's own id: if the original send did reach a connected
-        // computer's queue, this finds that command instead of sending twice.
+        // device's queue, this finds that command instead of sending twice.
         void dispatch(sessionId, withSenderLabel(expanded, activity.orphan.senderSessionId), {
           sourceEventId: activity.orphan.id,
           attachments,

@@ -1,9 +1,9 @@
 /**
- * How a connected computer talks to its home (docs/homes-spec.md §3.1, §5.3).
+ * How a connected device talks to its home (docs/homes-spec.md §3.1, §5.3).
  *
- * `homeFetch` adds this computer's credential and a user agent, bounds every
+ * `homeFetch` adds this device's credential and a user agent, bounds every
  * call with a timeout, and turns failures into the states the spec asks the
- * UI and CLI to show (§3.5): the home can't be reached, this computer's
+ * UI and CLI to show (§3.5): the home can't be reached, this device's
  * access was removed, the address now answers for a different home, or the
  * home isn't active. It never falls back to anything local.
  */
@@ -17,9 +17,9 @@ export const HOME_REQUEST_TIMEOUT_MS = 10_000;
 export type HomeProblem =
   /** Nothing answered: offline, asleep, wrong address, or a network in between. */
   | 'unreachable'
-  /** The home answered but refused this computer's credential. */
+  /** The home answered but refused this device's credential. */
   | 'unauthorized'
-  /** Something answered, but it isn't this computer's home. */
+  /** Something answered, but it isn't this device's home. */
   | 'wrong_home'
   /** The home's data is on a machine where it isn't the active home. */
   | 'not_active'
@@ -52,13 +52,13 @@ export function describeHomeProblem(
     case 'unreachable':
       return `Cannot reach ${where(connection)}. Check that it is awake and online, then try again.`;
     case 'unauthorized':
-      return `${connection.homeName} no longer accepts this computer. Connect it again from your home.`;
+      return `${connection.homeName} no longer accepts this device. Connect it again from your home.`;
     case 'wrong_home':
       return `${connection.homeUrl} now answers for a different Ri. Connect again, or update the address if your home moved.`;
     case 'not_active':
-      return `${connection.homeName} isn't active on the computer at ${connection.homeUrl}.`;
+      return `${connection.homeName} isn't active on the device at ${connection.homeUrl}.`;
     case 'untrusted_certificate':
-      return `${connection.homeUrl} uses a certificate this computer doesn't trust. Use your home's Beamd or other trusted HTTPS address.`;
+      return `${connection.homeUrl} uses a certificate this device doesn't trust. Use your home's Beamd or other trusted HTTPS address.`;
     default:
       return detail ? `${connection.homeName} returned an error: ${detail}` : `${connection.homeName} returned an error.`;
   }
@@ -129,15 +129,15 @@ export interface HomeSummary {
 }
 
 /**
- * Confirm the address answers for this computer's home, with this
- * computer's credential. Throws `HomeRequestError` otherwise.
+ * Confirm the address answers for this device's home, with this
+ * device's credential. Throws `HomeRequestError` otherwise.
  */
 export async function checkHome(connection: ConnectionConfig): Promise<HomeSummary> {
   const res = await homeFetch(connection, '/api/home');
   if (res.status === 404) {
     throw new HomeRequestError(
       'error',
-      `${connection.homeName} runs an older version of Ri that can't accept connected computers. Update it, then try again.`,
+      `${connection.homeName} runs an older version of Ri that can't accept connected devices. Update it, then try again.`,
       404,
     );
   }

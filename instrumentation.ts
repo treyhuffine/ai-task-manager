@@ -32,12 +32,12 @@ export async function register() {
   }
 
   // Home identity (docs/homes-spec.md §10.3). A root whose data came from
-  // another computer does not act as the home: no background work starts,
+  // another device does not act as the home: no background work starts,
   // and the API answers 503 until someone runs `ri home claim`.
   try {
     const { ensureHomeIdentity } = await import('@/lib/home/identity');
     const identity = ensureHomeIdentity();
-    if (identity.created) console.log(`[home] created home ${identity.home.id} on ${identity.computer.name}`);
+    if (identity.created) console.log(`[home] created home ${identity.home.id} on ${identity.device.name}`);
   } catch (err) {
     console.error(`[home] not acting as the home: ${err instanceof Error ? err.message : String(err)}`);
     return;
@@ -45,7 +45,7 @@ export async function register() {
 
   // Every agent's folders are in the home's records (docs/homes-spec.md
   // §4.1): move what existed before into them, once, then check the home's
-  // own. Connected computers check theirs when their workers connect.
+  // own. Connected devices check theirs when their workers connect.
   try {
     const { moveFolderRecords } = await import('@/lib/db/queries');
     const moved = moveFolderRecords();
