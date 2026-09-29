@@ -1216,6 +1216,15 @@ Found when the dev home restarted on the merge:
 
 The dev home runs the merge: the MacBook reconnected on protocol 3, and the Setup tab, the composer and the Folders section render at desktop and phone widths without errors.
 
+## P5.4 The service decides the role first
+
+Handoff item 1 (docs/desktop.md): "Resolve Home versus connected-device role before Electron starts a local service or opens a database."
+
+- **`resolveServiceRole()`** (`src/lib/service/role.ts`), from files only (the connection record, the worker enrollment, a retired home's note): `home` (run it), `first-run` (nothing here yet), `worker` (connected and enrolled with that home: run the worker, show the home), `viewer` (connected, not enrolled: nothing runs, show the home), `retired` (connect to the home that took over), `conflict` (a database beside a connection).
+- **The service** (`src/service/main.ts`) resolves it right after recovery and before anything opens a database, reports it in its status (`role`, and `home: { url, name }` for a connected computer), and starts the home's server only for `home` and `first-run`. Otherwise it stays up for status and recovery, in `failed` with the reason, and never creates a database.
+- For the Electron side (Trey's): on `worker` and `viewer`, open `status.home.url` in the window. Running the worker under the service (`ri worker run` as its child, restarted with it) is the natural next step and is left to that design.
+- Tests: `role.test.ts` (each role from its files), and the desktop suite (247) passes with the status fields added.
+
 ## P5.1 Comparing the two homes
 
 Started first, since P5.4 is now a merge of the desktop branch (above) rather than new work.

@@ -16,6 +16,12 @@ export interface ServiceStatus {
   node?: string;
   origin?: string;
   error?: string;
+  /**
+   * What this computer is for (src/lib/service/role.ts). A computer connected
+   * to a home elsewhere doesn't run a home: `home` is where its window goes.
+   */
+  role?: import('./role').ServiceRole['role'];
+  home?: { url: string; name: string } | null;
 }
 
 export interface ServiceSession extends ServiceStatus { origin: string; certificate: string; token: string; desktopClient: string }
