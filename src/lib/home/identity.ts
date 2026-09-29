@@ -34,7 +34,7 @@ import {
   createHomeIdentity,
   getComputer,
   getHome,
-  setHomeHost,
+  moveHomeHost,
 } from '@/lib/db/queries';
 import type { ComputerRecord, HomeKind, HomeRecord } from '@/db/types';
 import { thisComputerFacts } from './computer-name';
@@ -244,23 +244,45 @@ export function resetHomeIdentityCache(): void {
   verified = null;
 }
 
+export interface ClaimOptions {
+  /**
+   * Which of the home's computers this machine is: an existing one's id (the
+   * host, when a backup is restored on the same computer, or the always-on
+   * computer the home moves to), or `new` for a computer new to the home.
+   * Without it, this machine's own record when the home already knows it,
+   * else a new one.
+   */
+  as?: string | 'new';
+}
+
 /**
  * Make this machine the host of the home in this root (§10.3: a restored
- * root is explicitly selected as the active home). Reuses this machine's
- * computer row when the home already knows it, and adds one otherwise.
+ * root is explicitly selected as the active home). When that's a different
+ * computer from the one that hosted it, what ran there is pinned to it
+ * (`moveHomeHost`), and it stays a computer of the home.
  */
-export function claimHome(): Extract<HomeIdentityStatus, { state: 'active' }> {
+export function claimHome(opts: ClaimOptions = {}): Extract<HomeIdentityStatus, { state: 'active' }> & { moved: ReturnType<typeof moveHomeHost> | null } {
   const status = resolveHomeIdentity();
-  if (status.state === 'active') return status;
-  // The computer row this machine already has, unless the folder came from
-  // different hardware: then this is a new computer, and the old one stays
-  // a computer of the home.
-  const sameHardware = status.reason !== 'other_machine';
-  const known =
-    sameHardware && status.machine && status.machine.homeId === status.home.id ? getComputer(status.machine.computerId) : null;
-  const computer = known && known.status === 'active' ? known : createComputer(thisComputerFacts());
-  setHomeHost(computer.id);
+  if (status.state === 'active' && !opts.as) return { ...status, moved: null };
+  let computer: ComputerRecord;
+  if (opts.as === 'new') {
+    computer = createComputer(thisComputerFacts());
+  } else if (opts.as) {
+    const named = getComputer(opts.as);
+    if (!named || named.status !== 'active') throw new Error(`${opts.as} is not an active computer of this home.`);
+    computer = named;
+  } else {
+    // The computer row this machine already has, unless the folder came from
+    // different hardware: then this is a new computer, and the old one stays
+    // a computer of the home.
+    const needs = status as Extract<HomeIdentityStatus, { state: 'needs_claim' }>;
+    const sameHardware = needs.reason !== 'other_machine';
+    const known =
+      sameHardware && needs.machine && needs.machine.homeId === needs.home.id ? getComputer(needs.machine.computerId) : null;
+    computer = known && known.status === 'active' ? known : createComputer(thisComputerFacts());
+  }
+  const moved = moveHomeHost(computer.id);
   writeMachineIdentity({ homeId: status.home.id, computerId: computer.id, createdAt: new Date().toISOString() });
   resetHomeIdentityCache();
-  return ensureHomeIdentity();
+  return { ...ensureHomeIdentity(), moved: moved.from === moved.to ? null : moved };
 }

@@ -60,11 +60,13 @@ function topLevelName(command: Command): string {
   return c.name();
 }
 
-/** Why `commandName` can't run in this root, or null when it can. */
-export function refusalFor(commandName: string): string | null {
+/** Why `commandName` (and its subcommand) can't run in this root, or null when it can. */
+export function refusalFor(commandName: string, subcommand?: string): string | null {
   if (!DATA_COMMANDS.has(commandName)) return null;
   const role = getInstallationRole();
   if (role === 'home') return null;
+  // A moved home arrives in a folder that has none yet.
+  if (role === 'fresh' && commandName === 'home' && subcommand === 'import') return null;
   if (role === 'fresh') {
     // A folder whose home was retired: say so, and let `home` show it or undo it.
     const retired = retiredHomes()[0];
@@ -79,7 +81,8 @@ export function refusalFor(commandName: string): string | null {
 
 export function installRoleGuard(program: Command): void {
   program.hook('preAction', (_thisCommand, actionCommand) => {
-    const refusal = refusalFor(topLevelName(actionCommand));
+    const top = topLevelName(actionCommand);
+    const refusal = refusalFor(top, actionCommand.name() === top ? undefined : actionCommand.name());
     if (refusal) throw new RoleGuardError(refusal);
   });
 }

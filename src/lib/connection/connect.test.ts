@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { readConnection } from './config';
-import { assertSecureAddress, ConnectError, connectToHome, parsePairingLink } from './connect';
+import { assertSecureAddress, changeHomeAddress, ConnectError, connectToHome, parsePairingLink } from './connect';
 
 describe('parsePairingLink', () => {
   it('reads the address and key from the link a pairing QR opens', () => {
@@ -82,6 +82,28 @@ describe('connectToHome', () => {
     handler = reply(200, { hello: 'world' });
     await expect(connectToHome({ homeUrl: url, token: 'k' })).rejects.toThrow(/didn't answer like a Ri home/);
     expect(readConnection()).toBeNull();
+  });
+
+  it('follows the home to a new address, keeping its key and identity, only when it is the same home', async () => {
+    const current = { version: 1, homeId: 'home-1', homeName: 'My Ri', homeUrl: 'https://old.example', homeHostName: 'MacBook', credential: 'ri_live_k', connectedAt: 'then', computerId: 'me' };
+    let auth: string | undefined;
+    handler = (req, res) => {
+      auth = req.headers.authorization;
+      reply(200, { id: 'home-1', kind: 'personal', name: 'My Ri', host: { id: 'c', name: 'Mac Mini', platform: 'darwin' } })(req, res);
+    };
+    const moved = await changeHomeAddress(current, `${url}/some/page`);
+    expect(auth).toBe('Bearer ri_live_k');
+    expect(moved).toMatchObject({ homeUrl: url, homeId: 'home-1', credential: 'ri_live_k', computerId: 'me', homeHostName: 'Mac Mini', connectedAt: 'then' });
+    expect(readConnection()).toMatchObject({ homeUrl: url, computerId: 'me' });
+
+    handler = reply(200, { id: 'home-2', kind: 'personal', name: 'Other Ri', host: { id: 'd', name: 'Else', platform: 'darwin' } });
+    await expect(changeHomeAddress(moved, url)).rejects.toThrow(
+      'is a different home (Other Ri), not My Ri. Nothing was changed.',
+    );
+    handler = reply(401, { error: 'unauthorized' });
+    await expect(changeHomeAddress(moved, url)).rejects.toThrow(/didn't accept this computer's key/);
+    await expect(changeHomeAddress(moved, 'not a url')).rejects.toThrow(/isn't an address/);
+    expect(readConnection()).toMatchObject({ homeUrl: url, homeId: 'home-1' });
   });
 
   it('refuses a plain HTTP address that is not this computer before sending the key', async () => {

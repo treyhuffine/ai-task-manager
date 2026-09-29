@@ -34,12 +34,12 @@ export class RetireError extends Error {}
 const COUNTED = ['tasks', 'notes', 'workspaces', 'chat_sessions', 'executions'] as const;
 
 /** Refuse while anything has the home's database open: its server, a script, the desktop app. */
-function assertStopped(dbPath: string): void {
-  if (readLiveServerRuntime()) throw new RetireError('Ri is running from this folder. Stop it first, then retire it.');
+export function assertStopped(dbPath: string, doing = 'retire it'): void {
+  if (readLiveServerRuntime()) throw new RetireError(`Ri is running from this folder. Stop it first, then ${doing}.`);
   try {
     exclusiveDatabaseAccess(dbPath)();
   } catch {
-    throw new RetireError(`Something has ${dbPath} open. Stop it first, then retire it.`);
+    throw new RetireError(`Something has ${dbPath} open. Stop it first, then ${doing}.`);
   }
 }
 

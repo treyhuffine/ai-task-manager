@@ -113,3 +113,44 @@ export async function connectToHome(link: ParsedPairingLink, opts: { allowInsecu
   const home = await verifyPairingLink(link, opts);
   return { connection: saveConnection(link, home), home };
 }
+
+/**
+ * The home answers at a new address now (docs/homes-spec.md §10.3: "guide
+ * clients and workers through address replacement without changing their
+ * work identity"): re-point this computer, with its key and its identity as
+ * they are, once the new address answers as the same home and accepts the key.
+ */
+export async function changeHomeAddress(
+  current: ConnectionConfig,
+  rawUrl: string,
+  opts: { allowInsecureHttp?: boolean } = {},
+): Promise<ConnectionConfig> {
+  let homeUrl: string;
+  try {
+    const url = new URL(rawUrl.trim());
+    homeUrl = normalizeHomeUrl(`${url.protocol}//${url.host}`);
+  } catch {
+    throw new ConnectError(`${rawUrl} isn't an address. Give it like https://ri-you.beamd.run.`);
+  }
+  assertSecureAddress(homeUrl, opts);
+  let res: Response;
+  try {
+    res = await homeFetch({ ...current, homeUrl }, '/api/home');
+  } catch (err) {
+    if (err instanceof HomeRequestError) {
+      throw new ConnectError(
+        err.problem === 'unauthorized'
+          ? `${homeUrl} didn't accept this computer's key, so it isn't ${current.homeName} as this computer knows it.`
+          : err.message,
+      );
+    }
+    throw err;
+  }
+  if (!res.ok) throw new ConnectError(`${homeUrl} answered with HTTP ${res.status}.`);
+  const home = (await res.json().catch(() => null)) as HomeSummary | null;
+  if (!home?.id) throw new ConnectError(`${homeUrl} didn't answer like a Ri home.`);
+  if (home.id !== current.homeId) {
+    throw new ConnectError(`${homeUrl} is a different home (${home.name}), not ${current.homeName}. Nothing was changed.`);
+  }
+  return writeConnection({ ...current, homeUrl, homeName: home.name, homeHostName: home.host?.name ?? current.homeHostName });
+}

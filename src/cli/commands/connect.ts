@@ -21,7 +21,7 @@ import {
   removeConnection,
   writeConnection,
 } from '@/lib/connection/config';
-import { ConnectError, parsePairingLink, saveConnection, verifyPairingLink } from '@/lib/connection/connect';
+import { changeHomeAddress, ConnectError, parsePairingLink, saveConnection, verifyPairingLink } from '@/lib/connection/connect';
 import { thisComputerFacts } from '@/lib/home/computer-name';
 import { describeHomeUse, setAsideUnusedHome } from '@/lib/home/set-aside';
 import { readLiveServerRuntime } from '@/lib/server-runtime/record';
@@ -129,7 +129,28 @@ export function registerConnectCommands(program: Command) {
     .option('--insecure-http', 'allow a plain http:// address on a home network you trust')
     .option('--no-open', "don't open your Ri in the browser")
     .option('-y, --yes', 'set aside an unused new home in this folder without asking')
-    .action(async (link: string | undefined, opts: ConnectOptions) => {
+    .option('--address <url>', 'your home answers at a new address: follow it, keeping this computer as it is')
+    .action(async (link: string | undefined, opts: ConnectOptions & { address?: string }) => {
+      if (opts.address) {
+        const current = readConnection();
+        if (!current) {
+          log.error(`This computer isn't connected yet. Connect with a pairing link: \`${APP_SHORT_ID} connect '<link>'\`.`);
+          process.exitCode = 1;
+          return;
+        }
+        try {
+          const moved = await changeHomeAddress(current, opts.address, { allowInsecureHttp: opts.insecureHttp });
+          outro(`Following ${moved.homeName} at ${moved.homeUrl}. Restart the worker here if one runs.`);
+        } catch (err) {
+          if (err instanceof ConnectError) {
+            log.error(err.message);
+            process.exitCode = 1;
+            return;
+          }
+          throw err;
+        }
+        return;
+      }
       const ok = await runConnect(link, opts);
       if (!ok) process.exitCode = 1;
       else outro('Connected');

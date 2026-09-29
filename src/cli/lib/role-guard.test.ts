@@ -45,6 +45,11 @@ describe('refusalFor', () => {
     expect(refusalFor('home')).toBeNull();
   });
 
+  it('lets a moved home be imported into a fresh folder, and nothing else of `home`', () => {
+    expect(refusalFor('home', 'import')).toBeNull();
+    expect(refusalFor('home', 'show')).toMatch(/isn't set up/);
+  });
+
   it('names the home on a connected computer', () => {
     fs.mkdirSync(path.join(root, '.config'), { recursive: true });
     fs.writeFileSync(

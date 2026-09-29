@@ -4373,6 +4373,109 @@ export function setHomeHost(computerId: string): HomeRecord {
   }, { behavior: 'immediate' });
 }
 
+/**
+ * The home moves to another of its computers (docs/homes-spec.md §10.3:
+ * "Relink only paths belonging to the moved host"). What ran on the old host
+ * without saying so, because the home's own computer needed no record, is
+ * pinned to it now, since its worktrees and native transcripts are there:
+ *
+ * - Executions with no placement are placed on the old host with their
+ *   worktree. The home's own path column follows whichever computer is the
+ *   host: set for work placed on the new host, cleared for the rest.
+ * - An agent's chats outside an execution stay with the old host when the
+ *   agent has no folder on the new one. Other chats outside an execution
+ *   (the app's main chat, and agents set up on the new host) stay with the
+ *   home and start a fresh native session there, the old one being on the
+ *   other computer.
+ * - Terminal-history imports from the old host's disk are read from the old
+ *   host from then on, never from a path on it.
+ * - Each agent's folder at the home becomes its folder on the new host, when
+ *   it has one there.
+ *
+ * The new host's worker enrollment, if it ran work for the home before, is
+ * revoked: the home runs its own work in-process. The old host stays a
+ * computer of the home, ready to enroll as a worker.
+ */
+export function moveHomeHost(newHostId: string): { from: string; to: string; pinnedExecutions: number; pinnedChats: number; freshChats: number } {
+  const db = getDb();
+  const moved = db.transaction((tx) => {
+    const current = tx.select().from(home).get();
+    if (!current) throw new Error('This database has no home yet.');
+    const oldHostId = current.hostComputerId;
+    const computer = tx.select().from(computers).where(eq(computers.id, newHostId)).get();
+    if (!computer || computer.status !== 'active') throw new Error(`Computer ${newHostId} is not an active computer of this home.`);
+    const result = { from: oldHostId, to: newHostId, pinnedExecutions: 0, pinnedChats: 0, freshChats: 0, revokeKeys: [] as string[] };
+    if (oldHostId === newHostId) return result;
+    const now = new Date().toISOString();
+
+    // Work the old host ran as the home.
+    const unplaced = tx
+      .select({ id: executions.id, worktreePath: executions.worktreePath })
+      .from(executions)
+      .where(sql`NOT EXISTS (SELECT 1 FROM ${executionPlacements} WHERE ${executionPlacements.executionId} = ${executions.id})`)
+      .all();
+    for (const e of unplaced) {
+      tx.insert(executionPlacements)
+        .values({ id: uuidv7(), executionId: e.id, computerId: oldHostId, generation: 1, worktreePath: e.worktreePath, startReason: 'created', createdAt: now, updatedAt: now })
+        .run();
+    }
+    result.pinnedExecutions = unplaced.length;
+    // The home's path column: the new host's worktree for work placed there, nothing for the rest.
+    tx.run(sql`UPDATE ${executions} SET worktree_path = (
+      SELECT ${executionPlacements.worktreePath} FROM ${executionPlacements}
+      WHERE ${executionPlacements.executionId} = ${executions.id} AND ${executionPlacements.endedAt} IS NULL AND ${executionPlacements.computerId} = ${newHostId}
+    ), updated_at = ${now}`);
+
+    // Chats outside an execution that ran at the home.
+    const onNewHost = new Set(
+      tx.select({ id: agentSetups.workspaceId }).from(agentSetups).where(eq(agentSetups.computerId, newHostId)).all().map((r) => r.id),
+    );
+    const homeChats = tx
+      .select({ id: chatSessions.id, workspaceId: chatSessions.workspaceId, native: chatSessions.externalSessionId })
+      .from(chatSessions)
+      .where(and(isNull(chatSessions.executionId), isNull(chatSessions.computerId)))
+      .all();
+    for (const c of homeChats) {
+      if (c.workspaceId && !onNewHost.has(c.workspaceId)) {
+        tx.update(chatSessions).set({ computerId: oldHostId, updatedAt: now }).where(eq(chatSessions.id, c.id)).run();
+        result.pinnedChats++;
+      } else if (c.native) {
+        tx.update(nativeSessions)
+          .set({ endedAt: now, endReason: 'continued', updatedAt: now })
+          .where(and(eq(nativeSessions.chatSessionId, c.id), isNull(nativeSessions.endedAt)))
+          .run();
+        tx.update(chatSessions).set({ externalSessionId: null, updatedAt: now }).where(eq(chatSessions.id, c.id)).run();
+        result.freshChats++;
+      }
+    }
+
+    // Terminal-history imports from the old host's own disk.
+    tx.run(sql`UPDATE ${externalSessionImports} SET computer_id = ${oldHostId}, source_path = NULL, updated_at = ${now}
+      WHERE computer_id IS NULL AND NOT EXISTS (
+        SELECT 1 FROM ${externalSessionImports} other
+        WHERE other.computer_id = ${oldHostId} AND other.provider_type = ${externalSessionImports.providerType}
+          AND other.external_session_id = ${externalSessionImports.externalSessionId}
+      )`);
+
+    // Each agent's folder at the home is its folder on the new host.
+    for (const setup of tx.select().from(agentSetups).where(eq(agentSetups.computerId, newHostId)).all()) {
+      tx.update(workspaces).set({ cwd: setup.sourcePath, updatedAt: now }).where(eq(workspaces.id, setup.workspaceId)).run();
+    }
+
+    tx.update(home).set({ hostComputerId: newHostId, updatedAt: now }).where(eq(home.id, current.id)).run();
+    result.revokeKeys = tx
+      .select({ apiKeyId: workerEnrollments.apiKeyId })
+      .from(workerEnrollments)
+      .where(eq(workerEnrollments.computerId, newHostId))
+      .all()
+      .map((r) => r.apiKeyId);
+    return result;
+  }, { behavior: 'immediate' });
+  for (const id of moved.revokeKeys) revokeApiKey(id, 'This computer is the home now, so it runs work itself.');
+  const { revokeKeys: _revoked, ...summary } = moved;
+  return summary;
+}
+
 /** The computer a key belongs to, when one registered with it. */
 export function getComputerForApiKey(apiKeyId: string): ComputerRecord | null {
   const row = getDb()
