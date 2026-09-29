@@ -134,6 +134,27 @@ describe('the plan', () => {
   });
 });
 
+describe('a home that has not started on this version yet', () => {
+  it('gets its identity from the import, as its first start would, and a copy needing a claim is refused', async () => {
+    const { getRawDb, resetDb } = await import('@/lib/db');
+    getRawDb().exec('DELETE FROM home');
+    fs.rmSync(path.join(mini.configDir, 'machine.json'));
+    (await import('@/lib/home/identity')).resetHomeIdentityCache();
+    resetDb();
+    const { planHomeImport } = await import('./import-records');
+    // The home rows went with it: a fresh identity is made, as on a first start.
+    expect(planHomeImport(options()).problems).toEqual([]);
+    const q = await import('@/lib/db/queries');
+    expect(q.getHome()).not.toBeNull();
+    // A copy of a home from elsewhere waits for a claim, and isn't imported into.
+    fs.rmSync(path.join(mini.configDir, 'machine.json'));
+    (await import('@/lib/home/identity')).resetHomeIdentityCache();
+    const { HomeImportError } = await import('./import-records');
+    expect(() => planHomeImport(options())).toThrow(HomeImportError);
+    expect(() => planHomeImport(options())).toThrow(/ri home claim/);
+  });
+});
+
 describe('importing', () => {
   it('brings the chats and their work, placed on the MacBook where they ran', async () => {
     const { applyHomeImport } = await import('./import-records');

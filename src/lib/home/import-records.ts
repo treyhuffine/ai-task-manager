@@ -27,7 +27,9 @@
  *
  * The source is only read (a data root or a `home-backup.ts backup` of one).
  * The destination is this process's own root: run it through `pnpm iso` with
- * the destination home stopped. Every row is written in one transaction,
+ * the destination home stopped. Planning brings the destination up to date
+ * and gives it its identity, as its first start would, so a home switching to
+ * this version can import in the same stop. Every row is written in one transaction,
  * attachments are copied before it and removed again if it fails, and a
  * manifest of what came from where is written to `.archive/imports/`.
  */
@@ -39,6 +41,7 @@ import { uuidv7 } from 'uuidv7';
 import { getAppRoot, getAttachmentsDir } from '@/lib/config/paths';
 import { getDb, getRawDb } from '@/lib/db';
 import { createComputer, getAgentSetup, getHome, listComputers, setAgentFolder } from '@/lib/db/queries';
+import { ensureHomeIdentity, HomeIdentityError } from './identity';
 import { withSourceDatabase } from './source-db';
 
 export class HomeImportError extends Error {}
@@ -125,10 +128,17 @@ function run(options: HomeImportOptions, apply: boolean): HomeImportPlan | HomeI
   const computerName = options.computerName.trim();
   if (!computerName) throw new HomeImportError('Name the computer that home ran on.');
 
+  // This home as its first start would leave it: up to date, with its
+  // identity. A copy that needs claiming says so rather than being imported into.
   getDb();
   const dest = getRawDb();
-  const home = getHome();
-  if (!home) throw new HomeImportError("This home has no identity yet. Start it once so it's set up, then import.");
+  try {
+    ensureHomeIdentity();
+  } catch (err) {
+    if (err instanceof HomeIdentityError) throw new HomeImportError(err.message);
+    throw err;
+  }
+  const home = getHome()!;
 
   return withSourceDatabase(sourceDb, (src) => {
     const plan = buildPlan(src, dest, { ...options, sourceRoot, computerName }, home.hostComputerId);

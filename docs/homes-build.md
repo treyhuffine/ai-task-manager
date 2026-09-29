@@ -1216,6 +1216,13 @@ Found when the dev home restarted on the merge:
 
 The dev home runs the merge: the MacBook reconnected on protocol 3, and the Setup tab, the composer and the Folders section render at desktop and phone widths without errors.
 
+## P5.2 and P5.6 The switch, written down, and its rollback rehearsed
+
+- **`docs/homes-cutover.md`**: the switch for Trey's two computers. The Mini in one stop (stop, back up and verify, update the code, import the laptop's chats with the mapping the rehearsal found, start), then the MacBook (stop and back up, retire its home, connect, enroll as `MacBook`, run). What to do when each step fails, and a table of what's kept and where.
+- **One stop is enough** because the import brings the database up to the homes build and gives it its identity, as a first start would (`import-records.ts` calls `ensureHomeIdentity`, and refuses a copy that needs claiming). Test: a home with no identity yet gets one from the import.
+- **Rollback rehearsed** on a scratch database under `/tmp`: made by today's main with a task, backed up, upgraded by the homes build with another task, then main refused it ("Database migration 3 does not match this release. Use the matching or newer Ri release. No migration was applied."), and after swapping the database and `machine.json` aside and the backup in, main opened it with its first task. The same check on the Sep 24 production backup: main opens it (2 migrations, 0 pending). So a code revert alone can't run on or damage an upgraded database, and going back is the backup, swapping only the database, since `~/ri/.work` holds the home's worktrees.
+- Found on the way: an unquoted variable of settings in zsh (`env $E`) is one word, so a rehearsal ran under a folder named after the whole string, in `/tmp`. No real home was touched (checked), and the rehearsal now passes each variable on its own.
+
 ## P5.4 The service decides the role first
 
 Handoff item 1 (docs/desktop.md): "Resolve Home versus connected-device role before Electron starts a local service or opens a database."
