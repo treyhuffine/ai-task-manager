@@ -294,6 +294,16 @@ export function getConnectorOwnerId(): string {
   return process.env.CONNECTORS_OWNER_ID ?? 'local';
 }
 
+/**
+ * Whether the approval gate auto-allows everything: on in dev, never in production.
+ * `CONNECTORS_AUTO_APPROVE=0` turns the real gate on in dev (to exercise approval cards). There is
+ * deliberately no switch that turns the gate off in production.
+ */
+export function devAutoApprove(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.NODE_ENV === 'production') return false;
+  return env.CONNECTORS_AUTO_APPROVE !== '0';
+}
+
 /** De-dupe auth configs by id (operator env wins over a same-id bundled default). */
 function dedupeById(configs: AuthConfigInput[]): AuthConfigInput[] {
   const byId = new Map<string, AuthConfigInput>();
@@ -362,8 +372,9 @@ async function build(): Promise<Built> {
       secretBox,
     }),
     // Real grant-remembering gate (reads allow, mutating → grant-or-ask). Dev auto-allows so the
-    // chat works end-to-end; production runs the real gate (resolve via /api/connectors/approve).
-    approval: appApprovalPolicy({ autoApprove: process.env.NODE_ENV !== 'production' }),
+    // chat works end-to-end; production runs the real gate (resolved from the approval card in
+    // chat, via /api/connectors/approve). `CONNECTORS_AUTO_APPROVE=0` runs the real gate in dev.
+    approval: appApprovalPolicy({ autoApprove: devAutoApprove() }),
     onActionRun: (e) => {
       if (e.phase === 'finish') {
         // Redacted previews; safe to log. Helps eyeball the flow during testing.

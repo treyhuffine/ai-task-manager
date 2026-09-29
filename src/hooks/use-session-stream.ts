@@ -6,6 +6,7 @@ import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
 import type { PendingInput } from '@/lib/api/sessions';
 import { isMutatingToolUse } from '@/lib/executor/mutation-detect';
 import { worktreeScopeFromCache } from '@/hooks/use-execution';
+import { connectorApprovalsKey } from '@/hooks/use-connector-approvals';
 import { hot } from '@/lib/_debug/hot-path';
 import {
   withBackgroundTaskStatus,
@@ -21,6 +22,7 @@ import {
  *   - `runtime`      → replaces `['session', id, 'runtime-status']`
  *   - `background_tasks` → updates the detached-work axis of runtime status
  *   - `pending_input`→ replaces `['session', id, 'pending-input']`
+ *   - `connector_approvals` → replaces `['session', id, 'connector-approvals']`
  *
  * Replaces the three independent polls (3s/2s/1.5s) those caches used
  * to drive. Snapshot fetches still fire on mount + window focus as a
@@ -49,6 +51,7 @@ export function useSessionStream(sessionId: string | null): void {
     const runtimeKey = ['session', sessionId, 'runtime-status'] as const;
     const pendingKey = ['session', sessionId, 'pending-input'] as const;
     const reconcilingKey = ['session', sessionId, 'reconciling'] as const;
+    const approvalsKey = connectorApprovalsKey(sessionId);
     // Tier-1 tree refresh. Resolved at fire time rather than closed over,
     // because the tree is cached per *execution* and the scope depends on
     // the session row being in cache — which it is by the time any frame
@@ -165,6 +168,16 @@ export function useSessionStream(sessionId: string | null): void {
       }
     };
 
+    // Live connector approval ids: approval cards offer buttons only for these.
+    const handleConnectorApprovals = (raw: MessageEvent) => {
+      try {
+        const data = JSON.parse(raw.data) as { pending: string[] };
+        queryClient.setQueryData<string[]>(approvalsKey, data.pending);
+      } catch (err) {
+        console.error('[useSessionStream] malformed connector_approvals frame:', err);
+      }
+    };
+
     const handleReconcile = (raw: MessageEvent) => {
       try {
         const data = JSON.parse(raw.data) as { status: 'started' | 'done'; replayed?: number };
@@ -178,6 +191,7 @@ export function useSessionStream(sessionId: string | null): void {
     source.addEventListener('runtime', handleRuntime);
     source.addEventListener('background_tasks', handleBackgroundTasks);
     source.addEventListener('pending_input', handlePendingInput);
+    source.addEventListener('connector_approvals', handleConnectorApprovals);
     source.addEventListener('reconcile', handleReconcile);
 
     // Refetch authoritative state on every (re)connect. The server's
@@ -205,6 +219,7 @@ export function useSessionStream(sessionId: string | null): void {
       source.removeEventListener('runtime', handleRuntime);
       source.removeEventListener('background_tasks', handleBackgroundTasks);
       source.removeEventListener('pending_input', handlePendingInput);
+      source.removeEventListener('connector_approvals', handleConnectorApprovals);
       source.removeEventListener('reconcile', handleReconcile);
       if (diffTimer) clearTimeout(diffTimer);
       source.close();

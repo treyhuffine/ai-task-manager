@@ -399,7 +399,9 @@ external accounts, typed tools to act on them (e.g. \`gmail__send_email\`,
 When several accounts of a provider are connected, pass \`account\`. A tool may
 return a structured next-step (authorization_required, choose_account,
 additional_permission_required, approval_required) instead of a result. Relay
-it and retry after the user acts. Never improvise an auth flow.`;
+it and retry after the user acts. Never improvise an auth flow. For
+approval_required the user gets an approval card in this chat: stop and wait.
+A note arrives when they decide, naming which calls to retry and which not to.`;
     case 'harness_skills':
       return `## Your tools (CLI)
 
@@ -520,7 +522,9 @@ action. Use it for every read and write of ${APP_NAME} data.`,
 accounts this agent may use. A tool may return a structured next step
 (authorization_required, choose_account, additional_permission_required,
 approval_required) instead of a result. Relay it and retry after the user
-acts. Never improvise an auth flow.`
+acts. Never improvise an auth flow. For approval_required the user gets an
+approval card in this chat: stop and wait. A note arrives when they decide,
+naming which calls to retry and which not to.`
       : '',
   ].filter(Boolean).join('\n\n');
 
@@ -658,7 +662,7 @@ export function orchestratorMcpServer(
  */
 export function connectorsMcpServer(
   port = resolveServerPort(),
-  opts: { workspaceId?: string } = {},
+  opts: { workspaceId?: string; sessionId?: string | null } = {},
 ): McpServerConfig | null {
   const token = readAuthConfig()?.localToken;
   if (!token) return null;
@@ -667,11 +671,17 @@ export function connectorsMcpServer(
   // validated workspace id, never from a client-asserted scope (spec §6b).
   const base = `http://localhost:${port}/api/connectors/mcp`;
   const url = opts.workspaceId ? `${base}?ws=${encodeURIComponent(opts.workspaceId)}` : base;
+  // Which chat is calling, so an action paused on "Ask first" shows its approval card in that
+  // chat and the user's grant matches that chat's retry (see connectors/approval.ts).
+  const credential = opts.sessionId ? sessionCredential(opts.sessionId, token) : null;
   return {
     name: CONNECTORS_MCP_SERVER_NAME,
     type: 'http',
     url,
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(credential ? { [SESSION_CREDENTIAL_HEADER]: credential } : {}),
+    },
   };
 }
 
@@ -803,7 +813,7 @@ export function orchestratorSessionConfig(
     // both over localhost + the local bearer. Each routes through its own gated runtime.
     const servers = [
       orchestratorMcpServer(opts.port, { sessionId: opts.sessionId }),
-      connectorsMcpServer(opts.port),
+      connectorsMcpServer(opts.port, { sessionId: opts.sessionId }),
     ].filter(
       (s): s is McpServerConfig => s !== null,
     );

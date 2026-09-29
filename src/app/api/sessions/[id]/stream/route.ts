@@ -4,6 +4,7 @@ import { subscribe, sessionChannel, type SessionStreamMessage } from '@/lib/real
 import { listChatEventsAfter } from '@/lib/db/queries';
 import * as executor from '@/lib/executor/adapter';
 import { listForSession as listPendingForSession } from '@/lib/executor/pending-input';
+import { listPendingApprovals } from '@/lib/connectors/approval';
 import type { ChatEventRecord } from '@/db/types';
 
 export const runtime = 'nodejs';
@@ -86,6 +87,9 @@ export async function GET(
             enqueue(sse('background_tasks', { active: message.active, taskIds: message.taskIds }));
             break;
           case 'pending_input': enqueue(sse('pending_input', { pending: message.pending })); break;
+          case 'connector_approvals':
+            enqueue(sse('connector_approvals', { pending: message.pending }));
+            break;
           case 'reconcile':
             enqueue(sse('reconcile', { status: message.status, replayed: message.replayed }));
             break;
@@ -118,6 +122,9 @@ export async function GET(
         taskIds: executor.listBackgroundTaskIds(sessionId),
       }));
       enqueue(sse('pending_input', { pending: listPendingForSession(sessionId) }));
+      enqueue(sse('connector_approvals', {
+        pending: listPendingApprovals({ sessionId }).map((p) => p.id),
+      }));
       enqueue(sse('ready', { sessionId }));
 
       // Idle ping; the colon-prefix is a comment line that EventSource

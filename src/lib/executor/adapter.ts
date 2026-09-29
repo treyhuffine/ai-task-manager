@@ -1145,7 +1145,10 @@ async function ensureHarnessSession(args: EnsureArgs): Promise<AgentSession> {
       const workspace = args.workspaceId ? getWorkspace(args.workspaceId) : null;
       const scopes = workspace?.connectorScopes ?? [];
       if (scopes.length > 0 && args.workspaceId) {
-        const connectors = connectorsMcpServer(undefined, { workspaceId: args.workspaceId });
+        const connectors = connectorsMcpServer(undefined, {
+          workspaceId: args.workspaceId,
+          sessionId: args.chatSessionId,
+        });
         if (connectors) servers.push(connectors);
       }
       // Agent browser, when the app allows it AND the workspace opted in (default

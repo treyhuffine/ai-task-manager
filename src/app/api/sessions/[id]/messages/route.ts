@@ -3,22 +3,20 @@ import { toChatEventDTO } from '@/lib/api/dto/chat-event';
 import {
   getChatEventById,
   getChatSessionWithExecution,
-  getExecution,
   insertChatEvent,
   materializeEventRefs,
   recordSkillUse,
 } from '@/lib/db/queries';
 import { parseSlashInvocation } from '@/lib/agent-skills/parse-invocation';
 import { budgetGate } from '@/lib/runs/budget';
-import { ensureWorktreeReady } from '@/lib/runs/dispatch';
 import { deriveAndSetSessionLabel } from '@/lib/sessions/derive-label';
 import { expandMarkers } from '@/lib/attachments/expand-markers';
 import { expandEntityMarkers } from '@/lib/entity-refs/expand-markers';
-import * as executor from '@/lib/executor/adapter';
 import { healthCheckSession } from '@/lib/executor/health';
 import type { Attachment } from '@/db/types';
 import { SESSION_CREDENTIAL_HEADER, verifySessionCredential } from '@/lib/orchestrator/session-credential';
 import { withSenderLabel } from '@/lib/sessions/sender';
+import { dispatchSessionTurn } from '@/lib/sessions/deliver';
 import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
 
 interface PostBody {
@@ -249,40 +247,10 @@ export async function POST(
     // Skip on retry — the health check already decided whether to
     // redispatch via the orphan path.
     if (!isRetry) {
-      // Cover the accepted-message -> worktree/provider preparation gap. The
-      // nested dispatch takes its own reference, so the runtime flag remains
-      // true until both preparation and the actual root turn have settled.
-      const preparationRef = executor.beginDispatchPreparation(id);
-      // Self-heal a missing worktree before dispatching. A git execution
-      // can outlive its worktree directory (out-of-band `git worktree
-      // remove`/`prune`, a multi-device home where `.work` wasn't synced,
-      // dev resets). `resolveCwd` now refuses to run the agent in the
-      // workspace's source checkout in that state — so without this the
-      // turn would dead-end with `invalid_state`. Reprovisioning here (the
-      // same guard the scheduled path runs) recreates the worktree so the
-      // message lands in an isolated tree, never the main repo. The
-      // existsSync fast-path inside makes this a no-op on the hot path.
-      void (async () => {
-        try {
-          const execution = session.executionId ? getExecution(session.executionId) : undefined;
-          const ready = await ensureWorktreeReady(id, execution ?? null);
-          if (!ready.ok) {
-            console.error(
-              `[POST /api/sessions/:id/messages] worktree not ready for ${id}: ${ready.error}`,
-            );
-            return;
-          }
-          // Labeled with the sending chat when another chat sent it. The
-          // stored event keeps the message as sent, and the first-message
-          // title above is derived from it without the label.
-          await executor.dispatch(id, withSenderLabel(expanded, row.senderSessionId));
-        } finally {
-          executor.endDispatchPreparation(id, preparationRef);
-        }
-      })().catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[POST /api/sessions/:id/messages] dispatch failed for ${id}:`, msg);
-      });
+      // Labeled with the sending chat when another chat sent it. The
+      // stored event keeps the message as sent, and the first-message
+      // title above is derived from it without the label.
+      dispatchSessionTurn(id, session.executionId ?? null, withSenderLabel(expanded, row.senderSessionId));
     }
 
     // Same projection as GET /events and the SSE stream. This row lands in

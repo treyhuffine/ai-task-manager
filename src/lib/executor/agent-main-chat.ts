@@ -73,7 +73,7 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
   if (orchestrator) servers.push(orchestrator);
   const wantsConnectors = ws.connectorScopes.length > 0;
   const connectors = wantsConnectors && args.strictMcpIsolation
-    ? connectorsMcpServer(args.port, { workspaceId: ws.id })
+    ? connectorsMcpServer(args.port, { workspaceId: ws.id, sessionId: args.chatSessionId })
     : null;
   if (connectors) servers.push(connectors);
   if (wantsConnectors && !args.strictMcpIsolation) {

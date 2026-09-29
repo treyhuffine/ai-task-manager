@@ -15,6 +15,12 @@
  * allowlist (executions); omitted = the broad connected set (orchestrator/content). The handler is
  * built PER REQUEST so it can read `?ws` (mcp-handler's init callback has no request access). The
  * filter is always derived server-side from the validated workspace — never a client-asserted scope.
+ *
+ * Caller identity: a harness session's config carries its signed session credential (the same
+ * header the orchestrator MCP reads). A verified one stamps the call as coming from that chat, so
+ * an action paused on "Ask first" surfaces as an approval card in exactly that transcript, and the
+ * grant the user gives matches only that chat's retry. Unverified or absent → an anonymous MCP call,
+ * still fully gated.
  */
 import { createMcpHandler } from 'mcp-handler';
 import { serveMcp, type McpToolRegistrar } from '@connectors/engine/mcp';
@@ -26,6 +32,8 @@ import {
   getConnectorOwnerId,
   resolveWorkspaceConnectorFilter,
 } from '@/lib/connectors/runtime';
+import { sessionCaller } from '@/lib/connectors/approval';
+import { actorFromSessionCredential, sessionCredentialFromHeaders } from '@/lib/orchestrator/session-credential';
 
 const SERVER_INSTRUCTIONS = `${APP_NAME} connectors: typed tools for taking authenticated actions on the user's connected external accounts (Gmail, Calendar, Slack, Notion, Linear, and more).
 
@@ -33,10 +41,10 @@ Guidelines:
 - One tool per action. Names are provider-namespaced (e.g. gmail__send_email, slack__post_message).
 - When multiple accounts of a provider are connected, pass \`account\` (email/label) to choose one.
 - A tool may return a structured next-step instead of a result: authorization_required (the user must connect that account), choose_account, additional_permission_required, or approval_required (a mutating action awaiting the user's OK). Relay it and retry after the user acts, never invent an auth flow.
-- Mutating actions (send, create, delete) pass through the user's approval gate.`;
+- Mutating actions (send, create, delete) pass through the user's approval gate. On approval_required the user gets an approval card in your chat: stop and wait. A note arrives when they decide, naming which calls to retry and which not to. Only the user can approve.`;
 
-/** Build a per-request MCP handler scoped by the optional `?ws` workspace id. */
-function buildHandler(workspaceId: string | null) {
+/** Build a per-request MCP handler scoped by the optional `?ws` workspace id and calling chat. */
+function buildHandler(workspaceId: string | null, sessionId: string | null) {
   return createMcpHandler(
     async (server) => {
       const ownerId = getConnectorOwnerId();
@@ -69,7 +77,7 @@ function buildHandler(workspaceId: string | null) {
       // McpToolRegistrar; runtime-compatible, so bridge the two type defs.
       serveMcp(server as unknown as McpToolRegistrar, runtime, {
         ownerId,
-        caller: { type: 'mcp' },
+        caller: sessionId ? sessionCaller(sessionId) : { type: 'mcp' },
         toolkits,
         ...(connectionPins && Object.keys(connectionPins).length > 0 ? { connectionPins } : {}),
         ...(allowedAccounts && Object.keys(allowedAccounts).length > 0 ? { allowedAccounts } : {}),
@@ -93,7 +101,8 @@ function buildHandler(workspaceId: string | null) {
 
 function handle(req: NextRequest): Promise<Response> {
   const ws = new URL(req.url).searchParams.get('ws');
-  return buildHandler(ws)(req);
+  const actor = actorFromSessionCredential(sessionCredentialFromHeaders(req.headers));
+  return buildHandler(ws, actor?.sessionId ?? null)(req);
 }
 
 export const GET = handle;
