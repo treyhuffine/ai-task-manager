@@ -96,25 +96,28 @@ export function ConnectorApprovalCard({ rows, sessionId, isLatest }: ConnectorAp
         isPending ? 'border-amber-500/40' : 'border-border',
       )}
     >
+      {/* Two lines, so the account the call acts as stays readable in a narrow panel. */}
       <div
         className={cn(
-          'flex items-center gap-2 border-b px-3 py-2',
+          'flex items-center gap-2.5 border-b px-3 py-2',
           isPending ? 'border-amber-500/20 bg-amber-500/5' : 'border-border/60 bg-muted/20',
         )}
       >
-        <ConnectorLogo providerId={head.providerId} name={head.toolkitName} size={20} className="rounded-md" />
-        <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
-          <span className="shrink-0 text-[11.5px] font-semibold text-foreground">
-            {head.actionLabel}
-            {multi && <span className="font-normal text-muted-foreground"> × {views.length}</span>}
-          </span>
-          <span className="truncate text-muted-foreground">
+        <ConnectorLogo providerId={head.providerId} name={head.toolkitName} size={24} className="rounded-md" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="min-w-0 flex-1 truncate text-[11.5px] font-semibold text-foreground">
+              {head.actionLabel}
+              {multi && <span className="font-normal text-muted-foreground"> × {views.length}</span>}
+            </span>
+            {head.outward && <RiskChip>Visible to others</RiskChip>}
+            {head.risk === 'high' && <RiskChip>Can’t be undone</RiskChip>}
+          </div>
+          <div className="truncate text-[10.5px] text-muted-foreground">
             {head.toolkitName}
             {head.account && ` · ${head.account}`}
-          </span>
+          </div>
         </div>
-        {head.risk === 'high' && <RiskChip>Can’t be undone</RiskChip>}
-        {head.outward && <RiskChip>Visible to others</RiskChip>}
       </div>
 
       <ul className="divide-y divide-border/40">
