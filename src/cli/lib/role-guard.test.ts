@@ -34,6 +34,17 @@ describe('refusalFor', () => {
     expect(fs.existsSync(path.join(root, 'data.db'))).toBe(false);
   });
 
+  it('says a retired home is kept here, and still lets `home` show or undo it', () => {
+    const dir = path.join(root, '.retired', '2026-09-29T00-00-00-000Z');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'retired.json'),
+      JSON.stringify({ version: 1, homeId: null, homeName: 'My Ri', host: 'MacBook', retiredAt: '2026-09-29T00:00:00.000Z', successor: 'My Ri on the Mac Mini', counts: {} }),
+    );
+    expect(refusalFor('agent')).toMatch(/My Ri, the home in this folder, was retired on 2026-09-29\. Its work now lives in My Ri on the Mac Mini\./);
+    expect(refusalFor('home')).toBeNull();
+  });
+
   it('names the home on a connected computer', () => {
     fs.mkdirSync(path.join(root, '.config'), { recursive: true });
     fs.writeFileSync(

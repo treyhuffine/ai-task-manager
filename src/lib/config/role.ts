@@ -16,6 +16,7 @@
 
 import fs from 'node:fs';
 import { getConnectionPath, getDbPath } from '@/lib/config/paths';
+import { assertNotRetired } from '@/lib/home/retired';
 
 export type InstallationRole = 'home' | 'connected' | 'fresh';
 
@@ -51,13 +52,18 @@ export function getInstallationRole(): InstallationRole {
 
 /**
  * Before opening a database: refuse to create one on a connected computer,
- * and refuse to open one in a folder that is also connected to a home
- * elsewhere. Checked when a connection opens, not on every cached call: the
- * only thing that writes a connection record, `ri connect`, refuses to run
- * inside a home, so the conflict can't appear under a running server.
+ * or in a folder whose home was retired, and refuse to open one in a folder
+ * that is also connected to a home elsewhere. Checked when a connection
+ * opens, not on every cached call: the only thing that writes a connection
+ * record, `ri connect`, refuses to run inside a home, so the conflict can't
+ * appear under a running server.
  */
 export function assertMayOpenDatabase(dbPath: string): void {
-  if (!fs.existsSync(getConnectionPath())) return;
-  if (fs.existsSync(dbPath)) throw new RoleConflictError();
-  throw new ConnectedInstallationError('Opening data');
+  if (fs.existsSync(getConnectionPath())) {
+    if (fs.existsSync(dbPath)) throw new RoleConflictError();
+    throw new ConnectedInstallationError('Opening data');
+  }
+  // A folder whose home was retired never grows a new, empty one by habit
+  // (docs/homes-spec.md §10.3).
+  assertNotRetired(dbPath);
 }

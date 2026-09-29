@@ -5,7 +5,9 @@
  * - On a home, everything runs as before.
  * - On a fresh root, a data command would quietly create a new home, which
  *   is how a laptop used to become a second Ri. Refuse and point at `ri`,
- *   which asks whether to start a home or connect to one.
+ *   which asks whether to start a home or connect to one. A fresh root whose
+ *   home was retired says so instead, and still runs `home`, to show or undo
+ *   the retirement.
  * - On a connected computer the data lives in the home. Commands in
  *   `ROUTED_WHEN_CONNECTED` handle that themselves by calling the home.
  *   Everything else is refused with where the home is.
@@ -18,6 +20,7 @@ import type { Command } from 'commander';
 import { APP_SHORT_ID } from '@/constants/app';
 import { getInstallationRole } from '@/lib/config/role';
 import { readConnection } from '@/lib/connection/config';
+import { describeRetired, retiredHomes } from '@/lib/home/retired';
 
 /** Top-level commands that read or write a home's data. */
 const DATA_COMMANDS = new Set([
@@ -63,6 +66,9 @@ export function refusalFor(commandName: string): string | null {
   const role = getInstallationRole();
   if (role === 'home') return null;
   if (role === 'fresh') {
+    // A folder whose home was retired: say so, and let `home` show it or undo it.
+    const retired = retiredHomes()[0];
+    if (retired) return commandName === 'home' ? null : describeRetired(retired.retired, retired.dir);
     return `Ri isn't set up on this computer yet. Run \`${APP_SHORT_ID}\` to start using Ri here or connect to your existing Ri.`;
   }
   if (ROUTED_WHEN_CONNECTED.has(commandName)) return null;

@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import nodeTls from 'node:tls';
-import { intro, outro, log, spinner, select, isCancel } from '@clack/prompts';
+import { intro, outro, log, spinner, select, isCancel, confirm } from '@clack/prompts';
 import pc from 'picocolors';
 import getPort from 'get-port';
 import { acquireServiceOwner } from '@/lib/service/owner';
@@ -15,6 +15,7 @@ import {
   buildPairingUrl,
 } from '@/lib/auth/bootstrap';
 import { ensureHomeIdentity, HomeIdentityError } from '@/lib/home/identity';
+import { describeRetired, RetiredHomeError, retiredHomes } from '@/lib/home/retired';
 import { getInstallationRole, type InstallationRole } from '@/lib/config/role';
 import { runConnected } from './connected';
 import { runConnect } from './connect';
@@ -157,6 +158,23 @@ async function startForegroundCommand(opts: StartOptions) {
   // has. Asked in terms of use, not topology (§3.1). Without a terminal, keep
   // starting a home, and say how to connect instead.
   if (role === 'fresh') {
+    // This folder's home was retired: its work lives in another home now, so
+    // the only way on from here is connecting to it (or undoing the retirement).
+    const retired = retiredHomes()[0];
+    if (retired) {
+      log.warn(describeRetired(retired.retired, retired.dir));
+      if (!process.stdin.isTTY) {
+        process.exitCode = 1;
+        return;
+      }
+      const go = await confirm({ message: `Connect this computer to your ${APP_NAME} now?` });
+      if (isCancel(go) || go !== true) {
+        outro('Nothing changed');
+        return;
+      }
+      if (!(await runConnect(undefined, { open: opts.open }))) process.exitCode = 1;
+      return;
+    }
     if (process.stdin.isTTY) {
       const choice = await select({
         message: `Set up ${APP_NAME} on this computer`,
@@ -227,7 +245,8 @@ async function startForegroundCommand(opts: StartOptions) {
     if (identity.created) log.success(`Created your home on ${identity.computer.name}`);
   } catch (err) {
     s.stop('Not starting');
-    if (err instanceof HomeIdentityError) {
+    // A retired home in this folder: say what happened, never open a new one.
+    if (err instanceof HomeIdentityError || err instanceof RetiredHomeError) {
       log.error(err.message);
       process.exitCode = 1;
       return;

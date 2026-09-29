@@ -62,8 +62,8 @@ export async function runConnect(linkArg: string | undefined, opts: ConnectOptio
     }
     if (!describeHomeUse().unused) {
       log.error(
-        'This folder is a home with data in it, so it stays a home. To use your other Ri here, ' +
-          'move what you need into that one, then connect from a new folder, or ask for a guided move.',
+        'This folder is a home with data in it, so it stays a home. To use your other Ri here, move what you ' +
+          `need into that one, then retire this home (\`${APP_SHORT_ID} home retire\`, which keeps its data here) and connect.`,
       );
       return false;
     }

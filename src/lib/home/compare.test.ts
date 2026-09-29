@@ -15,6 +15,8 @@ let copyRoot: string;
 let ids: { kept: string; changedInCopy: string; changedAtHome: string; note: string; area: string };
 
 beforeEach(async () => {
+  // The markdown mirror isn't compared, and writes after the folders are gone.
+  process.env.RI_MIRROR_DISABLED = '1';
   home = await createTestHome({ prefix: 'ri-compare-a-' });
   const q = await import('@/lib/db/queries');
   const area = q.createArea({ name: 'Work' });
@@ -54,6 +56,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  delete process.env.RI_MIRROR_DISABLED;
   fs.rmSync(copyRoot, { recursive: true, force: true });
   await home.cleanup();
 });
