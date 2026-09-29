@@ -40,9 +40,9 @@ import { pullBaseInto, pushExecutionBranch } from '@/lib/workspaces/branch-sync'
 import { looksLikeNonFastForward } from '@/lib/workspaces/git-errors';
 import { fetchInputFiles, inputFilesDir, placeInputFiles } from './input-files';
 import { UnsupportedRequestError, type RequestHandler } from './run';
-import { applySetupHere, collectingLink, planSetupHere, type SetupAgentRequest } from '@/lib/setups/set-up-here';
-import { SetupError } from '@/lib/setups/service';
-import { SetupFileConflictError } from '@/lib/setups/local-file';
+import { applySetupHere, planSetupHere, SetupError, type SetupAgentRequest } from '@/lib/setups/set-up-here';
+import { checkFoldersHere, FolderListingError, listFoldersHere } from '@/lib/setups/folders-here';
+import type { CheckFoldersRequest, ListFoldersRequest } from '@/lib/workers/protocol';
 
 const run = promisify(execFile);
 
@@ -282,21 +282,30 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
       if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this computer." } };
       return readAgentFolder(folder, request.filesToCopy, request.read);
     }
+    if (kind === 'check_folders') {
+      return { status: 200, body: { results: checkFoldersHere((payload as CheckFoldersRequest).paths ?? []) } };
+    }
+    if (kind === 'list_folders') {
+      try {
+        return { status: 200, body: listFoldersHere((payload as ListFoldersRequest).path ?? null) };
+      } catch (err) {
+        if (err instanceof FolderListingError) return { status: 400, body: { error: 'folders', message: err.message } };
+        throw err;
+      }
+    }
     if (kind === 'setup_agent') {
       // Setting an agent up here from the app: its project copied down, or a
       // folder already here, the same setup `ri setup attach` makes. Only for
       // this computer's own home.
       const request = payload as SetupAgentRequest;
-      if (request.context.homeId !== homeId) {
+      if (request.homeId !== homeId) {
         return { status: 409, body: { error: 'wrong_home', message: 'This computer runs agents for a different Ri.' } };
       }
       try {
         if (request.op === 'plan') return { status: 200, body: planSetupHere(request) };
-        return { status: 200, body: await applySetupHere(request, collectingLink(request.context)) };
+        return { status: 200, body: await applySetupHere(request) };
       } catch (err) {
-        if (err instanceof SetupError || err instanceof SetupFileConflictError) {
-          return { status: 400, body: { error: 'setup', message: err.message } };
-        }
+        if (err instanceof SetupError) return { status: 400, body: { error: 'setup', message: err.message } };
         throw err;
       }
     }
@@ -422,7 +431,13 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       if (!source) {
         return {
           state: 'failed',
-          error: `${payload.workspace.name} isn't set up on this computer. Attach its folder with \`ri setup attach\` first.`,
+          error: `${payload.workspace.name} isn't set up on this computer. Set it up in ${payload.workspace.name}'s Setup, under Folders, or with \`ri setup attach\` here.`,
+        };
+      }
+      if (!checkFoldersHere([source])[0]!.exists) {
+        return {
+          state: 'failed',
+          error: `${payload.workspace.name}'s folder, ${source}, isn't there any more. Choose where it is now in ${payload.workspace.name}'s Setup, under Folders.`,
         };
       }
       ctx.markStarted();

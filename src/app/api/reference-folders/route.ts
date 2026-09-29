@@ -5,7 +5,7 @@ import { recycleForReferenceFolderChange } from '@/lib/executor/adapter';
 import { getWorkspace } from '@/lib/db/queries';
 import type { CreateReferenceFolderInput } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
-import { applyReferenceToHomeSetups } from '@/lib/setups/home-context';
+import { checkHomeFolders } from '@/lib/setups/folders';
 
 /** Map the query layer's typed failures onto HTTP without leaking stack traces. */
 function statusForReferenceError(code: ReferenceFolderError['code']): number {
@@ -41,11 +41,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as CreateReferenceFolderInput;
     const row = createReferenceFolder(body);
-    // Map it in this computer's setup files, where agent paths live (§4.2).
-    const setupFiles = await applyReferenceToHomeSetups(row).catch((err: unknown) => ({
-      updated: [] as string[],
-      failed: [{ dir: '', error: err instanceof Error ? err.message : String(err) }],
-    }));
+    // Its place on the home is recorded with it: check it's there (§4.1).
+    await checkHomeFolders();
     // Live sessions cache their config at spawn, so a new folder is invisible
     // to them until they recycle.
     await recycleForReferenceFolderChange(row.workspaceId);
@@ -53,7 +50,7 @@ export async function POST(request: NextRequest) {
     // broken badge) without refetching the whole list.
     const consumerCwd = row.workspaceId ? getWorkspace(row.workspaceId)?.cwd ?? null : null;
     const resolved = await resolveReferenceFolder(row, { consumerCwd });
-    return Response.json({ ...(resolved ?? row), setupFiles }, { status: 201 });
+    return Response.json(resolved ?? row, { status: 201 });
   } catch (err) {
     if (err instanceof ReferenceFolderError) {
       return Response.json(

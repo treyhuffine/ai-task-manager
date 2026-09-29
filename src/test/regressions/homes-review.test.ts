@@ -6,9 +6,7 @@ import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { ensureHomeIdentity, resetHomeIdentityCache, resolveHomeIdentity } from '@/lib/home/identity';
-import { readSetupFile, SETUP_FILE } from '@/lib/setups/local-file';
-import { inProcessSetupLink, setHomeFolder } from '@/lib/setups/home-context';
-import { attach, detach, syncSetups } from '@/lib/setups/service';
+import { setHomeFolder } from '@/lib/setups/home-context';
 import * as q from '@/lib/db/queries';
 import { proxy } from '@/proxy';
 import { checkResolvedPaths } from '@/lib/config/dev-isolation';
@@ -18,6 +16,10 @@ import { checkResolvedPaths } from '@/lib/config/dev-isolation';
  * (eleven findings, each first reproduced by the reviewer's probe), plus one
  * the fixes turned up: detaching an agent twice unregistered a folder another
  * agent still used.
+ *
+ * Adapted when the home's records became the only place an agent's folders
+ * are kept (docs/homes-spec.md §4.1): 4, 6 and 7 check the same outcomes in
+ * the records. 8 (another home's setup file) is retired: there are no files.
  */
 
 const confirmAnswer = vi.hoisted(() => ({ value: false as boolean | symbol }));
@@ -133,7 +135,6 @@ describe('4. a failed folder change keeps the previous setup', () => {
     const res = await PATCH(request(`/api/workspaces/${ws.id}`, 'PATCH', { cwd: missing }), { params: Promise.resolve({ id: ws.id }) });
     expect(res.status).toBe(400);
     expect(q.getWorkspace(ws.id)?.cwd).toBe(source);
-    expect(readSetupFile(source).state).toBe('ok');
     expect(q.listAgentSetups({ workspaceId: ws.id })[0]).toMatchObject({ sourcePath: source, status: 'ready' });
   });
 
@@ -152,8 +153,7 @@ describe('4. a failed folder change keeps the previous setup', () => {
     const { PATCH } = await import('@/app/api/workspaces/[id]/route');
     const res = await PATCH(request(`/api/workspaces/${ws.id}`, 'PATCH', { cwd: b }), { params: Promise.resolve({ id: ws.id }) });
     expect(res.status).toBe(200);
-    expect(readSetupFile(a).state).toBe('missing');
-    expect(readSetupFile(b).state).toBe('ok');
+    expect(q.listAgentSetups({ workspaceId: ws.id })).toEqual([expect.objectContaining({ sourcePath: b, status: 'ready' })]);
     expect(q.getWorkspace(ws.id)?.cwd).toBe(b);
   });
 });
@@ -200,30 +200,16 @@ describe('5. answering No leaves the home in place', () => {
 });
 
 describe('6. detaching one agent from a shared folder', () => {
-  it('removes that agent from the index and leaves the other', async () => {
+  it('removes that agent and leaves the other, even when taken off twice', async () => {
     const source = folder('shared');
     const a = workspace('A', source);
     const b = workspace('B', source);
-    const link = inProcessSetupLink();
-    await attach(link, { agent: a.id, folder: source });
-    await attach(link, { agent: b.id, folder: source });
-    await detach(link, { agent: a.id });
-    const file = readSetupFile(source);
-    expect(file.state === 'ok' && file.file.agents[a.id]).toBeUndefined();
+    await setHomeFolder(a.id, source);
+    await setHomeFolder(b.id, source);
+    const host = ensureHomeIdentity().computer.id;
+    expect(q.removeAgentSetup(a.id, host)).toBe(true);
+    expect(q.removeAgentSetup(a.id, host)).toBe(false);
     expect(q.listAgentSetups({ workspaceId: a.id })).toEqual([]);
-    expect(q.listAgentSetups({ workspaceId: b.id })).toHaveLength(1);
-  });
-
-  it('never unregisters a folder another agent still uses, even when detached twice', async () => {
-    const source = folder('shared');
-    const a = workspace('A', source);
-    const b = workspace('B', source);
-    const link = inProcessSetupLink();
-    await attach(link, { agent: a.id, folder: source });
-    await attach(link, { agent: b.id, folder: source });
-    await detach(link, { agent: a.id });
-    await detach(link, { agent: a.id }).catch(() => {});
-    await syncSetups(link);
     expect(q.listAgentSetups({ workspaceId: b.id })).toEqual([expect.objectContaining({ sourcePath: source })]);
   });
 });
@@ -237,31 +223,13 @@ describe('7. renaming a reference', () => {
     const { POST } = await import('@/app/api/reference-folders/route');
     const made = await POST(request('/api/reference-folders', 'POST', { alias: 'docs', path: referenceDir }));
     const ref = (await made.json()) as { id: string };
-    const { setReference } = await import('@/lib/setups/service');
+    const host = ensureHomeIdentity().computer.id;
     const local = folder('local-reference');
-    await setReference(inProcessSetupLink(), { agent: ws.id, alias: 'docs', value: local });
+    q.setFolderLink(host, ref.id, local);
     const { PATCH } = await import('@/app/api/reference-folders/[id]/route');
     await PATCH(request(`/api/reference-folders/${ref.id}`, 'PATCH', { alias: 'guides' }), { params: Promise.resolve({ id: ref.id }) });
-    const read = readSetupFile(source);
-    expect(read.state === 'ok' && read.file.agents[ws.id]!.references).toEqual({ guides: local });
-  });
-});
-
-describe('8. setup changes never touch another home’s file', () => {
-  it('refuses to edit a file that now belongs to a different home', async () => {
-    const source = folder('app');
-    const ws = workspace('App', source);
-    q.createReferenceFolder({ alias: 'docs', path: folder('docs') });
-    await setHomeFolder(ws.id, source);
-    const read = readSetupFile(source);
-    if (read.state !== 'ok') throw new Error('missing fixture');
-    const foreign = JSON.stringify({ ...read.file, homeId: 'different-home' });
-    fs.writeFileSync(path.join(source, SETUP_FILE), foreign);
-    await syncSetups(inProcessSetupLink());
-    const { setReference } = await import('@/lib/setups/service');
-    await expect(setReference(inProcessSetupLink(), { agent: ws.id, alias: 'docs', value: null })).rejects.toThrow(/different Ri home/);
-    await expect(detach(inProcessSetupLink(), { agent: ws.id })).rejects.toThrow(/different Ri home/);
-    expect(fs.readFileSync(path.join(source, SETUP_FILE), 'utf8')).toBe(foreign);
+    expect(q.getFolderLink(host, ref.id)?.path).toBe(local);
+    expect(q.getAgentSetup(ws.id, host)!.references).toEqual([expect.objectContaining({ alias: 'guides', path: local })]);
   });
 });
 

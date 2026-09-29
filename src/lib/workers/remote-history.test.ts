@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import { setUpAgentOn } from '@/test/fixtures/setups';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import { startWorkerProcess, type WorkerProcess } from '@/test/fixtures/worker-process';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
@@ -96,7 +97,7 @@ beforeEach(async () => {
   // The Demo agent, set up in the demo folder on the laptop.
   const ws = q.createWorkspace({ name: 'Demo', cwd: path.join(home.root, 'demo-on-the-mini'), isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
   agentId = ws.id;
-  q.recordAgentSetupReports(computerId, [{ agentId, sourcePath: demo, configRevision: null, references: [], status: 'ready', problem: null }], { complete: true });
+  await setUpAgentOn(agentId, computerId, demo);
   // And a session Ri runs there itself.
   const ours = q.createExecutionWithChat({ workspaceId: agentId, harness: 'claude', label: 'Ri run' });
   q.createPlacement({ executionId: ours.execution.id, computerId, startReason: 'created', worktreePath: demo });

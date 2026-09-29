@@ -73,39 +73,43 @@ function reachedFromElsewhere(servers: McpServerConfig[], token: string): McpSer
 }
 
 /**
- * An agent's reference folders as a connected computer resolved them from
- * its own setup file: the alias and description from the home, the path
- * from that computer's last report. Only the ones that exist there.
+ * An agent's linked folders on a computer, as the home records them
+ * (docs/homes-spec.md §4.1): the ones with a place there. The runner checks
+ * each is there when the session starts, so one the computer hasn't checked
+ * yet still goes.
  */
 function referencesOn(workspaceId: string | null, computerId: string): ResolvedReferenceFolder[] {
   if (!workspaceId) return [];
-  const reported = getAgentSetup(workspaceId, computerId)?.references ?? [];
-  const byAlias = new Map(reported.map((r) => [r.alias, r]));
+  const recorded = getAgentSetup(workspaceId, computerId)?.references ?? [];
+  const byAlias = new Map(recorded.map((r) => [r.alias, r]));
   return listReferenceFoldersForWorkspace(workspaceId).flatMap((folder) => {
     const here = byAlias.get(folder.alias);
-    if (!here?.path || !here.exists) return [];
+    if (!here?.path) return [];
     return [{ ...folder, absolutePath: here.path, exists: true, git: null, global: folder.workspaceId === null }];
   });
 }
 
 /**
- * An agent's folder and connected folders as the home expects them where the
- * session runs: its own, or the computer's last report. The runner resolves
- * them against its computer's setup files when the session starts (P2.7).
+ * An agent's folder and linked folders where the session runs, as the home
+ * records them (docs/homes-spec.md §4.1). The runner checks each is there
+ * when the session starts.
  */
 function expectedAgentFolders(workspace: WorkspaceRecord, target: SpecTarget, usable: ResolvedReferenceFolder[]): ExpectedAgentFolders {
   const byAlias = new Map(usable.map((r) => [r.alias, r]));
+  const setup = getAgentSetup(workspace.id, target.computerId);
+  const recorded = new Map((setup?.references ?? []).map((r) => [r.alias, r]));
   return {
     homeId: getHome()?.id ?? '',
     agentId: workspace.id,
-    sourceFolder: target.isHome ? workspace.cwd : getAgentSetup(workspace.id, target.computerId)?.sourcePath ?? null,
+    sourceFolder: setup?.sourcePath ?? (target.isHome ? workspace.cwd : null),
     references: listReferenceFoldersForWorkspace(workspace.id).map((ref) => {
       const here = byAlias.get(ref.alias);
+      const form = recorded.get(ref.alias)?.form;
       return {
         alias: ref.alias,
         description: ref.description ?? null,
         path: here?.absolutePath ?? null,
-        state: here ? ('ready' as const) : ('missing' as const),
+        state: here ? ('ready' as const) : form === 'omitted' ? ('omitted' as const) : form === 'unconfigured' || !form ? ('unconfigured' as const) : ('missing' as const),
       };
     }),
   };

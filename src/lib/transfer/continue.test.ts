@@ -19,6 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import { setUpAgentOn } from '@/test/fixtures/setups';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import { startWorkerProcess, type WorkerProcess } from '@/test/fixtures/worker-process';
 import { installFakeHarness, type FakeHarness } from '@/test/fixtures/fake-harness';
@@ -88,16 +89,12 @@ beforeEach(async () => {
     browserEnabled: false,
     worktreeRoot: path.join(home.root, 'worktrees'),
   }).id;
-  q.recordAgentSetupReports(hostId, [{ agentId: workspaceId, sourcePath: homeClone, configRevision: null, references: [], status: 'ready', problem: null }], { complete: true });
+  await setUpAgentOn(workspaceId, hostId, homeClone);
 
-  // The laptop: enrolled, its own setup file and registry.
+  // The laptop: enrolled, its folder as the home records it.
   const laptopKey = q.createApiKey({ name: 'Laptop CLI', deviceType: 'computer' });
   laptopId = q.registerComputerForApiKey({ apiKeyId: laptopKey.key.id, name: 'Laptop', platform: 'darwin' }).computer.id;
-  const { writeSetupFile } = await import('@/lib/setups/local-file');
-  writeSetupFile(laptopClone, { version: 1, homeId: own.id, agents: { [workspaceId]: { references: {} } } }, null);
-  fs.mkdirSync(path.join(laptopRoot, '.config'), { recursive: true });
-  fs.writeFileSync(path.join(laptopRoot, '.config', 'setups.json'), JSON.stringify({ version: 1, locations: [{ dir: laptopClone, registeredAt: new Date().toISOString() }] }));
-  q.recordAgentSetupReports(laptopId, [{ agentId: workspaceId, sourcePath: laptopClone, configRevision: null, references: [], status: 'ready', problem: null }], { complete: true });
+  await setUpAgentOn(workspaceId, laptopId, laptopClone);
 
   server = await startHomeServer();
   process.env.RI_PUBLIC_BASE_URL = server.url;
@@ -346,10 +343,8 @@ describe('when a move stops', () => {
     const q = await import('@/lib/db/queries');
     const { startTransfer } = await import('./continue');
     const { chatId } = await startedAtHome();
-    q.recordAgentSetupReports(laptopId, [{
-      agentId: workspaceId, sourcePath: laptopClone, configRevision: null, references: [],
-      status: 'missing_reference', problem: 'Reference "docs" isn\'t set up on this computer.',
-    }], { complete: true });
+    // A linked folder it uses, chosen on the home but not on the laptop.
+    q.createReferenceFolder({ workspaceId, alias: 'docs', path: homeClone });
     expect(() => startTransfer({ chatSessionId: chatId, toComputerId: laptopId, includeUntracked: [], requestedByApiKeyId: null })).toThrow(/docs/);
   }, 120_000);
 
@@ -637,21 +632,7 @@ describe('the controls follow the work (P4.5)', () => {
       skipLiveConfirm: false,
       browserEnabled: false,
     }).id;
-    const { readSetupFile, writeSetupFile } = await import('@/lib/setups/local-file');
-    const current = readSetupFile(laptopClone);
-    writeSetupFile(
-      laptopClone,
-      { version: 1, homeId, agents: { [workspaceId]: { references: {} }, [onlyThere]: { references: {} } } },
-      current.state === 'missing' ? null : current.revision,
-    );
-    q.recordAgentSetupReports(
-      laptopId,
-      [
-        { agentId: workspaceId, sourcePath: laptopClone, configRevision: null, references: [], status: 'ready', problem: null },
-        { agentId: onlyThere, sourcePath: laptopClone, configRevision: null, references: [], status: 'ready', problem: null },
-      ],
-      { complete: true },
-    );
+    await setUpAgentOn(onlyThere, laptopId, laptopClone);
     const { chatId } = await startedOnLaptop(onlyThere);
 
     // Answered by gh in the laptop's clone. Its remote isn't on GitHub, so there's no pull request.

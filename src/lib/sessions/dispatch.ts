@@ -68,7 +68,8 @@ import { invalidateHarnessSession, close as closeHarnessSession } from '@/lib/ex
 import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord, WorkerCommandActor } from '@/db/types';
 import type { PreparePayload } from '@/lib/worker/handlers';
 import { isComputerConnected, wakeComputer } from '@/lib/workers/hub';
-import { notReady, runOnFor } from '@/lib/setups/run-on';
+import { runOnFor, setupProblem, setupUsable } from '@/lib/setups/run-on';
+import { checkComputerFolders } from '@/lib/setups/folders';
 import { requireHarnessId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 import { admitChange } from '@/lib/transfer/moving';
@@ -252,12 +253,13 @@ export async function dispatchExecutionSession(
     if (!listEnrolledComputerIds().has(elsewhere)) {
       throw new ComputerUnavailableForDispatch(`${computer.name} isn't set up to run agents. Run \`ri worker enroll\` there first.`);
     }
+    // Its folders there, as that computer finds them now: one gone since it
+    // connected says so here, rather than failing the work there.
+    await checkComputerFolders(elsewhere, { timeoutMs: 5_000 });
     const setup = getAgentSetup(ws.id, elsewhere);
-    if (setup?.status !== 'ready') {
+    if (!setup || !setupUsable(setup.status)) {
       throw new ComputerUnavailableForDispatch(
-        setup
-          ? notReady(`${ws.name}'s folder on ${computer.name}`, setup)
-          : `${ws.name} isn't set up on ${computer.name}. Attach its folder there first.`,
+        setup ? setupProblem(`${ws.name}'s folder on ${computer.name}`, setup) : `${ws.name} isn't on ${computer.name} yet. Set it up there first.`,
       );
     }
   }

@@ -2,6 +2,11 @@
  * Regressions from the re-check of the P0/P1 review fixes at 8ad4a01: six
  * cases the reviewer's probes reproduced, kept as written, plus the ones
  * the fixes added.
+ *
+ * Adapted when the home's records became the only place an agent's folders
+ * are kept (docs/homes-spec.md §4.1): the omitted, shadowed and PATCH cases
+ * check the same outcomes in the records. The three about clearing, reading
+ * and reaching setup files are retired: there are no files.
  */
 
 import fs from 'node:fs';
@@ -10,9 +15,7 @@ import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { ensureHomeIdentity, resetHomeIdentityCache } from '@/lib/home/identity';
-import { readSetupFile, SETUP_FILE } from '@/lib/setups/local-file';
-import { applyReferenceToHomeSetups, inProcessSetupLink, setHomeFolder } from '@/lib/setups/home-context';
-import { setReference, syncSetups } from '@/lib/setups/service';
+import { setHomeFolder } from '@/lib/setups/home-context';
 import * as q from '@/lib/db/queries';
 import { checkResolvedPaths } from '@/lib/config/dev-isolation';
 
@@ -34,10 +37,10 @@ function folder(name: string) {
 function workspace(name: string, cwd: string) {
   return q.createWorkspace({ name, cwd, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
 }
-function refs(dir: string, agentId: string) {
-  const read = readSetupFile(dir);
-  if (read.state !== 'ok') throw new Error('Missing setup');
-  return read.file.agents[agentId]!.references;
+/** An agent's linked folders on the home, as the records resolve them. */
+function refs(agentId: string): Record<string, string | null> {
+  const host = ensureHomeIdentity().computer.id;
+  return Object.fromEntries(q.getAgentSetup(agentId, host)!.references.map((r) => [r.alias, r.form === 'omitted' ? null : r.path]));
 }
 
 describe('setup failure and authority checks beyond the original probes', () => {
@@ -60,10 +63,9 @@ describe('setup failure and authority checks beyond the original probes', () => 
     const ws = workspace('App', source);
     const ref = q.createReferenceFolder({ alias: 'docs', path: folder('docs') });
     await setHomeFolder(ws.id, source);
-    await setReference(inProcessSetupLink(), { agent: ws.id, alias: 'docs', value: null });
-    const after = q.updateReferenceFolder(ref.id, { description: 'Updated description' })!;
-    await applyReferenceToHomeSetups(after, ref);
-    expect(refs(source, ws.id).docs).toBeNull();
+    q.setFolderLink(ensureHomeIdentity().computer.id, ref.id, null);
+    q.updateReferenceFolder(ref.id, { description: 'Updated description' });
+    expect(refs(ws.id).docs).toBeNull();
   });
 
   it('does not steal a workspace override when the shadowed global alias is renamed', async () => {
@@ -74,10 +76,9 @@ describe('setup failure and authority checks beyond the original probes', () => 
     const global = q.createReferenceFolder({ alias: 'docs', path: globalPath });
     q.createReferenceFolder({ alias: 'docs', path: ownPath, workspaceId: ws.id });
     await setHomeFolder(ws.id, source);
-    expect(refs(source, ws.id)).toEqual({ docs: ownPath });
-    const renamed = q.updateReferenceFolder(global.id, { alias: 'guides' })!;
-    await applyReferenceToHomeSetups(renamed, global);
-    expect(refs(source, ws.id)).toEqual({ docs: ownPath, guides: globalPath });
+    expect(refs(ws.id)).toEqual({ docs: ownPath });
+    q.updateReferenceFolder(global.id, { alias: 'guides' });
+    expect(refs(ws.id)).toEqual({ docs: ownPath, guides: globalPath });
   });
 
   it('does not move folders when another PATCH field fails validation', async () => {
@@ -92,52 +93,7 @@ describe('setup failure and authority checks beyond the original probes', () => 
     }), { params: Promise.resolve({ id: ws.id }) });
     expect(response.status).toBe(400);
     expect(q.getWorkspace(ws.id)!.cwd).toBe(source);
-    expect(readSetupFile(source).state).toBe('ok');
-    expect(readSetupFile(target).state).toBe('missing');
-  });
-
-  it('does not leave duplicate setups when clearing the old folder fails', async () => {
-    const source = folder('app');
-    const target = folder('new-app');
-    const ws = workspace('App', source);
-    await setHomeFolder(ws.id, source);
-    fs.chmodSync(source, 0o500);
-    try {
-      await expect(setHomeFolder(ws.id, target)).rejects.toThrow();
-    } finally {
-      fs.chmodSync(source, 0o700);
-    }
-    expect(readSetupFile(source).state).toBe('ok');
-    expect(readSetupFile(target).state).toBe('missing');
-    await syncSetups(inProcessSetupLink());
-    expect(q.listAgentSetups({ workspaceId: ws.id })[0]!.status).toBe('ready');
-  });
-
-  it('reports unreadable reference setup files as failures', async () => {
-    const source = folder('app');
-    const ws = workspace('App', source);
-    const ref = q.createReferenceFolder({ alias: 'docs', path: folder('docs') });
-    await setHomeFolder(ws.id, source);
-    fs.writeFileSync(path.join(source, SETUP_FILE), '{ invalid json');
-    const renamed = q.updateReferenceFolder(ref.id, { alias: 'guides' })!;
-    const result = await applyReferenceToHomeSetups(renamed, ref);
-    expect(result.failed).toHaveLength(1);
-  });
-
-  it('keeps a reference change applying where it does apply, and says which folders it could not reach', async () => {
-    const a = folder('a');
-    const b = folder('b');
-    const wa = workspace('A', a);
-    const wb = workspace('B', b);
-    const ref = q.createReferenceFolder({ alias: 'docs', path: folder('docs') });
-    await setHomeFolder(wa.id, a);
-    await setHomeFolder(wb.id, b);
-    fs.rmSync(path.join(b, SETUP_FILE));
-    const moved = q.updateReferenceFolder(ref.id, { path: folder('docs-2') })!;
-    const result = await applyReferenceToHomeSetups(moved, ref);
-    expect(result.updated).toEqual([a]);
-    expect(result.failed).toEqual([expect.objectContaining({ dir: b, error: expect.stringMatching(/no setup file/) })]);
-    expect(refs(a, wa.id).docs).toBe(moved.path);
+    expect(q.listAgentSetups({ workspaceId: ws.id })).toEqual([expect.objectContaining({ sourcePath: source })]);
   });
 
 });

@@ -7,6 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import { setUpAgentOn } from '@/test/fixtures/setups';
 import { API_KEY_ID_HEADER, API_KEY_TYPE_HEADER } from '@/lib/auth/request-key';
 
 const requestWorker = vi.fn();
@@ -39,7 +40,7 @@ beforeEach(async () => {
   q.createPlacement({ executionId: there.execution.id, computerId: laptopId, startReason: 'created', worktreePath: '/Users/trey/code/ri/.work/ri-1' });
   chatId = there.session.id;
   homeChatId = q.createExecutionWithChat({ workspaceId: agentId, harness: 'claude', label: 'At home' }).session.id;
-  q.recordAgentSetupReports(laptopId, [{ agentId, sourcePath: '/Users/trey/code/ri', configRevision: null, status: 'ready', problem: null, references: [] }], { complete: true });
+  await setUpAgentOn(agentId, laptopId, '/Users/trey/code/ri');
   requestWorker.mockReset();
   requestWorker.mockResolvedValue({ status: 200, body: { ok: true } });
 });

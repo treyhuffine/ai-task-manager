@@ -160,7 +160,9 @@ export function prepareDevelopmentCopy(root: string): DevCopyReport {
         );
       }
       if (tables.has('home') && tables.has('computers')) {
-        const original = db.prepare('SELECT id, name FROM home').get() as { id: string; name: string } | undefined;
+        const original = db.prepare('SELECT id, name, host_computer_id AS host FROM home').get() as
+          | { id: string; name: string; host: string | null }
+          | undefined;
         if (original) {
           const homeId = uuidv7();
           const computerId = uuidv7();
@@ -179,6 +181,13 @@ export function prepareDevelopmentCopy(root: string): DevCopyReport {
             computerId,
             now,
           );
+          // The original home's own folders become this one's (their paths
+          // are detached below), so the copy's agents are still at home.
+          if (original.host) {
+            for (const table of ['agent_setups', 'folder_links']) {
+              if (tables.has(table)) db.prepare(`UPDATE "${table}" SET computer_id = ? WHERE computer_id = ?`).run(computerId, original.host);
+            }
+          }
           report.homeId = homeId;
           identity.value = { homeId, computerId };
         }
@@ -187,6 +196,9 @@ export function prepareDevelopmentCopy(root: string): DevCopyReport {
       detach('workspaces', 'worktree_root');
       detach('executions', 'worktree_path');
       detach('reference_folders', 'path');
+      // Every computer's folders, as the home records them (docs/homes-spec.md §4.1).
+      detach('agent_setups', 'source_path');
+      detach('folder_links', 'path');
       detach('external_session_imports', 'source_path');
     })();
   } finally {

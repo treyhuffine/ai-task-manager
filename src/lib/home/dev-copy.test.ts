@@ -129,8 +129,16 @@ describe('prepareDevelopmentCopy', () => {
     expect(fs.existsSync(ws.cwd)).toBe(false);
     const ex = one<{ worktree_path: string }>('SELECT worktree_path FROM executions WHERE id = ?', ids.execution);
     expect(ex.worktree_path).toBe(path.join(ROOT, '.detached', PROD_WORKTREE));
-    const ref = one<{ path: string }>("SELECT path FROM reference_folders WHERE alias = 'docs'");
-    expect(ref.path.endsWith('/.detached/Users/someone/docs')).toBe(true);
+    // A linked folder's place on the home is in the home's records now (docs/homes-spec.md §4.1).
+    const link = one<{ path: string }>(
+      "SELECT l.path FROM folder_links l JOIN reference_folders r ON r.id = l.reference_folder_id WHERE r.alias = 'docs'",
+    );
+    expect(link.path.endsWith('/.detached/Users/someone/docs')).toBe(true);
+    // And it belongs to the copy's own home computer, not the original's.
+    const owner = one<{ ok: number }>(
+      'SELECT count(*) AS ok FROM folder_links l JOIN home h ON h.host_computer_id = l.computer_id',
+    );
+    expect(owner.ok).toBe(1);
     db.close();
   });
 

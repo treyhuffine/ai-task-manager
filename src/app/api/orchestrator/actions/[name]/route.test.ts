@@ -101,12 +101,12 @@ describe('POST /api/orchestrator/actions/:name', () => {
 });
 
 describe('computers and setups over the route', () => {
-  it('registers a computer under its key, and only that key reports for it', async () => {
+  it("registers a computer under its key, and only that key records that computer's folders", async () => {
     const q = await import('@/lib/db/queries');
     const laptopKey = q.createApiKey({ name: 'MacBook', deviceType: 'computer' }).key;
     const asLaptop = { [API_KEY_ID_HEADER]: laptopKey.id, [API_KEY_TYPE_HEADER]: 'computer', [CALLER_LOCATION_HEADER]: 'elsewhere' };
 
-    const before = await call('get_setup_context', {}, asLaptop);
+    const before = await call('set_agent_folder', { agent: 'Ri', folder: '/Users/trey/dynamism/ri' }, asLaptop);
     expect(before.body.error?.code).toBe('conflict');
 
     const registered = await call('register_computer', { name: 'MacBook', platform: 'darwin' }, asLaptop);
@@ -123,15 +123,8 @@ describe('computers and setups over the route', () => {
       skipLiveConfirm: false,
       browserEnabled: false,
     });
-    const report = {
-      agentId: ws.id,
-      sourcePath: '/Users/trey/dynamism/ri',
-      configRevision: 'abc',
-      references: [],
-      status: 'ready',
-      problem: null,
-    };
-    const stored = await call('report_agent_setups', { reports: [report], complete: true }, asLaptop);
+    // The laptop isn't connected here, so its folder is taken as it is, and checked when it is.
+    const stored = await call('set_agent_folder', { agent: ws.id, folder: '/Users/trey/dynamism/ri' }, asLaptop);
     expect(stored.body.ok).toBe(true);
 
     await call('rename_computer', { name: 'Trey’s MacBook' }, asLaptop);
@@ -140,10 +133,10 @@ describe('computers and setups over the route', () => {
     const rows = listed.body.result as unknown as Array<{ computerName: string; sourcePath: string }>;
     expect(rows).toEqual([expect.objectContaining({ computerName: 'MacBook', sourcePath: '/Users/trey/dynamism/ri' })]);
 
-    // Another key has no computer, so it can't report as the MacBook.
+    // Another key has no computer, so it can't record folders as the MacBook.
     const phoneKey = q.createApiKey({ name: 'Phone', deviceType: 'phone' }).key;
     const asPhone = { [API_KEY_ID_HEADER]: phoneKey.id, [API_KEY_TYPE_HEADER]: 'phone', [CALLER_LOCATION_HEADER]: 'elsewhere' };
-    const spoof = await call('report_agent_setups', { reports: [report], complete: true }, asPhone);
+    const spoof = await call('set_agent_folder', { agent: ws.id, folder: '/Users/trey/elsewhere' }, asPhone);
     expect(spoof.body.error?.code).toBe('conflict');
   });
 
@@ -175,8 +168,10 @@ describe('computers and setups over the route', () => {
     const { ensureHomeIdentity, resetHomeIdentityCache } = await import('@/lib/home/identity');
     resetHomeIdentityCache();
     const host = ensureHomeIdentity().computer;
-    const ctx = await call('get_setup_context', {}, fromHome);
-    expect((ctx.body.result as unknown as { computerId: string }).computerId).toBe(host.id);
+    const q = await import('@/lib/db/queries');
+    const ws = q.createWorkspace({ name: 'Home agent', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+    const set = await call('set_agent_folder', { agent: ws.id, folder: home.root }, fromHome);
+    expect((set.body.result as unknown as { computerId: string }).computerId).toBe(host.id);
     resetHomeIdentityCache();
   });
 });

@@ -11,9 +11,11 @@ import {
   Eye,
   EyeOff,
   ArrowLeft,
+  GitBranch,
 } from 'lucide-react';
 import { ApiError } from '@/lib/api/client';
 import { fsApi, type FsBrowseEntry, type FsBrowseResponse } from '@/lib/api/fs';
+import { workspacesApi } from '@/lib/api/workspaces';
 import { FileIcon, FolderIcon } from '@/components/file-icon';
 import { cn } from '@/lib/utils';
 
@@ -24,6 +26,26 @@ interface FolderPickerDialogProps {
   initialPath?: string;
   /** Called with the chosen folder path when the user clicks Choose. */
   onChoose: (path: string) => void;
+  /**
+   * Browse one of the person's computers rather than this server's disk
+   * (docs/homes-spec.md §4.2): the home's own, or another computer's through
+   * its worker. Folders only, hidden ones left out, Git projects marked.
+   */
+  computer?: { id: string; name: string };
+}
+
+type Listing = Omit<FsBrowseResponse, 'entries'> & { entries: Array<FsBrowseEntry & { git?: boolean }>; truncated?: boolean };
+
+/** A computer's folders, in the picker's shape. `~` is where it starts: its home folder. */
+async function browseComputer(computerId: string, at: string): Promise<Listing> {
+  const listing = await workspacesApi.computerFolders(computerId, at === '~' ? null : at);
+  return {
+    path: listing.path,
+    parent: listing.parent,
+    home: listing.home,
+    entries: listing.folders.map((f) => ({ name: f.name, path: f.path, kind: 'dir' as const, git: f.isGit })),
+    truncated: listing.truncated,
+  };
 }
 
 /**
@@ -44,9 +66,11 @@ export function FolderPickerDialog({
   onOpenChange,
   initialPath,
   onChoose,
+  computer,
 }: FolderPickerDialogProps) {
+  const computerId = computer?.id ?? null;
   const [cwd, setCwd] = useState(initialPath?.trim() || '~');
-  const [browse, setBrowse] = useState<FsBrowseResponse | null>(null);
+  const [browse, setBrowse] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -77,8 +101,7 @@ export function FolderPickerDialog({
     const reqId = ++reqIdRef.current;
     setLoading(true);
     setError(null);
-    fsApi
-      .browse(cwd, { showHidden, includeFiles: true })
+    (computerId ? browseComputer(computerId, cwd) : fsApi.browse(cwd, { showHidden, includeFiles: true }))
       .then((res) => {
         if (reqId !== reqIdRef.current) return;
         setBrowse(res);
@@ -88,8 +111,8 @@ export function FolderPickerDialog({
       .catch((err) => {
         if (reqId !== reqIdRef.current) return;
         if (err instanceof ApiError) {
-          const body = err.body as { error?: string } | null;
-          setError(body?.error ?? `Failed to load (${err.status})`);
+          const body = err.body as { error?: string; message?: string } | null;
+          setError(body?.message ?? body?.error ?? `Failed to load (${err.status})`);
         } else {
           setError(String(err));
         }
@@ -99,7 +122,7 @@ export function FolderPickerDialog({
         if (reqId !== reqIdRef.current) return;
         setLoading(false);
       });
-  }, [open, cwd, showHidden]);
+  }, [open, cwd, showHidden, computerId]);
 
   // Breadcrumb segments, derived from the resolved path the server gave us.
   // We split on the home boundary so the leading segment is "~" rather than
@@ -248,7 +271,7 @@ export function FolderPickerDialog({
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
               <span className="text-xs font-semibold tracking-wide text-foreground">
-                Choose a folder
+                {computer ? `Choose a folder on ${computer.name}` : 'Choose a folder'}
               </span>
               <DialogPrimitive.Close asChild>
                 <button className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
@@ -363,10 +386,18 @@ export function FolderPickerDialog({
                     >
                       {entry.name}
                     </span>
+                    {entry.git && (
+                      <span
+                        title="A Git project"
+                        className="ml-auto flex shrink-0 items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] text-muted-foreground"
+                      >
+                        <GitBranch size={8} /> git
+                      </span>
+                    )}
                     {isDir && (
                       <ChevronRight
                         size={11}
-                        className="ml-auto shrink-0 text-muted-foreground/40"
+                        className={cn('shrink-0 text-muted-foreground/40', !entry.git && 'ml-auto')}
                       />
                     )}
                   </button>
@@ -423,26 +454,36 @@ export function FolderPickerDialog({
               </div>
             )}
 
+            {browse?.truncated && (
+              <p className="px-3 py-1.5 border-t border-border text-[10.5px] text-muted-foreground">
+                More folders here than can be listed. Open one above, or type the path instead.
+              </p>
+            )}
+
             {/* Footer */}
             <div className="flex items-center gap-2 px-3 py-2.5 border-t border-border">
-              <button
-                type="button"
-                onClick={startCreateFolder}
-                disabled={creatingFolder || !browse}
-                className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <FolderPlus size={12} />
-                New Folder
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowHidden((v) => !v)}
-                title={showHidden ? 'Hide hidden files' : 'Show hidden files'}
-                className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors"
-              >
-                {showHidden ? <Eye size={12} /> : <EyeOff size={12} />}
-                Hidden files
-              </button>
+              {!computer && (
+                <>
+                  <button
+                    type="button"
+                    onClick={startCreateFolder}
+                    disabled={creatingFolder || !browse}
+                    className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <FolderPlus size={12} />
+                    New Folder
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowHidden((v) => !v)}
+                    title={showHidden ? 'Hide hidden files' : 'Show hidden files'}
+                    className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors"
+                  >
+                    {showHidden ? <Eye size={12} /> : <EyeOff size={12} />}
+                    Hidden files
+                  </button>
+                </>
+              )}
               <div className="ml-auto flex items-center gap-2">
                 <DialogPrimitive.Close asChild>
                   <button className="px-3 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors">

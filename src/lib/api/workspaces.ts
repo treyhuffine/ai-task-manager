@@ -1,6 +1,8 @@
 import { api } from './client';
 import type { RunOn } from '@/lib/setups/run-on';
 import type { SetupAgentInput, SetupAgentPlan, SetupOutcome } from '@/lib/setups/set-up-agent';
+import type { AgentFoldersOn } from '@/lib/setups/folders';
+import type { FolderListing } from '@/lib/setups/folders-here';
 import type {
   WorkspaceRecord,
   WorkspaceWithCounts,
@@ -10,6 +12,8 @@ import type {
   WorkspaceStatus,
   EffortLevel,
 } from '@/db/types';
+
+export type AgentFolders = { computers: AgentFoldersOn[] };
 
 export const workspacesApi = {
   list(filter?: { status?: WorkspaceStatus }, opts: { signal?: AbortSignal } = {}): Promise<WorkspaceWithCounts[]> {
@@ -107,6 +111,36 @@ export const workspacesApi = {
   /** Set the agent up on that computer: its project copied down, or a folder already there. */
   setUp(id: string, body: SetupAgentInput & { computerId: string }): Promise<SetupOutcome> {
     return api.post<SetupOutcome>(`/workspaces/${id}/setups`, body);
+  },
+
+  /** The agent's folders on each of the person's computers (docs/homes-spec.md §4.1). */
+  folders(id: string, opts: { signal?: AbortSignal } = {}): Promise<AgentFolders> {
+    return api.get<AgentFolders>(`/workspaces/${id}/folders`, { signal: opts.signal });
+  },
+
+  /** The agent's project folder on a computer. */
+  setProjectFolder(id: string, computerId: string, folder: string): Promise<AgentFolders> {
+    return api.put<AgentFolders>(`/workspaces/${id}/folders/${computerId}`, { folder });
+  },
+
+  /** Where a linked folder is on a computer, or null to go without it there. */
+  setLinkedFolder(id: string, computerId: string, referenceFolderId: string, folder: string | null): Promise<AgentFolders> {
+    return api.put<AgentFolders>(`/workspaces/${id}/folders/${computerId}/linked/${referenceFolderId}`, { folder });
+  },
+
+  /** A new linked folder, placed on the computer it's added from. */
+  addLinkedFolder(id: string, body: { alias: string; description: string | null; forEveryAgent: boolean; computerId: string; folder: string }): Promise<AgentFolders> {
+    return api.post<AgentFolders>(`/workspaces/${id}/folders`, body);
+  },
+
+  /** Take the agent off a computer. Nothing there is deleted. */
+  removeFromComputer(id: string, computerId: string): Promise<AgentFolders> {
+    return api.delete<AgentFolders>(`/workspaces/${id}/folders/${computerId}`);
+  },
+
+  /** A folder's folders on a computer, for choosing one. */
+  computerFolders(computerId: string, at: string | null, opts: { signal?: AbortSignal } = {}): Promise<FolderListing> {
+    return api.get<FolderListing>(`/computers/${computerId}/folders`, { query: at ? { path: at } : undefined, signal: opts.signal });
   },
 
   listPRs(id: string): Promise<PRSummary[]> {

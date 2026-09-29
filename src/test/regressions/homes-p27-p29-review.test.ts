@@ -6,6 +6,7 @@ import { getProvider } from '@agentex/agent';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import { setUpAgentOn } from '@/test/fixtures/setups';
 import type { FileCandidate, HistoryWindow } from '@/lib/import/history-source';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
@@ -54,30 +55,24 @@ const request = (url: string, bearer = token, method = 'POST') => new NextReques
 });
 
 describe('P2.7 session authority', () => {
-  it('uses the current local reference in the actual harness flags as well as the manifest', async () => {
+  // Adapted when the home's records became the only place an agent's folders
+  // are kept (docs/homes-spec.md §4.1): the linked folder is where the home
+  // records it on that computer, and the flags and the manifest agree on it.
+  it('wires the linked folder the home records for that computer in the harness flags and the manifest alike', async () => {
     const q = await import('@/lib/db/queries');
-    const oldRef = path.join(home.root, 'old-reference');
     const newRef = path.join(home.root, 'new-reference');
-    fs.mkdirSync(oldRef);
     fs.mkdirSync(newRef);
-    q.createReferenceFolder({ workspaceId: agentId, alias: 'docs', path: oldRef });
-    q.recordAgentSetupReports(computerId, [{ agentId, sourcePath: home.root, configRevision: null,
-      status: 'ready', problem: null, references: [{ alias: 'docs', form: 'path', value: oldRef, path: oldRef, exists: true, problem: null }],
-    }], { complete: true });
+    q.createReferenceFolder({ workspaceId: agentId, alias: 'docs', path: path.join(home.root, 'on-the-home') });
+    await setUpAgentOn(agentId, computerId, home.root, { links: { docs: newRef } });
     const { buildSessionSpec } = await import('@/lib/executor/session-spec');
     const spec = await buildSessionSpec({ chatSessionId: chatId, harness: 'claude', cwd: home.root,
       sessionType: 'execution', workspaceId: agentId, executionId, surfaceKind: null, surfaceRef: null,
       existingExternalSessionId: null, permissionMode: 'ask', prePlanMode: null, model: 'fake-model', modelVariant: null, effort: null,
     }, { computerId, isHome: false, generation: 1 });
-    // Fixed: the spec carries what the home expects, and wires no path. The
-    // runner resolves and wires them where the session starts.
-    expect(spec.agentFolders?.references[0]?.path).toBe(oldRef);
-    expect(spec.extraArgs).not.toContain(oldRef);
-    // Before the queued send starts, the local file changes, with no heartbeat yet.
-    (await import('@/lib/setups/local-file')).writeSetupFile(home.root, {
-      version: 1, homeId, agents: { [agentId]: { references: { docs: newRef } } },
-    }, null);
-    (await import('@/lib/setups/registry')).registerLocation(home.root);
+    // The spec carries what the home records, and wires no path. The runner
+    // checks and wires them where the session starts.
+    expect(spec.agentFolders?.references[0]?.path).toBe(newRef);
+    expect(spec.extraArgs).not.toContain(newRef);
     const fake = (await import('@/test/fixtures/fake-harness')).installFakeHarness('claude');
     const runner = await import('@/lib/runner/local-runner');
     // This probe inspects spawn configuration. Event persistence is covered
@@ -91,7 +86,7 @@ describe('P2.7 session authority', () => {
       expect(env.references[0].path).toBe(newRef);
       expect.soft(config.extraArgs).toContain(newRef);
       expect.soft(config.disallowedTools).toContain(`Edit(/${newRef}/**)`);
-      expect(fs.readFileSync(config.instructionsFile!, 'utf8')).not.toContain(oldRef);
+      expect(fs.readFileSync(config.instructionsFile!, 'utf8')).not.toContain(path.join(home.root, 'on-the-home'));
     } finally {
       await runner.closeAllSessions();
       fake.restore();
@@ -99,16 +94,14 @@ describe('P2.7 session authority', () => {
     }
   });
 
-  it("wires an agent main chat's references elsewhere from that computer's setup, not the home's last report", async () => {
+  it("wires an agent main chat's linked folders elsewhere from the home's records for that computer, not the home's own", async () => {
     const q = await import('@/lib/db/queries');
-    const oldRef = path.join(home.root, 'old-reference');
+    const oldRef = path.join(home.root, 'on-the-home');
     const newRef = path.join(home.root, 'new-reference');
     fs.mkdirSync(oldRef);
     fs.mkdirSync(newRef);
     q.createReferenceFolder({ workspaceId: agentId, alias: 'docs', path: oldRef });
-    q.recordAgentSetupReports(computerId, [{ agentId, sourcePath: home.root, configRevision: null,
-      status: 'ready', problem: null, references: [{ alias: 'docs', form: 'path', value: oldRef, path: oldRef, exists: true, problem: null }],
-    }], { complete: true });
+    await setUpAgentOn(agentId, computerId, home.root, { links: { docs: newRef } });
     const mainChat = q.createChatSession({ type: 'orchestration', workspaceId: agentId, harness: 'claude', status: 'active' });
     const { buildSessionSpec } = await import('@/lib/executor/session-spec');
     const spec = await buildSessionSpec({ chatSessionId: mainChat.id, harness: 'claude', cwd: home.root,
@@ -117,10 +110,6 @@ describe('P2.7 session authority', () => {
     }, { computerId, isHome: false, generation: null });
     expect(spec.instructions ?? '').not.toContain(oldRef);
     expect(spec.extraArgs).not.toContain(oldRef);
-    (await import('@/lib/setups/local-file')).writeSetupFile(home.root, {
-      version: 1, homeId, agents: { [agentId]: { references: { docs: newRef } } },
-    }, null);
-    (await import('@/lib/setups/registry')).registerLocation(home.root);
     const fake = (await import('@/test/fixtures/fake-harness')).installFakeHarness('claude');
     const runner = await import('@/lib/runner/local-runner');
     (await import('@/lib/runner/sink')).installRunnerSink({ writer: { write: async () => true }, signal: () => {} });

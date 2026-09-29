@@ -78,43 +78,15 @@ describe('reference folder queries', () => {
     }
   });
 
-  it('requires exactly one target', async () => {
+  it('takes a folder or another agent, never both, and a folder may have no place yet', async () => {
     const { q, frontend, backend } = await setup();
     expect(() =>
       q.createReferenceFolder({ workspaceId: frontend.id, alias: 'both', path: '/tmp/api', targetWorkspaceId: backend.id }),
     ).toThrow(/not both/);
-    expect(() => q.createReferenceFolder({ workspaceId: frontend.id, alias: 'neither' })).toThrow(
-      /needs either/,
-    );
+    // Chosen later, on each computer (docs/homes-spec.md §4.1).
+    const placeless = q.createReferenceFolder({ workspaceId: frontend.id, alias: 'later' });
+    expect(placeless).toMatchObject({ alias: 'later', path: null, targetWorkspaceId: null });
   });
-
-  it('enforces exactly-one-target at the database level too', async () => {
-    const { q, frontend, backend } = await setup();
-    const { getDb } = await import('@/lib/db');
-    const { referenceFolders } = await import('@/lib/db/schema');
-    // Bypass the query layer entirely — this is the CHECK constraint's job.
-    expect(() =>
-      getDb()
-        .insert(referenceFolders)
-        .values({
-          id: 'raw-both',
-          status: 'active',
-          workspaceId: frontend.id,
-          alias: 'raw-both',
-          path: '/tmp/api',
-          targetWorkspaceId: backend.id,
-        })
-        .run(),
-    ).toThrow(/CHECK constraint failed/i);
-    expect(() =>
-      getDb()
-        .insert(referenceFolders)
-        .values({ id: 'raw-neither', status: 'active', workspaceId: frontend.id, alias: 'raw-neither' })
-        .run(),
-    ).toThrow(/CHECK constraint failed/i);
-    expect(q.listReferenceFolders({ workspaceId: frontend.id })).toHaveLength(0);
-  });
-
   it('rejects a workspace referencing itself', async () => {
     const { q, frontend } = await setup();
     expect(() =>

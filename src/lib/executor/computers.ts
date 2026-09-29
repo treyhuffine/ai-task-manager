@@ -10,6 +10,7 @@
 import type { ChatSessionWithExecution } from '@/db/types';
 import type { ChatPlacement } from '@/lib/db/queries';
 import { getAgentSetup, getComputer } from '@/lib/db/queries';
+import { setupProblem, setupUsable } from '@/lib/setups/run-on';
 import { getHarnessRuntime } from '@/lib/harness/runtime';
 import type { HarnessId } from '@/lib/harness/registry';
 
@@ -87,11 +88,9 @@ export function workingFolderOn(
   }
   if (session.type === 'orchestration' && session.workspaceId) {
     const setup = getAgentSetup(session.workspaceId, placement.computerId);
-    if (setup?.status === 'ready') return { cwd: setup.sourcePath };
+    if (setup && setupUsable(setup.status)) return { cwd: setup.sourcePath };
     return {
-      problem: setup
-        ? `This agent's folder on ${name} isn't ready: ${setup.problem ?? setup.status}.`
-        : `This agent isn't set up on ${name}. Attach its folder there first.`,
+      problem: setup ? setupProblem(`This agent's folder on ${name}`, setup) : `This agent isn't on ${name} yet. Set it up there first.`,
     };
   }
   return { problem: `Only an agent's work runs on ${name}. This chat runs on your home.` };

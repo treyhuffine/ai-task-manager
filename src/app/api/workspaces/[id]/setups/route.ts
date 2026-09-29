@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getWorkspace } from '@/lib/db/queries';
 import { runOnFor } from '@/lib/setups/run-on';
 import { applySetup, planSetup, SetupUnavailableError, type SetupOutcome } from '@/lib/setups/set-up-agent';
-import { SetupError } from '@/lib/setups/service';
+import { SetupError } from '@/lib/setups/set-up-here';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,14 +49,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       folder: (body.folder as string | null | undefined) ?? null,
       answers: answers as Record<string, string | null>,
     });
-    return {
-      folder: result.folder,
-      status: result.report.status,
-      problem: result.report.problem,
-      missing: result.missing,
-      copied: result.copied,
-      runOn: runOnFor(id),
-    };
+    return { ...result, runOn: runOnFor(id) };
   });
 }
 

@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import { setUpAgentOn } from '@/test/fixtures/setups';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import { startWorkerProcess, type WorkerProcess } from '@/test/fixtures/worker-process';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
@@ -66,18 +67,8 @@ beforeEach(async () => {
   q.createReferenceFolder({ workspaceId: ws.id, alias: 'docs', path: path.join(home.root, 'docs-on-the-mini'), description: 'The design docs' });
   q.createReferenceFolder({ workspaceId: ws.id, alias: 'secrets', path: path.join(home.root, 'secrets-on-the-mini') });
   fs.mkdirSync(path.join(laptopRoot, 'projects', 'docs'), { recursive: true });
-  const { writeSetupFile } = await import('@/lib/setups/local-file');
-  writeSetupFile(repo, { version: 1, homeId, agents: { [ws.id]: { references: { docs: '../docs', secrets: null } } } }, null);
-  fs.mkdirSync(path.join(laptopRoot, '.config'), { recursive: true });
-  fs.writeFileSync(
-    path.join(laptopRoot, '.config', 'setups.json'),
-    JSON.stringify({ version: 1, locations: [{ dir: repo, registeredAt: new Date().toISOString() }] }),
-  );
-  q.recordAgentSetupReports(
-    computerId,
-    [{ agentId: ws.id, sourcePath: repo, configRevision: null, references: [], status: 'ready', problem: null }],
-    { complete: true },
-  );
+  // As the home records them: the worker is sent its folders when it connects.
+  await setUpAgentOn(ws.id, computerId, repo, { links: { docs: path.join(laptopRoot, 'projects', 'docs'), secrets: null } });
 
   const grant = await fetch(`${server.url}/api/workers/grants`, {
     method: 'POST',
@@ -305,5 +296,15 @@ describe('starting an execution on a connected computer', () => {
       ComputerUnavailableForDispatch,
     );
     await expect(dispatchExecutionSession({ workspaceId, computerId: otherComputer.id })).rejects.toThrow(/isn't set up to run agents/);
+  });
+
+  it('says its folder there is gone when it went while the laptop was connected, before placing anything there', async () => {
+    const q = await import('@/lib/db/queries');
+    expect(q.getAgentSetup(workspaceId, computerId)).toMatchObject({ status: 'ready', found: true });
+    fs.renameSync(repo, `${repo}-moved`);
+    const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
+    await expect(dispatchExecutionSession({ workspaceId, computerId })).rejects.toThrow(`Demo's folder on Laptop, ${repo}, isn't there.`);
+    expect(q.getAgentSetup(workspaceId, computerId)).toMatchObject({ status: 'missing_folder', found: false });
+    expect(q.listWorkspaceExecutions(workspaceId)).toHaveLength(0);
   });
 });

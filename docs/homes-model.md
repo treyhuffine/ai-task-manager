@@ -23,6 +23,7 @@ Your Ri lives on one computer. Your other computers can do work for it. Each pie
 ## What happens for you
 
 - **Setting up a computer for an agent** happens the first time you need it there, in the app: Ri offers to get the project onto that computer, or to use a folder that's already there. You do this once per agent per computer.
+- **Where an agent's folders are** on each computer, its project and the folders it links to, is in its Setup tab, under Folders. Your Ri keeps them all, so any screen can change any computer's, and browse its folders to choose one.
 - **A computer that's asleep or off** keeps your messages saved and delivers them when it's back. Nothing is lost and nothing runs twice.
 - **Only the unusual is labeled.** Work on the Mac Mini shows no computer name. Work on the MacBook says MacBook.
 

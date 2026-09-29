@@ -5,7 +5,9 @@
  * ("New execution on…"), so the probe opens the sheet from a real dropdown
  * item, as the agents list does, instead of a long press. + is a plain tap.
  * And at the simplification pass: moves are named by computer ("Move to
- * Review worker"), and the fixture hooks gain the setup ones. */
+ * Review worker"), and the fixture hooks gain the setup ones. And when setup
+ * gained a folder browser (Browse, through lib/api/fs), the client location
+ * stub gains isHostnameClaimed. */
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
@@ -20,6 +22,7 @@ it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a co
     export const useComputers = () => ({data:[{id:'home',name:'Review home',isHome:true},{id:'worker',name:'Review worker',isHome:false,worker:{connected:true}}]});
     export const useThisComputer = () => ({id:'worker',name:'Review worker'});
     export const useClientLocation = () => ({kind:'remote'});
+    export const isHostnameClaimed = () => false;
     export const useRunOn = () => ({data:{defaultId:'home',choices:[{computerId:'home',name:'Review home',isHome:true,ready:true,connected:true},{computerId:'worker',name:'Review worker',isHome:false,ready:true,connected:true}]}});
     export const useSetDefaultComputer = () => ({isPending:false,mutate:(id)=>record('default',id)});
     export const useTransfer = () => ({data:null});

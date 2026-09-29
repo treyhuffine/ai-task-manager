@@ -1,8 +1,8 @@
 /**
  * An execution's environment, resolved on the computer running it
- * (docs/homes-build.md, P2.7): the agent's folder and references from that
- * computer's own setup files, the mode, and the checked-out commit, over
- * what the home expected.
+ * (docs/homes-build.md, P2.7): the agent's folder and linked folders as the
+ * home records them (docs/homes-spec.md §4.1), each checked here, the mode,
+ * and the checked-out commit.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -13,23 +13,19 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ExecutionEnvironment } from './environment';
 
 let root: string;
-const saved = process.env.RI_CONFIG_DIR;
 
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', args, { cwd, stdio: 'pipe', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' } }).toString().trim();
 
 beforeEach(() => {
   root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ri-environment-')));
-  process.env.RI_CONFIG_DIR = path.join(root, 'config');
 });
 afterEach(() => {
-  if (saved === undefined) delete process.env.RI_CONFIG_DIR;
-  else process.env.RI_CONFIG_DIR = saved;
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-/** The agent's repository here, set up for the home with its references. */
-async function setUp(references: Record<string, string | null>) {
+/** The agent's repository here, and a docs folder beside it. */
+async function setUp() {
   const source = path.join(root, 'projects', 'demo');
   fs.mkdirSync(source, { recursive: true });
   git(source, 'init', '-q', '-b', 'main');
@@ -39,12 +35,16 @@ async function setUp(references: Record<string, string | null>) {
   git(source, 'add', '.');
   git(source, 'commit', '-q', '-m', 'first');
   fs.mkdirSync(path.join(root, 'projects', 'docs'));
-  const { writeSetupFile } = await import('@/lib/setups/local-file');
-  writeSetupFile(source, { version: 1, homeId: 'home-1', agents: { 'agent-1': { references } } }, null);
-  const { registerLocation } = await import('@/lib/setups/registry');
-  registerLocation(source);
   return source;
 }
+
+/** As the home records them: docs beside it, design gone without, secrets not chosen, and one that isn't there. */
+const recorded = () => [
+  { alias: 'docs', description: 'docs folder', path: path.join(root, 'projects', 'docs'), state: 'ready' as const },
+  { alias: 'design', description: 'design folder', path: null, state: 'omitted' as const },
+  { alias: 'secrets', description: 'secrets folder', path: null, state: 'unconfigured' as const },
+  { alias: 'gone', description: 'gone folder', path: path.join(root, 'projects', 'not-there'), state: 'ready' as const },
+];
 
 const expected = (cwd: string, sourceFolder: string | null): ExecutionEnvironment => ({
   homeId: 'home-1',
@@ -58,7 +58,7 @@ const expected = (cwd: string, sourceFolder: string | null): ExecutionEnvironmen
   branch: null,
   baseBranch: 'main',
   baseSha: 'abc123',
-  references: ['docs', 'design', 'secrets', 'gone'].map((alias) => ({ alias, description: `${alias} folder`, path: null, state: 'missing' as const })),
+  references: recorded(),
   tools: { connectors: false, browser: true },
   harness: 'claude',
   model: 'fake-model',
@@ -66,12 +66,12 @@ const expected = (cwd: string, sourceFolder: string | null): ExecutionEnvironmen
 });
 
 describe('the environment', () => {
-  it("resolves the agent's folder and each reference from this computer's own setup", async () => {
-    const source = await setUp({ docs: '../docs', design: null, gone: '../not-there' });
+  it("takes the agent's folders as the home records them, and checks each one here", async () => {
+    const source = await setUp();
     const worktree = path.join(root, 'worktrees', 'demo-1');
     git(source, 'worktree', 'add', '-q', '-b', 'demo/fix', worktree);
     const { resolveEnvironment } = await import('./environment');
-    const env = await resolveEnvironment(expected(worktree, '/the/home/thought/it/was/here'));
+    const env = await resolveEnvironment(expected(worktree, source));
     expect(env).toMatchObject({ sourceFolder: source, mode: 'worktree', branch: 'demo/fix' });
     expect(env.head).toBe(git(worktree, 'rev-parse', 'HEAD'));
     expect(env.references.map((r) => [r.alias, r.state, r.path])).toEqual([
@@ -82,22 +82,21 @@ describe('the environment', () => {
     ]);
   });
 
-  it("is live when it works in the agent's folder itself, and keeps the home's view when there's no setup here", async () => {
-    const source = await setUp({});
+  it("is live when it works in the agent's folder itself, and names no folder that isn't there", async () => {
+    const source = await setUp();
     const { resolveEnvironment } = await import('./environment');
-    expect(await resolveEnvironment(expected(source, null))).toMatchObject({ mode: 'live', sourceFolder: source, branch: 'main' });
+    expect(await resolveEnvironment(expected(source, source))).toMatchObject({ mode: 'live', sourceFolder: source, branch: 'main' });
 
     const elsewhere = path.join(root, 'plain');
     fs.mkdirSync(elsewhere);
-    const env = await resolveEnvironment({ ...expected(elsewhere, '/home/view'), agent: { id: 'agent-2', name: 'Other' }, isGit: false });
-    expect(env).toMatchObject({ mode: 'folder', sourceFolder: '/home/view', head: null });
-    expect(env.references.every((r) => r.state === 'missing')).toBe(true);
+    const env = await resolveEnvironment({ ...expected(elsewhere, path.join(root, 'moved-away')), agent: { id: 'agent-2', name: 'Other' }, isGit: false });
+    expect(env).toMatchObject({ mode: 'folder', sourceFolder: null, head: null });
   });
 
   it('renders a short block that names its file and every expected folder', async () => {
-    const source = await setUp({ docs: '../docs', design: null });
+    const source = await setUp();
     const { resolveEnvironment, renderEnvironment } = await import('./environment');
-    const text = renderEnvironment(await resolveEnvironment(expected(source, null)), '/work/session-instructions/chat-1.environment.json');
+    const text = renderEnvironment(await resolveEnvironment(expected(source, source)), '/work/session-instructions/chat-1.environment.json');
     expect(text).toContain('## Your environment');
     expect(text).toContain('running on MacBook, for My Ri, as the "Demo" agent');
     expect(text).toContain('`/work/session-instructions/chat-1.environment.json`');

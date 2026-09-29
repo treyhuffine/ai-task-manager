@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, agentSetups,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, agentSetups, folderLinks,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -183,6 +183,7 @@ export type NativeSessionRecord = InferSelectModel<typeof nativeSessions>;
 export type ReviewCheckoutRecord = InferSelectModel<typeof reviewCheckouts>;
 export type AgentSetupRecord = InferSelectModel<typeof agentSetups>;
 export type AgentSetupStatus = AgentSetupRecord['status'];
+export type FolderLinkRecord = InferSelectModel<typeof folderLinks>;
 
 export type ApiKeyRecord = InferSelectModel<typeof apiKeys>;
 export type CreateApiKeyInput = PolicyOptional<Omit<InferInsertModel<typeof apiKeys>, 'id' | 'prefix' | 'suffix' | 'hash'>, 'deviceType' | 'env'>;

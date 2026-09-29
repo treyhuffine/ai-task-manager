@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import { setUpAgentOn } from '@/test/fixtures/setups';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import { startWorkerProcess, type WorkerProcess } from '@/test/fixtures/worker-process';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
@@ -59,18 +60,8 @@ beforeEach(async () => {
   fs.writeFileSync(path.join(repo, 'README.md'), '# demo\n');
   git(repo, 'add', '.');
   git(repo, 'commit', '-q', '-m', 'first');
-  const { writeSetupFile } = await import('@/lib/setups/local-file');
-  writeSetupFile(repo, { version: 1, homeId, agents: { [workspaceId]: { references: {} } } }, null);
-  fs.mkdirSync(path.join(laptopRoot, '.config'), { recursive: true });
-  fs.writeFileSync(
-    path.join(laptopRoot, '.config', 'setups.json'),
-    JSON.stringify({ version: 1, locations: [{ dir: repo, registeredAt: new Date().toISOString() }] }),
-  );
-  q.recordAgentSetupReports(
-    computerId,
-    [{ agentId: workspaceId, sourcePath: repo, configRevision: null, references: [], status: 'ready', problem: null }],
-    { complete: true },
-  );
+  // As the home records it: the worker is sent its folders when it connects.
+  await setUpAgentOn(workspaceId, computerId, repo);
 
   const grant = await fetch(`${server.url}/api/workers/grants`, {
     method: 'POST',

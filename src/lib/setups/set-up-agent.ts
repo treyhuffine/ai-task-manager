@@ -1,30 +1,41 @@
 /**
  * The home's side of setting an agent up on a computer from the app
  * (docs/homes-model.md): what the computer needs to know, which only the
- * home has, and running it there. The home's own computer runs it
- * in-process. A connected computer runs it through its worker, and the home
- * records what it reports, as it would from `ri setup attach` there.
+ * home has, running it there, and recording what it put in place (docs/
+ * homes-spec.md §4.1: the home's records are the only place an agent's
+ * folders are kept). The home's own computer runs it in-process, a connected
+ * computer through its worker.
  *
  * What a copy comes from: the Git remote of the agent's folder on the home.
- * Where its references go: beside it, where they are on the home, copied
- * from their own remotes when they aren't there already.
+ * Where its linked folders go: where another agent there already has them,
+ * or beside it where they are on the home, copied from their own remotes.
  */
 
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { getAgentSetup, getComputer, getHome, getWorkspace, listAgentSetups, recordAgentSetupReports } from '@/lib/db/queries';
+import {
+  getAgentSetup,
+  getComputer,
+  getFolderLink,
+  getHome,
+  getWorkspace,
+  listAgentSetups,
+  listReferenceFoldersForWorkspace,
+  setAgentFolder,
+  setFolderLink,
+} from '@/lib/db/queries';
 import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
-import { buildSetupContext, inProcessSetupLink } from './home-context';
+import { announceFolders, checkComputerFolders } from './folders';
 import {
   applySetupHere,
   planSetupHere,
+  SetupError,
   type SetupAgentRequest,
   type SetupPlanHere,
   type SetupRequestReference,
   type SetupResultHere,
 } from './set-up-here';
-import { SetupError } from './service';
 
 const run = promisify(execFile);
 
@@ -35,7 +46,7 @@ export interface SetupAgentInput {
   how: 'copy' | 'existing';
   /** A folder on that computer. Null: the default place, for a copy. */
   folder?: string | null;
-  /** Folders for references that couldn't be found, or null to go without. */
+  /** Folders for linked folders that couldn't be found, or null to go without. */
   answers?: Record<string, string | null>;
 }
 
@@ -45,7 +56,7 @@ export interface SetupAgentPlan extends SetupPlanHere {
   computerName: string;
   /** Where a copy comes from. Null: only a folder already there can be used. */
   remote: string | null;
-  /** The references it expects, and whether a copy brings each along. */
+  /** The linked folders it uses, and whether setting up brings each along. */
   references: { alias: string; description: string | null; comesAlong: boolean }[];
 }
 
@@ -54,7 +65,7 @@ export interface SetupOutcome {
   folder: string;
   status: string;
   problem: string | null;
-  /** References still unset, for the person to answer. */
+  /** Linked folders still not chosen there, for the person to answer. */
   missing: { alias: string; description: string | null }[];
   copied: string[];
   runOn: import('./run-on').RunOn | null;
@@ -68,7 +79,7 @@ export async function planSetup(workspaceId: string, computerId: string): Promis
   return {
     ...here,
     agentName: request.agentName,
-    computerName: request.context.computerName,
+    computerName: getComputer(computerId)?.name ?? 'That computer',
     remote: request.remote,
     references: request.references.map((r) => ({
       alias: r.alias,
@@ -78,19 +89,48 @@ export async function planSetup(workspaceId: string, computerId: string): Promis
   };
 }
 
-export async function applySetup(workspaceId: string, computerId: string, input: SetupAgentInput): Promise<SetupResultHere> {
+/**
+ * Put the agent's folders in place on that computer, and record them: its
+ * project folder, and where each linked folder is. A linked folder every
+ * agent uses that already has a place there keeps it, unless the person
+ * chose another (their answer). Then that computer is told and checks them.
+ */
+export async function applySetup(
+  workspaceId: string,
+  computerId: string,
+  input: SetupAgentInput,
+): Promise<Omit<SetupOutcome, 'runOn'>> {
   const request = await requestFor(workspaceId, computerId, 'apply', input);
   const result = (await runOn(computerId, request, APPLY_TIMEOUT_MS)) as SetupResultHere;
-  // A computer elsewhere hands back what it now has: recorded as its report.
-  if (computerId !== getHome()?.hostComputerId) recordAgentSetupReports(computerId, result.reports, { complete: true });
-  return result;
+  setAgentFolder(workspaceId, computerId, result.folder);
+  for (const ref of listReferenceFoldersForWorkspace(workspaceId)) {
+    if (ref.targetWorkspaceId || !(ref.alias in result.links)) continue;
+    const place = result.links[ref.alias]!;
+    const answered = input.answers?.[ref.alias] !== undefined;
+    const current = getFolderLink(computerId, ref.id);
+    if (current && !answered) continue;
+    setFolderLink(computerId, ref.id, place);
+  }
+  announceFolders(computerId);
+  await checkComputerFolders(computerId);
+  const setup = getAgentSetup(workspaceId, computerId)!;
+  const descriptions = new Map(request.references.map((r) => [r.alias, r.description]));
+  return {
+    folder: setup.sourcePath,
+    status: setup.status,
+    problem: setup.problem,
+    missing: setup.references
+      .filter((r) => r.form === 'unconfigured')
+      .map((r) => ({ alias: r.alias, description: descriptions.get(r.alias) ?? null })),
+    copied: result.copied,
+  };
 }
 
 async function runOn(computerId: string, request: SetupAgentRequest, timeoutMs: number): Promise<unknown> {
   if (computerId === getHome()?.hostComputerId) {
-    return request.op === 'plan' ? planSetupHere(request) : applySetupHere(request, inProcessSetupLink());
+    return request.op === 'plan' ? planSetupHere(request) : applySetupHere(request);
   }
-  const name = request.context.computerName;
+  const name = getComputer(computerId)?.name ?? 'That computer';
   let answer: { status: number; body: unknown };
   try {
     answer = (await requestWorker(computerId, 'setup_agent', request, timeoutMs)) as { status: number; body: unknown };
@@ -120,45 +160,42 @@ async function requestFor(
   if (!ws) throw new SetupError('That agent no longer exists.');
   const computer = getComputer(computerId);
   if (!computer || computer.status !== 'active') throw new SetupError('That computer is no longer connected to this home.');
-  const context = buildSetupContext(computer);
   const host = getHome()?.hostComputerId ?? null;
-  // The agent's folder on the home, which a copy and its references follow.
-  const homeSetup = host ? getAgentSetup(ws.id, host) : null;
+  // The agent's folder on the home, which a copy and its linked folders follow.
+  const homeSetup = host && host !== computerId ? getAgentSetup(ws.id, host) : null;
   const homeFolder = homeSetup?.sourcePath ?? (ws.isGit && computerId !== host ? ws.cwd : null);
   const remote = homeFolder ? await remoteUrl(homeFolder, ws.remoteName || 'origin') : null;
-  const homeRefs = new Map((homeSetup?.references ?? []).map((r) => [r.alias, r]));
-  // Where that computer already has a reference, for its other agents: one
-  // copy of a shared library per computer, not one beside each agent.
+  // Where that computer already has a linked folder, for its other agents:
+  // one copy of a shared library per computer, not one beside each agent.
   const known = new Map<string, string>();
   for (const setup of listAgentSetups({ computerId })) {
     if (setup.workspaceId === ws.id) continue;
-    for (const r of setup.references) if (r.exists && r.path && !known.has(r.alias)) known.set(r.alias, r.path);
+    for (const r of setup.references) if (r.path && r.form === 'path' && !known.has(r.alias)) known.set(r.alias, r.path);
   }
   const references: SetupRequestReference[] = [];
-  for (const expected of context.expected[ws.id] ?? []) {
-    const atHome = homeRefs.get(expected.alias);
-    const value = atHome?.value;
-    const ref: SetupRequestReference = {
-      alias: expected.alias,
-      description: expected.description,
+  for (const ref of listReferenceFoldersForWorkspace(ws.id)) {
+    const entry: SetupRequestReference = {
+      alias: ref.alias,
+      description: ref.description ?? null,
       relativePath: null,
       remote: null,
-      knownPath: known.get(expected.alias) ?? null,
-      agentId: null,
+      knownPath: getFolderLink(computerId, ref.id)?.path ?? known.get(ref.alias) ?? null,
+      agentId: ref.targetWorkspaceId ?? null,
       omitted: false,
     };
-    if (value === null) ref.omitted = true;
-    else if (value && typeof value === 'object') ref.agentId = value.agentId;
-    else if (typeof value === 'string' && homeFolder) {
-      const absolute = path.resolve(homeFolder, value);
-      ref.relativePath = path.relative(homeFolder, absolute) || '.';
-      ref.remote = await remoteUrl(absolute, 'origin');
+    if (!ref.targetWorkspaceId && host && homeFolder) {
+      const atHome = getFolderLink(host, ref.id);
+      if (atHome && atHome.path === null) entry.omitted = true;
+      else if (atHome?.path) {
+        entry.relativePath = path.relative(homeFolder, atHome.path) || '.';
+        entry.remote = await remoteUrl(atHome.path, 'origin');
+      }
     }
-    references.push(ref);
+    references.push(entry);
   }
   return {
     op,
-    context,
+    homeId: getHome()?.id ?? '',
     agentId: ws.id,
     agentName: ws.name,
     agentSlug: ws.slug,
@@ -166,6 +203,7 @@ async function requestFor(
     how: input.how,
     folder: input.folder ?? null,
     references,
+    existingFolder: getAgentSetup(ws.id, computerId)?.sourcePath ?? null,
     answers: input.answers,
   };
 }

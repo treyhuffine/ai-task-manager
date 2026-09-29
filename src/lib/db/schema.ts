@@ -1026,16 +1026,26 @@ export const agentSetups = sqliteTable(
     computerId: text()
       .notNull()
       .references(() => computers.id, { onDelete: 'cascade' }),
-    // The source folder on that computer, as reported.
+    // The agent's project folder on that computer. The home's records are the
+    // only place it's kept (docs/homes-spec.md §4.1): the computer checks it.
     sourcePath: text().notNull(),
-    // sha256 of the setup file as last read. Null when the file was unreadable or gone.
+    // Whether the computer found it when it last checked. Null until it has.
+    found: integer({ mode: 'boolean' }),
+    // Retired with setup files (P1.4): their revision. Kept to the next baseline squash.
     configRevision: text(),
+    // Its linked folders on that computer, as the home resolves them from
+    // `reference_folders` and `folder_links` with the computer's last check.
+    // Derived: written only by `recomputeAgentSetups`, never edited.
     references: text({ mode: 'json' }).$type<SetupReferenceReport[]>().notNull().default([]),
-    // Reported state. Anything but `ready` blocks starting work with this setup.
+    // `ready` once the computer found the project folder and every linked
+    // folder is chosen and found, `unchecked` until it has looked (work can
+    // start: it checks again before it prepares). The file-era values
+    // (missing_file, invalid_config, wrong_home, duplicate) are no longer written.
     status: text({
-      enum: ['ready', 'missing_folder', 'missing_file', 'invalid_config', 'wrong_home', 'missing_reference', 'duplicate'],
+      enum: ['ready', 'unchecked', 'missing_folder', 'missing_file', 'invalid_config', 'wrong_home', 'missing_reference', 'duplicate'],
     }).notNull(),
     problem: text(),
+    // When the computer last checked it, or when it was last changed.
     reportedAt: text().notNull(),
   },
   (table) => [
@@ -1054,7 +1064,7 @@ export interface WorkerHarnessReport {
   capabilities: Record<string, { supported: boolean; status?: string; reason?: string | null }>;
 }
 
-/** One reference as a computer resolved it (src/lib/setups/resolve.ts). */
+/** One linked folder of an agent on a computer, as the home resolves it (`recomputeAgentSetups`). */
 export interface SetupReferenceReport {
   alias: string;
   value?: string | { agentId: string } | null;
@@ -1175,7 +1185,9 @@ export const referenceFolders = sqliteTable(
     // What the user types after `@`. Lowercase `[a-z0-9][a-z0-9._-]*`, so the
     // mention parser never has to disambiguate an alias from a path.
     alias: text().notNull(),
-    // Bare-path target. Absolute. Mutually exclusive with targetWorkspaceId.
+    // Retired in 0011: the home's path for a folder, which moved to
+    // `folder_links` with every other computer's. Read only by the boot step
+    // that moves it (`moveFolderRecords`). Kept to the next baseline squash.
     path: text(),
     // Workspace target. Resolved to that workspace's `cwd` at read time so the
     // reference survives the folder moving. Mutually exclusive with `path`.
@@ -1204,12 +1216,35 @@ export const referenceFolders = sqliteTable(
     uniqueIndex('uniq_reference_folders_workspace_alias')
       .on(table.workspaceId, table.alias)
       .where(sql`${table.workspaceId} IS NOT NULL AND ${table.status} = 'active'`),
-    // Exactly one target. The query layer validates this too with a friendlier
-    // message; this is the backstop for anything that reaches SQLite directly.
-    check(
-      'reference_folders_one_target',
-      sql`(${table.path} IS NOT NULL) <> (${table.targetWorkspaceId} IS NOT NULL)`,
-    ),
+  ],
+);
+
+/**
+ * Where a linked folder is on one computer (docs/homes-spec.md §4.1): the
+ * home's record, the only one kept. A linked folder for every agent has one
+ * place per computer, shared by every agent there. A linked folder that's
+ * another agent has no links: it's that agent's project folder there.
+ */
+export const folderLinks = sqliteTable(
+  'folder_links',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    computerId: text()
+      .notNull()
+      .references(() => computers.id, { onDelete: 'cascade' }),
+    referenceFolderId: text()
+      .notNull()
+      .references(() => referenceFolders.id, { onDelete: 'cascade' }),
+    // Where it is on that computer. Null: that computer goes without it.
+    path: text(),
+    // Whether the computer found it when it last checked. Null until it has.
+    found: integer({ mode: 'boolean' }),
+    checkedAt: text(),
+  },
+  (table) => [
+    uniqueIndex('uniq_folder_links_computer_reference').on(table.computerId, table.referenceFolderId),
+    index('idx_folder_links_reference').on(table.referenceFolderId),
   ],
 );
 

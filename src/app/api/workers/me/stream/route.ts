@@ -9,6 +9,7 @@
  * no longer runs here at its generation is marked stale instead of sent.
  */
 
+import { checkComputerFolders, folderSetupsFor } from '@/lib/setups/folders';
 import type { NextRequest } from 'next/server';
 import { uuidv7 } from 'uuidv7';
 import type { WorkerCommandRecord } from '@/db/types';
@@ -119,7 +120,12 @@ export async function GET(request: NextRequest) {
         protocol: WORKER_PROTOCOL,
         ackedEventSeq: getAckedEventSeq(worker.computer.id),
       });
+      // Its folders, as the home records them, before any command that needs
+      // them: the worker keeps no copy of its own (docs/homes-spec.md §4.1).
+      send({ type: 'folders', setups: folderSetupsFor(worker.computer.id) });
       pump();
+      // And whether they're still there.
+      void checkComputerFolders(worker.computer.id).catch(() => {});
       // Terminal history imported from this computer catches up (P2.9).
       void import('@/lib/import/remote').then(({ syncRemoteImportsOn }) => syncRemoteImportsOn(worker.computer.id)).catch(() => {});
     },

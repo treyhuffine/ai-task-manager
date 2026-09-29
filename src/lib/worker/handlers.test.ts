@@ -176,15 +176,10 @@ describe('the setup script', () => {
 describe('prepare', () => {
   it('reuses the worktree it noted before a restart, rather than making a second', async () => {
     const { journal, handlers, ctx } = await setup();
-    // The agent's folder on this computer, registered in its setup files.
+    // The agent's folder on this computer, as the home sent it.
     const source = path.join(dir, 'source');
     fs.mkdirSync(source);
-    const { writeSetupFile } = await import('@/lib/setups/local-file');
-    writeSetupFile(source, { version: 1, homeId: 'home-1', agents: { ws: { references: {} } } }, null);
-    const configDir = path.join(dir, 'config');
-    process.env.RI_CONFIG_DIR = configDir;
-    fs.mkdirSync(configDir);
-    fs.writeFileSync(path.join(configDir, 'setups.json'), JSON.stringify({ version: 1, locations: [{ dir: source, registeredAt: '' }] }));
+    (await import('./agent-folder')).setAgentFolders('home-1', [{ agentId: 'ws', sourcePath: source }]);
 
     const worktree = path.join(dir, 'made-before-the-crash');
     fs.mkdirSync(worktree);
@@ -201,6 +196,25 @@ describe('prepare', () => {
     journal.note(c.id, { worktreePath: worktree, branchName: 'demo/x', baseSha: 'abc', warning: null });
     const ack = await handlers.prepare!.recover(c, 'started', ctx(c));
     expect(ack).toMatchObject({ state: 'delivered', result: { worktreePath: worktree, branchName: 'demo/x' } });
+  });
+
+  it("fails without starting, saying which folder is gone, when the agent's folder here went since the home last checked", async () => {
+    const { journal, handlers, ctx } = await setup();
+    const source = path.join(dir, 'gone');
+    (await import('./agent-folder')).setAgentFolders('home-1', [{ agentId: 'ws', sourcePath: source }]);
+    const c = command('prepare', {
+      workspace: { id: 'ws', name: 'Demo', isGit: true, filesToCopy: [], baseBranch: 'main', cwd: '/home/demo' },
+      chatSessionId: 'chat-2',
+      label: null,
+      baseBranch: null,
+      prNumber: null,
+      live: false,
+    });
+    journal.received(c);
+    const context = ctx(c);
+    const ack = await handlers.prepare!.run(c, context);
+    expect(ack).toEqual({ state: 'failed', error: `Demo's folder, ${source}, isn't there any more. Choose where it is now in Demo's Setup, under Folders.` });
+    expect(journal.get(c.id)?.stage).toBe('received');
   });
 });
 

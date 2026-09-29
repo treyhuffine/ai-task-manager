@@ -10,7 +10,7 @@ import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
-  home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, agentSetups,
+  home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, agentSetups, folderLinks,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -35,7 +35,7 @@ import type {
   HomeRecord, HomeKind, ComputerRecord, CreateComputerInput, UpdateComputerInput,
   ComputerGrantRecord, ComputerGrantKind, WorkerEnrollmentRecord, WorkerReportedState, WorkerHarnessReport,
   WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord, ExecutionTransferRecord, NativeSessionRecord, ReviewCheckoutRecord,
-  AgentSetupRecord, SetupReferenceReport,
+  AgentSetupRecord, SetupReferenceReport, FolderLinkRecord,
   Attachment,
   WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
   ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
@@ -5764,95 +5764,6 @@ export function getChatComputerId(chatSessionId: string): string | null {
 // ─── Agent setups (docs/homes-spec.md §4.2) ───────────────────
 
 /** Statuses that mean the setup file couldn't be read, so its references are unknown. */
-const SETUP_LOCATION_PROBLEMS = new Set<AgentSetupRecord['status']>(['missing_folder', 'missing_file', 'invalid_config', 'wrong_home']);
-
-export interface AgentSetupReportInput {
-  agentId: string;
-  sourcePath: string;
-  configRevision: string | null;
-  references: SetupReferenceReport[];
-  status: AgentSetupRecord['status'];
-  problem: string | null;
-}
-
-/**
- * Store what a computer reported about its setups. With `complete`, the
- * reports are everything the computer has, so setups it no longer reports
- * are removed. Reports for agents this home doesn't have are returned as
- * ignored rather than stored.
- */
-export function recordAgentSetupReports(
-  computerId: string,
-  reports: AgentSetupReportInput[],
-  opts: { complete: boolean },
-): { stored: number; removed: number; ignored: string[] } {
-  const db = getDb();
-  return db.transaction((tx) => {
-    const now = new Date().toISOString();
-    const known = new Set(tx.select({ id: workspaces.id }).from(workspaces).all().map((w) => w.id));
-    const isHost = tx.select({ host: home.hostComputerId }).from(home).get()?.host === computerId;
-    const ignored: string[] = [];
-    let stored = 0;
-    for (const r of reports) {
-      if (!known.has(r.agentId)) {
-        ignored.push(r.agentId);
-        continue;
-      }
-      // A report about a folder or file that can't be read carries only the
-      // problem. Keep the references last observed there, which is what
-      // "Restore setup from the last observed report" rebuilds from.
-      const previous = SETUP_LOCATION_PROBLEMS.has(r.status)
-        ? tx
-            .select({ references: agentSetups.references, sourcePath: agentSetups.sourcePath })
-            .from(agentSetups)
-            .where(and(eq(agentSetups.workspaceId, r.agentId), eq(agentSetups.computerId, computerId)))
-            .get()
-        : undefined;
-      const values = {
-        sourcePath: r.sourcePath,
-        configRevision: r.configRevision,
-        references: previous && previous.sourcePath === r.sourcePath && r.references.length === 0 ? previous.references : r.references,
-        status: r.status,
-        problem: r.problem,
-        reportedAt: now,
-        updatedAt: now,
-      };
-      tx.insert(agentSetups)
-        .values({ id: uuidv7(), workspaceId: r.agentId, computerId, createdAt: now, ...values })
-        .onConflictDoUpdate({ target: [agentSetups.workspaceId, agentSetups.computerId], set: values })
-        .run();
-      stored++;
-      // The home computer's folder is also `workspaces.cwd`, which existing
-      // code still reads while it moves to setups (docs/homes-spec.md §10.1).
-      // Keep it the observed value: the setup file decides, never the other
-      // way round.
-      if (isHost && !SETUP_LOCATION_PROBLEMS.has(r.status)) {
-        tx.update(workspaces)
-          .set({ cwd: r.sourcePath, updatedAt: now })
-          .where(and(eq(workspaces.id, r.agentId), sql`${workspaces.cwd} IS NOT ${r.sourcePath}`))
-          .run();
-      }
-    }
-    let removed = 0;
-    if (opts.complete) {
-      const reported = reports.map((r) => r.agentId).filter((id) => known.has(id));
-      const stale = tx
-        .select({ id: agentSetups.id })
-        .from(agentSetups)
-        .where(
-          reported.length
-            ? and(eq(agentSetups.computerId, computerId), sql`${agentSetups.workspaceId} NOT IN (${sql.join(reported.map((id) => sql`${id}`), sql`, `)})`)
-            : eq(agentSetups.computerId, computerId),
-        )
-        .all();
-      for (const row of stale) tx.delete(agentSetups).where(eq(agentSetups.id, row.id)).run();
-      removed = stale.length;
-    }
-    tx.update(computers).set({ lastSeenAt: now }).where(eq(computers.id, computerId)).run();
-    return { stored, removed, ignored };
-  }, { behavior: 'immediate' });
-}
-
 export type AgentSetupWithComputer = AgentSetupRecord & { computerName: string };
 
 export function listAgentSetups(filter: { workspaceId?: string; computerId?: string } = {}): AgentSetupWithComputer[] {
@@ -5878,27 +5789,287 @@ export function getAgentSetup(workspaceId: string, computerId: string): AgentSet
   );
 }
 
-/** Where each agent's setup was last seen on a computer, for resolving problems. */
-export function lastSeenSetupPaths(computerId: string): Record<string, string> {
-  const rows = getDb()
-    .select({ workspaceId: agentSetups.workspaceId, sourcePath: agentSetups.sourcePath })
-    .from(agentSetups)
-    .where(eq(agentSetups.computerId, computerId))
-    .all();
-  return Object.fromEntries(rows.map((r) => [r.workspaceId, r.sourcePath]));
+// ─── Folder records (docs/homes-spec.md §4.1) ───────────────
+// The home's database is the only place an agent's folders are kept: its
+// project folder on each computer (`agent_setups`), and where each linked
+// folder is on each computer (`folder_links`). The computer checks them and
+// the home records what it found. Each setup's `references` and `status` are
+// derived from these, by `recomputeAgentSetups`, and never edited directly.
+
+export function listFolderLinks(filter: { computerId?: string; referenceFolderId?: string } = {}): FolderLinkRecord[] {
+  const conds: SQL[] = [];
+  if (filter.computerId) conds.push(eq(folderLinks.computerId, filter.computerId));
+  if (filter.referenceFolderId) conds.push(eq(folderLinks.referenceFolderId, filter.referenceFolderId));
+  return getDb().select().from(folderLinks).where(conds.length ? and(...conds) : undefined).all();
+}
+
+export function getFolderLink(computerId: string, referenceFolderId: string): FolderLinkRecord | null {
+  return (
+    getDb()
+      .select()
+      .from(folderLinks)
+      .where(and(eq(folderLinks.computerId, computerId), eq(folderLinks.referenceFolderId, referenceFolderId)))
+      .get() ?? null
+  );
 }
 
 /**
- * The reference aliases each active agent expects a computer to map: the
- * global ones plus its own, its own winning on a name clash, the same set
- * sessions are told about.
+ * Where a linked folder is on a computer, or null for going without it there.
+ * A new place is unchecked until the computer looks. For a linked folder
+ * every agent uses, this is its place for every agent on that computer.
  */
-export function expectedReferenceAliases(): Record<string, { alias: string; description: string | null }[]> {
-  const out: Record<string, { alias: string; description: string | null }[]> = {};
-  for (const ws of getDb().select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.status, 'active')).all()) {
-    out[ws.id] = listReferenceFoldersForWorkspace(ws.id).map((r) => ({ alias: r.alias, description: r.description }));
-  }
-  return out;
+export function setFolderLink(computerId: string, referenceFolderId: string, folder: string | null): FolderLinkRecord {
+  const now = new Date().toISOString();
+  const value = folder === null ? null : nodePath.resolve(folder);
+  const row = getDb().transaction((tx) => {
+    const current = tx
+      .select()
+      .from(folderLinks)
+      .where(and(eq(folderLinks.computerId, computerId), eq(folderLinks.referenceFolderId, referenceFolderId)))
+      .get();
+    const moved = !current || current.path !== value;
+    const values = { path: value, updatedAt: now, ...(moved ? { found: null, checkedAt: null } : {}) };
+    return tx
+      .insert(folderLinks)
+      .values({ id: uuidv7(), computerId, referenceFolderId, createdAt: now, ...values })
+      .onConflictDoUpdate({ target: [folderLinks.computerId, folderLinks.referenceFolderId], set: values })
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
+  recomputeAgentSetups(computerId);
+  return row;
+}
+
+/** Forget where a linked folder is on a computer: it's unchosen there again. */
+export function removeFolderLink(computerId: string, referenceFolderId: string): void {
+  getDb()
+    .delete(folderLinks)
+    .where(and(eq(folderLinks.computerId, computerId), eq(folderLinks.referenceFolderId, referenceFolderId)))
+    .run();
+  recomputeAgentSetups(computerId);
+}
+
+/**
+ * The agent's project folder on a computer. A new place is unchecked until
+ * the computer looks. On the home it's `workspaces.cwd` too, which the rest
+ * of the app still reads for the home's own folder.
+ */
+export function setAgentFolder(workspaceId: string, computerId: string, folder: string): AgentSetupRecord {
+  const now = new Date().toISOString();
+  const sourcePath = nodePath.resolve(folder);
+  getDb().transaction((tx) => {
+    const current = tx
+      .select()
+      .from(agentSetups)
+      .where(and(eq(agentSetups.workspaceId, workspaceId), eq(agentSetups.computerId, computerId)))
+      .get();
+    const moved = !current || current.sourcePath !== sourcePath;
+    const values = { sourcePath, updatedAt: now, reportedAt: now, ...(moved ? { found: null } : {}) };
+    tx.insert(agentSetups)
+      .values({ id: uuidv7(), workspaceId, computerId, createdAt: now, references: [], status: 'unchecked', problem: null, ...values })
+      .onConflictDoUpdate({ target: [agentSetups.workspaceId, agentSetups.computerId], set: values })
+      .run();
+    const isHost = tx.select({ host: home.hostComputerId }).from(home).get()?.host === computerId;
+    if (isHost) {
+      tx.update(workspaces)
+        .set({ cwd: sourcePath, updatedAt: now })
+        .where(and(eq(workspaces.id, workspaceId), sql`${workspaces.cwd} IS NOT ${sourcePath}`))
+        .run();
+    }
+  }, { behavior: 'immediate' });
+  recomputeAgentSetups(computerId);
+  return getAgentSetup(workspaceId, computerId)!;
+}
+
+/**
+ * Take an agent off a computer: its setup there, and where its own linked
+ * folders were there. A linked folder every agent uses keeps its place, for
+ * the others.
+ */
+export function removeAgentSetup(workspaceId: string, computerId: string): boolean {
+  const removed = getDb().transaction((tx) => {
+    const own = tx
+      .select({ id: referenceFolders.id })
+      .from(referenceFolders)
+      .where(eq(referenceFolders.workspaceId, workspaceId))
+      .all()
+      .map((r) => r.id);
+    if (own.length) {
+      tx.delete(folderLinks).where(and(eq(folderLinks.computerId, computerId), inArray(folderLinks.referenceFolderId, own))).run();
+    }
+    return tx
+      .delete(agentSetups)
+      .where(and(eq(agentSetups.workspaceId, workspaceId), eq(agentSetups.computerId, computerId)))
+      .returning()
+      .all().length;
+  }, { behavior: 'immediate' });
+  return removed > 0;
+}
+
+/** Every folder a computer has to check: its agents' project folders and its linked folders. */
+export function foldersToCheck(computerId: string): string[] {
+  const setups = getDb().select({ path: agentSetups.sourcePath }).from(agentSetups).where(eq(agentSetups.computerId, computerId)).all();
+  const links = getDb()
+    .select({ path: folderLinks.path })
+    .from(folderLinks)
+    .where(and(eq(folderLinks.computerId, computerId), isNotNull(folderLinks.path)))
+    .all();
+  return [...new Set([...setups.map((s) => s.path), ...links.map((l) => l.path!)])];
+}
+
+/** What a computer found when it checked its folders, recorded against them. */
+export function recordFolderChecks(computerId: string, results: ReadonlyArray<{ path: string; exists: boolean }>): void {
+  const now = new Date().toISOString();
+  const found = new Map(results.map((r) => [nodePath.resolve(r.path), r.exists]));
+  getDb().transaction((tx) => {
+    for (const row of tx.select().from(agentSetups).where(eq(agentSetups.computerId, computerId)).all()) {
+      const exists = found.get(nodePath.resolve(row.sourcePath));
+      if (exists === undefined) continue;
+      tx.update(agentSetups).set({ found: exists, reportedAt: now, updatedAt: now }).where(eq(agentSetups.id, row.id)).run();
+    }
+    for (const link of tx.select().from(folderLinks).where(eq(folderLinks.computerId, computerId)).all()) {
+      if (!link.path) continue;
+      const exists = found.get(nodePath.resolve(link.path));
+      if (exists === undefined) continue;
+      tx.update(folderLinks).set({ found: exists, checkedAt: now, updatedAt: now }).where(eq(folderLinks.id, link.id)).run();
+    }
+    tx.update(computers).set({ lastSeenAt: now }).where(eq(computers.id, computerId)).run();
+  }, { behavior: 'immediate' });
+  recomputeAgentSetups(computerId);
+}
+
+/**
+ * Each setup's linked folders and status on a computer, from the records:
+ * the linked folders the agent uses (its own, then the ones for every agent),
+ * where each is there, and what the computer last found. `ready` once the
+ * project folder and every linked folder are found. `unchecked` until the
+ * computer has looked (work can start: it checks again before it prepares).
+ * A linked folder not chosen there, or not found, blocks work there.
+ */
+export function recomputeAgentSetups(computerId: string): void {
+  const db = getDb();
+  const computerName = db.select({ name: computers.name }).from(computers).where(eq(computers.id, computerId)).get()?.name ?? 'this computer';
+  const setups = db.select().from(agentSetups).where(eq(agentSetups.computerId, computerId)).all();
+  if (setups.length === 0) return;
+  const links = new Map(listFolderLinks({ computerId }).map((l) => [l.referenceFolderId, l]));
+  const bySetup = new Map(setups.map((s) => [s.workspaceId, s]));
+  const now = new Date().toISOString();
+  db.transaction((tx) => {
+    for (const setup of setups) {
+      const agent = tx.select({ name: workspaces.name }).from(workspaces).where(eq(workspaces.id, setup.workspaceId)).get();
+      if (!agent) continue;
+      // Whether a chosen linked folder hasn't been checked there yet.
+      let linkUnchecked = false;
+      const references: SetupReferenceReport[] = listReferenceFoldersForWorkspace(setup.workspaceId).map((ref) => {
+        if (ref.targetWorkspaceId) {
+          const target = bySetup.get(ref.targetWorkspaceId);
+          const targetName = tx.select({ name: workspaces.name }).from(workspaces).where(eq(workspaces.id, ref.targetWorkspaceId)).get()?.name ?? 'That agent';
+          return {
+            alias: ref.alias,
+            value: { agentId: ref.targetWorkspaceId },
+            form: 'agent' as const,
+            path: target?.sourcePath ?? null,
+            exists: target?.found === true,
+            problem: !target
+              ? `${targetName} isn't on ${computerName} yet.`
+              : target.found === false
+                ? `${targetName}'s folder on ${computerName}, ${target.sourcePath}, isn't there.`
+                : null,
+          };
+        }
+        const link = links.get(ref.id);
+        if (!link) {
+          return { alias: ref.alias, form: 'unconfigured' as const, path: null, exists: false, problem: `Choose where ${ref.alias} is on ${computerName}, or go without it.` };
+        }
+        if (link.path === null) {
+          return { alias: ref.alias, value: null, form: 'omitted' as const, path: null, exists: false, problem: null };
+        }
+        if (link.found === null) linkUnchecked = true;
+        return {
+          alias: ref.alias,
+          value: link.path,
+          form: 'path' as const,
+          path: link.path,
+          exists: link.found === true,
+          problem: link.found === false ? `${ref.alias} isn't at ${link.path} on ${computerName}.` : null,
+        };
+      });
+      const blocking = references.find((r) => r.problem);
+      const unchecked = setup.found === null || linkUnchecked;
+      const status: AgentSetupRecord['status'] =
+        setup.found === false ? 'missing_folder' : blocking ? 'missing_reference' : unchecked ? 'unchecked' : 'ready';
+      const problem =
+        setup.found === false ? `${agent.name}'s folder on ${computerName}, ${setup.sourcePath}, isn't there.` : (blocking?.problem ?? null);
+      tx.update(agentSetups).set({ references, status, problem, updatedAt: now }).where(eq(agentSetups.id, setup.id)).run();
+    }
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * Move what existed before the home's records held every computer's folders
+ * into them (migration 0011), once and idempotently, at boot after the home
+ * has its identity: an agent with no setup anywhere gets its home row from
+ * `workspaces.cwd`, each linked folder's home path becomes its home link,
+ * and what other computers last reported from their setup files becomes
+ * their links. Nothing that's already recorded is changed.
+ */
+export function moveFolderRecords(): { setups: number; links: number } {
+  const db = getDb();
+  const host = db.select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
+  if (!host) return { setups: 0, links: 0 };
+  const now = new Date().toISOString();
+  let setupsMoved = 0;
+  let linksMoved = 0;
+  const touched = new Set<string>();
+  db.transaction((tx) => {
+    const withSetups = new Set(tx.select({ id: agentSetups.workspaceId }).from(agentSetups).all().map((r) => r.id));
+    for (const ws of tx.select().from(workspaces).where(eq(workspaces.status, 'active')).all()) {
+      if (withSetups.has(ws.id) || !ws.cwd) continue;
+      tx.insert(agentSetups)
+        .values({ id: uuidv7(), workspaceId: ws.id, computerId: host, sourcePath: ws.cwd, references: [], status: 'unchecked', problem: null, reportedAt: now, createdAt: now, updatedAt: now })
+        .onConflictDoNothing()
+        .run();
+      setupsMoved++;
+      touched.add(host);
+    }
+    const linked = new Set(tx.select({ c: folderLinks.computerId, r: folderLinks.referenceFolderId }).from(folderLinks).all().map((l) => `${l.c}\u0000${l.r}`));
+    const addLink = (computerId: string, referenceFolderId: string, folder: string | null) => {
+      const key = `${computerId}\u0000${referenceFolderId}`;
+      if (linked.has(key)) return;
+      linked.add(key);
+      tx.insert(folderLinks)
+        .values({ id: uuidv7(), computerId, referenceFolderId, path: folder, createdAt: now, updatedAt: now })
+        .onConflictDoNothing()
+        .run();
+      linksMoved++;
+      touched.add(computerId);
+    };
+    const refs = tx.select().from(referenceFolders).where(eq(referenceFolders.status, 'active')).all();
+    for (const ref of refs) {
+      if (ref.path && !ref.targetWorkspaceId) addLink(host, ref.id, nodePath.resolve(ref.path));
+    }
+    // A linked folder every agent uses has one place per computer: where an
+    // active agent there last found it, rather than an archived one.
+    const active = new Set(tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.status, 'active')).all().map((w) => w.id));
+    const reports = tx
+      .select()
+      .from(agentSetups)
+      .all()
+      .sort((a, b) => Number(active.has(b.workspaceId)) - Number(active.has(a.workspaceId)) || b.reportedAt.localeCompare(a.reportedAt));
+    for (const setup of reports) {
+      if (setup.computerId === host) continue;
+      for (const report of setup.references ?? []) {
+        const ref =
+          refs.find((r) => r.workspaceId === setup.workspaceId && r.alias === report.alias && !r.targetWorkspaceId) ??
+          refs.find((r) => r.workspaceId === null && r.alias === report.alias && !r.targetWorkspaceId);
+        if (!ref) continue;
+        if (report.form === 'path' && report.path) addLink(setup.computerId, ref.id, report.path);
+        else if (report.form === 'omitted') addLink(setup.computerId, ref.id, null);
+      }
+    }
+  }, { behavior: 'immediate' });
+  for (const computerId of touched) recomputeAgentSetups(computerId);
+  return { setups: setupsMoved, links: linksMoved };
 }
 
 // ─── API Keys ─────────────────────────────────────────────────
@@ -6278,17 +6449,28 @@ function assertValidReferenceAlias(alias: string): void {
  * Exactly one target. The DB has a CHECK for this as a backstop, but raising
  * here gives the caller a message that says which field to fix.
  */
+/**
+ * A linked folder is a folder, placed per computer (`folder_links`), or
+ * another agent: never both. A folder may have no place yet anywhere, to be
+ * chosen on each computer (docs/homes-spec.md §4.1).
+ */
 function assertOneTarget(path: string | null | undefined, targetWorkspaceId: string | null | undefined): void {
   const hasPath = path != null && path.length > 0;
   const hasWorkspace = targetWorkspaceId != null && targetWorkspaceId.length > 0;
-  if (hasPath === hasWorkspace) {
-    throw new ReferenceFolderError(
-      'invalid_params',
-      hasPath
-        ? 'A reference folder takes either a path or a target workspace, not both.'
-        : 'A reference folder needs either a path or a target workspace.',
-    );
+  if (hasPath && hasWorkspace) {
+    throw new ReferenceFolderError('invalid_params', 'A reference folder takes either a path or a target workspace, not both.');
   }
+}
+
+/** The home computer, where a linked folder's `path` from the API or an action is placed. */
+function hostOf(): string | null {
+  return getDb().select({ host: home.hostComputerId }).from(home).get()?.host ?? null;
+}
+
+/** Every computer's setups, recomputed: after a linked folder's definition changes. */
+export function recomputeAllAgentSetups(): void {
+  const ids = getDb().selectDistinct({ id: agentSetups.computerId }).from(agentSetups).all().map((r) => r.id);
+  for (const id of ids) recomputeAgentSetups(id);
 }
 
 export function getReferenceFolder(id: string): ReferenceFolderRecord | undefined {
@@ -6414,8 +6596,13 @@ export function createReferenceFolder(input: CreateReferenceFolderInput): Refere
   }
 
   const now = new Date().toISOString();
+  // `~` and relative paths are normalized here so every caller (route,
+  // orchestrator action, test) stores the same absolute form. A path is
+  // where it is on the home: the home's link, once the home has an identity.
+  const homePath = input.path ? normalizeReferencePath(input.path) : null;
+  const host = hostOf();
   try {
-    return db
+    const row = db
       .insert(referenceFolders)
       .values({
         ...pickReferenceFolderFields(input),
@@ -6424,9 +6611,7 @@ export function createReferenceFolder(input: CreateReferenceFolderInput): Refere
         // Always born active — caller-supplied status is deliberately ignored
         // (see "ignores caller-supplied status on create").
         status: 'active',
-        // `~` and relative paths are normalized here so every caller (route,
-        // orchestrator action, test) stores the same absolute form.
-        path: input.path ? normalizeReferencePath(input.path) : null,
+        path: host ? null : homePath,
         targetWorkspaceId: input.targetWorkspaceId ?? null,
         description: input.description?.trim() || null,
         // `id` is honoured when supplied so a retried create is idempotent
@@ -6438,6 +6623,10 @@ export function createReferenceFolder(input: CreateReferenceFolderInput): Refere
       })
       .returning()
       .get();
+    if (host && homePath) setFolderLink(host, row.id, homePath);
+    // Every computer's setups now use it: waiting on a place there, until chosen.
+    recomputeAllAgentSetups();
+    return row;
   } catch (err) {
     if (isUniqueViolation(err)) {
       throw new ReferenceFolderError(
@@ -6468,8 +6657,11 @@ export function updateReferenceFolder(
   if (next.description != null) next.description = next.description.trim() || null;
 
   // Target fields are validated against the merged row, so changing one side
-  // of the pair can't silently leave both set.
-  const mergedPath = 'path' in next ? next.path : existing.path;
+  // of the pair can't silently leave both set. A path is the home's link.
+  const host = hostOf();
+  const homePathChange = 'path' in next && host ? { path: next.path ?? null } : null;
+  if (homePathChange) delete next.path;
+  const mergedPath = homePathChange ? homePathChange.path : 'path' in next ? next.path : existing.path;
   const mergedTarget =
     'targetWorkspaceId' in next ? next.targetWorkspaceId : existing.targetWorkspaceId;
   assertOneTarget(mergedPath, mergedTarget);
@@ -6497,10 +6689,15 @@ export function updateReferenceFolder(
   try {
     const row = db
       .update(referenceFolders)
-      .set({ ...next, updatedAt: new Date().toISOString() })
+      .set({ ...next, ...(homePathChange ? { path: null } : {}), updatedAt: new Date().toISOString() })
       .where(eq(referenceFolders.id, id))
       .returning()
       .get();
+    if (homePathChange && host) {
+      if (homePathChange.path) setFolderLink(host, id, homePathChange.path);
+      else removeFolderLink(host, id);
+    }
+    recomputeAllAgentSetups();
     return row ?? null;
   } catch (err) {
     if (isUniqueViolation(err)) {
@@ -6526,6 +6723,8 @@ export function archiveReferenceFolder(id: string): ReferenceFolderRecord | null
     .where(eq(referenceFolders.id, id))
     .returning()
     .get();
+  // No longer used anywhere: every computer's setups no longer wait on it.
+  if (row) recomputeAllAgentSetups();
   return row ?? null;
 }
 

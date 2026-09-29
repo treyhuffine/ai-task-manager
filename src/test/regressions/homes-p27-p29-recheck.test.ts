@@ -6,6 +6,7 @@ import { getProvider } from '@agentex/agent';
 import type { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import { setUpAgentOn } from '@/test/fixtures/setups';
 import type { FileCandidate } from '@/lib/import/history-source';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
@@ -104,16 +105,17 @@ describe('authority at asynchronous boundaries', () => {
   });
 });
 
-describe('local setup is the authority for remote reference wiring', () => {
+// Adapted when the home's records became the only place an agent's folders
+// are kept (docs/homes-spec.md §4.1): the linked folders come from the
+// home's records for that computer, and the runner wires what's there when
+// the session starts. The "duplicate setup files" case has no equivalent.
+describe("the home's records for that computer wire remote linked folders", () => {
   it.each(['cursor', 'opencode'] as const)('delivers current references in the first message of a fresh %s main chat', async (harness) => {
     const q = await import('@/lib/db/queries');
     const current = path.join(home.root, 'current-reference');
     fs.mkdirSync(current);
-    q.createReferenceFolder({ workspaceId: agentId, alias: 'docs', path: current });
-    (await import('@/lib/setups/local-file')).writeSetupFile(home.root, {
-      version: 1, homeId, agents: { [agentId]: { references: { docs: current } } },
-    }, null);
-    (await import('@/lib/setups/registry')).registerLocation(home.root);
+    q.createReferenceFolder({ workspaceId: agentId, alias: 'docs' });
+    await setUpAgentOn(agentId, computerId, home.root, { links: { docs: current } });
     const main = q.createChatSession({ type: 'orchestration', workspaceId: agentId, harness, status: 'active' });
     const fake = (await import('@/test/fixtures/fake-harness')).installFakeHarness(harness);
     const runner = await import('@/lib/runner/local-runner');
@@ -152,30 +154,20 @@ describe('local setup is the authority for remote reference wiring', () => {
     } finally { fake.restore(); }
   });
 
-  it.each(['missing', 'duplicate'] as const)('does not wire a cached ready path when the local setup is %s', async (mode) => {
+  it('does not wire a linked folder that is gone when the session starts', async () => {
     const q = await import('@/lib/db/queries');
-    const cached = path.join(home.root, 'no-longer-authorized');
+    const cached = path.join(home.root, 'no-longer-there');
     fs.mkdirSync(cached);
-    q.createReferenceFolder({ workspaceId: agentId, alias: 'docs', path: cached });
-    q.recordAgentSetupReports(computerId, [{ agentId, sourcePath: home.root, configRevision: null,
-      status: 'ready', problem: null, references: [{ alias: 'docs', form: 'path', value: cached, path: cached, exists: true, problem: null }],
-    }], { complete: true });
+    q.createReferenceFolder({ workspaceId: agentId, alias: 'docs' });
+    await setUpAgentOn(agentId, computerId, home.root, { links: { docs: cached } });
     const { buildSessionSpec } = await import('@/lib/executor/session-spec');
     const spec = await buildSessionSpec({ chatSessionId: chatId, harness: 'claude', cwd: home.root,
       sessionType: 'execution', workspaceId: agentId, executionId, surfaceKind: null, surfaceRef: null,
       existingExternalSessionId: null, permissionMode: 'ask', prePlanMode: null, model: 'fake-model', modelVariant: null, effort: null,
     }, { computerId, isHome: false, generation: 1 });
     expect(spec.agentFolders?.references[0]?.path).toBe(cached);
-    if (mode === 'duplicate') {
-      const setup = await import('@/lib/setups/local-file');
-      const registry = await import('@/lib/setups/registry');
-      for (const name of ['one', 'two']) {
-        const dir = path.join(home.root, name);
-        fs.mkdirSync(dir);
-        setup.writeSetupFile(dir, { version: 1, homeId, agents: { [agentId]: { references: { docs: null } } } }, null);
-        registry.registerLocation(dir);
-      }
-    }
+    // Gone by the time the session starts on that computer.
+    fs.rmSync(cached, { recursive: true, force: true });
     const fake = (await import('@/test/fixtures/fake-harness')).installFakeHarness('claude');
     const runner = await import('@/lib/runner/local-runner');
     (await import('@/lib/runner/sink')).installRunnerSink({ writer: { write: async () => true }, signal: () => {} });

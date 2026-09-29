@@ -51,11 +51,9 @@ export async function PATCH(
     // Assigned inside `finish` too, so declared without narrowing to null.
     let row = null as ReturnType<typeof updateWorkspace>;
     if (typeof body.cwd === 'string' && body.cwd !== before.cwd) {
-      // A new folder for the agent on this computer is a new setup (§4.2).
-      // Saving the agent is the last step of the same change, so if the
-      // database refuses, the folder change is undone exactly.
-      const { setHomeFolder } = await import('@/lib/setups/home-context');
-      const { SetupError } = await import('@/lib/setups/service');
+      // A new folder for the agent on the home (docs/homes-spec.md §4.1):
+      // checked first, and recorded once the agent is saved.
+      const { setHomeFolder, SetupError } = await import('@/lib/setups/home-context');
       try {
         await setHomeFolder(id, body.cwd, {
           finish: () => {
@@ -65,7 +63,7 @@ export async function PATCH(
         });
       } catch (err) {
         if (err instanceof WorkspaceMissingError) return Response.json({ error: 'Workspace not found' }, { status: 404 });
-        if (err instanceof SetupError || (err instanceof Error && err.name === 'SetupFileConflictError')) {
+        if (err instanceof SetupError) {
           return Response.json({ error: err.message }, { status: 400 });
         }
         throw err;

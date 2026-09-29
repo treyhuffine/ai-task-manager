@@ -67,6 +67,21 @@ export class RunOnError extends Error {
   }
 }
 
+/**
+ * Whether work can start with a setup: its folders found, or not checked
+ * yet (a computer that's away checks them when it's back, and again before
+ * it prepares work). A folder found missing, or a linked folder not chosen,
+ * is a problem to fix first (docs/homes-spec.md §4.1).
+ */
+export function setupUsable(status: string): boolean {
+  return status === 'ready' || status === 'unchecked';
+}
+
+/** Why a setup can't take work: its own problem, a whole sentence, or its status in one. */
+export function setupProblem(where: string, setup: { problem: string | null; status: string }): string {
+  return setup.problem ?? notReady(where, setup);
+}
+
 /** A setup's problem inside a sentence, which ends once whether or not the problem does. */
 export function notReady(folder: string, setup: { problem: string | null; status: string }): string {
   const reason = (setup.problem ?? setup.status).trim().replace(/[.!]+$/, '');
@@ -76,7 +91,7 @@ export function notReady(folder: string, setup: { problem: string | null; status
 function problemOf(agentName: string, computerName: string, setup: AgentSetupWithComputer | undefined, enrolled: boolean): string | null {
   if (!setup) return `${agentName} isn't on ${computerName} yet.`;
   if (!enrolled) return `${computerName} isn't set up to run agents. Run \`ri worker enroll\` there first.`;
-  if (setup.status !== 'ready') return notReady(`${agentName}'s folder on ${computerName}`, setup);
+  if (!setupUsable(setup.status)) return setupProblem(`${agentName}'s folder on ${computerName}`, setup);
   return null;
 }
 
@@ -98,8 +113,8 @@ export function runOnFor(workspaceId: string): RunOn | null {
       computerId: host,
       name: getComputer(host)?.name ?? 'This home',
       isHome: true,
-      ready: !homeSetup || homeSetup.status === 'ready',
-      problem: homeSetup && homeSetup.status !== 'ready' ? notReady(`${ws.name}'s folder here`, homeSetup) : null,
+      ready: !homeSetup || setupUsable(homeSetup.status),
+      problem: homeSetup && !setupUsable(homeSetup.status) ? setupProblem(`${ws.name}'s folder here`, homeSetup) : null,
       connected: true,
       needsSetup: false,
     });

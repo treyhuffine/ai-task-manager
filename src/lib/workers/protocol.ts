@@ -29,8 +29,14 @@ export const HOME_ADDRESS_SCHEME = 'ri-home:';
  * 2: a session elsewhere gets its reference folders as `agentFolders`, which
  * the worker's runner resolves and wires at spawn (P2.7 to P2.9 review
  * fixes). A worker on 1 would start those sessions without them.
+ *
+ * 3: the home's records are the only place an agent's folders are kept
+ * (docs/homes-spec.md §4.1). The home sends a worker its folders (`folders`)
+ * when it connects and whenever they change, and asks it to check them
+ * (`check_folders`) and list them for choosing (`list_folders`). A worker on
+ * 2 would look for setup files that no longer exist.
  */
-export const WORKER_PROTOCOL = 2;
+export const WORKER_PROTOCOL = 3;
 export const WORKER_PROTOCOL_HEADER = `x-${APP_SHORT_ID}-worker-protocol`;
 
 export const WORKER_HEARTBEAT_MS = 20_000;
@@ -50,7 +56,25 @@ export type WorkerRequestKind =
   | 'github'
   | 'list_history'
   | 'read_history'
-  | 'setup_agent';
+  | 'setup_agent'
+  | 'check_folders'
+  | 'list_folders';
+
+/** One agent's project folder on the worker's computer, as the home records it. */
+export interface WorkerFolderSetup {
+  agentId: string;
+  sourcePath: string;
+}
+
+/** Whether each folder is there, on the worker's computer. */
+export interface CheckFoldersRequest {
+  paths: string[];
+}
+
+/** A folder's folders on the worker's computer, for choosing one. Null: the person's home folder. */
+export interface ListFoldersRequest {
+  path: string | null;
+}
 
 /**
  * Read an execution placed on the worker's computer. It names the execution,
@@ -233,6 +257,7 @@ export type WorkerStreamEvent =
   | { type: 'command'; command: WorkerCommand }
   | { type: 'request'; id: string; kind: WorkerRequestKind; payload: unknown }
   | { type: 'revoked'; message: string }
+  | { type: 'folders'; setups: WorkerFolderSetup[] }
   | { type: 'ping' };
 
 /** What's live on the worker's computer, for the home's mirror. */

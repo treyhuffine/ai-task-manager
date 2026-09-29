@@ -75,6 +75,56 @@ export function useRunOn(workspaceId: string | null) {
   });
 }
 
+/** The agent's folders on each of the person's computers (docs/homes-spec.md §4.1). */
+export function useAgentFolders(workspaceId: string | null) {
+  return useQuery({
+    queryKey: [...WORKSPACES_KEY, workspaceId, 'folders'],
+    queryFn: ({ signal }) => workspacesApi.folders(workspaceId!, { signal }),
+    enabled: !!workspaceId,
+    staleTime: 10_000,
+  });
+}
+
+/** Changing where an agent's folders are: the view comes back with the answer, and where it can run follows. */
+export function useChangeAgentFolders(workspaceId: string) {
+  const qc = useQueryClient();
+  const settle = (data: Awaited<ReturnType<typeof workspacesApi.folders>>) => {
+    qc.setQueryData([...WORKSPACES_KEY, workspaceId, 'folders'], data);
+    void qc.invalidateQueries({ queryKey: [...WORKSPACES_KEY, workspaceId, 'run-on'] });
+    void qc.invalidateQueries({ queryKey: ['reference-folders'] });
+  };
+  return {
+    project: useMutation({
+      mutationFn: (v: { computerId: string; folder: string }) => workspacesApi.setProjectFolder(workspaceId, v.computerId, v.folder),
+      onSuccess: settle,
+    }),
+    linked: useMutation({
+      mutationFn: (v: { computerId: string; referenceFolderId: string; folder: string | null }) =>
+        workspacesApi.setLinkedFolder(workspaceId, v.computerId, v.referenceFolderId, v.folder),
+      onSuccess: settle,
+    }),
+    add: useMutation({
+      mutationFn: (v: Parameters<typeof workspacesApi.addLinkedFolder>[1]) => workspacesApi.addLinkedFolder(workspaceId, v),
+      onSuccess: settle,
+    }),
+    remove: useMutation({
+      mutationFn: (computerId: string) => workspacesApi.removeFromComputer(workspaceId, computerId),
+      onSuccess: settle,
+    }),
+  };
+}
+
+/** A folder's folders on a computer, for choosing one. */
+export function useComputerFolders(computerId: string | null, at: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['computers', computerId, 'folders', at],
+    queryFn: ({ signal }) => workspacesApi.computerFolders(computerId!, at, { signal }),
+    enabled: enabled && !!computerId,
+    staleTime: 5_000,
+    retry: false,
+  });
+}
+
 /** What setting the agent up on that computer would do, asked of that computer when the dialog opens. */
 export function useSetupPlan(workspaceId: string | null, computerId: string | null, enabled: boolean) {
   return useQuery({

@@ -6,6 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import { setUpAgentOn } from '@/test/fixtures/setups';
 
 // Real Git setup per test: past the 5s default when the whole suite runs at once.
 vi.setConfig({ testTimeout: 30_000 });
@@ -34,11 +35,7 @@ afterEach(async () => {
 });
 
 async function setUpOn(computerId: string, status: 'ready' | 'missing_folder' = 'ready') {
-  const q = await import('@/lib/db/queries');
-  q.recordAgentSetupReports(computerId, [{
-    agentId, sourcePath: computerId === hostId ? home.root : '/Users/trey/code/ri', configRevision: null,
-    status, problem: status === 'ready' ? null : 'The folder is gone.', references: [],
-  }], { complete: true });
+  await setUpAgentOn(agentId, computerId, computerId === hostId ? home.root : '/Users/trey/code/ri', { found: status === 'ready' });
 }
 
 describe('the choices and the default', () => {
@@ -69,7 +66,7 @@ describe('the choices and the default', () => {
     await setUpOn(laptopId);
     const { runOnFor } = await import('./run-on');
     const runOn = runOnFor(agentId)!;
-    expect(runOn.choices[0]).toMatchObject({ isHome: true, ready: false, problem: "Ri's folder here isn't ready: The folder is gone." });
+    expect(runOn.choices[0]).toMatchObject({ isHome: true, ready: false, problem: `Ri's folder on Mac Mini, ${home.root}, isn't there.` });
     expect(runOn.defaultId).toBe(laptopId);
   });
 
@@ -77,12 +74,12 @@ describe('the choices and the default', () => {
     await setUpOn(hostId);
     await setUpOn(laptopId, 'missing_folder');
     const { runOnFor } = await import('./run-on');
-    expect(runOnFor(agentId)!.choices[1]).toMatchObject({ ready: false, problem: "Ri's folder on MacBook isn't ready: The folder is gone." });
+    expect(runOnFor(agentId)!.choices[1]).toMatchObject({ ready: false, problem: "Ri's folder on MacBook, /Users/trey/code/ri, isn't there." });
 
     const q = await import('@/lib/db/queries');
     const key = q.createApiKey({ name: 'Other CLI', deviceType: 'computer' });
     const other = q.registerComputerForApiKey({ apiKeyId: key.key.id, name: 'Old iMac', platform: 'darwin' }).computer.id;
-    q.recordAgentSetupReports(other, [{ agentId, sourcePath: '/Users/trey/ri', configRevision: null, status: 'ready', problem: null, references: [] }], { complete: true });
+    await setUpAgentOn(agentId, other, '/Users/trey/ri');
     expect(runOnFor(agentId)!.choices.find((c) => c.computerId === other)).toMatchObject({
       ready: false,
       problem: "Old iMac isn't set up to run agents. Run `ri worker enroll` there first.",
@@ -115,7 +112,7 @@ describe('Make this the default', () => {
     setDefaultComputer(agentId, laptopId);
     const q = await import('@/lib/db/queries');
     // The laptop reports it no longer has the agent.
-    q.recordAgentSetupReports(laptopId, [], { complete: true });
+    q.removeAgentSetup(agentId, laptopId);
     const runOn = runOnFor(agentId)!;
     expect(runOn.defaultId).toBe(laptopId);
     expect(runOn.choices.find((c) => c.computerId === laptopId)).toMatchObject({
@@ -153,7 +150,7 @@ describe('a start that names no computer', () => {
     const q = await import('@/lib/db/queries');
     const { dispatchExecutionSession, ComputerUnavailableForDispatch } = await import('@/lib/sessions/dispatch');
     await expect(dispatchExecutionSession({ workspaceId: agentId })).rejects.toBeInstanceOf(ComputerUnavailableForDispatch);
-    await expect(dispatchExecutionSession({ workspaceId: agentId })).rejects.toThrow("Ri's folder on MacBook isn't ready");
+    await expect(dispatchExecutionSession({ workspaceId: agentId })).rejects.toThrow("Ri's folder on MacBook, /Users/trey/code/ri, isn't there.");
     expect(q.listChatSessions({ type: 'execution' })).toHaveLength(0);
   });
 
@@ -204,3 +201,13 @@ describe('the run-on route', () => {
   });
 });
 
+
+describe('a folder not checked yet', () => {
+  it('can take work: its computer checks it again before it prepares any', async () => {
+    const q = await import('@/lib/db/queries');
+    q.setAgentFolder(agentId, laptopId, '/Users/trey/code/ri');
+    expect(q.getAgentSetup(agentId, laptopId)).toMatchObject({ status: 'unchecked', found: null });
+    const { runOnFor } = await import('./run-on');
+    expect(runOnFor(agentId)!.choices.find((c) => c.computerId === laptopId)).toMatchObject({ ready: true, needsSetup: false });
+  });
+});

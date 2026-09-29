@@ -7,6 +7,7 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import { setUpAgentOn } from '@/test/fixtures/setups';
 
 let home: TestHome;
 let sessionId: string;
@@ -46,7 +47,7 @@ it('says the agent is not on that computer yet, rather than refusing a computer 
 
 it('says that computer is not running Ri right now', async () => {
   const q = await import('@/lib/db/queries');
-  q.recordAgentSetupReports(laptopId, [{ agentId, sourcePath: '/Users/me/ri', configRevision: null, status: 'ready', problem: null, references: [] }], { complete: true });
+  await setUpAgentOn(agentId, laptopId, '/Users/me/ri');
   expect(await move(laptopId)).toEqual({
     status: 409,
     body: { error: 'destination_not_ready', message: "Laptop isn't running Ri right now. Start Ri on Laptop, then move it." },

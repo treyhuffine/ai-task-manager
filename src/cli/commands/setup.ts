@@ -1,121 +1,105 @@
 /**
- * `<app> setup`: set up agent folders on this computer (docs/homes-spec.md §4).
+ * `<app> setup`: an agent's folders on this computer (docs/homes-spec.md
+ * §4.1-4.2). The home's records are the only place they're kept: these
+ * commands record them there, and nothing is written in the folders.
  *
- *   ri setup                                  check every setup here and report it to the home
- *   ri setup attach <agent> [folder] [--ref alias=value ...]
- *   ri setup ref <agent> <alias> <value>      value: a path, agent:<id>, omit, or unset
+ *   ri setup                                  this computer's agents and their folders
+ *   ri setup attach <agent> [folder] [--link alias=folder|omit ...]
+ *   ri setup link <agent> <alias> <folder|omit>   where a linked folder is here, or go without it
  *   ri setup relink <agent> <folder>          after renaming or moving the folder
- *   ri setup restore <agent> [--yes]          rebuild a deleted setup file
  *   ri setup detach <agent>
- *   ri setup adopt [--yes]                    on the home: move existing agent folders into setup files
  *
- * The folder gets a `.ri.local.json` that only this computer uses, kept out
- * of Git. The same commands work on the home and on a connected computer.
+ * The same commands work on the home and on a connected computer.
  */
 
-import readline from 'node:readline/promises';
+import fs from 'node:fs';
+import path from 'node:path';
 import pc from 'picocolors';
 import { Command } from 'commander';
-import type { ReferenceValue } from '@/lib/setups/local-file';
-import type { SetupReport } from '@/lib/setups/resolve';
-import type { AdoptionPlan } from '@/lib/setups/adopt';
-import {
-  attach,
-  detach,
-  planRestore,
-  relink,
-  restore,
-  setReference,
-  SetupError,
-  syncSetups,
-} from '@/lib/setups/service';
-import { setupLinkForThisComputer } from '../lib/setup-link';
+import type { AgentSetupWithComputer } from '@/lib/db/queries';
+import { dispatchAction } from '../lib/dispatch';
+import { SetupCommandError, thisComputerId, unwrap } from '../lib/setup-link';
 
-function parseValue(raw: string): ReferenceValue | undefined {
+/** A folder on this computer, as typed: absolute, and there. */
+function folderHere(typed: string): string {
+  const dir = path.resolve(typed.startsWith('~/') ? path.join(process.env.HOME ?? '', typed.slice(2)) : typed);
+  let isDir = false;
+  try {
+    isDir = fs.statSync(dir).isDirectory();
+  } catch {
+    /* missing */
+  }
+  if (!isDir) throw new SetupCommandError(`${dir} doesn't exist or isn't a folder.`);
+  return dir;
+}
+
+/** `omit` goes without it here. Anything else is a folder here. */
+function linkValue(raw: string): string | null {
   if (raw === 'omit') return null;
-  if (raw === 'unset') return undefined;
-  if (raw.startsWith('agent:')) return { agentId: raw.slice('agent:'.length) };
-  return raw;
+  if (raw.startsWith('agent:')) {
+    throw new SetupCommandError('A linked folder that is another agent is that agent\'s own folder on each computer: set that agent up here instead.');
+  }
+  return folderHere(raw);
 }
 
-function describeValue(value: ReferenceValue | undefined): string {
-  if (value === undefined) return 'unset';
-  if (value === null) return 'left out here';
-  if (typeof value === 'string') return value;
-  return `agent ${value.agentId}`;
-}
-
-function printReport(report: SetupReport, name: string): void {
-  const mark = report.status === 'ready' ? pc.green('ready') : pc.yellow(report.status.replace(/_/g, ' '));
+function printSetup(setup: AgentSetupWithComputer, name: string): void {
+  const mark = setup.status === 'ready' ? pc.green('ready') : pc.yellow(setup.status.replace(/_/g, ' '));
   console.log(`${pc.bold(name)}  ${mark}`);
-  console.log(`  ${pc.dim('folder')}  ${report.sourcePath}`);
-  for (const ref of report.references) {
-    const where = ref.path ?? describeValue(ref.value);
+  console.log(`  ${pc.dim('folder')}  ${setup.sourcePath}`);
+  for (const ref of setup.references) {
+    const where = ref.form === 'omitted' ? 'goes without it here' : ref.form === 'unconfigured' ? 'not chosen here' : (ref.path ?? '?');
     const flag = ref.problem ? pc.yellow(' !') : '';
     console.log(`  ${pc.dim('@' + ref.alias)}  ${where}${flag}`);
   }
-  if (report.problem) console.log(`  ${pc.yellow(report.problem)}`);
+  if (setup.problem) console.log(`  ${pc.yellow(setup.problem)}`);
 }
 
-async function withLink<T>(fn: (link: Awaited<ReturnType<typeof setupLinkForThisComputer>>) => Promise<T>): Promise<T | undefined> {
+async function run(fn: () => Promise<void>): Promise<void> {
   try {
-    return await fn(await setupLinkForThisComputer());
+    await fn();
   } catch (err) {
-    if (err instanceof SetupError || (err instanceof Error && err.name === 'SetupFileConflictError')) {
+    if (err instanceof SetupCommandError) {
       console.error(pc.red(err.message));
       process.exitCode = 1;
-      return undefined;
+      return;
     }
     throw err;
   }
+}
+
+async function recorded(agent: string, computerId: string): Promise<AgentSetupWithComputer | null> {
+  const setups = unwrap<AgentSetupWithComputer[]>(await dispatchAction('list_agent_setups', {}));
+  const names = await agentNames();
+  const id = names.has(agent) ? agent : [...names].find(([, n]) => n.toLowerCase() === agent.toLowerCase())?.[0] ?? agent;
+  return setups.find((s) => s.workspaceId === id && s.computerId === computerId) ?? null;
+}
+
+async function agentNames(): Promise<Map<string, string>> {
+  const agents = unwrap<Array<{ id: string; name: string }>>(await dispatchAction('list_workspaces', {}));
+  return new Map(agents.map((a) => [a.id, a.name]));
 }
 
 function collect(value: string, previous: string[] = []): string[] {
   return [...previous, value];
 }
 
-export function printAdoptionPlan(plan: AdoptionPlan, names: Map<string, string> = new Map()): void {
-  for (const step of plan.steps) {
-    const label = { create: 'write', add: 'add to', register: 'register', skip: 'skip' }[step.kind];
-    const color = step.kind === 'skip' ? pc.yellow : pc.cyan;
-    console.log(`${color(label.padEnd(9))} ${step.dir}`);
-    if (step.kind === 'skip') {
-      console.log(`          ${pc.yellow(step.reason)}`);
-      continue;
-    }
-    if (step.kind === 'register') continue;
-    for (const id of step.agents) {
-      const refs = Object.entries(step.file.agents[id]!.references);
-      console.log(`          ${names.get(id) ?? id}${refs.length ? '' : pc.dim(' (no references)')}`);
-      for (const [alias, value] of refs) console.log(`            @${alias}  ${describeValue(value)}`);
-    }
-  }
-}
-
 export function registerSetupCommand(program: Command) {
   const setup = program
     .command('setup')
-    .description("Set up agent folders on this computer and report them to your home")
+    .description("Your agents' folders on this computer, as your home records them")
     .action(async () => {
-      await withLink(async (link) => {
-        const ctx = await link.context();
-        const reports = await syncSetups(link, ctx);
-        const names = new Map(ctx.agents.map((a) => [a.id, a.name]));
-        const { getInstallationRole } = await import('@/lib/config/role');
-        if (getInstallationRole() === 'home') {
-          const { planHomeAdoption } = await import('@/lib/setups/home-context');
-          const pending = planHomeAdoption().steps.filter((s) => s.kind !== 'skip');
-          if (pending.length) {
-            console.log(pc.yellow(`${pending.length} folder(s) here still keep their agent's setup only in the database. Run \`ri setup adopt\` to move them into setup files.\n`));
-          }
-        }
-        if (reports.length === 0) {
-          console.log(`No agent folders are set up on ${ctx.computerName} yet. Use \`ri setup attach <agent> <folder>\`.`);
+      await run(async () => {
+        const computerId = await thisComputerId();
+        const setups = unwrap<Array<AgentSetupWithComputer & { agentName: string | null }>>(await dispatchAction('list_agent_setups', {})).filter(
+          (s) => s.computerId === computerId,
+        );
+        if (setups.length === 0) {
+          console.log('No agent is set up on this computer yet. Use `ri setup attach <agent> <folder>`, or set it up from the app.');
           return;
         }
-        console.log(pc.dim(`${ctx.computerName}, for ${ctx.homeName}\n`));
-        for (const r of reports) {
-          printReport(r, names.get(r.agentId) ?? r.agentId);
+        console.log(pc.dim(`${setups[0]!.computerName}\n`));
+        for (const s of setups) {
+          printSetup(s, s.agentName ?? s.workspaceId);
           console.log();
         }
       });
@@ -123,118 +107,61 @@ export function registerSetupCommand(program: Command) {
 
   setup
     .command('attach <agent> [folder]')
-    .description('Set up a folder on this computer for an existing agent (default: the current folder)')
-    .option('--ref <alias=value>', 'map a reference: a path, agent:<id>, or omit', collect)
-    .action(async (agent: string, folder: string | undefined, opts: { ref?: string[] }) => {
-      const references: Record<string, ReferenceValue> = {};
-      for (const pair of opts.ref ?? []) {
-        const eq = pair.indexOf('=');
-        if (eq <= 0) {
-          console.error(pc.red(`--ref needs alias=value, got "${pair}"`));
-          process.exitCode = 1;
-          return;
+    .description('Record the folder an agent is in on this computer (default: the current folder)')
+    .option('--link <alias=folder>', "where a linked folder is here, or alias=omit to go without it", collect)
+    .action(async (agent: string, folder: string | undefined, opts: { link?: string[] }) => {
+      await run(async () => {
+        const computerId = await thisComputerId();
+        const dir = folderHere(folder ?? process.cwd());
+        const links: Array<[string, string | null]> = [];
+        for (const pair of opts.link ?? []) {
+          const eq = pair.indexOf('=');
+          if (eq <= 0) throw new SetupCommandError(`--link needs alias=folder, got "${pair}"`);
+          links.push([pair.slice(0, eq), linkValue(pair.slice(eq + 1))]);
         }
-        const value = parseValue(pair.slice(eq + 1));
-        if (value !== undefined) references[pair.slice(0, eq)] = value;
-      }
-      await withLink(async (link) => {
-        const report = await attach(link, { agent, folder: folder ?? process.cwd(), references });
-        const ctx = await link.context();
-        printReport(report, ctx.agents.find((a) => a.id === report.agentId)?.name ?? agent);
+        unwrap(await dispatchAction('set_agent_folder', { agent, folder: dir, computerId }));
+        for (const [alias, value] of links) {
+          unwrap(await dispatchAction('set_linked_folder', { agent, alias, folder: value, computerId }));
+        }
+        const now = await recorded(agent, computerId);
+        if (now) printSetup(now, agent);
       });
     });
 
-  setup
-    .command('ref <agent> <alias> <value>')
-    .description('Map one reference on this computer: a path, agent:<id>, omit, or unset')
-    .action(async (agent: string, alias: string, raw: string) => {
-      await withLink(async (link) => {
-        const report = await setReference(link, { agent, alias, value: parseValue(raw) });
-        printReport(report, agent);
+  for (const name of ['link', 'ref']) {
+    setup
+      .command(`${name} <agent> <alias> <folder>`)
+      .description(name === 'link' ? "Where one of an agent's linked folders is on this computer, or omit to go without it" : 'Same as link')
+      .action(async (agent: string, alias: string, raw: string) => {
+        await run(async () => {
+          const computerId = await thisComputerId();
+          unwrap(await dispatchAction('set_linked_folder', { agent, alias, folder: linkValue(raw), computerId }));
+          const now = await recorded(agent, computerId);
+          if (now) printSetup(now, agent);
+        });
       });
-    });
+  }
 
   setup
     .command('relink <agent> <folder>')
-    .description("Point an agent at its folder's new location after a rename or move")
+    .description("Record an agent's folder's new place on this computer, after a rename or move")
     .action(async (agent: string, folder: string) => {
-      await withLink(async (link) => {
-        const report = await relink(link, { agent, folder });
-        printReport(report, agent);
+      await run(async () => {
+        const computerId = await thisComputerId();
+        unwrap(await dispatchAction('set_agent_folder', { agent, folder: folderHere(folder), computerId }));
+        const now = await recorded(agent, computerId);
+        if (now) printSetup(now, agent);
       });
-    });
-
-  setup
-    .command('restore <agent>')
-    .description('Rebuild a deleted setup file from what your home last saw, after confirming')
-    .option('-y, --yes', 'restore without asking')
-    .action(async (agent: string, opts: { yes?: boolean }) => {
-      await withLink(async (link) => {
-        const plan = await planRestore(link, { agent });
-        const names = new Map((await link.context()).agents.map((a) => [a.id, a.name]));
-        console.log(`Restore ${pc.bold(plan.dir)}/.ri.local.json with:`);
-        for (const id of plan.agents) {
-          console.log(`  ${names.get(id) ?? id}`);
-          for (const [alias, value] of Object.entries(plan.file.agents[id]!.references)) {
-            console.log(`    @${alias}  ${describeValue(value)}`);
-          }
-        }
-        if (!opts.yes) {
-          if (!process.stdin.isTTY) {
-            console.error(pc.yellow('Confirm with --yes to write it.'));
-            process.exitCode = 1;
-            return;
-          }
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = (await rl.question('Write it? [y/N] ')).trim().toLowerCase();
-          rl.close();
-          if (answer !== 'y' && answer !== 'yes') {
-            console.log('Nothing written.');
-            return;
-          }
-        }
-        for (const report of await restore(link, plan)) printReport(report, names.get(report.agentId) ?? report.agentId);
-      });
-    });
-
-  setup
-    .command('adopt')
-    .description("On the home: write setup files for agents that only have a folder in the database. Shows the plan unless --yes.")
-    .option('-y, --yes', 'write the plan')
-    .action(async (opts: { yes?: boolean }) => {
-      const { getInstallationRole } = await import('@/lib/config/role');
-      if (getInstallationRole() !== 'home') {
-        console.error(pc.red('Adopt runs on the home, for the folders on its own computer.'));
-        process.exitCode = 1;
-        return;
-      }
-      const { planHomeAdoption, adoptHomeSetups } = await import('@/lib/setups/home-context');
-      const { listWorkspaces } = await import('@/lib/db/queries');
-      const names = new Map(listWorkspaces({ status: 'active' }).map((w) => [w.id, w.name]));
-      const plan = planHomeAdoption();
-      if (plan.steps.length === 0) {
-        console.log('Every agent with a folder on this computer is already set up.');
-        return;
-      }
-      printAdoptionPlan(plan, names);
-      if (!opts.yes) {
-        console.log(pc.dim('\nNothing written. Run again with --yes to write these setup files.'));
-        return;
-      }
-      const { result, reports } = await adoptHomeSetups(plan);
-      console.log(pc.green(`\nWrote ${result.written.length} setup file(s), registered ${result.registered.length} folder(s).`));
-      for (const s of result.skipped) console.log(pc.yellow(`  skipped ${s.dir}: ${s.reason}`));
-      const blocked = reports.filter((r) => r.status !== 'ready');
-      for (const r of blocked) console.log(pc.yellow(`  ${names.get(r.agentId) ?? r.agentId}: ${r.problem}`));
     });
 
   setup
     .command('detach <agent>')
-    .description("Remove an agent's setup from this computer. The folder itself is untouched.")
+    .description('Take an agent off this computer. Its folder itself is untouched.')
     .action(async (agent: string) => {
-      await withLink(async (link) => {
-        await detach(link, { agent });
-        console.log(`Removed ${agent}'s setup from this computer.`);
+      await run(async () => {
+        const computerId = await thisComputerId();
+        unwrap(await dispatchAction('remove_agent_setup', { agent, computerId }));
+        console.log(`Took ${agent} off this computer.`);
       });
     });
 }

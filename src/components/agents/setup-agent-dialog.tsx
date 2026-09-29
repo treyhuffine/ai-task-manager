@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useSetUpAgent, useSetupPlan } from '@/hooks/use-workspaces';
+import { FolderField } from './folder-field';
 import { apiErrorText } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 
@@ -166,13 +167,16 @@ function SetupAgentBody({
           )}
           <Choice selected={how === 'existing'} onSelect={() => setHow('existing')} title={`Use a folder that's already on ${computer.name}`}>
             {how === 'existing' && (
-              <Input
-                autoFocus={!data.remote}
-                value={existing}
-                onChange={(e) => setExisting(e.target.value)}
-                placeholder={`~/code/${agentName.toLowerCase()}`}
-                className="mt-1.5 h-8 text-[12.5px]"
-              />
+              <div className="mt-1.5">
+                <FolderField
+                  autoFocus={!data.remote}
+                  value={existing}
+                  onChange={setExisting}
+                  computer={computer}
+                  browsable
+                  placeholder={`~/code/${agentName.toLowerCase()}`}
+                />
+              </div>
             )}
           </Choice>
         </div>
@@ -195,12 +199,15 @@ function SetupAgentBody({
                 </p>
               ) : (
                 <div className="flex items-center gap-2">
-                  <Input
-                    value={answers[m.alias] ?? ''}
-                    onChange={(e) => setAnswers((a) => ({ ...a, [m.alias]: e.target.value }))}
-                    placeholder={`Where ${m.alias} is on ${computer.name}`}
-                    className="h-8 text-[12.5px]"
-                  />
+                  <div className="min-w-0 flex-1">
+                    <FolderField
+                      value={answers[m.alias] ?? ''}
+                      onChange={(v) => setAnswers((a) => ({ ...a, [m.alias]: v }))}
+                      computer={computer}
+                      browsable
+                      placeholder={`Where ${m.alias} is on ${computer.name}`}
+                    />
+                  </div>
                   <Button type="button" variant="ghost" size="sm" onClick={() => setAnswers((a) => ({ ...a, [m.alias]: SKIP }))}>
                     Go without it
                   </Button>

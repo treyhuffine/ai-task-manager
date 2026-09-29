@@ -1,15 +1,20 @@
 'use client';
 
 /**
- * Add or edit one reference folder (docs/reference-folders-spec.md §9).
+ * Add or edit one linked folder (docs/reference-folders-spec.md §9,
+ * docs/homes-spec.md §4.2).
  *
  * The whole point is that adding one should feel like nothing: pick a folder,
  * confirm the alias we guessed, done. Description is optional and the global
  * toggle is off by default, so the common path is two clicks.
+ *
+ * A folder has a place on each computer. Adding one places it on the computer
+ * it's added from, and editing changes only what it is. Its place on each
+ * computer is changed from the agent's Folders, one computer at a time.
  */
 
-import { useEffect, useMemo, useState } from 'react';
-import { FolderOpen, Loader2, AlertTriangle } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { FolderOpen, Loader2, AlertTriangle, Trash2 } from 'lucide-react';
 import slugify from '@sindresorhus/slugify';
 import {
   Dialog,
@@ -23,7 +28,10 @@ import { Switch } from '@/components/ui/switch';
 import { FolderPickerDialog } from './folder-picker-dialog';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
-import type { ResolvedReferenceFolder } from '@/db/types';
+import type { ReferenceFolderRecord } from '@/db/types';
+
+/** The linked folder being edited: what it is, not where. */
+export type LinkedFolderDefinition = Pick<ReferenceFolderRecord, 'id' | 'alias' | 'description' | 'workspaceId' | 'targetWorkspaceId'>;
 
 export interface ReferenceFolderDraft {
   alias: string;
@@ -47,9 +55,15 @@ interface ReferenceFolderDialogProps {
   /** Name of that workspace, used in the "add the reverse too" copy. */
   workspaceName?: string;
   /** Existing row when editing; null when adding. */
-  editing?: ResolvedReferenceFolder | null;
+  editing?: LinkedFolderDefinition | null;
   /** Aliases already taken in this view, used for the shadow/conflict warning. */
-  existing: ResolvedReferenceFolder[];
+  existing: Array<{ id: string; alias: string; global: boolean }>;
+  /** The computer a new folder is placed on, and browsed. */
+  computer?: { id: string; name: string };
+  /** Whether that computer's folders can be browsed now. */
+  browsable?: boolean;
+  /** Offered beside Save when editing: removes it, after asking. */
+  onRemove?: () => void;
   saving: boolean;
   error: string | null;
   onSubmit: (draft: ReferenceFolderDraft) => void;
@@ -63,8 +77,18 @@ function aliasFromPath(p: string): string {
   return slugify(leaf, { separator: '-' });
 }
 
-export function ReferenceFolderDialog({
-  open,
+export function ReferenceFolderDialog(props: ReferenceFolderDialogProps) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        {/* Mounted each time it opens, so a previous add doesn't bleed into the next one. */}
+        {props.open && <ReferenceFolderForm {...props} />}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReferenceFolderForm({
   onOpenChange,
   workspaceId,
   workspaceName,
@@ -73,31 +97,20 @@ export function ReferenceFolderDialog({
   saving,
   error,
   onSubmit,
+  computer,
+  browsable = true,
+  onRemove,
 }: ReferenceFolderDialogProps) {
   const { data: workspaces } = useWorkspaces({ status: 'active' });
-  const [mode, setMode] = useState<Mode>('folder');
+  const [mode, setMode] = useState<Mode>(editing?.targetWorkspaceId ? 'workspace' : 'folder');
   const [path, setPath] = useState('');
-  const [targetWorkspaceId, setTargetWorkspaceId] = useState('');
-  const [alias, setAlias] = useState('');
-  const [aliasTouched, setAliasTouched] = useState(false);
-  const [description, setDescription] = useState('');
-  const [global, setGlobal] = useState(false);
+  const [targetWorkspaceId, setTargetWorkspaceId] = useState(editing?.targetWorkspaceId ?? '');
+  // What the person typed. Until they type, the alias follows the target.
+  const [typedAlias, setTypedAlias] = useState<string | null>(editing?.alias ?? null);
+  const [description, setDescription] = useState(editing?.description ?? '');
+  const [global, setGlobal] = useState(editing ? editing.workspaceId === null : false);
   const [addReverse, setAddReverse] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-
-  // Reset on every open so a previous add doesn't bleed into the next one.
-  useEffect(() => {
-    if (!open) return;
-    setMode(editing?.targetWorkspaceId ? 'workspace' : 'folder');
-    setPath(editing?.path ?? '');
-    setTargetWorkspaceId(editing?.targetWorkspaceId ?? '');
-    setAlias(editing?.alias ?? '');
-    setAliasTouched(!!editing);
-    setDescription(editing?.description ?? '');
-    setGlobal(editing ? editing.workspaceId === null : false);
-    setAddReverse(false);
-    setPickerOpen(false);
-  }, [open, editing]);
 
   const selectableWorkspaces = useMemo(
     // A workspace referencing itself is rejected server-side; don't offer it.
@@ -105,19 +118,18 @@ export function ReferenceFolderDialog({
     [workspaces, workspaceId],
   );
 
-  // Keep the alias in lockstep with the target until the user types their own.
-  useEffect(() => {
-    if (aliasTouched) return;
-    if (mode === 'folder' && path) setAlias(aliasFromPath(path));
-    if (mode === 'workspace' && targetWorkspaceId) {
-      const ws = selectableWorkspaces.find((w) => w.id === targetWorkspaceId);
-      if (ws) setAlias(slugify(ws.name, { separator: '-' }));
-    }
-  }, [mode, path, targetWorkspaceId, aliasTouched, selectableWorkspaces]);
+  const guessedAlias =
+    mode === 'folder'
+      ? path
+        ? aliasFromPath(path)
+        : ''
+      : slugify(selectableWorkspaces.find((w) => w.id === targetWorkspaceId)?.name ?? '', { separator: '-' });
+  const alias = typedAlias ?? guessedAlias;
 
   const normalizedAlias = alias.trim().toLowerCase();
   const aliasValid = /^[a-z0-9][a-z0-9._-]*$/.test(normalizedAlias);
-  const hasTarget = mode === 'folder' ? path.trim().length > 0 : targetWorkspaceId.length > 0;
+  // Editing changes what it is. Where it is, is chosen per computer.
+  const hasTarget = mode === 'folder' ? !!editing || path.trim().length > 0 : targetWorkspaceId.length > 0;
   const canSubmit = aliasValid && hasTarget && !saving;
 
   // Adding a workspace-scoped alias that matches a global one is allowed —
@@ -140,7 +152,7 @@ export function ReferenceFolderDialog({
     if (!canSubmit) return;
     onSubmit({
       alias: normalizedAlias,
-      path: mode === 'folder' ? path.trim() : null,
+      path: mode === 'folder' && !editing ? path.trim() : null,
       targetWorkspaceId: mode === 'workspace' ? targetWorkspaceId : null,
       description: description.trim() || null,
       workspaceId: global ? null : workspaceId,
@@ -150,173 +162,185 @@ export function ReferenceFolderDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{editing ? 'Edit reference folder' : 'Add reference folder'}</DialogTitle>
-            <DialogDescription>
-              A folder this agent can read and search but never change.
-            </DialogDescription>
-          </DialogHeader>
+      <DialogHeader>
+        <DialogTitle>{editing ? `Edit @${editing.alias}` : 'Add a linked folder'}</DialogTitle>
+        <DialogDescription>
+          A folder this agent can read and search but never change.
+        </DialogDescription>
+      </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
-              <ModeTab active={mode === 'folder'} onClick={() => setMode('folder')}>
-                Folder on disk
-              </ModeTab>
-              <ModeTab active={mode === 'workspace'} onClick={() => setMode('workspace')}>
-                Another agent
-              </ModeTab>
-            </div>
+      <div className="space-y-4">
+        {!editing && (
+          <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
+            <ModeTab active={mode === 'folder'} onClick={() => setMode('folder')}>
+              A folder
+            </ModeTab>
+            <ModeTab active={mode === 'workspace'} onClick={() => setMode('workspace')}>
+              Another agent
+            </ModeTab>
+          </div>
+        )}
 
-            {mode === 'folder' ? (
-              <Field label="Folder">
-                <div className="flex gap-2">
-                  <input
-                    value={path}
-                    onChange={(e) => setPath(e.target.value)}
-                    placeholder="/Users/you/code/api"
-                    spellCheck={false}
-                    className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setPickerOpen(true)}
-                    className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  >
-                    <FolderOpen size={13} />
-                    Browse
-                  </button>
-                </div>
-                <FieldHint>
-                  Anything with a path works: a sibling repo, a docs folder, even an installed
-                  dependency under <code className="font-mono">node_modules</code>.
-                </FieldHint>
-              </Field>
-            ) : (
-              <Field label="Agent">
-                <select
-                  value={targetWorkspaceId}
-                  onChange={(e) => setTargetWorkspaceId(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  <option value="">Choose an agent…</option>
-                  {selectableWorkspaces.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.emoji ? `${w.emoji} ${w.name}` : w.name}
-                    </option>
-                  ))}
-                </select>
-                <FieldHint>
-                  Follows that agent if its folder moves. This agent reads whatever is checked out
-                  there, not any in-progress worktree.
-                </FieldHint>
-              </Field>
-            )}
-
-            <Field label="Alias">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-sm text-muted-foreground">@</span>
+        {mode === 'folder' ? (
+          editing ? null : (
+            <Field label={computer ? `Where it is on ${computer.name}` : 'Folder'}>
+              <div className="flex gap-2">
                 <input
-                  value={alias}
-                  onChange={(e) => {
-                    setAlias(e.target.value);
-                    setAliasTouched(true);
-                  }}
-                  placeholder="backend"
+                  value={path}
+                  onChange={(e) => setPath(e.target.value)}
+                  placeholder="/Users/you/code/api"
                   spellCheck={false}
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                 />
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen(true)}
+                  disabled={!browsable}
+                  title={browsable ? undefined : `${computer?.name ?? 'That computer'} isn't running Ri right now. Type the path instead.`}
+                  className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+                >
+                  <FolderOpen size={13} />
+                  Browse
+                </button>
               </div>
-              {normalizedAlias && !aliasValid ? (
-                <FieldHint tone="error">
-                  Lowercase letters, digits, dot, dash or underscore. Must start with a letter or
-                  digit.
-                </FieldHint>
-              ) : (
-                <FieldHint>What you type after @ in chat to point the agent here.</FieldHint>
-              )}
-            </Field>
-
-            <Field label="Why you'd look there">
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-                placeholder="Go API server this app calls. HTTP routes live in internal/http/."
-                className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-              />
               <FieldHint>
-                Optional. Worth a line when the name alone doesn&apos;t say why the agent would
-                open it.
+                Anything with a path works: a sibling repo, a docs folder, even an installed
+                dependency under <code className="font-mono">node_modules</code>.
+                {computer && ' Your other computers each choose their own place for it.'}
               </FieldHint>
             </Field>
+          )
+        ) : (
+          <Field label="Agent">
+            <select
+              value={targetWorkspaceId}
+              onChange={(e) => setTargetWorkspaceId(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="">Choose an agent…</option>
+              {selectableWorkspaces.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.emoji ? `${w.emoji} ${w.name}` : w.name}
+                </option>
+              ))}
+            </select>
+            <FieldHint>
+              Its own folder on each computer, so it follows that agent wherever it&apos;s set
+              up. This agent reads whatever is checked out there, not any in-progress worktree.
+            </FieldHint>
+          </Field>
+        )}
 
-            <label className="flex cursor-pointer items-start justify-between gap-3">
-              <span className="text-[11px] leading-relaxed text-muted-foreground/85">
-                Visible in every agent
-                <span className="block text-muted-foreground/60">
-                  Use for something shared, like a design system several apps consume.
-                </span>
-              </span>
-              <Switch checked={global} onCheckedChange={setGlobal} className="mt-0.5" />
-            </label>
-
-            {canAddReverse && (
-              <label className="flex cursor-pointer items-start justify-between gap-3">
-                <span className="text-[11px] leading-relaxed text-muted-foreground/85">
-                  Also reference back
-                  <span className="block text-muted-foreground/60">
-                    Adds{' '}
-                    <span className="font-mono">@{slugify(workspaceName ?? '', { separator: '-' })}</span>{' '}
-                    inside {reverseTargetName ?? 'that agent'}, so the two can read each other.
-                  </span>
-                </span>
-                <Switch checked={addReverse} onCheckedChange={setAddReverse} className="mt-0.5" />
-              </label>
-            )}
-
-            {duplicate && (
-              <Notice tone="error">
-                {global ? 'A global' : 'An agent'} reference named{' '}
-                <code className="font-mono">{normalizedAlias}</code> already exists.
-              </Notice>
-            )}
-            {!duplicate && shadowed && (
-              <Notice tone="warning">
-                This shadows the global <code className="font-mono">{normalizedAlias}</code>. In
-                this agent, yours wins.
-              </Notice>
-            )}
-            {error && <Notice tone="error">{error}</Notice>}
+        <Field label="Alias">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-sm text-muted-foreground">@</span>
+            <input
+              value={alias}
+              onChange={(e) => setTypedAlias(e.target.value)}
+              placeholder="backend"
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+            />
           </div>
+          {normalizedAlias && !aliasValid ? (
+            <FieldHint tone="error">
+              Lowercase letters, digits, dot, dash or underscore. Must start with a letter or
+              digit.
+            </FieldHint>
+          ) : (
+            <FieldHint>What you type after @ in chat to point the agent here.</FieldHint>
+          )}
+        </Field>
 
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => onOpenChange(false)}
-              className="rounded-lg px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!canSubmit}
-              className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground transition-all hover:opacity-90 disabled:opacity-40"
-            >
-              {saving && <Loader2 size={13} className="animate-spin" />}
-              {editing ? 'Save' : 'Add reference'}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <Field label="Why you'd look there">
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={2}
+            placeholder="Go API server this app calls. HTTP routes live in internal/http/."
+            className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <FieldHint>
+            Optional. Worth a line when the name alone doesn&apos;t say why the agent would
+            open it.
+          </FieldHint>
+        </Field>
+
+        <label className="flex cursor-pointer items-start justify-between gap-3">
+          <span className="text-[11px] leading-relaxed text-muted-foreground/85">
+            For every agent
+            <span className="block text-muted-foreground/60">
+              Use for something shared, like a design system several apps consume. Every agent
+              on a computer uses the same place for it.
+            </span>
+          </span>
+          <Switch checked={global} onCheckedChange={setGlobal} className="mt-0.5" />
+        </label>
+
+        {canAddReverse && (
+          <label className="flex cursor-pointer items-start justify-between gap-3">
+            <span className="text-[11px] leading-relaxed text-muted-foreground/85">
+              Also link back
+              <span className="block text-muted-foreground/60">
+                Adds{' '}
+                <span className="font-mono">@{slugify(workspaceName ?? '', { separator: '-' })}</span>{' '}
+                inside {reverseTargetName ?? 'that agent'}, so the two can read each other.
+              </span>
+            </span>
+            <Switch checked={addReverse} onCheckedChange={setAddReverse} className="mt-0.5" />
+          </label>
+        )}
+
+        {duplicate && (
+          <Notice tone="error">
+            A linked folder named <code className="font-mono">{normalizedAlias}</code> already
+            exists {global ? 'for every agent' : 'in this agent'}.
+          </Notice>
+        )}
+        {!duplicate && shadowed && (
+          <Notice tone="warning">
+            This shadows <code className="font-mono">{normalizedAlias}</code>, which every agent
+            has. In this agent, yours wins.
+          </Notice>
+        )}
+        {error && <Notice tone="error">{error}</Notice>}
+      </div>
+
+      <DialogFooter>
+        {editing && onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="mr-auto flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+          >
+            <Trash2 size={12} />
+            Remove
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          className="rounded-lg px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground transition-all hover:opacity-90 disabled:opacity-40"
+        >
+          {saving && <Loader2 size={13} className="animate-spin" />}
+          {editing ? 'Save' : 'Add'}
+        </button>
+      </DialogFooter>
 
       <FolderPickerDialog
         open={pickerOpen}
         onOpenChange={setPickerOpen}
+        computer={computer}
         initialPath={path || undefined}
         onChoose={(chosen) => {
           setPath(chosen);

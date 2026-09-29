@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import { setUpAgentOn } from '@/test/fixtures/setups';
 import { installFakeHarness, type FakeHarness } from '@/test/fixtures/fake-harness';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 import type { WorkerHarnessReport } from '@/db/types';
@@ -46,11 +47,7 @@ afterEach(async () => {
 });
 
 async function setUpOn(computerId: string) {
-  const q = await import('@/lib/db/queries');
-  q.recordAgentSetupReports(computerId, [{
-    agentId, sourcePath: computerId === hostId ? home.root : '/Users/trey/code/ri', configRevision: null,
-    status: 'ready', problem: null, references: [],
-  }], { complete: true });
+  await setUpAgentOn(agentId, computerId, computerId === hostId ? home.root : '/Users/trey/code/ri');
 }
 
 let scheduled = 0;

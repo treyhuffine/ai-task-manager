@@ -82,6 +82,18 @@ export function wakeComputer(computerId: string): void {
   }
 }
 
+/** Send one event to a computer's worker, when it's connected. Says whether it was sent. */
+export function sendToWorker(computerId: string, event: WorkerStreamEvent): boolean {
+  const connection = newest(computerId);
+  if (!connection) return false;
+  try {
+    connection.send(event);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function isComputerConnected(computerId: string): boolean {
   return (hub.connections.get(computerId)?.length ?? 0) > 0;
 }

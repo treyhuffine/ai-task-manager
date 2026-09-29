@@ -1385,8 +1385,7 @@ const create_workspace_action = defineAction({
   handler: async (ctx, input) => {
     assertCallerOnHome(ctx, 'Creating an agent from a folder path');
     const cwd = path.resolve(input.cwd);
-    const { assertHomeFolderUsable, setHomeFolder } = await import('@/lib/setups/home-context');
-    const { SetupError } = await import('@/lib/setups/service');
+    const { assertHomeFolderUsable, setHomeFolder, SetupError } = await import('@/lib/setups/home-context');
     try {
       assertHomeFolderUsable(cwd);
     } catch (err) {
@@ -1593,13 +1592,10 @@ const create_reference_folder_action = defineAction({
     } catch (err) {
       rethrowReferenceFolderError(err);
     }
-    // Map it in the home computer's setup files, where agent paths live (§4.2).
-    const { applyReferenceToHomeSetups } = await import('@/lib/setups/home-context');
-    const setupFiles = await applyReferenceToHomeSetups(row).catch((err: unknown) => ({
-      updated: [] as string[],
-      failed: [{ dir: '', error: err instanceof Error ? err.message : String(err) }],
-    }));
-    return { ...row, setupFiles };
+    // Its place on the home is recorded with it: check it's there (§4.1).
+    const { checkHomeFolders } = await import('@/lib/setups/folders');
+    await checkHomeFolders();
+    return row;
   },
 });
 
@@ -1631,13 +1627,10 @@ const update_reference_folder_action = defineAction({
     } catch (err) {
       rethrowReferenceFolderError(err);
     }
-    // Carry a changed path into the home computer's setup files (§4.2).
-    const { applyReferenceToHomeSetups } = await import('@/lib/setups/home-context');
-    const setupFiles = await applyReferenceToHomeSetups(row, before).catch((err: unknown) => ({
-      updated: [] as string[],
-      failed: [{ dir: '', error: err instanceof Error ? err.message : String(err) }],
-    }));
-    return { ...row, setupFiles };
+    // A changed place on the home is recorded with it: check it's there (§4.1).
+    const { checkHomeFolders } = await import('@/lib/setups/folders');
+    await checkHomeFolders();
+    return row;
   },
 });
 
@@ -2816,24 +2809,6 @@ async function callerComputer(ctx: ActionContext) {
   return computer;
 }
 
-const setupReferenceSchema = z.object({
-  alias: z.string().min(1),
-  value: z.union([z.string().min(1), z.object({ agentId: z.string().min(1) }), z.null()]).optional(),
-  form: z.enum(['path', 'agent', 'omitted', 'unconfigured']),
-  path: z.string().nullable(),
-  exists: z.boolean(),
-  problem: z.string().nullable(),
-});
-
-const setupReportSchema = z.object({
-  agentId: z.string().min(1),
-  sourcePath: z.string().min(1),
-  configRevision: z.string().nullable(),
-  references: z.array(setupReferenceSchema),
-  status: z.enum(['ready', 'missing_folder', 'missing_file', 'invalid_config', 'wrong_home', 'missing_reference', 'duplicate']),
-  problem: z.string().nullable(),
-});
-
 const register_computer_action = defineAction({
   name: 'register_computer',
   description:
@@ -2898,43 +2873,123 @@ const describe_computer_harnesses_action = defineAction({
     serverFetch<unknown>(`/computers/${encodeURIComponent(computerId)}/harnesses${fresh ? '?fresh=1' : ''}`),
 });
 
-const get_setup_context_action = defineAction({
-  name: 'get_setup_context',
+/** An agent by id, or by name when exactly one agent has it. */
+async function agentByIdOrName(idOrName: string) {
+  const { getWorkspace, listWorkspaces } = await import('@/lib/db/queries');
+  const byId = getWorkspace(idOrName);
+  if (byId) return byId;
+  const named = listWorkspaces({ status: 'active' }).filter((w) => w.name.toLowerCase() === idOrName.toLowerCase());
+  if (named.length === 1) return named[0]!;
+  throw new ActionError(named.length ? 'conflict' : 'not_found', named.length ? `More than one agent is named "${idOrName}". Use its id.` : `No agent "${idOrName}".`);
+}
+
+/** A folder change that can't be made says why, as the person would read it. */
+async function folderChange<T>(change: () => Promise<T>): Promise<T> {
+  const { FolderError } = await import('@/lib/setups/folders');
+  try {
+    return await change();
+  } catch (err) {
+    if (err instanceof FolderError) throw new ActionError('invalid_params', err.message);
+    throw err;
+  }
+}
+
+/** The computer named, or the calling one. */
+async function computerFor(ctx: ActionContext, computerId: string | undefined) {
+  if (!computerId) return callerComputer(ctx);
+  const { getComputer } = await import('@/lib/db/queries');
+  const computer = getComputer(computerId);
+  if (!computer || computer.status !== 'active') throw new ActionError('not_found', `No computer ${computerId}.`);
+  return computer;
+}
+
+const set_agent_folder_action = defineAction({
+  name: 'set_agent_folder',
   description:
-    "What the calling computer needs to check its agent folders: this home's id, its agents, the reference aliases each expects, and what the home last observed on this computer.",
-  params: {},
-  handler: async (ctx) => {
-    const { buildSetupContext } = await import('@/lib/setups/home-context');
-    return buildSetupContext(await callerComputer(ctx));
+    "Record an agent's project folder on a computer, the calling one unless computerId says another. The home's records are the only place an agent's folders are kept. That computer checks the folder is there.",
+  params: {
+    agent: z.string().min(1).describe('The agent, by id or name'),
+    folder: z.string().min(1).describe('An absolute path on that computer'),
+    computerId: z.string().optional(),
+  },
+  cli: { positional: ['agent', 'folder'] },
+  mutating: true,
+  handler: async (ctx, { agent, folder, computerId }) => {
+    const computer = await computerFor(ctx, computerId);
+    const ws = await agentByIdOrName(agent);
+    const { chooseAgentFolder } = await import('@/lib/setups/folders');
+    const { getAgentSetup } = await import('@/lib/db/queries');
+    await folderChange(() => chooseAgentFolder(ws.id, computer.id, folder));
+    return getAgentSetup(ws.id, computer.id);
   },
 });
 
-const report_agent_setups_action = defineAction({
-  name: 'report_agent_setups',
+const set_linked_folder_action = defineAction({
+  name: 'set_linked_folder',
   description:
-    "Record the calling computer's agent setups as it resolved them from its own setup files. With complete=true, setups it no longer reports are removed. The home never edits these paths itself.",
+    "Record where one of an agent's linked folders is on a computer, the calling one unless computerId says another, or folder=null to go without it there. A linked folder every agent uses has one place per computer, so this sets it for all of them there. That computer checks the folder is there.",
   params: {
-    reports: z.array(setupReportSchema).max(500),
-    complete: z.boolean(),
+    agent: z.string().min(1).describe('The agent, by id or name, whose linked folder this is'),
+    alias: z.string().min(1),
+    folder: z.string().min(1).nullable().describe('An absolute path on that computer, or null to go without it'),
+    computerId: z.string().optional(),
   },
   mutating: true,
-  handler: async (ctx, { reports, complete }) => {
-    const computer = await callerComputer(ctx);
-    const { recordAgentSetupReports } = await import('@/lib/db/queries');
-    return { computerId: computer.id, ...recordAgentSetupReports(computer.id, reports, { complete }) };
+  handler: async (ctx, { agent, alias, folder, computerId }) => {
+    const computer = await computerFor(ctx, computerId);
+    const ws = await agentByIdOrName(agent);
+    const { listReferenceFoldersForWorkspace, getAgentSetup } = await import('@/lib/db/queries');
+    const ref = listReferenceFoldersForWorkspace(ws.id).find((r) => r.alias === alias.toLowerCase());
+    if (!ref) throw new ActionError('not_found', `${ws.name} has no linked folder "${alias}".`);
+    if (ref.targetWorkspaceId) {
+      throw new ActionError('invalid_params', `"${alias}" is another agent: it's that agent's own folder on each computer.`);
+    }
+    const { chooseLinkedFolder } = await import('@/lib/setups/folders');
+    await folderChange(() => chooseLinkedFolder(ref.id, computer.id, folder));
+    return getAgentSetup(ws.id, computer.id);
   },
+});
+
+const remove_agent_setup_action = defineAction({
+  name: 'remove_agent_setup',
+  description:
+    "Take an agent off a computer, the calling one unless computerId says another: its project folder and its own linked folders there are forgotten. Nothing on that computer is deleted.",
+  params: {
+    agent: z.string().min(1).describe('The agent, by id or name'),
+    computerId: z.string().optional(),
+  },
+  cli: { positional: ['agent'] },
+  mutating: true,
+  handler: async (ctx, { agent, computerId }) => {
+    const computer = await computerFor(ctx, computerId);
+    const ws = await agentByIdOrName(agent);
+    const { removeFromComputer } = await import('@/lib/setups/folders');
+    return { removed: await folderChange(() => removeFromComputer(ws.id, computer.id)) };
+  },
+});
+
+const list_computer_folders_action = defineAction({
+  name: 'list_computer_folders',
+  description:
+    "A folder's folders on one of this home's computers, for choosing a project or linked folder there: within the person's home folder, hidden ones left out, Git projects marked. Without path, the home folder. A computer elsewhere must be connected.",
+  params: {
+    computerId: z.string().min(1),
+    path: z.string().optional(),
+  },
+  handler: async (_ctx, { computerId, path: at }) =>
+    serverFetch<unknown>(`/computers/${encodeURIComponent(computerId)}/folders${at ? `?path=${encodeURIComponent(at)}` : ''}`),
 });
 
 const list_agent_setups_action = defineAction({
   name: 'list_agent_setups',
   description:
-    "Where each agent is set up: one row per agent per computer, with the folder that computer reported, each reference, and whether the setup is ready.",
+    "Where each agent is set up: one row per agent per computer, with the agent's name, its folder there, each linked folder's place there, and whether the setup is ready.",
   params: {
     workspaceId: z.string().optional(),
   },
   handler: async (_ctx, { workspaceId }) => {
-    const { listAgentSetups } = await import('@/lib/db/queries');
-    return listAgentSetups(workspaceId ? { workspaceId } : {});
+    const { listAgentSetups, getWorkspace } = await import('@/lib/db/queries');
+    return listAgentSetups(workspaceId ? { workspaceId } : {}).map((s) => ({ ...s, agentName: getWorkspace(s.workspaceId)?.name ?? null }));
   },
 });
 
@@ -2956,8 +3011,10 @@ export const actions = [
   rename_computer_action,
   list_computers_action,
   describe_computer_harnesses_action,
-  get_setup_context_action,
-  report_agent_setups_action,
+  set_agent_folder_action,
+  set_linked_folder_action,
+  remove_agent_setup_action,
+  list_computer_folders_action,
   list_agent_setups_action,
   describe_paths,
   describe_schema,

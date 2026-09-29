@@ -15,6 +15,10 @@ vi.mock('@/lib/db/queries', () => ({
   // references, so they never fire.
   getWorkspace: () => undefined,
   listReferenceFoldersForWorkspace: () => [],
+  // No home identity here: a path resolves from the row, as before the home's links.
+  getHome: () => null,
+  getFolderLink: () => null,
+  getAgentSetup: () => null,
 }));
 
 import { GET } from './route';

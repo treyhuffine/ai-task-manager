@@ -1,7 +1,12 @@
 /**
  * Regressions from the targeted review of 1d76d11: the reviewer's probes of
- * moving an agent's folder, kept as written. Five reproduced a move that
- * could lose or duplicate a setup; the last confirmed validation runs first.
+ * moving an agent's folder. Five reproduced a move that could lose or
+ * duplicate a setup; the last confirmed validation runs first.
+ *
+ * Adapted when the home's records became the only place an agent's folders
+ * are kept (docs/homes-spec.md §4.1): the two about a refused change check
+ * the records. The four about moving setup files between folders are
+ * retired: there are no files to move.
  */
 
 import fs from 'node:fs';
@@ -10,9 +15,7 @@ import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { ensureHomeIdentity, resetHomeIdentityCache } from '@/lib/home/identity';
-import { readSetupFile } from '@/lib/setups/local-file';
-import { inProcessSetupLink, setHomeFolder } from '@/lib/setups/home-context';
-import { attach, setReference, syncSetups } from '@/lib/setups/service';
+import { setHomeFolder } from '@/lib/setups/home-context';
 import * as q from '@/lib/db/queries';
 
 let home: TestHome;
@@ -52,72 +55,20 @@ function failRegistryRename(nth: number) {
 }
 
 describe('targeted move failure probes', () => {
-  it('preserves the only setup if old-file removal succeeds but unregistering fails', async () => {
-    const source = folder('source');
-    const dest = folder('dest');
-    const ws = workspace('App', source);
-    await setHomeFolder(ws.id, source);
-    const before = readSetupFile(source);
-    const fail = failRegistryRename(2); // register destination succeeds, unregister source fails
-    await expect(attach(inProcessSetupLink(), { agent: ws.id, folder: dest, replace: true })).rejects.toThrow();
-    fail.mockRestore();
-    expect({ source: readSetupFile(source), destinationState: readSetupFile(dest).state }).toEqual({
-      source: before, destinationState: 'missing',
-    });
-  });
-
-  it('rolls the destination back when its registration fails', async () => {
-    const source = folder('source');
-    const dest = folder('dest');
-    const ws = workspace('App', source);
-    await setHomeFolder(ws.id, source);
-    const fail = failRegistryRename(1);
-    await expect(attach(inProcessSetupLink(), { agent: ws.id, folder: dest, replace: true })).rejects.toThrow();
-    fail.mockRestore();
-    expect(readSetupFile(source).state).toBe('ok');
-    expect(readSetupFile(dest).state).toBe('missing');
-  });
-
-  it('preserves the previous state when reporting the move to home fails', async () => {
-    const source = folder('source');
-    const dest = folder('dest');
-    const ws = workspace('App', source);
-    const real = inProcessSetupLink();
-    await setHomeFolder(ws.id, source);
-    const before = readSetupFile(source);
-    await expect(attach({ context: real.context, report: async () => { throw new Error('home unavailable'); } },
-      { agent: ws.id, folder: dest, replace: true })).rejects.toThrow(/home unavailable/);
-    expect(readSetupFile(source)).toEqual(before);
-    expect(readSetupFile(dest).state).toBe('missing');
-    expect(q.getWorkspace(ws.id)!.cwd).toBe(source);
-  });
-
-  it('does not remove a setup when the new spelling aliases its current folder', async () => {
-    const source = folder('source');
-    const alias = path.join(home.root, 'alias');
-    fs.symlinkSync(source, alias);
-    const ws = workspace('App', source);
-    await setHomeFolder(ws.id, source);
-    await attach(inProcessSetupLink(), { agent: ws.id, folder: alias, replace: true });
-    expect(readSetupFile(source).state).toBe('ok');
-    await syncSetups(inProcessSetupLink());
-    expect(q.listAgentSetups({ workspaceId: ws.id })[0]!.status).toBe('ready');
-  });
-
-  it('restores custom local reference mappings after a real database constraint failure', async () => {
+  it('keeps the folder and its linked folder choices after a real database constraint failure', async () => {
     const source = folder('source');
     const dest = folder('dest');
     const ws = workspace('App', source);
     const other = workspace('Other', folder('other'));
-    q.createReferenceFolder({ alias: 'docs', path: folder('default-docs') });
+    const docs = q.createReferenceFolder({ alias: 'docs', path: folder('default-docs') });
     await setHomeFolder(ws.id, source);
-    await setReference(inProcessSetupLink(), { agent: ws.id, alias: 'docs', value: null });
-    const before = readSetupFile(source);
+    const host = ensureHomeIdentity().computer.id;
+    q.setFolderLink(host, docs.id, null);
     const response = await patch(ws.id, { cwd: dest, slug: other.slug });
     expect(response.status).toBe(400);
     expect(q.getWorkspace(ws.id)!.cwd).toBe(source);
-    expect(readSetupFile(dest).state).toBe('missing');
-    expect(readSetupFile(source)).toEqual(before);
+    expect(q.getAgentSetup(ws.id, host)).toMatchObject({ sourcePath: source });
+    expect(q.getFolderLink(host, docs.id)?.path).toBeNull();
   });
 
   it('rejects an invalid patch before modifying any folder', async () => {
@@ -125,10 +76,8 @@ describe('targeted move failure probes', () => {
     const dest = folder('dest');
     const ws = workspace('App', source);
     await setHomeFolder(ws.id, source);
-    const before = readSetupFile(source);
     const response = await patch(ws.id, { cwd: dest, purpose: 123 });
     expect(response.status).toBe(400);
-    expect(readSetupFile(source)).toEqual(before);
-    expect(readSetupFile(dest).state).toBe('missing');
+    expect(q.listAgentSetups({ workspaceId: ws.id })).toEqual([expect.objectContaining({ sourcePath: source })]);
   });
 });

@@ -37,6 +37,7 @@ const setHomeFolder = vi.fn(async (_id: string, _folder: string, opts?: { finish
 });
 vi.mock('@/lib/setups/home-context', () => ({
   setHomeFolder: (...args: Parameters<typeof setHomeFolder>) => setHomeFolder(...args),
+  SetupError: class SetupError extends Error {},
 }));
 
 const { PATCH } = await import('./route');

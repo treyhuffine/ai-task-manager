@@ -5,8 +5,7 @@ import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/worksp
 import { parseConnectorScopes, validateConnectorScopes } from '@/lib/connectors/scopes';
 import type { CreateWorkspaceInput, WorkspaceStatus } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
-import { assertHomeFolderUsable, setHomeFolder } from '@/lib/setups/home-context';
-import { SetupError } from '@/lib/setups/service';
+import { assertHomeFolderUsable, setHomeFolder, SetupError } from '@/lib/setups/home-context';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.

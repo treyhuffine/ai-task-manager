@@ -41,6 +41,19 @@ export async function register() {
     return;
   }
 
+  // Every agent's folders are in the home's records (docs/homes-spec.md
+  // §4.1): move what existed before into them, once, then check the home's
+  // own. Connected computers check theirs when their workers connect.
+  try {
+    const { moveFolderRecords } = await import('@/lib/db/queries');
+    const moved = moveFolderRecords();
+    if (moved.setups || moved.links) console.log(`[setups] moved ${moved.setups} agent folder(s) and ${moved.links} linked folder(s) into the home's records`);
+    const { checkHomeFolders } = await import('@/lib/setups/folders');
+    await checkHomeFolders();
+  } catch (err) {
+    console.warn('[setups] moving folder records failed', err);
+  }
+
   // Start the DB-to-markdown mirror: live export on every write + periodic
   // reconcile. Non-blocking; failures here don't stop the app.
   try {

@@ -2,10 +2,10 @@
  * An execution's resolved environment (docs/homes-spec.md §4.3,
  * docs/homes-build.md P2.7): where it works, from which folder, on which
  * branch, with which connected folders and tools. The home says what's
- * expected. The computer running the session resolves what only it knows,
- * from its own setup files and Git, when the session starts: the agent's
- * folder, each reference, the mode, and the checked-out commit. So a session
- * never starts from the home's cached copy of another computer's paths.
+ * expected: the agent's folders on this computer, from its records, the only
+ * place they're kept (docs/homes-spec.md §4.1). The computer running the
+ * session checks what only it can, when the session starts: whether each
+ * folder is there, the mode, and the checked-out commit.
  *
  * Delivered twice: a JSON file beside the session instructions, outside
  * every repository, and a short block at the end of the instructions that
@@ -13,9 +13,8 @@
  */
 
 import { execFile } from 'node:child_process';
+import { statSync } from 'node:fs';
 import { promisify } from 'node:util';
-import { listRegisteredLocations } from '@/lib/setups/registry';
-import { resolveSetups, type ReferenceReport } from '@/lib/setups/resolve';
 
 const run = promisify(execFile);
 
@@ -48,10 +47,7 @@ export interface ExecutionEnvironment {
   permissionMode: string;
 }
 
-/**
- * An agent's folder and references as the home expects them on a computer:
- * what the running side resolves against its own setup files.
- */
+/** An agent's folder and references on a computer, as the home records them. */
 export interface ExpectedAgentFolders {
   homeId: string;
   agentId: string;
@@ -67,46 +63,25 @@ export interface ResolvedEnvironment extends ExecutionEnvironment {
   resolvedAt: string;
 }
 
-function stateOf(report: ReferenceReport): ReferenceState {
-  if (report.form === 'omitted') return 'omitted';
-  if (report.form === 'unconfigured') return 'unconfigured';
-  return report.exists ? 'ready' : 'missing';
+function isDirectory(p: string): boolean {
+  try {
+    return statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /**
- * The agent's folder and references as this computer's setup files have
- * them, when exactly one valid setup here is for the agent.
- *
- * `whenUnresolved` says what stands when there isn't one (none, or two
- * folders claiming the agent). `'expected'` keeps the home's values: a home
- * agent from before setups, at home. `'unavailable'` is for a session
- * elsewhere, where the home's values are only a cached report of this
- * computer and never the authority for what a harness may read: no source
- * folder, and every reference unavailable, with no path (P2.7 to P2.9
- * re-check).
+ * The agent's folder and linked folders as the home records them on this
+ * computer, each checked here and now: one that isn't there is `missing`,
+ * and never wired. Nothing here reads anything but the folders themselves.
  */
-export function resolveAgentFolders(
-  expected: ExpectedAgentFolders,
-  whenUnresolved: 'expected' | 'unavailable',
-): Pick<ExpectedAgentFolders, 'sourceFolder' | 'references'> {
-  const env = expected;
-  const reports = resolveSetups({
-    homeId: env.homeId,
-    registered: listRegisteredLocations().map((l) => l.dir),
-    expected: { [env.agentId]: env.references.map((r) => ({ alias: r.alias })) },
-  }).filter((r) => r.agentId === env.agentId);
-  const report = reports.length === 1 && reports[0]!.status !== 'duplicate' ? reports[0]! : null;
-  const strict = whenUnresolved === 'unavailable';
-  if (!report) {
-    if (!strict) return { sourceFolder: env.sourceFolder, references: env.references };
-    return { sourceFolder: null, references: env.references.map((ref) => ({ ...ref, path: null, state: 'unavailable' as const })) };
-  }
+export function resolveAgentFolders(expected: ExpectedAgentFolders): Pick<ExpectedAgentFolders, 'sourceFolder' | 'references'> {
   return {
-    sourceFolder: report.sourcePath,
-    references: env.references.map((ref) => {
-      const here = report.references.find((r) => r.alias === ref.alias);
-      if (here) return { ...ref, path: here.path, state: stateOf(here) };
-      return strict ? { ...ref, path: null, state: 'unconfigured' as const } : ref;
+    sourceFolder: expected.sourceFolder && isDirectory(expected.sourceFolder) ? expected.sourceFolder : null,
+    references: expected.references.map((ref) => {
+      if (ref.state !== 'ready' || !ref.path) return ref;
+      return isDirectory(ref.path) ? ref : { ...ref, state: 'missing' as const };
     }),
   };
 }
@@ -126,10 +101,12 @@ async function git(cwd: string, args: string[]): Promise<string | null> {
 export async function resolveEnvironment(
   env: ExecutionEnvironment,
   now = new Date(),
-  local: Pick<ExpectedAgentFolders, 'sourceFolder' | 'references'> = resolveAgentFolders(
-    { homeId: env.homeId, agentId: env.agent.id, sourceFolder: env.sourceFolder, references: env.references },
-    'expected',
-  ),
+  local: Pick<ExpectedAgentFolders, 'sourceFolder' | 'references'> = resolveAgentFolders({
+    homeId: env.homeId,
+    agentId: env.agent.id,
+    sourceFolder: env.sourceFolder,
+    references: env.references,
+  }),
 ): Promise<ResolvedEnvironment> {
   const mode = !env.isGit ? 'folder' : local.sourceFolder && local.sourceFolder === env.cwd ? 'live' : 'worktree';
   const [branch, head] = env.isGit

@@ -173,87 +173,46 @@ Keep the name Deck and the current completion, daily generation, and refresh beh
 
 ## 4. Agent identity and local folders
 
-### 4.1 Local files own machine-specific paths
+### 4.1 The home's database holds every computer's folders
 
-Use a gitignored .ri.local.json in the selected source folder. It contains that computer's association to a home and agent, plus its connected-folder mappings. The containing directory is the source folder, so its absolute path is not repeated inside the file.
+Decided after gates B and C (§12.1): an agent's folders on every computer are kept in the home's database, and nowhere else. Setup files in project folders (`.ri.local.json`, P1.4) gave three copies to keep in step, a restore flow for a deleted file, and states like wrong home and duplicate, for independence nothing uses: nothing runs on a computer without its home sending it, and setup happens in the app.
 
-One source folder is associated with one home in this release. Development and production use separate source checkouts or worktrees. The local association file is separate from any committed .ri/skills content, which can travel with the repository.
+What the home keeps:
 
-The home owns the agent's name, purpose, standing instructions, reference definitions, and connector scope. The local file supplies physical paths. The worker reports the resolved setup to the home for display and dispatch validation.
+- **The agent**: its name, purpose, standing instructions, files to copy, scripts and connector scope. Unchanged.
+- **Linked folders**: what the agent uses beside its project, defined once, each with an alias and a description, for one agent or for every agent. A linked folder is a folder, or another agent's project folder.
+- **Per computer**: the agent's project folder there, and where each linked folder is there, or that the computer goes without it. A linked folder for every agent has one place per computer, so every agent on that computer uses it, and changing it there changes it for all of them.
 
-This is the storage decision for the build. Do not implement competing database-owned path editing or a second configuration profile system.
+The computer checks that its folders exist, and reports what it finds: when they change, when it connects, and when work starts there. A folder that's gone blocks work there, with the way to fix it: choose where it is now.
 
-Example on the laptop, in ~/dynamism/ri/.ri.local.json:
+The example layout from before, now as the home keeps it:
 
-~~~json
-{
-  "version": 1,
-  "homeId": "<home-id>",
-  "agents": {
-    "<ri-agent-id>": {
-      "references": {
-        "agentex": "../agentex"
-      }
-    }
-  }
-}
-~~~
-
-On the Mini, in ~/ai-task-manager/.ri.local.json, the same association uses:
-
-~~~json
-{
-  "version": 1,
-  "homeId": "<home-id>",
-  "agents": {
-    "<ri-agent-id>": {
-      "references": {
-        "agentex": "../code/agentex"
-      }
-    }
-  }
-}
-~~~
-
-The result is one agent with two setups:
-
-| Computer | Source folder | Agentex |
+| Computer | Ri's project folder | agentex (for every agent) |
 | --- | --- | --- |
 | MacBook | ~/dynamism/ri | ~/dynamism/agentex |
 | Mac Mini | ~/ai-task-manager | ~/code/agentex |
 
-A project can host several agent identities in the agents map. There is one registered source setup per agent per computer in this release. Review checkouts and execution worktrees are derived locations, not additional source setups.
+A project folder hosts one agent per computer in this release. Review checkouts and execution worktrees are derived locations, not setups.
 
-Reference values have three forms: a path string, an object containing agentId to use that agent's registered source folder on the same computer, or null to explicitly omit that reference on this computer. The agentId form preserves existing references to other agents when their folders move. It resolves only to a source setup, never whichever execution happens to be active.
+### 4.2 Setting up
 
-### 4.2 Setup lifecycle
+In the app, the agent's Setup tab has a switcher across the person's computers. For the one chosen, it shows the agent's project folder there and each linked folder, each with whether it's there, Change and, for a linked folder, Go without it. Add a linked folder defines one and says where it is on that computer. Set up on another computer offers Copy it from Git or Use a folder that's already there (§3.4). Remove from this computer takes the agent off it, on any computer but the home, where the agent lives: its folder there is changed instead.
 
-- The local companion or CLI selects a source folder and attaches an existing agent ID or creates a new agent explicitly.
-- Suggest registered folders and, when the user enables local history discovery, folders already present in that computer's harness history. This is a bounded list read, not a filesystem scan or automatic transcript upload.
-- Matching Git remotes can suggest an agent. They never merge identities or grant access automatically.
-- Write the local file atomically. Ensure Git ignores it, using local exclusion when the repository does not already ignore it. Never commit local paths or credentials as part of setup.
-- A copied file is not enrollment. The worker accepts its home association only after the computer has been enrolled and that source setup enabled locally.
-- Credentials, worker identity, and the list of registered configuration locations live in the worker's private application configuration. That list locates the files, not a second set of folder mappings.
-- The home stores device-qualified registration, health, and last-observed setup revision. It cannot edit a disconnected computer's paths optimistically.
-- UI edits go through the worker to the file, then update the observed index. Use revision checks so a UI edit cannot overwrite a newer manual file edit.
-- Validate the current file and folder existence before start and transfer. Do not execute against an old home cache when the local file changed.
-- Pin the resolved environment to the execution placement. Configuration edits apply to a new start or explicit refresh, not by silently changing the cwd or references underneath a running turn.
-- A renamed source folder is relinked by selecting its new location. Preserve the home/agent association. Do not scan the whole disk.
-- Missing, malformed, duplicate, or wrong-home associations produce a setup error with a relink/edit action.
+Choosing a folder uses a folder browser for that computer: the home lists its folders through its worker, one folder at a time, within the person's home folder, so a folder on the MacBook can be chosen from the phone. A typed path works too, checked on that computer.
 
-If a local file is deleted, including by git clean -fdx, offer Restore setup from the last observed report. First verify the current computer/home/agent association and paths, show what will be restored, and require confirmation. Never overwrite an existing file or silently execute from the cached report. The confirmed write restores the local authority, not a second editable configuration. For a non-Git folder, keep the same local file without implying that Git protects or ignores it.
+A linked folder that isn't chosen on a computer blocks work there until it's chosen or gone without, unless setting up can bring it: a copy brings a linked folder along beside the project as on the home, or uses the one another agent there already has.
 
-Existing global and per-agent reference aliases retain their scope and descriptions in the home. Each computer's effective physical mappings are materialized in its source configurations. Editing a global reference path applies to the selected computer's affected local files through its worker, with per-file revision checks and visible partial failure. It does not change other computers' paths or make the database another path authority. Preserve existing alias shadowing rules. Alias renames must update the affected mappings explicitly rather than guessing from a similar name.
+`ri setup` on a computer does the same through the home: attach, choose a linked folder, relink after a move, detach.
 
-A missing or unconfigured reference blocks that setup until relinked or explicitly omitted with null. An omitted mapping does not grant a substitute path or change shared agent identity. The agent's environment must state which expected references were omitted. Resolve agentId references from the worker's local registration index without a home-only cwd fallback. References to missing setups block in the same way.
+A linked folder that's another agent resolves to that agent's project folder on the same computer.
 
 ### 4.3 Resolution and real dependencies
 
-Relative reference paths resolve from the source directory containing .ri.local.json. Absolute paths remain local to that computer. Never resolve a sibling reference from a generated worktree's directory.
+Each computer's folders are absolute paths on that computer. Never resolve a linked folder from a generated worktree's directory.
 
 Prepare a resolved environment manifest for each execution: source folder, actual execution cwd, connected folders, Git checkpoint, and available capabilities. Deliver it through session instructions and a readable local runtime file outside the source repository. A local harness does not need to query a remote database to discover its own effective paths.
 
-Do not copy .ri.local.json into derived execution/review worktrees or treat a generated manifest as editable setup authority.
+Do not treat a generated manifest as editable setup authority.
 
 Do not rewrite old transcript text to substitute new paths.
 
@@ -564,7 +523,7 @@ This preserves the distinction between discussing work and instructing a running
 
 Keep existing workspace IDs, execution IDs, chat history, wire action names, and single-computer workflows.
 
-Migrate the existing home computer into an enrolled execution computer. Materialize its source-folder associations and effective references into local files without changing selected folders, scripts, or agent identity. Keep compatibility fields only during the migration. Once migrated, path edits go through the file authority and update the observed database fields through the query layer.
+Migrate the existing home computer into an enrolled execution computer. Its agents' folders and linked folders become its rows in the home's folder records (§4.1), without changing selected folders, scripts, or agent identity.
 
 Do not treat an old cwd as a path on every computer. Do not globally rewrite historical message text.
 
@@ -726,7 +685,7 @@ These questions do not block the build above. Each has a specified initial behav
 
 | Question | Build now | Evidence needed for a later change |
 | --- | --- | --- |
-| Do local files create more friction than they remove? | File-owned machine paths, home-owned work/identity | Repeated setup or repair problems using the real two-computer layout. Do not implement two authorities in advance |
+| Do local files create more friction than they remove? | Decided after gates B and C: yes. Every computer's folders are in the home's database (§4.1) | Setup files gave three copies to keep in step and repair flows, for independence nothing used |
 | Does handoff lose important working context? | Fresh native session with history access | Real continuation failures attributable to lost context. Then run a genuine two-machine native-transfer experiment |
 | Are task/note discussions needed? | Existing execution chat and shared task/note content | Concrete decisions or handoffs lost because no durable task/note thread exists |
 | Must an orchestrator or cron run elsewhere? | One home scheduler/orchestrator, fixed agent main chats | A recurring useful job blocked by placement, not a hypothetical fleet use case |

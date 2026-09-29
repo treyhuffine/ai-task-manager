@@ -1,10 +1,11 @@
 /**
  * Setting an agent up on a computer from the app (docs/homes-model.md): the
- * home says what the computer needs to know (the agent's remote and where
- * its references sit beside it on the home), the computer copies it down or
- * uses a folder already there, the same setup `ri setup attach` makes, and
- * the home records what it reports. The computer's side runs through the
- * real worker handler, in-process, under its own config folder.
+ * home says what the computer needs to know (the agent's remote, and where
+ * its linked folders sit beside it on the home), the computer copies it down
+ * or uses a folder already there, and the home records where they are, the
+ * only place they're kept (docs/homes-spec.md §4.1). The computer's side
+ * runs through the real worker handler, in-process, and checks its folders
+ * the same way.
  */
 
 import fs from 'node:fs';
@@ -21,14 +22,15 @@ vi.mock('@/lib/workers/hub', async (original) => {
   const real = await original<typeof import('@/lib/workers/hub')>();
   return {
     ...real,
+    isComputerConnected: () => hub.connected,
+    sendToWorker: () => hub.connected,
     requestWorker: async (computerId: string, kind: string, payload: unknown) => {
       hub.requests.push({ kind, payload });
       if (!hub.connected) throw new real.WorkerUnavailableError(computerId);
       if (hub.unsupported) throw new real.WorkerRequestError(`This computer doesn't know the request "${kind}". Update Ri here.`);
-      // The laptop's worker, answering with its own setup registry.
+      // The laptop's worker.
       const { executionRequests } = await import('@/lib/worker/handlers');
-      const handle = executionRequests({ journal: {} as CommandJournal, homeId: homeId() });
-      return withConfig(laptop.configDir, () => handle(kind as never, payload));
+      return executionRequests({ journal: {} as CommandJournal, homeId: homeId() })(kind as never, payload);
     },
   };
 });
@@ -43,16 +45,6 @@ function homeId(): string {
   return (globalThis as { __homeId?: string }).__homeId!;
 }
 
-async function withConfig<T>(dir: string, fn: () => Promise<T>): Promise<T> {
-  const saved = process.env.RI_CONFIG_DIR;
-  process.env.RI_CONFIG_DIR = dir;
-  try {
-    return await fn();
-  } finally {
-    process.env.RI_CONFIG_DIR = saved;
-  }
-}
-
 beforeEach(async () => {
   hub.connected = true;
   hub.unsupported = false;
@@ -65,11 +57,10 @@ beforeEach(async () => {
   (globalThis as { __homeId?: string }).__homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
   agentId = q.createWorkspace({ name: 'Ri', cwd: layout.mini.app, isGit: true, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false }).id;
+  // On the home, the Mini: Ri, with agentex (for every agent) beside it at ../code/agentex.
   q.createReferenceFolder({ alias: 'agentex', path: layout.mini.agentex, description: 'The agent library' });
-  // On the home, the Mini: Ri with agentex beside it at ../code/agentex.
-  const { inProcessSetupLink } = await import('./home-context');
-  const { attach } = await import('./service');
-  await attach(inProcessSetupLink(), { agent: agentId, folder: layout.mini.app, references: { agentex: '../code/agentex' } });
+  const { setHomeFolder } = await import('./home-context');
+  await setHomeFolder(agentId, layout.mini.app);
   const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'Laptop', createdByApiKeyId: null });
   laptopId = q.redeemEnrollGrant({ secret: grant.secret, name: 'Laptop' }).computer.id;
 });
@@ -82,7 +73,7 @@ afterEach(async () => {
 });
 
 describe('what it would do', () => {
-  it('copies from the Git remote of its folder on the home, with its references coming along beside it', async () => {
+  it('copies from the Git remote of its folder on the home, with its linked folders coming along beside it', async () => {
     const { planSetup } = await import('./set-up-agent');
     const { getAppRoot } = await import('@/lib/config/paths');
     const plan = await planSetup(agentId, laptopId);
@@ -102,40 +93,39 @@ describe('what it would do', () => {
 });
 
 describe('setting it up', () => {
-  it('copies the project and its references down, and the home records it ready there', async () => {
+  it('copies the project and its linked folders down, and the home records them ready there', async () => {
     const { applySetup } = await import('./set-up-agent');
     const target = path.join(laptop.userDir, 'projects', 'ri');
+    const agentex = path.join(laptop.userDir, 'projects', 'code', 'agentex');
     const result = await applySetup(agentId, laptopId, { how: 'copy', folder: target });
-    expect(result).toMatchObject({ folder: target, missing: [], copied: [target, path.join(laptop.userDir, 'projects', 'code', 'agentex')] });
-    expect(result.report).toMatchObject({ status: 'ready' });
+    expect(result).toMatchObject({ folder: target, status: 'ready', missing: [], copied: [target, agentex] });
     expect(fs.existsSync(path.join(target, 'package.json'))).toBe(true);
-    expect(fs.existsSync(path.join(laptop.userDir, 'projects', 'code', 'agentex', 'package.json'))).toBe(true);
-    // Registered in the laptop's own registry, not the home's.
-    expect(fs.readFileSync(path.join(laptop.configDir, 'setups.json'), 'utf8')).toContain(target);
+    expect(fs.existsSync(path.join(agentex, 'package.json'))).toBe(true);
+    // Nothing about the agent was written into the folders.
+    expect(fs.existsSync(path.join(target, '.ri.local.json'))).toBe(false);
+    const q = await import('@/lib/db/queries');
+    expect(q.getAgentSetup(agentId, laptopId)).toMatchObject({ sourcePath: target, found: true, status: 'ready' });
+    const ref = q.listReferenceFoldersForWorkspace(agentId)[0]!;
+    expect(q.getFolderLink(laptopId, ref.id)).toMatchObject({ path: agentex, found: true });
     const { runOnFor } = await import('./run-on');
     expect(runOnFor(agentId)!.choices.find((c) => c.computerId === laptopId)).toMatchObject({ ready: true, needsSetup: false });
-    const q = await import('@/lib/db/queries');
-    expect(q.getAgentSetup(agentId, laptopId)).toMatchObject({ sourcePath: target, status: 'ready' });
   });
 
-  it('uses a folder already there, and asks about a reference it can not find or copy', async () => {
+  it('uses a folder already there, and asks about a linked folder it can not find or copy', async () => {
     const existing = layout.git.clone(layout.appRemote, path.join(laptop.userDir, 'work', 'ri'));
-    const q = await import('@/lib/db/queries');
     // The home's agentex has no remote to copy it from.
     fs.rmSync(path.join(layout.mini.agentex, '.git'), { recursive: true, force: true });
     const { applySetup } = await import('./set-up-agent');
     const first = await applySetup(agentId, laptopId, { how: 'existing', folder: existing });
     expect(first.copied).toEqual([]);
     expect(first.missing).toEqual([{ alias: 'agentex', description: 'The agent library' }]);
-    expect(first.report.status).not.toBe('ready');
+    expect(first.status).toBe('missing_reference');
     // Going without it.
     const second = await applySetup(agentId, laptopId, { how: 'existing', folder: existing, answers: { agentex: null } });
-    expect(second.missing).toEqual([]);
-    expect(second.report.status).toBe('ready');
-    expect(q.getAgentSetup(agentId, laptopId)).toMatchObject({ sourcePath: existing, status: 'ready' });
+    expect(second).toMatchObject({ missing: [], status: 'ready' });
   });
 
-  it("uses a shared reference another agent already has there, rather than a second copy", async () => {
+  it('uses the place another agent there already has for a linked folder every agent uses', async () => {
     const q = await import('@/lib/db/queries');
     const { applySetup } = await import('./set-up-agent');
     await applySetup(agentId, laptopId, { how: 'copy', folder: path.join(laptop.userDir, 'projects', 'ri') });
@@ -144,13 +134,12 @@ describe('setting it up', () => {
     const docsRemote = layout.git.remote('docs');
     const docsHome = layout.git.clone(docsRemote, path.join(layout.mini.computer.userDir, 'writing', 'docs'));
     const docsId = q.createWorkspace({ name: 'Docs', cwd: docsHome, isGit: true, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false }).id;
-    const { inProcessSetupLink } = await import('./home-context');
-    const { attach } = await import('./service');
-    await attach(inProcessSetupLink(), { agent: docsId, folder: docsHome, references: { agentex: layout.mini.agentex } });
+    const { setHomeFolder } = await import('./home-context');
+    await setHomeFolder(docsId, docsHome);
     const result = await applySetup(docsId, laptopId, { how: 'copy', folder: path.join(laptop.userDir, 'elsewhere', 'docs') });
-    expect(result.report.status).toBe('ready');
+    expect(result.status).toBe('ready');
     expect(result.copied).toEqual([path.join(laptop.userDir, 'elsewhere', 'docs')]);
-    expect(result.report.references[0]).toMatchObject({ alias: 'agentex', path: sharedAgentex });
+    expect(q.getAgentSetup(docsId, laptopId)!.references[0]).toMatchObject({ alias: 'agentex', path: sharedAgentex });
   });
 
   it('uses a copy that is already where it would go, rather than copying again', async () => {
@@ -171,11 +160,10 @@ describe('setting it up', () => {
     expect(fs.readdirSync(target)).toEqual(['notes.txt']);
   });
 
-  it('leaves nothing behind when a copy fails', async () => {
+  it('leaves nothing behind, and records nothing, when a copy fails', async () => {
     const q = await import('@/lib/db/queries');
-    const ws = q.getWorkspace(agentId)!;
     const { execFileSync } = await import('node:child_process');
-    execFileSync('git', ['-C', ws.cwd, 'remote', 'set-url', 'origin', path.join(laptop.root, 'no-such-remote.git')]);
+    execFileSync('git', ['-C', layout.mini.app, 'remote', 'set-url', 'origin', path.join(laptop.root, 'no-such-remote.git')]);
     const target = path.join(laptop.userDir, 'projects', 'ri');
     const { applySetup } = await import('./set-up-agent');
     await expect(applySetup(agentId, laptopId, { how: 'copy', folder: target })).rejects.toThrow(/Couldn't copy/);
@@ -195,17 +183,15 @@ describe('when the computer can not do it', () => {
   it('says an older Ri there needs updating', async () => {
     hub.unsupported = true;
     const { planSetup } = await import('./set-up-agent');
-    await expect(planSetup(agentId, laptopId)).rejects.toThrow('Laptop has an older Ri that can\'t set agents up from here. Update Ri on Laptop.');
+    await expect(planSetup(agentId, laptopId)).rejects.toThrow("Laptop has an older Ri that can't set agents up from here. Update Ri on Laptop.");
   });
 
-  it("refuses a request from another home", async () => {
+  it('refuses a request from another home', async () => {
     const { executionRequests } = await import('@/lib/worker/handlers');
     const handle = executionRequests({ journal: {} as CommandJournal, homeId: 'another-home' });
-    const { buildSetupContext } = await import('./home-context');
-    const q = await import('@/lib/db/queries');
     const answer = (await handle('setup_agent', {
-      op: 'plan', context: buildSetupContext(q.getComputer(laptopId)!), agentId, agentName: 'Ri', agentSlug: 'ri',
-      remote: null, how: 'copy', folder: null, references: [],
+      op: 'plan', homeId: homeId(), agentId, agentName: 'Ri', agentSlug: 'ri',
+      remote: null, how: 'copy', folder: null, references: [], existingFolder: null,
     })) as { status: number };
     expect(answer.status).toBe(409);
   });

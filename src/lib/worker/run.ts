@@ -47,7 +47,7 @@ import { processRecorder, stopLeftovers } from './leftovers';
 import { acquireWorkerLock, WorkerLockedError } from './lock';
 import { createWorkerSink } from './sink';
 import { readEventStream } from './sse';
-import { agentFolderHere } from './agent-folder';
+import { agentFolderHere, setAgentFolders } from './agent-folder';
 import { WorkerTerminals } from './terminals';
 import type { TerminalOutputBatch, TerminalRequest } from '@/lib/workers/protocol';
 
@@ -411,6 +411,10 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
             onStatus?.({ state: 'connected' });
             void poster.kick();
             void processor.resendAcks();
+          } else if (event.type === 'folders') {
+            // This computer's folders, as its home records them: the only
+            // copy it has, in memory (docs/homes-spec.md §4.1).
+            setAgentFolders(target.homeId, event.setups);
           } else if (event.type === 'command') {
             processor.receive(event.command);
           } else if (event.type === 'request') {
