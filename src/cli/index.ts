@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { applyServiceEnvironment } from '@/lib/service/environment';
+import { beginActivity } from '@/lib/service/maintenance';
 import { Command } from 'commander';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { startCommand } from './commands/start';
@@ -21,6 +23,8 @@ import { registerSetupCommand } from './commands/setup';
 import { registerConnectCommands } from './commands/connect';
 import { registerWorkerCommand } from './commands/worker';
 import { installRoleGuard } from './lib/role-guard';
+import { registerUpdateCommand } from './commands/update';
+import { registerServiceCommand } from './commands/service';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -32,6 +36,17 @@ program
   .name(APP_SHORT_ID)
   .description(`${APP_NAME}: productivity for humans and agents`)
   .version('0.0.1');
+
+let releaseCommand: (() => void) | undefined;
+program.hook('preAction', (_program, action) => {
+  let command = action;
+  while (command.parent && command.parent !== program) command = command.parent;
+  if (!['service', 'update', 'start', 'stop'].includes(command.name())) {
+    applyServiceEnvironment(process.execPath);
+    releaseCommand = beginActivity();
+  }
+});
+program.hook('postAction', () => { releaseCommand?.(); releaseCommand = undefined; });
 
 program
   .command('start', { isDefault: true })
@@ -102,6 +117,8 @@ registerStatusCommand(program);
 registerSetupCommand(program);
 registerConnectCommands(program);
 registerWorkerCommand(program);
+registerServiceCommand(program);
+registerUpdateCommand(program);
 installRoleGuard(program);
 
 program.parseAsync(process.argv).catch((err) => {

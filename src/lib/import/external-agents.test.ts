@@ -250,6 +250,26 @@ describe('external agent imports', () => {
     expect(secondScan.sources.opencode).toMatchObject({ available: false, found: 0, imported: 0 });
   }, 15_000);
 
+  it('keeps an import read-only until it is taken over: dispatch refuses it, whoever sends', async () => {
+    const importer = await import('./external-agents');
+    const scan = await importer.discoverExternalAgentSessions();
+    const claude = scan.projects.flatMap((project) => project.sessions).find((candidate) => candidate.source === 'claude')!;
+    await importer.importExternalAgentSessions([claude.key]);
+    const q = await import('@/lib/db/queries');
+    const { isImportMirror } = await import('@/lib/import/mirror');
+    const chat = q.listChatSessions({ type: 'execution' }).find((session) => session.surfaceRef === 'claude')!;
+    expect(isImportMirror(chat)).toBe(true);
+
+    // The path the orchestrator found: a send into the import would start a
+    // blank provider session under a transcript it never saw.
+    const { dispatch } = await import('@/lib/executor/adapter');
+    await expect(dispatch(chat.id, 'Hello')).rejects.toThrow(/can only be read here/);
+    expect(q.listRuns({}).filter((run) => run.chatSessionId === chat.id)).toHaveLength(0);
+
+    importer.takeOverImportedSession(chat.id);
+    expect(isImportMirror(q.getChatSession(chat.id)!)).toBe(false);
+  });
+
   it('treats an app-spawned live session as already present, never re-importing it', async () => {
     const q = await import('@/lib/db/queries');
     const importer = await import('./external-agents');

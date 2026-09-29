@@ -70,6 +70,19 @@ outlives the turn (`describeChatStatus` in `execution-header-status.ts`).
 The Run row describes the app process. Changes counts describe the whole
 worktree, from every chat, and say so.
 
+**Working versus background (everywhere, not just this view).** "Working"
+means an agent is running a turn right now: green, pulsing, and the only
+thing in the rail's Working bucket and counts. A chat whose turn is over
+but that left something running (a dev server, a long test) is
+"background": a sky ring that never pulses, and the chat is sorted by its
+real state (unread, or waiting on you). Unread plus background is the
+amber dot inside a sky ring. The rule lives in `streamingSessionIds`
+(foreground only) versus `backgroundSessionIds` in the dashboard context,
+and the look in `components/workspaces/activity-style.ts`, used by the
+rail rows, chat tabs, the Agents view, the header status and the
+background-task strip. Pulse means the agent. Sky means something running
+on its own.
+
 **Git chip.** Today's `ExecutionActionBar` narrative, unchanged in
 behavior: colored by state, status on the left, the one next step on the
 right (Commit & push, Push, Open PR, Pull, Merge #N, Resolve conflicts,

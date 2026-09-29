@@ -394,6 +394,8 @@ export interface ExecutionChatHistoryEntry {
   isCurrent: boolean;
   /** Executor in-memory turn state — an agent is actively working this chat. */
   running: boolean;
+  /** Background work (a dev server, a long test) still running after the turn ended. */
+  background: boolean;
   /** Manual chat-tab order (fractional index); null = fall back to creation order. */
   tabSortKey: string | null;
 }
@@ -443,6 +445,14 @@ export const sessionsApi = {
     return api.get<ChatEventDTO[]>(`/sessions/${id}/events`, {
       query: { limit: opts?.limit, before: opts?.before },
     });
+  },
+
+  /**
+   * The events behind specific background tasks (lifecycle, launching call,
+   * output), for tasks that started before the loaded transcript page.
+   */
+  backgroundTaskEvents(id: string, taskIds: readonly string[]): Promise<ChatEventDTO[]> {
+    return api.get<ChatEventDTO[]>(`/sessions/${id}/background-tasks`, { query: { ids: taskIds.join(',') } });
   },
 
   status(id: string): Promise<WorktreeStatus | null> {
@@ -500,64 +510,6 @@ export const sessionsApi = {
     return api.get<FileResponse>(
       `/sessions/${id}/file`,
       { query: opts?.base ? { path, base: '1' } : { path } },
-    );
-  },
-
-  writeFile(id: string, path: string, content: string): Promise<{ ok: true; path: string; size: number }> {
-    return api.put<{ ok: true; path: string; size: number }>(
-      `/sessions/${id}/file`,
-      { content },
-      { query: { path } },
-    );
-  },
-
-  /** Write conflict-resolved content AND stage it (`git add`) so git
-   *  records the merge conflict as resolved. `content` must have no
-   *  remaining conflict markers. */
-  resolveFileConflict(
-    id: string,
-    path: string,
-    content: string,
-  ): Promise<{ ok: true; path: string; size: number }> {
-    return api.post<{ ok: true; path: string; size: number }>(
-      `/sessions/${id}/file/resolve-conflict`,
-      { path, content },
-    );
-  },
-
-  deleteFile(id: string, path: string): Promise<{ ok: true; path: string; kind: 'file' | 'dir' }> {
-    return api.delete<{ ok: true; path: string; kind: 'file' | 'dir' }>(
-      `/sessions/${id}/file`,
-      { query: { path } },
-    );
-  },
-
-  createFile(id: string, path: string): Promise<{ ok: true; path: string }> {
-    return api.post<{ ok: true; path: string }>(
-      `/sessions/${id}/file/create`,
-      { path },
-    );
-  },
-
-  renamePath(
-    id: string,
-    from: string,
-    to: string,
-  ): Promise<{ ok: true; from: string; to: string; kind: 'file' | 'dir' }> {
-    return api.post<{ ok: true; from: string; to: string; kind: 'file' | 'dir' }>(
-      `/sessions/${id}/file/rename`,
-      { from, to },
-    );
-  },
-
-  createDir(id: string, path: string): Promise<{ ok: true; path: string }> {
-    return api.post<{ ok: true; path: string }>(`/sessions/${id}/dir`, { path });
-  },
-
-  deleteDir(id: string, path: string): Promise<{ ok: true; path: string; kind: 'file' | 'dir' }> {
-    return api.delete<{ ok: true; path: string; kind: 'file' | 'dir' }>(
-      `/sessions/${id}/dir`,
-      { query: { path } },
     );
   },
 

@@ -1,4 +1,5 @@
 'use client';
+import { useDocumentAutosave } from '@/hooks/use-document-autosave';
 
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { Dialog } from 'radix-ui';
@@ -14,7 +15,7 @@ import {
   Zap,
   Lock,
   Repeat,
-  Sparkles,
+  Pencil,
   ChevronLeft,
   ChevronDown,
   Maximize2,
@@ -88,6 +89,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const { openTask } = useDashboard();
   const router = useRouter();
   const updateTask = useUpdateTask();
+  const autosave = useDocumentAutosave('tasks', taskId, task, updateTask.mutateAsync);
   const deleteTask = useDeleteTask();
   const lifecycle = useTaskLifecycle();
   const chat = useDocumentChat('task', task ?? null);
@@ -120,8 +122,6 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const [editingBoomerang, setEditingBoomerang] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { ref: titleRef, resize: resizeTitle } = useAutosizeTextarea();
-  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAttachmentsRef = useRef<Attachment[]>([]);
 
   const handleAttachment = useCallback((attachment: Attachment) => {
@@ -214,12 +214,10 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     (e: React.FormEvent<HTMLTextAreaElement>) => {
       const target = e.currentTarget;
       resizeTitle();
-      if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
-      titleTimerRef.current = setTimeout(() => {
-        saveField('title', target.value.trim());
-      }, 500);
+
+      autosave({ title: target.value.trim() });
     },
-    [saveField, resizeTitle],
+    [autosave, resizeTitle],
   );
 
   const handleTitleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -242,31 +240,23 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const handleBodyChange = useCallback(
     (markdown: string) => {
       if (!taskId) return;
-      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current);
-      bodyTimerRef.current = setTimeout(() => {
-        const attachments = pendingAttachmentsRef.current;
-        updateTask.mutate({
-          id: taskId,
-          body: markdown || null,
-          ...(attachments.length > 0 ? { attachments } : {}),
-        } as Parameters<typeof updateTask.mutate>[0]);
-      }, 500);
+
+      const attachments = pendingAttachmentsRef.current;
+      autosave({
+        body: markdown || null,
+        ...(attachments.length > 0 ? { attachments } : {}),
+      });
     },
-    [taskId, updateTask],
+    [taskId, autosave],
   );
 
-  const foldedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleFoldedHeadingsChange = useCallback(
     (folded: string[]) => {
       if (!taskId) return;
-      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
-      foldedTimerRef.current = setTimeout(() => {
-        updateTask.mutate({ id: taskId, foldedHeadings: folded } as Parameters<
-          typeof updateTask.mutate
-        >[0]);
-      }, 400);
+
+      autosave({ foldedHeadings: folded });
     },
-    [taskId, updateTask],
+    [taskId, autosave],
   );
 
   // Open-children and running-workstream confirmations are enforced server-side
@@ -290,13 +280,6 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   }, [taskId, deleteTask, onClose]);
 
   // Cleanup
-  useEffect(() => {
-    return () => {
-      if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
-      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current);
-      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
-    };
-  }, []);
 
   // Cmd+Enter → open full page
   useEffect(() => {
@@ -775,7 +758,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                 {aiBusy && (
                   <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] flex items-center justify-center pointer-events-auto transition-opacity duration-200">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground/80 bg-card/90 border border-border/50 rounded-full px-4 py-2 shadow-md">
-                      <Sparkles size={14} className="text-primary/70 animate-pulse" />
+                      <Pencil size={14} className="text-primary/70 animate-pulse" />
                       <span>AI is editing...</span>
                     </div>
                   </div>

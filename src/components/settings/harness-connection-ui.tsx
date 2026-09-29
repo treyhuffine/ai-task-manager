@@ -1,6 +1,6 @@
 'use client';
 
-import { Sparkles, Code2, AlertTriangle, Loader2, RefreshCw, SquareTerminal, Braces } from 'lucide-react';
+import { Terminal, Code2, AlertTriangle, Loader2, RefreshCw, SquareTerminal, Braces } from 'lucide-react';
 import { findProvider, type ProviderId } from '@/lib/harness/options';
 import {
   useHarnessConnection,
@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
  */
 
 export function ProviderIcon({ id, size = 15 }: { id: ProviderId; size?: number }) {
-  const Icon = id === 'codex' ? Code2 : id === 'cursor' ? SquareTerminal : id === 'opencode' ? Braces : Sparkles;
+  const Icon = id === 'codex' ? Code2 : id === 'cursor' ? SquareTerminal : id === 'opencode' ? Braces : Terminal;
   return (
     <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
       <Icon size={size} className="text-primary" />

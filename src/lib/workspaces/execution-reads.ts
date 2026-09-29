@@ -21,8 +21,15 @@ export interface ExecutionLocation {
   source: string;
   isGit: boolean;
   baseBranch: string | null;
+  /** The agent's remote (`origin` unless it says otherwise), for a session in the folder itself. */
+  remoteName?: string | null;
   baseSha: string | null;
   filesToCopy: string[];
+}
+
+/** The agent's folder there, as `openWorktreeHandle` needs it to open a session in it. */
+export function sourceOf(location: ExecutionLocation): { cwd: string; baseBranch: string | null; remoteName: string | null } {
+  return { cwd: location.source, baseBranch: location.baseBranch, remoteName: location.remoteName ?? null };
 }
 
 export type ExecutionRead =
@@ -44,15 +51,15 @@ export interface ReadAnswer {
 const ok = (body: unknown): ReadAnswer => ({ status: 200, body });
 
 export async function readExecution(location: ExecutionLocation, read: ExecutionRead): Promise<ReadAnswer> {
-  const pointer = { worktreePath: location.worktreePath };
+  const pointer = { worktreePath: location.worktreePath, baseSha: location.baseSha };
   switch (read.kind) {
     case 'tree': {
-      const handle = await openWorktreeHandle(pointer, location.source);
+      const handle = await openWorktreeHandle(pointer, sourceOf(location));
       if (!handle) return ok({ entries: [] });
       return ok({ entries: await listTree(handle, location.filesToCopy) });
     }
     case 'file': {
-      const handle = await openWorktreeHandle(pointer, location.source);
+      const handle = await openWorktreeHandle(pointer, sourceOf(location));
       if (!handle) return { status: 404, body: { error: 'Worktree unavailable' } };
       try {
         if (read.base) {
@@ -66,13 +73,13 @@ export async function readExecution(location: ExecutionLocation, read: Execution
       }
     }
     case 'diff': {
-      const handle = await openWorktreeHandle(pointer, location.source);
+      const handle = await openWorktreeHandle(pointer, sourceOf(location));
       if (!handle || handle.kind !== 'git') return ok(null);
       const diff = await handle.git.diff('base');
       return ok(read.file ? { files: diff.files.filter((f) => f.path === read.file) } : diff);
     }
     case 'status': {
-      const handle = await openWorktreeHandle(pointer, location.source);
+      const handle = await openWorktreeHandle(pointer, sourceOf(location));
       if (!handle || handle.kind !== 'git') return ok(null);
       return ok(await handle.git.status());
     }

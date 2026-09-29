@@ -9,7 +9,7 @@
  */
 
 import { openWorktreeHandle } from './index';
-import type { ExecutionLocation, ReadAnswer } from './execution-reads';
+import { sourceOf, type ExecutionLocation, type ReadAnswer } from './execution-reads';
 import { fileErrorAnswer } from './file-http';
 import {
   createWorkspaceDir,
@@ -18,6 +18,7 @@ import {
   renameWorkspacePath,
   resolveWorkspaceConflict,
   writeWorkspaceFile,
+  type FolderRef,
 } from './write-file';
 import { copyWipToWorktree, detectSourceWip, moveWipToWorktree } from './wip';
 
@@ -32,24 +33,36 @@ export type ExecutionWrite =
 
 const ok = (body: unknown): ReadAnswer => ({ status: 200, body });
 
+/** A change to a folder by path: an execution's worktree, or an agent's own folder. */
+export type FolderWrite = Exclude<ExecutionWrite, { kind: 'bring_wip' }>;
+
 export async function writeExecution(location: ExecutionLocation, write: ExecutionWrite): Promise<ReadAnswer> {
   if (write.kind === 'bring_wip') return bringWip(location, write.action);
-  const handle = await openWorktreeHandle({ worktreePath: location.worktreePath }, location.source);
+  const handle = await openWorktreeHandle({ worktreePath: location.worktreePath, baseSha: location.baseSha }, sourceOf(location));
   if (!handle) return { status: 404, body: { error: 'Worktree unavailable' } };
+  return writeFolder(handle, write);
+}
+
+/**
+ * One defined change inside a folder, with the same answers everywhere:
+ * the home's routes for its own folders, and a connected computer's worker
+ * for the ones there. Paths stay inside the folder (write-file.ts).
+ */
+export async function writeFolder(folder: FolderRef, write: FolderWrite): Promise<ReadAnswer> {
   try {
     switch (write.kind) {
       case 'write':
-        return ok({ ok: true, ...(await writeWorkspaceFile(handle, write.path, write.content)) });
+        return ok({ ok: true, ...(await writeWorkspaceFile(folder, write.path, write.content)) });
       case 'create_file':
-        return ok({ ok: true, ...(await createWorkspaceFile(handle, write.path)) });
+        return ok({ ok: true, ...(await createWorkspaceFile(folder, write.path)) });
       case 'create_dir':
-        return ok({ ok: true, ...(await createWorkspaceDir(handle, write.path)) });
+        return ok({ ok: true, ...(await createWorkspaceDir(folder, write.path)) });
       case 'rename':
-        return ok({ ok: true, ...(await renameWorkspacePath(handle, write.from, write.to)) });
+        return ok({ ok: true, ...(await renameWorkspacePath(folder, write.from, write.to)) });
       case 'delete':
-        return ok({ ok: true, ...(await deleteWorkspacePath(handle, write.path)) });
+        return ok({ ok: true, ...(await deleteWorkspacePath(folder, write.path)) });
       case 'resolve_conflict':
-        return ok({ ok: true, ...(await resolveWorkspaceConflict(handle, write.path, write.content)) });
+        return ok({ ok: true, ...(await resolveWorkspaceConflict(folder, write.path, write.content)) });
     }
   } catch (err) {
     const answer = fileErrorAnswer(err);

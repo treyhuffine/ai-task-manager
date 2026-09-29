@@ -30,6 +30,7 @@ import { ConnectorsSection } from './sections/connectors-section';
 import { NotificationsSection } from './sections/notifications-section';
 import { DevicesSettingsSection } from './sections/devices-section';
 import { RemotePreviewSection } from './sections/remote-preview-section';
+import { UpdatesSection } from './sections/updates-section';
 import { ImportsSection } from './sections/imports-section';
 
 function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupChecklist }) {
@@ -56,6 +57,8 @@ function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupCheckli
       return <NotificationsSection />;
     case 'imports':
       return <ImportsSection />;
+    case 'updates':
+      return <UpdatesSection />;
     case 'devices':
       return <DevicesSettingsSection />;
     case 'remote-preview':

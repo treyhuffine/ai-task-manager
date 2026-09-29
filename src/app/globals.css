@@ -6,6 +6,33 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Desktop-only window chrome. The web app keeps its existing layout. */
+.desktop-drag-fallback { display: none; }
+html[data-ri-desktop='darwin'] [data-desktop-titlebar] {
+  -webkit-app-region: drag;
+  user-select: none;
+  padding-left: 88px;
+}
+html[data-ri-desktop='darwin'] [data-desktop-titlebar] :is(button, a, input, select, textarea, [role='button'], [role='combobox']) {
+  -webkit-app-region: no-drag;
+}
+html[data-ri-desktop='darwin'] body:not(:has([data-desktop-titlebar])) {
+  padding-top: 40px;
+}
+html[data-ri-desktop='darwin'] body:not(:has([data-desktop-titlebar])) .h-dvh {
+  height: calc(100dvh - 40px);
+}
+html[data-ri-desktop='darwin'] body:not(:has([data-desktop-titlebar])) > .desktop-drag-fallback {
+  display: block;
+  position: fixed;
+  inset: 0 0 auto;
+  height: 40px;
+  z-index: 100;
+  -webkit-app-region: drag;
+  user-select: none;
+  background: var(--background);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

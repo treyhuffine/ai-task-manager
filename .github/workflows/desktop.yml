@@ -1,0 +1,258 @@
+name: Desktop and headless runtime
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'src/lib/service/**'
+      - 'src/lib/stt/**'
+      - 'src/lib/client/**'
+      - 'src/lib/connectors/**'
+      - 'src/lib/notifications/**'
+      - 'src/service/**'
+      - 'src/app/api/service/**'
+      - 'src/app/api/desktop/**'
+      - 'src/app/api/connectors/**'
+      - 'src/app/api/notifications/**'
+      - 'src/app/api/transcribe/**'
+      - 'src/app/manifest.ts'
+      - 'src/app/layout.tsx'
+      - 'src/app/apple-icon.png'
+      - 'src/hooks/use-voice-input*'
+      - 'src/components/desktop/**'
+      - 'src/components/chat/editor/**'
+      - 'src/components/settings/**'
+      - 'src/components/dashboard/command-input.tsx'
+      - 'src/components/dashboard/quick-capture-modal.tsx'
+      - 'src/components/executions/execution-composer.tsx'
+      - 'public/brand/**'
+      - 'public/notifications-sw.js'
+      - 'public/offline.html'
+      - 'scripts/smoke-phone-web-app.ts'
+      - 'packages/connectors/**'
+      - 'next.config.ts'
+      - '.github/workflows/desktop.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Runtime ${{ matrix.platform }} / ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Native builds, never cross-compiled native dependencies. Labels are
+        # explicit so a change to a *-latest alias cannot silently change CPU.
+        # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+        include:
+          - os: macos-15
+            platform: darwin
+            arch: arm64
+            package: release/desktop/mac-arm64/Ri.app
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+            package: release/desktop/mac/Ri.app
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x64
+            package: release/desktop/linux-unpacked
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            package: release/desktop/linux-arm64-unpacked
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.5.0'
+          cache: pnpm
+      - name: Verify the native target
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node -e 'const assert = require("node:assert/strict"); assert.equal(process.platform, process.env.EXPECTED_PLATFORM); assert.equal(process.arch, process.env.EXPECTED_ARCH); console.info(process.platform, process.arch, process.versions.node)'
+      - name: Install the pinned speech build tool
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.10.3'
+          enable-cache: false
+      - name: Install Linux native window dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y xvfb xauth openbox libgtk-3-0 libnss3 libasound2t64
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm ts
+      - run: pnpm test
+      - run: pnpm desktop:test
+      - run: pnpm --filter @connectors/engine test
+      # Includes a frozen helper for each native target, but never downloads a
+      # model or starts speech inference without the user's installation choice.
+      - run: pnpm speech:build
+      - name: Verify audio decoding boundaries
+        run: .electron-demo/speech-build/venv/bin/python -m unittest discover -s desktop/speech -p 'test_*.py'
+      - name: Prepare verified speech sources and native inventory
+        id: speech_materials
+        run: |
+          mkdir -p release/qualification
+          .electron-demo/speech-build/venv/bin/python desktop/speech/release_materials.py fetch
+          .electron-demo/speech-build/venv/bin/python desktop/speech/release_materials.py bundle --output release/ri-speech-sources.tar.gz
+          .electron-demo/speech-build/venv/bin/python desktop/speech/release_materials.py verify-bundle release/ri-speech-sources.tar.gz > release/qualification/speech-sources.json
+          .electron-demo/speech-build/venv/bin/python desktop/speech/native_inventory.py release/speech-helper --verify > release/qualification/speech-native-inventory.json
+      - name: Build the unsigned native package
+        run: pnpm desktop:package --with-speech
+      - name: Select the packaged application
+        run: |
+          echo "RI_DESKTOP_PACKAGE=${{ matrix.package }}" >> "$GITHUB_ENV"
+          node -e 'const fs = require("node:fs"); const pkg = require("./package.json"); fs.appendFileSync(process.env.GITHUB_ENV, `RI_RUNTIME_PACKAGE=release/ri-runtime-${pkg.version}-${process.platform}-${process.arch}\n`)'
+      - name: Qualify headless lifecycle and crash cleanup without OS installation
+        run: pnpm exec tsx desktop/service-lifecycle-smoke.ts "$RI_RUNTIME_PACKAGE" --report release/qualification/service-direct.json
+      - name: Prepare the disposable Linux account's user service manager
+        if: runner.os == 'Linux'
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          account_uid=$(id -u)
+          sudo loginctl enable-linger "$USER"
+          sudo systemctl start "user@${account_uid}.service"
+          echo "XDG_RUNTIME_DIR=/run/user/${account_uid}" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${account_uid}/bus" >> "$GITHUB_ENV"
+      - name: Qualify real login supervision on the disposable CI account
+        # This exact opt-in is required in addition to hosted-runner identity.
+        # The harness refuses self-hosted CI and never installs OS jobs locally.
+        env:
+          RI_SERVICE_SMOKE_SUPERVISOR: install-test-job-on-disposable-github-hosted-account
+        run: pnpm exec tsx desktop/service-lifecycle-smoke.ts "$RI_RUNTIME_PACKAGE" --os-supervisor --report release/qualification/service-native.json
+      - name: Exercise packaged macOS recovery
+        if: runner.os == 'macOS'
+        run: pnpm exec tsx desktop/recovery-smoke.ts
+      - name: Exercise Linux recovery in a virtual display
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum pnpm exec tsx desktop/recovery-smoke.ts
+      - name: Exercise packaged shortcuts, editor navigation and downloads
+        timeout-minutes: 15
+        env:
+          TMPDIR: ${{ runner.temp }}/ri-acceptance
+        run: |
+          mkdir -p "$TMPDIR"
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run --auto-servernum pnpm exec tsx desktop/interaction-smoke.ts
+          else
+            pnpm exec tsx desktop/interaction-smoke.ts
+          fi
+      - name: Exercise packaged endurance and recovery over three bounded cycles
+        timeout-minutes: 15
+        env:
+          TMPDIR: ${{ runner.temp }}/ri-acceptance
+          RI_DESKTOP_ENDURANCE_CYCLES: '3'
+        run: |
+          mkdir -p "$TMPDIR"
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run --auto-servernum pnpm exec tsx desktop/endurance-smoke.ts
+          else
+            pnpm exec tsx desktop/endurance-smoke.ts
+          fi
+      - name: Exercise native and remote browser OAuth on the shared service
+        timeout-minutes: 15
+        env:
+          TMPDIR: ${{ runner.temp }}/ri-acceptance
+        run: |
+          mkdir -p "$TMPDIR"
+          if [ "$RUNNER_OS" = Linux ]; then
+            # A real window manager makes minimize/restore observable under Xvfb.
+            xvfb-run --auto-servernum sh -ec '
+              openbox --sm-disable >/dev/null 2>&1 &
+              manager_pid=$!
+              trap "kill $manager_pid 2>/dev/null || true" EXIT
+              pnpm exec tsx desktop/oauth-smoke.ts
+            '
+          else
+            pnpm exec tsx desktop/oauth-smoke.ts
+          fi
+      - name: Exercise packaged notification routing with mocked OS presentation
+        timeout-minutes: 15
+        env:
+          TMPDIR: ${{ runner.temp }}/ri-acceptance
+        run: |
+          mkdir -p "$TMPDIR"
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run --auto-servernum pnpm exec tsx desktop/notifications-smoke.ts
+          else
+            pnpm exec tsx desktop/notifications-smoke.ts
+          fi
+      - name: Exercise menu bar, global capture, login controls and availability
+        timeout-minutes: 30
+        env:
+          TMPDIR: ${{ runner.temp }}/ri-acceptance
+        run: |
+          mkdir -p "$TMPDIR"
+          if [ "$RUNNER_OS" = Linux ]; then
+            # Xvfb supplies a display, while minimization needs a window manager.
+            xvfb-run --auto-servernum sh -ec '
+              openbox --sm-disable >/dev/null 2>&1 &
+              manager_pid=$!
+              trap "kill $manager_pid 2>/dev/null || true" EXIT
+              pnpm exec tsx desktop/background-smoke.ts
+              pnpm exec tsx desktop/native-features-smoke.ts
+              pnpm exec tsx desktop/capture-smoke.ts
+            '
+          else
+            pnpm exec tsx desktop/background-smoke.ts
+            pnpm exec tsx desktop/native-features-smoke.ts
+            pnpm exec tsx desktop/capture-smoke.ts
+          fi
+      - run: pnpm exec tsx desktop/update-smoke.ts "$RI_RUNTIME_PACKAGE"
+      - name: Install test Chromium
+        run: pnpm exec playwright-core install --with-deps chromium
+      - name: Exercise phone manifest and private-cache boundaries
+        run: pnpm exec tsx scripts/smoke-phone-web-app.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ri-qualification-${{ matrix.platform }}-${{ matrix.arch }}
+          # Upload small reports and screenshots, not runtime copies or private
+          # fixture homes. Failed cleanup must not publish helper binaries.
+          path: |
+            release/qualification/*.json
+            ${{ runner.temp }}/ri-acceptance/ri-interaction-smoke-*/report.json
+            ${{ runner.temp }}/ri-acceptance/ri-interaction-smoke-*/*.png
+            ${{ runner.temp }}/ri-acceptance/ri-oauth-smoke-*/report.json
+            ${{ runner.temp }}/ri-acceptance/ri-oauth-smoke-*/*.png
+            ${{ runner.temp }}/ri-acceptance/ri-endurance-smoke-*/report.json
+            ${{ runner.temp }}/ri-acceptance/ri-endurance-smoke-*/*.png
+            ${{ runner.temp }}/ri-acceptance/ri-notifications-smoke-*/report.json
+            ${{ runner.temp }}/ri-acceptance/ri-notifications-smoke-*/*.png
+            ${{ runner.temp }}/ri-acceptance/ri-background-smoke-*/report.json
+            ${{ runner.temp }}/ri-acceptance/ri-background-smoke-*/*.png
+            ${{ runner.temp }}/ri-acceptance/ri-native-features-smoke-*/report.json
+            ${{ runner.temp }}/ri-acceptance/ri-native-features-smoke-*/*.png
+            ${{ runner.temp }}/ri-acceptance/ri-capture-smoke-*/report.json
+            ${{ runner.temp }}/ri-acceptance/ri-capture-smoke-*/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        # Source/notice evidence only, never executable helper or app binaries.
+        # A separate publisher must review the final signed helper and pass
+        # release_materials.py verify-release with artifact-bound approval.
+        # A repository flag is not approval of these particular binary bytes.
+        if: ${{ !cancelled() && steps.speech_materials.outcome == 'success' }}
+        with:
+          name: ri-speech-source-evidence-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            release/ri-speech-sources.tar.gz
+            release/ri-speech-sources.tar.gz.sha256
+            release/speech-helper/native-inventory.json
+            release/speech-helper/build.json
+            desktop/speech/source-catalog.json
+            desktop/speech/NOTICES.md
+            desktop/speech/licenses/**
+          retention-days: 7
+      # Signing/notarization and public upload are separate publisher operations.
+      # This workflow never publishes an unsigned build as an eligible release.

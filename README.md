@@ -47,6 +47,14 @@ Agent features run through your existing Claude Code or Codex CLI (subscription 
 
 > **Native modules:** pnpm blocks postinstall scripts by default. `better-sqlite3` and `sqlite-vec` need them to build their `.node` bindings — `pnpm approve-builds` enables them. If you skip it and see "Could not locate the bindings file" later, run `pnpm rebuild better-sqlite3` to recover. macOS needs Xcode Command Line Tools (`xcode-select --install`).
 
+## Electron desktop and background service
+
+Run `pnpm desktop:demo` to build and open Ri in Electron, or `pnpm desktop:dev` for hot reload. The demo uses its own data home and serves the existing Next app over HTTP/2, with certificate trust confined to Electron. No OS certificate installation is needed. After the first production build, `node desktop/launch.mjs --skip-build` opens it again without rebuilding.
+
+Build an unsigned app with `pnpm desktop:package`. On macOS arm64 the output is `release/desktop/mac-arm64/Ri.app`, with its own Node runtime and Ri CLI. `pnpm runtime:package` builds the headless runtime on matching macOS/Linux hosts.
+
+Desktop and CLI can share one explicitly selected local service. Quitting the GUI leaves that service running, and the desktop flushes pending edits before closing. Login supervision, persistent runtime setup, verified updates and SQLite migration/recovery are implemented. Default desktop homes remain isolated. Signed distribution and additional host/provider qualification are still required. The [desktop implementation and delivery plan](docs/desktop.md) covers setup, current verification, publisher configuration and conditional multi-device integration.
+
 ## Running the CLI (prod)
 
 The `ri` CLI is the canonical entry point. It bootstraps the brain (auth, skills, voice) and runs the production Next.js server.

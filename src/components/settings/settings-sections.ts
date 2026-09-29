@@ -35,7 +35,8 @@ export type SectionId =
   | 'notifications'
   | 'devices'
   | 'imports'
-  | 'remote-preview';
+  | 'remote-preview'
+  | 'updates';
 
 export interface SettingsSectionDef {
   /** Stable id — used for nav state, the content router, and the URL param. */
@@ -129,6 +130,7 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     title: 'Remote Preview',
     description: 'How execution previews open on your phone and other devices.',
   },
+  { id: 'updates', label: 'Updates', icon: Download, title: 'Updates', description: 'Background service and application updates.' },
 ];
 
 export const DEFAULT_SECTION: SectionId = 'profile';

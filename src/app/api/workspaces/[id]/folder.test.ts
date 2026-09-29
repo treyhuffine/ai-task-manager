@@ -6,9 +6,10 @@ import { execSync } from 'node:child_process';
 
 /**
  * The agent's own folder (docs/agents-view-spec.md Phase 5): tree, file and
- * terminals on the workspace itself, with no execution. Tree and file run
- * against a real git checkout and a real plain folder. The terminal manager
- * is stubbed (no native pty in tests), so these pin cwd and ownership.
+ * terminals on the workspace itself, with no execution, plus the Files tab's
+ * writes. Tree, file and writes run against real git checkouts and plain
+ * folders. The terminal manager is stubbed (no native pty in tests), so
+ * those pin cwd and ownership.
  */
 
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-agent-folder-'));
@@ -221,6 +222,133 @@ describe('/api/workspaces/:id/terminals', () => {
     expect((await POST(postJson({}), ctx({ id: ws.id }))).status).toBe(200);
     expect(killAllForOwner).toHaveBeenCalledWith(`workspace:${ws.id}`);
     expect(close).toHaveBeenCalledWith(main.id);
+  });
+});
+
+const withUrl = (url: string, init: RequestInit) => {
+  const u = new URL(url);
+  return Object.assign(new Request(u, init), { nextUrl: u }) as never;
+};
+const put = (relPath: string, body: unknown) =>
+  withUrl(`http://127.0.0.1/x?path=${encodeURIComponent(relPath)}`, { method: 'PUT', body: JSON.stringify(body) });
+const del = (relPath: string) => withUrl(`http://127.0.0.1/x?path=${encodeURIComponent(relPath)}`, { method: 'DELETE' });
+const sh = (cwd: string, cmd: string) =>
+  execSync(cmd, { cwd, env: { ...process.env, GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@b', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@b' } }).toString();
+
+/** A fresh folder per test, so writes never leak into the shared fixtures above. */
+function freshFolder(name: string, git: boolean): string {
+  const dir = fs.mkdtempSync(path.join(ROOT, `${name}-`));
+  fs.writeFileSync(path.join(dir, 'README.md'), '# hi\n');
+  if (git) sh(dir, 'git init -q -b main && git add -A && git commit -q -m init');
+  return dir;
+}
+
+describe('writes to the agent folder (the Files tab)', () => {
+  it('saves a file in a git checkout, creating parent folders, and the tree and reads see it', async () => {
+    const dir = freshFolder('save', true);
+    const ws = await seed(dir, true);
+    const file = await import('./file/route');
+    const res = await file.PUT(put('docs/plan.md', { content: '# Plan\n' }), ctx({ id: ws.id }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, path: 'docs/plan.md', size: 7 });
+    expect(fs.readFileSync(path.join(dir, 'docs', 'plan.md'), 'utf8')).toBe('# Plan\n');
+
+    await file.PUT(put('README.md', { content: '# changed\n' }), ctx({ id: ws.id }));
+    const tree = await import('./tree/route');
+    const body = (await (await tree.GET(get(), ctx({ id: ws.id }))).json()) as TreeBody;
+    expect(body.entries.find((e) => e.path === 'README.md')?.status).toBe('modified');
+    expect(body.entries.map((e) => e.path)).toContain('docs/plan.md');
+    const read = (await (await file.GET(get('http://127.0.0.1/x?path=README.md'), ctx({ id: ws.id }))).json()) as { content: string };
+    expect(read.content).toBe('# changed\n');
+  });
+
+  it('creates, renames and deletes files and folders, refusing to overwrite', async () => {
+    const dir = freshFolder('crud', false);
+    const ws = await seed(dir, false);
+    const create = await import('./file/create/route');
+    const rename = await import('./file/rename/route');
+    const dirRoute = await import('./dir/route');
+    const file = await import('./file/route');
+
+    expect((await create.POST(postJson({ path: 'notes/todo.md' }), ctx({ id: ws.id }))).status).toBe(200);
+    expect(fs.readFileSync(path.join(dir, 'notes', 'todo.md'), 'utf8')).toBe('');
+    expect((await create.POST(postJson({ path: 'README.md' }), ctx({ id: ws.id }))).status).toBe(409);
+    expect(fs.readFileSync(path.join(dir, 'README.md'), 'utf8')).toBe('# hi\n');
+
+    expect((await rename.POST(postJson({ from: 'notes/todo.md', to: 'notes/done.md' }), ctx({ id: ws.id }))).status).toBe(200);
+    expect(fs.existsSync(path.join(dir, 'notes', 'done.md'))).toBe(true);
+    expect((await rename.POST(postJson({ from: 'notes/done.md', to: 'README.md' }), ctx({ id: ws.id }))).status).toBe(409);
+
+    expect((await dirRoute.POST(postJson({ path: 'archive/2026' }), ctx({ id: ws.id }))).status).toBe(200);
+    expect(fs.statSync(path.join(dir, 'archive', '2026')).isDirectory()).toBe(true);
+    expect((await dirRoute.DELETE(del('archive'), ctx({ id: ws.id }))).status).toBe(200);
+    expect(fs.existsSync(path.join(dir, 'archive'))).toBe(false);
+
+    expect((await file.DELETE(del('notes/done.md'), ctx({ id: ws.id }))).status).toBe(200);
+    expect(fs.existsSync(path.join(dir, 'notes', 'done.md'))).toBe(false);
+    expect((await file.DELETE(del('notes/done.md'), ctx({ id: ws.id }))).status).toBe(404);
+  });
+
+  it('writes to a checkout on a detached HEAD, which has no folder handle', async () => {
+    const dir = freshFolder('detached-write', true);
+    sh(dir, 'git checkout -q --detach');
+    const ws = await seed(dir, true);
+    const file = await import('./file/route');
+    expect((await file.PUT(put('README.md', { content: 'x\n' }), ctx({ id: ws.id }))).status).toBe(200);
+    expect(fs.readFileSync(path.join(dir, 'README.md'), 'utf8')).toBe('x\n');
+  });
+
+  it('refuses unknown, archived and missing-folder agents, leaving the files alone', async () => {
+    const q = await import('@/lib/db/queries');
+    const file = await import('./file/route');
+    expect((await file.PUT(put('a.md', { content: 'x' }), ctx({ id: 'nope' }))).status).toBe(404);
+
+    const dir = freshFolder('archived', false);
+    const archived = await seed(dir, false);
+    q.archiveWorkspace(archived.id);
+    const res = await file.PUT(put('README.md', { content: 'overwritten' }), ctx({ id: archived.id }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain('read-only');
+    expect(fs.readFileSync(path.join(dir, 'README.md'), 'utf8')).toBe('# hi\n');
+
+    const gone = await seed(path.join(ROOT, 'vanished-write'), false);
+    expect((await file.PUT(put('a.md', { content: 'x' }), ctx({ id: gone.id }))).status).toBe(409);
+    expect(fs.existsSync(path.join(ROOT, 'vanished-write'))).toBe(false);
+  });
+
+  it('refuses paths outside the folder and malformed bodies', async () => {
+    const dir = freshFolder('bounds', false);
+    const ws = await seed(dir, false);
+    const file = await import('./file/route');
+    const create = await import('./file/create/route');
+    expect((await file.PUT(put('../escaped.md', { content: 'x' }), ctx({ id: ws.id }))).status).toBe(400);
+    expect(fs.existsSync(path.join(ROOT, 'escaped.md'))).toBe(false);
+    expect((await file.PUT(put('a.md', { text: 'x' }), ctx({ id: ws.id }))).status).toBe(400);
+    expect((await file.PUT(withUrl('http://127.0.0.1/x', { method: 'PUT', body: '{}' }), ctx({ id: ws.id }))).status).toBe(400);
+    expect((await create.POST(postJson({ path: '/etc/passwd' }), ctx({ id: ws.id }))).status).toBe(400);
+  });
+
+  it('resolves a merge conflict in the checkout: writes the file and stages it', async () => {
+    const dir = freshFolder('conflict', true);
+    fs.writeFileSync(path.join(dir, 'shared.txt'), 'line1\nBASE\nline3\n');
+    sh(dir, 'git add -A && git commit -q -m base && git checkout -q -b feature');
+    fs.writeFileSync(path.join(dir, 'shared.txt'), 'line1\nFEATURE\nline3\n');
+    sh(dir, 'git commit -qam feature && git checkout -q main');
+    fs.writeFileSync(path.join(dir, 'shared.txt'), 'line1\nMAIN\nline3\n');
+    sh(dir, 'git commit -qam main');
+    try {
+      sh(dir, 'git merge -q feature');
+    } catch {
+      // The conflict is the point.
+    }
+    expect(sh(dir, 'git diff --name-only --diff-filter=U').trim()).toBe('shared.txt');
+
+    const ws = await seed(dir, true);
+    const { POST } = await import('./file/resolve-conflict/route');
+    const res = await POST(postJson({ path: 'shared.txt', content: 'line1\nBOTH\nline3\n' }), ctx({ id: ws.id }));
+    expect(res.status).toBe(200);
+    expect(fs.readFileSync(path.join(dir, 'shared.txt'), 'utf8')).toBe('line1\nBOTH\nline3\n');
+    expect(sh(dir, 'git diff --name-only --diff-filter=U').trim()).toBe('');
   });
 });
 

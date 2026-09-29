@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Sparkles, X, MessageSquare, MessageSquarePlus, Loader2, RefreshCw } from 'lucide-react'
+import { X, MessageSquare, MessageSquarePlus, Loader2, RefreshCw } from 'lucide-react'
 import { api, ApiError } from '@/lib/api/client'
 import { useRuntimeStatus } from '@/hooks/use-execution'
 import { HarnessChatSession } from '@/components/chat/harness-chat'
@@ -217,7 +217,7 @@ function ChatPanel({
     >
       {/* Header — title, new-chat, and (bubble) close. */}
       <div className="flex items-center gap-2 px-3 h-11 flex-shrink-0 border-b border-border/60">
-        <Sparkles size={12} className="text-primary" />
+        <MessageSquare size={12} className="text-primary" />
         <span className="text-xs font-medium text-foreground">AI Assistant</span>
         <div className="ml-auto flex items-center gap-0.5">
           <button

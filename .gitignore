@@ -32,6 +32,9 @@ code-archive
 /.next-verify/
 /.next-smoke/
 /.next-bundle-audit/
+/.next-desktop/
+/.next-desktop-dev/
+/.electron-demo/
 /out/
 .turbo
 
@@ -71,3 +74,6 @@ next-env.d.ts
 # Vendored from miguelsolorio/vscode-symbols via scripts/fetch-symbols-icons.mjs
 /public/symbols-icons/
 .gstack/
+
+# Packaged desktop artifacts
+/release/

@@ -17,6 +17,7 @@
 import { NextRequest } from 'next/server';
 import { saveAttachment } from '@/lib/attachments/save';
 import { isAllowedMime, resolveMime } from '@/lib/attachments/mime';
+import { readLimitedFormData, RequestBodyTooLargeError } from '@/lib/api/limited-body';
 
 /** Hard cap per upload. Generous for screenshots + short audio, stops a
  *  browser bug from pushing 2GB through us. */
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const formData = await request.formData();
+    const formData = await readLimitedFormData(request);
     const file = formData.get('file');
     if (!(file instanceof Blob) || file.size === 0) {
       return Response.json({ error: 'Missing or empty file field' }, { status: 400 });
@@ -69,6 +70,7 @@ export async function POST(request: NextRequest) {
 
     return Response.json(attachment, { status: 201 });
   } catch (err) {
+    if (err instanceof RequestBodyTooLargeError) return Response.json({ error: err.message }, { status: 413 });
     console.error('[POST /api/attachments]', err);
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: message }, { status: 500 });

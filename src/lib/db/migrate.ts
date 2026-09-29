@@ -26,45 +26,24 @@ export function runMigrations(
   sqlite: Database.Database,
   migrationsFolder: string,
 ): { applied: number } {
-  const migrations = readMigrationFiles({ migrationsFolder });
-
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
-      id SERIAL PRIMARY KEY,
-      hash text NOT NULL,
-      created_at numeric
-    )
-  `);
-  const last = sqlite
-    .prepare(`SELECT created_at FROM "__drizzle_migrations" ORDER BY created_at DESC LIMIT 1`)
-    .get() as { created_at: number | string } | undefined;
-  const pending = migrations.filter(
-    (m) => !last || Number(last.created_at) < m.folderMillis,
-  );
-  if (pending.length === 0) {
-    sqlite.pragma('foreign_keys = ON');
-    return { applied: 0 };
-  }
-
-  // Tables, but no record of the baseline: this database was built on a
-  // migration history that has since been collapsed into a new baseline.
-  // Applying the baseline over it could only fail on its first CREATE TABLE,
-  // so stop before touching anything and say how to move it over.
-  if (pending[0] === migrations[0] && hasAppTables(sqlite)) {
-    sqlite.pragma('foreign_keys = ON');
-    throw new MigrationHistoryError(sqlite.name);
-  }
-
+  if (sqlite.inTransaction) throw new Error('Migrations require a connection outside a transaction');
+  let applied = 0;
   // Must run outside a transaction, or SQLite ignores it.
   sqlite.pragma('foreign_keys = OFF');
   try {
+    // Serialize competing CLI/server boots BEFORE reading the journal. A
+    // process waiting for this lock must see what the previous owner applied.
+    sqlite.exec('BEGIN IMMEDIATE');
+    try {
+      const { pending } = inspectMigrationHistory(sqlite, migrationsFolder);
     // Violations that already existed are not this migration's fault, and
     // failing boot on them would brick an install over old damage. Only new
     // ones block the commit.
     const before = new Set(checkForeignKeys(sqlite).map(violationKey));
 
-    sqlite.exec('BEGIN');
-    try {
+      sqlite.exec(`CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric
+      )`);
       for (const migration of pending) {
         for (const statement of migration.sql) sqlite.exec(statement);
         sqlite
@@ -74,6 +53,7 @@ export function runMigrations(
       const introduced = checkForeignKeys(sqlite).filter((v) => !before.has(violationKey(v)));
       if (introduced.length > 0) throw new MigrationForeignKeyError(introduced);
       sqlite.exec('COMMIT');
+      applied = pending.length;
     } catch (err) {
       sqlite.exec('ROLLBACK');
       throw err;
@@ -81,7 +61,42 @@ export function runMigrations(
   } finally {
     sqlite.pragma('foreign_keys = ON');
   }
-  return { applied: pending.length };
+  return { applied };
+}
+
+/** Read-only compatibility check. An applied history must be an exact prefix
+ * of this binary's history, including every hash, not just its last timestamp.
+ * Safe for an update preflight opened with fileMustExist + readonly. */
+export function inspectMigrationHistory(sqlite: Database.Database, migrationsFolder: string) {
+  const migrations = readMigrationFiles({ migrationsFolder });
+  for (let i = 0; i < migrations.length; i++) {
+    if (!Number.isSafeInteger(migrations[i].folderMillis) ||
+        (i > 0 && migrations[i].folderMillis <= migrations[i - 1].folderMillis)) {
+      throw new MigrationCompatibilityError('Release migration timestamps are not strictly increasing');
+    }
+  }
+  const hasJournal = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'").get();
+  const applied = hasJournal
+    ? sqlite.prepare('SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at, rowid').all() as Array<{ hash: string; created_at: number | string }>
+    : [];
+  if (hasAppTables(sqlite) && (applied.length === 0 ||
+      (migrations[0] && Number(applied[0].created_at) < migrations[0].folderMillis))) {
+    throw new MigrationHistoryError(sqlite.name);
+  }
+  for (let i = 0; i < applied.length; i++) {
+    const expected = migrations[i];
+    if (!expected || Number(applied[i].created_at) !== expected.folderMillis || applied[i].hash !== expected.hash) {
+      throw new MigrationCompatibilityError(`Database migration ${i + 1} does not match this release. Use the matching or newer Ri release. No migration was applied.`);
+    }
+  }
+  return { applied: applied.length, pending: migrations.slice(applied.length) };
+}
+
+export class MigrationCompatibilityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MigrationCompatibilityError';
+  }
 }
 
 function hasAppTables(sqlite: Database.Database): boolean {

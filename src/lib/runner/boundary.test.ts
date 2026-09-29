@@ -18,6 +18,15 @@ const RUNNER = path.join(SRC, 'lib', 'runner');
 /** Modules the runner must never load, by path under src, or by package name. */
 const FORBIDDEN_PATHS = ['lib/db/', 'db/', 'lib/realtime/', 'lib/notifications/'].map((p) => path.join(SRC, p));
 const FORBIDDEN_PACKAGES = ['better-sqlite3', 'drizzle-orm'];
+/**
+ * Named exceptions, each with why it isn't a database. `atomic-file.ts`
+ * (from the desktop service) opens a SQLite file of its own as an
+ * OS-released lock beside a config file, never the app's database, so a
+ * worker writing its own config takes the same lock the service does.
+ */
+const PACKAGE_EXCEPTIONS: Record<string, string[]> = {
+  [path.join(SRC, 'lib/config/atomic-file.ts')]: ['better-sqlite3'],
+};
 
 const IMPORT_RE =
   /(?:^|\n)\s*(import|export)\s+(type\s+)?(?:[^'"`;]*?\s+from\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
@@ -67,6 +76,7 @@ function violations(entry: string, forbidden: string[] = FORBIDDEN_PATHS): strin
     seen.add(file);
     const { local, packages } = runtimeImports(file);
     for (const pkg of packages) {
+      if (PACKAGE_EXCEPTIONS[file]?.includes(pkg)) continue;
       if (FORBIDDEN_PACKAGES.some((p) => pkg === p || pkg.startsWith(`${p}/`))) {
         found.push([...chain, pkg].map((f) => path.relative(SRC, f) || f).join(' → '));
       }

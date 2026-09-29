@@ -1,0 +1,86 @@
+/** The service's ordinary-Node HTTP boundary. Next remains the application. */
+import http from 'node:http';
+import next from 'next';
+import { beginActivity, readMaintenance } from '@/lib/service/maintenance';
+import './watchdog';
+import { listRunningSessions, listBackgroundTaskSessions, listSessionsWithPending } from '@/lib/executor/status-snapshot';
+
+const port = Number(process.env.PORT);
+const application = next({ dev: process.env.RI_DESKTOP_MODE === 'development', hostname: '127.0.0.1', port, dir: process.cwd() });
+const handle = application.getRequestHandler();
+
+async function start() {
+  await application.prepare();
+  const server = http.createServer((request, response) => {
+    let pathname: string;
+    try { pathname = new URL(request.url ?? '/', 'http://localhost').pathname; }
+    catch {
+      response.writeHead(400, { 'Cache-Control': 'no-store', 'Content-Type': 'text/plain' }).end('Invalid request target');
+      return;
+    }
+    const gate = readMaintenance();
+    // Readiness is private to the local controller. During validation the
+    // public gateway is still closed, including to ordinary read requests.
+    if (pathname === '/__ri_ready' || pathname === '/__ri_activity' || pathname === '/__ri_prepare') {
+      if (!process.env.RI_SERVICE_CONTROL_TOKEN || request.headers['x-ri-service-control'] !== process.env.RI_SERVICE_CONTROL_TOKEN) { response.writeHead(404).end(); return; }
+      if (pathname === '/__ri_prepare') {
+        const prepare = (globalThis as typeof globalThis & { __riPrepareIdle?: () => Promise<void> }).__riPrepareIdle;
+        if (!prepare) { response.writeHead(503).end(); return; }
+        void prepare().then(() => response.end('{}')).catch(() => response.writeHead(409).end());
+        return;
+      }
+      if (pathname === '/__ri_activity') {
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({ executions: listRunningSessions().length, background: listBackgroundTaskSessions().length, permissions: listSessionsWithPending().length }));
+        return;
+      }
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ ready: true, validation: process.env.RI_SERVICE_VALIDATING === '1', pid: process.pid, repo: process.cwd() }));
+      return;
+    }
+    const saving = request.method === 'PATCH' && /^\/api\/(tasks|notes|areas)\/[^/]+$/.test(pathname);
+    const safeRead = request.method === 'GET' || request.method === 'HEAD';
+    if (process.env.RI_SERVICE_VALIDATING === '1' || gate?.phase === 'offline' || (gate && !saving && !safeRead)) {
+      response.writeHead(503, { 'Retry-After': '5', 'Cache-Control': 'no-store', 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ error: 'maintenance', message: 'Ri is preparing an update. Please retry shortly.' }));
+      return;
+    }
+    let release: () => void;
+    try { release = beginActivity(undefined, saving || safeRead); }
+    catch {
+      response.writeHead(503, { 'Retry-After': '5' }).end('Ri is preparing an update');
+      return;
+    }
+    let done = false;
+    let handlerDone = false;
+    let responseDone = false;
+    const finish = (passive = false) => { if (!done && (passive || (handlerDone && responseDone))) { done = true; release(); } };
+    const responseEnded = () => { responseDone = true; finish(); };
+    response.once('finish', responseEnded);
+    response.once('close', responseEnded);
+    // A passive SSE subscriber does not keep an otherwise idle Home busy.
+    // Its producer's actual work has its own admission lease.
+    const writeHead = response.writeHead;
+    response.writeHead = function (status: number, message?: string | http.OutgoingHttpHeaders | http.OutgoingHttpHeader[], headers?: http.OutgoingHttpHeaders | http.OutgoingHttpHeader[]) {
+      const result = Reflect.apply(writeHead, this, [status, message, headers]) as ReturnType<typeof writeHead>;
+      if (safeRead && String(this.getHeader('content-type')).includes('text/event-stream')) finish(true);
+      return result;
+    };
+    void handle(request, response).then(() => { handlerDone = true; finish(); }).catch(error => {
+      handlerDone = true; finish();
+      console.error('[service] Request failed', error instanceof Error ? error.name : 'Error');
+      if (!response.headersSent) response.writeHead(500);
+      response.end();
+    });
+  });
+  server.on('upgrade', (request, socket, head) => {
+    if (readMaintenance()) { socket.destroy(); return; }
+    void application.getUpgradeHandler()(request, socket, head);
+  });
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
+  const stop = () => { server.close(); void application.close().finally(() => process.exit(0)); };
+  process.once('SIGTERM', stop);
+  process.once('SIGINT', stop);
+  process.send?.({ type: 'listening', port });
+}
+void start().catch(error => { console.error('[service] HTTP startup failed', error); process.exit(1); });

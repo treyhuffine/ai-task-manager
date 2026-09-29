@@ -1,0 +1,1549 @@
+{
+  "format": 1,
+  "retrievedAt": "2026-09-26",
+  "files": [
+    {
+      "file": "alsa-lib/COPYING",
+      "url": "https://www.alsa-project.org/files/pub/lib/alsa-lib-1.2.14.tar.bz2",
+      "upstreamVersion": "1.2.14",
+      "sha256": "32434afcc8666ba060e111d715bfdb6c2d5dd8a35fa4d3ab8ad67d8f850d2f2b",
+      "sourceSha256": "32434afcc8666ba060e111d715bfdb6c2d5dd8a35fa4d3ab8ad67d8f850d2f2b",
+      "sourceArchiveSha256": "be9c88a0b3604367dd74167a2b754a35e142f670292ae47a2fdef27a2ee97a32",
+      "archiveMember": "alsa-lib-1.2.14/COPYING",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "alsa-lib/aserver/COPYING",
+      "url": "https://www.alsa-project.org/files/pub/lib/alsa-lib-1.2.14.tar.bz2",
+      "upstreamVersion": "1.2.14",
+      "sha256": "bfe16cf823bcff261fc6a062c07ee96660e3c39678f42f39a788a68dbc234ced",
+      "sourceSha256": "bfe16cf823bcff261fc6a062c07ee96660e3c39678f42f39a788a68dbc234ced",
+      "sourceArchiveSha256": "be9c88a0b3604367dd74167a2b754a35e142f670292ae47a2fdef27a2ee97a32",
+      "archiveMember": "alsa-lib-1.2.14/aserver/COPYING",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/AMFXInput.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "d6998a1c1a16ed2a78e596f089dbf6f0ea7d412f558003c363883f7f26f6ce66",
+      "sourceSha256": "41303e3038e8e5717e174cd3e37625163d244bd3ed0bc2d47d8ad347cce65cc5",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/AMFXInput.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/Ambisonic2SRenderer.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "27770ae77d2f7a16eca9ab1f8b9ce87cf0c0350425b950bdd39189c2c91a519a",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/Ambisonic2SRenderer.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/AudioCapture.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b91a907c8530e53c93b92683f8c2200811029e630214532a245e933e1a4a7cb7",
+      "sourceSha256": "05a9ebc32217e69b6c4659f4744dbda9e5a2792f3e56bc1bcf61c15dcfd46cab",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/AudioCapture.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/Capture.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "bbe91a1e744685a36269d3b6af9cd36d9716ee748c8d0ed95255a6a42b46892f",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/Capture.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/ChromaKey.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "dd507bd89a059fa35566c9df727a3a3ec708413dedb6bea13559019389b66589",
+      "sourceSha256": "a3a89490d44adaffc2fa2cccc14313f8f65e5af7a6431d89d85bd80e36c628a1",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/ChromaKey.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/ColorSpace.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "4ef6392bb4b9c6b05d00b5cd1486b99866e40e61449206a3a515063e4ffd289b",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/ColorSpace.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/Component.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "f3f18680d55a65fdf5e0351d3fde1dcd9bdd2d6caec268c8c915c4227ffa1edc",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/Component.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/ComponentCaps.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "2479eb2a6174a1b63552c509abac1b701eddcab5a5eac5a7f4d9f40274d588b4",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/ComponentCaps.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/CursorCapture.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b91a907c8530e53c93b92683f8c2200811029e630214532a245e933e1a4a7cb7",
+      "sourceSha256": "7c22337ff313320bd7fe20ef0fb00756735012367a5daa7c621725030f578863",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/CursorCapture.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/DisplayCapture.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "88c2ec583422709a6eacd34efb0720eafa186135bf808ff9e435d6baf5570090",
+      "sourceSha256": "9c661b9d23dc240e59758246865d8a3a3162b5c61077b54417d07bb0b9d2fa2c",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/DisplayCapture.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/FFMPEGAudioConverter.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "9dde7e850c8bdecda82b0cee1b331294f6cc91b32b1d1504344a023cd4dda8af",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/FFMPEGAudioConverter.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/FFMPEGAudioDecoder.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "92f50d789bc18d5ebd143b2925e124594a89110eef7efaa8189eb063bf2f3aa8",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/FFMPEGAudioDecoder.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/FFMPEGAudioEncoder.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "2493067de9b3f540ffaae8a6466e57ef75af4772f037a81785b11ee9511029f5",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/FFMPEGAudioEncoder.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/FFMPEGComponents.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "87a9ae9480c3af6210b1282d1768e36673fcc1ef4970afa6edaa74481cf0831b",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/FFMPEGComponents.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/FFMPEGEncoderAV1.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "3a1462053635a930534b4a6a3831e87281d6fd5181c1c4139a48bd85bd369dd1",
+      "sourceSha256": "5d64b7d2d50ca17ba601885dcdb51bb16ef4dccf88323437967e8524f26194bc",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/FFMPEGEncoderAV1.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/FFMPEGEncoderH264.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "9eb196fb87722f4083f6004eee4d0c0388af9f3225e437cfbec2bd5d60fd0962",
+      "sourceSha256": "3dae38db05bc55af525000c28559ff76625e0cddc2ad2c4c2af52eab69e915bc",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/FFMPEGEncoderH264.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/FFMPEGEncoderHEVC.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "3ad5cc5d3284b253a671499efa29c7a46b83a6e6373aad7142c7adcbfae31875",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/FFMPEGEncoderHEVC.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/FFMPEGFileDemuxer.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "be992e14086b04e2a7b5503471a6c262c58fda163c45ad6d00f8e425d9f4a820",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/FFMPEGFileDemuxer.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/FFMPEGFileMuxer.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "3fefbe1aa7aaa4c000a97efb2e5ba26dc87ec15d11b07ceb0f43c768a1d589a2",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/FFMPEGFileMuxer.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/FFMPEGVideoDecoder.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "297b0ab2291baeb44f30f03ffbf791a5603289ab34f625d60a33150f2be1f7b6",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/FFMPEGVideoDecoder.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/FRC.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "64a1bba4e7cb79697c547e5c57e0ef8194ae4c60b950496cfeeb6a9851be5ea0",
+      "sourceSha256": "1aa006ed84ff6be7d9283379a6688f003c4a25df0673c07096eb74e99b1989cb",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/FRC.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/HQScaler.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "7d4ea6bf4a55d84e6cac931fcf55063cf65120a8d4616220a29ce89b8bb3a980",
+      "sourceSha256": "b63e856b55db7a6853f444a6d4d32cfe006d9e0fb1d9be1b3079557534738591",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/HQScaler.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/MediaSource.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "c4e168d29e3f7d9318435958c3c784ad4c497159a617bd7a5598a2951b1b15f6",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/MediaSource.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/PreAnalysis.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "1e389c7b8f2e251c6b2d3dcd8094ebeadeb228459b4841b898f069389b2a43ba",
+      "sourceSha256": "6824fd31dc6a42ad4e1cce29bd2bf190e769d6d5a4427fba57cefa697c9a9bd7",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/PreAnalysis.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/PreProcessing.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "45c144ede891b53c8b0d32bacb6330c3e1ed65dda14fbefd537f0cb3b8f51ece",
+      "sourceSha256": "5a01d71e128cf8bcaa4945fe76d9aad0156c409df3b25616a75645ef15972dc3",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/PreProcessing.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/SupportedCodecs.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b91a907c8530e53c93b92683f8c2200811029e630214532a245e933e1a4a7cb7",
+      "sourceSha256": "550900e56c8254bf9c42d1b1d6538a390f7f7d3bf4826ee385b019585cb6cd22",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/SupportedCodecs.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/VQEnhancer.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "7d4ea6bf4a55d84e6cac931fcf55063cf65120a8d4616220a29ce89b8bb3a980",
+      "sourceSha256": "146e7cd35acc846f6b75b696bbe13a5d790f885bc23d9913e7de66f515da789b",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/VQEnhancer.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/VideoCapture.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "08f0162a631833f847d1b4b751e41e28b147a79ed19545b43631222d22e74507",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/VideoCapture.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/VideoConverter.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "465a8d620f61aa2ada6b3034fa2e67e9651dec3e6b402411e09c146ad2bac619",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/VideoConverter.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/VideoDecoderUVD.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "3a1462053635a930534b4a6a3831e87281d6fd5181c1c4139a48bd85bd369dd1",
+      "sourceSha256": "588622f7d945c85c1ed334b497174fd46031e01664338bcf59c4b242920df886",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/VideoDecoderUVD.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/VideoEncoderAV1.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "8e160f38b71e133dd4062d163269226d6ddabcff0e22823f405f5110343352b1",
+      "sourceSha256": "2c4e18f6d0be4701d9a9d9ad4298ed5d7ed7c1fd7a909995c4e745874d8203a0",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/VideoEncoderAV1.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/VideoEncoderHEVC.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "a0d181751fb48b221e016788fde1ee3101527f5e9d26b2e8d7f44738a0c6bdec",
+      "sourceSha256": "138ad005e4b7131582fc1f82dad8851c1362f0d156bf62f10a64e462c8a037c0",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/VideoEncoderHEVC.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/VideoEncoderVCE.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "3a1462053635a930534b4a6a3831e87281d6fd5181c1c4139a48bd85bd369dd1",
+      "sourceSha256": "8dcddd6df00debd096db29f00fa155e3e179ebc6ea4c6c1edc5027eb857cffd5",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/VideoEncoderVCE.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/VideoStitch.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "aefcbd2d280111045b1220ef7abe4d1ec13a3fef43e8f332b0e789caaf174dfd",
+      "sourceSha256": "9bc2d8477d67693b0cd4d433fbc6a5812277190f67be5f188f0206b463f256ec",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/VideoStitch.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/components/ZCamLiveStream.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "3c6e6515a8fec111eb1847e349124a8c66c1e78be2d148bc0b8f85b9d9994e2d",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/components/ZCamLiveStream.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/AudioBuffer.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "c9382c911fd3b5e12105c1d2a67eb11e62e9475068825222a285bb1314ac0ddd",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/AudioBuffer.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Buffer.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "3a1462053635a930534b4a6a3831e87281d6fd5181c1c4139a48bd85bd369dd1",
+      "sourceSha256": "1ad18d3c813c3f81a836d393bbe86dfc0b7a1d7f04a77a272eb1461ce85ae3a4",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Buffer.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Compute.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "dc35befae2cecf5d2b866632a8b16c2f2ec3a543a6b474f941a33fcd7a8d1e0a",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Compute.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/ComputeFactory.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "50acf69fb670bc6cf093384d1b698bf9e44cda8dd49e02ef24eacfb86ad8ccae",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/ComputeFactory.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Context.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "f9b4acb784038aad234ddec490e5f6ad6dacc4b14794eb84f3523d56dc3d6dd2",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Context.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/CurrentTime.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "3cd69a91bd9c21eb9da4c0d3e2707114acd63389f7412169df6746882fa5cfa9",
+      "sourceSha256": "76d16ba57d48ae9e457f3d904698a1e7c625007ac8887db9bcecdb90fd36d835",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/CurrentTime.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/D3D12AMF.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "3a1462053635a930534b4a6a3831e87281d6fd5181c1c4139a48bd85bd369dd1",
+      "sourceSha256": "f05771305598b534e1efa0dd28825267ea87418c477b198e373f6764d060c666",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/D3D12AMF.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Data.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "3a1462053635a930534b4a6a3831e87281d6fd5181c1c4139a48bd85bd369dd1",
+      "sourceSha256": "eaac4d80dd3215638c70f8a4ca01791d26d9df77586f665a772bb51907a8035b",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Data.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Debug.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "56666589bf6ad20c6286a048da751c2d7722f70c73d962ee3c205a6d709b6aff",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Debug.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Dump.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "a5e0fa9290cae767a4d135962ee5e30302e65e8d0ca5e016c620e72b759c86c6",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Dump.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Factory.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "3a1462053635a930534b4a6a3831e87281d6fd5181c1c4139a48bd85bd369dd1",
+      "sourceSha256": "644814e97dd359f08d66a73748b60262149b106d28423c31b573cecb4be57979",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Factory.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Interface.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "304f6d6077e9b0733859d44a5e43a343ae374c8fe72c7d79741c0aca89c21162",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Interface.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Plane.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "5ad5165e9de2afcfc2da828e8704c838b1f82e8ead7422fbcfc32c758672e1f3",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Plane.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Platform.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "3a1462053635a930534b4a6a3831e87281d6fd5181c1c4139a48bd85bd369dd1",
+      "sourceSha256": "13fae6d4e23720ede67a5002930b4337f60b4fb7639a3c5338a46d7df9e12fff",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Platform.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/PropertyStorage.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "0059b787e78cd7c4e57212ccaab56ad7e17e9474a31337da0eac5b2d056a5dd8",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/PropertyStorage.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/PropertyStorageEx.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "871136e46586baa1fc77121935b503aaa16523d006c3e435ce50698605675fad",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/PropertyStorageEx.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Result.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "a469ff33875484b5762199da757819056ff4a7535bfdcec1f4cf2ffc403b98f2",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Result.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Surface.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "3a1462053635a930534b4a6a3831e87281d6fd5181c1c4139a48bd85bd369dd1",
+      "sourceSha256": "d3f8c41bf2d44e935ca5e77865127670fc9a9476c21c62b5bcaa1eaf0918931b",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Surface.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Trace.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "ae8c5fee671f02b90d3ccab312cfa6f74424351f070a7dd4ed7aba437fd55c30",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Trace.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Variant.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b43a0c13133eeeb90068d6b8b767fd8e10488ad0ff61755c74dd9cabd03d429c",
+      "sourceSha256": "ac63c94d0f3624b4ddaa4164d4eb82d0c7f54723cee9cf035d23e02edd92e333",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Variant.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/Version.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "b91a907c8530e53c93b92683f8c2200811029e630214532a245e933e1a4a7cb7",
+      "sourceSha256": "1edad0a2f23976be06a0566d858990239619f366f6dffbbd26e98bd5308c01f2",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/Version.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "amf-headers/header-notices/AMF/core/VulkanAMF.h.txt",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v1.5.0/AMF-headers-v1.5.0.tar.gz",
+      "upstreamVersion": "1.5.0",
+      "sha256": "3a1462053635a930534b4a6a3831e87281d6fd5181c1c4139a48bd85bd369dd1",
+      "sourceSha256": "a7cd8455fb5dd1b7a09bb4a770235d4cde7cf9549a0c6604dc5300e0c5e6ba4e",
+      "sourceArchiveSha256": "d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01",
+      "archiveMember": "amf-headers-v1.5.0/AMF/core/VulkanAMF.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "dav1d/COPYING",
+      "url": "https://code.videolan.org/videolan/dav1d/-/archive/1.5.3/dav1d-1.5.3.tar.bz2",
+      "upstreamVersion": "1.5.3",
+      "sha256": "dd92c3c2247c5651606fc23a5e2d6a1ebc5ace9a3e49cbde0e12f05ad1cb1ee5",
+      "sourceSha256": "dd92c3c2247c5651606fc23a5e2d6a1ebc5ace9a3e49cbde0e12f05ad1cb1ee5",
+      "sourceArchiveSha256": "e099f53253f6c247580c554d53a13f1040638f2066edc3c740e4c2f15174ce22",
+      "archiveMember": "dav1d-1.5.3/COPYING",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "dav1d/doc/PATENTS",
+      "url": "https://code.videolan.org/videolan/dav1d/-/archive/1.5.3/dav1d-1.5.3.tar.bz2",
+      "upstreamVersion": "1.5.3",
+      "sha256": "335eca574598bf4ca181b12f708d6669e5a5e78c8e1513e5b35fa1f03901484b",
+      "sourceSha256": "335eca574598bf4ca181b12f708d6669e5a5e78c8e1513e5b35fa1f03901484b",
+      "sourceArchiveSha256": "e099f53253f6c247580c554d53a13f1040638f2066edc3c740e4c2f15174ce22",
+      "archiveMember": "dav1d-1.5.3/doc/PATENTS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "ffmpeg/COPYING.GPLv2",
+      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+      "upstreamVersion": "8.1.2",
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+      "sourceSha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+      "extraction": "complete upstream file, verbatim",
+      "sourceArchiveSha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+      "archiveMember": "ffmpeg-8.1.2/COPYING.GPLv2"
+    },
+    {
+      "file": "ffmpeg/COPYING.GPLv3",
+      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+      "upstreamVersion": "8.1.2",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "sourceSha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "extraction": "complete upstream file, verbatim",
+      "sourceArchiveSha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+      "archiveMember": "ffmpeg-8.1.2/COPYING.GPLv3"
+    },
+    {
+      "file": "ffmpeg/COPYING.LGPLv2.1",
+      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+      "upstreamVersion": "8.1.2",
+      "sha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30",
+      "sourceSha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30",
+      "extraction": "complete upstream file, verbatim",
+      "sourceArchiveSha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+      "archiveMember": "ffmpeg-8.1.2/COPYING.LGPLv2.1"
+    },
+    {
+      "file": "ffmpeg/COPYING.LGPLv3",
+      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+      "upstreamVersion": "8.1.2",
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+      "sourceSha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+      "extraction": "complete upstream file, verbatim",
+      "sourceArchiveSha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+      "archiveMember": "ffmpeg-8.1.2/COPYING.LGPLv3"
+    },
+    {
+      "file": "ffmpeg/LICENSE.md",
+      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+      "upstreamVersion": "8.1.2",
+      "sha256": "2e1d16c72fd74e12063776371da757322f8b77589386532f4fd8634bde7de1af",
+      "sourceSha256": "2e1d16c72fd74e12063776371da757322f8b77589386532f4fd8634bde7de1af",
+      "extraction": "complete upstream file, verbatim",
+      "sourceArchiveSha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+      "archiveMember": "ffmpeg-8.1.2/LICENSE.md"
+    },
+    {
+      "file": "flatbuffers/LICENSE",
+      "url": "https://raw.githubusercontent.com/google/flatbuffers/v25.12.19/LICENSE",
+      "upstreamVersion": "25.12.19",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "sourceSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "gmp/AUTHORS",
+      "url": "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz",
+      "upstreamVersion": "6.3.0",
+      "sha256": "da5870e2f0482c5dc15b4cfed8bbfb51ce1279c8f8fc52bdb8c13c7cee949c32",
+      "sourceSha256": "da5870e2f0482c5dc15b4cfed8bbfb51ce1279c8f8fc52bdb8c13c7cee949c32",
+      "sourceArchiveSha256": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
+      "archiveMember": "gmp-6.3.0/AUTHORS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "gmp/COPYING",
+      "url": "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz",
+      "upstreamVersion": "6.3.0",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "sourceSha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "sourceArchiveSha256": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
+      "archiveMember": "gmp-6.3.0/COPYING",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "gmp/COPYING.LESSERv3",
+      "url": "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz",
+      "upstreamVersion": "6.3.0",
+      "sha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c",
+      "sourceSha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c",
+      "sourceArchiveSha256": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
+      "archiveMember": "gmp-6.3.0/COPYING.LESSERv3",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "gmp/COPYINGv2",
+      "url": "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz",
+      "upstreamVersion": "6.3.0",
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+      "sourceSha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+      "sourceArchiveSha256": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
+      "archiveMember": "gmp-6.3.0/COPYINGv2",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "gmp/COPYINGv3",
+      "url": "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz",
+      "upstreamVersion": "6.3.0",
+      "sha256": "e6037104443f9a7829b2aa7c5370d0789a7bda3ca65a0b904cdc0c2e285d9195",
+      "sourceSha256": "e6037104443f9a7829b2aa7c5370d0789a7bda3ca65a0b904cdc0c2e285d9195",
+      "sourceArchiveSha256": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
+      "archiveMember": "gmp-6.3.0/COPYINGv3",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "gnutls/AUTHORS",
+      "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz",
+      "upstreamVersion": "3.8.13",
+      "sha256": "79bca1136dc515b930f2f85975c0c4c687e7d430be27a9b59113637c33b8e7a3",
+      "sourceSha256": "79bca1136dc515b930f2f85975c0c4c687e7d430be27a9b59113637c33b8e7a3",
+      "sourceArchiveSha256": "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e",
+      "archiveMember": "gnutls-3.8.13/AUTHORS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "gnutls/COPYING",
+      "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz",
+      "upstreamVersion": "3.8.13",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "sourceSha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "sourceArchiveSha256": "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e",
+      "archiveMember": "gnutls-3.8.13/COPYING",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "gnutls/COPYING.LESSERv2",
+      "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz",
+      "upstreamVersion": "3.8.13",
+      "sha256": "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95",
+      "sourceSha256": "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95",
+      "sourceArchiveSha256": "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e",
+      "archiveMember": "gnutls-3.8.13/COPYING.LESSERv2",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "gnutls/doc/examples/tlsproxy/LICENSE",
+      "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz",
+      "upstreamVersion": "3.8.13",
+      "sha256": "b42dbe48110754b99f026ad30e69b1069f826fb07e7c616b526bd1090952fb1b",
+      "sourceSha256": "b42dbe48110754b99f026ad30e69b1069f826fb07e7c616b526bd1090952fb1b",
+      "sourceArchiveSha256": "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e",
+      "archiveMember": "gnutls-3.8.13/doc/examples/tlsproxy/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "gnutls/lib/accelerated/x86/license.txt",
+      "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz",
+      "upstreamVersion": "3.8.13",
+      "sha256": "0c35a52bcfa4da2f0df4a1282a6034e211c976b8b6d43691a639eef9c8aebf7e",
+      "sourceSha256": "0c35a52bcfa4da2f0df4a1282a6034e211c976b8b6d43691a639eef9c8aebf7e",
+      "sourceArchiveSha256": "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e",
+      "archiveMember": "gnutls-3.8.13/lib/accelerated/x86/license.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "gnutls/lib/crau/LICENSE",
+      "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz",
+      "upstreamVersion": "3.8.13",
+      "sha256": "b3c9aed2f5750f6bf698c74916d675d1734e12455b96bfdf6f90e23ab01595cd",
+      "sourceSha256": "b3c9aed2f5750f6bf698c74916d675d1734e12455b96bfdf6f90e23ab01595cd",
+      "sourceArchiveSha256": "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e",
+      "archiveMember": "gnutls-3.8.13/lib/crau/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "gnutls/lib/inih/LICENSE.txt",
+      "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz",
+      "upstreamVersion": "3.8.13",
+      "sha256": "9ae3b39e83e9158e44b67733baa3bb2d84e80efdcfb14a5820210a42c7abdf7f",
+      "sourceSha256": "9ae3b39e83e9158e44b67733baa3bb2d84e80efdcfb14a5820210a42c7abdf7f",
+      "sourceArchiveSha256": "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e",
+      "archiveMember": "gnutls-3.8.13/lib/inih/LICENSE.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "lame/COPYING",
+      "url": "https://deb.debian.org/debian/pool/main/l/lame/lame_3.100.orig.tar.gz",
+      "upstreamVersion": "3.100",
+      "sha256": "bfe4a52dc4645385f356a8e83cc54216a293e3b6f1cb4f79f5fc0277abf937fd",
+      "sourceSha256": "bfe4a52dc4645385f356a8e83cc54216a293e3b6f1cb4f79f5fc0277abf937fd",
+      "sourceArchiveSha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+      "archiveMember": "lame-3.100/COPYING",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "lame/LICENSE",
+      "url": "https://deb.debian.org/debian/pool/main/l/lame/lame_3.100.orig.tar.gz",
+      "upstreamVersion": "3.100",
+      "sha256": "7a40cbd8818c57e5285e83c772a459a996d1662c824a879836b97b473c07cae4",
+      "sourceSha256": "7a40cbd8818c57e5285e83c772a459a996d1662c824a879836b97b473c07cae4",
+      "sourceArchiveSha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+      "archiveMember": "lame-3.100/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "lame/debian/copyright",
+      "url": "https://deb.debian.org/debian/pool/main/l/lame/lame_3.100.orig.tar.gz",
+      "upstreamVersion": "3.100",
+      "sha256": "1f27f9f698183275bd615c1140b7bf6e498750e9280597c6eb39790e54ae809b",
+      "sourceSha256": "1f27f9f698183275bd615c1140b7bf6e498750e9280597c6eb39790e54ae809b",
+      "sourceArchiveSha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+      "archiveMember": "lame-3.100/debian/copyright",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "lame/mpglib/AUTHORS",
+      "url": "https://deb.debian.org/debian/pool/main/l/lame/lame_3.100.orig.tar.gz",
+      "upstreamVersion": "3.100",
+      "sha256": "d8ecf9556aafa8c653796d6be3dc43deea374257680e21c30109a5c3c4484263",
+      "sourceSha256": "d8ecf9556aafa8c653796d6be3dc43deea374257680e21c30109a5c3c4484263",
+      "sourceArchiveSha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+      "archiveMember": "lame-3.100/mpglib/AUTHORS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libsvtav1/LICENSE-BSD2.md",
+      "url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v4.1.0/SVT-AV1-v4.1.0.tar.bz2",
+      "upstreamVersion": "4.1.0",
+      "sha256": "c582fcbeb9cf972a60d298bfaf41dc5adff2dd14208946edcb9bb56a281e8438",
+      "sourceSha256": "c582fcbeb9cf972a60d298bfaf41dc5adff2dd14208946edcb9bb56a281e8438",
+      "sourceArchiveSha256": "184162d3db3a4448882b17230413b4938ca252eef6b3c5e2f1236b2fcf497881",
+      "archiveMember": "SVT-AV1-v4.1.0/LICENSE-BSD2.md",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libsvtav1/LICENSE.md",
+      "url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v4.1.0/SVT-AV1-v4.1.0.tar.bz2",
+      "upstreamVersion": "4.1.0",
+      "sha256": "0acc2fcb27472bdc9aaf8b71f37055bbdac4f54671b7d922f241bd7fcd0dd3e6",
+      "sourceSha256": "0acc2fcb27472bdc9aaf8b71f37055bbdac4f54671b7d922f241bd7fcd0dd3e6",
+      "sourceArchiveSha256": "184162d3db3a4448882b17230413b4938ca252eef6b3c5e2f1236b2fcf497881",
+      "archiveMember": "SVT-AV1-v4.1.0/LICENSE.md",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libsvtav1/PATENTS.md",
+      "url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v4.1.0/SVT-AV1-v4.1.0.tar.bz2",
+      "upstreamVersion": "4.1.0",
+      "sha256": "20678ab10402659106dc4c147c97b2a6e94b5c0695415e15a8f195ebc3547922",
+      "sourceSha256": "20678ab10402659106dc4c147c97b2a6e94b5c0695415e15a8f195ebc3547922",
+      "sourceArchiveSha256": "184162d3db3a4448882b17230413b4938ca252eef6b3c5e2f1236b2fcf497881",
+      "archiveMember": "SVT-AV1-v4.1.0/PATENTS.md",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libsvtav1/third_party/fastfeat/LICENSE",
+      "url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v4.1.0/SVT-AV1-v4.1.0.tar.bz2",
+      "upstreamVersion": "4.1.0",
+      "sha256": "043dcfd059386f9facd376351b2bd79325778744aa442177390cdfcca54babed",
+      "sourceSha256": "043dcfd059386f9facd376351b2bd79325778744aa442177390cdfcca54babed",
+      "sourceArchiveSha256": "184162d3db3a4448882b17230413b4938ca252eef6b3c5e2f1236b2fcf497881",
+      "archiveMember": "SVT-AV1-v4.1.0/third_party/fastfeat/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libsvtav1/third_party/safestringlib/LICENSE",
+      "url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v4.1.0/SVT-AV1-v4.1.0.tar.bz2",
+      "upstreamVersion": "4.1.0",
+      "sha256": "c0f99a208799ca20c9ccf31a30533d49334eb458dca5a3d14f9afe3e884e5d7d",
+      "sourceSha256": "c0f99a208799ca20c9ccf31a30533d49334eb458dca5a3d14f9afe3e884e5d7d",
+      "sourceArchiveSha256": "184162d3db3a4448882b17230413b4938ca252eef6b3c5e2f1236b2fcf497881",
+      "archiveMember": "SVT-AV1-v4.1.0/third_party/safestringlib/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/LICENSE",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "bf1cfac2e2792b6e1e995ce103d70796aecaf2ec7e4c5fe5474f7acec7b4a677",
+      "sourceSha256": "bf1cfac2e2792b6e1e995ce103d70796aecaf2ec7e4c5fe5474f7acec7b4a677",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/api1x_core/legacy-decode/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/api1x_core/legacy-decode/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/api1x_core/legacy-encode/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/api1x_core/legacy-encode/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/api1x_core/legacy-vpp/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/api1x_core/legacy-vpp/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/api2x/hello-decode/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/api2x/hello-decode/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/api2x/hello-decvpp/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/api2x/hello-decvpp/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/api2x/hello-encode-jpeg/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/api2x/hello-encode-jpeg/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/api2x/hello-encode/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/api2x/hello-encode/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/api2x/hello-sharing-dx11/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/api2x/hello-sharing-dx11/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/api2x/hello-sharing-ocl/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/api2x/hello-sharing-ocl/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/api2x/hello-sharing-vaapi/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/api2x/hello-sharing-vaapi/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/api2x/hello-transcode/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/api2x/hello-transcode/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/api2x/hello-vpp/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/api2x/hello-vpp/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/interop/vpl-infer/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/interop/vpl-infer/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/examples/tutorials/01_transition/License.txt",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceSha256": "2e35006c345787f7205bdaa86920c8fac86abd19b95d7b4c1ba5531853ea3938",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/examples/tutorials/01_transition/License.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "libvpl/libvpl/test/ext/googletest/LICENSE",
+      "url": "https://github.com/intel/libvpl/archive/refs/tags/v2.16.0.tar.gz",
+      "upstreamVersion": "2.16.0",
+      "sha256": "9702de7e4117a8e2b20dafab11ffda58c198aede066406496bef670d40a22138",
+      "sourceSha256": "9702de7e4117a8e2b20dafab11ffda58c198aede066406496bef670d40a22138",
+      "sourceArchiveSha256": "d60931937426130ddad9f1975c010543f0da99e67edb1c6070656b7947f633b6",
+      "archiveMember": "libvpl-2.16.0/libvpl/test/ext/googletest/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "nasm/AUTHORS",
+      "url": "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/nasm-2.16.03.tar.xz",
+      "upstreamVersion": "2.16.03",
+      "sha256": "8a7bd0cc6c517a220265548bf2ecf62fe89bf682b6a9938afb7521008679149e",
+      "sourceSha256": "8a7bd0cc6c517a220265548bf2ecf62fe89bf682b6a9938afb7521008679149e",
+      "sourceArchiveSha256": "1412a1c760bbd05db026b6c0d1657affd6631cd0a63cddb6f73cc6d4aa616148",
+      "archiveMember": "nasm-2.16.03/AUTHORS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "nasm/LICENSE",
+      "url": "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/nasm-2.16.03.tar.xz",
+      "upstreamVersion": "2.16.03",
+      "sha256": "1563996c52e220e15ef2418e67d39488255aa8c28c89e617074d3afe3ee329e0",
+      "sourceSha256": "1563996c52e220e15ef2418e67d39488255aa8c28c89e617074d3afe3ee329e0",
+      "sourceArchiveSha256": "1412a1c760bbd05db026b6c0d1657affd6631cd0a63cddb6f73cc6d4aa616148",
+      "archiveMember": "nasm-2.16.03/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "nettle/AUTHORS",
+      "url": "https://ftp.gnu.org/gnu/nettle/nettle-3.10.2.tar.gz",
+      "upstreamVersion": "3.10.2",
+      "sha256": "6fd91e60caa0c33dd22888b710fcfa36532bbbef00d85c78de385dcd97f7b9ee",
+      "sourceSha256": "6fd91e60caa0c33dd22888b710fcfa36532bbbef00d85c78de385dcd97f7b9ee",
+      "sourceArchiveSha256": "fe9ff51cb1f2abb5e65a6b8c10a92da0ab5ab6eaf26e7fc2b675c45f1fb519b5",
+      "archiveMember": "nettle-3.10.2/AUTHORS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "nettle/COPYING.LESSERv3",
+      "url": "https://ftp.gnu.org/gnu/nettle/nettle-3.10.2.tar.gz",
+      "upstreamVersion": "3.10.2",
+      "sha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c",
+      "sourceSha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c",
+      "sourceArchiveSha256": "fe9ff51cb1f2abb5e65a6b8c10a92da0ab5ab6eaf26e7fc2b675c45f1fb519b5",
+      "archiveMember": "nettle-3.10.2/COPYING.LESSERv3",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "nettle/COPYINGv2",
+      "url": "https://ftp.gnu.org/gnu/nettle/nettle-3.10.2.tar.gz",
+      "upstreamVersion": "3.10.2",
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+      "sourceSha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+      "sourceArchiveSha256": "fe9ff51cb1f2abb5e65a6b8c10a92da0ab5ab6eaf26e7fc2b675c45f1fb519b5",
+      "archiveMember": "nettle-3.10.2/COPYINGv2",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "nettle/COPYINGv3",
+      "url": "https://ftp.gnu.org/gnu/nettle/nettle-3.10.2.tar.gz",
+      "upstreamVersion": "3.10.2",
+      "sha256": "e6037104443f9a7829b2aa7c5370d0789a7bda3ca65a0b904cdc0c2e285d9195",
+      "sourceSha256": "e6037104443f9a7829b2aa7c5370d0789a7bda3ca65a0b904cdc0c2e285d9195",
+      "sourceArchiveSha256": "fe9ff51cb1f2abb5e65a6b8c10a92da0ab5ab6eaf26e7fc2b675c45f1fb519b5",
+      "archiveMember": "nettle-3.10.2/COPYINGv3",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "nv-codec-headers/header-notices/include/ffnvcodec/dynlink_cuda.h.txt",
+      "url": "https://github.com/FFmpeg/nv-codec-headers/archive/refs/tags/n13.0.19.0.tar.gz",
+      "upstreamVersion": "13.0.19.0",
+      "sha256": "6f0d5ad2609c6fda3e0fb07fa286e7b46c2ea7b87ab12d926ab7a82c69ffe09d",
+      "sourceSha256": "2c74cf9b0ace0503ca18d2c43645d6cb1ec0dd7ea7163f7880bba5141586f275",
+      "sourceArchiveSha256": "86d15d1a7c0ac73a0eafdfc57bebfeba7da8264595bf531cf4d8db1c22940116",
+      "archiveMember": "nv-codec-headers-n13.0.19.0/include/ffnvcodec/dynlink_cuda.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "nv-codec-headers/header-notices/include/ffnvcodec/dynlink_cuviddec.h.txt",
+      "url": "https://github.com/FFmpeg/nv-codec-headers/archive/refs/tags/n13.0.19.0.tar.gz",
+      "upstreamVersion": "13.0.19.0",
+      "sha256": "72b60be67644d841bfd54a042875b5846294d357040dd7ac8e38bde20d9e8f97",
+      "sourceSha256": "1244165ea5521d4be865995eb1c49b8910f755d0ca35004e1c4010ef7f612143",
+      "sourceArchiveSha256": "86d15d1a7c0ac73a0eafdfc57bebfeba7da8264595bf531cf4d8db1c22940116",
+      "archiveMember": "nv-codec-headers-n13.0.19.0/include/ffnvcodec/dynlink_cuviddec.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "nv-codec-headers/header-notices/include/ffnvcodec/dynlink_loader.h.txt",
+      "url": "https://github.com/FFmpeg/nv-codec-headers/archive/refs/tags/n13.0.19.0.tar.gz",
+      "upstreamVersion": "13.0.19.0",
+      "sha256": "6f0d5ad2609c6fda3e0fb07fa286e7b46c2ea7b87ab12d926ab7a82c69ffe09d",
+      "sourceSha256": "307713c9e46ab1d3fcb9c456dde8da2967a11003d951cd0efdf1329678ff0934",
+      "sourceArchiveSha256": "86d15d1a7c0ac73a0eafdfc57bebfeba7da8264595bf531cf4d8db1c22940116",
+      "archiveMember": "nv-codec-headers-n13.0.19.0/include/ffnvcodec/dynlink_loader.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "nv-codec-headers/header-notices/include/ffnvcodec/dynlink_nvcuvid.h.txt",
+      "url": "https://github.com/FFmpeg/nv-codec-headers/archive/refs/tags/n13.0.19.0.tar.gz",
+      "upstreamVersion": "13.0.19.0",
+      "sha256": "72b60be67644d841bfd54a042875b5846294d357040dd7ac8e38bde20d9e8f97",
+      "sourceSha256": "2141dade75f3178520092dce2c02df9b47c4b19036b56bb9316bd83a07bf16f1",
+      "sourceArchiveSha256": "86d15d1a7c0ac73a0eafdfc57bebfeba7da8264595bf531cf4d8db1c22940116",
+      "archiveMember": "nv-codec-headers-n13.0.19.0/include/ffnvcodec/dynlink_nvcuvid.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "nv-codec-headers/header-notices/include/ffnvcodec/nvEncodeAPI.h.txt",
+      "url": "https://github.com/FFmpeg/nv-codec-headers/archive/refs/tags/n13.0.19.0.tar.gz",
+      "upstreamVersion": "13.0.19.0",
+      "sha256": "72b60be67644d841bfd54a042875b5846294d357040dd7ac8e38bde20d9e8f97",
+      "sourceSha256": "4fe4094541ef0f8a13249d97a8692dc5f835a6e9dd42eeadb3e2f7321d54dc7e",
+      "sourceArchiveSha256": "86d15d1a7c0ac73a0eafdfc57bebfeba7da8264595bf531cf4d8db1c22940116",
+      "archiveMember": "nv-codec-headers-n13.0.19.0/include/ffnvcodec/nvEncodeAPI.h",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "opencore-amr/LICENSE",
+      "url": "https://downloads.sourceforge.net/project/opencore-amr/opencore-amr/opencore-amr-0.1.6.tar.gz",
+      "upstreamVersion": "0.1.6",
+      "sha256": "8b3f1762349248d444ab9acbafe73941254e36e1064954da56bb9ddbd5873ddb",
+      "sourceSha256": "8b3f1762349248d444ab9acbafe73941254e36e1064954da56bb9ddbd5873ddb",
+      "sourceArchiveSha256": "483eb4061088e2b34b358e47540b5d495a96cd468e361050fae615b1809dc4a1",
+      "archiveMember": "opencore-amr-0.1.6/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "opencore-amr/opencore/NOTICE",
+      "url": "https://downloads.sourceforge.net/project/opencore-amr/opencore-amr/opencore-amr-0.1.6.tar.gz",
+      "upstreamVersion": "0.1.6",
+      "sha256": "d106802b5e406073c1d10fbe9f638234c6973ebce37df71773179642085eb489",
+      "sourceSha256": "d106802b5e406073c1d10fbe9f638234c6973ebce37df71773179642085eb489",
+      "sourceArchiveSha256": "483eb4061088e2b34b358e47540b5d495a96cd468e361050fae615b1809dc4a1",
+      "archiveMember": "opencore-amr-0.1.6/opencore/NOTICE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "opencore-amr/opencore/codecs_v2/audio/gsm_amr/patent_disclaimer.txt",
+      "url": "https://downloads.sourceforge.net/project/opencore-amr/opencore-amr/opencore-amr-0.1.6.tar.gz",
+      "upstreamVersion": "0.1.6",
+      "sha256": "f91a72705d38de34a9749c214a4cbc6ffa1da753b34b2cd11f3d6798f24ae59f",
+      "sourceSha256": "f91a72705d38de34a9749c214a4cbc6ffa1da753b34b2cd11f3d6798f24ae59f",
+      "sourceArchiveSha256": "483eb4061088e2b34b358e47540b5d495a96cd468e361050fae615b1809dc4a1",
+      "archiveMember": "opencore-amr-0.1.6/opencore/codecs_v2/audio/gsm_amr/patent_disclaimer.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "opus/AUTHORS",
+      "url": "https://ftp.osuosl.org/pub/xiph/releases/opus/opus-1.6.1.tar.gz",
+      "upstreamVersion": "1.6.1",
+      "sha256": "f9fd849e652219ce98e008303370b352d37663d0ffb27b8dc514ad93c9c7438b",
+      "sourceSha256": "f9fd849e652219ce98e008303370b352d37663d0ffb27b8dc514ad93c9c7438b",
+      "sourceArchiveSha256": "6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1",
+      "archiveMember": "opus-1.6.1/AUTHORS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "opus/COPYING",
+      "url": "https://ftp.osuosl.org/pub/xiph/releases/opus/opus-1.6.1.tar.gz",
+      "upstreamVersion": "1.6.1",
+      "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551",
+      "sourceSha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551",
+      "sourceArchiveSha256": "6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1",
+      "archiveMember": "opus-1.6.1/COPYING",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "png/AUTHORS",
+      "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz",
+      "upstreamVersion": "1.6.58",
+      "sha256": "0c777e9f2a67bd4058ab91050eb7a56106c92ed038ba8fe5f54c83344f2d93ca",
+      "sourceSha256": "0c777e9f2a67bd4058ab91050eb7a56106c92ed038ba8fe5f54c83344f2d93ca",
+      "sourceArchiveSha256": "28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775",
+      "archiveMember": "libpng-1.6.58/AUTHORS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "png/LICENSE",
+      "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz",
+      "upstreamVersion": "1.6.58",
+      "sha256": "bdb0a645ea18c60507d0368379b1ac5474b92255fcc2d115e07486a7672ba526",
+      "sourceSha256": "bdb0a645ea18c60507d0368379b1ac5474b92255fcc2d115e07486a7672ba526",
+      "sourceArchiveSha256": "28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775",
+      "archiveMember": "libpng-1.6.58/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "png/ci/LICENSE_MIT.txt",
+      "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz",
+      "upstreamVersion": "1.6.58",
+      "sha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1",
+      "sourceSha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1",
+      "sourceArchiveSha256": "28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775",
+      "archiveMember": "libpng-1.6.58/ci/LICENSE_MIT.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "png/contrib/gregbook/COPYING",
+      "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz",
+      "upstreamVersion": "1.6.58",
+      "sha256": "d6cb0e9e560f51085556949a84af12b79a00f10ab8b66c752537faf7cd665572",
+      "sourceSha256": "d6cb0e9e560f51085556949a84af12b79a00f10ab8b66c752537faf7cd665572",
+      "sourceArchiveSha256": "28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775",
+      "archiveMember": "libpng-1.6.58/contrib/gregbook/COPYING",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "png/contrib/gregbook/LICENSE",
+      "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz",
+      "upstreamVersion": "1.6.58",
+      "sha256": "b6a03c1803eb58ffb1f1278d5c7d4096c4c116e66dce8a7553e8c77d163c3438",
+      "sourceSha256": "b6a03c1803eb58ffb1f1278d5c7d4096c4c116e66dce8a7553e8c77d163c3438",
+      "sourceArchiveSha256": "28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775",
+      "archiveMember": "libpng-1.6.58/contrib/gregbook/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "png/contrib/pngexif/LICENSE_MIT.txt",
+      "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz",
+      "upstreamVersion": "1.6.58",
+      "sha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1",
+      "sourceSha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1",
+      "sourceArchiveSha256": "28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775",
+      "archiveMember": "libpng-1.6.58/contrib/pngexif/LICENSE_MIT.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "png/contrib/pngminus/LICENSE.txt",
+      "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz",
+      "upstreamVersion": "1.6.58",
+      "sha256": "1806f1f10d393e9e377b3a8d1b968452b54f1a90378f14eeef45426946ace330",
+      "sourceSha256": "1806f1f10d393e9e377b3a8d1b968452b54f1a90378f14eeef45426946ace330",
+      "sourceArchiveSha256": "28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775",
+      "archiveMember": "libpng-1.6.58/contrib/pngminus/LICENSE.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "png/scripts/cmake/AUTHORS.md",
+      "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz",
+      "upstreamVersion": "1.6.58",
+      "sha256": "50633b976f0133862c921aa67d56de2c0b42eb344c8ca3853686efb092a447db",
+      "sourceSha256": "50633b976f0133862c921aa67d56de2c0b42eb344c8ca3853686efb092a447db",
+      "sourceArchiveSha256": "28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775",
+      "archiveMember": "libpng-1.6.58/scripts/cmake/AUTHORS.md",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "pyav-recipe/AUTHORS.rst",
+      "url": "https://codeload.github.com/PyAV-Org/PyAV/tar.gz/7e3d950a8b72062502c1a60d672f8ca565313af5",
+      "upstreamVersion": "18.1.0",
+      "sha256": "adb3a9b35a8b74bb597326dec775d74a9f79b4decac54da266a9ddb20b5da142",
+      "sourceSha256": "adb3a9b35a8b74bb597326dec775d74a9f79b4decac54da266a9ddb20b5da142",
+      "sourceArchiveSha256": "7441b86f5c9c6275239cc388dd319ac04c9c56fc03b25ce2dfd3252cb8f1432b",
+      "archiveMember": "PyAV-7e3d950a8b72062502c1a60d672f8ca565313af5/AUTHORS.rst",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "pyav-recipe/LICENSE.txt",
+      "url": "https://codeload.github.com/PyAV-Org/PyAV/tar.gz/7e3d950a8b72062502c1a60d672f8ca565313af5",
+      "upstreamVersion": "18.1.0",
+      "sha256": "76af0461ffb92e19f1c14449e95557d83a2dfaa1baf202d49e5f1d8746c0da19",
+      "sourceSha256": "76af0461ffb92e19f1c14449e95557d83a2dfaa1baf202d49e5f1d8746c0da19",
+      "sourceArchiveSha256": "7441b86f5c9c6275239cc388dd319ac04c9c56fc03b25ce2dfd3252cb8f1432b",
+      "archiveMember": "PyAV-7e3d950a8b72062502c1a60d672f8ca565313af5/LICENSE.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "pyav-recipe/docs/development/license.rst",
+      "url": "https://codeload.github.com/PyAV-Org/PyAV/tar.gz/7e3d950a8b72062502c1a60d672f8ca565313af5",
+      "upstreamVersion": "18.1.0",
+      "sha256": "becc70e9cfe7e15d624f6de729fae233f188e22c294d517e7bd98c435ffb304e",
+      "sourceSha256": "becc70e9cfe7e15d624f6de729fae233f188e22c294d517e7bd98c435ffb304e",
+      "sourceArchiveSha256": "7441b86f5c9c6275239cc388dd319ac04c9c56fc03b25ce2dfd3252cb8f1432b",
+      "archiveMember": "PyAV-7e3d950a8b72062502c1a60d672f8ca565313af5/docs/development/license.rst",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "unistring/AUTHORS",
+      "url": "https://ftp.gnu.org/gnu/libunistring/libunistring-1.4.2.tar.gz",
+      "upstreamVersion": "1.4.2",
+      "sha256": "9877ee5d24b5fa059fcc3ff2f4af36918f7c5676de000b9cb5ec11efa6aac149",
+      "sourceSha256": "9877ee5d24b5fa059fcc3ff2f4af36918f7c5676de000b9cb5ec11efa6aac149",
+      "sourceArchiveSha256": "e82664b170064e62331962126b259d452d53b227bb4a93ab20040d846fec01d8",
+      "archiveMember": "libunistring-1.4.2/AUTHORS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "unistring/COPYING",
+      "url": "https://ftp.gnu.org/gnu/libunistring/libunistring-1.4.2.tar.gz",
+      "upstreamVersion": "1.4.2",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "sourceSha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "sourceArchiveSha256": "e82664b170064e62331962126b259d452d53b227bb4a93ab20040d846fec01d8",
+      "archiveMember": "libunistring-1.4.2/COPYING",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "unistring/COPYING.LIB",
+      "url": "https://ftp.gnu.org/gnu/libunistring/libunistring-1.4.2.tar.gz",
+      "upstreamVersion": "1.4.2",
+      "sha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c",
+      "sourceSha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c",
+      "sourceArchiveSha256": "e82664b170064e62331962126b259d452d53b227bb4a93ab20040d846fec01d8",
+      "archiveMember": "libunistring-1.4.2/COPYING.LIB",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "vpx/AUTHORS",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+      "upstreamVersion": "1.16.0",
+      "sha256": "fd2d1ac03d9d3c864bd98c2042de2d8f7fbd78b298c8d9c506076b6c6a9de889",
+      "sourceSha256": "fd2d1ac03d9d3c864bd98c2042de2d8f7fbd78b298c8d9c506076b6c6a9de889",
+      "sourceArchiveSha256": "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+      "archiveMember": "libvpx-1.16.0/AUTHORS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "vpx/LICENSE",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+      "upstreamVersion": "1.16.0",
+      "sha256": "8267348d5af1262c11d1a08de2f5afc77457755f1ac658627dd9acf71011d615",
+      "sourceSha256": "8267348d5af1262c11d1a08de2f5afc77457755f1ac658627dd9acf71011d615",
+      "sourceArchiveSha256": "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+      "archiveMember": "libvpx-1.16.0/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "vpx/PATENTS",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+      "upstreamVersion": "1.16.0",
+      "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
+      "sourceSha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
+      "sourceArchiveSha256": "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+      "archiveMember": "libvpx-1.16.0/PATENTS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "vpx/third_party/googletest/src/LICENSE",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+      "upstreamVersion": "1.16.0",
+      "sha256": "9702de7e4117a8e2b20dafab11ffda58c198aede066406496bef670d40a22138",
+      "sourceSha256": "9702de7e4117a8e2b20dafab11ffda58c198aede066406496bef670d40a22138",
+      "sourceArchiveSha256": "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+      "archiveMember": "libvpx-1.16.0/third_party/googletest/src/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "vpx/third_party/libwebm/AUTHORS.TXT",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+      "upstreamVersion": "1.16.0",
+      "sha256": "3edb5f5496bfff3d6d4a62fa75fe996b814920d0d6e348c2e65c589e7ac5d177",
+      "sourceSha256": "3edb5f5496bfff3d6d4a62fa75fe996b814920d0d6e348c2e65c589e7ac5d177",
+      "sourceArchiveSha256": "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+      "archiveMember": "libvpx-1.16.0/third_party/libwebm/AUTHORS.TXT",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "vpx/third_party/libwebm/LICENSE.TXT",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+      "upstreamVersion": "1.16.0",
+      "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+      "sourceSha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+      "sourceArchiveSha256": "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+      "archiveMember": "libvpx-1.16.0/third_party/libwebm/LICENSE.TXT",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "vpx/third_party/libwebm/PATENTS.TXT",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+      "upstreamVersion": "1.16.0",
+      "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
+      "sourceSha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
+      "sourceArchiveSha256": "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+      "archiveMember": "libvpx-1.16.0/third_party/libwebm/PATENTS.TXT",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "vpx/third_party/libyuv/LICENSE",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+      "upstreamVersion": "1.16.0",
+      "sha256": "2b2cc1180c7e6988328ad2033b04b80117419db9c4c584918bbb3cfec7e9364f",
+      "sourceSha256": "2b2cc1180c7e6988328ad2033b04b80117419db9c4c584918bbb3cfec7e9364f",
+      "sourceArchiveSha256": "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+      "archiveMember": "libvpx-1.16.0/third_party/libyuv/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "vpx/third_party/nalloc/LICENSE",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+      "upstreamVersion": "1.16.0",
+      "sha256": "d7dd0396ec46975e1bf9093680068ef301bc0ed204603e623a6f7073ab922ab1",
+      "sourceSha256": "d7dd0396ec46975e1bf9093680068ef301bc0ed204603e623a6f7073ab922ab1",
+      "sourceArchiveSha256": "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+      "archiveMember": "libvpx-1.16.0/third_party/nalloc/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "vpx/third_party/x86inc/LICENSE",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+      "upstreamVersion": "1.16.0",
+      "sha256": "719d8fa235f2068e0ae6d6a7dceb0a7720d7840f0f0ebed29957989e6ded3cd8",
+      "sourceSha256": "719d8fa235f2068e0ae6d6a7dceb0a7720d7840f0f0ebed29957989e6ded3cd8",
+      "sourceArchiveSha256": "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c",
+      "archiveMember": "libvpx-1.16.0/third_party/x86inc/LICENSE",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "webp/AUTHORS",
+      "url": "https://github.com/webmproject/libwebp/archive/refs/tags/v1.6.0.tar.gz",
+      "upstreamVersion": "1.6.0",
+      "sha256": "f251be89fd442bd9d701360730aea163cc8e2076ff03528f59267dc2c4f8b60a",
+      "sourceSha256": "f251be89fd442bd9d701360730aea163cc8e2076ff03528f59267dc2c4f8b60a",
+      "sourceArchiveSha256": "93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136",
+      "archiveMember": "libwebp-1.6.0/AUTHORS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "webp/COPYING",
+      "url": "https://github.com/webmproject/libwebp/archive/refs/tags/v1.6.0.tar.gz",
+      "upstreamVersion": "1.6.0",
+      "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+      "sourceSha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+      "sourceArchiveSha256": "93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136",
+      "archiveMember": "libwebp-1.6.0/COPYING",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "webp/PATENTS",
+      "url": "https://github.com/webmproject/libwebp/archive/refs/tags/v1.6.0.tar.gz",
+      "upstreamVersion": "1.6.0",
+      "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
+      "sourceSha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
+      "sourceArchiveSha256": "93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136",
+      "archiveMember": "libwebp-1.6.0/PATENTS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "x264/AUTHORS",
+      "url": "https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.bz2",
+      "upstreamVersion": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "sha256": "783150c1bef404fc7140924f3006eff27c940ea73ef38b3bc76fcb9c173229a5",
+      "sourceSha256": "783150c1bef404fc7140924f3006eff27c940ea73ef38b3bc76fcb9c173229a5",
+      "sourceArchiveSha256": "6eeb82934e69fd51e043bd8c5b0d152839638d1ce7aa4eea65a3fedcf83ff224",
+      "archiveMember": "x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55/AUTHORS",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "x264/COPYING",
+      "url": "https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.bz2",
+      "upstreamVersion": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "sha256": "32b1062f7da84967e7019d01ab805935caa7ab7321a7ced0e30ebe75e5df1670",
+      "sourceSha256": "32b1062f7da84967e7019d01ab805935caa7ab7321a7ced0e30ebe75e5df1670",
+      "extraction": "complete upstream file, verbatim",
+      "sourceArchiveSha256": "6eeb82934e69fd51e043bd8c5b0d152839638d1ce7aa4eea65a3fedcf83ff224",
+      "archiveMember": "x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55/COPYING"
+    },
+    {
+      "file": "x264/COPYRIGHT.txt",
+      "url": "https://raw.githubusercontent.com/mirror/x264/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264.h",
+      "upstreamVersion": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "sha256": "05018277b750080545a1f504335f2f89b961e862e92780c0e6bdf7b618bc3765",
+      "sourceSha256": "cec084bdb3cd2330800d0726bdbd99d91112df3fdb6d79f94e15ba67808b715c",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "x265/COPYING",
+      "url": "https://bitbucket.org/multicoreware/x265_git/downloads/x265_4.2.tar.gz",
+      "upstreamVersion": "4.2",
+      "sha256": "d8afb1bcc7a2cfc603683b168d6987ef0a48e59e0da3693bf55c5d33b67e2b49",
+      "sourceSha256": "d8afb1bcc7a2cfc603683b168d6987ef0a48e59e0da3693bf55c5d33b67e2b49",
+      "extraction": "complete upstream file, verbatim",
+      "sourceArchiveSha256": "40b1ea0453e0309f0eba934e0ddf533f8f6295966679e8894e8f1c1c8d5e1210",
+      "archiveMember": "x265_4.2/COPYING"
+    },
+    {
+      "file": "x265/COPYRIGHT.txt",
+      "url": "https://bitbucket.org/multicoreware/x265_git/raw/4.2/source/x265.h",
+      "upstreamVersion": "4.2",
+      "sha256": "e8557aeb23ac7c220cc9298b485864e87df4ae9d7418ef0359cd0e5ccec34d01",
+      "sourceSha256": "cbef2ef491146a2d6c2358e8e89b9548b945782973ab74204bacdc6aad5d18ac",
+      "extraction": "initial source copyright/license comment, verbatim"
+    },
+    {
+      "file": "x265/source/dynamicHDR10/LICENSE.txt",
+      "url": "https://bitbucket.org/multicoreware/x265_git/downloads/x265_4.2.tar.gz",
+      "upstreamVersion": "4.2",
+      "sha256": "47f15d63e82eb8a4de6e46471d5f96cf6d052fd5355944a002c3157880248b69",
+      "sourceSha256": "47f15d63e82eb8a4de6e46471d5f96cf6d052fd5355944a002c3157880248b69",
+      "sourceArchiveSha256": "40b1ea0453e0309f0eba934e0ddf533f8f6295966679e8894e8f1c1c8d5e1210",
+      "archiveMember": "x265_4.2/source/dynamicHDR10/LICENSE.txt",
+      "extraction": "complete upstream file, verbatim"
+    },
+    {
+      "file": "x265/source/dynamicHDR10/json11/LICENSE.txt",
+      "url": "https://bitbucket.org/multicoreware/x265_git/downloads/x265_4.2.tar.gz",
+      "upstreamVersion": "4.2",
+      "sha256": "950e288a2548cb33f6a90d23958806b0803f510ab17c600d661619a73ae3a6c8",
+      "sourceSha256": "950e288a2548cb33f6a90d23958806b0803f510ab17c600d661619a73ae3a6c8",
+      "sourceArchiveSha256": "40b1ea0453e0309f0eba934e0ddf533f8f6295966679e8894e8f1c1c8d5e1210",
+      "archiveMember": "x265_4.2/source/dynamicHDR10/json11/LICENSE.txt",
+      "extraction": "complete upstream file, verbatim"
+    }
+  ],
+  "wheelProvenance": {
+    "pyav": "https://github.com/PyAV-Org/PyAV/blob/v18.1.0/scripts/ffmpeg-latest.json",
+    "nativeRelease": "https://github.com/PyAV-Org/pyav-ffmpeg/releases/tag/8.1.2-1",
+    "sourceRecipe": "https://github.com/PyAV-Org/pyav-ffmpeg/blob/8.1.2-1/scripts/pkg.py",
+    "buildRecipe": "https://github.com/PyAV-Org/pyav-ffmpeg/blob/8.1.2-1/scripts/build-ffmpeg.py",
+    "patches": "https://github.com/PyAV-Org/pyav-ffmpeg/tree/8.1.2-1/patches",
+    "ffmpegSource": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+    "ffmpegSourceSha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c"
+  }
+}

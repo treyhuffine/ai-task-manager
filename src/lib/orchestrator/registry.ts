@@ -1434,7 +1434,8 @@ const update_workspace_action = defineAction({
     'Pass null to clear purpose or instructions. Its folder, ' +
     'scripts and files-to-copy are not editable here: they run commands or move files on the machine, so ' +
     'they stay in the app. Connector access and the browser can only be changed from the app or the local ' +
-    'CLI, not over MCP. Goes through the app server so live sessions pick the change up.',
+    'CLI, not over MCP. `connectorScopes` replaces the whole list: one entry per service, each optionally ' +
+    'limited to some of the connected accounts. Goes through the app server so live sessions pick the change up.',
   params: {
     id: z.string().min(1),
     name: z.string().min(1).optional(),
@@ -1443,8 +1444,32 @@ const update_workspace_action = defineAction({
     purpose: z.string().nullable().optional(),
     instructions: z.string().nullable().optional(),
     connectorScopes: z
-      .array(z.object({ toolkitId: z.string().min(1), account: z.string().nullable().optional() }))
-      .optional(),
+      .array(
+        z.object({
+          toolkitId: z.string().min(1).describe('The service id, e.g. gmail, google_calendar, slack.'),
+          accounts: z
+            .array(
+              z.union([
+                z.string().min(1),
+                z.object({ accountId: z.string().min(1), authConfigId: z.string().nullable().optional() }),
+              ]),
+            )
+            .optional()
+            .describe(
+              'Limit this service to these connected accounts. Each is an email, label or account id, or the ' +
+                '{ accountId, authConfigId } pin that get_workspace returns. Omit it for every account, ' +
+                'including ones connected later. One account pins the service to it. Two or more let the ' +
+                'agent choose among just those. An account that matches no connected account is an error.',
+            ),
+          account: z
+            .string()
+            .nullable()
+            .optional()
+            .describe('Deprecated, use `accounts`. A single account (email, label or account id).'),
+        }),
+      )
+      .optional()
+      .describe('The full list of services this agent may use. Services left out lose access.'),
     browserEnabled: z.boolean().optional(),
     defaultComputerId: z.string().nullable().optional(),
   },
@@ -1473,9 +1498,15 @@ const update_workspace_action = defineAction({
         await serverFetch(`/workspaces/${id}/run-on`, { method: 'PUT', body: JSON.stringify({ defaultComputerId }) });
       }
       if (connectorScopes !== undefined) {
+        // Fold the legacy single `account` into `accounts`. The route resolves identifiers (email,
+        // label, account id) against the live connections and answers 400 when one doesn't match.
+        const scopes = connectorScopes.map(({ toolkitId, accounts, account }) => {
+          const refs = [...(accounts ?? []), ...(account ? [account] : [])];
+          return refs.length > 0 ? { toolkitId, accounts: refs } : { toolkitId };
+        });
         await serverFetch(`/workspaces/${id}/connector-scopes`, {
           method: 'PUT',
-          body: JSON.stringify({ scopes: connectorScopes }),
+          body: JSON.stringify({ scopes }),
         });
       }
     } catch (err) {

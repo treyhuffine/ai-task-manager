@@ -348,6 +348,7 @@ export type AuthIntent = 'new_connection' | 'add_scopes';
 
 /** Short-lived OAuth state persisted across the redirect (§9). */
 export interface AuthRequest {
+  callbackChannel?: 'web' | 'desktop';
   state: string;
   ownerId: string;
   providerId: string;
@@ -633,6 +634,7 @@ export type OnActionRun = (event: ActionRunEvent) => void;
 // ───────────────────────────── Runtime ──────────────────────────────────────
 
 export interface BeginAuthOptions {
+  callbackChannel?: 'web' | 'desktop';
   ownerId?: string;
   /** Scopes to request; defaults to the provider identity scopes plus the toolkit bundle. */
   scopes?: string[];
@@ -659,6 +661,15 @@ export interface RunActionOptions {
   connectionId?: string;
   /** Account hint (email or label) for multi-account resolution (§6). */
   account?: string;
+  /**
+   * Allowed connection set: when present, resolution only ever picks one of these connection ids
+   * (a host-side account subset, e.g. a workspace scoped to 2 of 3 Gmail accounts). A `connectionId`
+   * or an `account` hint naming a connection outside the set fails with `account_not_allowed`
+   * (listing the allowed accounts); no hint with more than one allowed connection returns
+   * `needs_account` with only the allowed choices. An empty set allows nothing (fail closed), and a
+   * constrained run never starts a connect flow. Omitted = every owner connection is eligible.
+   */
+  allowedConnectionIds?: string[];
   caller?: Caller;
   // Multi-client / hosted layer (authconfig spec §6): the tenant half of the resolution context,
   // used when the agent path auto-initiates auth and must pick a visible client per §4a.
@@ -715,7 +726,8 @@ export interface ConnectionTestResult {
 
 export interface ConnectorRuntime {
   beginAuth(providerId: string, opts: BeginAuthOptions): Promise<BeginAuthResult>;
-  completeAuth(p: { code: string; state: string; params?: Record<string, string> }): Promise<Connection>;
+  completeAuth(p: { code: string; state: string; params?: Record<string, string>; expectedRedirectUri?: string; expectedChannel?: 'web' | 'desktop' }): Promise<Connection>;
+  cancelAuth(state: string, expectedChannel: 'web' | 'desktop'): Promise<boolean>;
   /** Connect a non-OAuth provider from a directly-supplied credential (§ direct strategies). */
   connectDirect(providerId: string, opts: ConnectDirectOptions): Promise<Connection>;
   listConnections(filter?: { ownerId?: string; providerId?: string }): Promise<Connection[]>;

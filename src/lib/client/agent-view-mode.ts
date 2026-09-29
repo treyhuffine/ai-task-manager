@@ -9,8 +9,8 @@ import { useCallback, useSyncExternalStore } from 'react';
  *   - `view` (default) — opens the agent's view: its main chat and tools.
  *   - `fold`  — folds or unfolds its execution list, as before the trial.
  *
- * The chevron always folds, and the gear always opens the agent's Setup tab,
- * whichever this is set to.
+ * The chevron always folds, and the open arrow on hover always opens the
+ * agent's view, whichever this is set to.
  *
  * Per-browser in localStorage, like `entity-view-mode.ts`, so the trial owns
  * no schema and is trivially reversible (delete the module, delete the key).

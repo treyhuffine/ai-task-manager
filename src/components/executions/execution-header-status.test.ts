@@ -67,7 +67,15 @@ describe('describeChatStatus', () => {
 
   it('keeps background work visible after the turn ends', () => {
     const s = describeChatStatus('background', '2026-07-15T20:00:00.000Z', ago('3m'));
-    expect(s).toMatchObject({ label: 'Finished 3m ago', detail: 'background task running', pulse: true });
+    expect(s).toMatchObject({ label: 'Finished 3m ago', detail: 'background task running', tone: 'sky', pulse: false });
+  });
+
+  it('background work never looks like the agent working', () => {
+    const working = describeChatStatus('working', null, ago(''));
+    const background = describeChatStatus('background', '2026-07-15T20:00:00.000Z', ago('3m'));
+    expect(background.tone).not.toBe(working.tone);
+    expect(background.pulse).toBe(false);
+    expect(background.label).not.toMatch(/working/i);
   });
 
   it('names the states that need the user', () => {

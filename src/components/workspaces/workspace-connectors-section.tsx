@@ -2,7 +2,7 @@
 
 /**
  * Workspace connectors (docs/connectors-workspace-scoping-spec.md §7). A sticky, per-workspace
- * allowlist of *services* (toolkits), optionally pinned to one account, that this workspace's
+ * allowlist of *services* (toolkits), optionally limited to some accounts, that this workspace's
  * executions and its main chat may use (docs/agents-view-spec.md Phase 6). The app's main chat
  * always has every connected service. The grouped picker UI is shared with the create modal via
  * ConnectorScopePicker; this wrapper adds the load-current / dirty / save (PUT + recycle) behavior.
@@ -12,6 +12,7 @@ import { Loader2, AlertCircle } from 'lucide-react';
 import { api } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { ConnectorScopePicker } from './connector-scope-picker';
+import { pinKey, scopePins } from '@/lib/connectors/scope-pins';
 import type { WorkspaceConnectorScope } from '@/db/types';
 
 function errMsg(e: unknown): string {
@@ -20,10 +21,11 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** Order-insensitive identity of a scope list: services, each with its sorted account set. */
 function normalize(xs: WorkspaceConnectorScope[]): string {
   return JSON.stringify(
     [...xs]
-      .map((s) => ({ t: s.toolkitId, a: s.account ? `${s.account.accountId}:${s.account.authConfigId ?? ''}` : '' }))
+      .map((s) => ({ t: s.toolkitId, a: scopePins(s).map(pinKey).sort() }))
       .sort((a, b) => a.t.localeCompare(b.t)),
   );
 }

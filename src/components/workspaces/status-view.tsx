@@ -15,7 +15,7 @@ import type { RailSession } from '@/lib/api/sessions';
 export function StatusView() {
   const { data, isLoading } = useRailSessions();
   const { streamingSessionIds, pendingInputSessionIds, setActiveView, openAgent } = useDashboard();
-  // The gear and row menus open the agent's setup: its view, on the Setup tab.
+  // Session row menus open the agent's setup: its view, on the Setup tab.
   const openSetup = (id: string) => openAgent(id, 'setup');
 
   const buckets = useMemo(() => {

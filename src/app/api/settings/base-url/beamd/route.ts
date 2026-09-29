@@ -4,6 +4,7 @@ import { setRunningPort } from '@/lib/auth/bootstrap';
 import { baseUrlSnapshot as snapshot } from '@/lib/auth/base-url-snapshot';
 import { portFromRequestUrl } from '@/lib/auth/port';
 import { openAndSaveBeamdBaseUrl } from '@/lib/auth/beamd-base-url';
+import { readLiveServerRuntime } from '@/lib/server-runtime/record';
 import { BeamdCliError } from '@/lib/preview/beamd/cli';
 import { invalidateConnectorRuntime } from '@/lib/connectors/runtime';
 
@@ -11,7 +12,8 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
-    const port = portFromRequestUrl(request.url);
+    const running = readLiveServerRuntime();
+    const port = running?.privateUpstreams?.next ? Number(new URL(running.privateUpstreams.next).port) : portFromRequestUrl(request.url);
     setRunningPort(port);
     const beamd = await openAndSaveBeamdBaseUrl(port);
     // Opening the tunnel changes the externally-reachable URL the connector

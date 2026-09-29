@@ -116,3 +116,23 @@ describe('refresh algorithm (§9)', () => {
     expect((await h.store.get(conn.id))?.connection.status).toBe('active');
   });
 });
+
+describe('client-bound authorization callbacks', () => {
+  it('rejects a foreign callback before token exchange and consumes attempted state', async () => {
+    const h = makeHarness();
+    const begin = await h.runtime.beginAuth('google', { scopes: ['openid'], callbackChannel: 'desktop' });
+    await expect(h.runtime.completeAuth({ code: 'c', state: begin.requestId, expectedChannel: 'web' })).rejects.toMatchObject({ code: 'invalid_input' });
+    expect(h.env.exchangeCount).toBe(0);
+    await expect(h.runtime.completeAuth({ code: 'c', state: begin.requestId, expectedChannel: 'desktop' })).rejects.toMatchObject({ code: 'invalid_input' });
+    const retry = await h.runtime.beginAuth('google', { scopes: ['openid'], callbackChannel: 'desktop' });
+    await expect(h.runtime.completeAuth({ code: 'c', state: retry.requestId, expectedChannel: 'desktop' })).resolves.toMatchObject({ status: 'active' });
+  });
+  it('only allows denial from the initiating client and consumes it once', async () => {
+    const h = makeHarness();
+    const begin = await h.runtime.beginAuth('google', { scopes: ['openid'], callbackChannel: 'desktop' });
+    await expect(h.runtime.cancelAuth(begin.requestId, 'web')).resolves.toBe(false);
+    const retry = await h.runtime.beginAuth('google', { scopes: ['openid'], callbackChannel: 'desktop' });
+    await expect(h.runtime.cancelAuth(retry.requestId, 'desktop')).resolves.toBe(true);
+    await expect(h.runtime.completeAuth({ code: 'c', state: begin.requestId, expectedChannel: 'desktop' })).rejects.toMatchObject({ code: 'invalid_input' });
+  });
+});

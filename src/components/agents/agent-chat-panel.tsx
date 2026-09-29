@@ -3,6 +3,7 @@
 import { Loader2, Plus } from 'lucide-react';
 import { HarnessChat } from '@/components/chat/harness-chat';
 import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
+import { agentMainChatIntro } from '@/components/chat/main-chat-intro';
 import { useMainChat, useNewMainChat } from '@/hooks/use-main-chat';
 import { useComputer } from '@/hooks/use-computers';
 import type { WorkspaceRecord } from '@/db/types';
@@ -54,7 +55,8 @@ export function AgentChatPanel({ workspace }: { workspace: WorkspaceRecord }) {
       </div>
       <HarnessChat
         scope={workspace.id}
-        composerPlaceholder={`Ask ${workspace.name} about its work, or what to start next`}
+        composerPlaceholder={`Tell ${workspace.name} what to build, or ask about its work`}
+        intro={archived ? undefined : agentMainChatIntro(workspace.name)}
       />
     </div>
   );

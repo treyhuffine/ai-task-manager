@@ -77,6 +77,7 @@ import type { PrMentionItem } from './pr-menu/types';
 import { PrChipNode, PR_CHIP_NAME, type PrChipAttrs } from './pr-menu/pr-chip-node';
 import { formatPrRef } from './pr-menu/format';
 import { EntityChipNode, ENTITY_CHIP_NAME, type EntityChipAttrs } from './entity-chip-node';
+import { scheduleEditorAutoFocus } from './auto-focus';
 
 // ─── Public types ────────────────────────────────────────────────
 
@@ -105,6 +106,8 @@ export interface ChatInputEditorHandle {
   textLength(): number;
   /** Move focus into the editor. */
   focus(opts?: { end?: boolean }): void;
+  /** Cancellable mount autofocus that yields to other inputs and dialogs. */
+  scheduleAutoFocus(): () => void;
   /** Drop content + reset history. */
   clear(): void;
   /** Insert raw text at the current selection. */
@@ -612,6 +615,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       // Pre-hydration empty `onUpdate` (the populate-time race) → leave
       // storage untouched so the restore effect can still read the draft.
       if (action === 'skip') return;
+      // Retain the current draft before yielding to the network/render loop.
+      // Process destruction does not guarantee a debounce or unmount callback.
+      if (action === 'save') writeDraftSync(key);
       // Empty editor → remove immediately so the post-send clear is
       // visible even if the user navigates away inside the debounce
       // window. Saves are debounced; deletes are not.
@@ -821,8 +827,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           // emitUpdate so the parent's hasContent state flips back to
           // true after restore. The scheduled save that fires next is
           // a no-op write of the same JSON.
-          editor.chain().setContent(json, { emitUpdate: true }).focus('end').run();
-          return;
+          editor.commands.setContent(json, { emitUpdate: true });
+          editor.commands.setTextSelection(editor.state.doc.content.size);
+          return scheduleEditorAutoFocus(editor.view.dom, () => {
+            if (!editor.isDestroyed) editor.view.focus();
+          });
         } catch {
           // Corrupt entry — fall through to clear.
         }
@@ -882,6 +891,14 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
             .chain()
             .focus(opts?.end ? 'end' : undefined)
             .run();
+        },
+        scheduleAutoFocus: () => {
+          if (!editor || editor.isDestroyed) return () => {};
+          return scheduleEditorAutoFocus(editor.view.dom, () => {
+            // Tiptap's focus command adds an unguarded animation frame.
+            // ProseMirror focuses synchronously after our final-frame guard.
+            if (!editor.isDestroyed) editor.view.focus();
+          });
         },
         clear: () => {
           if (!editor) return;

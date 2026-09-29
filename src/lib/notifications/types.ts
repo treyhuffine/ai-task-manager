@@ -28,6 +28,8 @@ export interface RenderedNotification {
 }
 
 export interface DeliveryResult {
+  /** A local native consumer acknowledges this durable outbox row later. */
+  deferred?: boolean;
   /** Provider's message id when available (e.g. Telegram message_id), for later correlation. */
   providerMessageId?: string;
 }

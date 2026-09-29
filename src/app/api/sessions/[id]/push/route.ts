@@ -23,7 +23,7 @@ async function handlePOST(
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     // On the computer it runs on (P4.5), in order with its other work there.
-    const there = await gitOnOwner(id, { op: 'push' }, { timeoutMs: 120_000, what: 'Pushing', actor: actorFromRequest(request.headers) });
+    const there = await gitOnOwner(id, { op: 'push', ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}) }, { timeoutMs: 120_000, what: 'Pushing', actor: actorFromRequest(request.headers) });
     if (there) {
       if (!there.ok) {
         const body = (await there.response.json()) as { error: string; message: string };
@@ -41,7 +41,7 @@ async function handlePOST(
     const ws = getWorkspace(session.workspaceId);
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
 
-    const handle = await openWorktreeHandle(session, ws.cwd);
+    const handle = await openWorktreeHandle(session, ws);
     if (!handle || handle.kind !== 'git') {
       return Response.json({ error: 'Not a git workspace' }, { status: 400 });
     }

@@ -1,0 +1,15 @@
+import { defineConfig } from 'tsup';
+
+export default defineConfig({
+  entry: ['desktop/main.ts', 'desktop/backend.ts', 'desktop/preload.ts', 'desktop/maintenance-preload.ts', 'desktop/inspect-installation.ts'],
+  outDir: 'dist/desktop',
+  format: ['cjs'],
+  outExtension: () => ({ js: '.cjs' }),
+  target: 'node22',
+  clean: true,
+  splitting: false,
+  shims: true,
+  external: ['electron'],
+  noExternal: [/^@connectors\/engine(?:\/.*)?$/, 'electron-updater', 'zod'],
+  tsconfig: 'tsconfig.json',
+});

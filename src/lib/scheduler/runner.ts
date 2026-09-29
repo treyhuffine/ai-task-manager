@@ -21,6 +21,7 @@
  * now" and hands work off.
  */
 
+import { withActivity, MaintenanceError } from '@/lib/service/maintenance';
 import {
   acquireSchedulerLock,
   peekLockHolderPid,
@@ -131,6 +132,11 @@ export function stopScheduler(): void {
  * not loop. Returns the number of dispatches it kicked off.
  */
 export async function runTick(now: Date = new Date()): Promise<number> {
+  try { return await withActivity(() => runAdmittedTick(now)); }
+  catch (error) { if (error instanceof MaintenanceError) return 0; throw error; }
+}
+
+async function runAdmittedTick(now: Date): Promise<number> {
   if (state.ticking) return 0;
   state.ticking = true;
   const lock = acquireSchedulerLock();

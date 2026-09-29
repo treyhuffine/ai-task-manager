@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { GitBranch, Folder, Sparkles, AlertCircle, ArrowDownToLine, Loader2, RotateCw, Zap } from 'lucide-react';
+import { GitBranch, Folder, Play, AlertCircle, ArrowDownToLine, Loader2, RotateCw, Zap } from 'lucide-react';
 import { preparedFolder } from '@/lib/executions/location';
 import { toast } from 'sonner';
 import { useRetrySetup, useRetrySetupScript } from '@/hooks/use-execution';
@@ -106,7 +106,7 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
   return (
     <div className="space-y-1.5 mb-1">
       <SetupRow
-        icon={<Sparkles size={11} className="text-primary/70" />}
+        icon={<Play size={11} className="text-primary/70" />}
         text={
           (session.execution?.label ?? session.label) ? (
             <>

@@ -125,3 +125,37 @@ describe('workspace purpose and instructions', () => {
     );
   });
 });
+
+describe('workspace connector scopes (docs/connectors-workspace-scoping-spec.md §4)', () => {
+  async function rawScopes(id: string): Promise<unknown> {
+    const { getDb } = await import('@/lib/db');
+    const { workspaces } = await import('@/lib/db/schema');
+    const { eq } = await import('drizzle-orm');
+    return getDb().select({ s: workspaces.connectorScopes }).from(workspaces).where(eq(workspaces.id, id)).get()?.s;
+  }
+
+  it('reads a legacy single-account row in the new shape, without rewriting it until the next save', async () => {
+    const q = await setup();
+    const ws = q.createWorkspace(BASE);
+    // A row written before multi-account scopes (the raw update path does not normalize).
+    q.updateWorkspace(ws.id, { connectorScopes: [{ toolkitId: 'gmail', account: { accountId: 'sub-work', authConfigId: 'cfg' } }, { toolkitId: 'slack' }] });
+
+    const expected = [{ toolkitId: 'gmail', accounts: [{ accountId: 'sub-work', authConfigId: 'cfg' }] }, { toolkitId: 'slack' }];
+    expect(q.getWorkspace(ws.id)!.connectorScopes).toEqual(expected);
+    expect(q.listWorkspaces().find((w) => w.id === ws.id)!.connectorScopes).toEqual(expected);
+    expect(await rawScopes(ws.id)).toEqual([{ toolkitId: 'gmail', account: { accountId: 'sub-work', authConfigId: 'cfg' } }, { toolkitId: 'slack' }]);
+
+    // The scope write path only ever stores the new shape.
+    const saved = q.setWorkspaceConnectorScopes(ws.id, [{ toolkitId: 'gmail', account: { accountId: 'sub-work' } }])!;
+    expect(saved.connectorScopes).toEqual([{ toolkitId: 'gmail', accounts: [{ accountId: 'sub-work' }] }]);
+    expect(await rawScopes(ws.id)).toEqual([{ toolkitId: 'gmail', accounts: [{ accountId: 'sub-work' }] }]);
+  });
+
+  it('round-trips a multi-account set', async () => {
+    const q = await setup();
+    const ws = q.createWorkspace(BASE);
+    const scopes = [{ toolkitId: 'gmail', accounts: [{ accountId: 'a' }, { accountId: 'b', authConfigId: 'cfg' }] }];
+    q.setWorkspaceConnectorScopes(ws.id, scopes);
+    expect(q.getWorkspace(ws.id)!.connectorScopes).toEqual(scopes);
+  });
+});

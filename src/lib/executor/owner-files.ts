@@ -36,7 +36,7 @@ async function askOwner(computerId: string, executionId: string, chatSessionId: 
   if (!session || !ws) return { status: 404, body: { error: 'Session not found' } };
   const request: ReadExecutionRequest = {
     executionId,
-    workspace: { id: ws.id, isGit: ws.isGit, baseBranch: ws.baseBranch, filesToCopy: ws.filesToCopy ?? [] },
+    workspace: { id: ws.id, isGit: ws.isGit, baseBranch: ws.baseBranch, remoteName: ws.remoteName, filesToCopy: ws.filesToCopy ?? [] },
     baseSha: session.baseSha,
     read,
   };
@@ -68,7 +68,7 @@ export async function writeOnOwner(chatSessionId: string, write: ExecutionWrite)
   const request: WriteExecutionRequest = {
     executionId: placement.executionId,
     generation: placement.generation ?? 0,
-    workspace: { id: ws.id, isGit: ws.isGit, baseBranch: ws.baseBranch, filesToCopy: ws.filesToCopy ?? [] },
+    workspace: { id: ws.id, isGit: ws.isGit, baseBranch: ws.baseBranch, remoteName: ws.remoteName, filesToCopy: ws.filesToCopy ?? [] },
     baseSha: session.baseSha,
     write,
   };
@@ -110,7 +110,7 @@ export async function executionDiff(chatSessionId: string): Promise<{ ok: true; 
   const ws = session?.workspaceId ? getWorkspace(session.workspaceId) : null;
   if (!session || !ws) return { ok: false, response: Response.json({ error: 'Session not found' }, { status: 404 }) };
   const { openWorktreeHandle } = await import('@/lib/workspaces');
-  const handle = await openWorktreeHandle(session, ws.cwd);
+  const handle = await openWorktreeHandle(session, ws);
   if (!handle || handle.kind !== 'git') return { ok: false, response: Response.json({ error: 'Worktree unavailable' }, { status: 404 }) };
   return { ok: true, diff: await handle.git.diff('base') };
 }

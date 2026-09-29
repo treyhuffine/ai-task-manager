@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { GitBranch, Gauge, Laptop, Loader2, RefreshCw, Search, Sparkles, Zap, Check, X } from 'lucide-react';
+import { GitBranch, Gauge, Laptop, Loader2, RefreshCw, Search, Cpu, Zap, Check, X } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { workspacesApi } from '@/lib/api/workspaces';
@@ -446,7 +446,7 @@ export function ModelControl({
           title={`Model: ${selection.model}`}
           className={TRIGGER_CLASS}
         >
-          <Sparkles size={11} className="text-primary/70" />
+          <Cpu size={11} className="text-primary/70" />
           <span className="max-w-[10rem] truncate">{label}</span>
         </button>
       </PopoverTrigger>

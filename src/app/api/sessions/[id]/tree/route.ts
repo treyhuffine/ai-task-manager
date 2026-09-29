@@ -40,7 +40,7 @@ async function handleGET(
     // No worktree yet (worktree provisioning in flight) — return empty.
     if (!session.worktreePath) return Response.json({ entries: [] satisfies TreeEntry[] });
 
-    const handle = await openWorktreeHandle(session, ws.cwd);
+    const handle = await openWorktreeHandle(session, ws);
     if (!handle) return Response.json({ entries: [] satisfies TreeEntry[] });
 
     // Surface the workspace's copied-in ignored files (e.g. `.env*`) alongside

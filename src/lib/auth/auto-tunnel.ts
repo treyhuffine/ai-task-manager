@@ -67,7 +67,7 @@ async function tunnelIsHealthy(): Promise<boolean> {
   const name = appBeamdTunnelName();
   try {
     const entry = (await beamdList()).find((t) => t.name === name);
-    return !!entry?.healthy;
+    return !!entry?.healthy && entry.port === resolvePort();
   } catch {
     return false;
   }

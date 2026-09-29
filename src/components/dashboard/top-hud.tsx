@@ -24,7 +24,7 @@ export function TopHud() {
   const latestExecutionId = useLatestExecutionId();
 
   return (
-    <header className="flex-shrink-0 h-10 border-b border-border flex items-center px-4 gap-4 bg-background z-50">
+    <header data-desktop-titlebar className="flex-shrink-0 h-10 border-b border-border flex items-center px-4 gap-4 bg-background z-50">
       {SHOW_INBOX && (
         <>
           <button

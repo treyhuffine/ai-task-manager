@@ -14,6 +14,7 @@ import {
 } from '@/lib/auth/request-key';
 import { isSessionToken, sessionMayReach, verifySessionToken } from '@/lib/auth/session-token';
 import { isHostKeyHash } from '@/lib/auth/host-key';
+import { permitsCookieMutation } from '@/lib/auth/request-origin';
 
 export const config = {
   matcher: ['/api/:path*'],
@@ -80,7 +81,14 @@ function nextWithoutKeyHeaders(request: NextRequest) {
 }
 
 export function proxy(request: NextRequest) {
+  if (process.env.NODE_ENV === 'production' &&
+      /^\/api\/(dev|playground|benchmark)(\/|$)/.test(request.nextUrl.pathname)) {
+    return NextResponse.json({ error: 'not found' }, { status: 404 });
+  }
   if (PUBLIC_PATHS.has(request.nextUrl.pathname)) {
+    if (request.nextUrl.pathname === '/api/session' && !permitsCookieMutation(request)) {
+      return NextResponse.json({ error: 'request origin is not allowed' }, { status: 403 });
+    }
     return nextWithoutKeyHeaders(request);
   }
 
@@ -125,6 +133,10 @@ export function proxy(request: NextRequest) {
   // issued by an owner (docs/homes-build.md, P2.2).
   if (request.nextUrl.pathname === '/api/workers/enroll') {
     return nextWithoutKeyHeaders(request);
+  }
+
+  if (request.cookies.get(SESSION_COOKIE_NAME)?.value && !permitsCookieMutation(request)) {
+    return NextResponse.json({ error: 'request origin is not allowed' }, { status: 403 });
   }
 
   const token = extractToken(request);

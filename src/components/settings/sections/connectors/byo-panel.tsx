@@ -44,8 +44,10 @@ export function ByoPanel({
   return (
     <div className="space-y-3">
       <p className="text-[11px] leading-normal text-muted-foreground">
-        Register an app with {provider.displayName}, add this redirect URI, then paste the client below. It is stored
-        sealed in your home, never in the repo.
+        {provider.desktopCallback?.kind === 'loopback'
+          ? `Create a desktop or native OAuth app with ${provider.displayName} that accepts loopback redirects on a temporary port. Paste its client ID below.`
+          : `Register an app with ${provider.displayName}, add the callback address below, then paste the client below.`}
+        {' '}Credentials are stored encrypted in your app home.
       </p>
       {docsUrl && (
         <a
@@ -61,8 +63,8 @@ export function ByoPanel({
 
       {/* Redirect URI to register */}
       <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 p-2">
-        <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">{redirectUri}</code>
-        <Button variant="ghost" size="icon-xs" onClick={onCopyRedirect} title="Copy redirect URI">
+        <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">{provider.desktopCallback ? provider.desktopCallback.kind === 'loopback' ? 'http://127.0.0.1:<temporary-port>/oauth/callback' : provider.desktopCallback.redirectUri || 'Configure a hosted callback service first' : redirectUri}</code>
+        <Button disabled={!!provider.desktopCallback && !provider.desktopCallback.redirectUri} variant="ghost" size="icon-xs" onClick={onCopyRedirect} title="Copy redirect URI">
           {copied ? <Check size={12} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={12} />}
         </Button>
       </div>

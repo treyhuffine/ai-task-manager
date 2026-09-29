@@ -79,6 +79,9 @@ async function deliverRow(
     adapter.validateConfig?.(channel);
     const rendered = render(delivery.event as unknown as NotificationEvent, channel);
     const result = await adapter.deliver(channel, rendered);
+    // A deferred delivery (queued for native or browser presentation) is
+    // acknowledged by the client that shows it, not here.
+    if (result.deferred) return;
     markDeliverySent(delivery.id, {
       rendered,
       ...(result.providerMessageId !== undefined ? { providerMessageId: result.providerMessageId } : {}),

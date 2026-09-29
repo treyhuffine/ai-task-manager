@@ -38,25 +38,49 @@ export async function pushExecutionBranch(handle: { path: string; git: { push():
 }
 
 /**
- * Fetch the base branch from its remote and merge (or rebase) it in. The
- * base is the one the worktree started from, `origin/main` or a branch it
- * was created from, and the agent's base branch when that was a pull
- * request's head. A conflict throws the library's `MergeConflictError`
- * and leaves the worktree mid-merge for the agent to resolve.
+ * Fetch the base from its remote and merge (or rebase) it in: the base the
+ * worktree started from (`origin/main`, or a branch it was created from),
+ * the agent's base branch when that's another kind of ref, or a pull
+ * request's head (`refs/agentex/pr/<N>`), refetched so pulling a session
+ * started from a PR picks up what was pushed to it since. Everything runs in
+ * the worktree's own repository, so it works on whichever computer has it.
+ *
+ * A base that can't be fetched fails loudly rather than merging a stale ref.
+ * A conflict throws the library's `MergeConflictError` and leaves the
+ * worktree mid-merge for the agent to resolve.
  */
 export async function pullBaseInto(
   handle: { path: string; git: { base: string; mergeFrom(ref: string, opts?: { strategy?: 'merge' | 'rebase' }): Promise<void> } },
-  opts: { strategy: 'merge' | 'rebase'; baseBranch: string | null },
+  opts: { strategy: 'merge' | 'rebase'; baseBranch: string | null; base?: string },
 ): Promise<void> {
   const git = gitIn(handle.path);
-  const recorded = handle.git.base.startsWith('refs/') ? opts.baseBranch : handle.git.base;
-  if (!recorded) throw new Error('This worktree has no base branch to bring in.');
+  const base = opts.base ?? handle.git.base;
   const remotes = (await git('remote')).split('\n').filter(Boolean);
+  const fallbackRemote = remotes.includes('origin') ? 'origin' : remotes[0];
+  const pr = /^refs\/agentex\/pr\/(\d+)$/.exec(base);
+  if (pr) {
+    if (!fallbackRemote) throw new Error("This worktree's repository has no remote to fetch the pull request from.");
+    await fetchOrSay(git, fallbackRemote, `+refs/pull/${pr[1]}/head:${base}`, `pull request #${pr[1]}`);
+    await handle.git.mergeFrom(base, { strategy: opts.strategy });
+    return;
+  }
+  const recorded = base.startsWith('refs/') ? opts.baseBranch : base;
+  if (!recorded) throw new Error('This worktree has no base branch to bring in.');
   const [head, ...rest] = recorded.split('/');
   const known = rest.length > 0 && remotes.includes(head!);
-  const remote = known ? head! : remotes.includes('origin') ? 'origin' : remotes[0];
+  const remote = known ? head! : fallbackRemote;
   if (!remote) throw new Error("This worktree's repository has no remote to bring the base branch in from.");
   const branch = known ? rest.join('/') : recorded;
-  await git('fetch', remote, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`);
+  await fetchOrSay(git, remote, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`, branch);
   await handle.git.mergeFrom(`${remote}/${branch}`, { strategy: opts.strategy });
+}
+
+async function fetchOrSay(git: ReturnType<typeof gitIn>, remote: string, refspec: string, what: string): Promise<void> {
+  try {
+    await git('fetch', remote, refspec);
+  } catch (err) {
+    const stderr = (err as { stderr?: string }).stderr?.trim() || (err instanceof Error ? err.message : String(err));
+    const detail = stderr.split('\n').find((l) => l.trim())?.trim() ?? '';
+    throw new Error(`Couldn't fetch ${what} from ${remote}.${detail ? ` ${detail}` : ''}`);
+  }
 }

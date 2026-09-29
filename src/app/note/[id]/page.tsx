@@ -20,6 +20,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { useDocumentAutosave } from '@/hooks/use-document-autosave';
 import type { Attachment } from '@/db/types';
 
 export default function NotePage({ params }: { params: Promise<{ id: string }> }) {
@@ -27,6 +28,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
   const router = useRouter();
   const { data: note } = useNote(noteId);
   const updateNote = useUpdateNote();
+  const autosave = useDocumentAutosave('notes', noteId, note, updateNote.mutateAsync);
   const deleteNote = useDeleteNote();
   const chat = useDocumentChat('note', note ?? null);
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted';
@@ -40,8 +42,6 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
 
   const [wordCount, setWordCount] = useState(0);
   const [charCount, setCharCount] = useState(0);
-  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAttachmentsRef = useRef<Attachment[]>([]);
 
   const handleAttachment = useCallback((attachment: Attachment) => {
@@ -52,12 +52,10 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
   const handleTitleChange = useCallback(
     (title: string) => {
       if (!noteId) return;
-      if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
-      titleTimerRef.current = setTimeout(() => {
-        updateNote.mutate({ id: noteId, title });
-      }, 500);
+
+      autosave({ title });
     },
-    [noteId, updateNote],
+    [noteId, autosave],
   );
 
   const handleBodyChange = useCallback(
@@ -67,17 +65,13 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
       setWordCount(text ? text.split(/\s+/).length : 0);
       setCharCount(body.length);
 
-      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current);
-      bodyTimerRef.current = setTimeout(() => {
-        const attachments = pendingAttachmentsRef.current;
-        updateNote.mutate({
-          id: noteId,
-          body,
-          ...(attachments.length > 0 ? { attachments } : {}),
-        });
-      }, 500);
+      const attachments = pendingAttachmentsRef.current;
+      autosave({
+        body,
+        ...(attachments.length > 0 ? { attachments } : {}),
+      });
     },
-    [noteId, updateNote],
+    [noteId, autosave],
   );
 
   // Initialize counts when note loads
@@ -97,16 +91,13 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
     [noteId, updateNote],
   );
 
-  const foldedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleFoldedHeadingsChange = useCallback(
     (folded: string[]) => {
       if (!noteId) return;
-      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
-      foldedTimerRef.current = setTimeout(() => {
-        updateNote.mutate({ id: noteId, foldedHeadings: folded });
-      }, 400);
+
+      autosave({ foldedHeadings: folded });
     },
-    [noteId, updateNote],
+    [noteId, autosave],
   );
 
   const handleArchive = useCallback(() => {
@@ -121,13 +112,6 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
     router.push('/');
   }, [noteId, deleteNote, router]);
 
-  useEffect(() => {
-    return () => {
-      if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
-      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current);
-      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current);
-    };
-  }, []);
 
   const goBack = useCallback(() => {
     if (window.history.length > 1) router.back();

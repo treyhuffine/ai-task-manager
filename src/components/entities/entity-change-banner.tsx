@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparkles, Undo2, X, Loader2, Eye } from 'lucide-react';
+import { FilePenLine, Undo2, X, Loader2, Eye } from 'lucide-react';
 import { api } from '@/lib/api/client';
 import { useEntityVersions, groupVersions, type VersionedEntityType } from '@/hooks/use-entity-versions';
 import { EntityDiffModal } from './entity-diff-modal';
@@ -48,7 +48,7 @@ export function EntityChangeBanner({
   return (
     <>
       <div className="sticky top-0 z-20 mx-4 mt-2 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 shadow-sm backdrop-blur md:mx-12">
-        <Sparkles size={15} className="flex-shrink-0 text-primary" />
+        <FilePenLine size={15} className="flex-shrink-0 text-primary" />
         <span className="min-w-0 flex-1 text-[12.5px] text-foreground">
           AI {verb} this {noun}.
         </span>

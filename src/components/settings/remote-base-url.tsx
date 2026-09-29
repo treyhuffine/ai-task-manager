@@ -9,7 +9,7 @@ import {
   Trash2,
   CheckCircle2,
   AlertCircle,
-  WandSparkles,
+  Link,
   RefreshCw,
   ChevronRight,
 } from 'lucide-react';
@@ -405,7 +405,7 @@ export function RemoteBaseUrlSection() {
           {beamdMutation.isPending ? (
             <Loader2 size={11} className="animate-spin" />
           ) : (
-            <WandSparkles size={11} />
+            <Link size={11} />
           )}
           {beamdConnected ? 'Use Beamd URL' : 'Connect Beamd'}
         </Button>

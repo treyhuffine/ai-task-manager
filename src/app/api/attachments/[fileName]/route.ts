@@ -61,6 +61,12 @@ async function handleGET(
       headers: {
         'Content-Type': mime,
         'Content-Length': String(bytes.byteLength),
+        // Uploaded documents never inherit the application's script authority.
+        // SVG still renders as an image, including its own inline styles.
+        'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'",
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'no-referrer',
+        'Cross-Origin-Resource-Policy': 'same-origin',
         // UUIDv7 filenames are content-stable; safe to cache aggressively.
         'Cache-Control': 'private, max-age=31536000, immutable',
       },

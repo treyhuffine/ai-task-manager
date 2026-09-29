@@ -19,7 +19,7 @@ import { ensureLocalToken, getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { resetDb } from '@/lib/db';
 import { getIsOnboarded, markOnboarded, getOnboardedAt } from '@/lib/config/onboarded';
 import { getVoiceEnabled, setVoiceEnabled } from '@/lib/config/voice';
-import { configureGlobalSkill } from '@/lib/agent-skills/shipped';
+import { configureGlobalSkill, installAppRootSkills } from '@/lib/agent-skills/shipped';
 import { isOurServerRunning } from '../lib/server';
 import { isDockerAvailable } from '../lib/voice';
 import { openBrowser } from '../lib/browser';
@@ -175,9 +175,11 @@ export async function runWizard(): Promise<void> {
   // Global by default: make task and note actions available to agents in every
   // project. No prompt — matching the web onboarding, this isn't a decision most
   // users can meaningfully answer, and the scope is adjustable later in Settings.
-  const skillResult = await configureGlobalSkill(true);
+  const skillResult = process.env.RI_DESKTOP === '1'
+    ? { install: await installAppRootSkills() }
+    : await configureGlobalSkill(true);
   if (skillResult.install.errors > 0) {
-    throw new Error('Could not install the user-level productivity skill');
+    throw new Error('Could not install the productivity skill');
   }
   if (skillResult.install.conflicts > 0) {
     log.warn(`A user-level skill named ${AGENT_SKILL_NAME} already exists and was left unchanged.`);

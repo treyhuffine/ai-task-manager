@@ -21,6 +21,7 @@ import { connectionMetadata, defaultApprovalPolicy, noopLogger, systemClock, uni
 import { createAuthedHttp } from './http';
 import { createRedactor } from './redactor';
 import { newAttemptId, newId, randomUrlToken } from './ids';
+import { accountDisplay } from './projection-shared';
 import { inProcessLock } from '../lock/in-process';
 import type { Registry } from './registry';
 import type {
@@ -84,6 +85,12 @@ export interface ConnectorRuntimeOptions {
   defaultOwnerId?: string;
   authRequestTtlMs?: number;
   refreshSkewMs?: number;
+  /** Host-owned landing page for tool-requested reconnect/incremental consent.
+   * The person opens it in their current client, then beginAuth selects that
+   * client's callback. No pending OAuth state is minted by a background tool. */
+  authorizationRequired?: (request: {
+    providerId: string; scopes: string[]; authConfigId?: string; existingConnectionId?: string;
+  }) => string;
 }
 
 /** The flow purposes the §8 status table gates. */
@@ -344,6 +351,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
     scopes: string[];
     redirectUri: string;
     intent: AuthRequest['intent'];
+    callbackChannel?: 'web' | 'desktop';
     existingConnectionId?: string;
     label?: string;
   }): Promise<BeginAuthResult> {
@@ -370,6 +378,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       scopes: input.scopes,
       redirectUri: input.redirectUri,
       intent: input.intent,
+      ...(input.callbackChannel ? { callbackChannel: input.callbackChannel } : {}),
       ...(input.existingConnectionId ? { existingConnectionId: input.existingConnectionId } : {}),
       ...(input.authConfigId !== undefined ? { authConfigId: input.authConfigId } : {}),
       ...(input.label ? { label: input.label } : {}),
@@ -398,6 +407,14 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       );
     }
     return uri;
+  }
+
+  async function buildActionAuthorization(input: Parameters<typeof buildAuthorization>[0]) {
+    if (opts.authorizationRequired) return { authorizationUrl: opts.authorizationRequired({
+      providerId: input.provider.id, scopes: input.scopes,
+      authConfigId: input.authConfigId, existingConnectionId: input.existingConnectionId,
+    }) };
+    return buildAuthorization(input);
   }
 
   // ── Public: beginAuth / completeAuth ──────────────────────────────────────
@@ -429,6 +446,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
         ownerId,
         scopes: requested,
         redirectUri: resolveRedirect(config, options.redirectUri),
+        callbackChannel: options.callbackChannel,
         intent: 'add_scopes',
         existingConnectionId: options.existingConnectionId,
         ...(options.label ? { label: options.label } : {}),
@@ -472,15 +490,22 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       ownerId,
       scopes: uniqueScopes(provider.identityScopes, base),
       redirectUri: resolveRedirect(config, options.redirectUri),
+        callbackChannel: options.callbackChannel,
       intent: 'new_connection',
       ...(options.label ? { label: options.label } : {}),
     });
   }
 
-  async function completeAuth(p: { code: string; state: string; params?: Record<string, string> }): Promise<Connection> {
+  async function completeAuth(p: { code: string; state: string; params?: Record<string, string>; expectedRedirectUri?: string; expectedChannel?: 'web' | 'desktop' }): Promise<Connection> {
     const req = await authRequests.take(p.state);
     if (!req) throw new ConnectorError('invalid_input', 'unknown or expired auth state');
     if (req.expiresAt < clock.now()) throw new ConnectorError('invalid_input', 'auth request expired');
+    if (p.expectedChannel && (req.callbackChannel ?? 'web') !== p.expectedChannel) {
+      throw new ConnectorError('invalid_input', 'auth request belongs to a different client');
+    }
+    if (p.expectedRedirectUri !== undefined && req.redirectUri !== p.expectedRedirectUri) {
+      throw new ConnectorError('invalid_input', 'auth request belongs to a different callback');
+    }
 
     const provider = requireProvider(req.providerId);
     const flow = provider.auth.oauth;
@@ -705,7 +730,10 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
     | { kind: 'ok'; connection: Connection }
     | { kind: 'none' }
     | { kind: 'not_found' }
-    | { kind: 'ambiguous'; choices: AccountChoice[] };
+    | { kind: 'ambiguous'; choices: AccountChoice[] }
+    // Outside the caller's allowed connection set. `requested` is the model's hint (absent for a
+    // raw connectionId, which is opaque and never echoed); `choices` are the allowed accounts.
+    | { kind: 'not_allowed'; requested?: string; choices: AccountChoice[] };
 
   async function accountChoices(providerId: string, conns: Connection[]): Promise<AccountChoice[]> {
     // Surface the minting config's label so a human can disambiguate "same email via two clients"
@@ -723,12 +751,31 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
     );
   }
 
+  /**
+   * The connections an `account` hint names. The match is against each candidate's full token set,
+   * email/label PLUS the auth-config-disambiguated form ("me@gmail.com (Work)"), the exact string
+   * the model was shown, so a duplicate email round-trips instead of looping.
+   */
+  async function matchAccountHint(providerId: string, conns: Connection[], account: string): Promise<Connection[]> {
+    const labelled = await Promise.all(
+      conns.map(async (c) => ({
+        c,
+        cfgLabel: (await authConfigs!.getConfigForConnection(providerId, c.authConfigId))?.label,
+      })),
+    );
+    return labelled.filter(({ c, cfgLabel }) => tokensFor(c, cfgLabel).includes(account)).map(({ c }) => c);
+  }
+
   async function resolveConnection(
     providerId: string,
     ownerId: string,
     connectionId?: string,
     account?: string,
+    allowedConnectionIds?: string[],
   ): Promise<Resolution> {
+    if (allowedConnectionIds) {
+      return resolveWithinAllowed(providerId, ownerId, new Set(allowedConnectionIds), connectionId, account);
+    }
     if (connectionId) {
       const stored = await store.get(connectionId);
       // Ownership is the boundary, not opacity: a foreign/foreign-provider id is "not found".
@@ -743,20 +790,50 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
     if (account) {
       // The match must be UNIQUE. With >1 connection an `account` hint can match more than one
       // (the same email via two configs, or an email colliding with another connection's label).
-      // We match against each candidate's full token set — email/label PLUS the auth-config-
-      // disambiguated form ("me@gmail.com (Work)"), the exact string the model was shown — so a
-      // duplicate email round-trips instead of looping. Never silently pick the first: 0 or >1
-      // matches both fall through to needs_account.
-      const labelled = await Promise.all(
-        conns.map(async (c) => ({
-          c,
-          cfgLabel: (await authConfigs!.getConfigForConnection(providerId, c.authConfigId))?.label,
-        })),
-      );
-      const matches = labelled.filter(({ c, cfgLabel }) => tokensFor(c, cfgLabel).includes(account));
-      if (matches.length === 1) return { kind: 'ok', connection: (matches[0] as { c: Connection }).c };
+      // Never silently pick the first: 0 or >1 matches both fall through to needs_account.
+      const matches = await matchAccountHint(providerId, conns, account);
+      if (matches.length === 1) return { kind: 'ok', connection: matches[0] as Connection };
     }
     return { kind: 'ambiguous', choices: await accountChoices(providerId, conns) };
+  }
+
+  /**
+   * Resolution constrained to an allowed connection set (`RunActionOptions.allowedConnectionIds`).
+   * The same rules as the unconstrained path, applied to the permitted connections only, plus: a
+   * connectionId or hint that names a connection OUTSIDE the set is rejected (`not_allowed`), never
+   * silently rerouted to an allowed one. With nothing permitted it fails closed (`not_found`) rather
+   * than starting a connect flow, since the set was fixed by the host, not the model.
+   */
+  async function resolveWithinAllowed(
+    providerId: string,
+    ownerId: string,
+    allowed: Set<string>,
+    connectionId?: string,
+    account?: string,
+  ): Promise<Resolution> {
+    const conns = await store.list({ ownerId, providerId });
+    const permitted = conns.filter((c) => allowed.has(c.id));
+    if (connectionId) {
+      if (!allowed.has(connectionId)) {
+        return { kind: 'not_allowed', choices: await accountChoices(providerId, permitted) };
+      }
+      const hit = permitted.find((c) => c.id === connectionId);
+      return hit ? { kind: 'ok', connection: hit } : { kind: 'not_found' };
+    }
+    if (permitted.length === 0) return { kind: 'not_found' };
+    if (account) {
+      const inside = await matchAccountHint(providerId, permitted, account);
+      if (inside.length === 1) return { kind: 'ok', connection: inside[0] as Connection };
+      if (inside.length === 0) {
+        const outside = await matchAccountHint(providerId, conns.filter((c) => !allowed.has(c.id)), account);
+        if (outside.length > 0) {
+          return { kind: 'not_allowed', requested: account, choices: await accountChoices(providerId, permitted) };
+        }
+      }
+      // Ambiguous within the set, or a hint that names no connection at all: same as unconstrained.
+    }
+    if (permitted.length === 1) return { kind: 'ok', connection: permitted[0] as Connection };
+    return { kind: 'ambiguous', choices: await accountChoices(providerId, permitted) };
   }
 
   /** Public: the disambiguated account choices for a provider (host/UI account pickers + tool hints). */
@@ -810,10 +887,29 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
 
     try {
       // 3. Resolve connection (ownership-checked).
-      const resolution = await resolveConnection(provider.id, ownerId, options.connectionId, options.account);
+      const resolution = await resolveConnection(
+        provider.id,
+        ownerId,
+        options.connectionId,
+        options.account,
+        options.allowedConnectionIds,
+      );
       if (resolution.kind === 'not_found') {
         finish('error', { status: 'error', errorCode: 'connection_not_found' });
         return fail('connection_not_found', 'connection not found');
+      }
+      if (resolution.kind === 'not_allowed') {
+        finish('error', { status: 'error', errorCode: 'account_not_allowed' });
+        const allowedList = resolution.choices
+          .map(accountDisplay)
+          .filter((s): s is string => !!s)
+          .map((s) => `"${s}"`)
+          .join(', ');
+        const subject = resolution.requested !== undefined ? `account "${resolution.requested}"` : 'that connection';
+        return fail(
+          'account_not_allowed',
+          `${subject} is not available here. Allowed ${provider.id} accounts: ${allowedList || '(none)'}. Retry with \`account\` set to one of them.`,
+        );
       }
       if (resolution.kind === 'none') {
         // No connection yet → drive §4a connect with the scopes the ACTION needs (not config
@@ -826,7 +922,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
         switch (cr.kind) {
           case 'resolved': {
             const scopes = uniqueScopes(provider.identityScopes, action.scopes);
-            const { authorizationUrl } = await buildAuthorization({
+            const { authorizationUrl } = await buildActionAuthorization({
               provider,
               config: cr.config,
               authConfigId: cr.authConfigId,
@@ -891,7 +987,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
           finish('error', { connectionId: connection.id, status: 'error', errorCode: 'provider_not_configured' });
           return fail('provider_not_configured', `no auth client configured for "${provider.id}"`);
         }
-        const { authorizationUrl } = await buildAuthorization({
+        const { authorizationUrl } = await buildActionAuthorization({
           provider,
           config: connConfig,
           authConfigId: connection.authConfigId,
@@ -939,7 +1035,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
           // No client to rebuild the URL with — surface provider_not_configured instead of a dead URL.
           return fail('provider_not_configured', `no auth client configured for "${provider.id}"`);
         }
-        const { authorizationUrl } = await buildAuthorization({
+        const { authorizationUrl } = await buildActionAuthorization({
           provider,
           config: connConfig,
           authConfigId: connection.authConfigId,
@@ -1156,6 +1252,10 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
   return {
     beginAuth,
     completeAuth,
+    async cancelAuth(state: string, expectedChannel: 'web' | 'desktop'): Promise<boolean> {
+      const req = await authRequests.take(state);
+      return !!req && req.expiresAt >= clock.now() && (req.callbackChannel ?? 'web') === expectedChannel;
+    },
     connectDirect,
     listConnections: (filter) => store.list(filter),
     listAccountChoices,

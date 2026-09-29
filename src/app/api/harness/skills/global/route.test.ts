@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 
 const mocks = vi.hoisted(() => ({
   configureGlobalSkill: vi.fn(),
+  installAppRootSkills: vi.fn(),
   getGlobalSkillPreference: vi.fn(),
   removeOwnedProjectSkillLinks: vi.fn(),
   listWorkspaces: vi.fn(),
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/agent-skills/shipped', () => ({
   configureGlobalSkill: mocks.configureGlobalSkill,
+  installAppRootSkills: mocks.installAppRootSkills,
   getGlobalSkillPreference: mocks.getGlobalSkillPreference,
   removeOwnedProjectSkillLinks: mocks.removeOwnedProjectSkillLinks,
 }));
@@ -24,6 +26,7 @@ import { GET, PUT } from './route';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   mocks.listWorkspaces.mockReturnValue([]);
   mocks.listChatSessions.mockReturnValue([]);
   mocks.removeOwnedProjectSkillLinks.mockResolvedValue({ entries: [], removed: 0 });
@@ -83,4 +86,17 @@ describe('global agent skill settings', () => {
     expect(mocks.removeOwnedProjectSkillLinks).toHaveBeenCalledWith('/repo/one-worktree');
     expect(body.projectCleanup).toEqual({ scanned: 3, removed: 3, errors: 0 });
   });
+});
+
+it('keeps desktop onboarding away from global skills and project cleanup', async () => {
+  vi.stubEnv('RI_DESKTOP', '1');
+  mocks.installAppRootSkills.mockResolvedValue({ installed: 2, errors: 0 });
+  expect(await GET().json()).toEqual({ enabled: false, configured: true, appOnly: true });
+  const response = await PUT(new NextRequest('http://localhost/api/harness/skills/global', { method: 'PUT', body: JSON.stringify({ enabled: true }) }));
+  expect(response.status).toBe(200);
+  expect(mocks.installAppRootSkills).toHaveBeenCalledOnce();
+  expect(mocks.configureGlobalSkill).not.toHaveBeenCalled();
+  expect(mocks.listWorkspaces).not.toHaveBeenCalled();
+  expect(mocks.removeOwnedProjectSkillLinks).not.toHaveBeenCalled();
+  vi.unstubAllEnvs();
 });

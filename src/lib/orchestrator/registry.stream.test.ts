@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { MIRROR_DISABLED_ENV } from '@/lib/export/mirror/config';
 
 vi.mock('@agentex/agent', () => ({
   getProvider: () => ({ capabilities: { concurrentSend: true } }),
@@ -21,22 +22,33 @@ vi.mock('@/lib/executor/adapter', () => ({
   abort: vi.fn(async () => {}),
   ExecutorError: class extends Error {},
 }));
+// This suite verifies registry dispositions, not the capture-time background
+// model lane. Keep it from reading a subsequent test's freshly reset DB.
+vi.mock('@/lib/stream-triage/urgency', () => ({
+  runUrgencyLane: vi.fn(async () => ({ lane: 'wait_safe', reason: 'test fixture' })),
+}));
 
-const TEST_DB = path.join(os.tmpdir(), `ri-registry-stream-test-${process.pid}.db`);
+const TEST_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-registry-stream-test-'));
+const TEST_DB = path.join(TEST_DIR, 'data.db');
 
-beforeEach(() => {
+beforeEach(async () => {
+  // Fire-and-forget markdown exports are tested by the mirror suite. Here
+  // they can outlive the DB reset and log after Vitest tears down its worker.
+  vi.stubEnv(MIRROR_DISABLED_ENV, '1');
+  vi.stubEnv('RI_DB_PATH', TEST_DB);
+  const { resetDb } = await import('@/lib/db');
+  resetDb();
   for (const suffix of ['', '-wal', '-shm']) {
     const p = TEST_DB + suffix;
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
-  process.env.RI_DB_PATH = TEST_DB;
 });
 
-afterAll(() => {
-  for (const suffix of ['', '-wal', '-shm']) {
-    const p = TEST_DB + suffix;
-    if (fs.existsSync(p)) fs.unlinkSync(p);
-  }
+afterAll(async () => {
+  const { resetDb } = await import('@/lib/db');
+  resetDb();
+  fs.rmSync(TEST_DIR, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 async function resetDb() {

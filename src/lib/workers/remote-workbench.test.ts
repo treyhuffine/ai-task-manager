@@ -264,4 +264,34 @@ describe('an agent that lives on a connected computer', () => {
     worker = null;
     expect(await get('tree')).toMatchObject({ status: 409, body: { error: 'unavailable', message: 'Laptop is not connected right now.' } });
   }, 90_000);
+  it("changes its files there, from the Files tab, and never the home's copy (merged with the desktop's editing)", async () => {
+    const q = await import('@/lib/db/queries');
+    const homeFolder = q.getWorkspace(workspaceId)!.cwd;
+    const { NextRequest } = await import('next/server');
+    const call = async (sub: string, method: string, body?: unknown) => {
+      const mod = (await import(`@/app/api/workspaces/[id]/${sub.split('?')[0]}/route`)) as Record<string, Handler>;
+      const res = await mod[method]!(
+        new NextRequest(`http://127.0.0.1/api/workspaces/${workspaceId}/${sub}`, {
+          method,
+          ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }),
+        }),
+        { params: Promise.resolve({ id: workspaceId }) },
+      );
+      return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    };
+    expect(await call('file?path=notes/plan.md', 'PUT', { content: 'on the laptop\n' })).toMatchObject({ status: 200, body: { ok: true } });
+    expect(fs.readFileSync(path.join(repo, 'notes', 'plan.md'), 'utf8')).toBe('on the laptop\n');
+    expect(await call('file/create', 'POST', { path: 'empty.txt' })).toMatchObject({ status: 200 });
+    expect(await call('dir', 'POST', { path: 'drafts' })).toMatchObject({ status: 200 });
+    expect(await call('file/rename', 'POST', { from: 'empty.txt', to: 'drafts/empty.txt' })).toMatchObject({ status: 200 });
+    expect(fs.existsSync(path.join(repo, 'drafts', 'empty.txt'))).toBe(true);
+    expect(await call('file?path=notes', 'DELETE')).toMatchObject({ status: 200 });
+    expect(fs.existsSync(path.join(repo, 'notes'))).toBe(false);
+    expect(await call('file?path=../escape.txt', 'PUT', { content: 'no' })).toMatchObject({ status: 400 });
+    // Nothing reached the agent's folder at home.
+    for (const name of ['notes', 'empty.txt', 'drafts']) expect(fs.existsSync(path.join(homeFolder, name))).toBe(false);
+
+    q.archiveWorkspace(workspaceId);
+    expect(await call('file?path=README.md', 'PUT', { content: 'x' })).toMatchObject({ status: 409 });
+  }, 90_000);
 });

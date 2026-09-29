@@ -16,6 +16,7 @@ import {
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
 } from '@/lib/db/schema';
+import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import slugify from '@sindresorhus/slugify';
@@ -80,6 +81,7 @@ import { deriveAttachments } from '@/lib/attachments/derive';
 import { AttachmentMetadataRepairError, planNoteAttachmentMetadataRepair } from '@/lib/attachments/repair-metadata';
 import { publishChatEvent } from '@/lib/realtime/bus';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
+import { normalizeConnectorScopes } from '@/lib/connectors/scope-pins';
 import {
   normalizeTaskStatus,
   canApply,
@@ -6229,12 +6231,25 @@ export function listWorkspaces(filter: { status?: WorkspaceStatus } = {}): Works
     .orderBy(asc(workspaces.position), asc(workspaces.createdAt))
     .all();
 
-  return rows.map((r) => hydrateRow(r));
+  return rows.map((r) => readWorkspaceRow(hydrateRow(r)));
+}
+
+/**
+ * Every workspace row leaves the query layer with its connector scopes in the current shape: a
+ * legacy single `account` pin folded into `accounts` (docs/connectors-workspace-scoping-spec.md §4).
+ * The column is JSON, so old rows are rewritten on read rather than by a migration, and the next
+ * scope save stores the new shape.
+ */
+function readWorkspaceRow<R extends { connectorScopes: WorkspaceConnectorScope[] }>(row: R): R;
+function readWorkspaceRow<R extends { connectorScopes: WorkspaceConnectorScope[] }>(row: R | undefined): R | undefined;
+function readWorkspaceRow<R extends { connectorScopes: WorkspaceConnectorScope[] }>(row: R | undefined): R | undefined {
+  if (!row) return row;
+  return { ...row, connectorScopes: normalizeConnectorScopes(row.connectorScopes) };
 }
 
 export function getWorkspace(id: string): WorkspaceRecord | undefined {
   const db = getDb();
-  return hydrateRow(db.select().from(workspaces).where(eq(workspaces.id, id)).get());
+  return readWorkspaceRow(hydrateRow(db.select().from(workspaces).where(eq(workspaces.id, id)).get()));
 }
 
 /**
@@ -6318,7 +6333,7 @@ export function createWorkspace(input: Omit<CreateWorkspaceInput, 'slug'> & { sl
     })
     .returning()
     .get());
-  return row;
+  return readWorkspaceRow(row);
 }
 
 /**
@@ -6350,7 +6365,7 @@ export function updateWorkspace(id: string, input: UpdateWorkspaceInput): Worksp
     .where(eq(workspaces.id, id))
     .returning()
     .get());
-  return row ?? null;
+  return readWorkspaceRow(row) ?? null;
 }
 
 /**
@@ -6362,7 +6377,8 @@ export function setWorkspaceConnectorScopes(
   id: string,
   scopes: WorkspaceConnectorScope[],
 ): WorkspaceRecord | null {
-  return updateWorkspace(id, { connectorScopes: scopes });
+  // Only ever write the current shape (`accounts`, never the legacy single `account`).
+  return updateWorkspace(id, { connectorScopes: normalizeConnectorScopes(scopes) });
 }
 
 export function archiveWorkspace(id: string): WorkspaceRecord | null {
@@ -6374,7 +6390,7 @@ export function archiveWorkspace(id: string): WorkspaceRecord | null {
     .where(eq(workspaces.id, id))
     .returning()
     .get());
-  return row ?? null;
+  return readWorkspaceRow(row) ?? null;
 }
 
 // ─── Reference folders ────────────────────────────────────────
@@ -8540,6 +8556,65 @@ export function chatEventsPosition(sessionId: string): { after: string | null; s
 }
 
 /**
+ * Everything the background-task strip needs for specific tasks, however far
+ * back they started: each task's lifecycle events plus the tool call that
+ * launched it and that call's result (the command and its output).
+ *
+ * The transcript loads the newest page of events only, so a long-lived task
+ * (a dev server an agent left running) can start more than a page ago while
+ * the runtime still reports it live. This lets the strip show it anyway.
+ *
+ * The SQL filter is a cheap prefilter on both envelope shapes (Agentex's
+ * `taskId`, and the legacy Claude `raw.task_id`). `decodeBackgroundTaskEvent`
+ * is the authority, applied after, so this matches the decoder's own rules.
+ */
+export function listBackgroundTaskEvents(sessionId: string, taskIds: readonly string[]): ChatEventRecord[] {
+  if (taskIds.length === 0) return [];
+  const db = getDb();
+  const wanted = new Set(taskIds);
+  const idList = [...wanted];
+  const candidates = db
+    .select()
+    .from(chatEvents)
+    .where(
+      and(
+        eq(chatEvents.sessionId, sessionId),
+        or(
+          inArray(sql<string>`json_extract(${chatEvents.raw}, '$.taskId')`, idList),
+          inArray(sql<string>`json_extract(${chatEvents.raw}, '$.raw.task_id')`, idList),
+        ),
+      ),
+    )
+    .orderBy(asc(chatEvents.createdAt), asc(chatEvents.id))
+    .all()
+    .map((r) => hydrateRow(r));
+
+  const lifecycle: ChatEventRecord[] = [];
+  const toolUseIds = new Set<string>();
+  for (const row of candidates) {
+    const decoded = decodeBackgroundTaskEvent(row.raw);
+    if (!decoded?.taskId || !wanted.has(decoded.taskId)) continue;
+    lifecycle.push(row);
+    if (decoded.toolUseId) toolUseIds.add(decoded.toolUseId);
+  }
+  if (toolUseIds.size === 0) return lifecycle;
+
+  const launches = db
+    .select()
+    .from(chatEvents)
+    .where(and(eq(chatEvents.sessionId, sessionId), inArray(chatEvents.externalToolCallId, [...toolUseIds])))
+    .orderBy(asc(chatEvents.createdAt), asc(chatEvents.id))
+    .all()
+    .map((r) => hydrateRow(r));
+
+  const byId = new Map<string, ChatEventRecord>();
+  for (const row of [...launches, ...lifecycle]) byId.set(row.id, row);
+  return [...byId.values()].sort((a, b) =>
+    a.createdAt !== b.createdAt ? (a.createdAt < b.createdAt ? -1 : 1) : a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  );
+}
+
+/**
  * Provider identity columns for every event in a session, with no content or
  * raw payload. Backs Codex transcript reconcile, which has to know which turns
  * and items the live stream already persisted before it replays the on-disk
@@ -9443,6 +9518,31 @@ export function listWebPushSubscriptions(userId: string): WebPushSubscriptionRec
   return getDb().select().from(webPushSubscriptions).where(eq(webPushSubscriptions.userId, userId)).all();
 }
 
+export function getWebPushSubscriptionByEndpoint(userId: string, endpoint: string): WebPushSubscriptionRecord | undefined {
+  return getDb().select().from(webPushSubscriptions).where(and(eq(webPushSubscriptions.userId, userId), eq(webPushSubscriptions.endpoint, endpoint))).get();
+}
+
+/** Explicit browser registration and channel creation commit together. Repairing
+ * one browser never changes the user's existing channel or event preferences. */
+export function registerWebPushSubscription(input: CreateWebPushSubscriptionInput & { userId: string }, events: string[]): boolean {
+  const db = getDb();
+  return db.transaction(() => {
+    const existing = db.select().from(webPushSubscriptions).where(eq(webPushSubscriptions.endpoint, input.endpoint)).get();
+    if (existing && existing.userId !== input.userId) return false;
+    upsertWebPushSubscription(input);
+    if (!listNotificationChannels({ userId: input.userId }).some(channel => channel.kind === 'web_push')) {
+      createNotificationChannel({ userId: input.userId, kind: 'web_push', config: {}, events, enabled: true });
+    }
+    return true;
+  }, { behavior: 'immediate' });
+}
+
+/** Browser-facing removal is scoped to its authenticated notification subject.
+ * The provider adapter's expiry cleanup retains its endpoint-only helper. */
+export function deleteWebPushSubscriptionForUser(userId: string, endpoint: string): boolean {
+  return getDb().delete(webPushSubscriptions).where(and(eq(webPushSubscriptions.userId, userId), eq(webPushSubscriptions.endpoint, endpoint))).run().changes > 0;
+}
+
 /** Upsert by endpoint (a browser re-subscribing replaces its keys). */
 export function upsertWebPushSubscription(input: CreateWebPushSubscriptionInput): WebPushSubscriptionRecord {
   const db = getDb();
@@ -9534,15 +9634,72 @@ export function getDelivery(dedupeKey: string, channelId: string): NotificationD
     .get();
 }
 
-/** Delivery history for a user (newest first) — the in-app center reads this later. */
+/** Delivery history for a user, with stable newest-first ordering. */
 export function listNotificationDeliveries(userId: string, limit = 100): NotificationDeliveryRecord[] {
   return getDb()
     .select()
     .from(notificationDeliveries)
     .where(eq(notificationDeliveries.userId, userId))
-    .orderBy(desc(notificationDeliveries.createdAt))
+    .orderBy(desc(notificationDeliveries.createdAt), desc(notificationDeliveries.id))
     .limit(limit)
     .all();
+}
+
+/** One deterministic local desktop destination per installation. Creating it
+ * is explicit. A concurrent enable request preserves the user's event choices. */
+export function enableDesktopNotificationChannel(id: string, userId: string, events: string[]): NotificationChannelRecord {
+  const existing = getNotificationChannel(id);
+  if (existing && (existing.userId !== userId || existing.kind !== 'in_app' || existing.config.surface !== 'desktop')) throw new Error('This desktop notification destination belongs to another channel.');
+  const now = new Date().toISOString();
+  return getDb().insert(notificationChannels).values({
+    id, userId, kind: 'in_app', config: { surface: 'desktop' }, events, enabled: true,
+    createdAt: now, updatedAt: now,
+  }).onConflictDoUpdate({ target: notificationChannels.id, set: { enabled: true, updatedAt: now } }).returning().get();
+}
+
+/** Claim before crossing the OS boundary. A lost response or crashed presenter
+ * has an unknown outcome and is deliberately never auto-replayed. This avoids
+ * duplicate alerts across reconnects and overlapping desktop processes. */
+export function claimDesktopNotificationDelivery(channelId: string, userId: string, since: string): NotificationDeliveryRecord | undefined {
+  const db = getDb();
+  return db.transaction(() => {
+    const channel = getNotificationChannel(channelId);
+    if (!channel?.enabled || channel.userId !== userId || channel.kind !== 'in_app' || channel.config.surface !== 'desktop') return;
+    const now = new Date().toISOString();
+    db.update(notificationDeliveries).set({ status: 'skipped', updatedAt: now, lastError: 'This desktop alert expired while the app was closed.' })
+      .where(and(eq(notificationDeliveries.channelId, channelId), eq(notificationDeliveries.userId, userId), eq(notificationDeliveries.status, 'pending'), lt(notificationDeliveries.createdAt, since))).run();
+    const row = db.select().from(notificationDeliveries).where(and(
+      eq(notificationDeliveries.channelId, channelId), eq(notificationDeliveries.userId, userId), eq(notificationDeliveries.status, 'pending'),
+    )).orderBy(asc(notificationDeliveries.createdAt), asc(notificationDeliveries.id)).limit(1).get();
+    if (!row) return;
+    return db.update(notificationDeliveries).set({
+      status: 'skipped', providerMessageId: `desktop:${uuidv7()}`, updatedAt: now,
+      attempts: sql`${notificationDeliveries.attempts} + 1`,
+      lastError: 'Desktop presentation was interrupted or has not been acknowledged. It will not be repeated automatically.',
+      rendered: { title: row.event.title.slice(0, 160), body: row.event.body.slice(0, 1000), url: row.event.url.slice(0, 2048) },
+    }).where(and(eq(notificationDeliveries.id, row.id), eq(notificationDeliveries.status, 'pending'))).returning().get();
+  });
+}
+
+export function acknowledgeDesktopNotificationDelivery(input: {
+  channelId: string; userId: string; id: string; receipt: string; status: 'sent' | 'failed' | 'skipped'; error?: string;
+}): boolean {
+  const now = new Date().toISOString();
+  const changed = getDb().update(notificationDeliveries).set({
+    status: input.status, providerMessageId: `ack:${input.receipt}`, updatedAt: now, ...(input.status === 'sent' ? { sentAt: now } : {}),
+    lastError: input.status === 'sent' ? null : (input.error ?? 'The operating system did not confirm notification delivery.').slice(0, 1000),
+  }).where(and(eq(notificationDeliveries.id, input.id), eq(notificationDeliveries.channelId, input.channelId),
+    eq(notificationDeliveries.userId, input.userId), eq(notificationDeliveries.providerMessageId, input.receipt), eq(notificationDeliveries.status, 'skipped'))).run();
+  return changed.changes > 0;
+}
+
+/** History is bounded and restricted to this native destination. It lets a
+ * restarted Mac reattach safe click handlers to its OS notification history. */
+export function desktopNotificationHistory(channelId: string, userId: string, since: string): NotificationDeliveryRecord[] {
+  return getDb().select().from(notificationDeliveries).where(and(
+    eq(notificationDeliveries.channelId, channelId), eq(notificationDeliveries.userId, userId),
+    gte(notificationDeliveries.createdAt, since), isNotNull(notificationDeliveries.providerMessageId),
+  )).orderBy(desc(notificationDeliveries.createdAt)).limit(50).all();
 }
 
 // ─── Skill Usage ──────────────────────────────────────────────

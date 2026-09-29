@@ -105,6 +105,8 @@ describe('the brief', () => {
       'Answer its questions when the user\'s intent is clear',
       'labeled as\ncoming from the "ri" agent\'s main chat',
       '"ws-1"',
+      '**When the user asks you to build something, start an execution.**',
+      'Don\'t hand work to\nanother agent by messaging its main chat',
     ]) {
       expect(brief).toContain(expected);
     }
@@ -114,11 +116,13 @@ describe('the brief', () => {
     expect(brief).not.toContain('@USER.md');
   });
 
-  it('lets a non-git agent act directly, and says so', async () => {
+  it('sends a non-git agent\'s building to an execution too, editing directly only on request', async () => {
     const { renderAgentMainChatBrief } = await import('@/lib/orchestrator/harness-surface');
     const brief = renderAgentMainChatBrief({ id: 'ws-2', name: 'notes', cwd: FOLDER, isGit: false, purpose: null, instructions: null });
     expect(brief).toContain('not a git repository');
-    expect(brief).toContain('you may make it here directly');
+    expect(brief).toContain('building still happens in an execution');
+    expect(brief).toContain('only when the user asks you to make that edit in this\nchat');
+    expect(brief).not.toContain('you may make it here directly');
     expect(brief).not.toContain('Never edit files in this folder');
     expect(brief).toContain('Purpose: Not set yet');
     expect(brief).toContain('None yet.');

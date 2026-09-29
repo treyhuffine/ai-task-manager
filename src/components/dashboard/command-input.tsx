@@ -65,6 +65,9 @@ export function CommandInput({ input, setInput, onSubmit, onSendMessage, isStrea
                 <span className="text-sm text-primary font-medium">
                   Transcribing{voice.provider === 'local' ? ' via Parakeet' : ''}...
                 </span>
+                <button type="button" onClick={voice.cancelRecording} className="ml-auto text-xs text-muted-foreground underline hover:text-foreground">
+                  Cancel transcription
+                </button>
               </div>
             )}
 

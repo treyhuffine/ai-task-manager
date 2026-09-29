@@ -185,11 +185,20 @@ set and no execution:
 - **Scope.** The same as its executions: its connector scopes (when the
   harness isolates MCP), the agent browser on the isolated `ws-<id>`
   profile, and its reference folders.
+- **Building is an execution.** When the user asks the main chat to build,
+  fix, or change something, it starts an execution rather than doing the
+  work in the chat, so the work is something the user can watch, steer and
+  review. It doesn't hand work to another agent's main chat (a conversation
+  between agents is work the user can't see). The app's main chat follows
+  the same rule: building in an agent starts an execution there, never a
+  message to that agent's main chat. This is prompt-level, since
+  `send_session_message` may still reach any session.
 - **The git rule.** In a git agent the file-editing tools are denied and the
   brief sends every change through `start_execution`, because the checkout
   is what every execution's worktree branches from. Only Claude enforces
   the tool filter, so elsewhere it is prompt-only and the adapter logs it. A
-  non-git agent may act directly.
+  non-git agent has no guard, and its brief edits a file directly only when
+  the user asks for that edit in the chat.
 - **Recycling.** Session config is fixed at spawn. Instructions, browser,
   folder, connector-scope and reference-folder edits recycle the agent's
   executions and main chat, and name and purpose edits recycle only the

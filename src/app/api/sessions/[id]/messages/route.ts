@@ -90,6 +90,10 @@ export async function POST(
     if (isImportMirror(session)) {
       return Response.json({ error: 'session_is_import', message: IMPORT_MIRROR_REFUSAL }, { status: 409 });
     }
+    // Before the message is saved, so a refused send leaves nothing behind.
+    if (isImportMirror(session)) {
+      return Response.json({ error: 'session_is_import', message: IMPORT_MIRROR_REFUSAL }, { status: 409 });
+    }
 
     // Skip pre-flight for retries (client re-POSTs the same body.id
     // after a transient failure). The original send already cleared

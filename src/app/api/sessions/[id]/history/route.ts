@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getChatSessionWithExecution, listChatSessions } from '@/lib/db/queries';
 import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
-import { isRunning } from '@/lib/executor/adapter';
+import { hasBackgroundTasks, isRunning } from '@/lib/executor/adapter';
 import { withCompression } from '@/lib/api/compression';
 
 /**
@@ -46,6 +46,8 @@ async function handleGET(_req: NextRequest, { params }: { params: Promise<{ id: 
       lastViewedAt: s.lastViewedAt,
       isCurrent: s.id === id,
       running: isRunning(s.id),
+      // Background work still running after the turn ended. Not working.
+      background: hasBackgroundTasks(s.id),
       tabSortKey: s.tabSortKey,
     }));
     return Response.json({ sessions });

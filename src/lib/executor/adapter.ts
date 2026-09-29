@@ -14,6 +14,7 @@
  * are the local runner's, re-exported.
  */
 
+import { withActivity, readMaintenance } from '@/lib/service/maintenance';
 import { existsSync } from 'node:fs';
 import { uuidv7 } from 'uuidv7';
 import type { StreamEvent, UserInputResponse } from '@agentex/agent';
@@ -258,14 +259,18 @@ export async function dispatch(
   userMessage: string,
   options: DispatchOptions = {},
 ): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await dispatchOnce(chatSessionId, userMessage, options);
-    } catch (err) {
-      if (err instanceof StartOver && attempt < 2) continue;
-      throw err;
+  // Admitted only while the service isn't preparing an update (desktop
+  // maintenance): an update waits for the sends already in, and refuses new ones.
+  return withActivity(async () => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await dispatchOnce(chatSessionId, userMessage, options);
+      } catch (err) {
+        if (err instanceof StartOver && attempt < 2) continue;
+        throw err;
+      }
     }
-  }
+  });
 }
 
 async function dispatchOnce(
@@ -847,4 +852,14 @@ export function resolveCwd(session: {
   // running the agent in the shared source checkout.
   if (workspace.isGit) return null;
   return workspace.cwd ?? null;
+}
+
+/** Called only after the service closes admission. Cached idle harnesses can
+ * resume from their native histories after an update. Busy turns, tasks and
+ * permission waits are never interrupted by maintenance. Only this computer's
+ * own sessions: a connected computer's worker keeps its own. */
+export async function closeIdleHarnessesForMaintenance(): Promise<void> {
+  if (readMaintenance()?.phase !== 'draining') throw new Error('Maintenance admission must be closed first');
+  const { closeIdleForMaintenance } = await import('@/lib/runner/local-runner');
+  await closeIdleForMaintenance();
 }

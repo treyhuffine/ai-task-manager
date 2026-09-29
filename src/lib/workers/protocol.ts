@@ -50,6 +50,7 @@ export type WorkerRequestKind =
   | 'read_execution'
   | 'write_execution'
   | 'read_agent_folder'
+  | 'write_agent_folder'
   | 'terminal'
   | 'open_here'
   | 'review_checkout'
@@ -83,7 +84,7 @@ export interface ListFoldersRequest {
  */
 export interface ReadExecutionRequest {
   executionId: string;
-  workspace: { id: string; isGit: boolean; baseBranch: string | null; filesToCopy: string[] };
+  workspace: { id: string; isGit: boolean; baseBranch: string | null; remoteName?: string | null; filesToCopy: string[] };
   baseSha: string | null;
   read: import('@/lib/workspaces/execution-reads').ExecutionRead;
 }
@@ -97,7 +98,7 @@ export interface ReadExecutionRequest {
 export interface WriteExecutionRequest {
   executionId: string;
   generation: number;
-  workspace: { id: string; isGit: boolean; baseBranch: string | null; filesToCopy: string[] };
+  workspace: { id: string; isGit: boolean; baseBranch: string | null; remoteName?: string | null; filesToCopy: string[] };
   baseSha: string | null;
   write: import('@/lib/workspaces/execution-writes').ExecutionWrite;
 }
@@ -111,6 +112,13 @@ export interface ReadAgentFolderRequest {
   agentId: string;
   filesToCopy: string[];
   read: import('@/lib/workspaces/agent-folder-reads').AgentFolderRead;
+}
+
+/** A person's change to an agent's own folder on this computer, from its Files tab. */
+export interface WriteAgentFolderRequest {
+  agentId: string;
+  isGit: boolean;
+  write: import('@/lib/workspaces/execution-writes').FolderWrite;
 }
 
 /**

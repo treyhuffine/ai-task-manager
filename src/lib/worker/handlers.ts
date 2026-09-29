@@ -24,7 +24,7 @@ import * as runner from '@/lib/runner/local-runner';
 import type { SessionSpec } from '@/lib/runner/types';
 import { HOME_ADDRESS_SCHEME, type OpenHereRequest, type ReviewCheckoutRequest, type ReadAgentFolderRequest, type ReadExecutionRequest, type SendPayload, type WorkerCommand, type WorkerCommandAckBody, type WriteExecutionRequest } from '@/lib/workers/protocol';
 import { readExecution, type ExecutionLocation } from '@/lib/workspaces/execution-reads';
-import { writeExecution } from '@/lib/workspaces/execution-writes';
+import { writeExecution, writeFolder } from '@/lib/workspaces/execution-writes';
 import { readAgentFolder } from '@/lib/workspaces/agent-folder-reads';
 import type { CommandJournal } from './command-journal';
 import type { CommandContext, CommandHandlers, CommandKindHandler } from './commands';
@@ -42,7 +42,7 @@ import { fetchInputFiles, inputFilesDir, placeInputFiles } from './input-files';
 import { UnsupportedRequestError, type RequestHandler } from './run';
 import { applySetupHere, planSetupHere, SetupError, type SetupAgentRequest } from '@/lib/setups/set-up-here';
 import { checkFoldersHere, FolderListingError, listFoldersHere } from '@/lib/setups/folders-here';
-import type { CheckFoldersRequest, ListFoldersRequest } from '@/lib/workers/protocol';
+import type { CheckFoldersRequest, ListFoldersRequest, WriteAgentFolderRequest } from '@/lib/workers/protocol';
 
 const run = promisify(execFile);
 
@@ -75,7 +75,7 @@ export interface PreparePayload {
  */
 export type GitPayload =
   | { op: 'checkpoint'; message: string; includeUntracked: string[]; filesToCopy: string[]; transferId?: string }
-  | { op: 'push' }
+  | { op: 'push'; workspaceId?: string }
   | { op: 'pull_base'; strategy: 'merge' | 'rebase'; workspaceId: string; baseBranch?: string | null }
   | { op: 'archive_worktree'; force: boolean; teardownCommand: string | null; workspaceId: string };
 
@@ -236,6 +236,7 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
       source: agentFolderHere(homeId, request.workspace.id) ?? worktreePath,
       isGit: request.workspace.isGit,
       baseBranch: request.workspace.baseBranch,
+      remoteName: request.workspace.remoteName ?? null,
       baseSha: request.baseSha,
       filesToCopy: request.workspace.filesToCopy,
     };
@@ -281,6 +282,15 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
       const folder = agentFolderHere(homeId, request.agentId);
       if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this computer." } };
       return readAgentFolder(folder, request.filesToCopy, request.read);
+    }
+    if (kind === 'write_agent_folder') {
+      const request = payload as WriteAgentFolderRequest;
+      const folder = agentFolderHere(homeId, request.agentId);
+      if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this computer." } };
+      if (!checkFoldersHere([folder])[0]!.exists) {
+        return { status: 409, body: { error: `The agent's folder does not exist: ${folder}` } };
+      }
+      return writeFolder({ path: folder, kind: request.isGit ? 'git' : 'bare' }, request.write);
     }
     if (kind === 'check_folders') {
       return { status: 200, body: { results: checkFoldersHere((payload as CheckFoldersRequest).paths ?? []) } };
@@ -585,14 +595,15 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
               result: await saveCheckpoint({ worktree, message: payload.message, includeUntracked: payload.includeUntracked, filesToCopy: payload.filesToCopy }),
             };
           case 'push': {
-            const handle = await openWorktreeHandle({ worktreePath: worktree }, worktree);
+            const source = (payload.workspaceId && agentFolderHere(ctx.target.homeId, payload.workspaceId)) || worktree;
+            const handle = await openWorktreeHandle({ worktreePath: worktree }, { cwd: source, baseBranch: null, remoteName: null });
             if (!handle || handle.kind !== 'git') return { state: 'failed', error: "The worktree isn't a Git repository." };
             await pushExecutionBranch(handle);
             return { state: 'delivered', result: { pushed: true } };
           }
           case 'pull_base': {
             const source = agentFolderHere(ctx.target.homeId, payload.workspaceId) ?? worktree;
-            const handle = await openWorktreeHandle({ worktreePath: worktree }, source);
+            const handle = await openWorktreeHandle({ worktreePath: worktree }, { cwd: source, baseBranch: payload.baseBranch ?? null, remoteName: null });
             if (!handle || handle.kind !== 'git') return { state: 'failed', error: "The worktree isn't a Git repository." };
             await pullBaseInto(handle, { strategy: payload.strategy, baseBranch: payload.baseBranch ?? null });
             return { state: 'delivered', result: { pulled: true } };

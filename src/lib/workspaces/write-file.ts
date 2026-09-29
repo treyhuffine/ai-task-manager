@@ -1,7 +1,9 @@
 /**
- * Worktree mutations behind the `/api/sessions/:id/file` and `.../dir`
- * surfaces. Read-only siblings live in `read-file.ts`; the path-traversal
- * helper is shared so the security boundary is the same on both sides.
+ * File mutations behind the `/api/sessions/:id/file` and `.../dir` routes
+ * (an execution's worktree) and their `/api/workspaces/:id/...` mirrors (an
+ * agent's own folder). Read-only siblings live in `read-file.ts`; the
+ * path-traversal helper is shared so the security boundary is the same on
+ * every side.
  *
  * Cap on writes: 5 MiB. Bigger than the 1 MiB read cap because users
  * occasionally drop in fixtures / large data files; the read cap is
@@ -9,12 +11,25 @@
  * looks like an attempt to write a multi-gigabyte blob through the API.
  */
 
+import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { Workspace } from '@agentex/workspace';
+import { promisify } from 'node:util';
 import { FileReadError } from './read-file';
 
 export const MAX_WRITE_BYTES = 5 * 1024 * 1024; // 5 MiB
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * The folder a write lands in: an execution's worktree (an agentex handle
+ * fits) or an agent's own folder. Writes only need the path; resolving a
+ * conflict also stages the file when the folder is a git repo.
+ */
+export interface FolderRef {
+  path: string;
+  kind: 'git' | 'bare';
+}
 
 export class FileWriteError extends Error {
   constructor(
@@ -66,7 +81,7 @@ async function pathKind(absolute: string): Promise<'file' | 'dir' | 'missing'> {
  * directory with a file (returns `is_directory`).
  */
 export async function writeWorkspaceFile(
-  ws: Workspace,
+  ws: Pick<FolderRef, 'path'>,
   relPath: string,
   content: string,
 ): Promise<{ path: string; size: number }> {
@@ -113,14 +128,14 @@ export async function writeWorkspaceFile(
  * being done. The UI enforces "every block resolved" before calling this.
  */
 export async function resolveWorkspaceConflict(
-  ws: Workspace,
+  ws: FolderRef,
   relPath: string,
   content: string,
 ): Promise<{ path: string; size: number }> {
   const result = await writeWorkspaceFile(ws, relPath, content);
   if (ws.kind === 'git') {
     try {
-      await ws.git.raw(['add', '--', result.path]);
+      await execFileAsync('git', ['add', '--', result.path], { cwd: ws.path });
     } catch (err) {
       throw new FileWriteError(
         'io_error',
@@ -138,7 +153,7 @@ export async function resolveWorkspaceConflict(
  * caches.
  */
 export async function deleteWorkspacePath(
-  ws: Workspace,
+  ws: Pick<FolderRef, 'path'>,
   relPath: string,
 ): Promise<{ path: string; kind: 'file' | 'dir' }> {
   const safe = sanitizeRelPath(relPath);
@@ -168,7 +183,7 @@ export async function deleteWorkspacePath(
  * deleting first.
  */
 export async function renameWorkspacePath(
-  ws: Workspace,
+  ws: Pick<FolderRef, 'path'>,
   from: string,
   to: string,
 ): Promise<{ from: string; to: string; kind: 'file' | 'dir' }> {
@@ -206,7 +221,7 @@ export async function renameWorkspacePath(
  * path already exists as a file; idempotent vs an existing directory.
  */
 export async function createWorkspaceDir(
-  ws: Workspace,
+  ws: Pick<FolderRef, 'path'>,
   relPath: string,
 ): Promise<{ path: string }> {
   const safe = sanitizeRelPath(relPath);
@@ -230,7 +245,7 @@ export async function createWorkspaceDir(
  * there already — the create flow shouldn't silently overwrite.
  */
 export async function createWorkspaceFile(
-  ws: Workspace,
+  ws: Pick<FolderRef, 'path'>,
   relPath: string,
 ): Promise<{ path: string }> {
   const safe = sanitizeRelPath(relPath);

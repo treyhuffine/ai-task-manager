@@ -142,6 +142,6 @@ describe('google_calendar (event enrichment)', () => {
       responseStatus: 'declined',
     });
     expect(events[1]).toMatchObject({ id: 'ev2', joinUrl: 'https://meet.example/xyz' });
-    expect(events[1].responseStatus).toBeUndefined();
+    expect(events[1]!.responseStatus).toBeUndefined();
   });
 });

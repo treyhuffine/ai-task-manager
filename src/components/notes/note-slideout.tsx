@@ -2,7 +2,7 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react'
 import { Dialog } from 'radix-ui'
-import { ChevronLeft, X, Trash2, MoreHorizontal, ExternalLink, Archive, Sparkles, Maximize2 } from 'lucide-react'
+import { ChevronLeft, X, Trash2, MoreHorizontal, ExternalLink, Archive, Pencil, Maximize2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { NoteEditor } from '@/components/editor/rich-editor'
 import { LinkedReferences } from '@/components/shared/linked-references'
@@ -25,6 +25,7 @@ import { EntityViewToggle } from '@/components/entities/entity-view-toggle'
 import { EntityAgentView } from '@/components/entities/entity-agent-view'
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode'
 import { cn } from '@/lib/utils'
+import { useDocumentAutosave } from '@/hooks/use-document-autosave';
 import type { Attachment } from '@/db/types'
 
 const DEFAULT_WIDTH = 1200
@@ -42,6 +43,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   const isOpen = noteId !== null
   const { data: note } = useNote(noteId ?? '')
   const updateNote = useUpdateNote()
+  const autosave = useDocumentAutosave('notes', noteId, note, updateNote.mutateAsync);
   const deleteNote = useDeleteNote()
   const router = useRouter()
   const chat = useDocumentChat('note', note ?? null)
@@ -68,9 +70,6 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   const [wordCount, setWordCount] = useState(0)
   const [charCount, setCharCount] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
-  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const foldedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Tracks attachments uploaded during this editing session so we can include
   // their metadata in save payloads. The server's derive step intersects these
   // with body-referenced file_names — uploads that never land in the body get
@@ -96,12 +95,10 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   const handleTitleChange = useCallback(
     (title: string) => {
       if (!noteId) return
-      if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
-      titleTimerRef.current = setTimeout(() => {
-        updateNote.mutate({ id: noteId, title })
-      }, 500)
+
+      autosave({ title })
     },
-    [noteId, updateNote]
+    [noteId, autosave]
   )
 
   const handleBodyChange = useCallback(
@@ -112,17 +109,13 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
       setWordCount(text ? text.split(/\s+/).length : 0)
       setCharCount(body.length)
 
-      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
-      bodyTimerRef.current = setTimeout(() => {
-        const attachments = pendingAttachmentsRef.current
-        updateNote.mutate({
-          id: noteId,
-          body,
-          ...(attachments.length > 0 ? { attachments } : {}),
-        })
-      }, 500)
+      const attachments = pendingAttachmentsRef.current
+      autosave({
+        body,
+        ...(attachments.length > 0 ? { attachments } : {}),
+      })
     },
-    [noteId, updateNote]
+    [noteId, autosave]
   )
 
   // Initialize counts when note loads
@@ -137,12 +130,10 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   const handleFoldedHeadingsChange = useCallback(
     (folded: string[]) => {
       if (!noteId) return
-      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current)
-      foldedTimerRef.current = setTimeout(() => {
-        updateNote.mutate({ id: noteId, foldedHeadings: folded })
-      }, 400)
+
+      autosave({ foldedHeadings: folded })
     },
-    [noteId, updateNote]
+    [noteId, autosave]
   )
 
   const handleAreaChange = useCallback(
@@ -179,13 +170,6 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   }, [isOpen, noteId, router])
 
   // Cleanup save timers
-  useEffect(() => {
-    return () => {
-      if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
-      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
-      if (foldedTimerRef.current) clearTimeout(foldedTimerRef.current)
-    }
-  }, [])
 
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onCloseAll() }}>
@@ -366,7 +350,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
               {aiBusy && (
                 <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] flex items-center justify-center pointer-events-auto transition-opacity duration-200">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground/80 bg-card/90 border border-border/50 rounded-full px-4 py-2 shadow-md">
-                    <Sparkles size={14} className="text-primary/70 animate-pulse" />
+                    <Pencil size={14} className="text-primary/70 animate-pulse" />
                     <span>AI is editing...</span>
                   </div>
                 </div>

@@ -8,6 +8,7 @@ import { isSessionUnread } from '@/lib/utils/session-sort';
 import type { RailSession } from '@/lib/api/sessions';
 import { useSessionRowHover } from './session-hover-context';
 import { executionView } from '@/lib/client/active-view';
+import { BACKGROUND_LABEL } from './activity-style';
 
 interface SkinnySessionRowProps {
   session: RailSession;
@@ -23,12 +24,14 @@ interface SkinnySessionRowProps {
  * rows do via `useSessionRowHover`.
  */
 export function SkinnySessionRow({ session }: SkinnySessionRowProps) {
-  const { activeSessionId, setActiveView, streamingSessionIds, pendingInputSessionIds } = useDashboard();
+  const { activeSessionId, setActiveView, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds } = useDashboard();
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
   const isActive = activeSessionId === session.id;
   const isStreaming = streamingSessionIds.has(session.id);
   const isPending = pendingInputSessionIds.has(session.id);
+  // The turn is over but something it started is still running.
+  const isBackground = !isStreaming && backgroundSessionIds.has(session.id);
   const isPinned = !!session.execution?.pinnedAt;
 
   // Shared unread rule so the pip stays consistent with SessionRow/StatusView;
@@ -91,6 +94,7 @@ export function SkinnySessionRow({ session }: SkinnySessionRowProps) {
         isStreaming={isStreaming}
         isPending={isPending}
         isUnread={isUnread}
+        isBackground={isBackground}
       />
     </div>
   );
@@ -116,20 +120,28 @@ function StatusOverlay({
   isStreaming,
   isPending,
   isUnread,
+  isBackground,
 }: {
   isStreaming: boolean;
   isPending: boolean;
   isUnread: boolean;
+  /** Background work still running after the turn ended. Never "working". */
+  isBackground: boolean;
 }) {
-  if (!isStreaming && !isPending && !isUnread) return null;
+  if (!isStreaming && !isPending && !isUnread && !isBackground) return null;
+  // The ring here separates the dot from the glyph behind it, so the sky
+  // "background" ring is drawn as a border instead.
   const cls = isStreaming
     ? 'bg-emerald-500 animate-pulse'
     : isPending
       ? 'bg-amber-500'
-      : 'bg-amber-500';
+      : isUnread
+        ? cn('bg-amber-500', isBackground && 'border-[1.5px] border-sky-500')
+        : 'bg-background border-[1.5px] border-sky-500';
   return (
     <span
       aria-hidden
+      title={isBackground && !isStreaming && !isPending ? BACKGROUND_LABEL : undefined}
       className={cn(
         'absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-background',
         cls,

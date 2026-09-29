@@ -59,6 +59,8 @@ export interface Http2GatewayHandle {
   port: number;
   /** Number of active HTTP/2 sessions. */
   sessionCount(): number;
+  /** Replace the leaf for new TLS connections without stopping active streams. */
+  rotate(tls: TlsMaterial): void;
   /** Run the readiness probe (real h2 negotiation + health) against this gateway. */
   probe(caOverride?: string | string[]): Promise<Http2ProbeResult>;
   /** Gracefully close: stop accepting, GOAWAY sessions, then destroy after a deadline. */
@@ -306,6 +308,7 @@ export function startHttp2Gateway(opts: Http2GatewayOptions): Promise<Http2Gatew
       resolve({
         port,
         sessionCount: () => sessions.size,
+        rotate: tls => { server.setSecureContext({ key: tls.key, cert: tls.cert }); opts.tls = tls; },
         probe: (caOverride?: string | string[]) =>
           probeHttp2({
             host: '127.0.0.1',

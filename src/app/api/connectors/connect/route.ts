@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthConfigRequiredError, isConnectorError } from '@connectors/engine';
 import { getConnectorRuntime } from '@/lib/connectors/runtime';
+import { isDesktopRequest, desktopOAuth, desktopRelayFor, type DesktopOAuthFlow } from '@/lib/connectors/desktop-oauth';
+import { rememberOAuthReturn, safeReturnPath } from '@/lib/connectors/oauth-return';
 
 /**
  * Start an OAuth connect for a provider. Returns the provider authorization URL; the client
@@ -18,31 +20,38 @@ export async function POST(request: NextRequest) {
   };
   const providerId = typeof body.providerId === 'string' ? body.providerId : 'google';
   // Where the OAuth callback should land the browser afterwards. Same-origin
-  // paths only (single leading slash) — anything else is ignored, and the
+  // paths only (single leading slash). Anything else is ignored, and the
   // callback falls back to the connectors settings pane.
-  const returnTo =
-    typeof body.returnTo === 'string' && body.returnTo.startsWith('/') && !body.returnTo.startsWith('//')
-      ? body.returnTo
-      : null;
+  const returnTo = safeReturnPath(body.returnTo);
+  let desktopFlow: DesktopOAuthFlow | undefined;
   try {
-    const result = await (await getConnectorRuntime()).beginAuth(providerId, {
+    const runtime = await getConnectorRuntime();
+    if (isDesktopRequest(request)) {
+      const provider = runtime.getProviders().find((p) => p.id === providerId);
+      if (!provider?.auth.oauth) throw new Error('This provider does not support OAuth sign-in');
+      desktopFlow = await desktopOAuth().begin(`connector:${providerId}`, {
+        returnTo,
+        relayUrl: desktopRelayFor(providerId, provider.auth.oauth.usePkce ?? false),
+      });
+    }
+    const result = await runtime.beginAuth(providerId, {
+      callbackChannel: desktopFlow ? 'desktop' : 'web',
+      ...(desktopFlow ? { redirectUri: desktopFlow.redirectUri } : {}),
       scopes: Array.isArray(body.scopes) ? (body.scopes as string[]) : undefined,
       label: typeof body.label === 'string' ? body.label : undefined,
       existingConnectionId: typeof body.existingConnectionId === 'string' ? body.existingConnectionId : undefined,
       // Connect through a SPECIFIC auth client (BYO work/personal); else §4a default resolves.
       authConfigId: typeof body.authConfigId === 'string' ? body.authConfigId : undefined,
     });
-    const res = NextResponse.json(result);
-    if (returnTo) {
-      res.cookies.set('connector_return_to', returnTo, {
-        path: '/',
-        maxAge: 600,
-        httpOnly: true,
-        sameSite: 'lax',
-      });
-    }
-    return res;
+    desktopFlow?.arm(result.requestId, async (params) => {
+      const metadata = Object.fromEntries([...params].filter(([key]) => !['code', 'state', 'error'].includes(key)));
+      await runtime.completeAuth({ code: params.get('code')!, state: params.get('state')!, params: metadata, expectedChannel: 'desktop' });
+    });
+    // The callback returns the browser to this page's origin (see oauth-return.ts).
+    if (!desktopFlow) rememberOAuthReturn(result.requestId, request, returnTo);
+    return NextResponse.json({ ...result, ...(desktopFlow ? { desktopFlowId: desktopFlow.id } : {}) });
   } catch (e) {
+    desktopFlow?.cancel();
     // A multi-client provider with no resolvable default surfaces a picker — relay the choices.
     if (isAuthConfigRequiredError(e)) {
       return NextResponse.json({ error: 'auth_config_required', choices: e.choices }, { status: 409 });

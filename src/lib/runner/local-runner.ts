@@ -52,7 +52,7 @@ import { redactHarnessRuntimeValue } from '@/lib/harness/redaction';
 import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import { ExecutorError } from './errors';
 import { withFirstTurnPreamble } from './first-turn';
-import { runnerState, isRunning } from './live-state';
+import { runnerState, isRunning, hasBackgroundTasks } from './live-state';
 import { parseStreamEvent } from './parse';
 import {
   answerRefusal,
@@ -883,6 +883,24 @@ export async function close(chatSessionId: string): Promise<StopReport> {
   clearSessionInstructions(chatSessionId);
   rejectAllForSession(chatSessionId, 'Session closed');
   return { closed: true };
+}
+
+/**
+ * Close every cached harness that's idle, for an update (desktop
+ * maintenance): one mid-turn, with background tasks, or waiting on a
+ * permission is left alone. Throws if an idle one won't close, so the update
+ * waits rather than restart under a live process.
+ */
+export async function closeIdleForMaintenance(): Promise<void> {
+  const { listSessionsWithPending } = await import('./pending');
+  const pending = new Set(listSessionsWithPending());
+  await Promise.all(
+    [...state.harnessSessions.keys()].map(async (id) => {
+      if (isRunning(id) || hasBackgroundTasks(id) || pending.has(id)) return;
+      const result = await close(id);
+      if (!result.closed) throw new Error('An idle harness did not close. The update will wait.');
+    }),
+  );
 }
 
 /**

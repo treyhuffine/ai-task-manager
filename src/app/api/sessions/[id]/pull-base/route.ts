@@ -45,7 +45,7 @@ async function handlePOST(
     }
     if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
 
-    const handle = await openWorktreeHandle(session, ws.cwd);
+    const handle = await openWorktreeHandle(session, ws);
     if (!handle || handle.kind !== 'git') {
       return Response.json({ error: 'Not a git workspace' }, { status: 400 });
     }

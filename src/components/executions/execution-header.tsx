@@ -28,6 +28,7 @@ import { useSteadyRunning } from './steady-running';
 import { LocationMenu, MoveActions } from './transfer/location-menu';
 import { useComputerLabelMode } from '@/lib/client/computer-label-mode';
 import { ExecutionTaskChips } from './execution-task-chips';
+import { BACKGROUND_DOT } from '@/components/workspaces/activity-style';
 import { resumeCommandForHarness } from '@/lib/harness/registry';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { HOME_VIEW } from '@/lib/client/active-view';
@@ -61,6 +62,7 @@ const TONE_DOT: Record<ChatStatusTone, string> = {
   amber: 'bg-amber-500',
   rose: 'bg-rose-500',
   blue: 'bg-blue-500',
+  sky: BACKGROUND_DOT,
   muted: 'bg-transparent ring-[1.5px] ring-inset ring-muted-foreground/60',
 };
 
@@ -69,6 +71,7 @@ const TONE_TEXT: Record<ChatStatusTone, string> = {
   amber: 'text-amber-700 dark:text-amber-400',
   rose: 'text-rose-700 dark:text-rose-400',
   blue: 'text-muted-foreground',
+  sky: 'text-muted-foreground',
   muted: 'text-muted-foreground',
 };
 
@@ -363,6 +366,9 @@ export function ExecutionHeader({
             {pinMenuItem}
             {readStateMenuItem}
             <DensityMenuItem />
+            {/* Up with the actions, not below the details block, where the
+                menu's height cap used to push it out of sight. */}
+            {archiveMenuItem}
           </div>
 
           {worktreeLinks && (
@@ -426,13 +432,6 @@ export function ExecutionHeader({
               <DetailRow label="Linked PR" value={`#${session.prNumber}`} valueClass="font-mono text-foreground" />
             )}
           </div>
-
-          {archiveMenuItem && (
-            <>
-              <div className="h-px bg-border" />
-              <div className="p-1">{archiveMenuItem}</div>
-            </>
-          )}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>

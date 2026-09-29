@@ -67,12 +67,22 @@ export interface WorkspaceConnectorScopeAccount {
 
 /**
  * One entry in a workspace's connector allowlist (docs/connectors-workspace-scoping-spec.md §4).
- * `toolkitId` is the service grain (e.g. `gmail`, `google_calendar`, `mcp_linear`); `account` is an
- * optional account pin (omitted = all connected accounts for that toolkit). Stored as a JSON array
- * on the workspace row; resolved to live connection ids at session-build time.
+ * `toolkitId` is the service grain (e.g. `gmail`, `google_calendar`, `mcp_linear`). `accounts`
+ * limits the service to a set of account pins:
+ *   - omitted / empty → every connected account, including ones connected later
+ *   - one pin → hard-pinned to that account (the model never chooses)
+ *   - two or more → the model may choose, but only within this set
+ * Stored as a JSON array on the workspace row; resolved to live connection ids at session-build
+ * time. Read it through `scopePins` (src/lib/connectors/scope-pins.ts), which also understands the
+ * legacy single `account` field.
  */
 export interface WorkspaceConnectorScope {
   toolkitId: string;
+  accounts?: WorkspaceConnectorScopeAccount[];
+  /**
+   * @deprecated Legacy single-account pin, written before multi-account scopes. Still read (it is
+   * normalized into `accounts` on read and on every write), never written.
+   */
   account?: WorkspaceConnectorScopeAccount;
 }
 
@@ -1102,7 +1112,7 @@ export const workspaces = sqliteTable(
     // the worktree; add the gitignored local override (`beamd.local.yaml`) to
     // this list if you want that to travel too.
     filesToCopy: text({ mode: 'json' }).$type<string[]>().notNull(),
-    // Connector allowlist for this workspace's executions (service-grain, optional account pin).
+    // Connector allowlist for this workspace's executions (service-grain, optional account set).
     // Empty = no connectors for executions. See docs/connectors-workspace-scoping-spec.md.
     connectorScopes: text({ mode: 'json' })
       .$type<WorkspaceConnectorScope[]>()

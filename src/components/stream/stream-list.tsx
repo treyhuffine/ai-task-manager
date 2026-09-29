@@ -15,7 +15,7 @@
 import { useState, useCallback } from 'react';
 import {
   Loader2, Mic, MessageSquare, Inbox, ListFilter, Archive, BookOpen,
-  RotateCcw, RefreshCw, Sparkles, Target, FileText, Clock, ChevronDown,
+  RotateCcw, RefreshCw, ListChecks, Target, FileText, Clock, ChevronDown,
 } from 'lucide-react';
 import {
   useStream,
@@ -205,7 +205,7 @@ export function StreamList() {
           className="flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-bold text-primary hover:bg-primary/5 rounded-md transition-colors disabled:opacity-50"
           title="Have the assistant triage waiting captures"
         >
-          <Sparkles size={10} />
+          <ListChecks size={10} />
           Triage
         </button>
       </div>

@@ -15,7 +15,6 @@ import { NoteSlideout } from '@/components/notes/note-slideout';
 import { TaskSlideout } from '@/components/tasks/task-slideout';
 import { AreaSlideout } from '@/components/dashboard/area-slideout';
 import { AreasSheet } from '@/components/dashboard/areas-sheet';
-import { QuickCaptureModal } from '@/components/dashboard/quick-capture-modal';
 import { SettingsModal } from '@/components/settings/settings-modal';
 import { LaunchModal } from '@/components/workspaces/launcher/launch-modal';
 import { MobileLayout } from '@/components/mobile/mobile-layout';
@@ -35,7 +34,7 @@ function DashboardShell() {
     openNoteId, openTaskId, openAreaId, areasListOpen,
     popSlideout, closeAllSlideouts, slideoutStack,
     triggerVoiceChat,
-    quickCaptureOpen, setQuickCaptureOpen, toggleQuickCapture,
+    toggleQuickCapture,
     toggleRailCollapsed,
     toggleExecutionRailOpen,
   } = useDashboard();
@@ -177,7 +176,6 @@ function DashboardShell() {
           open={areasListOpen}
           onOpenChange={(open) => { if (!open) closeAllSlideouts() }}
         />
-        <QuickCaptureModal open={quickCaptureOpen} onOpenChange={setQuickCaptureOpen} />
         <SettingsModal />
         <LaunchModal />
         <AuthRecoveryCard />

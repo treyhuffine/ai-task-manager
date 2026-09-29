@@ -9,6 +9,7 @@ export interface ProviderStatus {
   method: 'oauth2' | 'api_key' | 'custom';
   /** OAuth only: a bundled/env client or at least one bring-your-own app exists. */
   configured: boolean;
+  desktopCallback?: { kind: 'loopback' | 'relay'; redirectUri?: string };
   credentialFields?: string[];
   /**
    * Client-only marker: a connection whose provider the engine no longer lists.

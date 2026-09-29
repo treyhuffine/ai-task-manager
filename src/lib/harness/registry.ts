@@ -1,5 +1,5 @@
 export type HarnessId = 'claude' | 'codex' | 'cursor' | 'opencode';
-export type HarnessIconId = 'sparkles' | 'code' | 'terminal' | 'braces';
+export type HarnessIconId = 'code' | 'terminal' | 'braces';
 
 export interface HarnessCapabilities {
   sessions: boolean;
@@ -69,7 +69,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     agentexProviderId: 'claude',
     name: 'Claude Code',
     description: 'Anthropic models through Claude Code',
-    icon: 'sparkles',
+    icon: 'terminal',
     installHint: 'npm install -g @anthropic-ai/claude-code',
     loginCommand: 'claude login',
     docsUrl: 'https://docs.anthropic.com/en/docs/claude-code',

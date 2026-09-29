@@ -7,12 +7,13 @@ import type { NotificationChannelRecord } from '@/db/types';
 import type { NotificationChannelAdapter } from '../types';
 import { telegramAdapter } from './telegram';
 import { webPushAdapter } from './web-push';
+import { desktopAdapter } from './desktop';
 
 function adapterKey(kind: string, providerId?: string | null): string {
   return kind === 'connector' ? `connector:${providerId ?? ''}` : kind;
 }
 
-const ADAPTERS: NotificationChannelAdapter[] = [telegramAdapter, webPushAdapter];
+const ADAPTERS: NotificationChannelAdapter[] = [telegramAdapter, webPushAdapter, desktopAdapter];
 
 const byKey = new Map<string, NotificationChannelAdapter>(
   ADAPTERS.map((a) => [adapterKey(a.kind, a.providerId), a]),

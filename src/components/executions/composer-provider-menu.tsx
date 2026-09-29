@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Sparkles, MessageSquarePlus, Loader2 } from 'lucide-react';
+import { Cpu, MessageSquarePlus, Loader2 } from 'lucide-react';
 import {
   explicitEffortForModel,
   explicitVariantForModel,
@@ -101,7 +101,7 @@ export function ComposerProviderMenu({
             'disabled:opacity-50',
           )}
         >
-          <Sparkles size={11} className="text-primary/70" />
+          <Cpu size={11} className="text-primary/70" />
           <span>{fallbackLabel}</span>
         </button>
       </PopoverTrigger>

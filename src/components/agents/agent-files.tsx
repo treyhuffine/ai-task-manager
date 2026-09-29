@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useDefaultLayout, type Layout, type LayoutStorage } from 'react-resizable-panels';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { FileTree } from '@/components/executions/file-tree/file-tree';
@@ -16,13 +16,15 @@ const NOOP_STORAGE: LayoutStorage = { getItem: () => null, setItem: () => {} };
 
 /**
  * The agent's own folder: the execution view's file tree and viewer, pointed
- * at the workspace (docs/agents-view-spec.md Phase 7). Read-only: a git
- * agent's checkout changes through executions, and editing from here is out
- * of scope. Changed files carry the same status flags, measured against
- * HEAD, so the tree shows what is uncommitted.
+ * at the workspace (docs/agents-view-spec.md Phase 7). You can edit, create,
+ * rename and delete here, the same as in an execution. The agent's main chat
+ * still never writes to this folder, its changes go through executions.
+ * Changed files carry the same status flags, measured against HEAD, so the
+ * tree shows what is uncommitted. An archived agent's folder is read-only.
  */
 export function AgentFiles({ workspace }: { workspace: WorkspaceRecord }) {
-  const source = workspaceFolder(workspace.id);
+  const archived = workspace.status === 'archived';
+  const source = useMemo(() => workspaceFolder(workspace.id, { readOnly: archived }), [workspace.id, archived]);
   // Its folder on the computer it lives on (P3.5), which the tree reads
   // there. Null until that's known, which the tree shows as loading.
   const { data: runOn } = useRunOn(workspace.id);

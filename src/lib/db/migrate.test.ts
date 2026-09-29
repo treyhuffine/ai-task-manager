@@ -5,7 +5,7 @@ import { migrate as drizzleMigrate } from 'drizzle-orm/better-sqlite3/migrator';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { MigrationForeignKeyError, MigrationHistoryError, runMigrations } from './migrate';
+import { MigrationCompatibilityError, MigrationForeignKeyError, MigrationHistoryError, runMigrations } from './migrate';
 
 /**
  * runMigrations exists because Drizzle's migrator applies migrations inside a
@@ -67,6 +67,7 @@ function foreignKeysOn(): boolean {
 }
 
 function appliedCount(): number {
+  if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name = '__drizzle_migrations'").get()) return 0;
   return (sqlite.prepare('SELECT count(*) AS n FROM "__drizzle_migrations"').get() as { n: number }).n;
 }
 
@@ -94,6 +95,33 @@ function writeBaselineFolder(when: number, statements: string[]): string {
 }
 
 describe('runMigrations', () => {
+  it('refuses a database newer than the binary without changing it', () => {
+    runMigrations(sqlite, dir);
+    addMigration('0001_new', ['ALTER TABLE parent ADD COLUMN future text']);
+    runMigrations(sqlite, dir);
+    entries.pop();
+    writeMigrations();
+    expect(() => runMigrations(sqlite, dir)).toThrow(MigrationCompatibilityError);
+    expect(appliedCount()).toBe(2);
+    expect(foreignKeysOn()).toBe(true);
+  });
+
+  it('refuses changed historical SQL and gaps even when the last timestamp matches', () => {
+    addMigration('0001_new', ['ALTER TABLE parent ADD COLUMN future text']);
+    runMigrations(sqlite, dir);
+    const hash = sqlite.prepare('SELECT hash FROM __drizzle_migrations ORDER BY created_at LIMIT 1').pluck().get();
+    sqlite.prepare('UPDATE __drizzle_migrations SET hash = ? WHERE created_at = ?').run('changed', 1_000_000);
+    expect(() => runMigrations(sqlite, dir)).toThrow(MigrationCompatibilityError);
+    sqlite.prepare('UPDATE __drizzle_migrations SET hash = ? WHERE created_at = ?').run(hash, 1_000_000);
+    sqlite.prepare('DELETE FROM __drizzle_migrations WHERE created_at = ?').run(1_000_000);
+    expect(() => runMigrations(sqlite, dir)).toThrow(MigrationCompatibilityError);
+  });
+
+  it('does not create a migration journal on an unrecognized populated database', () => {
+    sqlite.exec('CREATE TABLE unknown_data (value TEXT)');
+    expect(() => runMigrations(sqlite, dir)).toThrow(MigrationHistoryError);
+    expect(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name = '__drizzle_migrations'").get()).toBeUndefined();
+  });
   it('rebuilds a parent table without cascading into its children', () => {
     runMigrations(sqlite, dir);
     const rowidsBefore = sqlite.prepare('SELECT rowid, id FROM parent ORDER BY id').all();
