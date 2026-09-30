@@ -51,7 +51,7 @@ export type ActionState =
   | { kind: 'prMerged'; prNumber: number; prUrl: string }
   | { kind: 'archived' }
   /** Worktree provisioning failed. The session row has `setupError` set
-   *  and no `worktreePath`. UI exposes a Pull button that re-runs the
+   *  and no `worktreePath`. UI exposes a Try again button that re-runs the
    *  fetch + create flow once the user fixes the underlying cause. */
   | { kind: 'setupFailed'; error: string; prNumber: number | null }
   | { kind: 'noWorktree' }
