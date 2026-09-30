@@ -23,7 +23,7 @@ So there's one state vocabulary for every conversation, the same colors and shap
 - Its name, bold when it wants you, regular when it doesn't. That's the email and chat norm for unread.
 - A second line in its voice, the way a chat list previews the last message, because what it said is the best answer to "should I go in?". The question it's waiting on, "Thinking…", its new reply, or (quiet) what it last said. An agent that hasn't spoken yet shows its purpose.
 
-**Executions** hang under the agent, one line each (26px): a status dot, the label, and on the right the pin, where it runs when that's not this machine, and time. No diff stats: in the rail they don't help decide where to go, and they live in the execution's header and the agent's Overview.
+**Executions** sit under the agent, one 32px line each, inset so their dots sit under its icon: a status dot, the label, and on the right the pin, where it runs when that's not this machine, and time. No diff stats: in the rail they don't help decide where to go, and they live in the execution's header and the agent's Overview.
 
 **Which executions show:** every live one (needs you, working, unread, pinned, or the one open now), then the three most recent quiet ones. "N more" shows the rest right there, and "Show fewer" folds them back.
 

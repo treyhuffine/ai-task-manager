@@ -66,9 +66,10 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  * reply, or what it last said. Executions carry their own state on their own
  * rows, so nothing here is counted twice.
  *
- * Its executions sit under it on one line each, flush with it: every live one
- * and the three most recent quiet ones, with "N more" to show the rest in place. Hiding them
- * is one click on hover, and hidden executions fold into a line that still
+ * Its executions sit under it on one 32px line each, inset so their dots sit
+ * under its icon: every live one and the three most recent quiet ones, with
+ * "N more" to show the rest in place. Hiding them is one click on hover, and
+ * hidden executions fold into a line that still
  * says what wants you, so hiding never hides that. The whole row drags.
  */
 export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onOpenLauncher }: AgentRailRowProps) {
@@ -226,7 +227,8 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       </div>
 
       {hasThreads && expanded && (
-        // Flush with the agent, no guide line: size and weight carry the hierarchy.
+        // Inset a little, no guide line: each dot sits under the agent's icon,
+        // and size and weight carry the rest of the hierarchy.
         <div className="mt-0.5 mb-1.5 space-y-px">
           {threads.map((s) => (
             <SessionRow key={s.id} session={s} density="compact" workspaceIsGit={workspace.isGit} />
@@ -235,7 +237,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
             <button
               onPointerDown={stop}
               onClick={() => setShowAll((v) => !v)}
-              className="w-full rounded-md py-[5px] pl-6 text-left text-[10.5px] text-muted-foreground/60 hover:bg-muted/40 hover:text-foreground transition-colors"
+              className="flex h-8 w-full items-center rounded-md pl-[2.125rem] text-left text-[10.5px] text-muted-foreground/60 hover:bg-muted/40 hover:text-foreground transition-colors"
             >
               {showAll ? 'Show fewer' : `${capped.hidden} more`}
             </button>
@@ -247,7 +249,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         <button
           onPointerDown={stop}
           onClick={toggleThreads}
-          className="mb-1.5 flex w-full items-center gap-1.5 rounded-md py-[5px] pl-1.5 pr-1.5 text-left text-[10.5px] hover:bg-muted/40 transition-colors"
+          className="mb-1.5 flex h-8 w-full items-center gap-1.5 rounded-md pl-4 pr-1.5 text-left text-[10.5px] hover:bg-muted/40 transition-colors"
           aria-label={`Show ${workspace.name}'s executions`}
           title="Show executions"
         >
