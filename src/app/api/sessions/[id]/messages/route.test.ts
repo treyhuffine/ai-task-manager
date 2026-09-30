@@ -31,6 +31,8 @@ const insertChatEvent = vi.fn();
 const materializeEventRefs = vi.fn();
 const budgetGate = vi.fn(() => 'ok');
 const dispatch = vi.fn(async () => {});
+/** The options the route passed to the last dispatch (`onTaken`, `onQueued`, …). */
+let dispatchOptions: { onTaken?: () => void } = {};
 const PREPARATION_REF = { generation: 1, kind: 'preparation' as const };
 const beginDispatchPreparation = vi.fn((id: string) => {
   void id;
@@ -74,8 +76,10 @@ vi.mock('@/lib/runs/dispatch', () => ({
 
 vi.mock('@/lib/executor/adapter', () => ({
   beginDispatchPreparation: (id: string) => beginDispatchPreparation(id),
-  dispatch: async (id: string, content: string) =>
-    (dispatch as unknown as (id: string, content: string) => Promise<void>)(id, content),
+  dispatch: async (id: string, content: string, options: { onTaken?: () => void } = {}) => {
+    dispatchOptions = options;
+    return (dispatch as unknown as (id: string, content: string) => Promise<void>)(id, content);
+  },
   endDispatchPreparation: (id: string, ref: unknown) => endDispatchPreparation(id, ref),
 }));
 
@@ -251,6 +255,35 @@ describe('POST /api/sessions/[id]/messages — pre-flight behavior', () => {
     expect(dispatch).not.toHaveBeenCalled();
     expect(beginDispatchPreparation).toHaveBeenCalledWith(SESSION_ID);
     expect(endDispatchPreparation).toHaveBeenCalledWith(SESSION_ID, PREPARATION_REF);
+    // And the chat says why, rather than the message sitting unanswered.
+    expect(insertChatEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: SESSION_ID, role: 'system', source: 'error', content: "This message wasn't sent: worktree gone" }),
+    );
+  });
+
+  it('says in the chat why a message was refused before anything took it', async () => {
+    getChatEventById.mockReturnValue(undefined);
+    insertChatEvent.mockReturnValue({ id: CLIENT_ID, sessionId: SESSION_ID, role: 'user', source: 'user', content: 'hello' });
+    const reason = "MacBook doesn't run agents yet. To turn it on, run `ri worker enroll` on it. Or set Bounce up on Mac Mini in its Setup tab.";
+    dispatch.mockRejectedValue(new Error(reason));
+    const res = await POST(makeRequest({ content: 'hello', id: CLIENT_ID }), makeParams());
+    expect(res.status).toBe(201);
+    await vi.waitFor(() =>
+      expect(insertChatEvent).toHaveBeenCalledWith(expect.objectContaining({ sessionId: SESSION_ID, role: 'system', source: 'error', content: reason })),
+    );
+  });
+
+  it('adds nothing when a turn fails after the message was taken: the turn says why itself', async () => {
+    getChatEventById.mockReturnValue(undefined);
+    insertChatEvent.mockReturnValue({ id: CLIENT_ID, sessionId: SESSION_ID, role: 'user', source: 'user', content: 'hello' });
+    dispatch.mockImplementation(async () => {
+      dispatchOptions.onTaken?.();
+      throw new Error('the turn failed');
+    });
+    await POST(makeRequest({ content: 'hello', id: CLIENT_ID }), makeParams());
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(insertChatEvent).toHaveBeenCalledTimes(1);
   });
 
   it('an import nobody took over → 409, and nothing is saved or sent', async () => {

@@ -8,7 +8,7 @@ import Suggestion, {
 } from '@tiptap/suggestion'
 import { createSuggestionPopupRenderer } from '../suggestion/renderer'
 import { MentionMenuList } from './popup'
-import { buildItems, parseReferenceDrillDown, toReferenceFileItems } from './ranking'
+import { buildItems, canBrowseReference, parseReferenceDrillDown, pickReference, toReferenceFileItems } from './ranking'
 import type {
   MentionItem,
   FileMentionItem,
@@ -118,7 +118,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
         const references = getReferences()
         const drillDown = parseReferenceDrillDown(query, references)
         let referenceFiles: FileMentionItem[] | null = null
-        if (drillDown && drillDown.reference.exists && loadReferenceTree) {
+        if (drillDown && canBrowseReference(drillDown.reference) && loadReferenceTree) {
           try {
             const entries = await loadReferenceTree(drillDown.reference.id)
             referenceFiles = toReferenceFileItems(drillDown.reference, entries)
@@ -150,11 +150,14 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
       }) => {
         const chain = editor.chain().focus().deleteRange(range)
         if (item.kind === 'reference') {
-          // Not a chip — retarget the picker into the folder. Rewriting the
-          // text to `@alias/` leaves the suggestion active, so `items` reruns
-          // with a query that `parseReferenceDrillDown` recognizes. Typing
-          // `@alias/` by hand lands in exactly the same place.
-          chain.insertContent(`@${item.alias}/`).run()
+          // Usually not a chip: retarget the picker into the folder. Rewriting
+          // the text to `@alias/` leaves the suggestion active, so `items`
+          // reruns with a query that `parseReferenceDrillDown` recognizes.
+          // Typing `@alias/` by hand lands in exactly the same place. A folder
+          // whose files are on another device is mentioned instead.
+          const pick = pickReference(item)
+          if (pick.kind === 'chip') chain.insertMentionChip(pick.chip).insertContent(' ').run()
+          else chain.insertContent(pick.text).run()
         } else if (item.kind === 'file' || item.kind === 'dir') {
           chain.insertMentionChip(item).insertContent(' ').run()
         } else if (item.kind === 'scratchpad') {

@@ -74,6 +74,9 @@ export interface ReferenceTreeResponse {
 export interface SessionReferenceFolder {
   id: string;
   alias: string;
+  /** Where it is on the device the chat runs on. */
   absolutePath: string;
   exists: boolean;
+  /** Its files can be listed here: false for a chat on another device, whose files are there. */
+  browsable: boolean;
 }

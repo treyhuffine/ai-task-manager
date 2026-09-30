@@ -320,6 +320,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
           alias: r.alias,
           absolutePath: r.absolutePath,
           exists: r.exists,
+          browsable: r.browsable,
         })),
       [referenceFoldersQuery.data?.referenceFolders],
     );

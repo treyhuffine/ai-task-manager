@@ -270,6 +270,13 @@ export async function POST(
       // same guard the scheduled path runs) recreates the worktree so the
       // message lands in an isolated tree, never the main repo. The
       // existsSync fast-path inside makes this a no-op on the hot path.
+      // Refused before anything took it: the chat says why, rather than
+      // the message sitting there with no answer and no reason.
+      let taken = false;
+      const refused = (reason: string) => {
+        if (taken) return;
+        insertChatEvent({ sessionId: id, role: 'system', source: 'error', content: reason, createdAt: new Date().toISOString() });
+      };
       void (async () => {
         try {
           const execution = session.executionId ? getExecution(session.executionId) : undefined;
@@ -278,6 +285,7 @@ export async function POST(
             console.error(
               `[POST /api/sessions/:id/messages] worktree not ready for ${id}: ${ready.error}`,
             );
+            refused(`This message wasn't sent: ${ready.error}`);
             return;
           }
           // Labeled with the sending chat when another chat sent it. The
@@ -288,6 +296,9 @@ export async function POST(
             attachments,
             actor,
             onQueued: release,
+            onTaken: () => {
+              taken = true;
+            },
           });
         } finally {
           release();
@@ -295,6 +306,7 @@ export async function POST(
       })().catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[POST /api/sessions/:id/messages] dispatch failed for ${id}:`, msg);
+        refused(msg);
       });
     }
 

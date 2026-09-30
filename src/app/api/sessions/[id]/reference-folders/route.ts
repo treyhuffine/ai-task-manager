@@ -10,9 +10,14 @@
  * Returns exactly what the picker needs (id, alias, path, existence). No git
  * probe — the picker doesn't render drift, and probing every reference on
  * composer mount would spawn subprocesses nobody asked for.
+ *
+ * A chat that runs on another device gets that device's paths, as the home
+ * records them from its last check (docs/homes-spec.md §4.1), since that's
+ * where its agent reads them. Their files are on that device, so they aren't
+ * browsable from here: picking one mentions the folder.
  */
 import type { NextRequest } from 'next/server';
-import { getChatSession } from '@/lib/db/queries';
+import { chatPlacement, getChatSession, getWorkspaceSetup, listReferenceFoldersForWorkspace } from '@/lib/db/queries';
 import { listResolvedReferenceFolders } from '@/lib/reference-folders/resolve';
 import { withCompression } from '@/lib/api/compression';
 
@@ -29,6 +34,23 @@ async function handleGET(
     const session = getChatSession(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
 
+    const placement = chatPlacement(id);
+    if (placement && !placement.isHome && session.workspaceId) {
+      const reports = new Map((getWorkspaceSetup(session.workspaceId, placement.deviceId)?.references ?? []).map((r) => [r.alias, r]));
+      return Response.json({
+        referenceFolders: listReferenceFoldersForWorkspace(session.workspaceId).map((ref) => {
+          const there = reports.get(ref.alias);
+          return {
+            id: ref.id,
+            alias: ref.alias,
+            absolutePath: there?.path ?? '',
+            exists: Boolean(there?.path && there.exists),
+            browsable: false,
+          };
+        }),
+      });
+    }
+
     const rows = await listResolvedReferenceFolders(session.workspaceId, { probeGit: false });
     return Response.json({
       referenceFolders: rows.map((r) => ({
@@ -36,6 +58,7 @@ async function handleGET(
         alias: r.alias,
         absolutePath: r.absolutePath,
         exists: r.exists,
+        browsable: true,
       })),
     });
   } catch (err) {

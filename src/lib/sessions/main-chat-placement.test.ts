@@ -153,14 +153,18 @@ describe("a main chat opened before its agent was set up where it lives now (Bou
     return { chat, macbook };
   }
 
-  it("says its device doesn't run agents yet, and how to turn it on, rather than what it hasn't reported", async () => {
+  it("says its device doesn't run agents yet, how to turn it on, and that the home can run it once set up there", async () => {
     const { chat } = await openedOnAnUnenrolledDevice();
     const q = await import('@/lib/db/queries');
     const message = q.insertChatEvent({ sessionId: chat.id, role: 'user', source: 'user', content: 'Review this doc' })!;
     const executor = await import('@/lib/executor/adapter');
-    await expect(executor.dispatch(chat.id, 'Review this doc', { sourceEventId: message.id })).rejects.toThrow(
-      "MacBook Air doesn't run agents yet. To turn it on, run `ri worker enroll` on it.",
-    );
+    const home = q.getDevice(hostId)!.name;
+    let taken = false;
+    await expect(
+      executor.dispatch(chat.id, 'Review this doc', { sourceEventId: message.id, onTaken: () => { taken = true; } }),
+    ).rejects.toThrow(`MacBook Air doesn't run agents yet. To turn it on, run \`ri worker enroll\` on it. Or set Ri up on ${home} in its Setup tab.`);
+    // Nothing took it, so the chat is the one to say why.
+    expect(taken).toBe(false);
   });
 
   it('runs on the home once the agent is set up there, the next time a message is sent', async () => {

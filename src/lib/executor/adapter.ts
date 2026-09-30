@@ -22,7 +22,9 @@ import {
   chatPlacement,
   type ChatPlacement,
   getChatSessionWithExecution,
+  getDevice,
   getSendForEvent,
+  getWorkerKeyId,
   getWorkspace,
   getUserState,
   updateChatSession,
@@ -63,6 +65,7 @@ import { activeSendCount } from './live-state';
 import { runnerFor } from './placement';
 import { buildSessionSpec } from './session-spec';
 import { harnessCapabilitiesOn, workingFolderOn } from './devices';
+import { cantRunAgentThere } from '@/lib/setups/run-on';
 import { describeInputFiles, placeFilesAtHome } from './input-files';
 import { awaitTurn, forgetTurn } from './turns';
 
@@ -223,6 +226,12 @@ export interface DispatchOptions {
    */
   onAccepted?: () => void;
   /**
+   * Called once something took the message: the harness here, its device's
+   * queue, or a move holding it. A dispatch that fails before this refused
+   * it, and nothing else records why, so the caller says so in the chat.
+   */
+  onTaken?: () => void;
+  /**
    * The transfer delivering this held message (`deliverHeld`): the one send
    * its hold lets through. Everything else waits in line behind it.
    */
@@ -293,6 +302,7 @@ async function dispatchOnce(
     if (holdingTransfer(session.executionId) && holdHere(chatSessionId, session.executionId, options)) {
       options.onQueued?.();
       options.onHeld?.();
+      options.onTaken?.();
       return;
     }
     // Held by a move, one that stopped or one delivering where it arrived
@@ -302,6 +312,7 @@ async function dispatchOnce(
     if (heldBy && options.sourceEventId && heldBy.transfer.id !== options.heldFor) {
       options.onQueued?.();
       options.onHeld?.();
+      options.onTaken?.();
       announceHeld(chatSessionId, options.sourceEventId);
       return;
     }
@@ -330,6 +341,7 @@ async function dispatchOnce(
       // That attempt's reservation isn't acceptance: wait for what became of it.
       const attempt = await other.settled;
       if (attempt.kind === 'accepted') {
+        options.onTaken?.();
         options.onAccepted?.();
         return;
       }
@@ -337,6 +349,7 @@ async function dispatchOnce(
       throw new StartOver();
     }
     if (remote && getSendForEvent(sourceEventId)) {
+      options.onTaken?.();
       options.onAccepted?.();
       return;
     }
@@ -489,7 +502,15 @@ async function dispatchTo(
   // holds the one-at-a-time gate.
   const caps = await harnessCapabilitiesOn(remote ?? { deviceId: '', isHome: true }, selection.providerId, remote ? undefined : cwd);
   if (!caps.sessions) {
-    throw new ExecutorError('unsupported', caps.sessionsReason ?? `${selection.providerId} sessions are unavailable`);
+    // A chat outside an execution on a device that doesn't run agents: its
+    // agent may be set up on the home instead, which runs it now.
+    const agentsOff = remote && !session.executionId && !getWorkerKeyId(remote.deviceId);
+    throw new ExecutorError(
+      'unsupported',
+      agentsOff
+        ? cantRunAgentThere(session.workspaceId, getDevice(remote.deviceId)?.name ?? 'That device')
+        : (caps.sessionsReason ?? `${selection.providerId} sessions are unavailable`),
+    );
   }
   const starting = startingSends.get(chatSessionId) ?? 0;
   if (!remote && !caps.concurrentSend && activeSendCount(chatSessionId) + starting > 0) {
@@ -508,6 +529,7 @@ async function dispatchTo(
     releaseStartingSend(chatSessionId);
     endDispatchPreparation(chatSessionId, preparation);
   }
+  options.onTaken?.();
   // Another dispatch of this message waiting on this one learns what became of it.
   settle(delivered.outcome === 'held' ? { kind: 'again' } : { kind: 'accepted' });
   // Said once the chat no longer reads as busy with this dispatch: a message

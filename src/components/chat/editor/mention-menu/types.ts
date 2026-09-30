@@ -63,6 +63,11 @@ export interface ReferenceFolderMentionItem {
   absolutePath: string;
   /** False when the folder is missing on disk: listed, but not browsable. */
   exists: boolean;
+  /**
+   * False when its files are on another device (a chat that runs there):
+   * picking it mentions the folder instead of listing files from here.
+   */
+  browsable?: boolean;
 }
 
 /**

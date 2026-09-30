@@ -19,6 +19,7 @@ import {
   getDevice,
   getHome,
   getWorkspace,
+  getWorkspaceSetup,
   listWorkspaceSetups,
   listEnrolledDeviceIds,
   updateWorkspace,
@@ -91,6 +92,18 @@ export function notReady(folder: string, setup: { problem: string | null; status
 /** Why a device that doesn't run agents can't take work, and how to turn it on. */
 export function doesntRunAgents(deviceName: string): string {
   return `${deviceName} doesn't run agents yet. To turn it on, run \`ri worker enroll\` on it.`;
+}
+
+/**
+ * The same, for an agent's work: and when the agent isn't set up on the
+ * home, the other way to run it now, which is to set it up there.
+ */
+export function cantRunAgentThere(workspaceId: string | null, deviceName: string): string {
+  const base = doesntRunAgents(deviceName);
+  const ws = workspaceId ? getWorkspace(workspaceId) : null;
+  const host = getHome()?.hostDeviceId ?? null;
+  if (!ws || !host || getWorkspaceSetup(ws.id, host)) return base;
+  return `${base} Or set ${ws.name} up on ${getDevice(host)?.name ?? 'this home'} in its Setup tab.`;
 }
 
 function problemOf(agentName: string, deviceName: string, setup: WorkspaceSetupWithDevice | undefined, enrolled: boolean): string | null {

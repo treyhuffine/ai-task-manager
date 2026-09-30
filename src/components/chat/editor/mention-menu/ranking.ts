@@ -233,6 +233,32 @@ export function parseReferenceDrillDown(
 }
 
 /**
+ * Whether a reference folder's files can be listed from here: it's there,
+ * and on this machine. A chat on another device lists its linked folders at
+ * their paths there, which the home can't browse.
+ */
+export function canBrowseReference(reference: ReferenceFolderMentionItem): boolean {
+  return reference.exists && reference.browsable !== false
+}
+
+/**
+ * What picking a reference folder does: drill into its files (rewriting the
+ * query to `@alias/`), or, when its files are on another device, mention the
+ * folder itself at its path there.
+ */
+export function pickReference(
+  reference: ReferenceFolderMentionItem,
+): { kind: 'drill'; text: string } | { kind: 'chip'; chip: FileMentionItem } {
+  if (reference.browsable === false && reference.exists) {
+    return {
+      kind: 'chip',
+      chip: { kind: 'dir', path: reference.absolutePath, name: reference.alias, label: reference.alias, referenceAlias: reference.alias },
+    }
+  }
+  return { kind: 'drill', text: `@${reference.alias}/` }
+}
+
+/**
  * Turn a reference folder's relative paths into pickable items. The chip
  * carries the ABSOLUTE path, because that is what the agent acts on and it
  * needs no prompt-side expansion. The label stays `alias/relative` so the

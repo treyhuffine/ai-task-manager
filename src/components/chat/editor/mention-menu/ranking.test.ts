@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildItems,
+  canBrowseReference,
   parseReferenceDrillDown,
+  pickReference,
   toReferenceFileItems,
   rankReferences,
   rankPrs,
@@ -304,5 +306,31 @@ describe('rankPrs', () => {
 
   it('drops PRs that match neither number, title, nor branch', () => {
     expect(rankPrs(prs, 'zzz')).toEqual([]);
+  });
+});
+
+describe('a linked folder whose files are on another device', () => {
+  const onMacBook: ReferenceFolderMentionItem = {
+    kind: 'reference',
+    id: 'r1',
+    alias: 'beamd-cli',
+    absolutePath: '/Users/trey/code/beamd',
+    exists: true,
+    browsable: false,
+  };
+
+  it('is mentioned at its path there, rather than browsed from here', () => {
+    expect(canBrowseReference(onMacBook)).toBe(false);
+    expect(pickReference(onMacBook)).toEqual({
+      kind: 'chip',
+      chip: { kind: 'dir', path: '/Users/trey/code/beamd', name: 'beamd-cli', label: 'beamd-cli', referenceAlias: 'beamd-cli' },
+    });
+  });
+
+  it('drills in as before when it is here', () => {
+    const here = { ...onMacBook, absolutePath: '/Users/agent/code/beamd', browsable: true };
+    expect(canBrowseReference(here)).toBe(true);
+    expect(pickReference(here)).toEqual({ kind: 'drill', text: '@beamd-cli/' });
+    expect(canBrowseReference({ ...here, exists: false })).toBe(false);
   });
 });
