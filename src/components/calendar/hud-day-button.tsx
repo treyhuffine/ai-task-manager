@@ -79,7 +79,7 @@ export function HudDayButton() {
               type="button"
               onClick={() => {
                 setInviteOpen(false);
-                openSettings('connectors');
+                openSettings('plugins');
               }}
               className="px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90 transition-opacity"
             >

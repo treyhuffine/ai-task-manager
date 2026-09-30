@@ -27,7 +27,7 @@ export function MobileLayout() {
   const agentTab = activeView.kind === 'agent' ? activeView.tab : undefined;
   // A skill's builder does the same: its chat full screen, the skill behind
   // a Chat / Skill switch.
-  const skillName = activeView.kind === 'skill' ? activeView.name : null;
+  const skillRef = activeView.kind === 'skill' ? activeView.ref : null;
 
   const renderContent = () => {
     if (mobileTab === 'agents' && isExecutionActive) {
@@ -36,8 +36,8 @@ export function MobileLayout() {
     if (mobileTab === 'agents' && agentId) {
       return <AgentView workspaceId={agentId} tab={agentTab} onBack={goHome} assumeNarrow />;
     }
-    if (mobileTab === 'agents' && skillName) {
-      return <SkillView name={skillName} onBack={goHome} assumeNarrow />;
+    if (mobileTab === 'agents' && skillRef) {
+      return <SkillView skillRef={skillRef} onBack={goHome} assumeNarrow />;
     }
     switch (mobileTab) {
       case 'chat':
@@ -55,7 +55,7 @@ export function MobileLayout() {
 
   // Hide the search/inbox top bar while in an execution chat — the
   // ExecutionHeader already serves as the page header on that screen.
-  const showTopBar = !(mobileTab === 'agents' && (isExecutionActive || agentId || skillName));
+  const showTopBar = !(mobileTab === 'agents' && (isExecutionActive || agentId || skillRef));
 
   return (
     <>

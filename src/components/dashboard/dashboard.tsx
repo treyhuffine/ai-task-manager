@@ -148,7 +148,7 @@ function DashboardShell() {
             ) : activeView.kind === 'agent' ? (
               <AgentView workspaceId={activeView.id} tab={activeView.tab} />
             ) : activeView.kind === 'skill' ? (
-              <SkillView name={activeView.name} />
+              <SkillView skillRef={activeView.ref} />
             ) : (
               <PanelLayout />
             )}

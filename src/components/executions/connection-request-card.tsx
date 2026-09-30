@@ -140,7 +140,7 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
         </Footer>
       ) : view.method === 'mcp' ? (
         <Footer busy={busy} onDecline={() => run({ action: 'decline' })} notice={notice}>
-          <PrimaryButton busy={busy} onClick={() => openSettings('connectors')}>
+          <PrimaryButton busy={busy} onClick={() => openSettings('plugins')}>
             Connect in Settings
           </PrimaryButton>
         </Footer>
@@ -188,7 +188,7 @@ function appExplanation(view: ConnectionRequestView): string {
   switch (view.kind) {
     case 'reconnect':
       return view.method === 'mcp'
-        ? `${view.label} stopped working, so the last action didn’t run. Sign in again in Settings, under Connectors, and the agent will retry.`
+        ? `${view.label} stopped working, so the last action didn’t run. Sign in again in Settings, under Plugins, and the agent will retry.`
         : view.method === 'oauth2'
           ? `${view.account ?? view.label} stopped working, so the last action didn’t run. Sign in again and the agent will retry.`
           : `The ${view.label} key stopped working, so the last action didn’t run. Enter it again and the agent will retry.`;
@@ -393,7 +393,7 @@ function SetupForm({
         <Field label="Client secret" value={clientSecret} onChange={setClientSecret} secret />
         <p className="flex items-center gap-1 text-[10px] text-muted-foreground/80">
           <KeyRound size={10} /> Saved encrypted on this computer. The agent never sees it.{' '}
-          <button type="button" onClick={() => openSettings('connectors')} className="underline underline-offset-2">
+          <button type="button" onClick={() => openSettings('plugins')} className="underline underline-offset-2">
             More options in Settings
           </button>
         </p>

@@ -158,7 +158,7 @@ export function ConnectorApprovalCard({ rows, sessionId, isLatest }: ConnectorAp
             disabled={busy}
             busy={busyDecision === 'always'}
             onClick={() => act('always', pendingIds)}
-            title={`Stop asking before ${head.actionLabel.toLowerCase()} runs on ${head.toolkitName}. Turn Ask first back on in Settings, Connectors.`}
+            title={`Stop asking before ${head.actionLabel.toLowerCase()} runs on ${head.toolkitName}. Turn Ask first back on in Settings, Plugins.`}
           >
             Always allow
           </FooterButton>
@@ -340,7 +340,7 @@ function CardStatus({
   let icon = <ShieldCheck size={11} className="text-emerald-500" />;
   let text: string;
   if (only('approve')) text = n > 1 ? `Approved ${n}. The agent was told to retry them.` : 'Approved once. The agent was told to retry it.';
-  else if (only('always')) text = `Always allowed. Ask first is off for ${actionLabel.toLowerCase()}, turn it back on in Settings, Connectors.`;
+  else if (only('always')) text = `Always allowed. Ask first is off for ${actionLabel.toLowerCase()}, turn it back on in Settings, Plugins.`;
   else if (only('settled')) text = 'Ran under your current connector settings.';
   else if (only('deny')) {
     icon = <X size={11} className="text-destructive" />;

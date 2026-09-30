@@ -63,14 +63,15 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
     state.current.saved = saved;
   });
 
-  const dirty = isDirty(mode, draft, saved);
+  const readOnly = !saved.editable;
+  const dirty = !readOnly && isDirty(mode, draft, saved);
   const fieldsBlocked = saved.frontmatterError !== null;
   const effectiveMode: Mode = fieldsBlocked ? 'file' : mode;
 
   // A newer copy from the server (the AI saved, or another tab): adopt it
   // when nothing local is unsaved, otherwise hold it as a conflict.
   useEffect(() => {
-    if (skill.name !== state.current.saved.name) {
+    if (skill.ref !== state.current.saved.ref) {
       setSaved(skill);
       setDraft(draftOf(skill));
       setConflict(null);
@@ -105,7 +106,7 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
           ? { content: sent.content }
           : { description: sent.description, body: sent.body };
       try {
-        const result = await skillsApi.save(current.saved.name, { ...body, baseHash: opts.baseHash ?? current.saved.hash });
+        const result = await skillsApi.save(current.saved.ref, { ...body, baseHash: opts.baseHash ?? current.saved.hash });
         setSaved(result.skill);
         setConflict(null);
         // Keep anything typed while the save was in flight. Only the parts
@@ -115,14 +116,14 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
           body: now.body === sent.body ? result.skill.body : now.body,
           content: now.content === sent.content ? result.skill.content : now.content,
         }));
-        qc.setQueryData([...SKILLS_KEY, 'one', result.skill.name], result.skill);
+        qc.setQueryData([...SKILLS_KEY, 'one', result.skill.ref], result.skill);
         void qc.invalidateQueries({ queryKey: [...SKILLS_KEY, 'overview'] });
         current.saved = result.skill;
-        if (result.renamedFrom) openSkill(result.skill.name, { replace: true });
+        if (result.renamedFrom) openSkill(result.skill.ref, { replace: true });
         return result.skill;
       } catch (err) {
         if (err instanceof ApiError && err.status === 409 && (err.body as { code?: string } | null)?.code === 'stale') {
-          const fresh = await skillsApi.get(current.saved.name).then((r) => r.skill).catch(() => null);
+          const fresh = await skillsApi.get(current.saved.ref).then((r) => r.skill).catch(() => null);
           if (fresh) setConflict(fresh);
         } else {
           setError(apiErrorText(err));
@@ -195,11 +196,21 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
             </button>
           ))}
         </div>
-        <SaveStatus saving={saving} dirty={dirty} aiWriting={aiWriting} />
+        {readOnly ? (
+          <span className="text-[10.5px] text-muted-foreground/70">Read only</span>
+        ) : (
+          <SaveStatus saving={saving} dirty={dirty} aiWriting={aiWriting} />
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-5 py-4">
+          {readOnly && (
+            <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-[11.5px] text-muted-foreground">
+              Another tool links this skill in from {saved.linkedFrom}, so it&apos;s edited there. To change it here,
+              copy it into Ri from the menu above.
+            </p>
+          )}
           {conflict && (
             <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11.5px] text-amber-700 dark:text-amber-300">
               <AlertTriangle size={14} className="shrink-0" />
@@ -260,6 +271,7 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
                   value={draft.description}
                   onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
                   onBlur={() => void save()}
+                  readOnly={readOnly}
                   rows={3}
                   placeholder="Reviews pull requests the way I do. Use when I ask for a review, a second look at a diff, or whether a PR is ready to merge."
                   className="field-sizing-content min-h-[4.5rem] w-full resize-none rounded-lg border border-border bg-card/30 px-3 py-2 text-[12.5px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-ring focus:ring-[3px] focus:ring-ring/30"
@@ -280,6 +292,7 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
                     ariaLabel="Instructions"
                     placeholder={'# Steps\n\n1. ...'}
                     minHeight="320px"
+                    readOnly={readOnly}
                   />
                 </div>
               </section>
@@ -303,6 +316,7 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
                   onSave={saveNow}
                   ariaLabel="SKILL.md"
                   minHeight="420px"
+                  readOnly={readOnly}
                 />
               </div>
             </section>

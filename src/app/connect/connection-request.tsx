@@ -70,7 +70,7 @@ export function ConnectionRequest(props: ConnectionRequestProps) {
         {props.accounts?.map(account => <option key={account.connectionId} value={account.connectionId}>{account.label}</option>)}
       </select>
     </div>}
-    {needsSetup ? <Link href="/?settings=connectors" className="text-sm font-medium underline">Set up in Settings</Link> : <form onSubmit={(event) => void connect(event)} className="space-y-4">
+    {needsSetup ? <Link href="/?settings=plugins" className="text-sm font-medium underline">Set up in Settings</Link> : <form onSubmit={(event) => void connect(event)} className="space-y-4">
       {options.endpointConfig && !needsAccountChoice && <HostedEndpointFields setup={options.endpointConfig} value={endpointSelection} onChange={setEndpointSelection} disabled={busy} />}
       {setup && <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">{setup.map(step => <li key={step}>{step}</li>)}</ol>}
       {oauth && props.endpointConfig && meta.docsUrl && <a href={meta.docsUrl} target="_blank" rel="noopener noreferrer" className="block text-sm underline">Setup guide</a>}
@@ -86,7 +86,7 @@ export function ConnectionRequest(props: ConnectionRequestProps) {
       </Button>
     </form>}
     {message && <p role="status">{message}</p>}
-    {registered && !needsSetup && <Link href="/?settings=connectors" className="text-sm underline">Manage OAuth apps in Settings</Link>}
-    <Link href="/?settings=connectors" className="text-sm underline">Back to connections</Link>
+    {registered && !needsSetup && <Link href="/?settings=plugins" className="text-sm underline">Manage OAuth apps in Settings</Link>}
+    <Link href="/?settings=plugins" className="text-sm underline">Back to connections</Link>
   </main>;
 }

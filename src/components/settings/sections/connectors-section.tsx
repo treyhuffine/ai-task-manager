@@ -34,6 +34,7 @@ import { ConnectorLogo } from '@/components/connectors/connector-logo';
 import { connectorMeta, CATEGORY_ORDER, type ConnectorCategory } from '@/components/connectors/connector-meta';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 import { CatalogTile, GroupHeading, McpLogo } from './connectors/parts';
+import { consumeAnchor, useSettingsStore } from '@/components/settings/settings-store';
 import { KindHeading, SkillBuilderBox, SkillsGroup, useSkillsCatalog } from './plugins/skills-catalog';
 import { ConnectionRequestsSetting } from './connectors/connection-requests-setting';
 import { ProviderDetail } from './connectors/provider-detail';
@@ -201,7 +202,7 @@ export function ConnectorsSection() {
   }, [pendingRegisteredOAuth, refresh]);
 
   // Read the post-OAuth result the callback bounced back with, then strip it
-  // from the URL (keep ?settings=connectors so the modal stays put).
+  // from the URL (keep ?settings=plugins so the modal stays put).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get('connected');
@@ -575,6 +576,15 @@ export function ConnectorsSection() {
   }, [q, catalogProviders, connectionsByProvider, mcpServers, connections]);
   const skillsCatalog = useSkillsCatalog(q);
 
+  // "Connect apps" in the rail lands here, scrolled past the skills to the connectors.
+  const { anchor } = useSettingsStore();
+  const connectorsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (anchor !== 'connectors' || isLoading || !connectorsRef.current) return;
+    connectorsRef.current.scrollIntoView({ block: 'start' });
+    consumeAnchor();
+  }, [anchor, isLoading]);
+
   const selectedProvider = view.kind === 'provider' ? catalogProviders.find((p) => p.id === view.id) : undefined;
   const selectedServer = view.kind === 'mcp' ? mcpServers.find((s) => s.id === view.id) : undefined;
   // The selected connector vanished (a removed MCP server, a provider the engine
@@ -650,12 +660,14 @@ export function ConnectorsSection() {
             </div>
           ) : (
             <div className="space-y-6">
-              <SkillsGroup skills={skillsCatalog.skills} outside={skillsCatalog.outside} searching={!!q} />
+              <SkillsGroup skills={skillsCatalog.skills} searching={!!q} />
               {(!q || catalog.total > 0) && (
-                <KindHeading
-                  title="Connectors"
-                  detail={q ? undefined : 'Your accounts and services, for agents to act in on your behalf.'}
-                />
+                <div ref={connectorsRef} className="scroll-mt-4">
+                  <KindHeading
+                    title="Connectors"
+                    detail={q ? undefined : 'Your accounts and services, for agents to act in on your behalf.'}
+                  />
+                </div>
               )}
               {catalog.connected.length > 0 && (
                 <section className="space-y-2">

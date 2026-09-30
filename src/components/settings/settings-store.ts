@@ -23,9 +23,15 @@ interface SettingsState {
    * (budget pill, preview CTA, deep link) leaves it false so the target wins.
    */
   autoLand: boolean;
+  /**
+   * A place within the section to bring into view once it renders, like the
+   * connectors on the Plugins page for the rail's "Connect apps". The section
+   * clears it with `consumeAnchor` after scrolling.
+   */
+  anchor: string | null;
 }
 
-let state: SettingsState = { open: false, section: DEFAULT_SECTION, autoLand: false };
+let state: SettingsState = { open: false, section: DEFAULT_SECTION, autoLand: false, anchor: null };
 const listeners = new Set<() => void>();
 
 function emit() {
@@ -33,22 +39,29 @@ function emit() {
 }
 
 /** Open settings. With a section → land there. Without → let the modal choose. */
-export function openSettings(section?: SectionId): void {
+export function openSettings(section?: SectionId, opts: { anchor?: string } = {}): void {
   state = section
-    ? { open: true, section, autoLand: false }
-    : { ...state, open: true, autoLand: true };
+    ? { open: true, section, autoLand: false, anchor: opts.anchor ?? null }
+    : { ...state, open: true, autoLand: true, anchor: null };
+  emit();
+}
+
+/** Clear the anchor once the section has scrolled to it. */
+export function consumeAnchor(): void {
+  if (state.anchor === null) return;
+  state = { ...state, anchor: null };
   emit();
 }
 
 export function closeSettings(): void {
   if (!state.open) return;
-  state = { ...state, open: false, autoLand: false };
+  state = { ...state, open: false, autoLand: false, anchor: null };
   emit();
 }
 
 export function setSettingsSection(section: SectionId): void {
   if (state.open && state.section === section && !state.autoLand) return;
-  state = { open: state.open, section, autoLand: false };
+  state = { open: state.open, section, autoLand: false, anchor: null };
   emit();
 }
 

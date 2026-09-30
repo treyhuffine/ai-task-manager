@@ -72,8 +72,8 @@ One generic attachment system across the whole app:
 
 ## Skills
 
-- The home's skill library is `<app-root>/skills/<name>/SKILL.md`, built and managed from Plugins (the skill builder). Go through `src/lib/skills/manage.ts` for every change: it keeps the folder, its reach (`skill_scopes` plus the `~/.claude/skills` and `~/.agents/skills` links), Codex's leftover session links and the skill's builder and try chats in step. Never write the folder directly from app code.
-- No `skill_scopes` row means every agent. New skills start off. Which skills a chat gets is decided at home and carried on the session spec (`excludeSkills`), because the runner may be on another device. Full model: `docs/skills.md`.
+- A skill lives in one of three places, and where it lives is who uses it: Ri's own (`<app-root>/skills`, every chat Ri runs), global (`~/.claude/skills` linked into `~/.agents/skills`, every agent on the computer), or a project (`<agent folder>/.claude/skills` linked into `.agents/skills`, shared by committing it). Built and managed from Plugins (the skill builder).
+- Go through `src/lib/skills/manage.ts` for every change: it keeps the folder, its `.agents/skills` link and the skill's builder and try chats (keyed by ref, `ri:<name>` / `global:<name>` / `project:<workspaceId>:<name>`) in step. Never write skill folders directly from app code. Full model: `docs/skills.md`.
 
 ## Client data layer (TanStack Query)
 

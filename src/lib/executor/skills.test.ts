@@ -67,37 +67,24 @@ describe('skill discovery', () => {
 });
 
 describe('what a session gets', () => {
-  const USER_HOME = path.join(TMP_ROOT, 'user-home');
-
-  function linkOutside(name: string, channels: Array<'claude' | 'agents'>) {
-    for (const channel of channels) {
-      const dir = path.join(USER_HOME, `.${channel}`, 'skills');
-      fs.mkdirSync(dir, { recursive: true });
-      fs.symlinkSync(path.join(BRAIN_DIR, 'skills', name), path.join(dir, name));
-    }
-  }
-
   it('leaves out the skills the home excluded for this chat', () => {
     writeSkill(path.join(BRAIN_DIR, 'skills'), 'kept', '---\nname: kept\n---\n');
     writeSkill(path.join(BRAIN_DIR, 'skills'), 'off', '---\nname: off\n---\n');
-    const names = resolveSkillsForSession(null, { exclude: ['off'], homeDir: USER_HOME }).map((s) => s.name);
+    const names = resolveSkillsForSession(null, { exclude: ['off'] }).map((s) => s.name);
     expect(names).toEqual(['kept']);
   });
 
   it('never excludes a folder skill, which belongs to the folder', () => {
     writeSkill(path.join(WORKSPACE_DIR, '.ri', 'skills'), 'local', '---\nname: local\n---\n');
-    const names = resolveSkillsForSession(WORKSPACE_DIR, { exclude: ['local'], homeDir: USER_HOME }).map((s) => s.name);
+    const names = resolveSkillsForSession(WORKSPACE_DIR, { exclude: ['local'] }).map((s) => s.name);
     expect(names).toEqual(['local']);
   });
 
-  it('skips a skill every harness already reads from the user-level folders', () => {
-    writeSkill(path.join(BRAIN_DIR, 'skills'), 'everywhere', '---\nname: everywhere\n---\n');
-    writeSkill(path.join(BRAIN_DIR, 'skills'), 'half-linked', '---\nname: half-linked\n---\n');
-    linkOutside('everywhere', ['claude', 'agents']);
-    linkOutside('half-linked', ['claude']);
-    const names = resolveSkillsForSession(null, { homeDir: USER_HOME }).map((s) => s.name).sort();
-    expect(names).toEqual(['half-linked']);
-    // The inventory still lists it: it's a library skill either way.
-    expect(inventorySkills(null).map((s) => s.name).sort()).toEqual(['everywhere', 'half-linked']);
+  it('attaches the extra folders the home added, and skips one without a SKILL.md', () => {
+    const elsewhere = path.join(TMP_ROOT, 'project', '.claude', 'skills');
+    writeSkill(elsewhere, 'project-skill', '---\nname: project-skill\n---\n');
+    fs.mkdirSync(path.join(elsewhere, 'empty'), { recursive: true });
+    const skills = resolveSkillsForSession(null, { extra: [path.join(elsewhere, 'project-skill'), path.join(elsewhere, 'empty')] });
+    expect(skills.map((s) => s.name)).toEqual(['project-skill']);
   });
 });

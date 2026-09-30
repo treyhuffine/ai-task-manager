@@ -84,7 +84,7 @@ describe('oauthReturnRedirect', () => {
   it('lands on the recorded origin, not the loopback address Next reports', () => {
     const res = oauthReturnRedirect({ origin: 'https://ri-trey.beamd.run', path: DEFAULT_OAUTH_RETURN_PATH }, { connected: 'a@b.co' });
     expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toBe('https://ri-trey.beamd.run/?settings=connectors&connected=a%40b.co');
+    expect(res.headers.get('location')).toBe('https://ri-trey.beamd.run/?settings=plugins&connected=a%40b.co');
   });
 
   it('keeps the query of a returnTo path', () => {
@@ -95,7 +95,7 @@ describe('oauthReturnRedirect', () => {
   it('answers relative when nothing was recorded, so the browser stays on its origin', () => {
     const res = oauthReturnRedirect(null, { error: 'missing_code_or_state' });
     expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toBe('/?settings=connectors&error=missing_code_or_state');
+    expect(res.headers.get('location')).toBe('/?settings=plugins&error=missing_code_or_state');
   });
 
   it('never leaves the app, even for a path that skipped safeReturnPath', () => {
@@ -103,7 +103,7 @@ describe('oauthReturnRedirect', () => {
       const abs = oauthReturnRedirect({ origin: 'https://ri-trey.beamd.run', path }, { connected: 'a@b.co' });
       expect(new URL(abs.headers.get('location')!).origin).toBe('https://ri-trey.beamd.run');
       const rel = oauthReturnRedirect({ origin: null, path }, { connected: 'a@b.co' });
-      expect(rel.headers.get('location')).toBe('/?settings=connectors&connected=a%40b.co');
+      expect(rel.headers.get('location')).toBe('/?settings=plugins&connected=a%40b.co');
     }
   });
 

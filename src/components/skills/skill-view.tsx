@@ -33,11 +33,12 @@ const NOOP_STORAGE: LayoutStorage = { getItem: () => null, setItem: () => {} };
 const NARROW_WIDTH = 820;
 
 export function SkillView({
-  name,
+  skillRef,
   onBack,
   assumeNarrow = false,
 }: {
-  name: string;
+  /** The skill's ref (`ri:<name>`, `global:<name>`, `project:<workspaceId>:<name>`). */
+  skillRef: string;
   onBack?: () => void;
   assumeNarrow?: boolean;
 }) {
@@ -46,12 +47,12 @@ export function SkillView({
   const [pane, setPane] = useState<SkillPane>('chat');
   // While the builder AI is working, poll the skill so its edits show up as
   // they land, not only when its turn ends.
-  const build = useSkillChat(name, 'build');
-  const { data: skill, isLoading, error } = useSkill(name, { live: build.isActive });
+  const build = useSkillChat(skillRef, 'build');
+  const { data: skill, isLoading, error } = useSkill(skillRef, { live: build.isActive });
   const { goHome, openSkill } = useDashboard();
 
   // Renamed elsewhere (the builder AI names a new draft, or another tab):
-  // the skill's chats move with it, so the builder chat knows the new name.
+  // the skill's chats move with it, so the builder chat knows where it went.
   const gone = error instanceof ApiError && error.status === 404;
   const buildSessionId = build.sessionId;
   useEffect(() => {
@@ -60,7 +61,7 @@ export function SkillView({
     void sessionsApi
       .get(buildSessionId)
       .then((session) => {
-        if (!cancelled && session.surfaceKind === 'skill' && session.surfaceRef && session.surfaceRef !== name) {
+        if (!cancelled && session.surfaceKind === 'skill' && session.surfaceRef && session.surfaceRef !== skillRef) {
           openSkill(session.surfaceRef, { replace: true });
         }
       })
@@ -68,7 +69,7 @@ export function SkillView({
     return () => {
       cancelled = true;
     };
-  }, [gone, buildSessionId, name, openSkill]);
+  }, [gone, buildSessionId, skillRef, openSkill]);
 
   const [storage] = useState<LayoutStorage>(() => (typeof window === 'undefined' ? NOOP_STORAGE : window.localStorage));
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'ri.skill.layout', storage });
@@ -99,7 +100,7 @@ export function SkillView({
           </p>
           <div className="mt-3 flex justify-center gap-1">
             <button
-              onClick={() => openSettings('connectors')}
+              onClick={() => openSettings('plugins')}
               className="inline-flex items-center rounded-md px-3 py-1.5 text-[11px] font-medium text-primary hover:bg-primary/10"
             >
               Open Plugins
@@ -116,9 +117,9 @@ export function SkillView({
     );
   }
 
-  // Keyed by name so a rename or a switch between skills starts clean.
-  const chat = <SkillChatPanel key={`chat:${skill.name}`} skill={skill} />;
-  const editor = <SkillEditor key={`editor:${skill.name}`} skill={skill} aiWriting={build.isActive} />;
+  // Keyed by ref so a rename, a move or a switch between skills starts clean.
+  const chat = <SkillChatPanel key={`chat:${skill.ref}`} skill={skill} />;
+  const editor = <SkillEditor key={`editor:${skill.ref}`} skill={skill} aiWriting={build.isActive} />;
 
   return frame(
     <>

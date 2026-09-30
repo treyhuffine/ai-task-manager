@@ -115,8 +115,8 @@ interface DashboardActions {
   openExecution: (sessionId: string) => void;
   /** Open an agent's view, optionally on a tools tab. */
   openAgent: (workspaceId: string, tab?: AgentTab) => void;
-  /** Open a skill's builder. `replace` swaps the history entry (a rename). */
-  openSkill: (name: string, opts?: { replace?: boolean }) => void;
+  /** Open a skill's builder by ref. `replace` swaps the history entry (a rename or move). */
+  openSkill: (ref: string, opts?: { replace?: boolean }) => void;
   /** Back to Home (the deck and chat panels). */
   goHome: () => void;
   setActiveExecutionId: (id: string | null) => void;
@@ -539,7 +539,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     [setActiveView],
   );
   const openSkill = useCallback(
-    (name: string, opts?: { replace?: boolean }) => setActiveView(skillView(name), opts),
+    (ref: string, opts?: { replace?: boolean }) => setActiveView(skillView(ref), opts),
     [setActiveView],
   );
   const goHome = useCallback(() => setActiveView(HOME_VIEW), [setActiveView]);

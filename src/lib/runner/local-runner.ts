@@ -642,11 +642,14 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
   }
 
   // Author-neutral user-skill paths:
-  //   - Library: <app-root>/skills/<name>/SKILL.md, less the ones the home
+  //   - Ri's: <app-root>/skills/<name>/SKILL.md, less the ones the home
   //     left out for this chat (spec.excludeSkills)
   //   - Workspace: <workspace>/.ri/skills/<name>/SKILL.md (workspace wins
-  //     on name collision). See src/lib/executor/skills.ts.
-  const skillDirs = resolveSkillDirsForSession(spec.cwd, { exclude: spec.excludeSkills });
+  //     on name collision)
+  //   - Any the home added for this chat (spec.extraSkillDirs).
+  // Global and project skills the harness reads itself. See
+  // src/lib/executor/skills.ts and docs/skills.md.
+  const skillDirs = resolveSkillDirsForSession(spec.cwd, { exclude: spec.excludeSkills, extra: spec.extraSkillDirs });
   if (skillDirs.length > 0) {
     if (spec.attachUserSkills) config.skillDirs = skillDirs;
     else {

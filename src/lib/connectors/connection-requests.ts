@@ -210,7 +210,7 @@ export async function requestConnection(input: RequestConnectionInput): Promise<
   if (!input.sessionId || !session) {
     return {
       status: 'no_chat',
-      message: 'There is no chat to show a Connect card in. Ask the user to connect it in Settings, Connectors.',
+      message: 'There is no chat to show a Connect card in. Ask the user to connect it in Settings, Plugins.',
     };
   }
   const runtime = await getConnectorRuntime();
@@ -253,7 +253,7 @@ export async function requestConnection(input: RequestConnectionInput): Promise<
   if (connections.length === 0 && match.providerId.startsWith(MCP_PROVIDER_PREFIX)) {
     return {
       status: 'unsupported',
-      message: `${match.label} is an MCP server that isn't running right now. Ask the user to check it in Settings, Connectors.`,
+      message: `${match.label} is an MCP server that isn't running right now. Ask the user to check it in Settings, Plugins.`,
     };
   }
   let kind: ConnectionRequestKind = 'connect';
@@ -438,7 +438,7 @@ export async function startCardSignIn(
   returnTo: string | null,
 ): Promise<{ done: true } | BeginConnectResult> {
   const { row, view } = openCard(eventId);
-  if (view.method === 'mcp') throw new ConnectionRequestError('invalid', `${view.label} connects from Settings, under Connectors.`);
+  if (view.method === 'mcp') throw new ConnectionRequestError('invalid', `${view.label} connects from Settings, under Plugins.`);
   if (view.method !== 'oauth2') throw new ConnectionRequestError('invalid', `${view.label} connects with a key, not a sign-in.`);
   const runtime = await getConnectorRuntime();
   if (view.kind === 'connect') {
@@ -475,7 +475,7 @@ function toolkitScopes(runtime: ConnectorRuntime, toolkitIds: readonly string[])
 /** Connect an API-key provider with the fields typed into the card. They never touch the chat. */
 export async function connectCardWithKey(eventId: string, fields: Record<string, string>): Promise<void> {
   const { row, view } = openCard(eventId);
-  if (view.method === 'mcp') throw new ConnectionRequestError('invalid', `${view.label} connects from Settings, under Connectors.`);
+  if (view.method === 'mcp') throw new ConnectionRequestError('invalid', `${view.label} connects from Settings, under Plugins.`);
   if (view.method === 'oauth2') throw new ConnectionRequestError('invalid', `${view.label} connects with a sign-in, not a key.`);
   const runtime = await getConnectorRuntime();
   const provider = runtime.getProviders().find((p) => p.id === view.providerId);

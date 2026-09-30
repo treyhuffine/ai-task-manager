@@ -1,39 +1,40 @@
 /**
- * Which library skills one chat must not get. Kept apart from ./reach.ts so
- * the session spec can ask without loading the outside-Ri machinery.
+ * What a chat gets beyond the usual skills, decided at home (the runner may
+ * be on a device without the database). The usual skills are Ri's (attached
+ * to every chat), the global ones and the chat folder's project ones (both
+ * read by the harness on its own). Two chats differ (docs/skills.md):
  *
- * A skill with no scope row reaches every chat. A scoped one reaches only its
- * agents' chats (an empty list: none). On top of that, a try chat always gets
- * the skill it tries (that's the point, even while it's off), and a builder
- * chat never gets the skill it's writing, so the AI edits the file instead of
- * following it. See docs/skills.md.
+ *   - A skill's builder chat never gets the Ri skill it's writing, so the AI
+ *     edits the file instead of following it.
+ *   - A try chat gets the skill it tries even when the harness wouldn't find
+ *     it on its own: a project skill, since the try chat runs in Ri's home,
+ *     not in that project.
  */
 
-import type { SkillScopeRecord } from '@/db/types';
-import { listSkillScopes } from '@/lib/db/queries';
+import { findSkill, parseSkillRef } from './locations';
 
 export interface SessionSkillContext {
-  /** The chat's agent (workspace), or null for the app's own chats. */
-  workspaceId: string | null;
-  /** For content chats: 'skill' (a builder) or 'skill-try' (a try), with the skill's name as ref. */
+  /** For content chats: 'skill' (a builder) or 'skill-try' (a try), with the skill's ref. */
   surfaceKind: string | null;
   surfaceRef: string | null;
 }
 
-export function excludedSkills(
-  scopes: readonly Pick<SkillScopeRecord, 'name' | 'workspaceIds'>[],
-  ctx: SessionSkillContext,
-): string[] {
-  const out = new Set<string>();
-  for (const scope of scopes) {
-    if (!ctx.workspaceId || !scope.workspaceIds.includes(ctx.workspaceId)) out.add(scope.name);
-  }
-  if (ctx.surfaceKind === 'skill-try' && ctx.surfaceRef) out.delete(ctx.surfaceRef);
-  if (ctx.surfaceKind === 'skill' && ctx.surfaceRef) out.add(ctx.surfaceRef);
-  return [...out].sort();
+export interface SessionSkillPlan {
+  /** Ri skills (by name) this chat must not get. */
+  exclude: string[];
+  /** Skill folders to attach on top of the usual ones. */
+  extra: string[];
 }
 
-/** `excludedSkills` against the live table, for the session spec. */
-export function sessionSkillExclusions(ctx: SessionSkillContext): string[] {
-  return excludedSkills(listSkillScopes(), ctx);
+export function sessionSkillPlan(ctx: SessionSkillContext): SessionSkillPlan {
+  const plan: SessionSkillPlan = { exclude: [], extra: [] };
+  if (!ctx.surfaceRef || (ctx.surfaceKind !== 'skill' && ctx.surfaceKind !== 'skill-try')) return plan;
+  const ref = parseSkillRef(ctx.surfaceRef);
+  if (!ref) return plan;
+  if (ctx.surfaceKind === 'skill' && ref.location.kind === 'ri') plan.exclude.push(ref.name);
+  if (ctx.surfaceKind === 'skill-try' && ref.location.kind === 'project') {
+    const skill = findSkill(ctx.surfaceRef);
+    if (skill) plan.extra.push(skill.dir);
+  }
+  return plan;
 }

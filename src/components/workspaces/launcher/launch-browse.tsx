@@ -396,7 +396,7 @@ export function LaunchBrowse({
           {connectMore.length > 0 && (
             <button
               type="button"
-              onClick={() => openSettings('connectors')}
+              onClick={() => openSettings('plugins')}
               title={`Connect ${connectMore.map((s) => s.providerLabel).join(', ')}`}
               className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-1.5 py-0.5 text-[10.5px] font-medium text-muted-foreground transition-colors hover:border-solid hover:bg-muted/50 hover:text-foreground"
             >
@@ -427,7 +427,7 @@ export function LaunchBrowse({
         {activeTab.id === 'task' && connectorSources.length === 0 && !anyLoading && (
           <button
             type="button"
-            onClick={() => openSettings('connectors')}
+            onClick={() => openSettings('plugins')}
             className="mt-1 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[10.5px] text-muted-foreground/80 transition-colors hover:bg-muted/50 hover:text-foreground"
           >
             <Plug size={11} className="flex-shrink-0 text-sky-500/70" />

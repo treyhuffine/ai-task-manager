@@ -89,7 +89,7 @@ export function CalendarPanel() {
         </div>
         <button
           type="button"
-          onClick={() => openSettings('connectors')}
+          onClick={() => openSettings('plugins')}
           className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
         >
           Open connector settings

@@ -16,7 +16,7 @@ import {
   setSettingsSection,
   consumeAutoLand,
 } from './settings-store';
-import { getSection, isSectionId, DEFAULT_SECTION, type SectionId } from './settings-sections';
+import { getSection, DEFAULT_SECTION, type SectionId, sectionFromParam } from './settings-sections';
 import { useSetupChecklist, type SetupChecklist } from './use-setup-checklist';
 
 import { GetStartedSection } from './sections/get-started-section';
@@ -51,7 +51,7 @@ function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupCheckli
       return <VoiceSection />;
     case 'browser':
       return <BrowserSection />;
-    case 'connectors':
+    case 'plugins':
       return <ConnectorsSection />;
     case 'notifications':
       return <NotificationsSection />;
@@ -108,9 +108,8 @@ export function SettingsModal() {
 
   // Open from a `?settings=<id>` deep link on first mount.
   useEffect(() => {
-    const param = new URLSearchParams(window.location.search).get('settings');
-    if (isSectionId(param)) openSettings(param);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const section = sectionFromParam(new URLSearchParams(window.location.search).get('settings'));
+    if (section) openSettings(section);
   }, []);
 
   // Reflect open state + active section in the URL so the modal is linkable

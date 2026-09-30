@@ -1,36 +1,37 @@
 /**
  * What the home tells a runner about skills (docs/skills.md): the builder
- * chat's brief, and the library skills each chat leaves out, carried on the
- * spec because the runner may be on a device without the database.
+ * chat's brief, the Ri skill it leaves out, and the project skill a try chat
+ * attaches, carried on the spec because the runner may be on a device
+ * without the database.
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { installFakeHarness, type FakeHarness } from '@/test/fixtures/fake-harness';
 import * as q from '@/lib/db/queries';
-import { createSkill } from '@/lib/skills/library';
+import { createSkillAt } from '@/lib/skills/library';
 import { buildSessionSpec, type SessionSpecInput } from './session-spec';
 
 let home: TestHome;
 let fake: FakeHarness;
-let wsA: string;
-let wsB: string;
+let project: string;
+let wsId: string;
 
 beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-spec-skills-' });
   fake = installFakeHarness('claude');
-  wsA = q.createWorkspace({ name: 'A', cwd: path.join(home.root, 'a'), isGit: false, filesToCopy: [], status: 'active' }).id;
-  wsB = q.createWorkspace({ name: 'B', cwd: path.join(home.root, 'b'), isGit: false, filesToCopy: [], status: 'active' }).id;
-  createSkill({ name: 'drafting', description: 'Being written.', body: 'x\n' });
-  createSkill({ name: 'only-a', description: 'For A.', body: 'x\n' });
-  createSkill({ name: 'everyone', description: 'For all.', body: 'x\n' });
-  q.setSkillScope('drafting', []);
-  q.setSkillScope('only-a', [wsA]);
+  project = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-spec-skills-project-'));
+  wsId = q.createWorkspace({ name: 'Blog', cwd: project, isGit: false, filesToCopy: [], status: 'active' }).id;
+  createSkillAt(path.join(home.root, 'skills', 'weekly-review'), { description: 'Reviews the week.', body: 'x\n' });
+  createSkillAt(path.join(project, '.claude', 'skills', 'deploy'), { description: 'Deploys.', body: 'x\n' });
 });
 
 afterEach(async () => {
   fake.restore();
+  fs.rmSync(project, { recursive: true, force: true });
   await home.cleanup();
 });
 
@@ -54,35 +55,35 @@ function input(over: Partial<SessionSpecInput>): SessionSpecInput {
 }
 
 describe('skills on the session spec', () => {
-  it("leaves off and other agents' skills out of the app's main chat", async () => {
+  it('adds nothing for an ordinary chat', async () => {
     const spec = await buildSessionSpec(input({}));
-    expect(spec.excludeSkills).toEqual(['drafting', 'only-a']);
+    expect(spec.excludeSkills).toBeUndefined();
+    expect(spec.extraSkillDirs).toBeUndefined();
   });
 
-  it("gives an agent's execution the skills scoped to it", async () => {
-    const forA = await buildSessionSpec(input({ sessionType: 'execution', workspaceId: wsA, cwd: path.join(home.root, 'a') }));
-    const forB = await buildSessionSpec(input({ sessionType: 'execution', workspaceId: wsB, cwd: path.join(home.root, 'b') }));
-    expect(forA.excludeSkills).toEqual(['drafting']);
-    expect(forB.excludeSkills).toEqual(['drafting', 'only-a']);
+  it('briefs a builder chat on its skill, and keeps that Ri skill away from it', async () => {
+    const spec = await buildSessionSpec(input({ sessionType: 'content', surfaceKind: 'skill', surfaceRef: 'ri:weekly-review' }));
+    expect(spec.instructions).toContain('# Writing the "weekly-review" skill');
+    expect(spec.instructions).toContain('get_skill` (ref "ri:weekly-review")');
+    expect(spec.instructions).toContain('every chat Ri runs uses it');
+    expect(spec.excludeSkills).toEqual(['weekly-review']);
   });
 
-  it('briefs a builder chat on its skill, and keeps that skill away from it', async () => {
-    const spec = await buildSessionSpec(input({ sessionType: 'content', surfaceKind: 'skill', surfaceRef: 'everyone' }));
-    expect(spec.instructions).toContain('# Writing the "everyone" skill');
-    expect(spec.instructions).toContain('get_skill');
-    expect(spec.excludeSkills).toEqual(['drafting', 'everyone', 'only-a']);
+  it("tells a project skill's builder where it lives", async () => {
+    const spec = await buildSessionSpec(input({ sessionType: 'content', surfaceKind: 'skill', surfaceRef: `project:${wsId}:deploy` }));
+    expect(spec.instructions).toContain(`the Blog project (${project}/.claude/skills)`);
+    expect(spec.excludeSkills).toBeUndefined();
   });
 
-  it('gives a try chat the skill it tries, even while it is off', async () => {
-    const spec = await buildSessionSpec(input({ sessionType: 'content', surfaceKind: 'skill-try', surfaceRef: 'drafting' }));
-    expect(spec.excludeSkills).toEqual(['only-a']);
+  it('gives a try chat the project skill it tries', async () => {
+    const spec = await buildSessionSpec(input({ sessionType: 'content', surfaceKind: 'skill-try', surfaceRef: `project:${wsId}:deploy` }));
+    expect(spec.extraSkillDirs).toEqual([path.join(project, '.claude', 'skills', 'deploy')]);
     expect(spec.instructions ?? '').not.toContain('Writing the');
   });
 
-  it('leaves the field unset when nothing is excluded', async () => {
-    q.clearSkillScope('drafting');
-    q.clearSkillScope('only-a');
-    const spec = await buildSessionSpec(input({}));
+  it("needs nothing extra to try a Ri skill, which every chat already gets", async () => {
+    const spec = await buildSessionSpec(input({ sessionType: 'content', surfaceKind: 'skill-try', surfaceRef: 'ri:weekly-review' }));
+    expect(spec.extraSkillDirs).toBeUndefined();
     expect(spec.excludeSkills).toBeUndefined();
   });
 });

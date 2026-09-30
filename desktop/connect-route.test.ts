@@ -84,7 +84,7 @@ it('uses a relative callback fallback without a trusted initiating origin', asyn
   }));
   const result = await response.json();
   const completed = await GET(new NextRequest(`http://localhost:4224/api/connectors/callback?code=c&state=${result.requestId}`));
-  expect(completed.headers.get('location')).toMatch(/^\/\?settings=connectors&connected=/);
+  expect(completed.headers.get('location')).toMatch(/^\/\?settings=plugins&connected=/);
   expect(harness.env.exchangeCount).toBe(1);
 });
 
@@ -99,7 +99,7 @@ it('validates and consumes web denial state while returning only a coarse error 
   const callback = new NextRequest(`http://localhost:4224/api/connectors/callback?error=private-provider-detail&state=${result.requestId}`);
   const denied = await GET(callback);
   expect(denied.headers.get('location')).toBe('https://home.example/welcome?error=authorization_cancelled');
-  expect((await GET(callback)).headers.get('location')).toBe('/?settings=connectors&error=invalid_state');
+  expect((await GET(callback)).headers.get('location')).toBe('/?settings=plugins&error=invalid_state');
   expect(harness.env.exchangeCount).toBe(0);
 });
 

@@ -89,7 +89,7 @@ it('keeps web MCP OAuth working through persisted state and PKCE, rejecting fore
   expect(resultUrl(await finish(foreign)).searchParams.get('error')).toBe('authorization_failed');
   expect(provider.exchanges).toBe(0);
   const response = await finish(callback);
-  expect(response.headers.get('location')).toBe(`${pageOrigin}/?settings=connectors&connected=Fixture`);
+  expect(response.headers.get('location')).toBe(`${pageOrigin}/?settings=plugins&connected=Fixture`);
   expect(provider.exchanges).toBe(1);
   const saved = await store.getOAuthState(entry.id);
   expect(saved?.tokens).toMatchObject({ access_token: provider.token });
@@ -109,7 +109,7 @@ it('requires valid state for web denial and consumes it without a token exchange
   expect(resultUrl(await finish(forged)).searchParams.get('error')).toBe('invalid_state');
   expect((await store.getOAuthState(entry.id))?.authorizationState).toBeTruthy();
   const response = await finish(callback);
-  expect(response.headers.get('location')).toBe(`${pageOrigin}/?settings=connectors&error=authorization_cancelled`);
+  expect(response.headers.get('location')).toBe(`${pageOrigin}/?settings=plugins&error=authorization_cancelled`);
   expect((await store.getOAuthState(entry.id))?.authorizationState).toBeUndefined();
   expect(provider.exchanges).toBe(0);
 });
@@ -124,7 +124,7 @@ it('rejects an expired web callback before attempting exchange', async () => {
 it('keeps the callback browser on its origin when no starting page was recorded', async () => {
   const { callback, finish } = await authorize(false);
   const response = await finish(callback);
-  expect(response.headers.get('location')).toBe('/?settings=connectors&connected=Fixture');
+  expect(response.headers.get('location')).toBe('/?settings=plugins&connected=Fixture');
   expect(resultUrl(response).origin).toBe(webOrigin);
   expect(provider.exchanges).toBe(1);
 });
@@ -135,7 +135,7 @@ it('completes a web flow after the configured remote origin changes and returns 
   mocks.redirectOrigin = 'https://new-home.example';
   const response = await finish(callback);
   expect(response.status).toBe(307);
-  expect(response.headers.get('location')).toBe(`${pageOrigin}/?settings=connectors&connected=Fixture`);
+  expect(response.headers.get('location')).toBe(`${pageOrigin}/?settings=plugins&connected=Fixture`);
   expect(provider.exchanges).toBe(1);
   expect((await store.getOAuthState(entry.id))?.tokens).toMatchObject({ access_token: provider.token });
 });

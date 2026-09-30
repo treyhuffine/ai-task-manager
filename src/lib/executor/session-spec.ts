@@ -46,7 +46,7 @@ import type { SessionSpec } from '@/lib/runner/types';
 import { prepareAgentMainChatSpawn, skillDirsWriteIntoCwd } from './agent-main-chat';
 import { planSessionInstructions } from './session-instructions';
 import { renderSkillBuilderBrief } from '@/lib/skills/builder-brief';
-import { sessionSkillExclusions } from '@/lib/skills/exclusions';
+import { sessionSkillPlan } from '@/lib/skills/exclusions';
 import { renderAgentInstructionsPrompt } from './prompts/agent-instructions';
 import { harnessCapabilitiesOn } from './devices';
 import { pendingHandoff } from '@/lib/transfer/continue';
@@ -434,16 +434,13 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
   // An agent's main chat runs in the user's own folder, so it gets no user
   // skills on a harness that would write them there.
   spec.attachUserSkills = !(agentMainChat && skillDirsWriteIntoCwd(providerType));
-  // Library skills this chat doesn't get: off, limited to other agents, or
-  // the one its builder is writing. Decided here because the runner may be on
-  // a device without the database (src/lib/skills/reach.ts).
+  // A skill's builder and try chats get a little more or less than the usual
+  // skills (src/lib/skills/exclusions.ts). Decided here because the runner
+  // may be on a device without the database.
   try {
-    const exclude = sessionSkillExclusions({
-      workspaceId: args.workspaceId,
-      surfaceKind: args.surfaceKind,
-      surfaceRef: args.surfaceRef,
-    });
-    if (exclude.length > 0) spec.excludeSkills = exclude;
+    const plan = sessionSkillPlan({ surfaceKind: args.surfaceKind, surfaceRef: args.surfaceRef });
+    if (plan.exclude.length > 0) spec.excludeSkills = plan.exclude;
+    if (plan.extra.length > 0) spec.extraSkillDirs = plan.extra;
   } catch (err) {
     // Never cost the user their session over a skill lookup.
     console.error('[executor] skill reach lookup failed:', err);

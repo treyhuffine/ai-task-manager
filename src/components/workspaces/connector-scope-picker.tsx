@@ -254,7 +254,7 @@ export function ConnectorScopePicker({ scopes, onChange, disabled }: ConnectorSc
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/10 p-6 text-center">
           <Plug size={20} className="mb-2 text-muted-foreground" />
           <p className="text-[12px] text-muted-foreground">
-            No connected services yet. Connect them in Settings → Connectors, then scope them here.
+            No connected services yet. Connect them in Settings, under Plugins, then scope them here.
           </p>
         </div>
       ) : (

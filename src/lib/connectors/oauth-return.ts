@@ -18,7 +18,7 @@ import { NextResponse } from 'next/server';
  * the browser on whatever origin it reached the callback through.
  */
 
-export const DEFAULT_OAUTH_RETURN_PATH = '/?settings=connectors';
+export const DEFAULT_OAUTH_RETURN_PATH = '/?settings=plugins';
 
 /** The engine's auth-request lifetime (and the MCP state's): past it the callback fails anyway. */
 const TTL_MS = 10 * 60_000;

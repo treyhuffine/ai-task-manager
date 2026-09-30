@@ -13,14 +13,14 @@ export type SkillChatKind = 'build' | 'try';
 
 const ENTITY_TYPE: Record<SkillChatKind, 'skill' | 'skill-try'> = { build: 'skill', try: 'skill-try' };
 
-export function skillChatQueryKey(name: string, kind: SkillChatKind) {
-  return ['document-chat', ENTITY_TYPE[kind], name] as const;
+export function skillChatQueryKey(ref: string, kind: SkillChatKind) {
+  return ['document-chat', ENTITY_TYPE[kind], ref] as const;
 }
 
-/** Ensure the skill's builder or try chat and return its session id. */
-export async function ensureSkillChat(name: string, kind: SkillChatKind): Promise<ChatSessionRecord> {
+/** Ensure the skill's builder or try chat (by the skill's ref) and return its session. */
+export async function ensureSkillChat(ref: string, kind: SkillChatKind): Promise<ChatSessionRecord> {
   const { session } = await api.get<{ session: ChatSessionRecord }>('/document-chat', {
-    query: { entityType: ENTITY_TYPE[kind], entityId: name },
+    query: { entityType: ENTITY_TYPE[kind], entityId: ref },
   });
   return session;
 }
@@ -31,12 +31,12 @@ export async function ensureSkillChat(name: string, kind: SkillChatKind): Promis
  * When a builder turn ends, the skill is refetched so the AI's last edits are
  * in the editor.
  */
-export function useSkillChat(name: string, kind: SkillChatKind, opts: { enabled?: boolean } = {}) {
+export function useSkillChat(ref: string, kind: SkillChatKind, opts: { enabled?: boolean } = {}) {
   const qc = useQueryClient();
-  const queryKey = skillChatQueryKey(name, kind);
+  const queryKey = skillChatQueryKey(ref, kind);
   const query = useQuery({
     queryKey,
-    queryFn: () => ensureSkillChat(name, kind),
+    queryFn: () => ensureSkillChat(ref, kind),
     enabled: opts.enabled ?? true,
     staleTime: 30_000,
   });
@@ -52,7 +52,7 @@ export function useSkillChat(name: string, kind: SkillChatKind, opts: { enabled?
 
   const newChat = useMutation({
     mutationFn: () =>
-      api.post<{ session: ChatSessionRecord }>('/document-chat', { entityType: ENTITY_TYPE[kind], entityId: name }),
+      api.post<{ session: ChatSessionRecord }>('/document-chat', { entityType: ENTITY_TYPE[kind], entityId: ref }),
     onSuccess: (data) => qc.setQueryData(queryKey, data.session),
   });
 

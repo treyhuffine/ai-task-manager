@@ -59,7 +59,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: e.message, code: e.code }, { status });
     }
     if (isAuthConfigRequiredError(e)) {
-      return NextResponse.json({ error: 'Choose which sign-in app to use in Settings, Connectors.', code: 'auth_config_required' }, { status: 409 });
+      return NextResponse.json({ error: 'Choose which sign-in app to use in Settings, Plugins.', code: 'auth_config_required' }, { status: 409 });
     }
     const code = isConnectorError(e) ? e.code : undefined;
     return NextResponse.json({ error: code ?? (e instanceof Error ? e.message : String(e)) }, { status: 400 });

@@ -163,8 +163,8 @@ describe('requestConnection', () => {
   it('sends a hosted MCP service to Settings: no sign-in or key from the card', async () => {
     await ask({ service: 'Todoist' });
     expect(lastView()).toMatchObject({ method: 'mcp' });
-    await expect(startCardSignIn(request, cards()[0]!.id, null)).rejects.toThrow(/Settings, under Connectors/);
-    await expect(connectCardWithKey(cards()[0]!.id, { token: 'x' })).rejects.toThrow(/Settings, under Connectors/);
+    await expect(startCardSignIn(request, cards()[0]!.id, null)).rejects.toThrow(/Settings, under Plugins/);
+    await expect(connectCardWithKey(cards()[0]!.id, { token: 'x' })).rejects.toThrow(/Settings, under Plugins/);
     expect(h.connectDirect).not.toHaveBeenCalled();
   });
 

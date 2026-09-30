@@ -1,23 +1,21 @@
 import { z } from 'zod';
 import { newSkill, skillsOverview } from '@/lib/skills/manage';
-import { createSkillShape } from '@/lib/skills/params';
+import { createSkillShape, locationFrom } from '@/lib/skills/params';
 import { readJson, skillErrorResponse } from '@/lib/skills/http';
 
 export const runtime = 'nodejs';
 
 /**
- * The skill library (docs/skills.md).
- *   GET  → { skills, outside, canReachOutside }: every library skill with its
- *          reach, plus the skills in ~/.claude/skills and ~/.agents/skills that
- *          Ri doesn't own. `?workspaceId=` adds `folderSkills`, the skills in
- *          that agent's own folder.
- *   POST { name?, intent?, description?, body? } → a new skill, off. Named
- *          from `intent` when `name` is absent.
+ * Skills, wherever they live (docs/skills.md).
+ *   GET  → { skills, projects, canWriteGlobal }: Ri's skills, the global
+ *          ones, and each project's, plus the projects a skill can go in.
+ *   POST { name?, intent?, description?, body?, location?, workspaceId? } →
+ *          a new skill, in Ri unless a location says otherwise. Named from
+ *          `intent` when `name` is absent.
  */
-export async function GET(request: Request) {
-  const workspaceId = new URL(request.url).searchParams.get('workspaceId');
+export async function GET() {
   try {
-    return Response.json(await skillsOverview({ workspaceId }));
+    return Response.json(await skillsOverview());
   } catch (err) {
     return skillErrorResponse(err, 'GET /api/skills');
   }
@@ -28,8 +26,9 @@ export async function POST(request: Request) {
   if (body instanceof Response) return body;
   const parsed = z.object(createSkillShape).safeParse(body);
   if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? 'Invalid skill.' }, { status: 400 });
+  const { location, workspaceId, ...input } = parsed.data;
   try {
-    return Response.json({ skill: await newSkill(parsed.data) }, { status: 201 });
+    return Response.json({ skill: await newSkill({ ...input, location: locationFrom(location, workspaceId) }) }, { status: 201 });
   } catch (err) {
     return skillErrorResponse(err, 'POST /api/skills');
   }

@@ -1,41 +1,50 @@
 /**
- * The skill library over HTTP: the contract the app and the orchestrator
- * actions share. Status codes, the stale-write answer, and the reach and
- * import routes. The library logic itself is covered in src/lib/skills.
+ * Skills over HTTP: the contract the app and the orchestrator actions share.
+ * Status codes, refs in the path, the stale-write answer, moving, and
+ * committing a project skill. The logic itself is covered in src/lib/skills.
  */
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import * as q from '@/lib/db/queries';
 import { setSkillSessionControlForTests } from '@/lib/skills/manage';
 import { GET as list, POST as create } from './route';
-import { DELETE as archive, GET as read, PUT as save } from './[name]/route';
-import { PUT as setReach } from './[name]/reach/route';
-import { POST as importOutside } from './outside/import/route';
+import { DELETE as archive, GET as read, PUT as save } from './[ref]/route';
+import { POST as move } from './[ref]/move/route';
+import { POST as commit } from './[ref]/commit/route';
 
 let home: TestHome;
 let userHome: string;
-let savedHome: string | undefined;
+let repo: string;
+let wsId: string;
+let saved: Record<string, string | undefined>;
+const IDENTITY = { GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@e.co', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@e.co' };
 
 beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-skills-route-' });
   userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-skills-route-home-'));
-  savedHome = process.env.HOME;
+  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-skills-route-repo-'));
+  saved = { HOME: process.env.HOME, ...Object.fromEntries(Object.keys(IDENTITY).map((k) => [k, process.env[k]])) };
   process.env.HOME = userHome;
-  setSkillSessionControlForTests({
-    close: vi.fn(async () => ({})),
-    recycleWhenIdle: vi.fn(async () => {}),
-    recycleWorkspaceSessions: vi.fn(async () => {}),
-    recycleEveryAgentSession: vi.fn(async () => {}),
-  });
+  Object.assign(process.env, IDENTITY);
+  execFileSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: repo });
+  execFileSync('git', ['commit', '--quiet', '--allow-empty', '-m', 'init'], { cwd: repo });
+  wsId = q.createWorkspace({ name: 'Blog', cwd: repo, isGit: true, filesToCopy: [], status: 'active' }).id;
+  setSkillSessionControlForTests({ close: vi.fn(async () => ({})), recycleWhenIdle: vi.fn(async () => {}) });
 });
 
 afterEach(async () => {
   setSkillSessionControlForTests(null);
-  process.env.HOME = savedHome;
+  for (const [k, v] of Object.entries(saved)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
   fs.rmSync(userHome, { recursive: true, force: true });
+  fs.rmSync(repo, { recursive: true, force: true });
   await home.cleanup();
 });
 
@@ -43,23 +52,27 @@ function json(method: string, body: unknown) {
   return new Request('http://test/api/skills', { method, body: JSON.stringify(body), headers: { 'content-type': 'application/json' } });
 }
 
-const params = (name: string) => ({ params: Promise.resolve({ name }) });
+const params = (ref: string) => ({ params: Promise.resolve({ ref }) });
 
 describe('/api/skills', () => {
-  it('creates a skill off and lists it', async () => {
+  it('creates a skill in Ri and lists it', async () => {
     const created = await create(json('POST', { intent: 'Review pull requests' }));
     expect(created.status).toBe(201);
     const { skill } = await created.json();
-    expect(skill).toMatchObject({ name: 'review-pull-requests', reach: { mode: 'off' } });
+    expect(skill).toMatchObject({ ref: 'ri:review-pull-requests', location: { kind: 'ri' } });
+    const overview = await (await list()).json();
+    expect(overview.skills.map((s: { ref: string }) => s.ref)).toEqual(['ri:review-pull-requests']);
+    expect(overview.projects).toEqual([expect.objectContaining({ workspaceId: wsId, name: 'Blog' })]);
+  });
 
-    const overview = await (await list(new Request('http://test/api/skills'))).json();
-    expect(overview.skills).toEqual([expect.objectContaining({ name: 'review-pull-requests', reach: { mode: 'off' } })]);
-    expect(overview.canReachOutside).toBe(true);
+  it('creates in a project, and needs the agent for it', async () => {
+    const created = await create(json('POST', { name: 'deploy', location: 'project', workspaceId: wsId }));
+    expect((await created.json()).skill.ref).toBe(`project:${wsId}:deploy`);
+    expect((await create(json('POST', { name: 'x', location: 'project' }))).status).toBe(400);
   });
 
   it('answers 400 for junk and a bad name, 409 for a taken one', async () => {
-    const junk = await create(new Request('http://test/api/skills', { method: 'POST', body: 'not json' }));
-    expect(junk.status).toBe(400);
+    expect((await create(new Request('http://test/api/skills', { method: 'POST', body: 'not json' }))).status).toBe(400);
     expect((await create(json('POST', { name: 'Bad Name' }))).status).toBe(400);
     expect((await create(json('POST', { name: 'taken' }))).status).toBe(201);
     const taken = await create(json('POST', { name: 'taken' }));
@@ -68,65 +81,56 @@ describe('/api/skills', () => {
   });
 });
 
-describe('/api/skills/[name]', () => {
+describe('/api/skills/[ref]', () => {
   beforeEach(async () => {
     await create(json('POST', { name: 'triage', description: 'Triage the inbox.', body: 'Steps.\n' }));
   });
 
   it('reads, saves and 404s', async () => {
-    const { skill } = await (await read(new Request('http://test'), params('triage'))).json();
-    expect(skill).toMatchObject({ name: 'triage', body: 'Steps.\n', problems: [] });
-    const saved = await (await save(json('PUT', { body: 'New.\n', baseHash: skill.hash }), params('triage'))).json();
+    const { skill } = await (await read(new Request('http://test'), params('ri:triage'))).json();
+    expect(skill).toMatchObject({ ref: 'ri:triage', body: 'Steps.\n', problems: [] });
+    const saved = await (await save(json('PUT', { body: 'New.\n', baseHash: skill.hash }), params('ri:triage'))).json();
     expect(saved).toMatchObject({ skill: { body: 'New.\n' }, renamedFrom: null });
-    expect((await read(new Request('http://test'), params('nope'))).status).toBe(404);
+    expect((await read(new Request('http://test'), params('ri:nope'))).status).toBe(404);
+    expect((await read(new Request('http://test'), params('ri:../escape'))).status).toBe(404);
   });
 
   it('answers a stale write with 409 and the current skill', async () => {
-    const { skill } = await (await read(new Request('http://test'), params('triage'))).json();
-    await save(json('PUT', { body: 'Theirs.\n' }), params('triage'));
-    const stale = await save(json('PUT', { body: 'Mine.\n', baseHash: skill.hash }), params('triage'));
+    const { skill } = await (await read(new Request('http://test'), params('ri:triage'))).json();
+    await save(json('PUT', { body: 'Theirs.\n' }), params('ri:triage'));
+    const stale = await save(json('PUT', { body: 'Mine.\n', baseHash: skill.hash }), params('ri:triage'));
     expect(stale.status).toBe(409);
     const body = await stale.json();
     expect(body.code).toBe('stale');
     expect(body.current.parsed.body).toBe('Theirs.\n');
   });
 
-  it('renames through a save', async () => {
-    const renamed = await (await save(json('PUT', { newName: 'inbox-triage' }), params('triage'))).json();
-    expect(renamed).toMatchObject({ skill: { name: 'inbox-triage' }, renamedFrom: 'triage' });
-  });
-
-  it('archives', async () => {
-    const res = await archive(new Request('http://test', { method: 'DELETE' }), params('triage'));
-    expect(res.status).toBe(200);
-    expect((await read(new Request('http://test'), params('triage'))).status).toBe(404);
+  it('renames through a save, and archives', async () => {
+    const renamed = await (await save(json('PUT', { newName: 'inbox-triage' }), params('ri:triage'))).json();
+    expect(renamed).toMatchObject({ skill: { ref: 'ri:inbox-triage' }, renamedFrom: 'ri:triage' });
+    expect((await archive(new Request('http://test', { method: 'DELETE' }), params('ri:inbox-triage'))).status).toBe(200);
+    expect((await read(new Request('http://test'), params('ri:inbox-triage'))).status).toBe(404);
   });
 });
 
-describe('/api/skills/[name]/reach', () => {
-  it('turns a skill on and off, and refuses an unfinished one', async () => {
+describe('moving and committing', () => {
+  it('moves to global, copies to a project and commits it there', async () => {
     await create(json('POST', { name: 'triage', description: 'Triage.', body: 'Steps.\n' }));
-    const on = await (await setReach(json('PUT', { mode: 'all' }), params('triage'))).json();
-    expect(on.skill.reach).toEqual({ mode: 'all' });
-    const everywhere = await (await setReach(json('PUT', { mode: 'everywhere' }), params('triage'))).json();
-    expect(everywhere.skill.reach).toEqual({ mode: 'everywhere' });
-    expect(fs.existsSync(path.join(userHome, '.claude', 'skills', 'triage'))).toBe(true);
+    const moved = await (await move(json('POST', { to: 'global' }), params('ri:triage'))).json();
+    expect(moved.skill.ref).toBe('global:triage');
+    expect(fs.existsSync(path.join(userHome, '.claude', 'skills', 'triage', 'SKILL.md'))).toBe(true);
 
-    await create(json('POST', { name: 'unfinished' }));
-    const refused = await setReach(json('PUT', { mode: 'all' }), params('unfinished'));
-    expect(refused.status).toBe(400);
-    expect((await setReach(json('PUT', { mode: 'sideways' }), params('triage'))).status).toBe(400);
+    const copied = await (await move(json('POST', { to: 'project', workspaceId: wsId, copy: true }), params('global:triage'))).json();
+    expect(copied.skill).toMatchObject({ ref: `project:${wsId}:triage`, uncommitted: true });
+
+    const done = await (await commit(new Request('http://test', { method: 'POST' }), params(`project:${wsId}:triage`))).json();
+    expect(done).toMatchObject({ skill: { uncommitted: false }, commit: { branch: 'main', message: 'Add the triage skill' } });
   });
-});
 
-describe('/api/skills/outside/import', () => {
-  it('imports a skill from ~/.claude/skills, and 404s an unknown one', async () => {
-    const theirs = path.join(userHome, '.claude', 'skills', 'implementing-specs');
-    fs.mkdirSync(theirs, { recursive: true });
-    fs.writeFileSync(path.join(theirs, 'SKILL.md'), '---\nname: implementing-specs\ndescription: Specs.\n---\nBody\n');
-    const res = await importOutside(json('POST', { name: 'implementing-specs' }));
-    expect(res.status).toBe(201);
-    expect((await res.json()).skill).toMatchObject({ name: 'implementing-specs', reach: { mode: 'everywhere' } });
-    expect((await importOutside(json('POST', { name: 'nope' }))).status).toBe(404);
+  it('answers 400 for a bad destination and a commit outside a project', async () => {
+    await create(json('POST', { name: 'triage', description: 'Triage.' }));
+    expect((await move(json('POST', { to: 'sideways' }), params('ri:triage'))).status).toBe(400);
+    expect((await move(json('POST', { to: 'ri' }), params('ri:triage'))).status).toBe(400);
+    expect((await commit(new Request('http://test', { method: 'POST' }), params('ri:triage'))).status).toBe(400);
   });
 });

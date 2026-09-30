@@ -3,7 +3,7 @@ import {
   SlidersHorizontal,
   Bot,
   Mic,
-  Puzzle,
+  Plug,
   Bell,
   MonitorSmartphone,
   Globe,
@@ -31,7 +31,7 @@ export type SectionId =
   | 'models'
   | 'voice'
   | 'browser'
-  | 'connectors'
+  | 'plugins'
   | 'notifications'
   | 'devices'
   | 'imports'
@@ -104,11 +104,11 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
   },
   {
     // Plugins: everything agents can be extended with, skills and
-    // connectors (docs/skills.md). The id stays 'connectors' because OAuth
-    // returns and connection links deep-link to `?settings=connectors`.
-    id: 'connectors',
+    // connectors (docs/skills.md). Links from before the rename still say
+    // `?settings=connectors`, which `sectionFromParam` maps here.
+    id: 'plugins',
     label: 'Plugins',
-    icon: Puzzle,
+    icon: Plug,
     title: 'Plugins',
     description: 'Skills teach your agents how to do things. Connectors let them act in your accounts.',
   },
@@ -159,4 +159,13 @@ export function getSection(id: SectionId): SettingsSectionDef {
 
 export function isSectionId(value: string | null | undefined): value is SectionId {
   return !!value && ALL_SECTIONS.some((s) => s.id === value);
+}
+
+/** Old section ids that links (an OAuth return, a bookmark) may still carry. */
+const SECTION_ALIASES: Readonly<Record<string, SectionId>> = { connectors: 'plugins' };
+
+/** The section a `?settings=` value names, following renamed ids. */
+export function sectionFromParam(value: string | null | undefined): SectionId | null {
+  if (isSectionId(value)) return value;
+  return (value && SECTION_ALIASES[value]) || null;
 }

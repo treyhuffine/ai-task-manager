@@ -3,7 +3,7 @@ import { connectorRequestsEnabled, setConnectorRequestsEnabled } from '@/lib/con
 import { SESSION_CREDENTIAL_HEADER } from '@/lib/orchestrator/session-credential';
 
 /**
- * Whether agents may ask to connect accounts from chat (Settings, Connectors). Off removes the
+ * Whether agents may ask to connect accounts from chat (Settings, Plugins). Off removes the
  * `request_connection` tool from sessions started afterwards. Reconnect cards for a connection
  * that stopped working show either way, since they come from a failed call, not an agent's ask.
  */

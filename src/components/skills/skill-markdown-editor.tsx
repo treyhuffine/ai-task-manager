@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/view';
+import { EditorState } from '@codemirror/state';
 import { markdown } from '@codemirror/lang-markdown';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { cmTheme } from '@/components/executions/viewer/cm-theme';
@@ -21,6 +22,7 @@ export function SkillMarkdownEditor({
   ariaLabel,
   className,
   minHeight = '240px',
+  readOnly = false,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -31,6 +33,7 @@ export function SkillMarkdownEditor({
   className?: string;
   /** The editor grows with its text from here, and its container scrolls. */
   minHeight?: string;
+  readOnly?: boolean;
 }) {
   const { theme } = useDashboard();
 
@@ -39,12 +42,14 @@ export function SkillMarkdownEditor({
       markdown(),
       cmTheme(theme === 'dark' ? 'dark' : 'light'),
       EditorView.lineWrapping,
+      EditorView.editable.of(!readOnly),
+      EditorState.readOnly.of(readOnly),
       EditorView.contentAttributes.of({ 'aria-label': ariaLabel }),
       keymap.of([{ key: 'Mod-s', preventDefault: true, run: () => (onSave(), true) }]),
       EditorView.domEventHandlers({ blur: () => void onSave() }),
       ...(placeholder ? [cmPlaceholder(placeholder)] : []),
     ],
-    [theme, ariaLabel, placeholder, onSave],
+    [theme, ariaLabel, placeholder, onSave, readOnly],
   );
 
   return (

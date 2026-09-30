@@ -1,17 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { skillsApi, type SaveSkillBody, type SkillReach, type SkillView } from '@/lib/api/skills';
+import { skillsApi, type MoveSkillBody, type SaveSkillBody, type SkillView } from '@/lib/api/skills';
 
 export const SKILLS_KEY = ['skills'] as const;
-const skillKey = (name: string) => [...SKILLS_KEY, 'one', name] as const;
+export const skillKey = (ref: string) => [...SKILLS_KEY, 'one', ref] as const;
+const OVERVIEW_KEY = [...SKILLS_KEY, 'overview'] as const;
 
-/**
- * Every library skill with its reach, plus skills outside Ri (docs/skills.md).
- * With a workspace, also the skills in that agent's own folder.
- */
-export function useSkills(workspaceId?: string) {
+/** Every skill: Ri's, the global ones, and each project's (docs/skills.md). */
+export function useSkills() {
   return useQuery({
-    queryKey: [...SKILLS_KEY, 'overview', workspaceId ?? null],
-    queryFn: () => skillsApi.overview(workspaceId),
+    queryKey: OVERVIEW_KEY,
+    queryFn: () => skillsApi.overview(),
     staleTime: 10_000,
   });
 }
@@ -20,56 +18,56 @@ export function useSkills(workspaceId?: string) {
  * One skill. `live` polls while the builder AI may be writing, so its edits
  * show up as they land rather than only when its turn ends.
  */
-export function useSkill(name: string | null, opts: { live?: boolean } = {}) {
+export function useSkill(ref: string | null, opts: { live?: boolean } = {}) {
   return useQuery({
-    queryKey: skillKey(name ?? ''),
-    queryFn: () => skillsApi.get(name!).then((r) => r.skill),
-    enabled: !!name,
+    queryKey: skillKey(ref ?? ''),
+    queryFn: () => skillsApi.get(ref!).then((r) => r.skill),
+    enabled: !!ref,
     staleTime: 2_000,
     refetchInterval: opts.live ? 1_500 : false,
     retry: (count, err) => !(err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 404) && count < 2,
   });
 }
 
-function useInvalidateSkills() {
+function useSettle() {
   const qc = useQueryClient();
   return (skill?: SkillView) => {
-    if (skill) qc.setQueryData(skillKey(skill.name), skill);
-    return qc.invalidateQueries({ queryKey: [...SKILLS_KEY, 'overview'] });
+    if (skill) qc.setQueryData(skillKey(skill.ref), skill);
+    return qc.invalidateQueries({ queryKey: OVERVIEW_KEY });
   };
 }
 
-export function useSaveSkill(name: string) {
-  const invalidate = useInvalidateSkills();
+export function useSaveSkill(ref: string) {
+  const settle = useSettle();
   return useMutation({
-    mutationFn: (body: SaveSkillBody) => skillsApi.save(name, body),
-    onSuccess: (result) => invalidate(result.skill),
+    mutationFn: (body: SaveSkillBody) => skillsApi.save(ref, body),
+    onSuccess: (result) => settle(result.skill),
   });
 }
 
-export function useSetSkillReach(name: string) {
-  const invalidate = useInvalidateSkills();
+export function useMoveSkill(ref: string) {
+  const settle = useSettle();
   return useMutation({
-    mutationFn: (reach: SkillReach) => skillsApi.setReach(name, reach),
-    onSuccess: (result) => invalidate(result.skill),
+    mutationFn: (body: MoveSkillBody) => skillsApi.move(ref, body),
+    onSuccess: (result) => settle(result.skill),
+  });
+}
+
+export function useCommitSkill(ref: string) {
+  const settle = useSettle();
+  return useMutation({
+    mutationFn: () => skillsApi.commit(ref),
+    onSuccess: (result) => settle(result.skill),
   });
 }
 
 export function useArchiveSkill() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => skillsApi.archive(name),
-    onSuccess: (_result, name) => {
-      qc.removeQueries({ queryKey: skillKey(name) });
-      return qc.invalidateQueries({ queryKey: [...SKILLS_KEY, 'overview'] });
+    mutationFn: (ref: string) => skillsApi.archive(ref),
+    onSuccess: (_result, ref) => {
+      qc.removeQueries({ queryKey: skillKey(ref) });
+      return qc.invalidateQueries({ queryKey: OVERVIEW_KEY });
     },
-  });
-}
-
-export function useImportSkill() {
-  const invalidate = useInvalidateSkills();
-  return useMutation({
-    mutationFn: (name: string) => skillsApi.importOutside(name),
-    onSuccess: (result) => invalidate(result.skill),
   });
 }

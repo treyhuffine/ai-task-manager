@@ -81,7 +81,7 @@ export function DayShapeStrip({
         </span>
         <button
           type="button"
-          onClick={() => openSettings('connectors')}
+          onClick={() => openSettings('plugins')}
           className="shrink-0 text-[10px] font-medium text-primary hover:underline"
         >
           Connect

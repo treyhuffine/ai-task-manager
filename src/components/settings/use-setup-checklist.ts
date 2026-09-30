@@ -115,7 +115,7 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
       { id: 'model', section: 'models', label: 'Pick a default model', hint: 'Choose one in the Models tab any time.', done: modelDone },
       { id: 'remote', section: 'devices', label: 'Set a remote URL', hint: 'Set your remote URL in the Devices tab any time.', done: remoteDone },
       { id: 'notifications', section: 'notifications', label: 'Turn on notifications', hint: 'Add a channel in the Notifications tab any time.', done: notificationsDone },
-      { id: 'connectors', section: 'connectors', label: 'Connect an app', hint: 'Connect one in the Connectors tab any time.', done: connectorsDone },
+      { id: 'connectors', section: 'plugins', label: 'Connect an app', hint: 'Connect one in Plugins any time.', done: connectorsDone },
       { id: 'browser', section: 'browser', label: 'Set up the agent browser', hint: 'Pick a browser and sign into sites in the Browser tab any time.', done: browserDone },
     ];
     return base.map((i) => ({ ...i, dismissed: dismissed.has(i.id) }));

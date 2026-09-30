@@ -1,12 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { Archive, ChevronLeft, Copy, Loader2, MoreHorizontal, Pencil, Power, ScrollText } from 'lucide-react';
+import { Archive, ChevronLeft, Copy, GitCommitHorizontal, Loader2, MoreHorizontal, Pencil, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiErrorText } from '@/lib/api/client';
 import type { SkillView } from '@/lib/api/skills';
-import { useArchiveSkill, useSaveSkill, useSetSkillReach } from '@/hooks/use-skills';
-import { useWorkspaces } from '@/hooks/use-workspaces';
+import { useArchiveSkill, useCommitSkill, useSaveSkill } from '@/hooks/use-skills';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
@@ -17,21 +16,16 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { reachSentence } from './reach-copy';
-import { SkillReachControl } from './skill-reach-control';
+import { displayPath, locationSentence } from './location-copy';
+import { SkillLocationControl } from './skill-location-control';
 
 export type SkillPane = 'chat' | 'skill';
 
-/** Home-relative display of an absolute path, the way a shell prompt shows it. */
-function displayPath(path: string): string {
-  const home = path.match(/^\/(?:Users|home)\/[^/]+/)?.[0];
-  return home ? `~${path.slice(home.length)}` : path;
-}
-
 /**
- * The skill builder's header: the skill's name (its slash command), who
- * uses it, and the one action that matters while it's off, turning it on.
- * Where it's used and the rest live behind quieter controls.
+ * The skill builder's header: the skill's name (its slash command), where it
+ * lives and so who uses it, and for a project skill with changes the repo
+ * hasn't committed, committing them. Moving it and the rest live behind
+ * quieter controls.
  */
 export function SkillHeader({
   skill,
@@ -44,15 +38,12 @@ export function SkillHeader({
 }) {
   const { openSkill, goHome } = useDashboard();
   const confirm = useConfirm();
-  const { data: agents = [] } = useWorkspaces();
-  const setReach = useSetSkillReach(skill.name);
-  const save = useSaveSkill(skill.name);
+  const save = useSaveSkill(skill.ref);
+  const commit = useCommitSkill(skill.ref);
   const archive = useArchiveSkill();
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState(skill.name);
-
-  const blocking = skill.problems.find((p) => p.level === 'error');
-  const agentName = (id: string) => agents.find((a) => a.id === id)?.name;
+  const showCommit = skill.location.kind === 'project' && skill.git !== null && skill.uncommitted;
 
   const rename = () => {
     const next = newName.trim();
@@ -61,7 +52,7 @@ export function SkillHeader({
     save.mutate(
       { newName: next },
       {
-        onSuccess: (result) => openSkill(result.skill.name, { replace: true }),
+        onSuccess: (result) => openSkill(result.skill.ref, { replace: true }),
         onError: (err) => {
           setNewName(skill.name);
           toast.error(apiErrorText(err));
@@ -74,12 +65,14 @@ export function SkillHeader({
     const ok = await confirm({
       title: `Archive ${skill.name}?`,
       description:
-        'No agent will use it anymore, and its chats are archived with it. The folder moves to the archive in your Ri home, so nothing is deleted.',
+        skill.location.kind === 'project'
+          ? "It leaves the repo, and its chats are archived with it. The folder moves to the archive in your Ri home, so nothing is deleted. Commit the removal to take it away from your team too."
+          : 'No agent will use it anymore, and its chats are archived with it. The folder moves to the archive in your Ri home, so nothing is deleted.',
       confirmLabel: 'Archive',
       tone: 'destructive',
     });
     if (!ok) return;
-    archive.mutate(skill.name, {
+    archive.mutate(skill.ref, {
       onSuccess: () => {
         toast.success(`${skill.name} archived`);
         goHome();
@@ -120,7 +113,7 @@ export function SkillHeader({
               aria-label="Skill name"
               className="w-56 rounded-md border border-ring bg-background px-1.5 py-0.5 font-mono text-[13px] font-semibold text-foreground outline-none"
             />
-          ) : (
+          ) : skill.editable ? (
             <button
               onClick={() => {
                 setNewName(skill.name);
@@ -136,35 +129,35 @@ export function SkillHeader({
                 <Pencil size={11} className="flex-shrink-0 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground" />
               )}
             </button>
+          ) : (
+            <h1 className="truncate font-mono text-[13px] font-semibold text-foreground">{skill.name}</h1>
           )}
           <p className="truncate text-[10.5px] text-muted-foreground/80" title={displayPath(skill.dir)}>
-            {reachSentence(skill.reach, agentName)}
+            {locationSentence(skill)}
           </p>
         </div>
 
-        {skill.reach.mode === 'off' && (
+        {showCommit && (
           <button
             onClick={() =>
-              setReach.mutate(
-                { mode: 'all' },
-                {
-                  onSuccess: () => toast.success(`${skill.name} is on for every agent`),
-                  onError: (err) => toast.error(apiErrorText(err)),
-                },
-              )
+              commit.mutate(undefined, {
+                onSuccess: ({ commit: done }) =>
+                  toast.success(`Committed to ${done.branch ?? 'the repo'} (${done.sha}). Push it to share it with your team.`),
+                onError: (err) => toast.error(apiErrorText(err)),
+              })
             }
-            disabled={!!blocking || setReach.isPending}
-            title={blocking ? `Fix this first: ${blocking.message}` : 'Every agent in Ri gets this skill'}
+            disabled={commit.isPending}
+            title="Commit only this skill's files. Other changes in the repo are left alone."
             className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {setReach.isPending ? <Loader2 size={12} className="animate-spin" /> : <Power size={12} strokeWidth={2.5} />}
-            Turn on
+            {commit.isPending ? <Loader2 size={12} className="animate-spin" /> : <GitCommitHorizontal size={12} strokeWidth={2.5} />}
+            {skill.git?.branch ? `Commit to ${skill.git.branch}` : 'Commit'}
           </button>
         )}
 
         <div className="flex-1" />
 
-        <SkillReachControl skill={skill} />
+        <SkillLocationControl skill={skill} />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -176,14 +169,16 @@ export function SkillHeader({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onSelect={() => {
-                setNewName(skill.name);
-                setRenaming(true);
-              }}
-            >
-              <Pencil size={13} /> Rename
-            </DropdownMenuItem>
+            {skill.editable && (
+              <DropdownMenuItem
+                onSelect={() => {
+                  setNewName(skill.name);
+                  setRenaming(true);
+                }}
+              >
+                <Pencil size={13} /> Rename
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onSelect={() => {
                 void navigator.clipboard.writeText(skill.dir).then(() => toast.success('Folder path copied'));
@@ -191,10 +186,14 @@ export function SkillHeader({
             >
               <Copy size={13} /> Copy folder path
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => void onArchive()} className="text-destructive focus:text-destructive">
-              <Archive size={13} /> Archive
-            </DropdownMenuItem>
+            {skill.editable && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => void onArchive()} className="text-destructive focus:text-destructive">
+                  <Archive size={13} /> Archive
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

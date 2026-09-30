@@ -63,8 +63,8 @@ describe('desktop OAuth', () => {
       expect(relayResponse(`/oauth/callback?${query}`).status).toBe(400);
       expect(() => callbackParams(new URLSearchParams(query))).toThrow();
     }
-    expect(safeReturnPath('/\\evil.example')).toBe('/?settings=connectors');
-    expect(resultLocation('https://localhost:42242', { sequence: 1, id: 'x', status: 'connected', returnTo: '//evil', message: 'Connected' })).toBe('https://localhost:42242/?settings=connectors&connected=Connected');
+    expect(safeReturnPath('/\\evil.example')).toBe('/?settings=plugins');
+    expect(resultLocation('https://localhost:42242', { sequence: 1, id: 'x', status: 'connected', returnTo: '//evil', message: 'Connected' })).toBe('https://localhost:42242/?settings=plugins&connected=Connected');
     await expect(manager.begin('bad', { relayUrl: 'http://example.test/cb' })).rejects.toThrow('HTTPS');
   });
 
@@ -80,9 +80,9 @@ describe('desktop OAuth', () => {
   it('keeps normalized callback returns on the exact desktop origin', () => {
     const origin = 'https://localhost:42242';
     for (const returnTo of ['//evil.example/x', '/\\evil.example/x', '/a/..//evil.example/landing', '/a/%2e%2e//evil.example/landing']) {
-      expect(safeReturnPath(returnTo)).toBe('/?settings=connectors');
+      expect(safeReturnPath(returnTo)).toBe('/?settings=plugins');
       expect(resultLocation(origin, { sequence: 1, id: 'x', status: 'connected', returnTo, message: 'Connected' }))
-        .toBe(`${origin}/?settings=connectors&connected=Connected`);
+        .toBe(`${origin}/?settings=plugins&connected=Connected`);
     }
     expect(safeReturnPath('/a/../welcome?step=connect#pairing-token')).toBe('/welcome?step=connect');
     expect(safeReturnPath('/%2F%2Fevil.example')).toBe('/%2F%2Fevil.example');

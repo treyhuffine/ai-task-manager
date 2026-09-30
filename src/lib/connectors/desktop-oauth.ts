@@ -28,11 +28,11 @@ export function isDesktopRequest(request: Request) {
 }
 
 export function safeReturnPath(raw?: string | null) {
-  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\')) return '/?settings=connectors';
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\')) return '/?settings=plugins';
   const url = new URL(raw, 'https://ri.invalid');
   // Dot segments can normalize a single-leading-slash input into a protocol-relative path.
   return url.origin === 'https://ri.invalid' && !url.pathname.startsWith('//')
-    ? `${url.pathname}${url.search}` : '/?settings=connectors';
+    ? `${url.pathname}${url.search}` : '/?settings=plugins';
 }
 
 /** A callback carries an authorization code, never access/refresh tokens or a return URL. */

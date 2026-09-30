@@ -13,13 +13,12 @@
  * Workspace overrides library on name collision so a repo-specific
  * skill can shadow a library one without surgery.
  *
- * A library skill can be limited to some agents or turned off. The home
- * decides that per chat (src/lib/skills/reach.ts) and the session spec
- * carries the names to leave out, because the runner may be on another
- * device without the database. A library skill linked into both user-level
- * folders (~/.claude/skills and ~/.agents/skills, "on everywhere") is left
- * out too: every harness already reads it from there, and attaching it a
- * second time would list it twice.
+ * Global skills (~/.claude/skills, ~/.agents/skills) and a folder's project
+ * skills (.claude/skills, .agents/skills) aren't attached here: every
+ * harness reads those on its own. A skill's builder and try chats get a
+ * little more or less, which the home decides and the session spec carries
+ * (src/lib/skills/exclusions.ts), because the runner may be on another
+ * device without the database. See docs/skills.md.
  *
  * The executor adapter doesn't render `SKILL.md` itself — it hands the
  * resolved source directories to `@agentex/agent`'s `skillDirs`
@@ -32,7 +31,6 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { getAppRoot } from '@/lib/config/paths';
 
 const SKILL_FILE = 'SKILL.md';
@@ -77,27 +75,10 @@ function readSkillDir(root: string, scope: DiscoveredSkill['scope']): Discovered
 }
 
 export interface ResolveSkillsOptions {
-  /** Library skills this chat must not get, as the home decided (src/lib/skills/reach.ts). */
+  /** Ri skills this chat must not get, as the home decided (src/lib/skills/exclusions.ts). */
   exclude?: readonly string[];
-  /** Whose ~/.claude/skills and ~/.agents/skills to check for links. Defaults to the user's home. */
-  homeDir?: string;
-}
-
-function linksTo(link: string, target: string): boolean {
-  try {
-    if (!fs.lstatSync(link).isSymbolicLink()) return false;
-    return path.resolve(path.dirname(link), fs.readlinkSync(link)) === path.resolve(target);
-  } catch {
-    return false;
-  }
-}
-
-/** Linked into both user-level folders, so every harness already reads it on its own. */
-function readByEveryHarness(skill: DiscoveredSkill, homeDir: string): boolean {
-  return (
-    linksTo(path.join(homeDir, '.claude', 'skills', skill.name), skill.sourceDir) &&
-    linksTo(path.join(homeDir, '.agents', 'skills', skill.name), skill.sourceDir)
-  );
+  /** Skill folders to attach on top of the usual ones, as the home decided. */
+  extra?: readonly string[];
 }
 
 function librarySkills(): DiscoveredSkill[] {
@@ -128,9 +109,11 @@ export function resolveSkillsForSession(
   opts: ResolveSkillsOptions = {},
 ): DiscoveredSkill[] {
   const excluded = new Set(opts.exclude ?? []);
-  const homeDir = opts.homeDir ?? os.homedir();
-  const library = librarySkills().filter((skill) => !excluded.has(skill.name) && !readByEveryHarness(skill, homeDir));
-  return mergeByName(library, workspaceSkills(workspaceCwd));
+  const library = librarySkills().filter((skill) => !excluded.has(skill.name));
+  const extra = (opts.extra ?? [])
+    .filter((dir) => fs.existsSync(path.join(dir, SKILL_FILE)))
+    .map((dir): DiscoveredSkill => ({ name: path.basename(dir), sourceDir: dir, scope: 'workspace' }));
+  return mergeByName(library, [...workspaceSkills(workspaceCwd), ...extra]);
 }
 
 /** Convenience: just the source-dir paths, the shape agentex's `skillDirs` wants. */

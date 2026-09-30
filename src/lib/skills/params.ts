@@ -9,6 +9,8 @@
  */
 
 import { z } from 'zod';
+import { SkillError } from './library';
+import type { SkillLocation } from './locations';
 
 const TEXT_MAX = 2_000_000;
 
@@ -17,11 +19,15 @@ export const supportingFileParam = z.object({
   content: z.string().max(TEXT_MAX).nullable().describe('The file text, or null to delete the file.'),
 });
 
+const locationKind = z.enum(['ri', 'global', 'project']);
+
 export const createSkillShape = {
   name: z.string().max(64).optional().describe('lowercase-with-hyphens. Omit to name it from `intent`.'),
   intent: z.string().max(5000).optional().describe('What the skill should do, in the user\'s words.'),
   description: z.string().max(10_000).optional(),
   body: z.string().max(TEXT_MAX).optional(),
+  location: locationKind.optional().describe('Where it lives: "ri" (default), "global", or "project" (with workspaceId).'),
+  workspaceId: z.string().optional().describe('For location "project": the agent whose folder it goes in.'),
 };
 
 export const saveSkillShape = {
@@ -33,9 +39,18 @@ export const saveSkillShape = {
   baseHash: z.string().max(64).nullable().optional().describe('The hash from your last read. A mismatch is refused.'),
 };
 
-export const reachShape = {
-  mode: z.enum(['everywhere', 'all', 'agents', 'off']),
-  workspaceIds: z.array(z.string().min(1)).max(500).optional().describe('For mode "agents": the agents (workspace ids).'),
+export const moveSkillShape = {
+  to: locationKind.describe('"ri", "global", or "project" (with workspaceId).'),
+  workspaceId: z.string().optional().describe('For "project": the agent whose folder it goes in.'),
+  copy: z.boolean().optional().describe('Copy it there and keep the original, the way to share a skill with a project.'),
 };
 
-export type ReachInput = z.infer<z.ZodObject<typeof reachShape>>;
+/** A location from the `location`/`to` kind plus `workspaceId` inputs. */
+export function locationFrom(kind: 'ri' | 'global' | 'project' | undefined, workspaceId?: string): SkillLocation {
+  if (kind === 'global') return { kind: 'global' };
+  if (kind === 'project') {
+    if (!workspaceId) throw new SkillError('invalid', 'Say which agent\'s folder the skill goes in (workspaceId).');
+    return { kind: 'project', workspaceId };
+  }
+  return { kind: 'ri' };
+}

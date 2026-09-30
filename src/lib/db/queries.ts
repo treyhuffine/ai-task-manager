@@ -14,7 +14,7 @@ import {
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
-  triagePasses, triageDecisions, streamLinks, skillUsage, skillScopes,
+  triagePasses, triageDecisions, streamLinks, skillUsage,
 } from '@/lib/db/schema';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, notInArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
@@ -55,7 +55,6 @@ import type {
   WebPushSubscriptionRecord, CreateWebPushSubscriptionInput,
   NotificationDeliveryRecord, CreateNotificationDeliveryInput, StoredRenderedNotification,
   SkillUsageRecord,
-  SkillScopeRecord,
   HarnessSettingsRecord, UpsertHarnessSettingsInput, HarnessOperationRecord,
   StreamStatus,
   TriagePassRecord, TriagePassTrigger,
@@ -10098,67 +10097,37 @@ export function listSkillUsage(): SkillUsageRecord[] {
   return getDb().select().from(skillUsage).orderBy(desc(skillUsage.score)).all();
 }
 
-// ─── Skill scopes ─────────────────────────────────────────────
+// ─── Skill chats ──────────────────────────────────────────────
 //
-// Where a library skill reaches when that isn't every agent (see the table in
-// schema.ts and docs/skills.md). No row: every agent. A row: exactly the
-// listed workspaces, and an empty list is off.
-
-export function listSkillScopes(): SkillScopeRecord[] {
-  return getDb().select().from(skillScopes).orderBy(asc(skillScopes.name)).all();
-}
-
-export function getSkillScope(name: string): SkillScopeRecord | null {
-  return getDb().select().from(skillScopes).where(eq(skillScopes.name, name)).get() ?? null;
-}
-
-/** Limit a skill to these agents. An empty list turns it off. Idempotent. */
-export function setSkillScope(name: string, workspaceIds: readonly string[]): SkillScopeRecord {
-  const ids = [...new Set(workspaceIds)];
-  return getDb()
-    .insert(skillScopes)
-    .values({ id: uuidv7(), name, workspaceIds: ids })
-    .onConflictDoUpdate({ target: skillScopes.name, set: { workspaceIds: ids } })
-    .returning()
-    .get();
-}
-
-/** Let a skill reach every agent again. Idempotent. */
-export function clearSkillScope(name: string): void {
-  getDb().delete(skillScopes).where(eq(skillScopes.name, name)).run();
-}
+// A skill's builder chat and try chats are content chats tagged with the
+// skill's ref (`surfaceRef`, see src/lib/skills/locations.ts).
 
 /** The content-chat kinds that belong to one skill: its builder chat and its try chats. */
 export const SKILL_SURFACE_KINDS = ['skill', 'skill-try'] as const;
 
-/**
- * Carry a skill's reach and its builder chats to a new folder name. One
- * transaction, so a rename never leaves the scope or the chats on the old name.
- */
-export function renameSkillRecords(from: string, to: string): void {
-  const db = getDb();
-  db.transaction((tx) => {
-    tx.update(skillScopes).set({ name: to }).where(eq(skillScopes.name, from)).run();
-    tx.update(chatSessions)
-      .set({ surfaceRef: to })
-      .where(and(
-        eq(chatSessions.type, 'content'),
-        inArray(chatSessions.surfaceKind, [...SKILL_SURFACE_KINDS]),
-        eq(chatSessions.surfaceRef, from),
-      ))
-      .run();
-  });
+/** Move a skill's builder and try chats to its new ref (a rename or a move). */
+export function renameSkillChats(fromRefs: readonly string[], toRef: string): void {
+  if (fromRefs.length === 0) return;
+  getDb()
+    .update(chatSessions)
+    .set({ surfaceRef: toRef })
+    .where(and(
+      eq(chatSessions.type, 'content'),
+      inArray(chatSessions.surfaceKind, [...SKILL_SURFACE_KINDS]),
+      inArray(chatSessions.surfaceRef, [...fromRefs]),
+    ))
+    .run();
 }
 
 /** Active builder and try chats for a skill, newest first. */
-export function listSkillChats(name: string): ChatSessionRecord[] {
+export function listSkillChats(ref: string): ChatSessionRecord[] {
   return getDb()
     .select()
     .from(chatSessions)
     .where(and(
       eq(chatSessions.type, 'content'),
       inArray(chatSessions.surfaceKind, [...SKILL_SURFACE_KINDS]),
-      eq(chatSessions.surfaceRef, name),
+      eq(chatSessions.surfaceRef, ref),
       eq(chatSessions.status, 'active'),
     ))
     .orderBy(desc(chatSessions.createdAt))

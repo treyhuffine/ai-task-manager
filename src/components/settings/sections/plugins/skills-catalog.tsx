@@ -2,27 +2,26 @@
 
 /**
  * The skills half of the Plugins page (docs/skills.md): the "Build a skill"
- * box on top, then the home's skills as tiles, then skills found in
- * ~/.claude/skills and ~/.agents/skills that Ri doesn't own yet. Connectors
- * follow below, in connectors-section.tsx, which hosts this and shares its
- * search.
+ * box on top, then every skill grouped by where it lives, which is who uses
+ * it: Ri's own, the global ones, and each project's. Connectors follow
+ * below, in connectors-section.tsx, which hosts this and shares its search.
  */
 
 import { useMemo, useState } from 'react';
-import { AlertCircle, ArrowRightLeft, Loader2, Pencil, ScrollText } from 'lucide-react';
+import { AlertCircle, Loader2, Pencil, ScrollText } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { uuidv7 } from 'uuidv7';
-import { toast } from 'sonner';
 import { apiErrorText } from '@/lib/api/client';
 import { sessionsApi } from '@/lib/api/sessions';
-import { skillsApi, type OutsideSkill, type SkillSummary } from '@/lib/api/skills';
-import { SKILLS_KEY, useImportSkill, useSkills } from '@/hooks/use-skills';
+import { skillsApi, type CreateSkillBody, type SkillSummary } from '@/lib/api/skills';
+import { SKILLS_KEY, skillKey, useSkills } from '@/hooks/use-skills';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { closeSettings } from '@/components/settings/settings-store';
 import { Button } from '@/components/ui/button';
 import { ensureSkillChat, skillChatQueryKey } from '@/components/skills/use-skill-chat';
-import { reachBadge } from '@/components/skills/reach-copy';
+import { LOCATION_GROUPS, displayPath } from '@/components/skills/location-copy';
+import { cn } from '@/lib/utils';
 import { CatalogTile, Chip, GroupHeading } from '../connectors/parts';
 
 function SkillLogo() {
@@ -37,9 +36,17 @@ function SkillLogo() {
  * Where building a skill starts. Say what it should do and draft it with AI
  * (the text becomes the builder chat's first message), or write it yourself
  * (the text becomes the first description). Either way it opens in the
- * builder, off until you turn it on.
+ * builder. It goes in Ri unless `location` says a project, as it does from
+ * an agent's Setup tab.
  */
-export function SkillBuilderBox() {
+export function SkillBuilderBox({
+  location,
+  compact = false,
+}: {
+  location?: Pick<CreateSkillBody, 'location' | 'workspaceId'>;
+  /** Without the heading, for places that already say what this is. */
+  compact?: boolean;
+}) {
   const qc = useQueryClient();
   const { openSkill } = useDashboard();
   const [text, setText] = useState('');
@@ -52,17 +59,21 @@ export function SkillBuilderBox() {
     setBusy(how);
     setError(null);
     try {
-      const { skill } = await skillsApi.create(how === 'ai' ? { intent } : { intent, description: intent || undefined });
-      qc.setQueryData([...SKILLS_KEY, 'one', skill.name], skill);
+      const { skill } = await skillsApi.create({
+        ...location,
+        intent,
+        ...(how === 'hand' && intent ? { description: intent } : {}),
+      });
+      qc.setQueryData(skillKey(skill.ref), skill);
       void qc.invalidateQueries({ queryKey: [...SKILLS_KEY, 'overview'] });
       if (how === 'ai') {
-        const session = await ensureSkillChat(skill.name, 'build');
-        qc.setQueryData(skillChatQueryKey(skill.name, 'build'), session);
+        const session = await ensureSkillChat(skill.ref, 'build');
+        qc.setQueryData(skillChatQueryKey(skill.ref, 'build'), session);
         await sessionsApi.sendMessage(session.id, intent, { eventId: uuidv7() });
       }
       setText('');
       closeSettings();
-      openSkill(skill.name);
+      openSkill(skill.ref);
     } catch (err) {
       setError(apiErrorText(err));
     } finally {
@@ -71,17 +82,19 @@ export function SkillBuilderBox() {
   };
 
   return (
-    <section className="space-y-3 rounded-2xl border border-border bg-card/30 p-4">
-      <div className="flex items-start gap-3">
-        <SkillLogo />
-        <div className="min-w-0 space-y-0.5">
-          <h3 className="text-[13px] font-semibold text-foreground">Build a skill</h3>
-          <p className="text-[11.5px] leading-snug text-muted-foreground">
-            Teach your agents one way of working, like how you review a pull request or triage your inbox. Draft it
-            with AI, write it yourself, or both.
-          </p>
+    <section className={cn('space-y-3', !compact && 'rounded-2xl border border-border bg-card/30 p-4')}>
+      {!compact && (
+        <div className="flex items-start gap-3">
+          <SkillLogo />
+          <div className="min-w-0 space-y-0.5">
+            <h3 className="text-[13px] font-semibold text-foreground">Build a skill</h3>
+            <p className="text-[11.5px] leading-snug text-muted-foreground">
+              Teach your agents one way of working, like how you review a pull request or triage your inbox. Draft it
+              with AI, write it yourself, or both.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -123,11 +136,14 @@ export function useSkillsCatalog(q: string) {
   return useMemo(() => {
     // Searching "ski" or "skills" lists them all, the way a category search does for connectors.
     const kindMatch = q.length >= 3 && 'skills'.startsWith(q);
-    const matches = (s: { name: string; description: string | null }) =>
-      !q || kindMatch || s.name.toLowerCase().includes(q) || (s.description ?? '').toLowerCase().includes(q);
+    const matches = (s: SkillSummary) =>
+      !q ||
+      kindMatch ||
+      s.name.toLowerCase().includes(q) ||
+      (s.description ?? '').toLowerCase().includes(q) ||
+      (s.location.kind === 'project' && s.location.projectName.toLowerCase().includes(q));
     const skills = (data?.skills ?? []).filter(matches);
-    const outside = (data?.outside ?? []).filter(matches);
-    return { skills, outside, total: skills.length + outside.length, isLoading };
+    return { skills, total: skills.length, isLoading };
   }, [data, q, isLoading]);
 }
 
@@ -141,104 +157,86 @@ export function KindHeading({ title, detail }: { title: string; detail?: string 
   );
 }
 
-export function SkillsGroup({ skills, outside, searching }: { skills: SkillSummary[]; outside: OutsideSkill[]; searching: boolean }) {
-  const { openSkill } = useDashboard();
-  if (skills.length === 0 && outside.length === 0) return null;
+export function SkillTile({ skill, onOpen }: { skill: SkillSummary; onOpen: () => void }) {
+  const chip = skill.linkedFrom ? 'Linked' : skill.uncommitted ? 'Not committed' : null;
   return (
-    <div className="space-y-4">
-      <KindHeading title="Skills" detail={searching ? undefined : 'How your agents do things. On for every agent unless marked.'} />
-      {skills.length > 0 && (
-        <section className="space-y-2">
-          <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">
-            {skills.map((skill) => {
-              const badge = reachBadge(skill.reach);
-              return (
-                <CatalogTile
-                  key={skill.name}
-                  logo={<SkillLogo />}
-                  name={skill.name}
-                  subtitle={
-                    <>
-                      {badge && (
-                        <span className="mr-1.5 inline-block align-[1px]">
-                          <Chip tone={skill.reach.mode === 'off' ? 'off' : 'neutral'}>{badge}</Chip>
-                        </span>
-                      )}
-                      {skill.description?.trim() || 'No description yet.'}
-                    </>
-                  }
-                  tone={skill.hasErrors ? 'warn' : undefined}
-                  toneLabel={skill.hasErrors ? 'Needs fixing before agents can use it' : undefined}
-                  onOpen={() => {
-                    closeSettings();
-                    openSkill(skill.name);
-                  }}
-                />
-              );
-            })}
-          </div>
-        </section>
-      )}
-      {outside.length > 0 && <OutsideSkillsGroup outside={outside} searching={searching} />}
-    </div>
+    <CatalogTile
+      logo={<SkillLogo />}
+      name={skill.name}
+      subtitle={
+        <>
+          {chip && (
+            <span className="mr-1.5 inline-block align-[1px]">
+              <Chip tone={skill.uncommitted ? 'warn' : 'neutral'}>{chip}</Chip>
+            </span>
+          )}
+          {skill.description?.trim() || 'No description yet.'}
+        </>
+      }
+      tone={skill.hasErrors ? 'warn' : undefined}
+      toneLabel={skill.hasErrors ? 'Something in it needs fixing' : undefined}
+      onOpen={onOpen}
+    />
   );
 }
 
-/**
- * Skills in the user-level folders that Ri doesn't own. Your harnesses
- * already use them outside Ri (and Claude inside it). Moving one in makes
- * the Ri copy the one copy, linked back where it was.
- */
-function OutsideSkillsGroup({ outside, searching }: { outside: OutsideSkill[]; searching: boolean }) {
-  const importSkill = useImportSkill();
+interface Group {
+  key: string;
+  title: string;
+  detail: string;
+  skills: SkillSummary[];
+}
+
+/** Ri first, then global, then each project by name. Empty groups are left out. */
+function groupSkills(skills: SkillSummary[]): Group[] {
+  const groups: Group[] = [
+    { key: 'ri', ...LOCATION_GROUPS.ri, skills: skills.filter((s) => s.location.kind === 'ri') },
+    { key: 'global', ...LOCATION_GROUPS.global, skills: skills.filter((s) => s.location.kind === 'global') },
+  ];
+  const projects = new Map<string, Group>();
+  for (const skill of skills) {
+    if (skill.location.kind !== 'project') continue;
+    const { workspaceId, projectName, cwd } = skill.location;
+    const group = projects.get(workspaceId) ?? {
+      key: workspaceId,
+      title: projectName,
+      detail: `In ${displayPath(cwd)}. Agents working there use these, and so does anyone who pulls the repo.`,
+      skills: [],
+    };
+    group.skills.push(skill);
+    projects.set(workspaceId, group);
+  }
+  const byName = [...projects.values()].sort((a, b) => a.title.localeCompare(b.title));
+  return [...groups, ...byName].filter((g) => g.skills.length > 0);
+}
+
+export function SkillsGroup({ skills, searching }: { skills: SkillSummary[]; searching: boolean }) {
   const { openSkill } = useDashboard();
-  const [pending, setPending] = useState<string | null>(null);
+  if (skills.length === 0) return null;
   return (
-    <section className="space-y-2">
-      <GroupHeading count={outside.length}>On this computer, outside Ri</GroupHeading>
-      {!searching && (
-        <p className="text-[11px] text-muted-foreground">
-          Found in ~/.claude/skills or ~/.agents/skills. Move one into Ri to edit it here. It stays linked where it
-          was, so your other tools keep using it.
-        </p>
-      )}
-      <ul className="divide-y divide-border/60 rounded-xl border border-border">
-        {outside.map((skill) => (
-          <li key={skill.name} className="flex items-center gap-3 px-3 py-2">
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-mono text-[12px] font-medium text-foreground">{skill.name}</p>
-              <p className="line-clamp-1 text-[11px] text-muted-foreground">
-                {skill.description?.trim() || 'No description.'}
-              </p>
-            </div>
-            {skill.importBlocker ? (
-              <span className="max-w-[45%] text-right text-[10.5px] text-muted-foreground/80">{skill.importBlocker}</span>
-            ) : (
-              <Button
-                variant="outline"
-                size="xs"
-                className="shrink-0 text-xs"
-                disabled={pending !== null}
-                onClick={() => {
-                  setPending(skill.name);
-                  importSkill.mutate(skill.name, {
-                    onSuccess: ({ skill: moved }) => {
-                      toast.success(`${moved.name} is in Ri now`);
-                      closeSettings();
-                      openSkill(moved.name);
-                    },
-                    onError: (err) => toast.error(apiErrorText(err)),
-                    onSettled: () => setPending(null),
-                  });
+    <div className="space-y-4">
+      <KindHeading
+        title="Skills"
+        detail={searching ? undefined : 'How your agents do things. Where a skill lives is who uses it.'}
+      />
+      {groupSkills(skills).map((group) => (
+        <section key={group.key} className="space-y-2">
+          <GroupHeading count={group.skills.length}>{group.title}</GroupHeading>
+          {!searching && <p className="text-[11px] text-muted-foreground">{group.detail}</p>}
+          <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">
+            {group.skills.map((skill) => (
+              <SkillTile
+                key={skill.ref}
+                skill={skill}
+                onOpen={() => {
+                  closeSettings();
+                  openSkill(skill.ref);
                 }}
-              >
-                {pending === skill.name ? <Loader2 size={12} className="animate-spin" /> : <ArrowRightLeft size={12} />}
-                Move into Ri
-              </Button>
-            )}
-          </li>
-        ))}
-      </ul>
-    </section>
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
   );
 }

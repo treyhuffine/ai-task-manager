@@ -1,58 +1,60 @@
 /**
- * Skill operations as the app and agents see them: one place that keeps the
- * folder, its reach (database row and outside links), the links Codex leaves
- * in chat folders, and the skill's builder and try chats in step. The API
- * routes (src/app/api/skills) and the orchestrator actions (list_skills,
- * get_skill, save_skill, set_skill_reach) both call through here.
+ * Skill operations as the app and agents see them. A skill is a folder in one
+ * of three places (./locations.ts): Ri's skills, the global skills, or a
+ * project's. Everything here keeps the folder, its `.agents/skills` link and
+ * the skill's builder and try chats in step. The API routes
+ * (src/app/api/skills) and the orchestrator actions (list_skills, get_skill,
+ * create_skill, save_skill, move_skill) both call through here.
  */
 
-import { archiveChatSession, clearSkillScope, getWorkspace, listSkillChats, listSkillScopes, renameSkillRecords, setSkillScope } from '@/lib/db/queries';
-import fs from 'node:fs';
 import path from 'node:path';
-import { inventorySkills } from '@/lib/executor/skills';
-import { SKILL_FILE, nameProblem, parseSkillFile, suggestSkillName, type SkillFields, type SkillProblem } from './format';
+import { archiveChatSession, listSkillChats, renameSkillChats } from '@/lib/db/queries';
+import { nameProblem, parseSkillFile, suggestSkillName, type SkillFields, type SkillProblem } from './format';
 import {
   SkillError,
-  archiveSkillFolder,
-  createSkill,
-  librarySkillNames,
-  listLibrarySkills,
-  readSkill,
-  renameSkillFolder,
-  requireSkill,
-  skillExists,
-  writeSkill,
-  type SkillDocument,
+  archiveFolder,
+  copySkillFolder,
+  createSkillAt,
+  moveSkillFolder,
+  readSkillAt,
+  requireSkillAt,
+  writeSkillAt,
   type SkillFileEntry,
   type SupportingFileWrite,
 } from './library';
 import {
-  canReachOutside,
-  importOutsideSkill,
-  installOutside,
-  listOutsideSkills,
-  outsideLinkState,
-  outsideLinkStates,
-  removeOutside,
-  removeSessionLinks,
-  type OutsideLinkState,
-  type OutsideSkill,
-} from './outside';
-import { getSkillReach, reachFrom, setSkillReach, type SkillReach } from './reach';
+  RI,
+  canWriteGlobal,
+  findSkill,
+  linkMirror,
+  listAllSkills,
+  listProjects,
+  listSkillsAt,
+  nameTakenAt,
+  newSkillDir,
+  parseSkillRef,
+  projectFor,
+  projectPaths,
+  requireLocatedSkill,
+  sameLocation,
+  skillRef,
+  unlinkMirror,
+  type LocatedSkill,
+  type ProjectInfo,
+  type SkillLocation,
+} from './locations';
+import { commitSkillPaths, currentBranch, isGitRepo, uncommittedSkillNames, type SkillCommit } from './git';
 
 /**
- * The live-session side effects a skill change has: restarting a chat so it
- * picks up a new brief (after its turn, never mid-turn, since the builder AI
- * may be the one renaming), closing an archived skill's chats, and
- * restarting sessions after a reach change.
- * The executor adapter by default. Tests swap in spies (a dynamic import
- * from a source module isn't reliably mockable here).
+ * The live-session side effects a skill change has: restarting a skill's
+ * builder and try chats so they pick up a new brief (after their turn, never
+ * mid-turn, since the builder AI may be the one renaming), and closing an
+ * archived skill's chats. The executor adapter by default. Tests swap in
+ * spies (a dynamic import from a source module isn't reliably mockable here).
  */
 export interface SkillSessionControl {
   close(chatSessionId: string): Promise<unknown>;
   recycleWhenIdle(chatSessionId: string): Promise<void>;
-  recycleWorkspaceSessions(workspaceId: string): Promise<void>;
-  recycleEveryAgentSession(opts: { includeAppMainChat?: boolean }): Promise<void>;
 }
 
 let sessionControlOverride: SkillSessionControl | null = null;
@@ -65,72 +67,95 @@ export function setSkillSessionControlForTests(control: SkillSessionControl | nu
   sessionControlOverride = control;
 }
 
+export type SkillLocationView =
+  | { kind: 'ri' }
+  | { kind: 'global' }
+  | { kind: 'project'; workspaceId: string; projectName: string; cwd: string; isGit: boolean };
+
 export interface SkillSummary {
+  ref: string;
   name: string;
+  location: SkillLocationView;
   description: string | null;
   updatedAt: string;
-  reach: SkillReach;
-  /** Blocking problems (errors) exist: it can't be turned on until fixed. */
+  /** False for a skill another tool links into the global folder. */
+  editable: boolean;
+  /** Where a linked skill really lives. */
+  linkedFrom: string | null;
+  /** Something's wrong in SKILL.md that stops agents using it well. */
   hasErrors: boolean;
-}
-
-export interface FolderSkill {
-  name: string;
-  description: string | null;
+  /** A project skill with changes the repo hasn't committed. */
+  uncommitted: boolean;
 }
 
 export interface SkillsOverview {
   skills: SkillSummary[];
-  /** With a workspace: the skills in its folder's .ri/skills, which always reach it. */
-  folderSkills?: FolderSkill[];
-  /** Skills in ~/.claude/skills or ~/.agents/skills that Ri doesn't own. */
-  outside: OutsideSkill[];
+  /** Agents whose folder is on this computer: where a project skill can go. */
+  projects: ProjectInfo[];
   /** False in the desktop app, which leaves the user's other tools alone. */
-  canReachOutside: boolean;
+  canWriteGlobal: boolean;
 }
 
-/** Skills in a folder's `.ri/skills`, which reach every chat that runs there. */
-function folderSkillsOf(cwd: string): FolderSkill[] {
-  return inventorySkills(cwd)
-    .filter((entry) => entry.scope === 'workspace')
-    .map((entry) => {
-      let description: string | null = null;
-      try {
-        description = parseSkillFile(fs.readFileSync(path.join(entry.sourceDir, SKILL_FILE), 'utf8')).description;
-      } catch {
-        // Unreadable: listed without a description.
-      }
-      return { name: entry.name, description };
-    });
-}
-
-export async function skillsOverview(opts: { workspaceId?: string | null } = {}): Promise<SkillsOverview> {
-  const skills = listLibrarySkills();
-  const scopes = new Map(listSkillScopes().map((row) => [row.name, row]));
-  const links = await outsideLinkStates(skills.map((skill) => skill.name));
-  const outside = canReachOutside() ? await listOutsideSkills() : [];
-  const workspace = opts.workspaceId ? getWorkspace(opts.workspaceId) : null;
+function locationView(location: SkillLocation, projects: Map<string, ProjectInfo>): SkillLocationView {
+  if (location.kind !== 'project') return location;
+  const project = projects.get(location.workspaceId) ?? projectFor(location.workspaceId);
   return {
-    ...(workspace?.cwd ? { folderSkills: folderSkillsOf(workspace.cwd) } : {}),
-    skills: skills.map((skill) => ({
-      name: skill.name,
-      description: skill.description,
-      updatedAt: skill.updatedAt,
-      reach: reachFrom(scopes.get(skill.name) ?? null, links.get(skill.name)?.installed ?? false),
-      hasErrors: skill.problems.some((problem) => problem.level === 'error'),
-    })),
-    outside,
-    canReachOutside: canReachOutside(),
+    kind: 'project',
+    workspaceId: location.workspaceId,
+    projectName: project?.name ?? 'A project',
+    cwd: project?.cwd ?? '',
+    isGit: project?.isGit ?? false,
   };
 }
 
-export interface SkillView {
-  name: string;
+function summarize(skill: LocatedSkill, projects: Map<string, ProjectInfo>, uncommitted: boolean): SkillSummary | null {
+  const doc = readSkillAt(skill.dir);
+  if (!doc) return null;
+  return {
+    ref: skill.ref,
+    name: skill.name,
+    location: locationView(skill.location, projects),
+    description: doc.description,
+    updatedAt: doc.updatedAt,
+    editable: skill.linkedFrom === null,
+    linkedFrom: skill.linkedFrom,
+    hasErrors: doc.problems.some((problem) => problem.level === 'error'),
+    uncommitted,
+  };
+}
+
+/** Uncommitted skill names per project, one `git status` per project that has skills. */
+async function uncommittedByProject(skills: LocatedSkill[], projects: ProjectInfo[]): Promise<Map<string, Set<string>>> {
+  const withSkills = new Set(skills.flatMap((s) => (s.location.kind === 'project' ? [s.location.workspaceId] : [])));
+  const entries = await Promise.all(
+    projects
+      .filter((p) => p.isGit && withSkills.has(p.workspaceId))
+      .map(async (p) => [p.workspaceId, await uncommittedSkillNames(p.cwd)] as const),
+  );
+  return new Map(entries);
+}
+
+export async function skillsOverview(): Promise<SkillsOverview> {
+  const projects = listProjects();
+  const byId = new Map(projects.map((p) => [p.workspaceId, p]));
+  const located = listAllSkills();
+  const dirty = await uncommittedByProject(located, projects);
+  const skills = located
+    .map((skill) =>
+      summarize(
+        skill,
+        byId,
+        skill.location.kind === 'project' ? (dirty.get(skill.location.workspaceId)?.has(skill.name) ?? false) : false,
+      ),
+    )
+    .filter((s): s is SkillSummary => s !== null);
+  return { skills, projects, canWriteGlobal: canWriteGlobal() };
+}
+
+export interface SkillView extends SkillSummary {
   dir: string;
   content: string;
   hash: string;
-  updatedAt: string;
-  description: string | null;
   body: string;
   /** Frontmatter keys besides name and description, kept untouched by field edits. */
   otherKeys: string[];
@@ -138,41 +163,53 @@ export interface SkillView {
   frontmatterError: string | null;
   problems: SkillProblem[];
   files: SkillFileEntry[];
-  reach: SkillReach;
-  outside: OutsideLinkState;
-  canReachOutside: boolean;
+  /** For a project skill in a git repo: the branch a commit would land on. */
+  git: { branch: string | null } | null;
+  canWriteGlobal: boolean;
 }
 
-function toView(doc: SkillDocument, reach: SkillReach, outside: OutsideLinkState): SkillView {
+async function viewOf(skill: LocatedSkill): Promise<SkillView> {
+  const doc = requireSkillAt(skill.dir);
+  const projects = new Map(listProjects().map((p) => [p.workspaceId, p]));
+  let uncommitted = false;
+  let git: SkillView['git'] = null;
+  const project = skill.location.kind === 'project' ? projects.get(skill.location.workspaceId) : undefined;
+  if (project && (await isGitRepo(project.cwd))) {
+    uncommitted = (await uncommittedSkillNames(project.cwd)).has(skill.name);
+    git = { branch: await currentBranch(project.cwd) };
+  }
   return {
-    name: doc.name,
+    ref: skill.ref,
+    name: skill.name,
+    location: locationView(skill.location, projects),
+    description: doc.parsed.description,
+    updatedAt: doc.updatedAt,
+    editable: skill.linkedFrom === null,
+    linkedFrom: skill.linkedFrom,
+    hasErrors: doc.problems.some((problem) => problem.level === 'error'),
+    uncommitted,
     dir: doc.dir,
     content: doc.content,
     hash: doc.hash,
-    updatedAt: doc.updatedAt,
-    description: doc.parsed.description,
     body: doc.parsed.body,
     otherKeys: doc.parsed.otherKeys,
     frontmatterError: doc.parsed.frontmatterError,
     problems: doc.problems,
     files: doc.files,
-    reach,
-    outside,
-    canReachOutside: canReachOutside(),
+    git,
+    canWriteGlobal: canWriteGlobal(),
   };
 }
 
-export async function getSkillView(name: string): Promise<SkillView | null> {
-  const doc = readSkill(name);
-  if (!doc) return null;
-  const outside = await outsideLinkState(name);
-  return toView(doc, reachFrom(listSkillScopes().find((row) => row.name === name) ?? null, outside.installed), outside);
+export async function getSkillView(ref: string): Promise<SkillView | null> {
+  const skill = findSkill(ref);
+  return skill ? viewOf(skill) : null;
 }
 
-async function requireView(name: string): Promise<SkillView> {
-  const view = await getSkillView(name);
-  if (!view) throw new SkillError('not_found', `There's no skill named ${name}.`);
-  return view;
+function requireEditable(skill: LocatedSkill): void {
+  if (skill.linkedFrom) {
+    throw new SkillError('invalid', `${skill.name} is linked in from ${skill.linkedFrom}, so edit it there. Or copy it into Ri.`);
+  }
 }
 
 export interface NewSkillInput {
@@ -182,22 +219,24 @@ export interface NewSkillInput {
   intent?: string;
   description?: string;
   body?: string;
+  /** Where it goes. Ri by default: every chat Ri runs gets it. */
+  location?: SkillLocation;
 }
 
-/**
- * Create a skill, off. Nothing gets it until someone turns it on, so a skill
- * being drafted (by hand or by the builder AI) never reaches a running agent
- * half-written.
- */
+/** Create a skill. It's live where it lands, the way a skill folder is anywhere. */
 export async function newSkill(input: NewSkillInput): Promise<SkillView> {
-  const name = input.name?.trim() || suggestSkillName(input.intent ?? '', librarySkillNames());
-  createSkill({ name, description: input.description, body: input.body });
-  setSkillScope(name, []);
-  return requireView(name);
+  const location = input.location ?? RI;
+  const taken = new Set(listSkillsAt(location).map((s) => s.name));
+  const name = input.name?.trim() || suggestSkillName(input.intent ?? '', taken);
+  if (nameTakenAt(location, name)) throw new SkillError('conflict', `A skill named ${name} is already there.`);
+  const dir = newSkillDir(location, name);
+  createSkillAt(dir, { description: input.description, body: input.body });
+  linkMirror(location, dir);
+  return viewOf(requireLocatedSkill(skillRef(location, name)));
 }
 
 export interface SaveSkillInput {
-  /** Rename the skill. Moves the folder, its reach, its links and its chats. */
+  /** Rename the skill (and its slash command), in the same place. */
   newName?: string;
   description?: string;
   body?: string;
@@ -209,7 +248,7 @@ export interface SaveSkillInput {
 
 export interface SaveSkillResult {
   skill: SkillView;
-  /** Set when the save renamed the skill. */
+  /** The skill's ref before the save, when the save renamed it. */
   renamedFrom: string | null;
 }
 
@@ -218,17 +257,18 @@ export interface SaveSkillResult {
  * content carries a new `name:`). A new name is checked before anything is
  * written, so a bad rename changes nothing.
  */
-export async function saveSkill(name: string, input: SaveSkillInput): Promise<SaveSkillResult> {
-  requireSkill(name);
+export async function saveSkill(ref: string, input: SaveSkillInput): Promise<SaveSkillResult> {
+  const skill = requireLocatedSkill(ref);
+  requireEditable(skill);
   let target = input.newName?.trim() || null;
   if (target === null && input.content !== undefined) {
     const parsed = parseSkillFile(input.content);
-    if (parsed.frontmatterError === null && parsed.name && parsed.name !== name) target = parsed.name;
+    if (parsed.frontmatterError === null && parsed.name && parsed.name !== skill.name) target = parsed.name;
   }
-  if (target !== null && target !== name) {
+  if (target !== null && target !== skill.name) {
     const problem = nameProblem(target);
     if (problem) throw new SkillError('invalid', problem);
-    if (skillExists(target)) throw new SkillError('conflict', `A skill named ${target} already exists.`);
+    if (nameTakenAt(skill.location, target)) throw new SkillError('conflict', `A skill named ${target} is already there.`);
   } else {
     target = null;
   }
@@ -237,107 +277,91 @@ export async function saveSkill(name: string, input: SaveSkillInput): Promise<Sa
   if (input.description !== undefined) fields.description = input.description;
   if (input.body !== undefined) fields.body = input.body;
   const hasFields = fields.description !== undefined || fields.body !== undefined;
-  writeSkill(name, {
+  writeSkillAt(skill.dir, {
     ...(input.content !== undefined ? { content: input.content } : hasFields ? { fields } : {}),
     files: input.files,
     baseHash: input.baseHash ?? null,
   });
 
-  if (target === null) return { skill: await requireView(name), renamedFrom: null };
-  await renameSkill(name, target);
-  return { skill: await requireView(target), renamedFrom: name };
+  if (target === null) return { skill: await viewOf(skill), renamedFrom: null };
+  const renamed = await renameSkill(ref, target);
+  return { skill: renamed, renamedFrom: skill.ref };
+}
+
+/** Carry a skill's builder and try chats to its new ref, and restart them once their turn ends. */
+async function followChats(fromRef: string, toRef: string): Promise<void> {
+  const legacy = parseSkillRef(fromRef)?.location.kind === 'ri' ? parseSkillRef(fromRef)!.name : null;
+  renameSkillChats([fromRef, ...(legacy ? [legacy] : [])], toRef);
+  const control = await sessionControl();
+  await Promise.all(listSkillChats(toRef).map((chat) => control.recycleWhenIdle(chat.id).catch(() => {})));
+}
+
+/** Rename a skill where it is: its folder, `name:`, its `.agents/skills` link and its chats. */
+export async function renameSkill(ref: string, newName: string): Promise<SkillView> {
+  const skill = requireLocatedSkill(ref);
+  requireEditable(skill);
+  if (newName === skill.name) return viewOf(skill);
+  if (nameTakenAt(skill.location, newName)) throw new SkillError('conflict', `A skill named ${newName} is already there.`);
+  unlinkMirror(skill.location, skill.dir);
+  const moved = moveSkillFolder(skill.dir, path.join(path.dirname(skill.dir), newName));
+  linkMirror(skill.location, moved.dir);
+  const toRef = skillRef(skill.location, newName);
+  await followChats(skill.ref, toRef);
+  return viewOf(requireLocatedSkill(toRef));
 }
 
 /**
- * Rename a skill everywhere it lives: the folder (and `name:`), its reach
- * row, its builder and try chats, its outside links, and the links Codex
- * left under the old name. Live builder and try chats restart once their
- * current turn ends (the builder AI may be mid-turn, renaming it), so the
- * next message gets a brief with the new name.
+ * Move a skill to another place (Ri, global, a project), or copy it there
+ * and leave the original, which is how a skill is shared with a project's
+ * team. Keeps the name. Refuses if the name is taken there.
  */
-export async function renameSkill(from: string, to: string): Promise<SkillView> {
-  if (from === to) return requireView(from);
-  const wasOutside = (await outsideLinkState(from)).installed;
-  // Links point at the old folder path, so they come down while it's still the source.
-  await removeOutside(from);
-  await removeSessionLinks([from]);
-  renameSkillFolder(from, to);
-  renameSkillRecords(from, to);
-  if (wasOutside) await installOutside(to);
-  await restartSkillChats(to);
-  return requireView(to);
-}
-
-async function restartSkillChats(name: string): Promise<void> {
-  const control = await sessionControl();
-  await Promise.all(listSkillChats(name).map((chat) => control.recycleWhenIdle(chat.id).catch(() => {})));
-}
-
-/** Change where a skill reaches, then restart the live sessions the change affects. */
-export async function changeSkillReach(name: string, next: SkillReach): Promise<SkillView> {
-  const before = await getSkillReach(name);
-  const after = await setSkillReach(name, next);
-  await recycleForReachChange(before, after);
-  return requireView(name);
-}
-
-/**
- * A harness reads its skill list when its session starts, so a reach change
- * restarts the sessions it touches (the next message resumes the same chat).
- * An agent-list change touches only the agents added or removed. A change
- * between some agents (or none) and every agent touches every agent's
- * sessions and the app's main chat, the same way a global reference folder
- * does.
- */
-async function recycleForReachChange(before: SkillReach, after: SkillReach): Promise<void> {
-  const control = await sessionControl();
-  const ids = (reach: SkillReach) => (reach.mode === 'agents' ? reach.workspaceIds : []);
-  const scoped = (reach: SkillReach) => reach.mode === 'agents' || reach.mode === 'off';
-  try {
-    if (scoped(before) && scoped(after)) {
-      const a = new Set(ids(before));
-      const b = new Set(ids(after));
-      const changed = [...a, ...b].filter((id) => a.has(id) !== b.has(id) && getWorkspace(id));
-      await Promise.all(changed.map((id) => control.recycleWorkspaceSessions(id)));
-      return;
-    }
-    // Every agent had it before and has it now (in Ri, "everywhere" is still
-    // every agent), so no session sees a difference.
-    const everyAgent = (reach: SkillReach) => reach.mode === 'all' || reach.mode === 'everywhere';
-    if (everyAgent(before) && everyAgent(after)) return;
-    await control.recycleEveryAgentSession({ includeAppMainChat: true });
-  } catch (err) {
-    // The reach change stands. Sessions pick it up when they next start.
-    console.warn('[skills] could not restart sessions after a reach change:', err);
+export async function moveSkill(ref: string, to: SkillLocation, opts: { copy?: boolean } = {}): Promise<SkillView> {
+  const skill = requireLocatedSkill(ref);
+  if (sameLocation(skill.location, to)) {
+    throw new SkillError('invalid', `${skill.name} is already there.`);
   }
+  if (!opts.copy) requireEditable(skill);
+  if (nameTakenAt(to, skill.name)) {
+    throw new SkillError('conflict', `There's already a skill named ${skill.name} there. Rename one of them first.`);
+  }
+  const dir = newSkillDir(to, skill.name);
+  if (opts.copy) {
+    copySkillFolder(skill.dir, dir);
+  } else {
+    unlinkMirror(skill.location, skill.dir);
+    moveSkillFolder(skill.dir, dir);
+  }
+  linkMirror(to, dir);
+  const toRef = skillRef(to, skill.name);
+  if (!opts.copy) await followChats(skill.ref, toRef);
+  return viewOf(requireLocatedSkill(toRef));
 }
 
 /**
  * Move a skill to `<app-root>/.archive/skills/`, where the home backup keeps
- * it: its links come down, its reach row goes, its builder and try chats are
- * archived. Returns where the folder went.
+ * it, and archive its builder and try chats. Returns where the folder went.
  */
-export async function archiveSkill(name: string): Promise<{ archivedTo: string }> {
-  requireSkill(name);
-  const reach = await getSkillReach(name);
-  await removeOutside(name);
-  await removeSessionLinks([name]);
-  const archivedTo = archiveSkillFolder(name);
-  clearSkillScope(name);
+export async function archiveSkill(ref: string): Promise<{ archivedTo: string }> {
+  const skill = requireLocatedSkill(ref);
+  requireEditable(skill);
+  unlinkMirror(skill.location, skill.dir);
+  const label = skill.location.kind === 'project' ? `project-${skill.name}` : `${skill.location.kind}-${skill.name}`;
+  const archivedTo = archiveFolder(skill.dir, 'skills', label);
   const control = await sessionControl();
-  for (const chat of listSkillChats(name)) {
+  for (const chat of listSkillChats(skill.ref)) {
     await control.close(chat.id).catch(() => {});
     archiveChatSession(chat.id);
   }
-  if (reach.mode !== 'off') await recycleForReachChange(reach, { mode: 'off' });
   return { archivedTo };
 }
 
-/** Import a skill from ~/.claude/skills or ~/.agents/skills. It stays on everywhere, as it was. */
-export async function importSkill(name: string): Promise<SkillView> {
-  await importOutsideSkill(name);
-  clearSkillScope(name);
-  return requireView(name);
+/** Commit a project skill's files in its repo, and only them. */
+export async function commitSkill(ref: string): Promise<{ skill: SkillView; commit: SkillCommit }> {
+  const skill = requireLocatedSkill(ref);
+  const where = projectPaths(skill);
+  if (!where) throw new SkillError('invalid', 'Only a project skill lives in a repo.');
+  const commit = await commitSkillPaths(where.cwd, skill.name, where.paths);
+  return { skill: await viewOf(skill), commit };
 }
 
 export { SkillError };

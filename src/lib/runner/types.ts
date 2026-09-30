@@ -69,12 +69,12 @@ export interface SessionSpec {
   /** Whether the user's skill folders are attached. */
   attachUserSkills: boolean;
   /**
-   * Library skills this chat must not get: off, limited to other agents, or
-   * the skill a builder chat is writing. The home decides, since the runner
-   * may be on a device without the database (src/lib/skills/reach.ts). A
-   * runner that predates it attaches every library skill, as before.
+   * Ri skills (by name) this chat must not get: the one a builder chat is
+   * writing. The home decides (src/lib/skills/exclusions.ts).
    */
   excludeSkills?: string[];
+  /** Skill folders to attach on top of the usual ones: the project skill a try chat tries. */
+  extraSkillDirs?: string[];
   /** Remove skill links a past build left in the working folder. */
   cleanLegacySkillLinks: boolean;
 }

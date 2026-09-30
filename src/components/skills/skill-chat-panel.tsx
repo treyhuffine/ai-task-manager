@@ -29,9 +29,7 @@ function tryIntro(skill: SkillView): MainChatIntro {
   return {
     title: 'Try it the way you’d use it',
     description:
-      skill.reach.mode === 'off'
-        ? `This chat has ${skill.name} even though it’s off. Ask for something it should handle, in your own words, and watch whether the agent picks it up.`
-        : `Ask for something ${skill.name} should handle, in your own words, and watch whether the agent picks it up.`,
+      `This chat has ${skill.name}. Ask for something it should handle, in your own words, and watch whether the agent picks it up.`,
     starters: [{ label: 'Ask something it should handle', prompt: '', draft: true }],
   };
 }
@@ -44,14 +42,17 @@ const TABS: Array<{ kind: SkillChatKind; label: string }> = [
 /**
  * The skill builder's chat side. Build is the chat that writes the skill
  * with you (briefed on it, see src/lib/skills/builder-brief.ts). Try it is
- * an ordinary chat that has the skill attached, even while it's off, so you
+ * an ordinary chat that has the skill attached, wherever it lives, so you
  * can see whether an agent reaches for it. Each tab keeps its own thread.
  */
 export function SkillChatPanel({ skill }: { skill: SkillView }) {
-  const [tab, setTab] = useState<SkillChatKind>('build');
-  const [visited, setVisited] = useState<Set<SkillChatKind>>(() => new Set(['build']));
-  const build = useSkillChat(skill.name, 'build');
-  const tryChat = useSkillChat(skill.name, 'try', { enabled: visited.has('try') });
+  // A skill linked in from elsewhere is edited where it lives, so it can
+  // only be tried here.
+  const tabs = skill.editable ? TABS : TABS.filter((t) => t.kind === 'try');
+  const [tab, setTab] = useState<SkillChatKind>(tabs[0].kind);
+  const [visited, setVisited] = useState<Set<SkillChatKind>>(() => new Set([tabs[0].kind]));
+  const build = useSkillChat(skill.ref, 'build', { enabled: skill.editable });
+  const tryChat = useSkillChat(skill.ref, 'try', { enabled: visited.has('try') });
   const chats = { build, try: tryChat };
   const active = chats[tab];
 
@@ -64,7 +65,7 @@ export function SkillChatPanel({ skill }: { skill: SkillView }) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-1">
         <div role="tablist" aria-label="Build or try" className="flex items-center gap-0.5">
-          {TABS.map(({ kind, label }) => (
+          {tabs.map(({ kind, label }) => (
             <button
               key={kind}
               role="tab"
@@ -94,7 +95,7 @@ export function SkillChatPanel({ skill }: { skill: SkillView }) {
         </button>
       </div>
 
-      {TABS.filter(({ kind }) => visited.has(kind)).map(({ kind }) => {
+      {tabs.filter(({ kind }) => visited.has(kind)).map(({ kind }) => {
         const chat = chats[kind];
         return (
           <div key={kind} inert={tab !== kind} className={cn('min-h-0 flex-1 flex-col', tab === kind ? 'flex' : 'hidden')}>

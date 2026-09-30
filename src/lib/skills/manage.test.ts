@@ -1,15 +1,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import * as q from '@/lib/db/queries';
-import { skillDir } from './library';
 import {
   archiveSkill,
-  changeSkillReach,
+  commitSkill,
   getSkillView,
-  importSkill,
+  moveSkill,
   newSkill,
   saveSkill,
   setSkillSessionControlForTests,
@@ -18,45 +18,67 @@ import {
 
 let home: TestHome;
 let userHome: string;
-let savedHome: string | undefined;
+let repo: string;
+let savedEnv: Record<string, string | undefined>;
+let wsId: string;
+const IDENTITY = { GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 't@e.co', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 't@e.co' };
 const control = {
   close: vi.fn<(chatSessionId: string) => Promise<{ closed: boolean }>>(async () => ({ closed: true })),
   recycleWhenIdle: vi.fn<(chatSessionId: string) => Promise<void>>(async () => {}),
-  recycleWorkspaceSessions: vi.fn<(workspaceId: string) => Promise<void>>(async () => {}),
-  recycleEveryAgentSession: vi.fn<(opts: { includeAppMainChat?: boolean }) => Promise<void>>(async () => {}),
 };
 
 beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-skill-manage-' });
   userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-skill-manage-home-'));
-  savedHome = process.env.HOME;
+  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-skill-manage-repo-'));
+  savedEnv = { HOME: process.env.HOME, ...Object.fromEntries(Object.keys(IDENTITY).map((k) => [k, process.env[k]])) };
   process.env.HOME = userHome;
+  Object.assign(process.env, IDENTITY);
+  execFileSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: repo });
+  fs.writeFileSync(path.join(repo, 'README.md'), 'hi\n');
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  execFileSync('git', ['commit', '--quiet', '-m', 'init'], { cwd: repo });
+  wsId = q.createWorkspace({ name: 'Blog', cwd: repo, isGit: true, filesToCopy: [], status: 'active' }).id;
   for (const spy of Object.values(control)) spy.mockClear();
   setSkillSessionControlForTests(control);
 });
 
 afterEach(async () => {
   setSkillSessionControlForTests(null);
-  process.env.HOME = savedHome;
+  for (const [k, v] of Object.entries(savedEnv)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
   fs.rmSync(userHome, { recursive: true, force: true });
+  fs.rmSync(repo, { recursive: true, force: true });
   await home.cleanup();
 });
 
-function skillChat(name: string, kind: 'skill' | 'skill-try') {
-  return q.createChatSession({ type: 'content', harness: 'claude', surfaceKind: kind, surfaceRef: name, status: 'active' });
+function skillChat(ref: string, kind: 'skill' | 'skill-try') {
+  return q.createChatSession({ type: 'content', harness: 'claude', surfaceKind: kind, surfaceRef: ref, status: 'active' });
 }
 
 describe('newSkill', () => {
-  it('starts off, named from what it should do', async () => {
+  it('goes in Ri by default, named from what it should do', async () => {
     const skill = await newSkill({ intent: 'Triage my Gmail inbox every morning' });
-    expect(skill.name).toBe('triage-gmail-inbox-morning');
-    expect(skill.reach).toEqual({ mode: 'off' });
-    expect(skill.problems.map((p) => p.field)).toContain('description');
+    expect(skill.ref).toBe('ri:triage-gmail-inbox-morning');
+    expect(skill.dir).toBe(path.join(home.root, 'skills', 'triage-gmail-inbox-morning'));
+    expect(skill.location).toEqual({ kind: 'ri' });
   });
 
-  it('never reuses a taken name', async () => {
+  it('never reuses a taken name in the same place', async () => {
     await newSkill({ intent: 'triage inbox' });
     expect((await newSkill({ intent: 'triage inbox' })).name).toBe('triage-inbox-2');
+  });
+
+  it('can go global or in a project, linked for every harness', async () => {
+    const global = await newSkill({ name: 'mine', location: { kind: 'global' } });
+    expect(global.dir).toBe(path.join(userHome, '.claude', 'skills', 'mine'));
+    expect(fs.readlinkSync(path.join(userHome, '.agents', 'skills', 'mine'))).toBe(global.dir);
+    const project = await newSkill({ name: 'deploy', description: 'Deploys.', location: { kind: 'project', workspaceId: wsId } });
+    expect(project.location).toMatchObject({ kind: 'project', projectName: 'Blog', isGit: true });
+    expect(project.uncommitted).toBe(true);
+    expect(project.git).toEqual({ branch: 'main' });
   });
 });
 
@@ -66,118 +88,138 @@ describe('saveSkill', () => {
   });
 
   it('saves fields and reports no rename', async () => {
-    const { skill, renamedFrom } = await saveSkill('draft', { body: 'New.\n' });
+    const { skill, renamedFrom } = await saveSkill('ri:draft', { body: 'New.\n' });
     expect(skill.body).toBe('New.\n');
     expect(renamedFrom).toBeNull();
   });
 
-  it('renames the folder, its reach, its chats and restarts those chats after their turn', async () => {
-    const build = skillChat('draft', 'skill');
-    const tryChat = skillChat('draft', 'skill-try');
-    const { skill, renamedFrom } = await saveSkill('draft', { newName: 'draft-replies', description: 'Drafts email replies.' });
-    expect(renamedFrom).toBe('draft');
-    expect(skill.name).toBe('draft-replies');
+  it('renames the folder and its chats, and restarts those chats after their turn', async () => {
+    const build = skillChat('ri:draft', 'skill');
+    const legacy = skillChat('draft', 'skill-try');
+    const { skill, renamedFrom } = await saveSkill('ri:draft', { newName: 'draft-replies', description: 'Drafts email replies.' });
+    expect(renamedFrom).toBe('ri:draft');
+    expect(skill.ref).toBe('ri:draft-replies');
     expect(skill.description).toBe('Drafts email replies.');
-    expect(skill.reach).toEqual({ mode: 'off' });
-    expect(q.getSkillScope('draft')).toBeNull();
-    expect(q.getChatSession(build.id)?.surfaceRef).toBe('draft-replies');
-    expect(q.getChatSession(tryChat.id)?.surfaceRef).toBe('draft-replies');
+    expect(q.getChatSession(build.id)?.surfaceRef).toBe('ri:draft-replies');
+    expect(q.getChatSession(legacy.id)?.surfaceRef).toBe('ri:draft-replies');
     expect(control.recycleWhenIdle).toHaveBeenCalledWith(build.id);
-    expect(control.recycleWhenIdle).toHaveBeenCalledWith(tryChat.id);
     expect(control.close).not.toHaveBeenCalled();
   });
 
   it('follows a new name: line in whole-file content', async () => {
-    const { skill, renamedFrom } = await saveSkill('draft', {
+    const { skill, renamedFrom } = await saveSkill('ri:draft', {
       content: '---\nname: reply-drafter\ndescription: Drafts replies.\n---\nBody.\n',
     });
-    expect(renamedFrom).toBe('draft');
-    expect(skill.name).toBe('reply-drafter');
-    expect(await getSkillView('draft')).toBeNull();
+    expect(renamedFrom).toBe('ri:draft');
+    expect(skill.ref).toBe('ri:reply-drafter');
+    expect(await getSkillView('ri:draft')).toBeNull();
   });
 
   it('checks a new name before writing anything', async () => {
     await newSkill({ name: 'taken', description: 'Taken.' });
-    await expect(saveSkill('draft', { newName: 'taken', body: 'Lost?\n' })).rejects.toMatchObject({ code: 'conflict' });
-    await expect(saveSkill('draft', { newName: 'Bad Name', body: 'Lost?\n' })).rejects.toMatchObject({ code: 'invalid' });
-    expect((await getSkillView('draft'))?.body).toBe('Old.\n');
+    await expect(saveSkill('ri:draft', { newName: 'taken', body: 'Lost?\n' })).rejects.toMatchObject({ code: 'conflict' });
+    await expect(saveSkill('ri:draft', { newName: 'Bad Name', body: 'Lost?\n' })).rejects.toMatchObject({ code: 'invalid' });
+    expect((await getSkillView('ri:draft'))?.body).toBe('Old.\n');
   });
 
-  it('moves outside links with a rename', async () => {
-    await changeSkillReach('draft', { mode: 'everywhere' });
-    await saveSkill('draft', { newName: 'draft-replies' });
-    const link = path.join(userHome, '.claude', 'skills', 'draft-replies');
-    expect(fs.readlinkSync(link)).toBe(skillDir('draft-replies'));
-    expect(fs.existsSync(path.join(userHome, '.claude', 'skills', 'draft'))).toBe(false);
-    expect((await getSkillView('draft-replies'))?.reach).toEqual({ mode: 'everywhere' });
+  it('moves the .agents/skills link with a rename in a project', async () => {
+    await newSkill({ name: 'deploy', location: { kind: 'project', workspaceId: wsId } });
+    await saveSkill(`project:${wsId}:deploy`, { newName: 'ship' });
+    expect(fs.readlinkSync(path.join(repo, '.agents', 'skills', 'ship'))).toBe(path.join('..', '..', '.claude', 'skills', 'ship'));
+    expect(fs.existsSync(path.join(repo, '.agents', 'skills', 'deploy'))).toBe(false);
+  });
+
+  it("won't edit a skill another tool links in", async () => {
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-skill-elsewhere-'));
+    fs.mkdirSync(path.join(elsewhere, 'theirs'));
+    fs.writeFileSync(path.join(elsewhere, 'theirs', 'SKILL.md'), '---\nname: theirs\ndescription: T.\n---\n');
+    fs.mkdirSync(path.join(userHome, '.claude', 'skills'), { recursive: true });
+    fs.symlinkSync(path.join(elsewhere, 'theirs'), path.join(userHome, '.claude', 'skills', 'theirs'));
+    try {
+      expect((await getSkillView('global:theirs'))?.editable).toBe(false);
+      await expect(saveSkill('global:theirs', { body: 'x' })).rejects.toMatchObject({ code: 'invalid' });
+      const copy = await moveSkill('global:theirs', { kind: 'ri' }, { copy: true });
+      expect(copy.editable).toBe(true);
+    } finally {
+      fs.rmSync(elsewhere, { recursive: true, force: true });
+    }
   });
 });
 
-describe('changeSkillReach', () => {
-  let wsA: string;
-  let wsB: string;
-
-  beforeEach(async () => {
-    wsA = q.createWorkspace({ name: 'A', cwd: path.join(home.root, 'a'), isGit: false, filesToCopy: [], status: 'active' }).id;
-    wsB = q.createWorkspace({ name: 'B', cwd: path.join(home.root, 'b'), isGit: false, filesToCopy: [], status: 'active' }).id;
+describe('moveSkill', () => {
+  it('moves between Ri and global, carrying its chats and links', async () => {
     await newSkill({ name: 'triage', description: 'Triage.', body: 'Steps.\n' });
+    const build = skillChat('ri:triage', 'skill');
+    const global = await moveSkill('ri:triage', { kind: 'global' });
+    expect(global.ref).toBe('global:triage');
+    expect(fs.existsSync(path.join(home.root, 'skills', 'triage'))).toBe(false);
+    expect(fs.readlinkSync(path.join(userHome, '.agents', 'skills', 'triage'))).toBe(global.dir);
+    expect(q.getChatSession(build.id)?.surfaceRef).toBe('global:triage');
+
+    const back = await moveSkill('global:triage', { kind: 'ri' });
+    expect(back.ref).toBe('ri:triage');
+    expect(fs.existsSync(path.join(userHome, '.agents', 'skills', 'triage'))).toBe(false);
   });
 
-  it('restarts only the agents added or removed', async () => {
-    await changeSkillReach('triage', { mode: 'agents', workspaceIds: [wsA] });
-    expect(control.recycleWorkspaceSessions.mock.calls).toEqual([[wsA]]);
-    control.recycleWorkspaceSessions.mockClear();
-    await changeSkillReach('triage', { mode: 'agents', workspaceIds: [wsB] });
-    expect(control.recycleWorkspaceSessions.mock.calls.map(([id]) => id).sort()).toEqual([wsA, wsB].sort());
-    expect(control.recycleEveryAgentSession).not.toHaveBeenCalled();
+  it('shares with a project by copying, and leaves the original', async () => {
+    await newSkill({ name: 'review', description: 'Review.', body: 'Steps.\n' });
+    const copy = await moveSkill('ri:review', { kind: 'project', workspaceId: wsId }, { copy: true });
+    expect(copy.ref).toBe(`project:${wsId}:review`);
+    expect(copy.uncommitted).toBe(true);
+    expect(await getSkillView('ri:review')).not.toBeNull();
   });
 
-  it('restarts every agent and the main chat when every agent is involved', async () => {
-    await changeSkillReach('triage', { mode: 'all' });
-    expect(control.recycleEveryAgentSession).toHaveBeenCalledWith({ includeAppMainChat: true });
+  it('refuses a taken name or the same place', async () => {
+    await newSkill({ name: 'dupe', description: 'D.' });
+    await newSkill({ name: 'dupe', description: 'D.', location: { kind: 'global' } });
+    await expect(moveSkill('ri:dupe', { kind: 'global' })).rejects.toMatchObject({ code: 'conflict' });
+    await expect(moveSkill('ri:dupe', { kind: 'ri' })).rejects.toMatchObject({ code: 'invalid' });
+  });
+});
+
+describe('commitSkill', () => {
+  it("commits a project skill's files and nothing else", async () => {
+    await newSkill({ name: 'deploy', description: 'Deploys.', location: { kind: 'project', workspaceId: wsId } });
+    fs.writeFileSync(path.join(repo, 'unrelated.txt'), 'x');
+    const { skill, commit } = await commitSkill(`project:${wsId}:deploy`);
+    expect(commit.message).toBe('Add the deploy skill');
+    expect(skill.uncommitted).toBe(false);
+    const status = execFileSync('git', ['status', '--porcelain'], { cwd: repo }).toString().trim();
+    expect(status).toBe('?? unrelated.txt');
   });
 
-  it('restarts nothing between every agent and everywhere', async () => {
-    await changeSkillReach('triage', { mode: 'all' });
-    control.recycleEveryAgentSession.mockClear();
-    await changeSkillReach('triage', { mode: 'everywhere' });
-    await changeSkillReach('triage', { mode: 'all' });
-    expect(control.recycleEveryAgentSession).not.toHaveBeenCalled();
+  it('only commits project skills', async () => {
+    await newSkill({ name: 'ri-one', description: 'D.' });
+    await expect(commitSkill('ri:ri-one')).rejects.toMatchObject({ code: 'invalid' });
   });
 });
 
 describe('archiveSkill', () => {
-  it('archives the folder, drops its reach and links, and archives its chats', async () => {
-    await newSkill({ name: 'gone', description: 'Gone.', body: 'x\n' });
-    await changeSkillReach('gone', { mode: 'everywhere' });
-    const build = skillChat('gone', 'skill');
-    const { archivedTo } = await archiveSkill('gone');
-    expect(archivedTo.startsWith(path.join(home.root, '.archive', 'skills'))).toBe(true);
+  it('archives the folder, drops its link, and archives its chats', async () => {
+    await newSkill({ name: 'gone', description: 'Gone.', location: { kind: 'global' } });
+    const build = skillChat('global:gone', 'skill');
+    const { archivedTo } = await archiveSkill('global:gone');
+    expect(archivedTo.startsWith(path.join(home.root, '.archive', 'skills', 'global-gone-'))).toBe(true);
     expect(fs.existsSync(path.join(archivedTo, 'SKILL.md'))).toBe(true);
-    expect(await getSkillView('gone')).toBeNull();
-    expect(q.getSkillScope('gone')).toBeNull();
-    expect(fs.existsSync(path.join(userHome, '.claude', 'skills', 'gone'))).toBe(false);
+    expect(await getSkillView('global:gone')).toBeNull();
+    expect(fs.existsSync(path.join(userHome, '.agents', 'skills', 'gone'))).toBe(false);
     expect(q.getChatSession(build.id)?.status).toBe('archived');
     expect(control.close).toHaveBeenCalledWith(build.id);
   });
 });
 
-describe('skillsOverview and importSkill', () => {
-  it('lists library skills with their reach, and brings an outside skill in on everywhere', async () => {
-    await newSkill({ name: 'drafting', description: 'Drafting.' });
-    const theirs = path.join(userHome, '.claude', 'skills', 'implementing-specs');
-    fs.mkdirSync(theirs, { recursive: true });
-    fs.writeFileSync(path.join(theirs, 'SKILL.md'), '---\nname: implementing-specs\ndescription: Specs.\n---\nBody\n');
-
-    const before = await skillsOverview();
-    expect(before.skills).toEqual([expect.objectContaining({ name: 'drafting', reach: { mode: 'off' }, hasErrors: false })]);
-    expect(before.outside.map((s) => s.name)).toEqual(['implementing-specs']);
-    expect(before.canReachOutside).toBe(true);
-
-    const imported = await importSkill('implementing-specs');
-    expect(imported.reach).toEqual({ mode: 'everywhere' });
-    const after = await skillsOverview();
-    expect(after.outside).toEqual([]);
-    expect(after.skills.map((s) => s.name)).toEqual(['drafting', 'implementing-specs']);
+describe('skillsOverview', () => {
+  it('lists every place, marks uncommitted project skills, and offers the projects', async () => {
+    await newSkill({ name: 'a', description: 'A.' });
+    await newSkill({ name: 'b', description: 'B.', location: { kind: 'global' } });
+    await newSkill({ name: 'c', description: 'C.', location: { kind: 'project', workspaceId: wsId } });
+    const overview = await skillsOverview();
+    expect(overview.skills.map((s) => [s.ref, s.uncommitted])).toEqual([
+      ['ri:a', false],
+      ['global:b', false],
+      [`project:${wsId}:c`, true],
+    ]);
+    expect(overview.projects).toEqual([{ workspaceId: wsId, name: 'Blog', cwd: repo, isGit: true }]);
+    expect(overview.canWriteGlobal).toBe(true);
   });
 });

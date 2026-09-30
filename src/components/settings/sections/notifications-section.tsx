@@ -442,14 +442,14 @@ export function NotificationsSection() {
             {telegramConns.length === 0 ? (
               <div className="space-y-3">
                 <p className="text-xs leading-normal text-muted-foreground">
-                  First connect a Telegram bot in Connectors, then come back here to pick a chat.
+                  First connect a Telegram bot in Plugins, then come back here to pick a chat.
                 </p>
                 <Button
                   variant="outline"
                   className="w-full justify-center text-xs font-semibold"
-                  onClick={() => setSettingsSection('connectors')}
+                  onClick={() => setSettingsSection('plugins')}
                 >
-                  Go to Connectors
+                  Go to Plugins
                 </Button>
               </div>
             ) : (

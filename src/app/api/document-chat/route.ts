@@ -11,7 +11,7 @@ import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 import { isHarnessId } from '@/lib/harness/registry';
 import { withCompression } from '@/lib/api/compression';
-import { skillExists } from '@/lib/skills/library';
+import { findSkill } from '@/lib/skills/locations';
 
 /** Optional per-chat provider/model override (the composer's "switch provider"). */
 interface ChatOverride {
@@ -63,8 +63,8 @@ function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: u
  * What a focused chat can be about. Besides a task or note, a skill has two
  * (docs/skills.md): its builder chat ('skill', briefed to write the skill,
  * see src/lib/skills/builder-brief.ts) and its try chat ('skill-try', an
- * ordinary chat that gets the skill even while it's off). For both, the id
- * is the skill's name.
+ * ordinary chat that gets the skill, wherever it lives). For both, the id
+ * is the skill's ref (src/lib/skills/locations.ts).
  */
 const SURFACE_KINDS = ['task', 'note', 'skill', 'skill-try'] as const;
 type SurfaceKind = (typeof SURFACE_KINDS)[number];
@@ -89,8 +89,8 @@ function parseEntity(source: { entityType?: unknown; entityId?: unknown }): Enti
 /** A skill chat needs its skill. Tasks and notes are checked by the chat's own reads. */
 function missingSkill(ref: EntityRef): Response | null {
   if (ref.entityType !== 'skill' && ref.entityType !== 'skill-try') return null;
-  if (skillExists(ref.entityId)) return null;
-  return Response.json({ error: `There's no skill named ${ref.entityId}.` }, { status: 404 });
+  if (findSkill(ref.entityId)) return null;
+  return Response.json({ error: "There's no such skill." }, { status: 404 });
 }
 
 const BAD_ENTITY = 'entityType (task|note|skill|skill-try) and entityId are required';

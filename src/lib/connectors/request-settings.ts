@@ -4,7 +4,7 @@
  */
 import { readAuthConfig, writeAuthConfig } from '@/lib/auth/config-file';
 
-/** On unless the user turned it off in Settings, Connectors. */
+/** On unless the user turned it off in Settings, Plugins. */
 export function connectorRequestsEnabled(): boolean {
   return readAuthConfig()?.connectorRequestsEnabled !== false;
 }

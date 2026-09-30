@@ -15,7 +15,7 @@ export const executionView = (id: string): ActiveView => ({ kind: 'execution', i
 export const agentView = (id: string, tab?: AgentTab): ActiveView =>
   tab ? { kind: 'agent', id, tab } : { kind: 'agent', id };
 
-export const skillView = (name: string): ActiveView => ({ kind: 'skill', name });
+export const skillView = (ref: string): ActiveView => ({ kind: 'skill', ref });
 
 export function isAgentTab(value: unknown): value is AgentTab {
   return typeof value === 'string' && (AGENT_TABS as readonly string[]).includes(value);
@@ -42,7 +42,7 @@ export function applyViewToSearchParams(params: URLSearchParams, view: ActiveVie
   params.delete('tab');
   params.delete('skill');
   if (view.kind === 'execution') params.set('session', view.id);
-  if (view.kind === 'skill') params.set('skill', view.name);
+  if (view.kind === 'skill') params.set('skill', view.ref);
   if (view.kind === 'agent') {
     params.set('agent', view.id);
     if (view.tab) params.set('tab', view.tab);
@@ -60,7 +60,7 @@ export function viewKey(view: ActiveView): string {
     case 'agent':
       return `agent:${view.id}:${view.tab ?? ''}`;
     case 'skill':
-      return `skill:${view.name}`;
+      return `skill:${view.ref}`;
   }
 }
 

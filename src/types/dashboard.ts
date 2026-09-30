@@ -9,13 +9,13 @@ export const AGENT_TABS: readonly AgentTab[] = ['overview', 'files', 'terminal',
  * view (a workspace, with an optional tools tab), an execution, or a
  * skill's builder (docs/skills.md). The URL carries it: nothing for Home,
  * `?agent=<workspaceId>&tab=<tab>`, `?session=<chatSessionId>`, or
- * `?skill=<name>`. Helpers live in `src/lib/client/active-view.ts`.
+ * `?skill=<ref>`. Helpers live in `src/lib/client/active-view.ts`.
  */
 export type ActiveView =
   | { kind: 'home' }
   | { kind: 'agent'; id: string; tab?: AgentTab }
   | { kind: 'execution'; id: string }
-  | { kind: 'skill'; name: string };
+  | { kind: 'skill'; ref: string };
 
 export type PanelTab = 'deck' | 'chat' | 'tasks' | 'stream' | 'notes';
 export type MorePanelTab = 'areas' | 'people' | 'decisions' | 'calendar';

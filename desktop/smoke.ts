@@ -155,7 +155,7 @@ try {
   assert.equal((await fetch(`${redirect}?state=wrong&code=wrong`)).status, 400);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
   assert.equal((await fetch(connect.authUrl)).status, 200);
-  await page.waitForURL((url) => url.pathname === '/' && url.searchParams.get('settings') === 'connectors', { timeout: 60_000 });
+  await page.waitForURL((url) => url.pathname === '/' && url.searchParams.get('settings') === 'plugins', { timeout: 60_000 });
   await page.locator('p').filter({ hasText: /^Connected$/ }).waitFor({ timeout: 60_000 });
   assert.equal(oauthFixture.exchanges, 1);
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMinimized()), false);
