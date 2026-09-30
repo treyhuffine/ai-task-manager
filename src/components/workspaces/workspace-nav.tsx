@@ -25,6 +25,8 @@ import { cn } from '@/lib/utils';
 import type { WorkspaceWithCounts } from '@/db/types';
 import { NeedsReviewSection } from './needs-review-section';
 import { WorkspaceRow } from './workspace-row';
+import { AgentRailRow } from './agent-rail-row';
+import { useRailStyle } from '@/lib/client/rail-style';
 import { WorkspaceCreateModal } from './workspace-create-modal';
 import { useBulkArchiveSessions } from '@/hooks/use-workspaces';
 import { startExecution } from '@/lib/executions/start-execution';
@@ -54,6 +56,8 @@ export function WorkspaceNav() {
 
 function WorkspaceNavInner() {
   const { data: workspaces, isLoading } = useWorkspaces({ status: 'active' });
+  // Agents first, or the classic rows (docs/rail-agents-first.md).
+  const { style: railStyle } = useRailStyle();
   const reorder = useReorderWorkspaces();
   const qc = useQueryClient();
 
@@ -217,7 +221,7 @@ function WorkspaceNavInner() {
         </div>
       </div>
 
-      <div className="px-1 space-y-0.5">
+      <div className={cn('px-1', railStyle === 'agents' ? 'space-y-1' : 'space-y-0.5')}>
         {isLoading && (
           <div className="flex flex-col gap-1 pt-1">
             <WorkspaceHeaderSkeleton />
@@ -231,15 +235,25 @@ function WorkspaceNavInner() {
         {workspaces && workspaces.length > 0 && (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={workspaces.map((w) => w.id)} strategy={verticalListSortingStrategy}>
-              {workspaces.map((ws) => (
-                <WorkspaceRow
-                  key={ws.id}
-                  workspace={ws}
-                  onOpenSettings={openSetup}
-                  onCreateExecution={handleCreateExecution}
-                  onOpenLauncher={openLauncher}
-                />
-              ))}
+              {workspaces.map((ws) =>
+                railStyle === 'agents' ? (
+                  <AgentRailRow
+                    key={ws.id}
+                    workspace={ws}
+                    onOpenSettings={openSetup}
+                    onCreateExecution={handleCreateExecution}
+                    onOpenLauncher={openLauncher}
+                  />
+                ) : (
+                  <WorkspaceRow
+                    key={ws.id}
+                    workspace={ws}
+                    onOpenSettings={openSetup}
+                    onCreateExecution={handleCreateExecution}
+                    onOpenLauncher={openLauncher}
+                  />
+                ),
+              )}
             </SortableContext>
           </DndContext>
         )}

@@ -21,6 +21,7 @@ import { useDeviceLabelMode, type DeviceLabelMode } from '@/lib/client/device-la
 import { useDeckLayoutMode, type DeckLayoutMode } from '@/lib/client/deck-layout-mode';
 import { useEntityViewMode, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { useAgentViewMode, type AgentViewMode } from '@/lib/client/agent-view-mode';
+import { useRailStyle, type RailStyle } from '@/lib/client/rail-style';
 
 const DEFAULT_START = '09:00';
 const DEFAULT_END = '18:00';
@@ -111,6 +112,7 @@ export function GeneralSection() {
   const { mode: deckLayoutMode, setMode: setDeckLayoutMode } = useDeckLayoutMode();
   const { mode: entityViewMode, setMode: setEntityViewMode } = useEntityViewMode();
   const { mode: agentViewMode, setMode: setAgentViewMode } = useAgentViewMode();
+  const { style: railStyle, setStyle: setRailStyle } = useRailStyle();
 
   return (
     <div className="space-y-6">
@@ -370,6 +372,22 @@ export function GeneralSection() {
             {agentViewMode === 'view'
               ? "Clicking an agent's name in the rail opens its view: its main chat on the left, its work and tools on the right. The chevron still folds its list. Switch back here at any time."
               : "Clicking an agent's name in the rail folds or unfolds its list of executions. The gear still opens its setup."}
+          </p>
+          <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">
+            <span className="text-sm text-foreground">Agents in the rail</span>
+            <select
+              value={railStyle}
+              onChange={(e) => setRailStyle(e.target.value as RailStyle)}
+              className="rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="agents">Agents first (trial)</option>
+              <option value="classic">Classic</option>
+            </select>
+          </div>
+          <p className="text-[11px] text-muted-foreground/85">
+            {railStyle === 'agents'
+              ? 'Each agent shows what its main chat is doing and a line about its work. Its executions hang under it on one line each: the live ones, a few recent ones, and a count that opens the agent.'
+              : 'One line per agent, with every active execution listed under it on two lines.'}
           </p>
         </div>
       </section>
