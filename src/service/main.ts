@@ -28,6 +28,7 @@ import { updateReleasePreferences } from '@/lib/service/release-trust';
 import { ServiceControlCoordination } from '@/lib/service/control-coordination';
 import { consumeDesktopInitialization } from '@/lib/service/initialization';
 import { redactServiceLine, rotateServiceLog } from '@/lib/service/logging';
+import { StartupDiagnostics } from '@/lib/service/startup-diagnostics';
 import { ServiceAwake } from '@/lib/service/awake';
 import { ServiceWorker, validateWorkerRuntime } from '@/lib/service/worker';
 import { acquireWorkerLock } from '@/lib/worker/lock';
@@ -52,6 +53,7 @@ let token = '';
 let privatePort = 0;
 let publicPort = 0;
 let expectedExit = false;
+let startupDiagnostics = new StartupDiagnostics();
 let releaseOwner: (() => void) | undefined;
 let stopping: Promise<void> | undefined;
 let updater: UpdateCoordinator;
@@ -94,19 +96,28 @@ async function startBackend(target?: RuntimeTarget, validating?: string) {
   process.chdir(repo);
   expectedExit = false;
   const environment = serviceEnvironment(node);
-  const secrets = [token, ...Object.entries(environment).filter(([name]) => /KEY|TOKEN|SECRET/.test(name)).map(([, value]) => value ?? '')];
+  const secrets = [token, validating ?? '', ...Object.entries(environment).filter(([name]) => /KEY|TOKEN|SECRET|PASSWORD|COOKIE|AUTHORIZATION/i.test(name)).map(([, value]) => value ?? '')];
+  startupDiagnostics = new StartupDiagnostics(secrets);
+  const diagnostics = startupDiagnostics;
   next = startNextServer({ port: privatePort, repo, node, dev: process.env.RI_DESKTOP_MODE === 'development', hostname: '127.0.0.1', supervised: true,
     env: { ...environment, NODE_ENV: process.env.RI_DESKTOP_MODE === 'development' ? 'development' : 'production', RI_SERVICE_VALIDATING: validating ? '1' : '', RI_MAINTENANCE_TOKEN: validating ?? '' } });
   const child = next;
   if (child.pid) atomicWriteFile(childRecord, JSON.stringify({ pid: child.pid, runId: status.runId }));
-  for (const input of [child.stdout, child.stderr]) if (input) createInterface({ input }).on('line', line => console.info(redactServiceLine(line, secrets)));
-  child.once('error', error => { status.error = error.message; });
+  for (const input of [child.stdout, child.stderr]) if (input) createInterface({ input }).on('line', line => {
+    const redacted = redactServiceLine(line, secrets);
+    diagnostics.capture(redacted);
+    console.info(redacted);
+  });
+  let launchError: Error | undefined;
+  child.once('error', error => { launchError = error; diagnostics.capture(`Error: ${error.message}`); });
   child.once('exit', () => {
-    if (!expectedExit && !stopping && status.phase === 'running') { status.error = 'Backend exited'; void shutdown(1); }
+    if (!expectedExit && !stopping && status.phase === 'running') { status.error = diagnostics.failure('Backend exited').message; void shutdown(1); }
   });
   const deadline = Date.now() + 180_000;
   while (Date.now() < deadline) {
-    if (stopping || child.exitCode !== null || child.signalCode !== null) throw new Error('Backend exited during startup');
+    if (stopping) throw new Error('The service is stopping');
+    if (launchError) throw diagnostics.failure('The local Next.js process could not start');
+    if (child.exitCode !== null || child.signalCode !== null) throw diagnostics.failure(`Backend exited during startup (${child.signalCode ?? `exit ${child.exitCode}`})`);
     try {
       const ready = await backendRequest<{ ready: boolean; repo: string; validation: boolean }>('/__ri_ready');
       if (ready.ready && ready.repo === repo && ready.validation === !!validating) {
@@ -119,7 +130,7 @@ async function startBackend(target?: RuntimeTarget, validating?: string) {
     } catch { /* retry while Next initializes */ }
     await new Promise(resolve => setTimeout(resolve, 200));
   }
-  throw new Error('Backend did not become ready within three minutes');
+  throw diagnostics.failure('Backend did not become ready within three minutes');
 }
 function publish() {
   status.phase = 'running';
@@ -361,7 +372,7 @@ async function startHome() {
   if (stopping) return;
   await startBackend();
   const probe = await gateway.probe();
-  if (!probe.ok) throw new Error(`HTTP/2 readiness failed: ${probe.detail ?? probe.status}`);
+  if (!probe.ok) throw startupDiagnostics.readinessFailure(probe);
   publish(); console.info(`[service] Ready at ${status.origin}`);
   await awake.start();
 }

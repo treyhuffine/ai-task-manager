@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import electron from 'electron';
+import { developmentExecutable } from './development-app.mjs';
 
 const repo = fileURLToPath(new URL('../', import.meta.url));
 const dev = process.argv.includes('--dev');
@@ -39,7 +40,8 @@ try {
     throw new Error('Run pnpm desktop:demo once to build the production app, or use pnpm desktop:dev.');
   }
   if (!process.argv.includes('--build-only')) {
-    await run(electron, [path.join(repo, 'dist/desktop/main.cjs')], env);
+    const executable = developmentExecutable({ electron, repo });
+    await run(executable, [path.join(repo, 'dist/desktop/main.cjs')], env);
   }
 } catch (error) {
   console.error(error.message);

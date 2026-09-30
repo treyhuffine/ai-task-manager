@@ -656,6 +656,14 @@ node desktop/launch.mjs --skip-build     # Reopen the current build
 pnpm desktop:dev                        # Development server with hot reload
 ```
 
+On macOS, source launches cache an ad hoc signed `Ri Demo.app` under `.electron-demo/development-shell`. Its bundle metadata gives the menu bar and Dock the Ri name and icon. The copy retains Electron source mode, development data paths and Next hot reload, and never changes the shared Electron dependency. Packaged releases remain `Ri`. Electron's [`app.setName`](https://www.electronjs.org/docs/latest/api/app#appsetnamename) alone only changes its internal name, not the operating system name.
+
+`pnpm desktop:dev-smoke` builds the CLI and exercises a real Next development Home with disposable data. It checks certificate-verified HTTP/2 health, authenticated API compilation, the first-run redirect and the welcome page, then stops its test service. This complements packaged tests and remote viewer tests, which do not boot a local Next development server. It uses `.next-desktop-dev`, so stop a source desktop development service before running the check. Web development uses a separate build directory.
+
+If startup reports an HTTP 500 from `/api/health`, the application failed after HTTPS and HTTP/2 connected. Do not install a certificate or delete the database to address that message. The local recovery screen now includes up to three recent redacted Next error summaries. **Open log folder** reveals `service.log` with the full startup context. For the default source Home, the log is `.electron-demo/home/.work/service.log`. Detailed local errors are omitted from service status responses to paired devices.
+
+On 30 September 2026, a fresh source development Home passed the new acceptance check on macOS arm64 with Node 26.5.0, and a native macOS process identity probe reported `Ri Demo` with `isPackaged=false`. The reported failure on another Mac was not reproduced by that run. Its service log is still needed to establish the underlying cause, rather than interpreting the generic HTTP 500 as a TLS problem.
+
 These commands must run in the worktree containing `desktop/`. Source runs default to `.electron-demo/home`. An explicit `RI_DESKTOP_ROOT` chooses another desktop home. Other database/config/work path overrides are cleared, so the normal CLI home is not silently inherited.
 
 A source-only installation has no staged release. If its service was explicitly stopped, start it using that installation's matching checkout before reopening the viewer. For the default source demo home:
