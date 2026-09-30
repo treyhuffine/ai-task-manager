@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Send, ArrowDownToLine, ArrowUpRight, CheckCircle2, XCircle, Clock, AlertCircle, Archive } from 'lucide-react';
+import { ArrowUpToLine, ArrowDownToLine, ArrowUpRight, CheckCircle2, XCircle, Clock, AlertCircle, Archive } from 'lucide-react';
 import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState, type OpenablePr } from '@/hooks/use-execution-actions';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
@@ -340,7 +340,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
       return (
         <>
           <ActionButton
-            icon={<Send size={11} />}
+            icon={<ArrowUpToLine size={11} />}
             label="Push"
             count={state.ahead}
             onClick={push.onClick}
@@ -371,7 +371,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
         <>
           <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
           <ActionButton
-            icon={<Send size={11} />}
+            icon={<ArrowUpToLine size={11} />}
             label="Push"
             count={state.ahead}
             onClick={push.onClick}
@@ -811,7 +811,7 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
           </NarrativeLeft>
           <div className="flex items-center gap-1.5">
             <ActionButton
-              icon={<Send size={11} />}
+              icon={<ArrowUpToLine size={11} />}
               label="Push"
               onClick={push.onClick}
               pending={push.pending}
@@ -853,7 +853,7 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
             </NarrativeText>
           </NarrativeLeft>
           <ActionButton
-            icon={<Send size={11} />}
+            icon={<ArrowUpToLine size={11} />}
             label="Push"
             onClick={push.onClick}
             pending={push.pending}
