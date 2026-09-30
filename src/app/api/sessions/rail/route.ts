@@ -9,6 +9,9 @@ import {
   listRunningSessions,
   listSessionsWithPending,
 } from '@/lib/executor/status-snapshot';
+import { listForSession } from '@/lib/executor/live-state';
+import { pendingSummary } from '@/lib/runner/pending-summary';
+import type { RailMainChat } from '@/lib/api/sessions';
 import { withCompression } from '@/lib/api/compression';
 import { toRailSessionDTOs } from '@/lib/api/dto/rail-session';
 
@@ -23,9 +26,10 @@ import { toRailSessionDTOs } from '@/lib/api/dto/rail-session';
  * pending/streaming sets without a server round trip.
  *
  * `mainChats` carries each agent's current main chat, so an agent's row can
- * say it replied, and (through the same pending/running sets) that it is
- * thinking or waiting on you. Riding the rail's refresh keeps it as fresh as
- * the execution rows.
+ * say what it last told you, that it replied, and (through the same
+ * pending/running sets) that it is thinking or waiting on you, with
+ * `waitingOn` saying what for. Riding the rail's refresh keeps it as fresh
+ * as the execution rows.
  */
 // Compressed: the rail is polled every 15s and carries full session rows,
 // so it is one of the largest repeat payloads in the app. The `request`
@@ -40,7 +44,11 @@ async function handleGET(_request: Request) {
     const pendingSessionIds = listSessionsWithPending();
     const runningSessionIds = listRunningSessions();
     const backgroundSessionIds = listBackgroundTaskSessions();
-    const mainChats = listAgentMainChats();
+    const pending = new Set(pendingSessionIds);
+    const mainChats: RailMainChat[] = listAgentMainChats().map((chat) => {
+      const request = pending.has(chat.id) ? listForSession(chat.id)[0] : undefined;
+      return { ...chat, waitingOn: request ? pendingSummary(request) : null };
+    });
     return Response.json({ sessions, pendingSessionIds, runningSessionIds, backgroundSessionIds, mainChats });
   } catch (err) {
     console.error('[GET /api/sessions/rail]', err);

@@ -216,12 +216,14 @@ export interface WorkspaceWithCounts extends WorkspaceRecord {
 }
 
 /**
- * An agent's current main chat, as the rail shows it: enough to tell
- * whether the agent has replied since you last looked. Live states
- * (thinking, waiting on you) come from the runtime sets, keyed by `id`.
+ * An agent's current main chat, as the rail shows it: whether it has replied
+ * since you last looked, and a plain-text line of what it last said. Live
+ * states (thinking, waiting on you) come from the runtime sets, keyed by `id`.
  */
 export type AgentMainChatState = Pick<ChatSessionRecord, 'id' | 'lastOutcomeEventAt' | 'unreadMarkerAt' | 'lastViewedAt'> & {
   workspaceId: string;
+  /** First meaningful line of its latest message, or null before it has said anything. */
+  preview: string | null;
 };
 
 // ─── Reference folders ────────────────────────────────────────

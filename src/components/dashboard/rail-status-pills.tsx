@@ -15,6 +15,8 @@ import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { cn } from '@/lib/utils';
 import type { RailSession } from '@/lib/api/sessions';
 import { executionView } from '@/lib/client/active-view';
+import { useAgentAttention, type AgentAttentionItem } from '@/hooks/use-agent-attention';
+import { AgentAttentionRow } from '@/components/workspaces/agent-attention-row';
 
 // Top-HUD status pills. Same buckets as the rail body, just rendered as
 // a compact dot+count strip that stays visible regardless of rail
@@ -25,6 +27,9 @@ import { executionView } from '@/lib/client/active-view';
 export function RailStatusPills() {
   const { data } = useRailSessions();
   const { streamingSessionIds, pendingInputSessionIds } = useDashboard();
+  // Agents that want you count where their work counts, so "needs you"
+  // anywhere in the app is one number. Thinking stays out of Working.
+  const agents = useAgentAttention();
 
   const buckets = useMemo(() => {
     const map: Record<BucketId, RailSession[]> = {
@@ -50,7 +55,12 @@ export function RailStatusPills() {
   return (
     <div className="flex items-center gap-1">
       {BUCKET_ORDER.map((bucketId) => (
-        <StatusPill key={bucketId} bucketId={bucketId} sessions={buckets[bucketId]} />
+        <StatusPill
+          key={bucketId}
+          bucketId={bucketId}
+          sessions={buckets[bucketId]}
+          agents={agents.filter((a) => a.bucket === bucketId)}
+        />
       ))}
     </div>
   );
@@ -59,12 +69,14 @@ export function RailStatusPills() {
 interface StatusPillProps {
   bucketId: BucketId;
   sessions: RailSession[];
+  /** Agents in this bucket, listed first. */
+  agents: AgentAttentionItem[];
 }
 
-function StatusPill({ bucketId, sessions }: StatusPillProps) {
+function StatusPill({ bucketId, sessions, agents }: StatusPillProps) {
   const [open, setOpen] = useState(false);
   const cfg = BUCKET_CONFIG[bucketId];
-  const count = sessions.length;
+  const count = sessions.length + agents.length;
   const empty = count === 0;
 
   // Empty pill: dim, non-interactive, no popover. Stable position lets
@@ -126,6 +138,9 @@ function StatusPill({ bucketId, sessions }: StatusPillProps) {
           </span>
         </div>
         <div className="max-h-72 overflow-y-auto py-1">
+          {agents.map((item) => (
+            <AgentAttentionRow key={item.workspace.id} item={item} variant="pill" onPick={() => setOpen(false)} />
+          ))}
           {sessions.map((s) => (
             <PillSessionRow
               key={s.id}

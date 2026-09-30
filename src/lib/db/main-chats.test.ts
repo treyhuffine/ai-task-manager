@@ -110,8 +110,21 @@ describe('listAgentMainChats (the rail)', () => {
       lastOutcomeEventAt: expect.any(String),
       unreadMarkerAt: null,
       lastViewedAt: expect.any(String),
+      preview: null,
     });
     expect(chat.lastOutcomeEventAt! > chat.lastViewedAt!).toBe(true);
+  });
+
+  it("previews the agent's latest message as one plain line, never yours or a tool's", async () => {
+    const { q, ws, agentChat } = await seed();
+    const say = (source: string, role: 'user' | 'assistant' | 'system', content: string, mins: number) =>
+      q.insertChatEvent({ sessionId: agentChat.id, role, source, content, createdAt: past(mins) });
+    say('agent', 'assistant', 'Old news', 30);
+    say('agent', 'assistant', '## Login page is ready\n\nDetails follow.', 10);
+    say('tool_result', 'system', 'npm test passed', 5);
+    say('user', 'user', 'thanks!', 1);
+    const [chat] = q.listAgentMainChats().filter((c) => c.workspaceId === ws.id);
+    expect(chat.preview).toBe('Login page is ready · Details follow.');
   });
 
   it("leaves out the app's chat, executions, scheduled fires, archived chats and archived agents", async () => {

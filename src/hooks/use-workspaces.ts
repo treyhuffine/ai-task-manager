@@ -282,6 +282,11 @@ export function useMarkSessionRead() {
             ? { ...s, lastViewedAt: now, unreadMarkerAt: null }
             : s,
         ),
+        // An agent's main chat: reading it clears the agent's "New reply"
+        // on its rail row and everywhere attention is counted.
+        mainChats: prev.mainChats?.map((c) =>
+          c.id === id ? { ...c, lastViewedAt: now, unreadMarkerAt: null } : c,
+        ),
       });
       qc.setQueryData<ChatSessionRecord[]>(NEEDS_REVIEW_KEY, (prev) =>
         prev ? prev.filter((s) => s.id !== id) : prev,
@@ -330,6 +335,7 @@ export function useMarkSessionUnread() {
         sessions: prev.sessions.map((s) =>
           s.id === id ? { ...s, unreadMarkerAt: now } : s,
         ),
+        mainChats: prev.mainChats?.map((c) => (c.id === id ? { ...c, unreadMarkerAt: now } : c)),
       });
       qc.setQueriesData<ChatSessionRecord[]>(
         { predicate: (q) =>

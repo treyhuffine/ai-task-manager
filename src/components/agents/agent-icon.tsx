@@ -7,6 +7,7 @@ import type { WorkspaceRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
 
 const SIZES = {
+  xs: { box: 'w-4 h-4', emoji: 'text-[12px]', icon: 10 },
   sm: { box: 'w-5 h-5', emoji: 'text-base', icon: 12 },
   md: { box: 'w-7 h-7', emoji: 'text-xl', icon: 15 },
   lg: { box: 'w-9 h-9', emoji: 'text-2xl', icon: 18 },

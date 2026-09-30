@@ -9,6 +9,7 @@ import { AgentView } from '@/components/agents/agent-view';
 import { SkillView } from '@/components/skills/skill-view';
 import { AgentIcon } from '@/components/agents/agent-icon';
 import { classifySession } from '@/components/workspaces/bucket-config';
+import { useAgentAttention } from '@/hooks/use-agent-attention';
 import { cn } from '@/lib/utils';
 
 /**
@@ -24,16 +25,19 @@ export function TabletLayout() {
   const { data: rail } = useRailSessions();
   const isDark = theme === 'dark';
 
-  // One amber dot per agent with work waiting on the user, the rail's rule.
-  const needsYou = new Set(
-    (rail?.sessions ?? [])
+  // One amber dot per agent that wants you: the agent itself (its main chat
+  // is waiting on you or replied) or any of its work, the rail's rule.
+  const agentsWanting = useAgentAttention();
+  const needsYou = new Set([
+    ...agentsWanting.map((a) => a.workspace.id),
+    ...(rail?.sessions ?? [])
       .filter((s) => s.status === 'active' && s.workspaceId)
       .filter((s) => {
         const bucket = classifySession(s, pendingInputSessionIds, streamingSessionIds);
         return bucket === 'needsApproval' || bucket === 'unread';
       })
       .map((s) => s.workspaceId!),
-  );
+  ]);
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">

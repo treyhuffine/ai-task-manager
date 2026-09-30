@@ -9,11 +9,16 @@ import { StatusSessionRow } from './status-session-row';
 import { BUCKET_CONFIG, BUCKET_ORDER, classifySession, type BucketId } from './bucket-config';
 import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import type { RailSession } from '@/lib/api/sessions';
+import { useAgentAttention } from '@/hooks/use-agent-attention';
+import { AgentAttentionRow } from './agent-attention-row';
 
 // ─── View ─────────────────────────────────────────────────────
 
 export function StatusView() {
   const { data, isLoading } = useRailSessions();
+  // Agents that want you sit in the same buckets as their work, first, so the
+  // counts here match the header pills row for row.
+  const agents = useAgentAttention();
   const { streamingSessionIds, pendingInputSessionIds, setActiveView, openAgent } = useDashboard();
   // Session row menus open the agent's setup: its view, on the Setup tab.
   const openSetup = (id: string) => openAgent(id, 'setup');
@@ -65,7 +70,8 @@ export function StatusView() {
   // imported transcripts has rows but nothing to show — counting rows would
   // skip the empty state and render four zero-count headers instead of saying
   // what's true.
-  const total = BUCKET_ORDER.reduce((sum, id) => sum + buckets[id].length, 0);
+  const agentsIn = (id: BucketId) => agents.filter((a) => a.bucket === id);
+  const total = BUCKET_ORDER.reduce((sum, id) => sum + buckets[id].length + agentsIn(id).length, 0);
   if (total === 0) {
     return (
       <div className="px-3 py-4 text-center text-[10px] text-muted-foreground/70 leading-relaxed">
@@ -85,12 +91,15 @@ export function StatusView() {
               key={cfg.id}
               id={cfg.id}
               label={cfg.label}
-              count={sessions.length}
+              count={sessions.length + agentsIn(bucketId).length}
               accentClass={cfg.accentClass}
               countBgClass={cfg.countBgClass}
               headerBgClass={cfg.headerBgClass}
               icon={cfg.icon}
             >
+              {agentsIn(bucketId).map((item) => (
+                <AgentAttentionRow key={item.workspace.id} item={item} variant="status" />
+              ))}
               {sessions.map((s) => (
                 <StatusSessionRow
                   key={s.id}

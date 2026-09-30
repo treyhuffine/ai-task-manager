@@ -303,8 +303,11 @@ export interface RailResponse {
   runningSessionIds: string[];
   backgroundSessionIds: string[];
   /** Each active agent's current main chat. */
-  mainChats: AgentMainChatState[];
+  mainChats: RailMainChat[];
 }
+
+/** An agent's main chat on the rail, with what it's waiting on when it's blocked on you. */
+export type RailMainChat = AgentMainChatState & { waitingOn: string | null };
 
 export interface HistoryResponse {
   sessions: RailSession[];

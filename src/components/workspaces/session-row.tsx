@@ -43,9 +43,10 @@ interface SessionRowProps {
   hidePinMarker?: boolean;
   /**
    * `compact` is the agents-first rail's thread row (docs/rail-agents-first.md):
-   * one line, label then a right-aligned cluster (pin, where it runs, diff
-   * stats, time) that gives way to the kebab on hover. `regular` is the
-   * two-line row everywhere else.
+   * one line, label then a right-aligned cluster (pin, where it runs, time)
+   * that gives way to the kebab on hover. No diff stats: in the rail they
+   * don't help decide where to go, they live in the execution's header.
+   * `regular` is the two-line row everywhere else.
    */
   density?: 'regular' | 'compact';
 }
@@ -80,7 +81,8 @@ export function SessionRow({
   const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(
     // Its folder wherever it runs: an execution elsewhere has its +/- too (P3.5).
-    preparedFolder(session) ? session.id : null,
+    // Compact rows show no diff stats, so they don't fetch them.
+    preparedFolder(session) && density !== 'compact' ? session.id : null,
     session.executionId,
   );
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
@@ -160,7 +162,7 @@ export function SessionRow({
       }}
       className={cn(
         'relative w-full group flex gap-2 pr-1.5 rounded-md transition-colors text-left cursor-pointer',
-        density === 'compact' ? 'items-center pl-2 py-[3px]' : 'items-start pl-5 py-1',
+        density === 'compact' ? 'items-center pl-2 py-[5px]' : 'items-start pl-5 py-1',
         selectable
           ? selected
             ? 'bg-primary/10 text-foreground'
@@ -226,9 +228,8 @@ export function SessionRow({
           >
             {label}
           </span>
-          {/* Static tokens first, the async diff stats just before the time,
-              so their arrival shortens the label a little and moves nothing
-              else. The kebab takes this slot on hover. */}
+          {/* Static tokens only, so nothing arrives late and moves. The
+              kebab takes this slot on hover. */}
           <span
             className={cn(
               'flex flex-shrink-0 items-center gap-1.5 text-[9px] leading-none transition-opacity',
@@ -243,7 +244,6 @@ export function SessionRow({
                 {session.location.name}
               </span>
             )}
-            <DiffStatsPair stats={diffStats} />
             <span className="text-muted-foreground/60 tabular-nums">{formatCompactRelative(timestamp)}</span>
           </span>
         </>

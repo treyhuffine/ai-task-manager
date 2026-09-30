@@ -100,6 +100,7 @@ import {
 import type { LifecycleCommandResult } from '@/lib/db/schema';
 import { camelizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
+import { messagePreview } from '@/lib/utils/message-preview';
 import {
   bundledModelIds,
   curatedDefaultModelIds,
@@ -7601,7 +7602,8 @@ export function listMainChats(
 /**
  * Every active agent's current main chat in one query, for the rail. Same
  * definition as `currentMainChat(workspaceId)`: the most recently active
- * main chat of an active agent.
+ * main chat of an active agent. `preview` is its latest message as one line
+ * of plain text (`messagePreview`).
  */
 export function listAgentMainChats(): AgentMainChatState[] {
   const db = getDb();
@@ -7612,6 +7614,11 @@ export function listAgentMainChats(): AgentMainChatState[] {
       lastOutcomeEventAt: chatSessions.lastOutcomeEventAt,
       unreadMarkerAt: chatSessions.unreadMarkerAt,
       lastViewedAt: chatSessions.lastViewedAt,
+      lastMessage: sql<string | null>`(
+        SELECT e.content FROM chat_events e
+        WHERE e.session_id = ${chatSessions.id} AND e.source = 'agent'
+        ORDER BY e.created_at DESC LIMIT 1
+      )`,
     })
     .from(chatSessions)
     .innerJoin(workspaces, eq(workspaces.id, chatSessions.workspaceId))
@@ -7627,8 +7634,10 @@ export function listAgentMainChats(): AgentMainChatState[] {
     .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
     .all();
   const current = new Map<string, AgentMainChatState>();
-  for (const row of rows) {
-    if (row.workspaceId && !current.has(row.workspaceId)) current.set(row.workspaceId, { ...row, workspaceId: row.workspaceId });
+  for (const { lastMessage, ...row } of rows) {
+    if (row.workspaceId && !current.has(row.workspaceId)) {
+      current.set(row.workspaceId, { ...row, workspaceId: row.workspaceId, preview: messagePreview(lastMessage) });
+    }
   }
   return [...current.values()];
 }
