@@ -186,6 +186,7 @@ export type WorkspaceSetupStatus = WorkspaceSetupRecord['status'];
 export type FolderLinkRecord = InferSelectModel<typeof folderLinks>;
 
 export type ApiKeyRecord = InferSelectModel<typeof apiKeys>;
+export type ApiKeyRole = ApiKeyRecord['role'];
 // A key always says which device it belongs to. Null only for the home's own
 // key made before the home's identity, which gives it the home's device.
 export type CreateApiKeyInput = PolicyOptional<Omit<InferInsertModel<typeof apiKeys>, 'id' | 'prefix' | 'suffix' | 'hash' | 'deviceId'>, 'env'> & {

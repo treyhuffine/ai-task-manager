@@ -21,7 +21,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     return Response.json({ error: 'home_key', message: `Ri uses this key itself on ${device.name}. It stays.` }, { status: 409 });
   }
   const reason = request.nextUrl.searchParams.get('reason') ?? undefined;
-  if (device.workerKeyId === keyId) retireWorker(keyId, id, reason ?? 'Local execution turned off by the owner');
+  if (key.role === 'worker') retireWorker(keyId, id, reason ?? 'Local execution turned off by the owner');
   else revokeApiKey(keyId, reason);
   publishDeviceUpdated(id);
   return new Response(null, { status: 204 });

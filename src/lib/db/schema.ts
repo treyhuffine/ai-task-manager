@@ -678,6 +678,13 @@ export interface CalendarBlock {
 
 // ─── API Keys ─────────────────────────────────────────────────
 
+// What a key is for (docs/homes-build.md, "Devices"). `sign_in`: a browser,
+// the phone app or a CLI signs in with it and acts as the owner. `worker`:
+// the key a device's worker runs agents with, issued by enrolling it. It
+// reaches only the worker routes, and a device runs agents while it has an
+// active one. Callers always say which: there is no default.
+export const API_KEY_ROLES = ['sign_in', 'worker'] as const;
+
 export const apiKeys = sqliteTable(
   'api_keys',
   {
@@ -701,12 +708,17 @@ export const apiKeys = sqliteTable(
     // the home's identity, which gives it the home's device. Identity only:
     // a key never gains the authority to run work from its device.
     deviceId: text().references((): AnySQLiteColumn => devices.id, { onDelete: 'set null' }),
+    role: text({ enum: API_KEY_ROLES }).notNull(),
   },
   (table) => [
     index('idx_api_keys_hash').on(table.hash),
     index('idx_api_keys_device').on(table.deviceId),
     index('idx_api_keys_prefix').on(table.prefix),
     index('idx_api_keys_revoked').on(table.revokedAt),
+    // One worker per device: enrolling again revokes the earlier key first.
+    uniqueIndex('uniq_api_keys_device_worker')
+      .on(table.deviceId)
+      .where(sql`${table.role} = 'worker' AND ${table.revokedAt} IS NULL`),
   ],
 );
 
@@ -716,10 +728,10 @@ export const apiKeys = sqliteTable(
 // never changes when the home's address or machine does. `devices` holds
 // everything that reaches this home: the home's own machine, the computers
 // that run its agents, and the phones and browsers paired to it. Each api
-// key belongs to one. A device runs agents when it's the home, or when its
-// worker key is active. Which row a machine is lives in its
-// `<config>/machine.json`, which backups never carry, so a restored copy
-// can't take itself for the original host.
+// key belongs to one. A device runs agents when it's the home, or while
+// it has an active worker key (`api_keys.role`). Which row a machine is
+// lives in its `<config>/machine.json`, which backups never carry, so a
+// restored copy can't take itself for the original host.
 
 export const DEVICE_KINDS = ['computer', 'phone', 'tablet', 'service', 'other'] as const;
 
@@ -739,11 +751,6 @@ export const devices = sqliteTable(
     status: text({ enum: ['active', 'revoked'] }).notNull(),
     revokedAt: text(),
     lastSeenAt: text(),
-    // The key its worker runs agents with (docs/homes-build.md, P2.2). Set by
-    // enrolling, and replaced by enrolling again. The device runs agents while
-    // this key is active: revoking it turns that off. Null for a device that
-    // never enrolled, and for the home's own, which runs agents in process.
-    workerKeyId: text().references((): AnySQLiteColumn => apiKeys.id, { onDelete: 'set null' }),
     // What its worker last reported (docs/homes-build.md, P2.2). Null until a
     // worker reports, and for the home's own device, whose runner is in
     // process.
@@ -755,7 +762,7 @@ export const devices = sqliteTable(
     // home has stored (P2.3). Events at or below it are replays.
     ackedEventSeq: integer().notNull().default(0),
   },
-  (table) => [index('idx_devices_status').on(table.status), uniqueIndex('uniq_devices_worker_key').on(table.workerKeyId)],
+  (table) => [index('idx_devices_status').on(table.status)],
 );
 
 // ─── Device grants ────────────────────────────────────────────

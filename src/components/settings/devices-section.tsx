@@ -523,7 +523,7 @@ function DeviceCard({
 const ROLE_LABEL: Record<DeviceKeyView['role'], string | null> = {
   home: "Ri's own",
   worker: 'Worker',
-  'sign-in': null,
+  sign_in: null,
 };
 
 function KeyRow({ keyView, onRevoke, revoking }: { keyView: DeviceKeyView; onRevoke: () => void; revoking: boolean }) {

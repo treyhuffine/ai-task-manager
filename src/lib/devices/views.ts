@@ -6,14 +6,14 @@
  * available while the home answers.
  */
 
-import type { ApiKeyRecord, DeviceRecord } from '@/db/types';
+import type { ApiKeyRecord } from '@/db/types';
 import type { DeviceKeyView, DeviceView } from '@/lib/api/devices';
 import { isHostKeyHash } from '@/lib/auth/host-key';
 import { getHome, listApiKeys, listDevices, listEnrolledDeviceIds } from '@/lib/db/queries';
 import { hostIsPortable } from '@/lib/home/portable';
 import { isDeviceConnected } from '@/lib/workers/hub';
 
-function keyView(key: ApiKeyRecord, device: DeviceRecord | undefined, callerKeyId: string | null): DeviceKeyView {
+function keyView(key: ApiKeyRecord, callerKeyId: string | null): DeviceKeyView {
   return {
     id: key.id,
     name: key.name,
@@ -24,7 +24,7 @@ function keyView(key: ApiKeyRecord, device: DeviceRecord | undefined, callerKeyI
     lastUsedAt: key.lastUsedAt,
     expiresAt: key.expiresAt,
     revokedAt: key.revokedAt,
-    role: isHostKeyHash(key.hash) ? 'home' : device?.workerKeyId === key.id ? 'worker' : 'sign-in',
+    role: isHostKeyHash(key.hash) ? 'home' : key.role,
     current: key.id === callerKeyId,
   };
 }
@@ -39,7 +39,7 @@ export async function listDeviceViews(opts: { includeRevoked?: boolean; callerKe
   for (const key of listApiKeys({ includeRevoked: opts.includeRevoked })) {
     if (!key.deviceId || !byId.has(key.deviceId)) continue;
     const list = keys.get(key.deviceId) ?? [];
-    list.push(keyView(key, byId.get(key.deviceId), opts.callerKeyId ?? null));
+    list.push(keyView(key, opts.callerKeyId ?? null));
     keys.set(key.deviceId, list);
   }
   return all.map((d) => {

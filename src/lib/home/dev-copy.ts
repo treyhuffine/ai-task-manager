@@ -168,7 +168,7 @@ export function prepareDevelopmentCopy(root: string): DevCopyReport {
           const deviceId = uuidv7();
           run(
             'devices revoked',
-            "UPDATE devices SET status = 'revoked', revoked_at = ?, worker_key_id = NULL WHERE status = 'active'",
+            "UPDATE devices SET status = 'revoked', revoked_at = ? WHERE status = 'active'",
             now,
           );
           db.prepare(

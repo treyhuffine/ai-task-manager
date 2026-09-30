@@ -574,7 +574,7 @@ Rehearse consolidation, migrations, retirement, and rollback on isolated copies.
 
 Build the phases in order. Each gate must demonstrate the stated behavior before the next dependent phase. Record test results and a short real-use observation beside completed tasks. Do not mark an unimplemented behavior complete because a design was written.
 
-Since computers became devices (2026-09-29, [build notes](homes-build.md#devices)), the homes build's schema is one migration, `0002`, and the notes below keep the build's history: their migration numbers are the ones each step added then, and `worker_enrollments` became `devices.worker_key_id`.
+Since computers became devices (2026-09-29, [build notes](homes-build.md#devices)), the homes build's schema is one migration, `0002`, and the notes below keep the build's history: their migration numbers are the ones each step added then, and `worker_enrollments` became the key's own role (`api_keys.role`, `worker`).
 
 ### P0. Recovery and implementation foundation
 

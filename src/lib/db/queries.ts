@@ -4378,6 +4378,7 @@ export function pairDevice(input: {
       description: input.description ?? null,
       expiresAt: input.expiresAt ?? null,
       deviceId: device.id,
+      role: 'sign_in',
     });
     return { device, key, token };
   }, { behavior: 'immediate' });
@@ -4392,7 +4393,7 @@ export function addDeviceKey(deviceId: string, input: { name?: string; expiresAt
   return db.transaction((tx) => {
     const device = tx.select().from(devices).where(eq(devices.id, deviceId)).get();
     if (!device || device.status !== 'active') throw new Error('That device was removed.');
-    return insertApiKey(tx, { name: input.name ?? device.name, expiresAt: input.expiresAt ?? null, deviceId: device.id });
+    return insertApiKey(tx, { name: input.name ?? device.name, expiresAt: input.expiresAt ?? null, deviceId: device.id, role: 'sign_in' });
   }, { behavior: 'immediate' });
 }
 
@@ -4413,16 +4414,27 @@ export function giveHostItsKeys(): number {
     .run().changes;
 }
 
+/** A device's active worker key, inside a transaction. */
+function activeWorkerKeyIn(tx: Pick<ReturnType<typeof getDb>, 'select'>, deviceId: string): string | null {
+  return (
+    tx
+      .select({ id: apiKeys.id })
+      .from(apiKeys)
+      .where(and(eq(apiKeys.deviceId, deviceId), eq(apiKeys.role, 'worker'), isNull(apiKeys.revokedAt)))
+      .get()?.id ?? null
+  );
+}
+
 /**
- * A device left with no active key, no worker and no home to be is gone:
- * it was made for a key that moved to the device it's really on (re-pairing,
- * or "This Mac"). Its records stay, removed.
+ * A device left with no active key (its worker's included) and no home to
+ * be is gone: it was made for a key that moved to the device it's really on
+ * (re-pairing, or "This Mac"). Its records stay, removed.
  */
 function retireIfEmpty(tx: Tx, deviceId: string | null, now: string): void {
   if (!deviceId) return;
   if (tx.select({ id: home.id }).from(home).where(eq(home.hostDeviceId, deviceId)).get()) return;
   const device = tx.select().from(devices).where(eq(devices.id, deviceId)).get();
-  if (!device || device.status !== 'active' || device.workerKeyId) return;
+  if (!device || device.status !== 'active') return;
   const key = tx.select({ id: apiKeys.id }).from(apiKeys).where(and(eq(apiKeys.deviceId, deviceId), isNull(apiKeys.revokedAt))).get();
   if (key) return;
   tx.update(devices).set({ status: 'revoked', revokedAt: now, updatedAt: now }).where(eq(devices.id, deviceId)).run();
@@ -4443,17 +4455,18 @@ export function removeDevice(id: string, reason: string): { device: DeviceRecord
       throw new Error(`${device.name} is where this home runs. It can't be removed.`);
     }
     const now = new Date().toISOString();
+    const workerKeyId = activeWorkerKeyIn(tx, id);
     tx.update(apiKeys)
       .set({ revokedAt: now, revokedReason: reason, updatedAt: now })
       .where(and(eq(apiKeys.deviceId, id), isNull(apiKeys.revokedAt)))
       .run();
     const row = tx
       .update(devices)
-      .set({ status: 'revoked', revokedAt: now, workerKeyId: null, updatedAt: now })
+      .set({ status: 'revoked', revokedAt: now, updatedAt: now })
       .where(eq(devices.id, id))
       .returning()
       .get()!;
-    return { device: row, workerKeyId: device.workerKeyId };
+    return { device: row, workerKeyId };
   }, { behavior: 'immediate' });
 }
 
@@ -4567,7 +4580,8 @@ export function moveHomeHost(newHostId: string): { from: string; to: string; pin
     }
 
     tx.update(home).set({ hostDeviceId: newHostId, updatedAt: now }).where(eq(home.id, current.id)).run();
-    result.revokeKeys = device.workerKeyId ? [device.workerKeyId] : [];
+    const workerKeyId = activeWorkerKeyIn(tx, newHostId);
+    result.revokeKeys = workerKeyId ? [workerKeyId] : [];
     return result;
   }, { behavior: 'immediate' });
   for (const id of moved.revokeKeys) revokeApiKey(id, 'This device is the home now, so it runs agents itself.');
@@ -4618,7 +4632,9 @@ export function registerDeviceForApiKey(input: {
       updatedAt: now,
     };
     const hostId = tx.select({ host: home.hostDeviceId }).from(home).get()?.host ?? null;
-    if (input.deviceId && input.deviceId !== key.deviceId && input.deviceId !== hostId && key.deviceId !== hostId) {
+    // A worker key stays with the device it was issued to.
+    const movable = key.role === 'sign_in' && key.deviceId !== hostId;
+    if (movable && input.deviceId && input.deviceId !== key.deviceId && input.deviceId !== hostId) {
       const remembered = tx.select().from(devices).where(eq(devices.id, input.deviceId)).get();
       if (remembered && remembered.status === 'active') {
         tx.update(apiKeys).set({ deviceId: remembered.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();
@@ -4790,22 +4806,20 @@ export function redeemEnrollGrant(input: {
       .all();
 
     // One worker per device: its earlier worker key stops working.
-    if (device.workerKeyId) {
-      tx.update(apiKeys)
-        .set({ revokedAt: now, revokedReason: 'Replaced by a new enrollment', updatedAt: now })
-        .where(and(eq(apiKeys.id, device.workerKeyId), isNull(apiKeys.revokedAt)))
-        .run();
-    }
+    tx.update(apiKeys)
+      .set({ revokedAt: now, revokedReason: 'Replaced by a new enrollment', updatedAt: now })
+      .where(and(eq(apiKeys.deviceId, device.id), eq(apiKeys.role, 'worker'), isNull(apiKeys.revokedAt)))
+      .run();
 
     const { key, token } = insertApiKey(tx, {
       name: `${device.name} worker`,
       description: 'Runs agents on this device for the home. Issued by enrollment.',
       deviceId: device.id,
+      role: 'worker',
     });
     device = tx
       .update(devices)
       .set({
-        workerKeyId: key.id,
         platform: input.platform ?? device.platform,
         hostname: input.hostname ?? device.hostname,
         lastSeenAt: now,
@@ -4834,9 +4848,7 @@ export function redeemAssociateGrant(input: { secret: string; apiKeyId: string }
     const grant = usableGrant(tx, input.secret, 'associate');
     const key = tx.select().from(apiKeys).where(eq(apiKeys.id, input.apiKeyId)).get();
     if (!key || key.revokedAt) throw new GrantError('invalid', 'This browser is not signed in.');
-    if (tx.select({ id: devices.id }).from(devices).where(eq(devices.workerKeyId, key.id)).get()) {
-      throw new GrantError('not_allowed', 'A worker key is not a browser.');
-    }
+    if (key.role === 'worker') throw new GrantError('not_allowed', 'A worker key is not a browser.');
     const device = tx.select().from(devices).where(eq(devices.id, grant.deviceId!)).get();
     if (!device || device.status !== 'active') throw new GrantError('invalid', 'That device was removed.');
     const now = new Date().toISOString();
@@ -4855,24 +4867,24 @@ export function redeemAssociateGrant(input: { secret: string; apiKeyId: string }
   }, { behavior: 'immediate' });
 }
 
-/** The active device an active worker key runs agents for. Null for any other key. */
+/** An active worker key's device, while that device is active. Null for any other key. */
 export function getWorkerDevice(apiKeyId: string): DeviceRecord | null {
   const row = getDb()
     .select({ device: getTableColumns(devices) })
-    .from(devices)
-    .innerJoin(apiKeys, eq(apiKeys.id, devices.workerKeyId))
-    .where(and(eq(devices.workerKeyId, apiKeyId), eq(devices.status, 'active'), isNull(apiKeys.revokedAt)))
+    .from(apiKeys)
+    .innerJoin(devices, eq(devices.id, apiKeys.deviceId))
+    .where(and(eq(apiKeys.id, apiKeyId), eq(apiKeys.role, 'worker'), isNull(apiKeys.revokedAt), eq(devices.status, 'active')))
     .get();
   return row?.device ?? null;
 }
 
-/** The key a device's worker runs agents with, while it's active. */
+/** The key a device's worker runs agents with, while it and the device are active. */
 export function getWorkerKeyId(deviceId: string): string | null {
   const row = getDb()
     .select({ keyId: apiKeys.id })
-    .from(devices)
-    .innerJoin(apiKeys, eq(apiKeys.id, devices.workerKeyId))
-    .where(and(eq(devices.id, deviceId), eq(devices.status, 'active'), isNull(apiKeys.revokedAt)))
+    .from(apiKeys)
+    .innerJoin(devices, eq(devices.id, apiKeys.deviceId))
+    .where(and(eq(apiKeys.deviceId, deviceId), eq(apiKeys.role, 'worker'), isNull(apiKeys.revokedAt), eq(devices.status, 'active')))
     .get();
   return row?.keyId ?? null;
 }
@@ -4881,16 +4893,16 @@ export function getWorkerKeyId(deviceId: string): string | null {
 export function listEnrolledDeviceIds(): Set<string> {
   const rows = getDb()
     .select({ deviceId: devices.id })
-    .from(devices)
-    .innerJoin(apiKeys, eq(apiKeys.id, devices.workerKeyId))
-    .where(and(eq(devices.status, 'active'), isNull(apiKeys.revokedAt)))
+    .from(apiKeys)
+    .innerJoin(devices, eq(devices.id, apiKeys.deviceId))
+    .where(and(eq(apiKeys.role, 'worker'), isNull(apiKeys.revokedAt), eq(devices.status, 'active')))
     .all();
   return new Set(rows.map((r) => r.deviceId));
 }
 
-/** Whether a key is a device's worker key. The proxy's scope. */
+/** Whether a key was issued as a worker key, active or not. The proxy's scope. */
 export function isWorkerApiKey(apiKeyId: string): boolean {
-  return getDb().select({ id: devices.id }).from(devices).where(eq(devices.workerKeyId, apiKeyId)).get() !== undefined;
+  return getDb().select({ role: apiKeys.role }).from(apiKeys).where(eq(apiKeys.id, apiKeyId)).get()?.role === 'worker';
 }
 
 /** Store what a worker reported about its device, and when. */
@@ -6344,22 +6356,19 @@ export function updateApiKey(id: string, input: UpdateApiKeyInput): ApiKeyRecord
 }
 
 /**
- * Stop a key working. A device whose worker ran with it stops running agents
- * (its worker's work is settled by `retireWorker`, which calls this).
+ * Stop a key working. Revoking a worker key stops its device running agents
+ * (`retireWorker` calls this, and settles that worker's work).
  */
 export function revokeApiKey(id: string, reason?: string): ApiKeyRecord | null {
-  const db = getDb();
-  return db.transaction((tx) => {
-    const now = new Date().toISOString();
-    const row = tx
+  const now = new Date().toISOString();
+  return (
+    getDb()
       .update(apiKeys)
       .set({ revokedAt: now, revokedReason: reason ?? null, updatedAt: now })
       .where(eq(apiKeys.id, id))
       .returning()
-      .get();
-    tx.update(devices).set({ workerKeyId: null, updatedAt: now }).where(eq(devices.workerKeyId, id)).run();
-    return row ?? null;
-  }, { behavior: 'immediate' });
+      .get() ?? null
+  );
 }
 
 export function touchApiKey(

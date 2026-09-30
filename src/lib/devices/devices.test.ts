@@ -75,10 +75,11 @@ describe('the homes migration', () => {
         { id: 'k-old', name: 'Old laptop', kind: 'computer', status: 'revoked', revoked_at: '2026-08-01T00:00:00.000Z' },
         { id: 'k-phone', name: 'iPhone', kind: 'phone', status: 'active', revoked_at: null },
       ]);
-      expect(sqlite.prepare('SELECT id, device_id FROM api_keys ORDER BY id').all()).toEqual([
-        { id: 'k-host', device_id: null },
-        { id: 'k-old', device_id: 'k-old' },
-        { id: 'k-phone', device_id: 'k-phone' },
+      // Every key from before is a sign-in key: only enrolling issues a worker key.
+      expect(sqlite.prepare('SELECT id, device_id, role FROM api_keys ORDER BY id').all()).toEqual([
+        { id: 'k-host', device_id: null, role: 'sign_in' },
+        { id: 'k-old', device_id: 'k-old', role: 'sign_in' },
+        { id: 'k-phone', device_id: 'k-phone', role: 'sign_in' },
       ]);
       expect(sqlite.pragma('foreign_key_check')).toEqual([]);
     } finally {
@@ -102,9 +103,11 @@ describe('the homes migration', () => {
 });
 
 describe('running agents', () => {
-  it("is the home, or a device while its worker key is active", async () => {
+  it("is the home, or a device while it has an active worker key", async () => {
     const { q, host, macbook, workerKeyId } = await homeWithWorker();
-    expect(q.getDevice(macbook.device.id)?.workerKeyId).toBe(workerKeyId);
+    // The key says what it's for.
+    expect(q.getApiKey(workerKeyId)?.role).toBe('worker');
+    expect(q.getApiKey(macbook.key.id)?.role).toBe('sign_in');
     expect(q.getWorkerDevice(workerKeyId)?.id).toBe(macbook.device.id);
     expect(q.getWorkerKeyId(macbook.device.id)).toBe(workerKeyId);
     expect(q.listEnrolledDeviceIds()).toEqual(new Set([macbook.device.id]));
@@ -112,10 +115,11 @@ describe('running agents', () => {
     expect(q.getApiKey(workerKeyId)?.deviceId).toBe(macbook.device.id);
     expect(q.isWorkerApiKey(macbook.key.id)).toBe(false);
 
-    // Revoking the worker key turns it off: the flag is cleared.
+    // Revoking the worker key turns it off. The key stays a worker key, revoked.
     q.revokeApiKey(workerKeyId, 'off');
-    expect(q.getDevice(macbook.device.id)?.workerKeyId).toBeNull();
+    expect(q.getWorkerKeyId(macbook.device.id)).toBeNull();
     expect(q.getWorkerDevice(workerKeyId)).toBeNull();
+    expect(q.isWorkerApiKey(workerKeyId)).toBe(true);
     expect(q.listEnrolledDeviceIds().size).toBe(0);
     expect(q.getWorkerKeyId(host.id)).toBeNull();
   });
@@ -124,9 +128,17 @@ describe('running agents', () => {
     const { q, macbook, workerKeyId } = await homeWithWorker();
     const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: macbook.device.id, createdByApiKeyId: null });
     const again = q.redeemEnrollGrant({ secret: grant.secret, name: 'MacBook' });
-    expect(again.device.workerKeyId).toBe(again.key.id);
+    expect(q.getWorkerKeyId(macbook.device.id)).toBe(again.key.id);
     expect(q.getApiKey(workerKeyId)?.revokedAt).not.toBeNull();
-    expect(q.isWorkerApiKey(workerKeyId)).toBe(false);
+    expect(q.getWorkerDevice(workerKeyId)).toBeNull();
+  });
+
+  it('holds one active worker key per device in the database itself', async () => {
+    const { q, macbook } = await homeWithWorker();
+    expect(() => q.createApiKey({ name: 'Second worker', deviceId: macbook.device.id, role: 'worker' })).toThrow(/UNIQUE/);
+    // Sign-in keys are as many as it likes.
+    q.addDeviceKey(macbook.device.id);
+    q.addDeviceKey(macbook.device.id);
   });
 
   it("never enrolls the home's own device", async () => {
@@ -149,8 +161,8 @@ describe('the device list', () => {
     const roles = (id: string) => views.find((d) => d.id === id)!.keys.map((k) => [k.id, k.role]).sort();
     const hostKey = views.find((d) => d.isHome)!.keys;
     expect(hostKey.map((k) => k.role)).toEqual(['home']);
-    expect(roles(macbook.device.id)).toEqual([[macbook.key.id, 'sign-in'], [workerKeyId, 'worker']].sort());
-    expect(views.find((d) => d.id === phone.device.id)!.keys[0]).toMatchObject({ role: 'sign-in', current: true });
+    expect(roles(macbook.device.id)).toEqual([[macbook.key.id, 'sign_in'], [workerKeyId, 'worker']].sort());
+    expect(views.find((d) => d.id === phone.device.id)!.keys[0]).toMatchObject({ role: 'sign_in', current: true });
     // No secret leaves the home.
     expect(JSON.stringify(views)).not.toContain(q.getApiKey(phone.key.id)!.hash);
   });
@@ -164,7 +176,7 @@ describe('the devices API', () => {
     const body = (await res.json()) as { device: { name: string; kind: string; keys: unknown[] }; key: { role: string }; plaintext: string };
     expect(body.device).toMatchObject({ name: 'iPad', kind: 'tablet' });
     expect(body.device.keys).toHaveLength(1);
-    expect(body.key.role).toBe('sign-in');
+    expect(body.key.role).toBe('sign_in');
     expect(body.plaintext).toMatch(/^ri_/);
   });
 
@@ -185,7 +197,8 @@ describe('the devices API', () => {
     expect(refused.status).toBe(409);
     const res = await DELETE(request(`/api/devices/${macbook.device.id}`, { method: 'DELETE' }), params({ id: macbook.device.id }));
     expect(res.status).toBe(204);
-    expect(q.getDevice(macbook.device.id)).toMatchObject({ status: 'revoked', workerKeyId: null });
+    expect(q.getDevice(macbook.device.id)).toMatchObject({ status: 'revoked' });
+    expect(q.getWorkerKeyId(macbook.device.id)).toBeNull();
     expect(q.getApiKey(macbook.key.id)?.revokedAt).not.toBeNull();
     expect(q.getApiKey(workerKeyId)?.revokedAt).not.toBeNull();
     expect(q.listDevices().map((d) => d.id)).toEqual([host.id]);
@@ -208,7 +221,8 @@ describe('the devices API', () => {
 
     // The worker key: the MacBook stops running agents, and stays.
     expect((await one.DELETE(request('/x', { method: 'DELETE' }), params({ id: macbook.device.id, keyId: workerKeyId }))).status).toBe(204);
-    expect(q.getDevice(macbook.device.id)).toMatchObject({ status: 'active', workerKeyId: null });
+    expect(q.getDevice(macbook.device.id)).toMatchObject({ status: 'active' });
+    expect(q.listEnrolledDeviceIds().has(macbook.device.id)).toBe(false);
 
     const homeKey = q.listApiKeys().find((k) => k.deviceId === host.id)!;
     const refused = await one.DELETE(request('/x', { method: 'DELETE' }), params({ id: host.id, keyId: homeKey.id }));

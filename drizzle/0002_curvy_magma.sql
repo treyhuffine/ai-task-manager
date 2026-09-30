@@ -28,17 +28,14 @@ CREATE TABLE `devices` (
 	`status` text NOT NULL,
 	`revoked_at` text,
 	`last_seen_at` text,
-	`worker_key_id` text,
 	`worker_protocol` integer,
 	`worker_version` text,
 	`harnesses` text,
 	`reported_state` text,
-	`acked_event_seq` integer DEFAULT 0 NOT NULL,
-	FOREIGN KEY (`worker_key_id`) REFERENCES `api_keys`(`id`) ON UPDATE no action ON DELETE set null
+	`acked_event_seq` integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX `idx_devices_status` ON `devices` (`status`);--> statement-breakpoint
-CREATE UNIQUE INDEX `uniq_devices_worker_key` ON `devices` (`worker_key_id`);--> statement-breakpoint
 CREATE TABLE `execution_placements` (
 	`id` text PRIMARY KEY NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
@@ -223,21 +220,54 @@ DROP INDEX `external_session_imports_source_uq`;--> statement-breakpoint
 ALTER TABLE `external_session_imports` ADD `device_id` text REFERENCES devices(id);--> statement-breakpoint
 CREATE UNIQUE INDEX `external_session_imports_remote_source_uq` ON `external_session_imports` (`device_id`,`provider_type`,`external_session_id`) WHERE "external_session_imports"."device_id" IS NOT NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX `external_session_imports_source_uq` ON `external_session_imports` (`provider_type`,`external_session_id`) WHERE "external_session_imports"."device_id" IS NULL;--> statement-breakpoint
-ALTER TABLE `api_keys` ADD `device_id` text REFERENCES devices(id) ON DELETE set null;--> statement-breakpoint
-CREATE INDEX `idx_api_keys_device` ON `api_keys` (`device_id`);--> statement-breakpoint
-/* Every key belongs to a device (docs/homes-build.md, "Devices"). A key paired
-   before devices gets a device of its own, named as the key is, of the type the
-   key was given, with the key's id. The home's own keys (`host`) are left for
-   the home's identity at first start, which gives them the home's device
-   (`giveHostItsKeys`). Written by hand: the type is read before it's dropped. */
+/* api_keys, written by hand (docs/homes-build.md, "Devices"). Every key
+   belongs to a device, and says what it's for. A key paired before devices
+   gets a device of its own, named as the key is, of the type the key was
+   given, with the key's id, and removed when the key was revoked. The home's
+   own (`host`) keys are left for its identity at first start, which gives
+   them the home's device (`giveHostItsKeys`). Every key here is a sign-in
+   key: worker keys are issued only by enrolling. The table is rebuilt, since
+   `role` has no default for SQLite to fill existing rows with, and the type
+   is read before it goes. */
 INSERT INTO `devices` (`id`, `created_at`, `updated_at`, `name`, `kind`, `status`, `revoked_at`)
   SELECT `id`, `created_at`, `updated_at`, `name`,
     CASE WHEN `device_type` IN ('computer', 'phone', 'tablet', 'service') THEN `device_type` ELSE 'other' END,
     CASE WHEN `revoked_at` IS NULL THEN 'active' ELSE 'revoked' END,
     `revoked_at`
   FROM `api_keys` WHERE `device_type` <> 'host';--> statement-breakpoint
-UPDATE `api_keys` SET `device_id` = `id` WHERE `device_type` <> 'host';--> statement-breakpoint
-ALTER TABLE `api_keys` DROP COLUMN `device_type`;--> statement-breakpoint
+CREATE TABLE `__new_api_keys` (
+	`id` text PRIMARY KEY NOT NULL,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
+	`name` text NOT NULL,
+	`description` text,
+	`prefix` text NOT NULL,
+	`suffix` text NOT NULL,
+	`hash` text NOT NULL,
+	`env` text NOT NULL,
+	`expires_at` text,
+	`last_used_at` text,
+	`last_used_ip` text,
+	`last_used_user_agent` text,
+	`revoked_at` text,
+	`revoked_reason` text,
+	`device_id` text,
+	`role` text NOT NULL,
+	FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+INSERT INTO `__new_api_keys` ("id", "created_at", "updated_at", "name", "description", "prefix", "suffix", "hash", "env", "expires_at", "last_used_at", "last_used_ip", "last_used_user_agent", "revoked_at", "revoked_reason", "device_id", "role")
+  SELECT "id", "created_at", "updated_at", "name", "description", "prefix", "suffix", "hash", "env", "expires_at", "last_used_at", "last_used_ip", "last_used_user_agent", "revoked_at", "revoked_reason",
+    CASE WHEN "device_type" = 'host' THEN NULL ELSE "id" END, 'sign_in'
+  FROM `api_keys`;--> statement-breakpoint
+DROP TABLE `api_keys`;--> statement-breakpoint
+ALTER TABLE `__new_api_keys` RENAME TO `api_keys`;--> statement-breakpoint
+CREATE UNIQUE INDEX `api_keys_hash_unique` ON `api_keys` (`hash`);--> statement-breakpoint
+CREATE INDEX `idx_api_keys_hash` ON `api_keys` (`hash`);--> statement-breakpoint
+CREATE INDEX `idx_api_keys_device` ON `api_keys` (`device_id`);--> statement-breakpoint
+CREATE INDEX `idx_api_keys_prefix` ON `api_keys` (`prefix`);--> statement-breakpoint
+CREATE INDEX `idx_api_keys_revoked` ON `api_keys` (`revoked_at`);--> statement-breakpoint
+CREATE UNIQUE INDEX `uniq_api_keys_device_worker` ON `api_keys` (`device_id`) WHERE "api_keys"."role" = 'worker' AND "api_keys"."revoked_at" IS NULL;--> statement-breakpoint
 ALTER TABLE `chat_events` ADD `part_revision` integer;--> statement-breakpoint
 ALTER TABLE `chat_sessions` ADD `device_id` text REFERENCES devices(id) ON DELETE set null;--> statement-breakpoint
 ALTER TABLE `runs` ADD `source_event_id` text;--> statement-breakpoint

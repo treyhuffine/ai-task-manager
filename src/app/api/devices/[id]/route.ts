@@ -7,7 +7,7 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { getRequestKey } from '@/lib/auth/request-key';
-import { getDevice, getHome, removeDevice, updateDevice } from '@/lib/db/queries';
+import { getDevice, getHome, getWorkerKeyId, removeDevice, updateDevice } from '@/lib/db/queries';
 import { DEVICE_KINDS } from '@/lib/db/schema';
 import { listDeviceViews } from '@/lib/devices/views';
 import { publishDeviceUpdated } from '@/lib/realtime/bus';
@@ -45,7 +45,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   }
   const reason = request.nextUrl.searchParams.get('reason') ?? `${device.name} was removed by the owner`;
   // Its worker first, so its work is settled and its stream closes now.
-  if (device.workerKeyId) retireWorker(device.workerKeyId, id, reason);
+  const workerKeyId = getWorkerKeyId(id);
+  if (workerKeyId) retireWorker(workerKeyId, id, reason);
   removeDevice(id, reason);
   publishDeviceUpdated(id);
   return new Response(null, { status: 204 });

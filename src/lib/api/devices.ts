@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { DeviceKind } from '@/db/types';
+import type { ApiKeyRole, DeviceKind } from '@/db/types';
 
 /** A key a device signs in with, without its secret. */
 export interface DeviceKeyView {
@@ -14,10 +14,10 @@ export interface DeviceKeyView {
   revokedAt: string | null;
   /**
    * `home`: the home's own key, which Ri itself uses on the home's device.
-   * `worker`: the key the device's worker runs agents with. `sign-in`: a
-   * browser, phone app or CLI signed in with it.
+   * Otherwise its role (`api_keys.role`): `worker`, the key the device's
+   * worker runs agents with, or `sign_in`, a browser, the phone app or a CLI.
    */
-  role: 'home' | 'worker' | 'sign-in';
+  role: 'home' | ApiKeyRole;
   /** The key this request was made with. */
   current: boolean;
 }

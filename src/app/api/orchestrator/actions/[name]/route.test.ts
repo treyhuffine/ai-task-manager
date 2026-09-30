@@ -136,7 +136,7 @@ describe('devices and setups over the route', () => {
     expect(q.getWorkspaceSetup(ws.id, phone.device.id)?.sourcePath).toBe('/Users/trey/elsewhere');
 
     // A key the home never gave a device can't record folders at all.
-    const orphan = q.createApiKey({ name: 'Orphan', deviceId: null }).key;
+    const orphan = q.createApiKey({ name: 'Orphan', deviceId: null, role: 'sign_in' }).key;
     const asOrphan = { [API_KEY_ID_HEADER]: orphan.id, [CALLER_LOCATION_HEADER]: 'elsewhere' };
     const refused = await call('set_workspace_folder', { agent: ws.id, folder: '/tmp/x' }, asOrphan);
     expect(refused.body.error?.code).toBe('conflict');

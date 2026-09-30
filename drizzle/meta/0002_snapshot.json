@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8ccc007d-a9a1-4d9f-81e1-689614d3e928",
+  "id": "f725215a-5108-45c8-9e92-25d47116560a",
   "prevId": "7171ece0-6189-4490-a99b-1d9df8b7145f",
   "tables": {
     "api_keys": {
@@ -120,6 +120,13 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -157,6 +164,14 @@
             "revoked_at"
           ],
           "isUnique": false
+        },
+        "uniq_api_keys_device_worker": {
+          "name": "uniq_api_keys_device_worker",
+          "columns": [
+            "device_id"
+          ],
+          "isUnique": true,
+          "where": "\"api_keys\".\"role\" = 'worker' AND \"api_keys\".\"revoked_at\" IS NULL"
         }
       },
       "foreignKeys": {
@@ -1298,13 +1313,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "worker_key_id": {
-          "name": "worker_key_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "worker_protocol": {
           "name": "worker_protocol",
           "type": "integer",
@@ -1349,30 +1357,9 @@
             "status"
           ],
           "isUnique": false
-        },
-        "uniq_devices_worker_key": {
-          "name": "uniq_devices_worker_key",
-          "columns": [
-            "worker_key_id"
-          ],
-          "isUnique": true
         }
       },
-      "foreignKeys": {
-        "devices_worker_key_id_api_keys_id_fk": {
-          "name": "devices_worker_key_id_api_keys_id_fk",
-          "tableFrom": "devices",
-          "tableTo": "api_keys",
-          "columnsFrom": [
-            "worker_key_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

@@ -170,6 +170,7 @@ export function ensureLocalToken(): LocalTokenInfo {
     name: `${os.hostname()} (host)`,
     description: 'Auto-generated local host token',
     deviceId: getHome()?.hostDeviceId ?? null,
+    role: 'sign_in',
   });
 
   writeAuthConfig({ localToken: token.plaintext });
