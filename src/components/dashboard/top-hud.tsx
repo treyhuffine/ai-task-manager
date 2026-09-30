@@ -20,7 +20,13 @@ export function TopHud() {
   const [inboxOpen, setInboxOpen] = useState(false);
   // The agent view and the execution view both close back to Home.
   const closeLabel =
-    activeView.kind === 'execution' ? 'Close execution' : activeView.kind === 'agent' ? 'Close agent' : null;
+    activeView.kind === 'execution'
+      ? 'Close execution'
+      : activeView.kind === 'agent'
+        ? 'Close agent'
+        : activeView.kind === 'skill'
+          ? 'Close skill'
+          : null;
   const latestExecutionId = useLatestExecutionId();
 
   return (

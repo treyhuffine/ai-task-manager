@@ -9,6 +9,7 @@ import { PowerRail } from './power-rail';
 import { PanelLayout } from './panel-layout';
 import { ExecutionView } from '@/components/executions/execution-view';
 import { AgentView } from '@/components/agents/agent-view';
+import { SkillView } from '@/components/skills/skill-view';
 import { FocusView } from './focus-view';
 import { SearchOverlay } from '@/components/shared/search-overlay';
 import { NoteSlideout } from '@/components/notes/note-slideout';
@@ -146,6 +147,8 @@ function DashboardShell() {
               <ExecutionView sessionId={activeView.id} />
             ) : activeView.kind === 'agent' ? (
               <AgentView workspaceId={activeView.id} tab={activeView.tab} />
+            ) : activeView.kind === 'skill' ? (
+              <SkillView name={activeView.name} />
             ) : (
               <PanelLayout />
             )}

@@ -70,6 +70,11 @@ One generic attachment system across the whole app:
 - Send-to-model: every chat is a harness session, so `src/lib/attachments/expand-markers.ts` substitutes `[[file:...]]` markers with the absolute disk path when the harness reads the mime natively (text, code, images, PDF), or an inline `<attachment>` block of extracted text otherwise (`src/lib/attachments/extract-text.ts`: docx/xlsx/pptx via mammoth/xlsx/officeparser, audio via STT through `pickProvider`, svg as XML). 200k-char per-attachment cap to bound context.
 - See `docs/chat-sessions.md` for the chat-specific flow end-to-end.
 
+## Skills
+
+- The home's skill library is `<app-root>/skills/<name>/SKILL.md`, built and managed from Plugins (the skill builder). Go through `src/lib/skills/manage.ts` for every change: it keeps the folder, its reach (`skill_scopes` plus the `~/.claude/skills` and `~/.agents/skills` links), Codex's leftover session links and the skill's builder and try chats in step. Never write the folder directly from app code.
+- No `skill_scopes` row means every agent. New skills start off. Which skills a chat gets is decided at home and carried on the session spec (`excludeSkills`), because the runner may be on another device. Full model: `docs/skills.md`.
+
 ## Client data layer (TanStack Query)
 
 - **Mutations are optimistic, at the hook layer.** Task/note/area mutations live in `src/hooks/use-{tasks,notes,areas}.ts` and all funnel through `src/lib/query/optimistic-entity.ts`: patch the cache in `onMutate` (`optimisticPatch` / `optimisticRemove`), roll back in `onError` (`rollbackOptimistic` + a sonner toast), reconcile in `onSettled` (`settleEntity`, a background invalidate). Do **not** add a blocking `onSuccess: invalidateQueries` — that reintroduces the second round-trip the optimistic layer exists to remove, and is the lag this replaced.

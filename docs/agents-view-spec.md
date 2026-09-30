@@ -42,7 +42,7 @@ Not decided. None of these block the phases below.
 - **The `ri agent <action>` CLI namespace.** It means "the command group agents use to call Ri". With "agent" meaning a scope in the UI, `ri agent list_workspaces` reads oddly. Changing it breaks every skill that learned it. Decide together with the rename above.
 - **The app's main chat as an agent record** (a "home agent"). Nothing in this project needs it. The main chat stays a chat with no workspace.
 - **A shared persona layer** that reaches every chat (how Trey works, standing preferences). Today each chat type gets different instructions (§5.6). Follow-up work.
-- **Connectors vs Plugins naming.**
+- **Connectors vs Plugins naming.** Decided 2026-09-30: the catalog is Plugins, and Skills and Connectors keep their names inside it. See docs/skills.md.
 - **Whether an agent main chat's replies count as unread in the rail.** Default for this spec: no, same as the app's main chat.
 
 ---
@@ -527,7 +527,7 @@ Recorded so they are not lost:
 - **A home agent record** for the app's main chat (§3).
 - **A shared persona layer** reaching every chat (§3).
 - **Several agents sharing one folder.** If it becomes real, split scope fields (name, icon, area, purpose, instructions, connectors, browser, rail order) from folder fields (path, git, worktree root, scripts, files to copy). Reference folders are a judgment call, since they can point at another workspace.
-- **Renaming Connectors to Plugins.**
+- ~~**Renaming Connectors to Plugins.**~~ Decided 2026-09-30, docs/skills.md: Plugins is the catalog, Connectors stays the kind.
 
 Found during the work and left open:
 

@@ -760,12 +760,23 @@ export async function recycleForReferenceFolderChange(
   workspaceId: string | null,
 ): Promise<void> {
   if (workspaceId) return recycleWorkspaceSessions(workspaceId);
+  await recycleEveryAgentSession();
+}
+
+/**
+ * Recycle every agent's live sessions, for a change that reaches all of
+ * them: every execution and every agent's main chat. `includeAppMainChat`
+ * adds the app's own main chat, for changes that reach it too (a skill on
+ * for every agent does, a reference folder doesn't).
+ */
+export async function recycleEveryAgentSession(opts: { includeAppMainChat?: boolean } = {}): Promise<void> {
   const sessions = [
     ...listChatSessions({ status: 'active', type: 'execution' }),
     // Every agent's main chat, not the app's (listMainChats(null)).
     ...listChatSessions({ status: 'active', type: 'orchestration' }).filter(
       (s) => s.workspaceId && !s.executionId && !s.createdByRunId,
     ),
+    ...(opts.includeAppMainChat ? listMainChats(null, { status: 'active' }) : []),
   ];
   await Promise.all(sessions.map((s) => recycleWhenIdle(s.id)));
 }

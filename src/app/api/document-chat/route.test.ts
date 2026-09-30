@@ -53,3 +53,29 @@ describe('GET /api/document-chat — seeds model + effort from defaults', () => 
     expect(session.effort).toBe('medium');
   });
 });
+
+describe('GET /api/document-chat — skill builder and try chats', () => {
+  it('opens one builder chat and one try chat per skill, as separate threads', async () => {
+    const { createSkill } = await import('@/lib/skills/library');
+    createSkill({ name: 'doc-chat-skill', description: 'D.', body: 'B\n' });
+    try {
+      const build = await (await GET(new Request('http://test/api/document-chat?entityType=skill&entityId=doc-chat-skill'))).json();
+      const again = await (await GET(new Request('http://test/api/document-chat?entityType=skill&entityId=doc-chat-skill'))).json();
+      const tryChat = await (await GET(new Request('http://test/api/document-chat?entityType=skill-try&entityId=doc-chat-skill'))).json();
+      expect(build.session).toMatchObject({ type: 'content', surfaceKind: 'skill', surfaceRef: 'doc-chat-skill' });
+      expect(again.session.id).toBe(build.session.id);
+      expect(tryChat.session).toMatchObject({ surfaceKind: 'skill-try', surfaceRef: 'doc-chat-skill' });
+      expect(tryChat.session.id).not.toBe(build.session.id);
+    } finally {
+      const { skillDir } = await import('@/lib/skills/library');
+      fs.rmSync(skillDir('doc-chat-skill'), { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a chat for a skill that does not exist, and an unknown kind', async () => {
+    const missing = await GET(new Request('http://test/api/document-chat?entityType=skill&entityId=no-such-skill'));
+    expect(missing.status).toBe(404);
+    const unknown = await GET(new Request('http://test/api/document-chat?entityType=workspace&entityId=x'));
+    expect(unknown.status).toBe(400);
+  });
+});

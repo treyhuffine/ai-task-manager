@@ -6,14 +6,16 @@ export const AGENT_TABS: readonly AgentTab[] = ['overview', 'files', 'terminal',
 
 /**
  * What fills the main area: Home (the deck and chat panels), an agent's
- * view (a workspace, with an optional tools tab), or an execution. The URL
- * carries it: nothing for Home, `?agent=<workspaceId>&tab=<tab>`, or
- * `?session=<chatSessionId>`. Helpers live in `src/lib/client/active-view.ts`.
+ * view (a workspace, with an optional tools tab), an execution, or a
+ * skill's builder (docs/skills.md). The URL carries it: nothing for Home,
+ * `?agent=<workspaceId>&tab=<tab>`, `?session=<chatSessionId>`, or
+ * `?skill=<name>`. Helpers live in `src/lib/client/active-view.ts`.
  */
 export type ActiveView =
   | { kind: 'home' }
   | { kind: 'agent'; id: string; tab?: AgentTab }
-  | { kind: 'execution'; id: string };
+  | { kind: 'execution'; id: string }
+  | { kind: 'skill'; name: string };
 
 export type PanelTab = 'deck' | 'chat' | 'tasks' | 'stream' | 'notes';
 export type MorePanelTab = 'areas' | 'people' | 'decisions' | 'calendar';
