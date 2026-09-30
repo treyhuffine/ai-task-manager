@@ -12,8 +12,10 @@ import { CommitButton } from './commit-button';
 import { OpenPrButton } from './open-pr-button';
 import { MergeButton } from './merge-button';
 import { ErrorModal } from '../error-modal';
+import { narrativePr } from './narrative-pr';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { HOME_VIEW } from '@/lib/client/active-view';
+import { cn } from '@/lib/utils';
 
 interface ExecutionActionBarProps {
   session: ChatSessionWithExecution;
@@ -503,31 +505,49 @@ interface PrChipProps {
 function PrChip({ sessionId, prNumber, prUrl, closed }: PrChipProps) {
   return (
     <span className="inline-flex items-center gap-1.5 min-w-0">
-      <a
-        href={prUrl}
-        target="_blank"
-        rel="noreferrer"
-        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
-          closed
-            ? 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/15'
-            : 'border-border bg-muted/30 text-foreground/80 hover:bg-muted/50'
-        }`}
-        title={closed ? `Closed PR #${prNumber}` : `Open PR #${prNumber}`}
-      >
-        <span>PR #{prNumber}</span>
-        <ArrowUpRight size={11} className="opacity-70" />
-      </a>
-      {!closed && (
-        <span className="inline-flex items-center gap-1.5 @max-[1120px]/exec:hidden">
-          <PrStatusBadges sessionId={sessionId} />
-        </span>
-      )}
+      <PrRef pr={{ number: prNumber, url: prUrl, closed: !!closed }} />
+      {!closed && <PrBadges sessionId={sessionId} />}
     </span>
   );
 }
 
 /**
- * CI + review badges shown next to an open PR chip. Reads the same cached
+ * The PR as a reference, not a button: a small squared `#402 ↗` that opens
+ * it on GitHub. No fill and muted text, so the git chip's one action stays
+ * the only thing that reads as work to do.
+ */
+function PrRef({ pr }: { pr: OpenablePr }) {
+  return (
+    <a
+      href={pr.url}
+      target="_blank"
+      rel="noreferrer"
+      title={pr.closed ? `Closed PR #${pr.number}. Open on GitHub` : `Open PR #${pr.number} on GitHub`}
+      aria-label={`${pr.closed ? 'Closed pull request' : 'Pull request'} #${pr.number} on GitHub`}
+      className={cn(
+        'inline-flex h-5 flex-shrink-0 items-center gap-0.5 rounded-[3px] border pl-1 pr-0.5 font-mono text-[11px] leading-none tabular-nums transition-colors',
+        pr.closed
+          ? 'border-rose-500/30 text-rose-600 hover:border-rose-500/50 dark:text-rose-400'
+          : 'border-border text-muted-foreground hover:border-foreground/25 hover:text-foreground',
+      )}
+    >
+      #{pr.number}
+      <ArrowUpRight size={11} className="opacity-70" />
+    </a>
+  );
+}
+
+/** CI + review badges for an open PR, folded away when the header runs out of room. */
+function PrBadges({ sessionId }: { sessionId: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 empty:hidden @max-[1120px]/exec:hidden">
+      <PrStatusBadges sessionId={sessionId} />
+    </span>
+  );
+}
+
+/**
+ * CI + review badges shown next to an open PR. Reads the same cached
  * PR query the state machine uses (React Query dedupes the key), so it adds
  * no fetch. Renders nothing until the PR resolves to OPEN with real signal.
  */
@@ -677,55 +697,58 @@ const THEME_BY_STATE: Record<ActionState['kind'], ChipTheme | null> = {
 };
 
 /**
- * Sentence-form expression of the git action state. The PR identity
- * and status sit on the left, the primary action floats to the right
- * (via `justify-between`), and the chip itself is tinted by state so
- * the user can recognize the situation at a glance.
+ * Sentence-form expression of the git action state. The PR it concerns sits
+ * outside on the left as a plain reference, the chip holds the status with
+ * the one next action floated right (via `justify-between`), and the chip is
+ * tinted by state so the user can recognize the situation at a glance.
  */
 function Narrative({ state, openablePr, fit, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeProps) {
   const theme = THEME_BY_STATE[state.kind];
   if (!theme) return null;
+  const pr = narrativePr(state, openablePr);
 
   return (
-    <div
-      className={`inline-flex ${fit ? 'w-auto' : 'w-full'} items-center justify-between gap-3 rounded-lg border pl-1 pr-1 py-1 text-[11px] max-w-full overflow-hidden ${theme.chip}`}
-    >
-      <NarrativeBody
-        state={state}
-        openablePr={openablePr}
-        theme={theme}
-        sessionId={sessionId}
-        push={push}
-        pullBase={pullBase}
-        retrySetup={retrySetup}
-        archive={archive}
-        resolveConflicts={resolveConflicts}
-      />
+    <div className={`inline-flex ${fit ? 'w-auto' : 'w-full'} max-w-full min-w-0 items-center gap-2`}>
+      {pr && <PrRef pr={pr} />}
+      <div
+        className={`inline-flex ${fit ? '' : 'flex-1'} min-w-0 items-center justify-between gap-3 rounded-lg border pl-1 pr-1 py-1 text-[11px] overflow-hidden ${theme.chip}`}
+      >
+        <NarrativeBody
+          state={state}
+          hasPr={pr != null}
+          badges={pr && !pr.closed ? <PrBadges sessionId={sessionId} /> : null}
+          theme={theme}
+          sessionId={sessionId}
+          push={push}
+          pullBase={pullBase}
+          retrySetup={retrySetup}
+          archive={archive}
+          resolveConflicts={resolveConflicts}
+        />
+      </div>
     </div>
   );
 }
 
-interface NarrativeBodyProps extends NarrativeProps {
+interface NarrativeBodyProps extends Omit<NarrativeProps, 'openablePr' | 'fit'> {
   theme: ChipTheme;
+  /** A PR is named beside the chip (see `narrativePr`). */
+  hasPr: boolean;
+  /** The PR's CI + review badges, leading the status text. */
+  badges: React.ReactNode;
 }
 
-function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeBodyProps) {
-  // The PR link for states whose git story doesn't carry the PR (behind base,
-  // diverged, setup failed, dirty on a closed PR, or a lookup that failed).
-  // PR states render their own chip from the lookup.
-  const linkedChip = openablePr ? (
-    <PrChip sessionId={sessionId} prNumber={openablePr.number} prUrl={openablePr.url} closed={openablePr.closed} />
-  ) : null;
+function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeBodyProps) {
   switch (state.kind) {
     case 'setupFailed':
       return (
         <>
           <NarrativeLeft>
-            {linkedChip}
+            {badges}
             <span className={`inline-flex items-center gap-1 font-medium px-1 ${theme.text}`}>
               <AlertCircle size={11} />
               {state.prNumber != null
-                ? linkedChip ? "Couldn't fetch its branch" : `Couldn't fetch PR #${state.prNumber}`
+                ? hasPr ? "Couldn't fetch its branch" : `Couldn't fetch PR #${state.prNumber}`
                 : "Couldn't create worktree"}
             </span>
           </NarrativeLeft>
@@ -744,9 +767,7 @@ function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, re
       return (
         <>
           <NarrativeLeft>
-            {state.pr ? (
-              <PrChip sessionId={sessionId} prNumber={state.pr.prNumber} prUrl={state.pr.prUrl} />
-            ) : linkedChip}
+            {badges}
             <NarrativeText themed={theme.text}>
               <span className="font-semibold tabular-nums">
                 {state.staged + state.unstaged + state.untracked}
@@ -762,7 +783,7 @@ function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, re
       return (
         <>
           <NarrativeLeft>
-            {linkedChip}
+            {badges}
             <NarrativeText themed={theme.text}>
               <span className="font-semibold tabular-nums">{state.behind}</span> behind base
             </NarrativeText>
@@ -782,7 +803,7 @@ function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, re
       return (
         <>
           <NarrativeLeft>
-            {linkedChip}
+            {badges}
             <NarrativeText themed={theme.text}>
               <span className="font-semibold tabular-nums">{state.ahead}</span>{' '}
               {state.ahead === 1 ? 'commit ahead' : 'commits ahead'}
@@ -799,7 +820,7 @@ function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, re
             />
             {/* A PR is already linked (GitHub just didn't confirm it), so
                 don't offer to open a second one. */}
-            {!linkedChip && <OpenPrButton sessionId={sessionId} />}
+            {!hasPr && <OpenPrButton sessionId={sessionId} />}
           </div>
         </>
       );
@@ -809,7 +830,7 @@ function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, re
       return (
         <>
           <NarrativeLeft>
-            <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
+            {badges}
             <NarrativeText themed={theme.text}>Ready to merge</NarrativeText>
           </NarrativeLeft>
           <MergeButton
@@ -826,7 +847,7 @@ function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, re
       return (
         <>
           <NarrativeLeft>
-            <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
+            {badges}
             <NarrativeText themed={theme.text}>
               <span className="font-semibold tabular-nums">{state.ahead}</span> unpushed
             </NarrativeText>
@@ -846,7 +867,7 @@ function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, re
       return (
         <>
           <NarrativeLeft>
-            <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
+            {badges}
             <NarrativeText themed={theme.text}>
               <span className="font-semibold tabular-nums">{state.behind}</span> behind base
             </NarrativeText>
@@ -866,7 +887,7 @@ function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, re
       return (
         <>
           <NarrativeLeft>
-            <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
+            {badges}
             <span className={`inline-flex items-center gap-1 font-medium px-1 ${theme.text}`}>
               <AlertCircle size={11} />
               Conflicts with base
@@ -887,7 +908,7 @@ function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, re
       return (
         <>
           <NarrativeLeft>
-            {linkedChip}
+            {badges}
             <span className={`inline-flex items-center gap-1 font-medium px-1 ${theme.text}`}>
               <AlertCircle size={11} />
               Diverged from origin
@@ -908,7 +929,7 @@ function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, re
       return (
         <>
           <NarrativeLeft>
-            <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
+            {badges}
             <span className={`inline-flex items-center gap-1 font-medium px-1 ${theme.text}`}>
               <CheckCircle2 size={11} />
               Merged
@@ -928,7 +949,6 @@ function NarrativeBody({ state, openablePr, theme, sessionId, push, pullBase, re
     case 'prClosed':
       return (
         <NarrativeLeft>
-          <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} closed />
           <NarrativeText themed={theme.text}>Closed</NarrativeText>
         </NarrativeLeft>
       );

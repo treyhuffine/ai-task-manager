@@ -86,8 +86,10 @@ on its own.
 **Git chip.** Today's `ExecutionActionBar` narrative, unchanged in
 behavior: colored by state, status on the left, the one next step on the
 right (Commit & push, Push, Open PR, Pull, Merge #N, Resolve conflicts,
-Archive), with the PR number linking to GitHub. It never goes in the box
-or the panel. On the phone it gets its own row under the header.
+Archive). The PR sits just outside on its left as a reference, not a
+button: a small squared `#402 ↗` that opens it on GitHub, so the step is
+the only thing that reads as clickable. It never goes in the box or the
+panel. On the phone it gets its own row under the header.
 
 **Tools box (panel closed).** A borderless floating card on the chat's
 right (`tools-box.tsx`): the branch, a **Run** row (status, a labeled
