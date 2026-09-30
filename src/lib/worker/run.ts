@@ -47,6 +47,7 @@ import { EventJournal } from './event-journal';
 import { describeHarnesses } from './harnesses';
 import { EventPoster } from './poster';
 import { processRecorder, stopLeftovers } from './leftovers';
+import { stopOrphanedHarnesses } from '@/lib/runner/harness-processes';
 import { acquireWorkerLock, WorkerLockedError } from './lock';
 import { createWorkerSink } from './sink';
 import { readEventStream } from './sse';
@@ -326,6 +327,12 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
   const leftovers = await stopLeftovers(options.processRecordFile);
   if (leftovers.length > 0) {
     console.warn(`[worker] stopped ${leftovers.length} process(es) left running by an earlier worker: ${leftovers.join(', ')}`);
+  }
+  // The runner's own record of harnesses by chat, which the stop above
+  // covered: this drops what it ended and stops any it missed.
+  const strayHarnesses = await stopOrphanedHarnesses();
+  if (strayHarnesses.length > 0) {
+    console.warn(`[worker] stopped ${strayHarnesses.length} harness process(es) left running by an earlier worker: ${strayHarnesses.join(', ')}`);
   }
   await recordProcesses();
   const postRetry = setInterval(() => {

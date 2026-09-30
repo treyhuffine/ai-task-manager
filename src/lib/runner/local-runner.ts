@@ -17,6 +17,9 @@
  *
  * Process restart empties the state. The next send passes the chat's native
  * session id in its spec, so the harness resumes its own on-disk session.
+ * The harness processes don't die with the state, so each is recorded by
+ * chat (`harness-processes.ts`): a chat's session never starts while an
+ * earlier harness for it is still running.
  *
  * Lifecycle assumptions:
  *   - `provider.createSession({ cwd, onEvent, sessionParams })` returns a
@@ -63,6 +66,7 @@ import {
   resolveRequest,
 } from './pending';
 import { classifyRequest } from './pending-classify';
+import { forgetHarnessProcess, recordHarnessProcess, stopStrayHarness } from './harness-processes';
 import { runnerSink } from './sink';
 import type {
   AnswerResult,
@@ -308,13 +312,24 @@ export function isHarnessSessionAlive(chatSessionId: string): boolean {
   const handle = state.harnessSessions.get(chatSessionId);
   if (!handle) return false;
   if (handle.state === 'closed') return false;
-  const proc = (handle as unknown as {
-    proc?: { killed?: boolean; exitCode?: number | null };
-  }).proc;
+  const proc = harnessProcessOf(handle);
   if (!proc) return true;
   if (proc.killed) return false;
   if (proc.exitCode !== null && proc.exitCode !== undefined) return false;
   return true;
+}
+
+/**
+ * The harness's own process, for the providers that run one per session
+ * (Claude, Codex, Pi, ACP). A provider that runs one per turn reports each
+ * through `onLifecycle` instead, and OpenCode's shared server is neither.
+ * Same TODO(agentex) as above: reads SDK internals until `AgentSession`
+ * exposes its process.
+ */
+function harnessProcessOf(
+  handle: AgentSession,
+): { pid?: number; killed?: boolean; exitCode?: number | null } | undefined {
+  return (handle as unknown as { proc?: { pid?: number; killed?: boolean; exitCode?: number | null } | null }).proc ?? undefined;
 }
 
 /**
@@ -661,11 +676,26 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
   }
 
   const chatSessionId = spec.chatSessionId;
+  // Never two harnesses on one chat: one a previous server left running, or
+  // one of ours we lost track of, is stopped before this one starts
+  // (harness-processes.ts). Throws rather than start beside one that won't stop.
+  const strays = await stopStrayHarness(chatSessionId);
+  if (strays.length > 0) {
+    console.warn(`[runner] stopped ${strays.length} earlier harness process(es) still running for ${chatSessionId}: ${strays.join(', ')}`);
+  }
+  const recordProcess = (pid: number) =>
+    recordHarnessProcess(chatSessionId, pid).catch((err: unknown) => {
+      console.warn(`[runner] couldn't record the harness process for ${chatSessionId}:`, err);
+    });
   const handle = await provider.createSession({
     cwd: spec.cwd,
     env: { ...runtimeContext.env, ...spec.env },
     sessionParams: spec.nativeSessionId ? { sessionId: spec.nativeSessionId } : undefined,
     config: Object.keys(config).length > 0 ? config : undefined,
+    // A provider that runs a process per turn reports each one here.
+    onLifecycle: (event) => {
+      if (event.phase === 'running') void recordProcess(event.pid);
+    },
     onUserInputRequest: (req) => handleUserInputRequest(chatSessionId, req),
     onEvent: async (event) => {
       try {
@@ -680,6 +710,10 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
       }
     },
   });
+
+  // Written down before the first message reaches it.
+  const pid = harnessProcessOf(handle)?.pid;
+  if (pid) await recordProcess(pid);
 
   state.harnessSessions.set(chatSessionId, handle);
   state.sessionInfo.set(chatSessionId, {
@@ -873,6 +907,7 @@ export async function close(chatSessionId: string): Promise<StopReport> {
     } catch (err) {
       return { closed: false, error: err instanceof Error ? err.message : String(err) };
     }
+    forgetClosedHarness(chatSessionId, handle);
   }
   state.harnessSessions.delete(chatSessionId);
   state.sessionInfo.delete(chatSessionId);
@@ -956,7 +991,21 @@ export async function recycleForModeChange(chatSessionId: string): Promise<void>
   clearStreamTurn(chatSessionId);
   // Don't reject pending requests — a mode change shouldn't blow up
   // an in-flight permission prompt the user is about to answer.
-  try { await handle.close(); } catch { /* best-effort */ }
+  try {
+    await handle.close();
+    forgetClosedHarness(chatSessionId, handle);
+  } catch {
+    // Best-effort. Its record stays, so the chat's next start stops it.
+  }
+}
+
+/** After a clean close: its process is gone, so drop it from the record. */
+function forgetClosedHarness(chatSessionId: string, handle: AgentSession): void {
+  const pid = harnessProcessOf(handle)?.pid;
+  if (!pid) return;
+  void forgetHarnessProcess(chatSessionId, pid).catch((err: unknown) => {
+    console.warn(`[runner] couldn't update the harness record for ${chatSessionId}:`, err);
+  });
 }
 
 // ─── Idle close ───────────────────────────────────────────────

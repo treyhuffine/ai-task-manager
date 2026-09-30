@@ -12,7 +12,13 @@
  * prompt or question and wait for the host's answer, emit raw events, and
  * return a result. Tests can also interrupt, crash, or close a session to
  * exercise recovery. `restore()` puts the real provider back.
+ *
+ * With `withProcess` set, each session also runs a real stand-in process,
+ * exposed as `proc` as agentex's sessions expose their harness, which close
+ * ends. It outlives the host's state like a real harness outlives its server.
  */
+
+import { spawn, type ChildProcess } from 'node:child_process';
 
 import { getProvider, registerProvider } from '@agentex/agent';
 import type {
@@ -64,6 +70,8 @@ export class FakeSession implements AgentSession {
   private currentAbort: AbortController | null = null;
   private initialized = false;
   private turnCount = 0;
+  /** The stand-in harness process, when the harness runs `withProcess`. */
+  readonly proc: ChildProcess | null;
 
   constructor(
     private readonly harness: FakeHarness,
@@ -73,6 +81,10 @@ export class FakeSession implements AgentSession {
     const resumeId = ctx.sessionParams?.sessionId;
     this.resumed = typeof resumeId === 'string';
     this.sessionId = this.resumed ? (resumeId as string) : `fake-${uuidv7()}`;
+    this.proc = harness.withProcess
+      ? spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', '--', 'ri-fake-harness'], { stdio: 'ignore' })
+      : null;
+    if (this.proc) harness.processes.push(this.proc);
   }
 
   private base() {
@@ -209,6 +221,12 @@ export class FakeSession implements AgentSession {
   async close(): Promise<void> {
     this.state = 'closed';
     this.currentAbort?.abort(new Error('session closed'));
+    const proc = this.proc;
+    if (proc && proc.exitCode === null && proc.signalCode === null) {
+      const exited = new Promise((resolve) => proc.once('exit', resolve));
+      proc.kill('SIGTERM');
+      await exited;
+    }
   }
 
   async drain(): Promise<void> {
@@ -250,6 +268,10 @@ export class FakeHarness {
    * turn, in order.
    */
   coalesce = false;
+  /** Give each session a real stand-in process (see the header). */
+  withProcess = false;
+  /** Every stand-in process started, for cleanup. */
+  readonly processes: ChildProcess[] = [];
   readonly providerType: string;
   private readonly original: ProviderModule;
 
@@ -287,6 +309,9 @@ export class FakeHarness {
   }
 
   restore(): void {
+    for (const proc of this.processes.splice(0)) {
+      if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL');
+    }
     registerProvider(this.original);
     clearHarnessRuntimeCache(this.harness);
     clearHarnessModelCache(this.harness);

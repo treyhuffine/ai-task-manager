@@ -18,7 +18,7 @@
  * wrong.
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -60,13 +60,37 @@ async function ps(args: string[]): Promise<{ processes: ProcessIdentity[]; psPid
     // `ps -p` exits 1 when the process is gone, with nothing to parse.
     stdout = (err as { stdout?: string }).stdout ?? '';
   }
+  return { processes: parsePs(stdout), psPid };
+}
+
+function parsePs(stdout: string): ProcessIdentity[] {
   const processes: ProcessIdentity[] = [];
   for (const line of stdout.split('\n')) {
     const match = PS_LINE.exec(line);
     if (!match) continue;
     processes.push({ pid: Number(match[1]), ppid: Number(match[2]), started: match[3]!.replace(/\s+/g, ' '), command: match[4]! });
   }
-  return { processes, psPid };
+  return processes;
+}
+
+/**
+ * The processes with these pids now, by pid, read synchronously: for an exit
+ * hook, which can't wait on anything.
+ */
+export function processIdentitiesSync(pids: number[]): Map<number, ProcessIdentity> {
+  if (pids.length === 0) return new Map();
+  let stdout: string;
+  try {
+    stdout = execFileSync('ps', ['-ww', '-o', 'pid=,ppid=,lstart=,command=', '-p', pids.join(',')], {
+      encoding: 'utf8',
+      env: { ...process.env, LC_ALL: 'C' },
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch (err) {
+    // `ps -p` exits 1 when none of them is running.
+    stdout = String((err as { stdout?: string }).stdout ?? '');
+  }
+  return new Map(parsePs(stdout).map((p) => [p.pid, p]));
 }
 
 /** The process with this pid now, or null when there is none. */
@@ -74,7 +98,10 @@ export async function processIdentity(pid: number): Promise<ProcessIdentity | nu
   return (await ps(['-p', String(pid)])).processes.find((p) => p.pid === pid) ?? null;
 }
 
-const same = (a: ProcessIdentity | null, b: ProcessIdentity) => !!a && a.started === b.started && a.command === b.command;
+/** Whether `now` is still the process `recorded` was: same start time and command line, so not a reused pid. */
+export const sameProcess = (now: ProcessIdentity | null | undefined, recorded: ProcessIdentity) =>
+  !!now && now.started === recorded.started && now.command === recorded.command;
+const same = sameProcess;
 
 /** This process and its children, as they are now. */
 export async function ownProcesses(self = process.pid): Promise<ProcessRecord | null> {

@@ -43,6 +43,22 @@ export async function register() {
     return;
   }
 
+  // Stop the harnesses a previous server left running, before anything here
+  // can send. It died without closing them, so each worked on through its
+  // turn unseen, and the chat's next message would start a second one on the
+  // same session. Then this server stops its own when it exits
+  // (src/lib/runner/harness-processes.ts). Awaited: startup waits for it.
+  try {
+    const { stopOrphanedHarnesses, installHarnessExitHook } = await import('@/lib/runner/harness-processes');
+    const stopped = await stopOrphanedHarnesses();
+    if (stopped.length > 0) {
+      console.warn(`[runner] stopped ${stopped.length} harness process(es) the previous server left running: ${stopped.join(', ')}`);
+    }
+    await installHarnessExitHook();
+  } catch (err) {
+    console.warn('[runner] stopping leftover harnesses failed', err);
+  }
+
   // Every agent's folders are in the home's records (docs/homes-spec.md
   // §4.1): move what existed before into them, once, then check the home's
   // own. Connected devices check theirs when their workers connect.

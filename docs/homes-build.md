@@ -723,7 +723,7 @@ The review of P2.1–P2.6 (`09d788b..694cf64`, 2026-09-25) found 11 reproducible
   - A turn completed and its cost landed on its own run.
   - The home restarted while a turn was running there. The run stayed running, then completed with its cost when the laptop finished.
   - The worker was killed with SIGKILL mid-turn. After it restarted, the run failed within two seconds with the restart message.
-- Seen in that crash: the orphaned Claude process finished the tool call it was running, then exited on its own at its next write, since its output pipe was gone. So a hard crash leaves at most one tool call running. Cleaning such leftovers up on restart belongs with P2.8's crash tests.
+- Seen in that crash: the orphaned Claude process finished the tool call it was running, then exited on its own at its next write, since its output pipe was gone. So a hard crash leaves at most one tool call running. Cleaning such leftovers up on restart belongs with P2.8's crash tests. (Corrected later: an orphaned Claude can run its whole turn. See [One harness per chat](#one-harness-per-chat).)
 
 ## P2 re-review fixes
 
@@ -1651,4 +1651,35 @@ Other facts that shape the work:
 ### Upstream fixes
 
 - `@agentex/workspace` 0.0.4 resolved `git rev-parse --git-path` output against the process's working directory instead of the repository. A server or worker started outside the checkout it opened read another repository's metadata, or failed with `ENOTDIR` from a linked worktree. That broke agent folder views in a dev home run from a worktree, and 8 existing tests. It was patched here first, then fixed upstream in 0.0.5, which Ri now uses, and the patch is gone. 0.0.5 also stores base metadata per worktree: 0.0.4 shared one file across all worktrees of a repository, so a new sibling worktree overwrote an older one's base. Worktrees made before 0.0.5 fall back to the old file.
+
+## One harness per chat
+
+The worker has stopped the harnesses a crashed predecessor left since P2.8. The home's own runner never did. Its harnesses are children of the server, driven over pipes, and the server doesn't close them when it stops: the service stops it with a SIGTERM to its pid, and a crash closes nothing. (Ctrl-C on a foreground `ri start` signals the whole process group, harnesses included, which is why this rarely showed.) So each harness it held worked on unseen, and the chat's next message started a second one on the same native session beside it. The same happened inside one server when it dropped a handle whose process lived on: a recycle whose close failed, or a health check that judged a live handle dead.
+
+Found by running real Claude the way agentex does (`--print` with stream-json input) and killing its parent mid tool call:
+
+- The orphan didn't stop at the tool call it was on. It finished it, ran the next one, wrote its final reply, and only then exited, about 25 seconds later. The P2 live note above (one tool call at most) no longer holds.
+- Everything it did reached its transcript, so reconcile can mirror the text. Not the rest: the transcript has no end-of-turn record, so no run completion, cost or notification, and the 60 s sweep only visits chats the server knows are running, which after a restart is none.
+- A second `claude --resume` started on the session while the orphan ran wrote a synthetic "Tool call interrupted" result for the orphan's running tool call and answered as if it never ran. The orphan then finished it and wrote the real result for the same call, so the transcript forked into two branches from one tool call.
+- Codex is different: `codex app-server` exits within half a second of losing its server, and in the live check the command it had started didn't finish. OpenCode and Cursor weren't tried.
+
+### What changed
+
+`src/lib/runner/harness-processes.ts`, used by the runner wherever it runs:
+
+- **Recorded at spawn.** Each harness is written down by chat in `<work>/harness-processes.json` when its session starts, before the first message reaches it: its pid, start time and command line, and the same for the process that started it (its owner). A harness that runs a process per turn (Cursor) records each through agentex's `onLifecycle`. A clean close removes the entry.
+- **Checked at spawn.** Starting a chat's session first stops any recorded harness for that chat that is still running: one a previous server left, or one of this server's own it lost track of. It refuses to start (`already_running`) when the harness belongs to another live process, or when it won't stop, so a chat never has two.
+- **Swept at startup.** The home's `register()` stops every recorded harness whose owner is gone before anything can send, so an orphan doesn't work on for a chat nobody writes to again. A worker runs the same sweep after its own P2.8 cleanup, which prunes the record.
+- **Signalled at exit.** The home SIGTERMs its own harnesses from an `exit` handler, which runs for the shutdown handlers' `process.exit` and for a crash on an uncaught error. SIGKILL runs nothing, which the next startup covers. Claude takes its running tool down with it on SIGTERM (checked live), so the harness is the only process to signal.
+- Every signal follows the worker's rule: only a recorded process, only while it's still that process by start time and command line, checked right before each signal. Nothing unrecorded is touched.
+
+Not covered: OpenCode sessions share one `opencode serve` process that agentex manages, which no session handle exposes. A harness orphaned between its spawn and its record is missed, the safe way to be wrong. The pid comes from the session's `proc`, an agentex internal, under the same TODO as `isHarnessSessionAlive`: `AgentSession` should expose its process.
+
+This is the floor, not survival. A turn under way when the server stops is still cut off, as documented. Keeping it running through a server restart needs the harness held by a process that outlives the server, as a connected device's worker already is.
+
+### Tests and live checks
+
+- `src/lib/runner/harness-processes.test.ts` (10), real processes: recording and replacing and forgetting by chat and pid, the startup sweep (a gone owner's harness stopped, a live owner's and a reused pid left alone, exited entries dropped), the spawn check (a leftover for that chat only, one of its own it lost, refusal beside a live owner's, SIGKILL for one that ignores SIGTERM), and the exit signal (its own only, never a reused pid).
+- `src/lib/executor/one-harness-per-chat.test.ts` (6), through the real `dispatch` with the fake harness running real stand-in processes (`withProcess`): recorded before the first message, the previous server's harness stopped before the next message's session starts (and not running during its turn), the startup sweep, a handle dropped while its process lived, refusal beside another live owner, and a clean close forgetting it. Three of these fail without the spawn check.
+- Live, real Claude through agentex: a stand-in server recorded the harness, its identity still matched mid-turn, the server was SIGKILLed mid tool call, the orphan and its command kept running under launchd, and the next server's startup sweep stopped both. The same with real Codex: its identity held through the turn, and it had already exited by the time the sweep ran.
 
