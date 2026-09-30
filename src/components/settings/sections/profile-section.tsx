@@ -79,7 +79,7 @@ export function ProfileSection() {
       {/* Name */}
       <section className="space-y-2">
         <label htmlFor="profile-name" className="block text-[12px] font-medium text-foreground">
-          What should we call you?
+          What should your assistant call you?
         </label>
         <input
           id="profile-name"

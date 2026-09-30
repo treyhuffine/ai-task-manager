@@ -99,7 +99,7 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
   }, []);
 
   const items = useMemo<ChecklistItem[]>(() => {
-    // "Tell us about you" == the free-form context. Name alone (often set at
+    // "Tell your assistant about you" == the free-form context. Name alone (often set at
     // onboarding) doesn't count — the description is the substantive part.
     const profileDone = !!userState?.description?.trim();
     const modelDone = !!userState?.defaultHarness;
@@ -111,7 +111,7 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
     const browserDone = !!browser.data?.enabled && (browser.data?.config.detected.length ?? 0) > 0;
 
     const base: Omit<ChecklistItem, 'dismissed'>[] = [
-      { id: 'profile', section: 'profile', label: 'Tell us about you', hint: 'Fill this out in the Profile tab any time.', done: profileDone },
+      { id: 'profile', section: 'profile', label: 'Tell your assistant about you', hint: 'Fill this out in the Profile tab any time.', done: profileDone },
       { id: 'model', section: 'models', label: 'Pick a default model', hint: 'Choose one in the Models tab any time.', done: modelDone },
       { id: 'remote', section: 'devices', label: 'Set a remote URL', hint: 'Set your remote URL in the Devices tab any time.', done: remoteDone },
       { id: 'notifications', section: 'notifications', label: 'Turn on notifications', hint: 'Add a channel in the Notifications tab any time.', done: notificationsDone },
