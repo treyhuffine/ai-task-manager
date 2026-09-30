@@ -53,6 +53,9 @@ const CANDIDATES = {
   resend: ['resend'],
   mailgun: ['mailgun'],
   twitter: ['x', 'twitter'],
+  // Not a provider: Gmail is a toolkit of `google`, drawn on its own in the
+  // rail's "Connect apps" stack, where the app people recognize is Gmail.
+  gmail: ['gmail'],
 };
 
 function extractPath(svg) {

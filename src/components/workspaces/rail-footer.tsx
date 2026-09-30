@@ -6,7 +6,7 @@ import { CONNECTOR_ICONS } from '@/components/connectors/connector-icon-data';
 import { cn } from '@/lib/utils';
 
 // Thin strip at the bottom of the expanded rail: the way into connecting
-// apps (Google, Notion, Linear, ... and remote MCP servers) so agents can act
+// apps (Gmail, Notion, Linear, ... and remote MCP servers) so agents can act
 // in them. Opens Settings → Plugins on its Connectors tab. Hidden in
 // skinny mode along with the rest of the expanded chrome (the icon-only rail
 // has no room).
@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 // and Settings → General, so nothing is stranded by dropping them.
 
 /** Apps in the stack: live connectors with a brand mark, drawn as app icons. */
-const APPS = ['google', 'notion', 'linear'] as const;
+const APPS = ['linear', 'notion', 'gmail'] as const;
 
 /** Where each tile goes on hover and focus: the stack fans out. */
 const FAN = [
@@ -49,7 +49,7 @@ export function RailFooter() {
         type="button"
         onClick={() => openSettings('plugins', { anchor: 'connectors' })}
         aria-label="Connect apps"
-        title="Connect apps like Google, Notion and Linear"
+        title="Connect apps like Gmail, Notion and Linear"
         className="group w-full flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/60 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 transition-colors"
       >
         <Plug size={13} className="flex-shrink-0 text-primary" />
