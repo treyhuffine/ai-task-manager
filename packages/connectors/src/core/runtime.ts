@@ -1032,6 +1032,16 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       const reauth = async (): Promise<ActionOutcome<O>> => {
         if (!connConfig) {
           finish('auth_required', { connectionId: connection.id });
+          // A pasted-credential provider (API key) was never signed in through a client: its fix is
+          // the person entering the key again, on the host's landing page for this connection.
+          if (!provider.auth.oauth && opts.authorizationRequired) {
+            return {
+              ok: false,
+              reason: 'auth_required',
+              providerId: provider.id,
+              authorizationUrl: opts.authorizationRequired({ providerId: provider.id, scopes: [], existingConnectionId: connection.id }),
+            };
+          }
           // No client to rebuild the URL with — surface provider_not_configured instead of a dead URL.
           return fail('provider_not_configured', `no auth client configured for "${provider.id}"`);
         }

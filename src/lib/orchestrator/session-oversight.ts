@@ -50,11 +50,11 @@ export interface CondensedEvent {
 const DROP_SOURCES = new Set(['system', 'thinking', 'recap', 'rate_limit', 'unknown']);
 
 /**
- * Connector approval rows: the text already says what paused and what the user decided. Their
- * input only adds approval ids, which an agent has no business holding (only the user answers
- * approvals, from the card in chat).
+ * Connector approval and connection rows: the text already says what paused or was asked for and
+ * what the user decided. Their input only adds ids, which an agent has no business holding (only
+ * the user answers these, from the card in chat).
  */
-const TEXT_ONLY_SOURCES = new Set(['approval_request', 'approval_response']);
+const TEXT_ONLY_SOURCES = new Set(['approval_request', 'approval_response', 'connection_request', 'connection_response']);
 
 export function condenseEvents(events: ChatEventRecord[]): CondensedEvent[] {
   const out: CondensedEvent[] = [];

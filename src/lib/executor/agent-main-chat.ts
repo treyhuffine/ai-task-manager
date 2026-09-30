@@ -18,6 +18,7 @@
 
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
 import type { WorkspaceRecord } from '@/db/types';
+import { connectorRequestsEnabled } from '@/lib/connectors/request-settings';
 import {
   browserMcpServer,
   connectorsMcpServer,
@@ -83,12 +84,14 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
   const servers: McpServerConfig[] = [];
   const orchestrator = orchestratorMcpServer(args.port, { sessionId: args.chatSessionId });
   if (orchestrator) servers.push(orchestrator);
-  const wantsConnectors = ws.connectorScopes.length > 0;
+  // The agent's accounts, or at least `request_connection` so it can ask for one it needs.
+  const hasScopes = ws.connectorScopes.length > 0;
+  const wantsConnectors = hasScopes || connectorRequestsEnabled();
   const connectors = wantsConnectors && args.strictMcpIsolation
     ? connectorsMcpServer(args.port, { workspaceId: ws.id, sessionId: args.chatSessionId })
     : null;
   if (connectors) servers.push(connectors);
-  if (wantsConnectors && !args.strictMcpIsolation) {
+  if (hasScopes && !args.strictMcpIsolation) {
     warnings.push('connectors are unavailable (this harness does not enforce strict MCP tool-filtering)');
   }
   // Same isolated per-workspace profile the agent's executions browse with.

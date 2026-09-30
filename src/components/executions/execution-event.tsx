@@ -36,6 +36,7 @@ import type { ChatEventRecord, Attachment } from '@/db/types';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { approvalResponseView } from '@/lib/executions/connector-approvals';
 import { ConnectorApprovalCard } from './connector-approval-card';
+import { ConnectionRequestCard } from './connection-request-card';
 import { backgroundTaskOutcomePresentation } from './background-task-presentation';
 
 interface ExecutionEventProps {
@@ -516,6 +517,27 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
           <div className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10.5px] font-medium', tone)}>
             {outcome === 'deny' ? <ShieldAlert size={11} /> : <ShieldCheck size={11} />}
             <span>{event.content ?? (outcome === 'deny' ? 'Denied' : 'Approved')}</span>
+          </div>
+        </div>
+      );
+    }
+
+    case 'connection_request':
+      return <ConnectionRequestCard event={event} sessionId={sessionId} />;
+
+    case 'connection_response': {
+      // The user's answer on a Connect card, where they gave it (right-aligned: their turn).
+      const declined = event.toolIsError === true;
+      return (
+        <div className="flex justify-end">
+          <div
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10.5px] font-medium',
+              declined ? 'bg-muted text-muted-foreground' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+            )}
+          >
+            {declined ? <CircleSlash size={11} /> : <ShieldCheck size={11} />}
+            <span>{event.content ?? (declined ? 'Not now' : 'Connected')}</span>
           </div>
         </div>
       );

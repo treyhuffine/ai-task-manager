@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { setConnectorRequestsEnabled } from '@/lib/connectors/request-settings';
 
 /**
  * An agent's main chat at spawn (docs/agents-view-spec.md Phase 6): its
@@ -193,9 +194,19 @@ describe('prepareAgentMainChatSpawn', () => {
     expect(loose.warnings.join('\n')).toContain('connectors are unavailable');
   });
 
-  it('attaches no connectors when the agent has no scopes', async () => {
-    const spawn = await prepare(await seed());
-    expect(spawn.config.mcpServers!.some((s) => s.name === 'connectors')).toBe(false);
+  it('with no scopes, attaches connectors only while agents may ask for connections', async () => {
+    // On (the default): the endpoint serves just `request_connection` for this agent.
+    const asking = await prepare(await seed());
+    const connectors = asking.config.mcpServers!.find((s) => s.name === 'connectors') as { url?: string } | undefined;
+    expect(connectors?.url).toContain('?ws=');
+    // Off: nothing to attach.
+    setConnectorRequestsEnabled(false);
+    try {
+      const off = await prepare(await seed());
+      expect(off.config.mcpServers!.some((s) => s.name === 'connectors')).toBe(false);
+    } finally {
+      setConnectorRequestsEnabled(true);
+    }
   });
 
   it("browses with the agent's isolated profile, only when the app and the agent allow it", async () => {

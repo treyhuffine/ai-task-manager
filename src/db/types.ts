@@ -372,6 +372,9 @@ export type ChatEventSource =
   // the request renders as an approval card, the response records the user's
   // decision so the card reads correctly after a reload or restart.
   | 'approval_request' | 'approval_response'
+  // Connecting accounts from chat (connectors/connection-requests.ts): the
+  // request renders as a Connect card, the response records the user's answer.
+  | 'connection_request' | 'connection_response'
   | 'auth_required'
   | 'cron' | 'unknown';
 

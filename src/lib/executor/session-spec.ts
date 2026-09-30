@@ -38,6 +38,7 @@ import { isBrowserEnabled } from '@/lib/browser/config';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
 import { buildReferenceFolderSessionConfig, referenceFolderProviderWiring } from '@/lib/reference-folders/session-config';
 import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
+import { connectorRequestsEnabled } from '@/lib/connectors/request-settings';
 import { mintSessionToken } from '@/lib/auth/session-token';
 import { HOME_ADDRESS_SCHEME } from '@/lib/workers/protocol';
 import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
@@ -305,9 +306,11 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     if (caps.strictMcpIsolation) {
       spec.strictMcpConfig = true; // no ambient/user/repo MCP leaks into the worktree agent
       const servers: McpServerConfig[] = [];
-      // Workspace-scoped connectors (opt-in via the workspace's connector allowlist).
+      // Workspace-scoped connectors (opt-in via the workspace's connector allowlist). With none
+      // allowed yet, still attached while agents may ask for connections, so the execution has
+      // `request_connection` (and nothing else) when a task needs an account.
       const scopes = workspace?.connectorScopes ?? [];
-      if (scopes.length > 0 && args.workspaceId) {
+      if ((scopes.length > 0 || connectorRequestsEnabled()) && args.workspaceId) {
         const connectors = connectorsMcpServer(undefined, {
           workspaceId: args.workspaceId,
           sessionId: args.chatSessionId,
