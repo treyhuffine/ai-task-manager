@@ -8,7 +8,7 @@ import type {
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
-  triagePasses, triageDecisions, streamLinks, skillUsage,
+  triagePasses, triageDecisions, streamLinks, skillUsage, skillScopes,
   Attachment,
 } from '@/lib/db/schema';
 export type { SetupReferenceReport, WorkerHarnessReport, WorkerCommandActor } from '@/lib/db/schema';
@@ -507,3 +507,4 @@ export type NotificationDeliveryStatus = NotificationDeliveryRecord['status'];
 // ─── Skill Usage ──────────────────────────────────────────────
 
 export type SkillUsageRecord = InferSelectModel<typeof skillUsage>;
+export type SkillScopeRecord = InferSelectModel<typeof skillScopes>;

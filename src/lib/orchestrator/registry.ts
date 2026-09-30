@@ -135,6 +135,10 @@ import {
 // dev CLI boot under tsx and matches the actual call graph: `run_trigger`
 // and `cancel_run` are the only paths that touch the executor.
 import { inventorySkills } from '@/lib/executor/skills';
+import { getSkillView, newSkill } from '@/lib/skills/manage';
+import { SkillError, listLibrarySkills, skillExists } from '@/lib/skills/library';
+import { getSkillReach, listSkillReaches, widens, type SkillReach } from '@/lib/skills/reach';
+import { createSkillShape, reachShape, saveSkillShape } from '@/lib/skills/params';
 import { fetchLiveSignals, serverFetch, ServerResponseError } from './server-client';
 import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } from './session-credential';
 import { PERMISSION_MODES } from '@/lib/permissions/modes';
@@ -3027,13 +3031,167 @@ const list_workspace_setups_action = defineAction({
 const list_skills_action = defineAction({
   name: 'list_skills',
   description:
-    'Return the merged skill inventory (brain-level + workspace-level) visible to the orchestrator. Workspace overrides global on name collision.',
+    'Return the skills Ri attaches to agent chats: the home skill library (scope "global", with each ' +
+    'skill\'s description and `reach`: everywhere, all agents, only some agents, or off) and, with ' +
+    '`workspaceCwd`, that folder\'s own .ri/skills (scope "workspace"). A workspace skill overrides a ' +
+    'library skill with the same name.',
   params: {
     workspaceCwd: z.string().nullable().optional(),
   },
-  handler: (ctx, { workspaceCwd }) => {
+  handler: async (ctx, { workspaceCwd }) => {
     if (workspaceCwd) assertCallerOnHome(ctx, 'Listing skills for a folder path');
-    return inventorySkills(workspaceCwd ?? null);
+    const inventory = inventorySkills(workspaceCwd ?? null);
+    const reaches = await listSkillReaches();
+    const descriptions = new Map(listLibrarySkills().map((skill) => [skill.name, skill.description]));
+    return inventory.map((entry) =>
+      entry.scope === 'global'
+        ? { ...entry, description: descriptions.get(entry.name) ?? null, reach: reaches.get(entry.name) ?? { mode: 'all' } }
+        : entry,
+    );
+  },
+});
+
+/** Turn a skill route's error (or a SkillError, on the direct path) into the action envelope. */
+function skillActionError(err: unknown): never {
+  let status: number | null = null;
+  let code: string | null = null;
+  let message = err instanceof Error ? err.message : String(err);
+  if (err instanceof ServerResponseError) {
+    const body = err.json();
+    status = err.status;
+    code = typeof body?.code === 'string' ? body.code : null;
+    if (typeof body?.error === 'string') message = body.error;
+  } else if (err instanceof SkillError) {
+    code = err.code;
+    status = { invalid: 400, not_found: 404, conflict: 409, stale: 409 }[err.code];
+  } else {
+    throw err;
+  }
+  if (code === 'stale') {
+    throw new ActionError(
+      'conflict',
+      message,
+      'Read it again with get_skill and redo your change on the current version, passing its hash as baseHash.',
+    );
+  }
+  if (status === 400) throw new ActionError('invalid_params', message);
+  if (status === 404) throw new ActionError('not_found', message);
+  if (status === 409) throw new ActionError('conflict', message);
+  throw err;
+}
+
+const get_skill_action = defineAction({
+  name: 'get_skill',
+  description:
+    'Read one skill from the home skill library: its whole SKILL.md (`content`), the parsed `description` ' +
+    'and `body`, other frontmatter keys, `problems` (errors keep it from being turned on, warnings are ' +
+    'advice), supporting `files`, where it reaches, and the `hash` to pass as baseHash to save_skill.',
+  params: { name: z.string().min(1) },
+  cli: { positional: ['name'] },
+  handler: async (_ctx, { name }) => {
+    const skill = await getSkillView(name);
+    if (!skill) throw new ActionError('not_found', `There's no skill named ${name}.`, 'See list_skills.');
+    return {
+      name: skill.name,
+      path: skill.dir,
+      hash: skill.hash,
+      description: skill.description,
+      body: skill.body,
+      content: skill.content,
+      otherKeys: skill.otherKeys,
+      frontmatterError: skill.frontmatterError,
+      problems: skill.problems,
+      files: skill.files,
+      reach: skill.reach,
+      updatedAt: skill.updatedAt,
+    };
+  },
+});
+
+const create_skill_action = defineAction({
+  name: 'create_skill',
+  description:
+    'Create a skill in the home skill library. It starts off: no chat gets it until the user turns it on ' +
+    'from Plugins. Give a `name` (lowercase-with-hyphens, the slash command) or an `intent` to name it ' +
+    'from, plus an optional first `description` and `body`. Retrying with the same content returns the ' +
+    'same skill.',
+  params: createSkillShape,
+  mutating: true,
+  handler: async (_ctx, input) => {
+    const name = input.name?.trim();
+    if (name) {
+      const existing = await getSkillView(name);
+      if (existing) {
+        const same =
+          (existing.description ?? '') === (input.description ?? '') && existing.body === (input.body ?? '');
+        if (same) return existing;
+        throw new ActionError('conflict', `A skill named ${name} already exists.`, 'Edit it with save_skill, or pick another name.');
+      }
+    }
+    try {
+      return await newSkill(input);
+    } catch (err) {
+      return skillActionError(err);
+    }
+  },
+});
+
+const save_skill_action = defineAction({
+  name: 'save_skill',
+  description:
+    'Change a skill in the home skill library. Set `description` and/or `body` (the markdown after the ' +
+    'frontmatter, replaced whole), or `content` for the whole SKILL.md. `files` writes or deletes ' +
+    'supporting files (references/, scripts/, assets/). `newName` renames it and its slash command. Pass ' +
+    '`baseHash` from get_skill: if the skill changed since (the user may be editing it), the save is ' +
+    'refused so nothing is overwritten.',
+  params: { name: z.string().min(1), ...saveSkillShape },
+  mutating: true,
+  cli: { positional: ['name'] },
+  handler: async (ctx, { name, ...change }) => {
+    // Machine paths and live files belong to the home (docs/homes-spec.md §4.1).
+    assertCallerOnHome(ctx, 'Editing a skill');
+    try {
+      return await serverFetch(`/skills/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(change) });
+    } catch (err) {
+      // A retried rename finds the old name gone and the new one there: it already landed.
+      const newName = change.newName?.trim();
+      if (err instanceof ServerResponseError && err.status === 404 && newName && newName !== name) {
+        const renamed = await getSkillView(newName);
+        if (renamed) return { skill: renamed, renamedFrom: name };
+      }
+      return skillActionError(err);
+    }
+  },
+});
+
+const set_skill_reach_action = defineAction({
+  name: 'set_skill_reach',
+  description:
+    'Change where a library skill reaches: "everywhere" (every agent in Ri and every harness on this ' +
+    'computer, via ~/.claude/skills and ~/.agents/skills), "all" (every agent in Ri), "agents" (only ' +
+    '`workspaceIds`), or "off". Turning a skill on or widening its reach is the user\'s call, so over MCP ' +
+    'only narrowing is allowed. Restarts the live sessions the change touches.',
+  params: { name: z.string().min(1), ...reachShape },
+  mutating: true,
+  cli: { positional: ['name', 'mode'] },
+  handler: async (ctx, { name, mode, workspaceIds }) => {
+    const next: SkillReach = mode === 'agents' ? { mode, workspaceIds: workspaceIds ?? [] } : { mode };
+    if (!skillExists(name)) throw new ActionError('not_found', `There's no skill named ${name}.`, 'See list_skills.');
+    if (ctx.remote !== false && widens(await getSkillReach(name), next)) {
+      throw new ActionError(
+        'invalid_params',
+        'Turning a skill on or widening where it reaches can only be done from the app or the local CLI, not over MCP.',
+        'Ask the user to turn it on in Plugins.',
+      );
+    }
+    try {
+      return await serverFetch(`/skills/${encodeURIComponent(name)}/reach`, {
+        method: 'PUT',
+        body: JSON.stringify({ mode, workspaceIds }),
+      });
+    } catch (err) {
+      return skillActionError(err);
+    }
   },
 });
 
@@ -3128,5 +3286,9 @@ export const actions = [
   update_heartbeat_action,
   list_notification_channels_action,
   list_skills_action,
+  get_skill_action,
+  create_skill_action,
+  save_skill_action,
+  set_skill_reach_action,
   ...browserActions,
 ];

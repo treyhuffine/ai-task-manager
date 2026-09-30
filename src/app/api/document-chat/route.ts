@@ -11,6 +11,7 @@ import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 import { isHarnessId } from '@/lib/harness/registry';
 import { withCompression } from '@/lib/api/compression';
+import { skillExists } from '@/lib/skills/library';
 
 /** Optional per-chat provider/model override (the composer's "switch provider"). */
 interface ChatOverride {
@@ -33,7 +34,9 @@ function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: u
 
 /**
  * The in-document (note/task) chat session — a focused `type='content'`
- * harness session, scoped to one entity via `surfaceKind`/`surfaceRef`.
+ * harness session, scoped to one entity via `surfaceKind`/`surfaceRef`. A
+ * skill's builder and try chats are the same kind of session (see
+ * SURFACE_KINDS below).
  *
  * This replaced the old direct-to-OpenAI copilot: the in-document chat now
  * runs on the same harness as the orchestrator (Claude Code today, via the
@@ -56,20 +59,41 @@ function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: u
  * the orchestrator and execution chats.
  */
 
-type SurfaceKind = 'task' | 'note';
+/**
+ * What a focused chat can be about. Besides a task or note, a skill has two
+ * (docs/skills.md): its builder chat ('skill', briefed to write the skill,
+ * see src/lib/skills/builder-brief.ts) and its try chat ('skill-try', an
+ * ordinary chat that gets the skill even while it's off). For both, the id
+ * is the skill's name.
+ */
+const SURFACE_KINDS = ['task', 'note', 'skill', 'skill-try'] as const;
+type SurfaceKind = (typeof SURFACE_KINDS)[number];
 
 interface EntityRef {
   entityType: SurfaceKind;
   entityId: string;
 }
 
+function isSurfaceKind(value: unknown): value is SurfaceKind {
+  return typeof value === 'string' && (SURFACE_KINDS as readonly string[]).includes(value);
+}
+
 function parseEntity(source: { entityType?: unknown; entityId?: unknown }): EntityRef | null {
   const { entityType, entityId } = source;
-  if ((entityType !== 'task' && entityType !== 'note') || typeof entityId !== 'string' || !entityId) {
+  if (!isSurfaceKind(entityType) || typeof entityId !== 'string' || !entityId) {
     return null;
   }
   return { entityType, entityId };
 }
+
+/** A skill chat needs its skill. Tasks and notes are checked by the chat's own reads. */
+function missingSkill(ref: EntityRef): Response | null {
+  if (ref.entityType !== 'skill' && ref.entityType !== 'skill-try') return null;
+  if (skillExists(ref.entityId)) return null;
+  return Response.json({ error: `There's no skill named ${ref.entityId}.` }, { status: 404 });
+}
+
+const BAD_ENTITY = 'entityType (task|note|skill|skill-try) and entityId are required';
 
 /** The active, user-opened content session for an entity (excludes scheduled/run-created chats). */
 function findCurrent(ref: EntityRef): ChatSessionWithExecution | null {
@@ -136,8 +160,10 @@ async function handleGET(req: Request) {
     entityId: searchParams.get('entityId') ?? undefined,
   });
   if (!ref) {
-    return Response.json({ error: 'entityType (task|note) and entityId are required' }, { status: 400 });
+    return Response.json({ error: BAD_ENTITY }, { status: 400 });
   }
+  const missing = missingSkill(ref);
+  if (missing) return missing;
   try {
     const session = findCurrent(ref) ?? await createFocusedSession(ref);
     return Response.json({ session });
@@ -164,8 +190,10 @@ export async function POST(req: Request) {
   };
   const ref = parseEntity(src);
   if (!ref) {
-    return Response.json({ error: 'entityType (task|note) and entityId are required' }, { status: 400 });
+    return Response.json({ error: BAD_ENTITY }, { status: 400 });
   }
+  const missing = missingSkill(ref);
+  if (missing) return missing;
   const override = parseOverride(src);
   try {
     const current = findCurrent(ref);

@@ -2412,3 +2412,26 @@ export const skillUsage = sqliteTable('skill_usage', {
   score: real().notNull().default(0),
   lastUsedAt: text(),
 });
+
+// ─── Skill Scopes ─────────────────────────────────────────────
+
+/**
+ * Where a skill from the home's skill library (`<app-root>/skills/<name>/`)
+ * reaches, when that isn't every agent. The folder is the skill and this row
+ * is only its reach. A skill with no row goes to every chat Ri starts, which
+ * is where every hand-made skill stood before this table existed.
+ *
+ * With a row, the skill goes to exactly the agents (workspace ids) listed:
+ * their main chats and their executions. An empty list means off, so no chat
+ * gets it. The builder creates skills off, so nothing picks one up
+ * half-written, and turning one on for every agent deletes its row.
+ *
+ * Keyed by folder name, which is also the skill's `name:` and its slash
+ * command. A rename carries the row with the folder. See docs/skills.md.
+ */
+export const skillScopes = sqliteTable('skill_scopes', {
+  id: text().primaryKey(),
+  ...timestamps,
+  name: text().notNull().unique(),
+  workspaceIds: text({ mode: 'json' }).$type<string[]>().notNull(),
+});

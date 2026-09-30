@@ -9,6 +9,7 @@ import {
   HOME_VIEW,
   activeSessionIdOf,
   agentView,
+  skillView,
   applyViewToSearchParams,
   executionView,
   sameView,
@@ -114,6 +115,8 @@ interface DashboardActions {
   openExecution: (sessionId: string) => void;
   /** Open an agent's view, optionally on a tools tab. */
   openAgent: (workspaceId: string, tab?: AgentTab) => void;
+  /** Open a skill's builder. `replace` swaps the history entry (a rename). */
+  openSkill: (name: string, opts?: { replace?: boolean }) => void;
   /** Back to Home (the deck and chat panels). */
   goHome: () => void;
   setActiveExecutionId: (id: string | null) => void;
@@ -519,7 +522,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // `activeExecutionId` is intentionally NOT touched here — ExecutionView
   // owns it (set from the loaded session, cleared on unmount), which keeps
   // click-nav and Back/Forward symmetric (the latter never calls this).
-  const setActiveView = useCallback((view: ActiveView) => {
+  const setActiveView = useCallback((view: ActiveView, opts: { replace?: boolean } = {}) => {
     setActiveViewLocal(view);
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
@@ -527,12 +530,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     const tabOnly = current.kind === 'agent' && view.kind === 'agent' && current.id === view.id;
     const qs = applyViewToSearchParams(params, view).toString();
     const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
-    if (tabOnly) window.history.replaceState(null, '', url);
+    if (tabOnly || opts.replace) window.history.replaceState(null, '', url);
     else window.history.pushState(null, '', url);
   }, []);
   const openExecution = useCallback((sessionId: string) => setActiveView(executionView(sessionId)), [setActiveView]);
   const openAgent = useCallback(
     (workspaceId: string, tab?: AgentTab) => setActiveView(agentView(workspaceId, tab)),
+    [setActiveView],
+  );
+  const openSkill = useCallback(
+    (name: string, opts?: { replace?: boolean }) => setActiveView(skillView(name), opts),
     [setActiveView],
   );
   const goHome = useCallback(() => setActiveView(HOME_VIEW), [setActiveView]);
@@ -557,6 +564,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setActiveView,
       openExecution,
       openAgent,
+      openSkill,
       goHome,
       setActiveExecutionId,
       setPanelTab,

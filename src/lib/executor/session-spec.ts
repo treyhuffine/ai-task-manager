@@ -45,6 +45,8 @@ import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import type { SessionSpec } from '@/lib/runner/types';
 import { prepareAgentMainChatSpawn, skillDirsWriteIntoCwd } from './agent-main-chat';
 import { planSessionInstructions } from './session-instructions';
+import { renderSkillBuilderBrief } from '@/lib/skills/builder-brief';
+import { sessionSkillExclusions } from '@/lib/skills/exclusions';
 import { renderAgentInstructionsPrompt } from './prompts/agent-instructions';
 import { harnessCapabilitiesOn } from './devices';
 import { pendingHandoff } from '@/lib/transfer/continue';
@@ -167,8 +169,10 @@ export interface SessionSpecInput {
   workspaceId: string | null;
   /**
    * For `content` sessions: the entity the in-document chat is focused on
-   * (`surfaceKind` = 'task' | 'note', `surfaceRef` = its id). Null for other
-   * session types. Drives the per-session focus directive.
+   * (`surfaceKind` = 'task' | 'note', `surfaceRef` = its id), or the skill a
+   * builder or try chat belongs to (`surfaceKind` = 'skill' | 'skill-try',
+   * `surfaceRef` = its name). Null for other session types. Drives the
+   * per-session focus directive, the builder brief and skill exclusions.
    */
   surfaceKind: string | null;
   surfaceRef: string | null;
@@ -284,6 +288,16 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
           '--append-system-prompt',
           renderContentFocusPrompt({ entityType: args.surfaceKind, entityId: args.surfaceRef }),
         );
+      }
+      // A skill's builder chat: the brief rides the session instructions (or
+      // the first message, on a harness that drops them), since unlike the
+      // focus line above it's the whole job description. See
+      // src/lib/skills/builder-brief.ts.
+      if (args.sessionType === 'content' && args.surfaceKind === 'skill' && args.surfaceRef) {
+        const brief = renderSkillBuilderBrief(args.surfaceRef);
+        const plan = planSessionInstructions(providerType, [{ name: 'skill builder brief', text: brief }]);
+        if (plan.text) spec.instructions = plan.text;
+        if (plan.undelivered.length > 0 && !args.existingExternalSessionId) spec.firstTurnPreamble = brief;
       }
       if (providerType !== 'claude') {
         console.warn(
@@ -420,6 +434,20 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
   // An agent's main chat runs in the user's own folder, so it gets no user
   // skills on a harness that would write them there.
   spec.attachUserSkills = !(agentMainChat && skillDirsWriteIntoCwd(providerType));
+  // Library skills this chat doesn't get: off, limited to other agents, or
+  // the one its builder is writing. Decided here because the runner may be on
+  // a device without the database (src/lib/skills/reach.ts).
+  try {
+    const exclude = sessionSkillExclusions({
+      workspaceId: args.workspaceId,
+      surfaceKind: args.surfaceKind,
+      surfaceRef: args.surfaceRef,
+    });
+    if (exclude.length > 0) spec.excludeSkills = exclude;
+  } catch (err) {
+    // Never cost the user their session over a skill lookup.
+    console.error('[executor] skill reach lookup failed:', err);
+  }
 
   // Every session carries its caller credential, so an orchestrator action it
   // runs (MCP header or the CLI from its shell) knows which chat is calling.

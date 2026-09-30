@@ -15,6 +15,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { FilesToCopySection } from '@/components/workspaces/files-to-copy-section';
 import { WorktreeScriptsSection } from '@/components/workspaces/worktree-scripts-section';
 import { WorkspaceConnectorsSection } from '@/components/workspaces/workspace-connectors-section';
+import { AgentSkillsSection } from './agent-skills-section';
 import { AgentFoldersSection } from './agent-folders';
 import type { GhStatus } from '@/lib/workspaces/gh';
 import type { Attachment, UpdateWorkspaceInput, WorkspaceRecord } from '@/db/types';
@@ -24,7 +25,7 @@ import { cn } from '@/lib/utils';
 const PURPOSE_MAX = 500;
 const INSTRUCTIONS_MAX = 20_000;
 
-/** The fields the Save button writes. Connectors and folders save themselves. */
+/** The fields the Save button writes. Skills, connectors and folders save themselves. */
 interface SetupForm {
   name: string;
   emoji: string | null;
@@ -292,6 +293,8 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
               />
             </Field>
           </Section>
+
+          <AgentSkillsSection workspace={workspace} />
 
           <WorkspaceConnectorsSection workspaceId={workspace.id} />
 

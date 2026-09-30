@@ -6,6 +6,7 @@ import { useRailSessions, useWorkspaces } from '@/hooks/use-workspaces';
 import { ContentPanel } from '@/components/dashboard/content-panel';
 import { ExecutionView } from '@/components/executions/execution-view';
 import { AgentView } from '@/components/agents/agent-view';
+import { SkillView } from '@/components/skills/skill-view';
 import { AgentIcon } from '@/components/agents/agent-icon';
 import { classifySession } from '@/components/workspaces/bucket-config';
 import { cn } from '@/lib/utils';
@@ -82,6 +83,8 @@ export function TabletLayout() {
           <ExecutionView sessionId={activeView.id} />
         ) : activeView.kind === 'agent' ? (
           <AgentView workspaceId={activeView.id} tab={activeView.tab} />
+        ) : activeView.kind === 'skill' ? (
+          <SkillView name={activeView.name} />
         ) : (
           <ContentPanel panelId="a" />
         )}

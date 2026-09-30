@@ -3,7 +3,7 @@ import {
   SlidersHorizontal,
   Bot,
   Mic,
-  Plug,
+  Puzzle,
   Bell,
   MonitorSmartphone,
   Globe,
@@ -103,11 +103,14 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     description: 'Let the agent read and act on web pages using sites you sign into once.',
   },
   {
+    // Plugins: everything agents can be extended with, skills and
+    // connectors (docs/skills.md). The id stays 'connectors' because OAuth
+    // returns and connection links deep-link to `?settings=connectors`.
     id: 'connectors',
-    label: 'Connectors',
-    icon: Plug,
-    title: 'Connectors',
-    description: 'Connect external services so agents can act on your behalf.',
+    label: 'Plugins',
+    icon: Puzzle,
+    title: 'Plugins',
+    description: 'Skills teach your agents how to do things. Connectors let them act in your accounts.',
   },
   {
     id: 'imports',

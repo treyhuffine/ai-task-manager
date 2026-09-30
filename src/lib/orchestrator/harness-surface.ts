@@ -405,8 +405,10 @@ tool per action: \`list_tasks\`, \`get_task\`, \`create_task\`, \`update_task\`,
 \`answer_pending_input\`, \`start_execution\`, \`archive_execution\`. Workspaces
 (agents) via \`list_workspaces\`, \`get_workspace\`, \`update_workspace\`. Browser via \`browser_read\`, \`browser_act\`,
 \`browser_batch\`, \`browser_tabs\`, \`browser_open\`, \`browser_profiles\`,
-\`browser_status\`, \`browser_close\`. Plus workspace/trigger/run management and
-\`describe_paths\` / \`describe_schema\` / \`list_skills\`.
+\`browser_status\`, \`browser_close\`. Skills (the home skill library the user builds in
+Plugins) via \`list_skills\`, \`get_skill\`, \`create_skill\`, \`save_skill\`,
+\`set_skill_reach\`. Plus workspace/trigger/run management and
+\`describe_paths\` / \`describe_schema\`.
 
 Use these MCP tools for every read and write. Reading files in your home dir
 for ambient context is fine. Writing through anything but the tools is not.
