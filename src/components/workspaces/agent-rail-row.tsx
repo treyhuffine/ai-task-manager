@@ -66,8 +66,8 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  * reply, or what it last said. Executions carry their own state on their own
  * rows, so nothing here is counted twice.
  *
- * Its executions hang under it on one line each: every live one and the three
- * most recent quiet ones, with "N more" to show the rest in place. Hiding them
+ * Its executions sit under it on one line each, flush with it: every live one
+ * and the three most recent quiet ones, with "N more" to show the rest in place. Hiding them
  * is one click on hover, and hidden executions fold into a line that still
  * says what wants you, so hiding never hides that. The whole row drags.
  */
@@ -226,8 +226,8 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       </div>
 
       {hasThreads && expanded && (
-        // Threads hang off the icon: the guide sits under its center.
-        <div className="ml-5 mt-0.5 mb-1.5 border-l border-border/70 pl-1 space-y-px">
+        // Flush with the agent, no guide line: size and weight carry the hierarchy.
+        <div className="mt-0.5 mb-1.5 space-y-px">
           {threads.map((s) => (
             <SessionRow key={s.id} session={s} density="compact" workspaceIsGit={workspace.isGit} />
           ))}
@@ -247,7 +247,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         <button
           onPointerDown={stop}
           onClick={toggleThreads}
-          className="ml-5 mb-1.5 flex w-[calc(100%-1.25rem)] items-center gap-1.5 rounded-md py-[5px] pl-2 pr-1.5 text-left text-[10.5px] hover:bg-muted/40 transition-colors"
+          className="mb-1.5 flex w-full items-center gap-1.5 rounded-md py-[5px] pl-1.5 pr-1.5 text-left text-[10.5px] hover:bg-muted/40 transition-colors"
           aria-label={`Show ${workspace.name}'s executions`}
           title="Show executions"
         >

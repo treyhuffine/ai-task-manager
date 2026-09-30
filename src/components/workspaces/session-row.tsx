@@ -162,7 +162,7 @@ export function SessionRow({
       }}
       className={cn(
         'relative w-full group flex gap-2 pr-1.5 rounded-md transition-colors text-left cursor-pointer',
-        density === 'compact' ? 'items-center pl-2 py-[5px]' : 'items-start pl-5 py-1',
+        density === 'compact' ? 'items-center pl-1.5 py-[5px]' : 'items-start pl-5 py-1',
         selectable
           ? selected
             ? 'bg-primary/10 text-foreground'
