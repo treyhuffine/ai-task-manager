@@ -17,7 +17,7 @@ import {
   triagePasses, triageDecisions, streamLinks, skillUsage,
 } from '@/lib/db/schema';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
-import { eq, and, or, desc, asc, sql, gt, lt, inArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
+import { eq, and, or, desc, asc, sql, gt, lt, inArray, notInArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import slugify from '@sindresorhus/slugify';
 import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
@@ -4578,6 +4578,9 @@ export function moveHomeHost(newHostId: string): { from: string; to: string; pin
     for (const setup of tx.select().from(workspaceSetups).where(eq(workspaceSetups.deviceId, newHostId)).all()) {
       tx.update(workspaces).set({ cwd: setup.sourcePath, updatedAt: now }).where(eq(workspaces.id, setup.workspaceId)).run();
     }
+    // Where the old host put worktrees is a path on that machine. The new
+    // host uses its own Ri folder until the person chooses another.
+    tx.update(workspaces).set({ worktreeRoot: null, updatedAt: now }).where(isNotNull(workspaces.worktreeRoot)).run();
 
     tx.update(home).set({ hostDeviceId: newHostId, updatedAt: now }).where(eq(home.id, current.id)).run();
     const workerKeyId = activeWorkerKeyIn(tx, newHostId);
@@ -5229,13 +5232,17 @@ export function listOpenSendsForDevice(deviceId: string): WorkerCommandRecord[] 
     .all();
 }
 
-/** Withdraw a command that hasn't been streamed. A streamed one can't be: stop the execution instead. */
-export function cancelWorkerCommand(commandId: string): WorkerCommandRecord | null {
+/**
+ * Withdraw a command that hasn't been streamed. A streamed one can't be: stop
+ * the execution instead. `reason` is what the person reads, when it isn't
+ * simply that they withdrew it.
+ */
+export function cancelWorkerCommand(commandId: string, reason?: string): WorkerCommandRecord | null {
   const now = new Date().toISOString();
   return (
     getDb()
       .update(workerCommands)
-      .set({ state: 'cancelled', finishedAt: now, updatedAt: now })
+      .set({ state: 'cancelled', finishedAt: now, updatedAt: now, ...(reason ? { error: reason } : {}) })
       .where(and(eq(workerCommands.id, commandId), eq(workerCommands.state, 'queued')))
       .returning()
       .get() ?? null
@@ -5945,6 +5952,35 @@ export function chatPlacement(chatSessionId: string): ChatPlacement | null {
   const deviceId = chat.deviceId ?? host;
   if (!deviceId) return null;
   return { deviceId, isHome: deviceId === host, executionId: null, generation: null, worktreePath: null };
+}
+
+/**
+ * Whether a chat has run anywhere yet: it has a native session, an agent
+ * reply, or a message that left the home's queue for a device. And the
+ * sends still waiting in a device's queue. A main chat that hasn't run has
+ * nothing on its device to keep (`followAgentUntilRun`).
+ */
+export function chatRunState(chatSessionId: string): { hasRun: boolean; queuedSends: WorkerCommandRecord[]; queued: WorkerCommandRecord[] } {
+  const db = getDb();
+  const chat = db.select({ native: chatSessions.externalSessionId }).from(chatSessions).where(eq(chatSessions.id, chatSessionId)).get();
+  if (!chat) return { hasRun: false, queuedSends: [], queued: [] };
+  const native = db.select({ id: nativeSessions.id }).from(nativeSessions).where(eq(nativeSessions.chatSessionId, chatSessionId)).get();
+  const replied = db
+    .select({ id: chatEvents.id })
+    .from(chatEvents)
+    .where(and(eq(chatEvents.sessionId, chatSessionId), eq(chatEvents.source, 'agent')))
+    .get();
+  const left = db
+    .select({ id: workerCommands.id })
+    .from(workerCommands)
+    .where(and(eq(workerCommands.chatSessionId, chatSessionId), notInArray(workerCommands.state, ['queued', 'cancelled'])))
+    .get();
+  const queued = db
+    .select()
+    .from(workerCommands)
+    .where(and(eq(workerCommands.chatSessionId, chatSessionId), eq(workerCommands.state, 'queued')))
+    .all();
+  return { hasRun: !!(chat.native || native || replied || left), queuedSends: queued.filter((c) => c.kind === 'send'), queued };
 }
 
 /**

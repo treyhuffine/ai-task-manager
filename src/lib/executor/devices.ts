@@ -9,8 +9,8 @@
 
 import type { ChatSessionWithExecution } from '@/db/types';
 import type { ChatPlacement } from '@/lib/db/queries';
-import { getWorkspaceSetup, getDevice } from '@/lib/db/queries';
-import { setupProblem, setupUsable } from '@/lib/setups/run-on';
+import { getWorkspaceSetup, getDevice, getWorkerKeyId } from '@/lib/db/queries';
+import { doesntRunAgents, setupProblem, setupUsable } from '@/lib/setups/run-on';
 import { getHarnessRuntime } from '@/lib/harness/runtime';
 import type { HarnessId } from '@/lib/harness/registry';
 
@@ -50,9 +50,12 @@ export async function harnessCapabilitiesOn(
   if (!report || report.binary.status !== 'supported') {
     return {
       sessions: false,
-      sessionsReason: report
-        ? `${harness} isn't usable on ${name} (${report.binary.status}).`
-        : `${name} hasn't reported ${harness}. Connect its worker, or install ${harness} there.`,
+      // A device that doesn't run agents has reported nothing: that's the reason to give.
+      sessionsReason: device && !getWorkerKeyId(device.id)
+        ? doesntRunAgents(name)
+        : report
+          ? `${harness} isn't usable on ${name} (${report.binary.status}).`
+          : `${name} hasn't reported ${harness}. Connect its worker, or install ${harness} there.`,
       concurrentSend: false,
       strictMcpIsolation: false,
       planMode: false,

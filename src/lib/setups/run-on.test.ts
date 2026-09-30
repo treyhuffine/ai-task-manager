@@ -82,7 +82,7 @@ describe('the choices and the default', () => {
     await setUpAgentOn(agentId, other, '/Users/trey/ri');
     expect(runOnFor(agentId)!.choices.find((c) => c.deviceId === other)).toMatchObject({
       ready: false,
-      problem: "Old iMac isn't set up to run agents. Run `ri worker enroll` there first.",
+      problem: "Old iMac doesn't run agents yet. To turn it on, run `ri worker enroll` on it.",
     });
   });
 });

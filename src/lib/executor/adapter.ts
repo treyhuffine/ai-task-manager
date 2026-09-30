@@ -308,7 +308,12 @@ async function dispatchOnce(
   }
 
   // Where the chat runs. A chat on a connected device runs in its folder
-  // there, which the home never looks for on its own disk (P2.4).
+  // there, which the home never looks for on its own disk (P2.4). An agent's
+  // main chat that hasn't run yet goes where its agent lives now (P3.4).
+  if (!session.executionId) {
+    const { followAgentUntilRun } = await import('@/lib/sessions/main-chat-device');
+    followAgentUntilRun(chatSessionId);
+  }
   const placement = chatPlacement(chatSessionId);
   const remote = placement && !placement.isHome ? placement : null;
   // This message already went to its device's queue, or is on its way

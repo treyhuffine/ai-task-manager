@@ -78,6 +78,8 @@ beforeEach(async () => {
       `INSERT INTO external_session_imports (id, created_at, updated_at, chat_session_id, provider_type, external_session_id, source_kind, source_path, sync_offset, status, source_content_sha256)
        VALUES ('01a0f000-0000-7000-8000-0000000001ed', datetime('now'), datetime('now'), ?, 'claude', 'terminal-1', 'file', '/Users/trey/.claude/projects/x/terminal-1.jsonl', 120, 'current', 'abc')`,
     ).run(ids.imported);
+    // Where the laptop put bounce's worktrees: a path on the laptop.
+    raw.prepare("UPDATE workspaces SET worktree_root = '/Users/trey/ri/.work/worktrees/bounce' WHERE id = ?").run(ids.bounce);
     raw.close();
   }
   laptopRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-import-laptop-copy-'));
@@ -178,6 +180,8 @@ describe('importing', () => {
     const q = await import('@/lib/db/queries');
     const macbook = q.listDevices().find((c) => c.name === 'MacBook')!;
     expect(result.device).toEqual({ name: 'MacBook', id: macbook.id, created: true });
+    // An agent new here doesn't bring the laptop's worktree folder: the Mini uses its own.
+    expect(q.getWorkspace(ids.bounce)?.worktreeRoot).toBeNull();
 
     // The same chat, in the Mini's own agent of that name, read.
     const chat = q.getChatSession(ids.fixLogin)!;

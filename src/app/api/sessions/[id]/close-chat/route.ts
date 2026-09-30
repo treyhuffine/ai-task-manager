@@ -47,6 +47,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     // after the click — the archive is what matters for correctness, and a
     // stray late event into an already-archived chat is harmless (the
     // transcript is preserved; reopening resumes).
+    // A message still waiting for a device goes with it, rather than running
+    // later in a chat that's closed.
+    const { withdrawChatQueue } = await import('@/lib/workers/undelivered');
+    withdrawChatQueue(id, 'This chat was closed before it was delivered.');
     archiveChatSession(id);
     const { close } = await import('@/lib/executor/adapter');
     void close(id).catch(() => {});

@@ -488,6 +488,10 @@ function applyPlan(src: Database.Database, dest: Database.Database, plan: BuiltP
           pick('workspaces', a, {
             ...(plan.columns.workspaces.includes('area_id') ? { area_id: area ? (plan.areaIds.get(area) ?? null) : null } : {}),
             ...(plan.columns.workspaces.includes('slug') ? { slug } : {}),
+            // Where that home put worktrees is a path on its own machine:
+            // here it would name a folder this machine doesn't have. The
+            // home's default is used instead, and each device keeps its own.
+            ...(plan.columns.workspaces.includes('worktree_root') ? { worktree_root: null } : {}),
           }),
         );
         // New work in it runs where it lives.

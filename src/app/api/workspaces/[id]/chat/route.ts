@@ -1,5 +1,7 @@
 import type { NextRequest } from 'next/server';
+import { getChatSession } from '@/lib/db/queries';
 import { currentMainChat, ensureMainChat } from '@/lib/sessions/main-chat';
+import { followAgentUntilRun } from '@/lib/sessions/main-chat-device';
 import { withCompression } from '@/lib/api/compression';
 import { archivedAgentResponse, resolveAgent } from './_agent';
 
@@ -23,7 +25,11 @@ async function handleGET(
     const agent = resolveAgent(id);
     if (!agent.ok) return agent.response;
     const existing = currentMainChat(id);
-    if (existing) return Response.json({ session: existing });
+    if (existing) {
+      // Not run anywhere yet: it goes where the agent lives now (P3.4).
+      if (followAgentUntilRun(existing.id).moved) return Response.json({ session: getChatSession(existing.id) ?? existing });
+      return Response.json({ session: existing });
+    }
     if (agent.ws.status === 'archived') return archivedAgentResponse();
     return Response.json({ session: await ensureMainChat(id) });
   } catch (err) {

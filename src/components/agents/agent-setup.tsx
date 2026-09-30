@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useArchiveWorkspace, useUpdateWorkspace } from '@/hooks/use-workspaces';
 import { useAreas } from '@/hooks/use-areas';
+import { useDevices } from '@/hooks/use-devices';
 import { api, ApiError } from '@/lib/api/client';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { EmojiPicker } from '@/components/shared/emoji-picker';
@@ -97,6 +98,8 @@ function patchFrom(form: SetupForm, ws: WorkspaceRecord): Omit<UpdateWorkspaceIn
 export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
   const { goHome } = useDashboard();
   const { data: areas } = useAreas();
+  const { data: devices } = useDevices();
+  const homeName = devices?.find((d) => d.isHome)?.name ?? 'This home';
   const update = useUpdateWorkspace();
   const archive = useArchiveWorkspace();
   const confirm = useConfirm();
@@ -321,10 +324,14 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
                     className="w-full px-3 py-2 text-sm font-mono bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </Field>
-                <Field label="Worktree root">
+                <Field
+                  label="Worktree root"
+                  hint={`Where ${homeName} puts this agent's worktrees. Empty uses its Ri folder. Other devices always use their own.`}
+                >
                   <input
                     value={form.worktreeRoot}
                     onChange={(e) => set('worktreeRoot', e.target.value)}
+                    placeholder={`Ri folder/.work/worktrees/${workspace.slug}`}
                     className="w-full px-3 py-2 text-xs font-mono bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </Field>

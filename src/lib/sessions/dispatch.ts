@@ -68,7 +68,7 @@ import { invalidateHarnessSession, close as closeHarnessSession } from '@/lib/ex
 import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord, WorkerCommandActor } from '@/db/types';
 import type { PreparePayload } from '@/lib/worker/handlers';
 import { isDeviceConnected, wakeDevice } from '@/lib/workers/hub';
-import { runOnFor, setupProblem, setupUsable } from '@/lib/setups/run-on';
+import { doesntRunAgents, runOnFor, setupProblem, setupUsable } from '@/lib/setups/run-on';
 import { checkDeviceFolders } from '@/lib/setups/folders';
 import { requireHarnessId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
@@ -251,7 +251,10 @@ export async function dispatchExecutionSession(
     const device = getDevice(elsewhere);
     if (!device || device.status !== 'active') throw new DeviceUnavailableForDispatch('That device is no longer connected to this home.');
     if (!listEnrolledDeviceIds().has(elsewhere)) {
-      throw new DeviceUnavailableForDispatch(`${device.name} isn't set up to run agents. Run \`ri worker enroll\` there first.`);
+      // Set up only there: the home is the other way to run it now.
+      const homeName = host ? getDevice(host)?.name : null;
+      const orHome = host && homeName && !getWorkspaceSetup(ws.id, host) ? ` Or set ${ws.name} up on ${homeName} in its Setup tab.` : '';
+      throw new DeviceUnavailableForDispatch(`${doesntRunAgents(device.name)}${orHome}`);
     }
     // Its folders there, as that device finds them now: one gone since it
     // connected says so here, rather than failing the work there.

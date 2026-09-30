@@ -63,7 +63,7 @@ import {
 import { isDeviceConnected, wakeDevice } from '@/lib/workers/hub';
 import { awaitWorkerCommand, CommandFailedError } from '@/lib/workers/await-command';
 import { publishTransfer } from '@/lib/realtime/bus';
-import { runOnFor } from '@/lib/setups/run-on';
+import { doesntRunAgents, runOnFor } from '@/lib/setups/run-on';
 import { CheckpointError, saveCheckpoint, worktreeAtCheckpoint, type SavedCheckpoint } from './git-checkpoint';
 import { composeHandoff, deterministicHandoff, summaryPrompt, type HandoffInput } from './handoff';
 import { transferView, type TransferView } from './view';
@@ -122,7 +122,7 @@ function destinationProblem(workspaceId: string, harness: string, toDeviceId: st
   if (!choice) return `${getWorkspace(workspaceId)?.name ?? 'The agent'} isn't on ${name} yet. Set it up there first.`;
   if (!choice.ready) return choice.problem ?? `${name} can't take this work yet.`;
   if (toDeviceId === host) return null;
-  if (!listEnrolledDeviceIds().has(toDeviceId)) return `${name} isn't set up to run agents. Run \`ri worker enroll\` there first.`;
+  if (!listEnrolledDeviceIds().has(toDeviceId)) return doesntRunAgents(name);
   if (!isDeviceConnected(toDeviceId)) return `${name} isn't running Ri right now. Start Ri on ${name}, then move it.`;
   const report = device.harnesses?.find((h) => h.harness === harness);
   if (report && report.binary.status !== 'supported') return `${name} can't run ${harness} right now.`;

@@ -32,9 +32,16 @@ export function AgentChatPanel({ workspace }: { workspace: WorkspaceRecord }) {
           {elsewhere && (
             <span
               className="truncate text-[10px] text-muted-foreground/70"
-              title={elsewhere.worker?.connected ? `Runs on ${elsewhere.name}` : `Runs on ${elsewhere.name}, which isn't connected. Messages wait for it.`}
+              title={
+                !elsewhere.runsAgents
+                  ? `This chat is on ${elsewhere.name}, which doesn't run agents yet. Messages wait until you turn it on: run ri worker enroll on it.`
+                  : elsewhere.worker?.connected
+                    ? `Runs on ${elsewhere.name}`
+                    : `Runs on ${elsewhere.name}, which isn't connected. Messages wait for it.`
+              }
             >
-              on {elsewhere.name}{elsewhere.worker?.connected ? '' : ' · not connected'}
+              on {elsewhere.name}
+              {!elsewhere.runsAgents ? ' · doesn\u2019t run agents yet' : elsewhere.worker?.connected ? '' : ' · not connected'}
             </span>
           )}
         </span>

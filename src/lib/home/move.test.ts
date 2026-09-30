@@ -87,6 +87,8 @@ afterEach(async () => {
 describe('the home moving to the Mini', () => {
   it('pins what ran on the laptop to it, and makes the Mini the home', async () => {
     const q = await import('@/lib/db/queries');
+    // A worktree folder the person chose on the laptop names a folder there.
+    q.updateWorkspace(ids.docs, { worktreeRoot: '/Users/trey/worktrees/docs' });
     const moved = q.moveHomeHost(ids.mini);
     expect(moved).toMatchObject({ from: ids.laptopHost, to: ids.mini, pinnedExecutions: 1 });
     expect(q.getHome()!.hostDeviceId).toBe(ids.mini);
@@ -113,6 +115,8 @@ describe('the home moving to the Mini', () => {
     expect(q.getExternalSessionImportForChat(ids.terminal)).toMatchObject({ deviceId: ids.laptopHost, sourcePath: null });
     // Each agent's home folder is its folder on the Mini, where it has one.
     expect(q.getWorkspace(ids.docs)!.cwd).toBe('/Users/mini/docs');
+    // The laptop's worktree folder isn't the Mini's: it uses its own Ri folder.
+    expect(q.getWorkspace(ids.docs)!.worktreeRoot).toBeNull();
     expect(q.getWorkspace(ids.ri)!.cwd).toBe('/Users/trey/ri-app');
     const { runOnFor } = await import('@/lib/setups/run-on');
     expect(runOnFor(ids.ri)!.livesOn).toMatchObject({ deviceId: ids.laptopHost, isHome: false });

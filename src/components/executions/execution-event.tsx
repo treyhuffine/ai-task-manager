@@ -895,7 +895,9 @@ function DeliveryLine({
   let tone: 'muted' | 'warn' = 'muted';
   switch (delivery.state) {
     case 'waiting':
-      text = `Waiting for ${name}. Your message is saved.`;
+      text = delivery.runsAgents
+        ? `Waiting for ${name}. Your message is saved.`
+        : `Waiting for ${name}, which doesn't run agents yet. Your message is saved.`;
       break;
     case 'sending':
       text = delivery.connected ? `Sending to ${name}…` : `Sent to ${name}, which disconnected before confirming it.`;

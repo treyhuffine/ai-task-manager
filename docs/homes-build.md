@@ -1286,6 +1286,19 @@ End to end over HTTP (`retired-worker.test.ts`, P5.2): a laptop home with work i
 
 Not yet: a live move of a home with its own server, which needs a second Next server beside the dev home (one dev server per checkout, and the disk had no room for a second checkout today). P5.2 for Trey's laptop is: a final backup and import into production after its switch to the homes build, then `ri home retire --to <Mac Mini's address>` in the laptop's `~/ri`, `ri connect` and `ri worker enroll` there.
 
+## Main chats follow their agent until they run
+
+Found on the first day after the switch (2026-09-30), on `bounce`, an agent that came over from the laptop. Its only folder was the MacBook's, and the MacBook didn't run agents yet. Opening it made its main chat, pinned to the MacBook (P3.4: pinned at creation). Trey set it up on the Mac Mini 26 seconds later, but the chat stayed on the MacBook: the message was refused ("MacBook hasn't reported claude"), New queued a stop for a device that never ran it, and going back to the chat from history brought it back, still on the MacBook. A new execution was refused the same way until the Mini had its folder.
+
+- **A main chat runs where its agent lives, and is fixed there once it has run** (a native session, an agent reply, or a message that left the home's queue), since its history is on that device. Until then it has nothing to keep, so it follows the agent: on opening, and before each message (`followAgentUntilRun`, `src/lib/sessions/main-chat-device.ts`). Messages waiting for a device that runs agents stay, and are delivered when it connects. Ones waiting for a device that doesn't are withdrawn with the reason and Send again, and anything else queued there for the chat (that stop) is dropped.
+- **A device that doesn't run agents says so, and how to turn it on,** wherever it comes up: the main chat's header ("doesn't run agents yet", not "not connected"), a waiting message, a refused start (with "Or set Bounce up on Mac Mini in its Setup tab" when the home has no folder for it), Run on and Continue here. It used to say what it hadn't reported.
+- **Closing a chat withdraws what it still had waiting** (New, and closing a chat), so a device that connects later never runs a message in a chat that's gone.
+- **An agent's worktree folder is only one the person chose.** Every agent used to store the default folder of the machine that made it, and the import brought the laptop's (`/Users/treyhuffine/ri/.work/worktrees/bounce`), a folder the Mini can't create. Workers always used their own. Now creating an agent stores none (each device uses its own Ri folder), the import doesn't bring one, moving the home clears them, and the Setup form says which device the field is for. The four agents the laptop brought (ballcoach-scraper, bounce, insiderfinance-fmp-rebuild, skilled.dev) were cleared in production through the app.
+- Not changed: a linked folder "for every agent" is still a choice in its dialog, off by default. `beamd-cli` is one because the version before homes made it so.
+- Follow-up, not done here: in a chat on another device, a file mention in a linked folder (`@beamd-cli/…`) carries the home's absolute path, and the picker lists the home's files.
+
+Tests: `main-chat-placement.test.ts` (the Bounce sequence, a chat that has run staying, waiting messages kept for a device that runs agents, a closed chat's queue withdrawn), `import-records.test.ts` and `move.test.ts` (worktree folders), and the wording in `run-on`, `remote-start` and the P4 review tests.
+
 ## Devices
 
 Computers became devices on 2026-09-29, before any home but the dev home had applied the build's schema. A phone and a laptop are both devices, and what says one runs agents is its worker key, which says so itself, not a table of its own.

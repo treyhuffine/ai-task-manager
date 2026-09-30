@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import path from 'node:path';
 import { archiveWorkspace, listWorkspaces, createWorkspace, WorkspaceFieldError } from '@/lib/db/queries';
-import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
+import { detectIsGit, detectBaseBranch } from '@/lib/workspaces';
 import { parseConnectorScopes, validateConnectorScopes } from '@/lib/connectors/scopes';
 import type { CreateWorkspaceInput, WorkspaceStatus } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
@@ -68,7 +68,9 @@ export async function POST(request: NextRequest) {
       isGit: isGit,
       baseBranch: baseBranch,
       remoteName: isGit ? body.remoteName ?? 'origin' : null,
-      worktreeRoot: isGit ? body.worktreeRoot ?? defaultWorktreeRoot(body.slug ?? body.name) : null,
+      // Only a folder the person chose. Unset, each device puts worktrees in
+      // its own Ri folder (`defaultWorktreeRoot`, resolved where they're made).
+      worktreeRoot: isGit && typeof body.worktreeRoot === 'string' && body.worktreeRoot.trim() ? body.worktreeRoot.trim() : null,
       ...(body.filesToCopy !== undefined ? { filesToCopy: body.filesToCopy } : {}),
       setupCommand: body.setupCommand ?? null,
       startCommand: body.startCommand ?? null,

@@ -135,6 +135,10 @@ export async function ensureMainChat(scope: MainChatScope): Promise<ChatSessionR
 async function retireMainChat(id: string): Promise<void> {
   const { close } = await import('@/lib/executor/adapter');
   await close(id).catch(() => {});
+  // A message still waiting for a device goes with it, rather than running
+  // later in a chat that's gone.
+  const { withdrawChatQueue } = await import('@/lib/workers/undelivered');
+  withdrawChatQueue(id, 'This chat was closed before it was delivered.');
   archiveChatSession(id);
   const { deriveRetrospectiveLabel } = await import('@/lib/sessions/derive-label');
   void deriveRetrospectiveLabel(id);

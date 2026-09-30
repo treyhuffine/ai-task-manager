@@ -88,9 +88,14 @@ export function notReady(folder: string, setup: { problem: string | null; status
   return `${folder} isn't ready: ${reason}.`;
 }
 
+/** Why a device that doesn't run agents can't take work, and how to turn it on. */
+export function doesntRunAgents(deviceName: string): string {
+  return `${deviceName} doesn't run agents yet. To turn it on, run \`ri worker enroll\` on it.`;
+}
+
 function problemOf(agentName: string, deviceName: string, setup: WorkspaceSetupWithDevice | undefined, enrolled: boolean): string | null {
   if (!setup) return `${agentName} isn't on ${deviceName} yet.`;
-  if (!enrolled) return `${deviceName} isn't set up to run agents. Run \`ri worker enroll\` there first.`;
+  if (!enrolled) return doesntRunAgents(deviceName);
   if (!setupUsable(setup.status)) return setupProblem(`${agentName}'s folder on ${deviceName}`, setup);
   return null;
 }

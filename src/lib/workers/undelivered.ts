@@ -7,7 +7,7 @@
  */
 
 import type { WorkerCommandRecord } from '@/db/types';
-import { cancelWorkerCommand } from '@/lib/db/queries';
+import { cancelWorkerCommand, chatRunState } from '@/lib/db/queries';
 import { inTransaction, type AfterCommit } from '@/lib/effects/after-commit';
 import { settleTurn } from '@/lib/executor/turns';
 import { finishRunInTransaction } from '@/lib/runs/finish';
@@ -36,10 +36,23 @@ export function settleUndelivered(command: WorkerCommandRecord, after: AfterComm
  * finished and its turn settled with it, and shown as not delivered. Null
  * when it isn't waiting any more: it has left for the worker, or was settled.
  */
-export function withdrawQueuedSend(commandId: string): WorkerCommandRecord | null {
+export function withdrawQueuedSend(commandId: string, reason?: string): WorkerCommandRecord | null {
   return inTransaction((after) => {
-    const cancelled = cancelWorkerCommand(commandId);
+    const cancelled = cancelWorkerCommand(commandId, reason);
     if (cancelled) settleUndelivered(cancelled, after);
     return cancelled;
   });
+}
+
+/**
+ * Withdraw every message of a chat still waiting in a device's queue, as the
+ * chat is closed: a closed chat never runs later, on a device that connects
+ * after. Returns how many it withdrew.
+ */
+export function withdrawChatQueue(chatSessionId: string, reason: string): number {
+  let withdrawn = 0;
+  for (const command of chatRunState(chatSessionId).queuedSends) {
+    if (withdrawQueuedSend(command.id, reason)) withdrawn++;
+  }
+  return withdrawn;
 }

@@ -22,7 +22,7 @@ afterEach(() => { vi.restoreAllMocks(); (state.client as QueryClient)?.clear(); 
 it('does not restore Waiting from an old GET after Cancel succeeds while SSE reconnects', async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   state.client = client;
-  const waiting: MessageDelivery = { state: 'waiting', deviceId: 'worker', deviceName: 'Review worker', connected: false, reason: null, cancellable: true };
+  const waiting: MessageDelivery = { state: 'waiting', deviceId: 'worker', deviceName: 'Review worker', connected: false, runsAgents: true, reason: null, cancellable: true };
   const cancelled: MessageDelivery = { ...waiting, state: 'not_delivered', reason: 'It was withdrawn before it was delivered.', cancellable: false };
   let respond!: (value: Record<string, MessageDelivery>) => void;
   vi.spyOn(sessionsApi, 'deliveries').mockImplementationOnce(() => new Promise((resolve) => { respond = resolve; }));

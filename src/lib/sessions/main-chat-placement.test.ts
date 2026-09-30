@@ -1,7 +1,9 @@
 /**
- * An agent's main chat has a fixed device (spec §7, P3.4): the home when
- * the agent is set up there, otherwise its saved default. The chat keeps it,
- * and a message waits for it while it's away rather than running at home. A
+ * An agent's main chat runs where the agent lives (spec §7, P3.4): the home
+ * when the agent is set up there, otherwise its saved default. Once it has
+ * run it keeps that device, and a message waits for it while it's away
+ * rather than running at home. Until then it follows the agent
+ * (docs/homes-build.md, "Main chats follow their agent until they run"). A
  * new chat applies the rule again. The app's own main chat is the home's.
  */
 
@@ -91,18 +93,34 @@ describe("an agent's main chat", () => {
     expect((await placementOfMainChat(agentId)).chat.deviceId).toBe(laptopId);
   });
 
-  it('keeps its device when the default changes, and a new chat applies the rule again', async () => {
+  it('keeps its device once it has run there, and a new chat applies the rule again', async () => {
     await setUpOn(laptopId);
     await setUpOn(desktopId);
+    const q = await import('@/lib/db/queries');
     const runOn = await import('@/lib/setups/run-on');
     const { ensureMainChat, startNewMainChat } = await import('./main-chat');
+    const { followAgentUntilRun } = await import('./main-chat-device');
     const first = await ensureMainChat(agentId);
     expect(first.deviceId).toBe(laptopId);
+    q.insertChatEvent({ sessionId: first.id, role: 'assistant', source: 'agent', content: 'Looked at it on the MacBook.' });
     runOn.setDefaultDevice(agentId, desktopId);
+    expect(followAgentUntilRun(first.id)).toEqual({ moved: false, withdrawn: 0 });
     expect((await ensureMainChat(agentId)).id).toBe(first.id);
     expect((await ensureMainChat(agentId)).deviceId).toBe(laptopId);
     const second = await startNewMainChat(agentId);
     expect(second.deviceId).toBe(desktopId);
+  });
+
+  it("follows its agent until it has run: one that hasn't run goes where the agent's default is now", async () => {
+    await setUpOn(laptopId);
+    await setUpOn(desktopId);
+    const { ensureMainChat } = await import('./main-chat');
+    const { followAgentUntilRun } = await import('./main-chat-device');
+    const chat = await ensureMainChat(agentId);
+    expect(chat.deviceId).toBe(laptopId);
+    (await import('@/lib/setups/run-on')).setDefaultDevice(agentId, desktopId);
+    expect(followAgentUntilRun(chat.id)).toEqual({ moved: true, withdrawn: 0 });
+    expect((await import('@/lib/db/queries')).chatPlacement(chat.id)).toMatchObject({ deviceId: desktopId });
   });
 
   it("waits for its device while it's away, instead of running at home", async () => {
@@ -119,6 +137,102 @@ describe("an agent's main chat", () => {
     expect(q.listWorkerCommands(laptopId).map((c) => [c.kind, c.state])).toContainEqual(['send', 'queued']);
     expect(deliveriesForChat(chat.id)[message.id]).toMatchObject({ state: 'waiting', deviceName: 'MacBook' });
     expect(fake.sessions).toEqual([]);
+  });
+});
+
+describe("a main chat opened before its agent was set up where it lives now (Bounce, 2026-09-30)", () => {
+  // Opened while the agent's only folder was on a device that doesn't run
+  // agents yet (imported from its old home), then set up on the home.
+  async function openedOnAnUnenrolledDevice() {
+    const q = await import('@/lib/db/queries');
+    const macbook = q.createDevice({ name: 'MacBook Air', kind: 'computer' }).id;
+    await setUpOn(macbook);
+    const { ensureMainChat } = await import('./main-chat');
+    const chat = await ensureMainChat(agentId);
+    expect(chat.deviceId).toBe(macbook);
+    return { chat, macbook };
+  }
+
+  it("says its device doesn't run agents yet, and how to turn it on, rather than what it hasn't reported", async () => {
+    const { chat } = await openedOnAnUnenrolledDevice();
+    const q = await import('@/lib/db/queries');
+    const message = q.insertChatEvent({ sessionId: chat.id, role: 'user', source: 'user', content: 'Review this doc' })!;
+    const executor = await import('@/lib/executor/adapter');
+    await expect(executor.dispatch(chat.id, 'Review this doc', { sourceEventId: message.id })).rejects.toThrow(
+      "MacBook Air doesn't run agents yet. To turn it on, run `ri worker enroll` on it.",
+    );
+  });
+
+  it('runs on the home once the agent is set up there, the next time a message is sent', async () => {
+    const { chat, macbook } = await openedOnAnUnenrolledDevice();
+    await setUpOn(hostId);
+    const q = await import('@/lib/db/queries');
+    const message = q.insertChatEvent({ sessionId: chat.id, role: 'user', source: 'user', content: 'Review this doc' })!;
+    await (await import('@/lib/executor/adapter')).dispatch(chat.id, 'Review this doc', { sourceEventId: message.id });
+    expect(q.chatPlacement(chat.id)).toMatchObject({ deviceId: hostId, isHome: true });
+    expect(q.listWorkerCommands(macbook)).toEqual([]);
+    expect(fake.sessions.length).toBe(1);
+  });
+
+  it('after New and going back to it, moves to the home on open and drops the stop it left for a device it never ran on', async () => {
+    const { chat, macbook } = await openedOnAnUnenrolledDevice();
+    await setUpOn(hostId);
+    const q = await import('@/lib/db/queries');
+    // What New queued as it closed the chat, before the person went back to it.
+    q.queueWorkerCommand({ deviceId: macbook, kind: 'stop', payload: {}, actor: { source: 'human' }, chatSessionId: chat.id });
+    const { followAgentUntilRun } = await import('./main-chat-device');
+    expect(followAgentUntilRun(chat.id)).toEqual({ moved: true, withdrawn: 0 });
+    expect(q.chatPlacement(chat.id)).toMatchObject({ isHome: true });
+    expect(q.listWorkerCommands(macbook).map((c) => [c.kind, c.state])).toEqual([['stop', 'cancelled']]);
+  });
+
+  it("withdraws a waiting message for a device that doesn't run agents, saying to send it again", async () => {
+    const { chat, macbook } = await openedOnAnUnenrolledDevice();
+    await setUpOn(hostId);
+    const q = await import('@/lib/db/queries');
+    const message = q.insertChatEvent({ sessionId: chat.id, role: 'user', source: 'user', content: 'Waiting' })!;
+    q.queueWorkerCommand({ deviceId: macbook, kind: 'send', payload: { runId: null }, actor: { source: 'human' }, chatSessionId: chat.id, sourceEventId: message.id });
+    const { followAgentUntilRun } = await import('./main-chat-device');
+    expect(followAgentUntilRun(chat.id)).toEqual({ moved: true, withdrawn: 1 });
+    const { deliveriesForChat } = await import('@/lib/workers/delivery');
+    expect(deliveriesForChat(chat.id)[message.id]).toMatchObject({
+      state: 'not_delivered',
+      reason: expect.stringMatching(/Ri runs on .+ now, and this was still waiting for MacBook Air\. Send it again\./),
+    });
+  });
+
+  it('keeps a message waiting for a device that runs agents: it goes there when that device connects', async () => {
+    await setUpOn(laptopId);
+    const q = await import('@/lib/db/queries');
+    const { ensureMainChat } = await import('./main-chat');
+    const chat = await ensureMainChat(agentId);
+    const message = q.insertChatEvent({ sessionId: chat.id, role: 'user', source: 'user', content: 'Later', createdAt: new Date().toISOString() })!;
+    let queued!: () => void;
+    const onQueue = new Promise<void>((r) => { queued = r; });
+    void (await import('@/lib/executor/adapter')).dispatch(chat.id, 'Later', { sourceEventId: message.id, onQueued: () => queued() }).catch(() => {});
+    await onQueue;
+    const { deliveriesForChat } = await import('@/lib/workers/delivery');
+    expect(deliveriesForChat(chat.id)[message.id]).toMatchObject({ state: 'waiting', runsAgents: true });
+    await setUpOn(hostId);
+    const { followAgentUntilRun } = await import('./main-chat-device');
+    expect(followAgentUntilRun(chat.id)).toEqual({ moved: false, withdrawn: 0 });
+    expect(q.listWorkerCommands(laptopId).map((c) => c.state)).toContain('queued');
+  });
+
+  it('withdraws what a closed chat still had waiting, so it never runs later', async () => {
+    await setUpOn(laptopId);
+    const q = await import('@/lib/db/queries');
+    const { ensureMainChat, startNewMainChat } = await import('./main-chat');
+    const chat = await ensureMainChat(agentId);
+    const message = q.insertChatEvent({ sessionId: chat.id, role: 'user', source: 'user', content: 'Later', createdAt: new Date().toISOString() })!;
+    let queued!: () => void;
+    const onQueue = new Promise<void>((r) => { queued = r; });
+    void (await import('@/lib/executor/adapter')).dispatch(chat.id, 'Later', { sourceEventId: message.id, onQueued: () => queued() }).catch(() => {});
+    await onQueue;
+    await startNewMainChat(agentId);
+    const sends = q.listWorkerCommands(laptopId).filter((c) => c.kind === 'send');
+    expect(sends.map((c) => [c.state, c.error])).toEqual([['cancelled', 'This chat was closed before it was delivered.']]);
+    expect(q.getChatSession(chat.id)?.status).toBe('archived');
   });
 });
 

@@ -22,7 +22,7 @@
  */
 
 import type { WorkerCommandRecord } from '@/db/types';
-import { getChatEventById, getChatSession, getDevice, getWorkerCommand, heldMessages, listOpenSendsForDevice, listSendsForChat } from '@/lib/db/queries';
+import { getChatEventById, getChatSession, getDevice, getWorkerCommand, getWorkerKeyId, heldMessages, listOpenSendsForDevice, listSendsForChat } from '@/lib/db/queries';
 import { publishDelivery } from '@/lib/realtime/bus';
 import { isDeviceConnected } from './hub';
 
@@ -35,6 +35,8 @@ export interface MessageDelivery {
   deviceName: string;
   /** Its worker is connected now. */
   connected: boolean;
+  /** It runs agents: it has an active worker key. A message waits for one that doesn't until it's turned on. */
+  runsAgents: boolean;
   /** Why it wasn't delivered, or why delivery can't be confirmed. */
   reason: string | null;
   /** Still in the home's queue, so it can be withdrawn. */
@@ -54,6 +56,7 @@ export function deliveryOf(command: WorkerCommandRecord): MessageDelivery | null
     deviceId: command.deviceId,
     deviceName: getDevice(command.deviceId)?.name ?? 'the other device',
     connected,
+    runsAgents: getWorkerKeyId(command.deviceId) !== null,
     reason: null,
     cancellable: false,
   };
@@ -103,6 +106,7 @@ function heldDelivery(transfer: {
     deviceId: transfer.toDeviceId,
     deviceName: to,
     connected: isDeviceConnected(transfer.toDeviceId),
+    runsAgents: getWorkerKeyId(transfer.toDeviceId) !== null,
     reason:
       transfer.state === 'failed'
         ? transfer.toGeneration === null

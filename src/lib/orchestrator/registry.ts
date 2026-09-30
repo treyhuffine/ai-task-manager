@@ -110,7 +110,7 @@ import { triageProposalSchema } from '@/lib/stream-triage/schema';
 import { getTriageMetrics } from '@/lib/stream-triage/metrics';
 import { onStreamCaptured } from '@/lib/stream-triage/triggers';
 import { getNotifierUserId } from '@/lib/notifications/user';
-import { detectIsGit, detectBaseBranch, defaultWorktreeRoot } from '@/lib/workspaces';
+import { detectIsGit, detectBaseBranch } from '@/lib/workspaces';
 import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
 import { generateWebhookCredentials } from '@/lib/triggers/webhook';
 import { isReservedTrigger, lockedFieldsFor } from '@/lib/triggers/reserved';
@@ -1404,7 +1404,9 @@ const create_workspace_action = defineAction({
         isGit: isGit,
         baseBranch: baseBranch,
         remoteName: isGit ? input.remoteName ?? 'origin' : null,
-        worktreeRoot: isGit ? input.worktreeRoot ?? defaultWorktreeRoot(input.name) : null,
+        // Only a folder the person chose. Unset, each device puts worktrees
+        // in its own Ri folder (`defaultWorktreeRoot`, resolved where they're made).
+        worktreeRoot: isGit && input.worktreeRoot?.trim() ? input.worktreeRoot.trim() : null,
         areaId: input.areaId ?? null,
         purpose: input.purpose,
         instructions: input.instructions,

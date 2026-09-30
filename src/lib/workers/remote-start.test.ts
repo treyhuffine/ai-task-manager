@@ -295,7 +295,7 @@ describe('starting an execution on a connected device', () => {
     await expect(dispatchExecutionSession({ workspaceId, deviceId: otherDevice.id })).rejects.toBeInstanceOf(
       DeviceUnavailableForDispatch,
     );
-    await expect(dispatchExecutionSession({ workspaceId, deviceId: otherDevice.id })).rejects.toThrow(/isn't set up to run agents/);
+    await expect(dispatchExecutionSession({ workspaceId, deviceId: otherDevice.id })).rejects.toThrow(/Other doesn't run agents yet\. To turn it on, run `ri worker enroll` on it\. Or set Demo up on .+ in its Setup tab\./);
   });
 
   it('says its folder there is gone when it went while the laptop was connected, before placing anything there', async () => {
