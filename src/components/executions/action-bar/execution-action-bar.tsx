@@ -512,9 +512,9 @@ function PrChip({ sessionId, prNumber, prUrl, closed }: PrChipProps) {
 }
 
 /**
- * The PR as a reference, not a button: a small squared `#402 ↗` that opens
- * it on GitHub. No fill and muted text, so the git chip's one action stays
- * the only thing that reads as work to do.
+ * The PR as a reference, not a button: a squared, outlined `#402 ↗` that
+ * opens it on GitHub. Readable at a glance, but with no fill, so the git
+ * chip's one action stays the only thing that reads as work to do.
  */
 function PrRef({ pr }: { pr: OpenablePr }) {
   return (
@@ -525,14 +525,14 @@ function PrRef({ pr }: { pr: OpenablePr }) {
       title={pr.closed ? `Closed PR #${pr.number}. Open on GitHub` : `Open PR #${pr.number} on GitHub`}
       aria-label={`${pr.closed ? 'Closed pull request' : 'Pull request'} #${pr.number} on GitHub`}
       className={cn(
-        'inline-flex h-5 flex-shrink-0 items-center gap-0.5 rounded-[3px] border pl-1 pr-0.5 font-mono text-[11px] leading-none tabular-nums transition-colors',
+        'inline-flex h-6 flex-shrink-0 items-center gap-1 rounded-[4px] border pl-1.5 pr-1 font-mono text-[12px] font-medium leading-none tabular-nums transition-colors',
         pr.closed
-          ? 'border-rose-500/30 text-rose-600 hover:border-rose-500/50 dark:text-rose-400'
-          : 'border-border text-muted-foreground hover:border-foreground/25 hover:text-foreground',
+          ? 'border-rose-500/45 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
+          : 'border-foreground/25 text-foreground/85 hover:border-foreground/40 hover:bg-muted/40 hover:text-foreground',
       )}
     >
       #{pr.number}
-      <ArrowUpRight size={11} className="opacity-70" />
+      <ArrowUpRight size={12} className="opacity-60" />
     </a>
   );
 }
