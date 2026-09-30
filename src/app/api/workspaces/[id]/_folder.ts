@@ -1,89 +1,75 @@
 /**
- * Read an agent's own folder for the agent view's Files tab
- * (docs/agents-view-spec.md Phase 5). Lives outside the `route.ts` files
- * because Next.js's app router rejects exports that aren't HTTP method
- * handlers or segment configs.
+ * An agent's own folder for the agent view's Files tab
+ * (docs/agents-view-spec.md Phase 5), wherever the agent lives (P3.5). Lives
+ * outside the `route.ts` files because Next.js's app router rejects exports
+ * that aren't HTTP method handlers or segment configs.
  *
- * For a git agent this is the source checkout, opened with its current
- * branch at HEAD as the base, so status flags mean uncommitted changes
- * (`openFolderHandle`). Non-git folders open as bare handles. A checkout on
- * a detached HEAD cannot be opened as a handle, so it gets a plain listing
- * without flags and direct reads.
+ * At home it reads and writes the folder here. For an agent that lives on
+ * another computer it asks that computer, which uses the agent's folder there
+ * as the home recorded it: never a folder at home, and never a path the
+ * caller names.
  *
- * Writes (the Files tab's editor and tree) go straight to the folder by
- * path, so they work for git, plain and detached-HEAD folders alike. They
- * are for the person using the app. The agent's main chat still never
- * writes here (docs/agents-view-spec.md Phase 6): its changes go through
- * executions.
+ * Writes (the Files tab's editor and tree) go to the folder by path, so they
+ * work for git, plain and detached-HEAD folders alike. They are for the
+ * person using the app. The agent's main chat still never writes here
+ * (docs/agents-view-spec.md Phase 6): its changes go through executions. An
+ * archived agent is read-only (409), like its terminal and main chat.
  */
 
-import type { Workspace } from '@agentex/workspace';
-import type { WorkspaceRecord } from '@/db/types';
-import type { TreeEntry } from '@/lib/api/sessions';
-import { getWorkspace } from '@/lib/db/queries';
-import { openFolderHandle } from '@/lib/workspaces';
-import { listTree } from '@/lib/workspaces/list-tree';
-import { readBaseFile, readWorkspaceFile } from '@/lib/workspaces/read-file';
-import { listReferenceTree } from '@/lib/reference-folders/tree';
+import { getComputer, getWorkspace } from '@/lib/db/queries';
+import { agentComputerFor } from '@/lib/setups/run-on';
 import { isExistingDir } from '@/lib/terminal/owner';
-import type { FolderRef } from '@/lib/workspaces/write-file';
+import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
+import type { ReadAgentFolderRequest, WriteAgentFolderRequest } from '@/lib/workers/protocol';
+import { readAgentFolder, type AgentFolderRead } from '@/lib/workspaces/agent-folder-reads';
+import { writeFolder, type FolderWrite } from '@/lib/workspaces/execution-writes';
 
-export interface AgentFolder {
-  ws: WorkspaceRecord;
-  /** Null for a detached HEAD, see the module doc. */
-  handle: Workspace | null;
+async function onItsComputer(computerId: string, kind: 'read_agent_folder' | 'write_agent_folder', request: unknown): Promise<Response> {
+  const name = getComputer(computerId)?.name ?? 'Its computer';
+  try {
+    const answer = (await requestWorker(computerId, kind, request)) as { status: number; body: unknown };
+    return Response.json(answer.body, { status: answer.status });
+  } catch (err) {
+    if (err instanceof WorkerUnavailableError) {
+      return Response.json({ error: 'unavailable', message: `${name} is not connected right now.` }, { status: 409 });
+    }
+    if (err instanceof WorkerRequestError) {
+      return Response.json({ error: 'worker_error', message: err.message }, { status: 424 });
+    }
+    throw err;
+  }
 }
 
-export type FolderResolution = { ok: true; folder: AgentFolder } | { ok: false; response: Response };
-
-export async function openWorkspaceFolder(id: string): Promise<FolderResolution> {
+export async function agentFolderResponse(id: string, read: AgentFolderRead): Promise<Response> {
   const ws = getWorkspace(id);
-  if (!ws) {
-    return { ok: false, response: Response.json({ error: 'Workspace not found' }, { status: 404 }) };
+  if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
+  const computerId = agentComputerFor(id);
+  if (computerId) {
+    const request: ReadAgentFolderRequest = { agentId: id, filesToCopy: ws.filesToCopy ?? [], read };
+    return onItsComputer(computerId, 'read_agent_folder', request);
   }
   if (!isExistingDir(ws.cwd)) {
-    return {
-      ok: false,
-      response: Response.json({ error: `The agent's folder does not exist: ${ws.cwd}` }, { status: 409 }),
-    };
+    return Response.json({ error: `The agent's folder does not exist: ${ws.cwd}` }, { status: 409 });
   }
-  return { ok: true, folder: { ws, handle: await openFolderHandle(ws.cwd) } };
+  const answer = await readAgentFolder(ws.cwd, ws.filesToCopy ?? [], read);
+  return Response.json(answer.body, { status: answer.status });
 }
 
-export async function listFolderTree({ ws, handle }: AgentFolder): Promise<TreeEntry[]> {
-  if (handle) return listTree(handle, ws.filesToCopy ?? []);
-  return (await listReferenceTree(ws.cwd)).entries;
-}
-
-/** Same shape as the session file route. The base side is empty without a handle. */
-export async function readFolderFile({ ws, handle }: AgentFolder, relPath: string, wantBase: boolean): Promise<Response> {
-  if (wantBase) {
-    const content = handle ? await readBaseFile(handle, relPath) : '';
-    return Response.json({ path: relPath, content, encoding: 'utf8', mime: 'text/plain', size: content.length, isBinary: false });
-  }
-  return Response.json(await readWorkspaceFile({ path: ws.cwd }, relPath));
-}
-
-export type WritableFolderResolution = { ok: true; folder: FolderRef } | { ok: false; response: Response };
-
-/**
- * The agent's folder, ready to write. An archived agent is read-only, the
- * same as its terminal and main chat (409), and a folder that's gone can't
- * take a write (409).
- */
-export function openWritableWorkspaceFolder(id: string): WritableFolderResolution {
+/** A person's change to the agent's own folder, on the computer it lives on. */
+export async function agentFolderWrite(id: string, write: FolderWrite): Promise<Response> {
   const ws = getWorkspace(id);
-  if (!ws) {
-    return { ok: false, response: Response.json({ error: 'Workspace not found' }, { status: 404 }) };
-  }
+  if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
   if (ws.status === 'archived') {
-    return { ok: false, response: Response.json({ error: 'This agent is archived, so its files are read-only' }, { status: 409 }) };
+    return Response.json({ error: 'This agent is archived, so its files are read-only' }, { status: 409 });
+  }
+  const computerId = agentComputerFor(id);
+  if (computerId) {
+    const request: WriteAgentFolderRequest = { agentId: id, isGit: ws.isGit, write };
+    return onItsComputer(computerId, 'write_agent_folder', request);
   }
   if (!isExistingDir(ws.cwd)) {
-    return {
-      ok: false,
-      response: Response.json({ error: `The agent's folder does not exist: ${ws.cwd}` }, { status: 409 }),
-    };
+    return Response.json({ error: `The agent's folder does not exist: ${ws.cwd}` }, { status: 409 });
   }
-  return { ok: true, folder: { path: ws.cwd, kind: ws.isGit ? 'git' : 'bare' } };
+  const answer = await writeFolder({ path: ws.cwd, kind: ws.isGit ? 'git' : 'bare' }, write);
+  return Response.json(answer.body, { status: answer.status });
 }

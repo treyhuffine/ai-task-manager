@@ -3,20 +3,23 @@ import { toChatEventDTO } from '@/lib/api/dto/chat-event';
 import {
   getChatEventById,
   getChatSessionWithExecution,
+  getExecution,
   insertChatEvent,
   materializeEventRefs,
   recordSkillUse,
 } from '@/lib/db/queries';
 import { parseSlashInvocation } from '@/lib/agent-skills/parse-invocation';
 import { budgetGate } from '@/lib/runs/budget';
+import { ensureWorktreeReady } from '@/lib/runs/dispatch';
 import { deriveAndSetSessionLabel } from '@/lib/sessions/derive-label';
 import { expandMarkers } from '@/lib/attachments/expand-markers';
 import { expandEntityMarkers } from '@/lib/entity-refs/expand-markers';
+import * as executor from '@/lib/executor/adapter';
 import { healthCheckSession } from '@/lib/executor/health';
 import type { Attachment } from '@/db/types';
 import { SESSION_CREDENTIAL_HEADER, verifySessionCredential } from '@/lib/orchestrator/session-credential';
+import { actorFromRequest } from '@/lib/auth/actor';
 import { withSenderLabel } from '@/lib/sessions/sender';
-import { dispatchSessionTurn } from '@/lib/sessions/deliver';
 import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
 
 interface PostBody {
@@ -83,15 +86,9 @@ export async function POST(
       // catch it on the next refetch.
       return Response.json({ error: 'Cannot send to an archived session' }, { status: 400 });
     }
-    if (session.takeoverStartedAt) {
-      return Response.json(
-        {
-          error: 'session_in_takeover',
-          message:
-            'Session is being worked on locally. Run `ri resume` or click Done in the takeover banner before sending more messages.',
-        },
-        { status: 409 },
-      );
+    // Before the message is saved, so a refused send leaves nothing behind.
+    if (isImportMirror(session)) {
+      return Response.json({ error: 'session_is_import', message: IMPORT_MIRROR_REFUSAL }, { status: 409 });
     }
     // Before the message is saved, so a refused send leaves nothing behind.
     if (isImportMirror(session)) {
@@ -110,6 +107,8 @@ export async function POST(
     // bare id, so a client can't make a message look like it came from a
     // chat that didn't send it. See src/lib/orchestrator/session-credential.ts.
     const senderSessionId = verifySessionCredential(request.headers.get(SESSION_CREDENTIAL_HEADER));
+    // Who is sending, for the command a connected computer gets (P2.6).
+    const actor = actorFromRequest(request.headers);
     if (senderSessionId === id) {
       return Response.json({ error: 'A chat cannot send a message to itself.' }, { status: 400 });
     }
@@ -210,7 +209,9 @@ export async function POST(
     // and the agent dispatch use the same expanded prompt. Two passes:
     // entity markers (task / note / scratchpad) first — they expand to
     // inline `<task>` / `<note>` / `<scratchpad>` tags. File markers
-    // second — they expand to absolute paths or `<attachment>` text.
+    // second — the ones the agent can't read itself expand to `<attachment>`
+    // text. The rest stay markers, which dispatch turns into paths on the
+    // computer the chat runs on.
     const entityExpanded = expandEntityMarkers(content, id);
     const expanded = await expandMarkers(entityExpanded, attachments);
     // First-message titling is for task-shaped threads (executions, content):
@@ -247,10 +248,54 @@ export async function POST(
     // Skip on retry — the health check already decided whether to
     // redispatch via the orphan path.
     if (!isRetry) {
-      // Labeled with the sending chat when another chat sent it. The
-      // stored event keeps the message as sent, and the first-message
-      // title above is derived from it without the label.
-      dispatchSessionTurn(id, session.executionId ?? null, withSenderLabel(expanded, row.senderSessionId));
+      // Cover the accepted-message -> worktree/provider preparation gap. The
+      // nested dispatch takes its own reference, so the runtime flag remains
+      // true until both preparation and the actual root turn have settled.
+      const preparationRef = executor.beginDispatchPreparation(id);
+      // Released once: when a message to a computer elsewhere is saved in its
+      // queue (from then on its delivery state and the worker say what the
+      // chat is doing), or when the dispatch settles.
+      let held = true;
+      const release = () => {
+        if (!held) return;
+        held = false;
+        executor.endDispatchPreparation(id, preparationRef);
+      };
+      // Self-heal a missing worktree before dispatching. A git execution
+      // can outlive its worktree directory (out-of-band `git worktree
+      // remove`/`prune`, a multi-device home where `.work` wasn't synced,
+      // dev resets). `resolveCwd` now refuses to run the agent in the
+      // workspace's source checkout in that state — so without this the
+      // turn would dead-end with `invalid_state`. Reprovisioning here (the
+      // same guard the scheduled path runs) recreates the worktree so the
+      // message lands in an isolated tree, never the main repo. The
+      // existsSync fast-path inside makes this a no-op on the hot path.
+      void (async () => {
+        try {
+          const execution = session.executionId ? getExecution(session.executionId) : undefined;
+          const ready = await ensureWorktreeReady(id, execution ?? null);
+          if (!ready.ok) {
+            console.error(
+              `[POST /api/sessions/:id/messages] worktree not ready for ${id}: ${ready.error}`,
+            );
+            return;
+          }
+          // Labeled with the sending chat when another chat sent it. The
+          // stored event keeps the message as sent, and the first-message
+          // title above is derived from it without the label.
+          await executor.dispatch(id, withSenderLabel(expanded, row.senderSessionId), {
+            sourceEventId: row.id,
+            attachments,
+            actor,
+            onQueued: release,
+          });
+        } finally {
+          release();
+        }
+      })().catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[POST /api/sessions/:id/messages] dispatch failed for ${id}:`, msg);
+      });
     }
 
     // Same projection as GET /events and the SSE stream. This row lands in

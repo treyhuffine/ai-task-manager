@@ -6,16 +6,11 @@
  * and the agent-facing `list_workspace_sessions` action. Both were shipping
  * fields neither one needs.
  *
- * One of them is a credential. `executions.takeoverToken` is the bearer for
- * "take over locally" — the `/api/takeover/<token>/...` routes accept it *in
- * place of* the account token, precisely because the CLI has no other way to
- * authenticate. Serializing it into a list meant a live credential crossed
- * the wire every 15 seconds and sat in the browser's query cache, and went to
- * any agent that called `list_workspace_sessions`.
- *
- * It is not needed in either place. The browser's takeover banner reads the
- * token off the single-session `GET /api/sessions/:id`, which still carries
- * it, and the CLI is handed the token directly when takeover starts.
+ * One of them was a credential: `executions.takeoverToken`, the bearer for
+ * the retired "take over locally" routes. Continue here replaced that flow
+ * (docs/homes-spec.md P4.5) and the routes are gone, but the columns stay in
+ * the schema until the next baseline squash, so a token left from before is
+ * still kept off the wire.
  *
  * The rest is weight: `externalTranscriptPath` is a filesystem path nothing
  * renders and was 22.8% of rail bytes, and `scratchPad` is per-session prose

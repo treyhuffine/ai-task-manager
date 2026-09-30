@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { uuidv7 } from 'uuidv7';
 import { defineAction, ActionError, type ActionContext } from './types';
 import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
+import { runOnFor } from '@/lib/setups/run-on';
 import { browserActions } from './browser-actions';
 import {
   TASK_STATUSES,
@@ -102,6 +103,7 @@ import {
   type TriageDecisionInput,
 } from '@/lib/db/queries';
 import { stripHighlight } from '@/lib/search/highlight';
+import { actorFromAction } from '@/lib/auth/actor';
 import { AttachmentMetadataRepairError, MAX_ATTACHMENT_METADATA_REPAIRS, REPAIR_ATTACHMENT_FILE_NAME } from '@/lib/attachments/repair-metadata';
 import { beginSweep, finishSweep } from '@/lib/stream-triage/sweep';
 import { triageProposalSchema } from '@/lib/stream-triage/schema';
@@ -134,7 +136,7 @@ import {
 // and `cancel_run` are the only paths that touch the executor.
 import { inventorySkills } from '@/lib/executor/skills';
 import { fetchLiveSignals, serverFetch, ServerResponseError } from './server-client';
-import { SESSION_CREDENTIAL_HEADER, sessionCredential } from './session-credential';
+import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } from './session-credential';
 import { PERMISSION_MODES } from '@/lib/permissions/modes';
 import { APP_SHORT_ID } from '@/constants/app';
 import { condenseEvents, derivePendingFromEvents } from './session-oversight';
@@ -1353,13 +1355,14 @@ const get_workspace_action = defineAction({
   name: 'get_workspace',
   description:
     'Fetch a single workspace by id (the user calls it an agent), including its `purpose` and standing ' +
-    '`instructions`.',
+    '`instructions`, and `runOn`: the computers it can run on (each with whether it can take work now, ' +
+    'and why not) and `defaultId`, where a new execution runs when start_execution names no computer.',
   params: { id: z.string().min(1) },
   cli: { positional: ['id'] },
   handler: (_ctx, { id }) => {
     const ws = getWorkspace(id);
     if (!ws) throw new ActionError('not_found', `Workspace not found: ${id}`);
-    return ws;
+    return { ...ws, runOn: runOnFor(id) };
   },
 });
 
@@ -1379,14 +1382,22 @@ const create_workspace_action = defineAction({
     instructions: z.string().nullable().optional(),
   },
   mutating: true,
-  handler: async (_ctx, input) => {
+  handler: async (ctx, input) => {
+    assertCallerOnHome(ctx, 'Creating an agent from a folder path');
     const cwd = path.resolve(input.cwd);
+    const { assertHomeFolderUsable, setHomeFolder, SetupError } = await import('@/lib/setups/home-context');
+    try {
+      assertHomeFolderUsable(cwd);
+    } catch (err) {
+      if (err instanceof SetupError) throw new ActionError('invalid_params', err.message);
+      throw err;
+    }
     const isGit = await detectIsGit(cwd);
     const baseBranch = isGit
       ? input.baseBranch ?? (await detectBaseBranch(cwd, input.remoteName ?? 'origin'))
       : null;
     try {
-      return createWorkspace({
+      const row = createWorkspace({
         name: input.name,
         emoji: input.emoji ?? null,
         cwd,
@@ -1399,6 +1410,13 @@ const create_workspace_action = defineAction({
         instructions: input.instructions,
         status: 'active',
       });
+      try {
+        await setHomeFolder(row.id, cwd);
+      } catch (err) {
+        archiveWorkspace(row.id);
+        throw new ActionError('conflict', `The agent's folder couldn't be set up: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return row;
     } catch (err) {
       if (err instanceof WorkspaceFieldError) throw new ActionError(err.code, err.message);
       throw err;
@@ -1411,7 +1429,9 @@ const update_workspace_action = defineAction({
   description:
     'Edit a workspace (the user calls it an agent): name, emoji, area, `purpose` (a sentence, 500 characters ' +
     'max), standing `instructions` (delivered to every execution it starts, 20,000 characters max), ' +
-    'connector access, and the agent browser. Pass null to clear purpose or instructions. Its folder, ' +
+    'connector access, the agent browser, and `defaultComputerId`, the computer its new executions run on ' +
+    '(one it is set up on, see get_workspace runOn, or null to go back to the automatic choice). ' +
+    'Pass null to clear purpose or instructions. Its folder, ' +
     'scripts and files-to-copy are not editable here: they run commands or move files on the machine, so ' +
     'they stay in the app. Connector access and the browser can only be changed from the app or the local ' +
     'CLI, not over MCP. `connectorScopes` replaces the whole list: one entry per service, each optionally ' +
@@ -1451,11 +1471,12 @@ const update_workspace_action = defineAction({
       .optional()
       .describe('The full list of services this agent may use. Services left out lose access.'),
     browserEnabled: z.boolean().optional(),
+    defaultComputerId: z.string().nullable().optional(),
   },
   mutating: true,
   cli: { positional: ['id'] },
   handler: async (ctx, input) => {
-    const { id, connectorScopes, ...fields } = input;
+    const { id, connectorScopes, defaultComputerId, ...fields } = input;
     if (!getWorkspace(id)) throw new ActionError('not_found', `Workspace not found: ${id}`);
     // Granting connector access or the browser widens what this agent's
     // executions can reach. Over MCP the caller is a harness session that
@@ -1472,6 +1493,9 @@ const update_workspace_action = defineAction({
     try {
       if (Object.keys(fields).length > 0) {
         await serverFetch(`/workspaces/${id}`, { method: 'PATCH', body: JSON.stringify(fields) });
+      }
+      if (defaultComputerId !== undefined) {
+        await serverFetch(`/workspaces/${id}/run-on`, { method: 'PUT', body: JSON.stringify({ defaultComputerId }) });
       }
       if (connectorScopes !== undefined) {
         // Fold the legacy single `account` into `accounts`. The route resolves identifiers (email,
@@ -1499,12 +1523,17 @@ const update_workspace_action = defineAction({
 
 const archive_workspace_action = defineAction({
   name: 'archive_workspace',
-  description: 'Archive a workspace. Sessions stay queryable. Nothing on disk is touched.',
+  description:
+    "Archive a workspace and stop what it runs: each of its chats' harnesses and its terminals. Sessions stay queryable. Nothing on disk is touched.",
   params: { id: z.string().min(1) },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (_ctx, { id }) => {
-    const row = archiveWorkspace(id);
+  handler: async (ctx, { id }) => {
+    // Its harnesses and terminals live in the server.
+    const served = await inServer<Awaited<ReturnType<typeof archiveWorkspace>>>(ctx, 'archive_workspace', { id });
+    if (served) return served.result;
+    const { archiveAgent } = await import('@/lib/workspaces/archive-agent');
+    const row = await archiveAgent(id, actorFromAction(ctx));
     if (!row) throw new ActionError('not_found', `Workspace not found: ${id}`);
     return row;
   },
@@ -1531,6 +1560,23 @@ function rethrowReferenceFolderError(err: unknown): never {
  * summarized back. The local CLI is trusted and may pass any path; a remote
  * caller has to go through a workspace, which the user already vouched for.
  */
+/**
+ * A folder path in an action's input is resolved on the home's disk. From
+ * another computer that path names a folder on that computer instead, so
+ * the result would describe the wrong folder, or none. Refuse, and say
+ * where the work belongs (docs/homes-spec.md §4.1). Callers that don't say
+ * where they are count as elsewhere.
+ */
+function assertCallerOnHome(ctx: ActionContext, what: string): void {
+  if (ctx.remote === false) return;
+  if (ctx.caller?.location === 'home') return;
+  throw new ActionError(
+    'unsupported',
+    `${what} runs against folders on the home computer, and this call came from another computer.`,
+    "Run it on the home, or set up the agent's folder on this computer from the app.",
+  );
+}
+
 function assertPathAllowed(ctx: { remote?: boolean }, path: string | null | undefined): void {
   if (!path) return;
   if (ctx.remote ?? true) {
@@ -1561,12 +1607,13 @@ const create_reference_folder_action = defineAction({
     description: z.string().nullable().optional(),
   },
   mutating: true,
-  handler: (ctx, input) => {
+  handler: async (ctx, input) => {
     assertPathAllowed(ctx, input.path);
+    let row;
     try {
       // `~` / relative expansion happens in the query layer so every caller
       // stores the same absolute form.
-      return createReferenceFolder({
+      row = createReferenceFolder({
         alias: input.alias,
         workspaceId: input.workspaceId ?? null,
         path: input.path ?? null,
@@ -1576,6 +1623,10 @@ const create_reference_folder_action = defineAction({
     } catch (err) {
       rethrowReferenceFolderError(err);
     }
+    // Its place on the home is recorded with it: check it's there (§4.1).
+    const { checkHomeFolders } = await import('@/lib/setups/folders');
+    await checkHomeFolders();
+    return row;
   },
 });
 
@@ -1593,19 +1644,24 @@ const update_reference_folder_action = defineAction({
   },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (ctx, { id, ...rest }) => {
+  handler: async (ctx, { id, ...rest }) => {
     assertPathAllowed(ctx, rest.path);
     const patch: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(rest)) {
       if (v !== undefined) patch[k] = v;
     }
+    const before = getReferenceFolder(id);
+    let row;
     try {
-      const row = updateReferenceFolder(id, patch);
+      row = updateReferenceFolder(id, patch);
       if (!row) throw new ActionError('not_found', `Reference folder not found: ${id}`);
-      return row;
     } catch (err) {
       rethrowReferenceFolderError(err);
     }
+    // A changed place on the home is recorded with it: check it's there (§4.1).
+    const { checkHomeFolders } = await import('@/lib/setups/folders');
+    await checkHomeFolders();
+    return row;
   },
 });
 
@@ -1786,10 +1842,10 @@ const get_pending_input_action = defineAction({
 const answer_pending_input_action = defineAction({
   name: 'answer_pending_input',
   description:
-    'Resolve a pending permission or question prompt on a session. Permissions: allow=true/false ' +
-    '(message = deny reason). Questions: allow=true with answers keyed by the question text ' +
-    '(allow=false declines). Only answer on the user\'s clear intent. When in doubt, surface the ' +
-    'prompt to the user instead.',
+    'Resolve a pending permission or question prompt on a session. Questions: allow=true with answers ' +
+    'keyed by the question text (allow=false declines). Permissions: an agent can deny one with allow=false ' +
+    '(message = the reason), but only a person can approve one, in Ri. Only answer on the user\'s clear ' +
+    'intent. When in doubt, surface the prompt to the user instead.',
   params: {
     sessionId: z.string().min(1),
     requestId: z.string().min(1),
@@ -1801,13 +1857,20 @@ const answer_pending_input_action = defineAction({
   },
   mutating: true,
   cli: { positional: ['sessionId', 'requestId'] },
-  handler: async (_ctx, { sessionId, requestId, allow, message, answers }) => {
+  handler: async (ctx, input) => {
+    const { sessionId, requestId, allow, message, answers } = input;
     const session = getChatSession(sessionId);
     if (!session) throw new ActionError('not_found', `Session not found: ${sessionId}`);
-    await serverFetch(`/sessions/${sessionId}/pending-input/${requestId}`, {
-      method: 'POST',
-      body: JSON.stringify({ allow, message, answers }),
-    });
+    // Prompts wait in the server, and the answer is the caller's own: from
+    // the CLI it's answered there, under the caller's credential (P2.6).
+    const served = await inServer<unknown>(ctx, 'answer_pending_input', input);
+    if (served) return served.result;
+    const { answerPrompt } = await import('@/lib/executor/answer-prompt');
+    const outcome = answerPrompt(sessionId, requestId, { allow, message, answers }, actorFromAction(ctx));
+    if (!outcome.ok) {
+      const code = outcome.error === 'human_only' ? 'unsupported' : outcome.error === 'mismatch' ? 'invalid_params' : 'not_found';
+      throw new ActionError(code, outcome.message);
+    }
     return {
       resolved: true,
       sessionId,
@@ -1892,6 +1955,57 @@ const send_session_message_action = defineAction({
       eventId: event?.id ?? null,
       sentFrom: ctx.actor?.sessionId ?? null,
       note: 'Dispatched. The session processes asynchronously. Check get_session_messages shortly.',
+    };
+  },
+});
+
+// ── Memory (docs/homes-build.md, P2.7) ──────────────────────
+// MEMORY.md stays at the home, with no copy anywhere else. A session that
+// can't read the home's files, on a connected computer, reads it here and
+// sends findings to the home's main chat, which keeps the file.
+
+const read_memory_action = defineAction({
+  name: 'read_memory',
+  description:
+    'Read MEMORY.md, the durable memory this home keeps across conversations. It lives at the home ' +
+    "only. A session that can't read the home's files reads it here, and sends anything worth " +
+    'remembering with submit_memory_finding.',
+  params: {},
+  handler: () => {
+    const file = path.join(getAppRoot(), 'MEMORY.md');
+    return { text: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '' };
+  },
+});
+
+const submit_memory_finding_action = defineAction({
+  name: 'submit_memory_finding',
+  description:
+    "Send something worth remembering to this home's main chat, which keeps MEMORY.md and decides " +
+    'whether to record it. Labeled with the chat that found it. For a session that cannot edit ' +
+    "the home's files, on a connected computer, say. The main chat edits MEMORY.md itself.",
+  params: { finding: z.string().min(1).max(4000) },
+  mutating: true,
+  cli: { positional: ['finding'] },
+  handler: async (ctx, { finding }) => {
+    const { ensureMainChat } = await import('@/lib/sessions/main-chat');
+    const main = await ensureMainChat(null);
+    if (ctx.actor?.sessionId === main.id) {
+      throw new ActionError('invalid_params', 'You keep MEMORY.md yourself. Edit it directly.');
+    }
+    // Through the messages route, like send_session_message: it labels the
+    // message with the sending chat and dispatches the main chat's turn.
+    const event = await serverFetch<{ id: string }>(`/sessions/${main.id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        content: `Memory finding: ${finding.trim()}\n\nIf this is worth keeping, record it in MEMORY.md. If not, leave the file as it is.`,
+      }),
+      headers: senderHeaders(ctx),
+    });
+    return {
+      submitted: true,
+      mainChatId: main.id,
+      eventId: event?.id ?? null,
+      note: "The home's main chat decides whether to record it.",
     };
   },
 });
@@ -2291,6 +2405,35 @@ const delete_trigger_action = defineAction({
   },
 });
 
+/**
+ * Run an action in the home's server rather than the calling process. The
+ * home's own CLI runs actions in its short-lived process, where a harness it
+ * starts, or one it tries to stop, is out of the server's reach: nothing
+ * could watch, answer or cancel it (docs/homes-build.md, P0.4 gap 1). The
+ * caller's session credential goes along, so attribution is unchanged.
+ * Returns undefined when already in the server.
+ */
+async function inServer<T>(ctx: ActionContext, name: string, input: unknown): Promise<{ result: T } | undefined> {
+  if (ctx.remote !== false) return undefined;
+  const credential = process.env[SESSION_CREDENTIAL_ENV];
+  const envelope = await serverFetch<{
+    ok: boolean;
+    result?: T;
+    error?: { code: string; message: string; suggestion?: string };
+  }>(`/orchestrator/actions/${name}`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+    ...(credential ? { headers: { [SESSION_CREDENTIAL_HEADER]: credential } } : {}),
+  });
+  if (envelope.ok) return { result: envelope.result as T };
+  const code = envelope.error?.code;
+  throw new ActionError(
+    code === 'not_found' || code === 'invalid_params' || code === 'unsupported' ? code : 'conflict',
+    envelope.error?.message ?? `${name} failed in the server.`,
+    envelope.error?.suggestion,
+  );
+}
+
 const run_trigger_action = defineAction({
   name: 'run_trigger',
   description:
@@ -2301,7 +2444,10 @@ const run_trigger_action = defineAction({
   },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: async (_ctx, { id, triggerPayload }) => {
+  handler: async (ctx, { id, triggerPayload }) => {
+    // The run's harness belongs in the server, where it can be watched and cancelled.
+    const served = await inServer<{ run: unknown; chatSessionId: string | null }>(ctx, 'run_trigger', { id, triggerPayload });
+    if (served) return served.result;
     const trigger = getTrigger(id);
     if (!trigger) throw new ActionError('not_found', `Trigger not found: ${id}`);
     // Lazy: see the import-section comment. Pulls in the executor adapter
@@ -2356,7 +2502,10 @@ const cancel_run_action = defineAction({
   params: { id: z.string().min(1) },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: async (_ctx, { id }) => {
+  handler: async (ctx, { id }) => {
+    // Only the server holds the run's harness, so only it can stop it.
+    const served = await inServer<ReturnType<typeof getRun>>(ctx, 'cancel_run', { id });
+    if (served) return served.result;
     const run = getRun(id);
     if (!run) throw new ActionError('not_found', `Run not found: ${id}`);
     if (run.status !== 'running' && run.status !== 'queued') {
@@ -2525,6 +2674,11 @@ const start_execution_action = defineAction({
     permissionMode: z.enum(PERMISSION_MODES).optional(),
     taskId: z.string().min(1).optional(),
     label: z.string().min(1).optional(),
+    computerId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("The computer to run on (see get_workspace runOn). Omitted: the agent's default computer. One that can't take it is refused with the reason, never replaced."),
   },
   mutating: true,
   cli: { positional: ['workspaceId'] },
@@ -2546,6 +2700,8 @@ const start_execution_action = defineAction({
         ? { id: existing.id, executionId: existing.executionId ?? null }
         : await serverFetch<{ id: string; executionId: string | null }>(`/workspaces/${workspace.id}/sessions`, {
             method: 'POST',
+            // Started by the calling chat, when a chat is calling (P2.6).
+            headers: senderHeaders(ctx),
             body: JSON.stringify({
               sessionId,
               ...(input.label ? { label: input.label } : {}),
@@ -2553,6 +2709,7 @@ const start_execution_action = defineAction({
               ...(input.model ? { model: input.model } : {}),
               ...(input.effort ? { effort: input.effort } : {}),
               ...(input.taskId ? { taskId: input.taskId } : {}),
+              ...(input.computerId ? { computerId: input.computerId } : {}),
             }),
           });
     } catch (err) {
@@ -2624,6 +2781,9 @@ const archive_execution_action = defineAction({
         body: JSON.stringify({ force: force === true }),
       });
     } catch (err) {
+      if (err instanceof ServerResponseError && err.status === 409 && err.json()?.code === 'moving') {
+        throw new ActionError('conflict', String(err.json()?.message ?? 'It is moving to another computer.'), 'Archive it once it has arrived.');
+      }
       if (err instanceof ServerResponseError && err.status === 409 && err.json()?.code === 'dirty_worktree') {
         const detail = err.json()?.message;
         throw new ActionError(
@@ -2656,6 +2816,214 @@ const list_notification_channels_action = defineAction({
   },
 });
 
+// ─── Computers and agent setups (docs/homes-spec.md §4.2) ─────
+
+/**
+ * The computer making this call: the home's own for the local CLI and the
+ * home's sessions, otherwise the computer registered with the caller's key.
+ */
+async function callerComputer(ctx: ActionContext) {
+  if (ctx.remote === false || ctx.caller?.location === 'home') {
+    const { ensureHomeIdentity } = await import('@/lib/home/identity');
+    return ensureHomeIdentity().computer;
+  }
+  const { getComputerForApiKey } = await import('@/lib/db/queries');
+  const computer = ctx.caller?.apiKeyId ? getComputerForApiKey(ctx.caller.apiKeyId) : null;
+  if (!computer) {
+    throw new ActionError(
+      'conflict',
+      'This computer is not registered with your home yet.',
+      'Run `ri setup` on it, which registers it first.',
+    );
+  }
+  if (computer.status !== 'active') throw new ActionError('conflict', `${computer.name} was removed from your home.`);
+  return computer;
+}
+
+const register_computer_action = defineAction({
+  name: 'register_computer',
+  description:
+    "Register the calling computer with this home, or refresh its details. A connected computer does this once, so its agent setups can be reported. It doesn't let the home run work on that computer. Its key's own access is unchanged.",
+  params: {
+    name: z.string().min(1).max(120),
+    platform: z.string().max(40).nullable().optional(),
+    hostname: z.string().max(255).nullable().optional(),
+    computerId: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('The id this home gave this computer before, so a new key keeps the same computer'),
+  },
+  mutating: true,
+  handler: async (ctx, input) => {
+    if (ctx.remote === false || ctx.caller?.location === 'home') {
+      const { ensureHomeIdentity } = await import('@/lib/home/identity');
+      return { computer: ensureHomeIdentity().computer, created: false };
+    }
+    if (!ctx.caller?.apiKeyId) throw new ActionError('unsupported', 'Registering a computer needs a key to register it under.');
+    const { registerComputerForApiKey } = await import('@/lib/db/queries');
+    return registerComputerForApiKey({ apiKeyId: ctx.caller.apiKeyId, ...input });
+  },
+});
+
+const rename_computer_action = defineAction({
+  name: 'rename_computer',
+  description:
+    'Rename a computer of this home, e.g. "MacBook" or "Mac Mini". Without computerId, renames the calling computer. Names are for people: they never identify a computer.',
+  params: {
+    computerId: z.string().optional(),
+    name: z.string().trim().min(1).max(120),
+  },
+  mutating: true,
+  handler: async (ctx, { computerId, name }) => {
+    const { getComputer, updateComputer } = await import('@/lib/db/queries');
+    const target = computerId ? getComputer(computerId) : await callerComputer(ctx);
+    if (!target) throw new ActionError('not_found', `No computer ${computerId}.`);
+    return updateComputer(target.id, { name });
+  },
+});
+
+const list_computers_action = defineAction({
+  name: 'list_computers',
+  description:
+    "This home's computers: the home's own, and each connected computer with whether it's enrolled to run agents, connected right now, and what its worker last reported.",
+  params: {},
+  handler: async () => serverFetch<unknown[]>('/computers'),
+});
+
+const describe_computer_harnesses_action = defineAction({
+  name: 'describe_computer_harnesses',
+  description:
+    "The harnesses a computer can run: installed, version, and capabilities. By default its worker's last report; with fresh=true the home asks the worker now, which needs it connected.",
+  params: {
+    computerId: z.string().min(1),
+    fresh: z.boolean().optional(),
+  },
+  cli: { positional: ['computerId'] },
+  handler: async (_ctx, { computerId, fresh }) =>
+    serverFetch<unknown>(`/computers/${encodeURIComponent(computerId)}/harnesses${fresh ? '?fresh=1' : ''}`),
+});
+
+/** An agent by id, or by name when exactly one agent has it. */
+async function agentByIdOrName(idOrName: string) {
+  const { getWorkspace, listWorkspaces } = await import('@/lib/db/queries');
+  const byId = getWorkspace(idOrName);
+  if (byId) return byId;
+  const named = listWorkspaces({ status: 'active' }).filter((w) => w.name.toLowerCase() === idOrName.toLowerCase());
+  if (named.length === 1) return named[0]!;
+  throw new ActionError(named.length ? 'conflict' : 'not_found', named.length ? `More than one agent is named "${idOrName}". Use its id.` : `No agent "${idOrName}".`);
+}
+
+/** A folder change that can't be made says why, as the person would read it. */
+async function folderChange<T>(change: () => Promise<T>): Promise<T> {
+  const { FolderError } = await import('@/lib/setups/folders');
+  try {
+    return await change();
+  } catch (err) {
+    if (err instanceof FolderError) throw new ActionError('invalid_params', err.message);
+    throw err;
+  }
+}
+
+/** The computer named, or the calling one. */
+async function computerFor(ctx: ActionContext, computerId: string | undefined) {
+  if (!computerId) return callerComputer(ctx);
+  const { getComputer } = await import('@/lib/db/queries');
+  const computer = getComputer(computerId);
+  if (!computer || computer.status !== 'active') throw new ActionError('not_found', `No computer ${computerId}.`);
+  return computer;
+}
+
+const set_agent_folder_action = defineAction({
+  name: 'set_agent_folder',
+  description:
+    "Record an agent's project folder on a computer, the calling one unless computerId says another. The home's records are the only place an agent's folders are kept. That computer checks the folder is there.",
+  params: {
+    agent: z.string().min(1).describe('The agent, by id or name'),
+    folder: z.string().min(1).describe('An absolute path on that computer'),
+    computerId: z.string().optional(),
+  },
+  cli: { positional: ['agent', 'folder'] },
+  mutating: true,
+  handler: async (ctx, { agent, folder, computerId }) => {
+    const computer = await computerFor(ctx, computerId);
+    const ws = await agentByIdOrName(agent);
+    const { chooseAgentFolder } = await import('@/lib/setups/folders');
+    const { getAgentSetup } = await import('@/lib/db/queries');
+    await folderChange(() => chooseAgentFolder(ws.id, computer.id, folder));
+    return getAgentSetup(ws.id, computer.id);
+  },
+});
+
+const set_linked_folder_action = defineAction({
+  name: 'set_linked_folder',
+  description:
+    "Record where one of an agent's linked folders is on a computer, the calling one unless computerId says another, or folder=null to go without it there. A linked folder every agent uses has one place per computer, so this sets it for all of them there. That computer checks the folder is there.",
+  params: {
+    agent: z.string().min(1).describe('The agent, by id or name, whose linked folder this is'),
+    alias: z.string().min(1),
+    folder: z.string().min(1).nullable().describe('An absolute path on that computer, or null to go without it'),
+    computerId: z.string().optional(),
+  },
+  mutating: true,
+  handler: async (ctx, { agent, alias, folder, computerId }) => {
+    const computer = await computerFor(ctx, computerId);
+    const ws = await agentByIdOrName(agent);
+    const { listReferenceFoldersForWorkspace, getAgentSetup } = await import('@/lib/db/queries');
+    const ref = listReferenceFoldersForWorkspace(ws.id).find((r) => r.alias === alias.toLowerCase());
+    if (!ref) throw new ActionError('not_found', `${ws.name} has no linked folder "${alias}".`);
+    if (ref.targetWorkspaceId) {
+      throw new ActionError('invalid_params', `"${alias}" is another agent: it's that agent's own folder on each computer.`);
+    }
+    const { chooseLinkedFolder } = await import('@/lib/setups/folders');
+    await folderChange(() => chooseLinkedFolder(ref.id, computer.id, folder));
+    return getAgentSetup(ws.id, computer.id);
+  },
+});
+
+const remove_agent_setup_action = defineAction({
+  name: 'remove_agent_setup',
+  description:
+    "Take an agent off a computer, the calling one unless computerId says another: its project folder and its own linked folders there are forgotten. Nothing on that computer is deleted.",
+  params: {
+    agent: z.string().min(1).describe('The agent, by id or name'),
+    computerId: z.string().optional(),
+  },
+  cli: { positional: ['agent'] },
+  mutating: true,
+  handler: async (ctx, { agent, computerId }) => {
+    const computer = await computerFor(ctx, computerId);
+    const ws = await agentByIdOrName(agent);
+    const { removeFromComputer } = await import('@/lib/setups/folders');
+    return { removed: await folderChange(() => removeFromComputer(ws.id, computer.id)) };
+  },
+});
+
+const list_computer_folders_action = defineAction({
+  name: 'list_computer_folders',
+  description:
+    "A folder's folders on one of this home's computers, for choosing a project or linked folder there: within the person's home folder, hidden ones left out, Git projects marked. Without path, the home folder. A computer elsewhere must be connected.",
+  params: {
+    computerId: z.string().min(1),
+    path: z.string().optional(),
+  },
+  handler: async (_ctx, { computerId, path: at }) =>
+    serverFetch<unknown>(`/computers/${encodeURIComponent(computerId)}/folders${at ? `?path=${encodeURIComponent(at)}` : ''}`),
+});
+
+const list_agent_setups_action = defineAction({
+  name: 'list_agent_setups',
+  description:
+    "Where each agent is set up: one row per agent per computer, with the agent's name, its folder there, each linked folder's place there, and whether the setup is ready.",
+  params: {
+    workspaceId: z.string().optional(),
+  },
+  handler: async (_ctx, { workspaceId }) => {
+    const { listAgentSetups, getWorkspace } = await import('@/lib/db/queries');
+    return listAgentSetups(workspaceId ? { workspaceId } : {}).map((s) => ({ ...s, agentName: getWorkspace(s.workspaceId)?.name ?? null }));
+  },
+});
+
 const list_skills_action = defineAction({
   name: 'list_skills',
   description:
@@ -2663,10 +3031,22 @@ const list_skills_action = defineAction({
   params: {
     workspaceCwd: z.string().nullable().optional(),
   },
-  handler: (_ctx, { workspaceCwd }) => inventorySkills(workspaceCwd ?? null),
+  handler: (ctx, { workspaceCwd }) => {
+    if (workspaceCwd) assertCallerOnHome(ctx, 'Listing skills for a folder path');
+    return inventorySkills(workspaceCwd ?? null);
+  },
 });
 
 export const actions = [
+  register_computer_action,
+  rename_computer_action,
+  list_computers_action,
+  describe_computer_harnesses_action,
+  set_agent_folder_action,
+  set_linked_folder_action,
+  remove_agent_setup_action,
+  list_computer_folders_action,
+  list_agent_setups_action,
   describe_paths,
   describe_schema,
   list_tasks_action,
@@ -2730,6 +3110,8 @@ export const actions = [
   get_pending_input_action,
   answer_pending_input_action,
   send_session_message_action,
+  read_memory_action,
+  submit_memory_finding_action,
   start_execution_action,
   archive_execution_action,
   list_triggers_action,

@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { terminalsApi } from '@/lib/api/terminals';
+import { pageStream, type TerminalPosition } from '@/lib/realtime/page-stream';
+import { terminalsUnavailable } from '@/hooks/use-terminals';
 import { createInputQueue } from '@/lib/terminal/input-queue';
 import { detectIsMac, resolveTerminalKey } from '@/lib/terminal/keymap';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
@@ -27,6 +29,12 @@ interface ExecutionTerminalInstanceProps {
   apiBase: string;
   terminalId: string;
   active: boolean;
+  /**
+   * Whether its output streams now: the active tab of an open panel. A
+   * hidden one lets go of its subscription and keeps its screen, and picks
+   * up from where it was when shown again (P3 review). Defaults to `active`.
+   */
+  live?: boolean;
   onExit?: () => void;
 }
 
@@ -36,7 +44,8 @@ interface ExecutionTerminalInstanceProps {
  * The component intentionally mounts once per `terminalId` and stays
  * mounted while its tab is hidden — switching tabs uses CSS
  * `display: none`, not unmount, so scrollback survives. Output flows in
- * via SSE; keystrokes go out via POST. The fit addon adapts to the
+ * over the page's one stream while the tab is live, and a hidden tab picks
+ * up what it missed when shown; keystrokes go out via POST. The fit addon adapts to the
  * container, and we re-fit whenever the tab becomes active because
  * `ResizeObserver` doesn't fire on `display:none → block` transitions.
  *
@@ -54,6 +63,7 @@ export function ExecutionTerminalInstance({
   apiBase,
   terminalId,
   active,
+  live = active,
   onExit,
 }: ExecutionTerminalInstanceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -62,6 +72,15 @@ export function ExecutionTerminalInstance({
   const onExitRef = useRef(onExit);
   /** Attaches the WebGL renderer once, on first activation. See the note where it is set. */
   const attachGpuRef = useRef<(() => void) | null>(null);
+  /**
+   * Why input is off: the shell's computer isn't connected (P3.5). Keys typed
+   * meanwhile are dropped, never kept to send when it's back (spec §5.6).
+   */
+  const [offline, setOffline] = useState<string | null>(null);
+  /** Turns input off with the reason, or back on with null. Set by the terminal's setup. */
+  const goOfflineRef = useRef<((message: string | null) => void) | null>(null);
+  /** Where this screen is in the terminal's output: later subscriptions pick up there. */
+  const positionRef = useRef<TerminalPosition>({ after: null });
 
   // Keep the latest onExit without retriggering the main effect — that
   // would dispose and recreate the terminal, losing scrollback.
@@ -154,11 +173,31 @@ export function ExecutionTerminalInstance({
 
     const isMac = detectIsMac();
 
+    // Input is live only while the shell's computer is reachable.
+    let inputOff = false;
+    const goOffline = (message: string | null) => {
+      inputOff = message !== null;
+      setOffline(message);
+    };
+    goOfflineRef.current = goOffline;
+    // A new screen: its first subscription starts from the whole backlog.
+    positionRef.current = { after: null };
+
     // stdin. Serialised and self-batching — see `input-queue.ts` for why
     // one-POST-per-keystroke both reorders bytes and drowns a tunnel.
-    const input = createInputQueue({
+    const queue = createInputQueue({
       send: (data) => terminalsApi.input(apiBaseRef.current, terminalId, data),
+      onError: (err) => {
+        const away = terminalsUnavailable(err);
+        if (away) goOffline(away);
+      },
     });
+    const input = {
+      push: (data: string) => {
+        if (!inputOff) queue.push(data);
+      },
+      dispose: () => queue.dispose(),
+    };
 
     // Mac-style shortcuts inside the terminal. Browser-reserved keys
     // (Cmd+T, Cmd+W, Cmd+N) we can't override — those still hit the
@@ -217,36 +256,6 @@ export function ExecutionTerminalInstance({
       return true;
     });
 
-    // SSE: stdout. EventSource auto-reconnects, and replays the last `id:`
-    // it saw as `Last-Event-ID`, so the server can send only what we missed
-    // instead of the whole buffer. A first connect has no cursor and gets
-    // the full backlog, which is what makes a refresh land on a live screen.
-    const es = new EventSource(terminalsApi.streamUrl(apiBaseRef.current, terminalId));
-
-    // A reconnect that couldn't be resumed (first view, or we were away
-    // long enough that the missed output aged out of the server's ring)
-    // hands back a snapshot rather than a continuation. Reset first so it
-    // replaces the screen instead of being appended to a stale copy of
-    // itself — appending is what made scrollback appear twice.
-    const onReady = (ev: MessageEvent<string>) => {
-      try {
-        const { resumed } = JSON.parse(ev.data) as { resumed?: boolean };
-        if (!resumed) term.reset();
-      } catch { /* */ }
-    };
-
-    const onData = (ev: MessageEvent<string>) => {
-      try { term.write(JSON.parse(ev.data)); } catch { /* */ }
-    };
-    const onExitEvt = () => {
-      term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n');
-      try { es.close(); } catch { /* */ }
-      onExitRef.current?.();
-    };
-    es.addEventListener('ready', onReady as EventListener);
-    es.addEventListener('data', onData as EventListener);
-    es.addEventListener('exit', onExitEvt as EventListener);
-
     const dataDisp = term.onData((data) => input.push(data));
 
     // resize → tell the pty, once the drag settles. The viewport itself
@@ -282,7 +291,7 @@ export function ExecutionTerminalInstance({
       input.dispose();
       dataDisp.dispose();
       resizeDisp.dispose();
-      try { es.close(); } catch { /* */ }
+      goOfflineRef.current = null;
       try { term.dispose(); } catch { /* */ }
       termRef.current = null;
       fitRef.current = null;
@@ -290,6 +299,61 @@ export function ExecutionTerminalInstance({
     };
     // apiBase is read through a ref on purpose; see the note on this component.
   }, [terminalId]);
+
+  // stdout, over the page's one stream (P3 review), while this terminal is
+  // on screen. The first subscription gets the whole backlog, which is what
+  // makes a refresh land on a live screen. A later one, after the tab was
+  // hidden or the page reconnected, gets only what this screen missed: the
+  // page stream moves its position only for output it hands this screen (P3
+  // re-check). One that couldn't be resumed (the missed output aged out of
+  // the ring) hands back a snapshot: reset first so it replaces the screen
+  // rather than being appended to a stale copy of itself.
+  useEffect(() => {
+    if (!live) return;
+    const term = termRef.current;
+    if (!term) return;
+    let ended = false;
+    let unsubscribe = () => {};
+    const finish = (line: string) => {
+      ended = true;
+      term.write(`\r\n\x1b[2m${line}\x1b[0m\r\n`);
+      unsubscribe();
+      onExitRef.current?.();
+    };
+    unsubscribe = pageStream().subscribeTerminal(
+      apiBaseRef.current,
+      terminalId,
+      positionRef.current,
+      (event, data) => {
+        if (ended) return;
+        switch (event) {
+          case 'ready':
+            goOfflineRef.current?.(null);
+            if (!(data as { resumed?: boolean } | null)?.resumed) term.reset();
+            break;
+          case 'data':
+            if (typeof data === 'string') term.write(data);
+            break;
+          case 'exit':
+            finish('[process exited]');
+            break;
+          case 'error':
+            finish('[this terminal is gone]');
+            break;
+          // Its computer dropped, or can't be reached now: the page stream
+          // keeps trying, and `ready` turns input back on.
+          case 'unavailable':
+            goOfflineRef.current?.((data as { message?: string } | null)?.message ?? 'Its computer is not connected.');
+            break;
+        }
+      },
+    );
+    return () => {
+      ended = true;
+      unsubscribe();
+    };
+    // apiBase is read through a ref on purpose; see the note on this component.
+  }, [terminalId, live]);
 
   // Re-fit + focus when this tab becomes active. Skipping the fit on
   // hidden→visible would leave the pty thinking we're still 80x24.
@@ -319,14 +383,22 @@ export function ExecutionTerminalInstance({
   }, [active]);
 
   return (
-    <div
-      ref={containerRef}
-      className={cn(
-        'h-full w-full overflow-hidden bg-[#0b0b0c] px-2 py-1',
-        !active && 'invisible pointer-events-none',
+    <div className={cn('relative h-full w-full', !active && 'invisible pointer-events-none')}>
+      <div
+        ref={containerRef}
+        className="h-full w-full overflow-hidden bg-[#0b0b0c] px-2 py-1"
+        // `invisible` on the wrapper keeps layout (so fit() works) while
+        // hiding visually. Stacked tabs all sit at inset-0; only the active
+        // one is visible.
+      />
+      {offline && (
+        <div
+          role="status"
+          className="absolute inset-x-0 top-0 border-b border-zinc-800 bg-zinc-900/95 px-3 py-1.5 text-[11px] text-zinc-300"
+        >
+          {offline} Typing is off until then.
+        </div>
       )}
-      // `invisible` keeps layout (so fit() works) while hiding visually.
-      // Stacked tabs all sit at inset-0; only the active one is visible.
-    />
+    </div>
   );
 }

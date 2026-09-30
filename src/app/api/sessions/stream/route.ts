@@ -28,6 +28,7 @@ export async function GET() {
       };
 
       unsubscribe = subscribe(globalSessionChannel, (message) => {
+        if (message.kind === 'computer_updated') enqueue(sse('computer_updated', message));
         if (message.kind === 'session_updated') {
           enqueue(sse('session_updated', message));
         }

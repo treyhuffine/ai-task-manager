@@ -1,0 +1,177 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { NextRequest } from 'next/server';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import { API_KEY_ID_HEADER, API_KEY_TYPE_HEADER, CALLER_LOCATION_HEADER } from '@/lib/auth/request-key';
+
+/**
+ * A connected computer's CLI runs actions on its home through this route,
+ * with provenance from credentials only (docs/homes-spec.md §5.3, §6).
+ */
+
+let home: TestHome;
+
+beforeEach(async () => {
+  home = await createTestHome({ prefix: 'ri-actions-route-' });
+});
+
+afterEach(async () => {
+  await home.cleanup();
+});
+
+function post(name: string, body: unknown, headers: Record<string, string>) {
+  return new NextRequest(`http://127.0.0.1/api/orchestrator/actions/${name}`, {
+    method: 'POST',
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+    headers: { 'content-type': 'application/json', ...headers },
+  });
+}
+
+const fromLaptop = { [API_KEY_ID_HEADER]: 'key-laptop', [API_KEY_TYPE_HEADER]: 'computer', [CALLER_LOCATION_HEADER]: 'elsewhere' };
+const fromHome = { [API_KEY_ID_HEADER]: 'key-host', [API_KEY_TYPE_HEADER]: 'host', [CALLER_LOCATION_HEADER]: 'home' };
+
+async function call(name: string, body: unknown, headers: Record<string, string>) {
+  const { POST } = await import('./route');
+  const res = await POST(post(name, body, headers), { params: Promise.resolve({ name }) });
+  return {
+    status: res.status,
+    body: (await res.json()) as {
+      ok: boolean;
+      result?: { id: string; title: string };
+      error?: { code: string; message: string };
+    },
+  };
+}
+
+describe('POST /api/orchestrator/actions/:name', () => {
+  it('runs the action on the home and returns the CLI envelope', async () => {
+    const { status, body } = await call('create_task', { title: 'Buy milk' }, fromLaptop);
+    expect(status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.result?.title).toBe('Buy milk');
+    const { listTasks } = await import('@/lib/db/queries');
+    expect(listTasks({}).map((t) => t.title)).toContain('Buy milk');
+  });
+
+  it('returns validation and unknown-action failures in the same envelope', async () => {
+    expect((await call('create_task', {}, fromLaptop)).body.error?.code).toBe('invalid_params');
+    expect((await call('no_such_action', {}, fromLaptop)).body.error?.code).toBe('unknown_action');
+    const bad = await call('create_task', '{not json', fromLaptop);
+    expect(bad.status).toBe(400);
+  });
+
+  it('attributes a lifecycle change to the calling session, from its signed credential only', async () => {
+    const q = await import('@/lib/db/queries');
+    const { sessionCredential } = await import('@/lib/orchestrator/session-credential');
+    const chat = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active' });
+    const task = q.createTask({ title: 'Ship it' });
+
+    const started = await call('transition_task', { id: task.id, command: 'start' }, {
+      ...fromLaptop,
+      'x-ri-session': sessionCredential(chat.id)!,
+    });
+    expect(started.body.ok).toBe(true);
+    const { getRawDb } = await import('@/lib/db');
+    const change = getRawDb()
+      .prepare('SELECT actor_session_id, actor_source FROM task_status_changes WHERE task_id = ? ORDER BY created_at DESC LIMIT 1')
+      .get(task.id) as { actor_session_id: string | null; actor_source: string };
+    expect(change).toEqual({ actor_session_id: chat.id, actor_source: 'ai' });
+
+    // A forged credential names no one.
+    const forged = await call('get_task', { id: task.id }, { ...fromLaptop, 'x-ri-session': `${chat.id}.forged` });
+    expect(forged.body.ok).toBe(true);
+  });
+
+  it("refuses a folder path from another computer, which would name a folder on the home's disk", async () => {
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-actions-folder-'));
+    try {
+      const fromElsewhere = await call('create_workspace', { name: 'app', cwd: folder }, fromLaptop);
+      expect(fromElsewhere.body.ok).toBe(false);
+      expect(fromElsewhere.body.error?.code).toBe('unsupported');
+      expect(fromElsewhere.body.error?.message).toMatch(/another computer/);
+
+      const onHome = await call('create_workspace', { name: 'app', cwd: folder }, fromHome);
+      expect(onHome.body.ok).toBe(true);
+    } finally {
+      fs.rmSync(folder, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('computers and setups over the route', () => {
+  it("registers a computer under its key, and only that key records that computer's folders", async () => {
+    const q = await import('@/lib/db/queries');
+    const laptopKey = q.createApiKey({ name: 'MacBook', deviceType: 'computer' }).key;
+    const asLaptop = { [API_KEY_ID_HEADER]: laptopKey.id, [API_KEY_TYPE_HEADER]: 'computer', [CALLER_LOCATION_HEADER]: 'elsewhere' };
+
+    const before = await call('set_agent_folder', { agent: 'Ri', folder: '/Users/trey/dynamism/ri' }, asLaptop);
+    expect(before.body.error?.code).toBe('conflict');
+
+    const registered = await call('register_computer', { name: 'MacBook', platform: 'darwin' }, asLaptop);
+    expect(registered.body.ok).toBe(true);
+    const again = await call('register_computer', { name: 'MacBook', platform: 'darwin' }, asLaptop);
+    expect((again.body.result as unknown as { created: boolean }).created).toBe(false);
+
+    const ws = q.createWorkspace({
+      name: 'Ri',
+      cwd: home.root,
+      isGit: false,
+      filesToCopy: [],
+      collapsed: false,
+      skipLiveConfirm: false,
+      browserEnabled: false,
+    });
+    // The laptop isn't connected here, so its folder is taken as it is, and checked when it is.
+    const stored = await call('set_agent_folder', { agent: ws.id, folder: '/Users/trey/dynamism/ri' }, asLaptop);
+    expect(stored.body.ok).toBe(true);
+
+    await call('rename_computer', { name: 'Trey’s MacBook' }, asLaptop);
+    await call('rename_computer', { name: 'MacBook' }, asLaptop);
+    const listed = await call('list_agent_setups', { workspaceId: ws.id }, fromHome);
+    const rows = listed.body.result as unknown as Array<{ computerName: string; sourcePath: string }>;
+    expect(rows).toEqual([expect.objectContaining({ computerName: 'MacBook', sourcePath: '/Users/trey/dynamism/ri' })]);
+
+    // Another key has no computer, so it can't record folders as the MacBook.
+    const phoneKey = q.createApiKey({ name: 'Phone', deviceType: 'phone' }).key;
+    const asPhone = { [API_KEY_ID_HEADER]: phoneKey.id, [API_KEY_TYPE_HEADER]: 'phone', [CALLER_LOCATION_HEADER]: 'elsewhere' };
+    const spoof = await call('set_agent_folder', { agent: ws.id, folder: '/Users/trey/elsewhere' }, asPhone);
+    expect(spoof.body.error?.code).toBe('conflict');
+  });
+
+  it('keeps the same computer when it pairs again with a new key, and never binds to the home itself', async () => {
+    const q = await import('@/lib/db/queries');
+    const as = (id: string) => ({ [API_KEY_ID_HEADER]: id, [API_KEY_TYPE_HEADER]: 'computer', [CALLER_LOCATION_HEADER]: 'elsewhere' });
+    const first = q.createApiKey({ name: 'MacBook', deviceType: 'computer' }).key;
+    const made = await call('register_computer', { name: 'MacBook' }, as(first.id));
+    const computerId = (made.body.result as unknown as { computer: { id: string } }).computer.id;
+
+    const second = q.createApiKey({ name: 'MacBook, re-paired', deviceType: 'computer' }).key;
+    const again = await call('register_computer', { name: 'MacBook', computerId }, as(second.id));
+    expect((again.body.result as unknown as { computer: { id: string }; created: boolean })).toMatchObject({
+      computer: { id: computerId },
+      created: false,
+    });
+    expect(q.listComputers().filter((c) => c.name === 'MacBook')).toHaveLength(1);
+
+    const { ensureHomeIdentity, resetHomeIdentityCache } = await import('@/lib/home/identity');
+    resetHomeIdentityCache();
+    const hostId = ensureHomeIdentity().computer.id;
+    const third = q.createApiKey({ name: 'Sneaky', deviceType: 'computer' }).key;
+    const sneaky = await call('register_computer', { name: 'Sneaky', computerId: hostId }, as(third.id));
+    expect((sneaky.body.result as unknown as { computer: { id: string } }).computer.id).not.toBe(hostId);
+    resetHomeIdentityCache();
+  });
+
+  it("gives the home's own callers the host computer", async () => {
+    const { ensureHomeIdentity, resetHomeIdentityCache } = await import('@/lib/home/identity');
+    resetHomeIdentityCache();
+    const host = ensureHomeIdentity().computer;
+    const q = await import('@/lib/db/queries');
+    const ws = q.createWorkspace({ name: 'Home agent', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+    const set = await call('set_agent_folder', { agent: ws.id, folder: home.root }, fromHome);
+    expect((set.body.result as unknown as { computerId: string }).computerId).toBe(host.id);
+    resetHomeIdentityCache();
+  });
+});

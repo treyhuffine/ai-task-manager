@@ -7,11 +7,12 @@ import {
   type WipApplyResult,
   type ExecutionChatHistoryEntry,
 } from '@/lib/api/sessions';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, apiErrorText } from '@/lib/api/client';
+import { toast } from 'sonner';
 import { isLaunchPending } from '@/lib/executions/pending-launch';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { PermissionMode, EffortLevel, Attachment } from '@/db/types';
-import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
+import { isNewerRevision, type ChatEventDTO } from '@/lib/api/dto/chat-event';
 import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import {
@@ -19,6 +20,8 @@ import {
   withRunningStatus,
   type SessionRuntimeStatus,
 } from '@/lib/executor/runtime-status';
+import type { MessageDelivery } from '@/lib/workers/delivery';
+import { deliveryClock, mergeDeliverySnapshot, noteDeliveryUpdate, streamedSince } from '@/lib/query/delivery-fence';
 
 const SESSION_KEY = (id: string) => ['session', id] as const;
 
@@ -135,7 +138,7 @@ function byCreatedThenId(a: ChatEventDTO, b: ChatEventDTO): number {
 export function useSession(id: string | null) {
   return useQuery({
     queryKey: ['session', id],
-    queryFn: () => sessionsApi.get(id!),
+    queryFn: ({ signal }) => sessionsApi.get(id!, { signal }),
     enabled: !!id,
     retry: (failureCount, error) => {
       // `isLaunchPending` is the only stopping rule for this branch, on
@@ -161,8 +164,17 @@ export function useSession(id: string | null) {
 
 export function useSessionEvents(id: string | null) {
   const qc = useQueryClient();
+  return useQuery(sessionEventsQuery(qc, id));
+}
+
+/**
+ * The transcript's query: key, fetch and merge. Shared by every observer of
+ * the transcript's cache, so whichever one a refetch runs through, it
+ * merges the same way.
+ */
+function sessionEventsQuery(qc: ReturnType<typeof useQueryClient>, id: string | null) {
   const queryKey = ['session', id, 'events'] as const;
-  return useQuery({
+  return {
     queryKey,
     queryFn: async () => {
       // Snapshot fetches only the most-recent page; older history is
@@ -174,18 +186,46 @@ export function useSessionEvents(id: string | null) {
       // drop a row until the next refetch; (b) older pages a previous
       // scroll-up already loaded — re-fetching the tail must not discard
       // them. Same merge also covers focus-refetch overlap.
+      // (c) a part the stream revised meanwhile keeps its newer revision
+      // over the snapshot's older one (P3 re-check).
       const cached = qc.getQueryData<ChatEventDTO[]>(queryKey);
       if (!cached?.length) return fresh;
+      const cachedById = new Map(cached.map((e) => [e.id, e]));
+      const merged = fresh.map((e) => {
+        const kept = cachedById.get(e.id);
+        return kept && isNewerRevision(kept, e) ? kept : e;
+      });
       const seen = new Set(fresh.map((e) => e.id));
       const extra = cached.filter((e) => !seen.has(e.id));
-      if (extra.length === 0) return fresh;
-      return [...fresh, ...extra].sort(byCreatedThenId);
+      if (extra.length === 0) return merged;
+      return [...merged, ...extra].sort(byCreatedThenId);
     },
     enabled: !!id,
     // No polling — `useSessionStream` pushes new rows into this same
     // cache as they're written. Snapshot still fires on mount + window
     // focus as a fallback if the stream is unavailable.
+  };
+}
+
+/**
+ * When the chat's latest turn ended, from the transcript on this page: its
+ * newest `result` event. The session record learns the same thing a moment
+ * later, so between two turns (a message queued while one ran) the header
+ * would otherwise think the chat never had one and say "Not started" (P3.7).
+ * Observes the transcript's own query, so it fetches nothing more, and
+ * re-renders only when that time changes.
+ */
+export function useLastTurnEndedAt(id: string | null): string | null {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    ...sessionEventsQuery(qc, id),
+    select: (events: ChatEventDTO[]) => {
+      let latest: string | null = null;
+      for (const e of events) if (e.source === 'result' && (!latest || e.createdAt > latest)) latest = e.createdAt;
+      return latest;
+    },
   });
+  return data ?? null;
 }
 
 /** Sentinel tracking whether the start of history has been reached. */
@@ -587,6 +627,130 @@ interface InternalSendInput extends SendMessageInput {
   eventId: string;
 }
 
+/**
+ * Where each message this chat sent to a computer elsewhere stands (P3.2),
+ * by chat event id. Kept current by the session stream's `delivery` frames.
+ */
+export function useDeliveries(sessionId: string | null) {
+  const qc = useQueryClient();
+  const key = ['session', sessionId, 'deliveries'] as const;
+  return useQuery({
+    queryKey: key,
+    // What the stream said while this was on its way wins over it (P3 review).
+    queryFn: async ({ signal }) => {
+      const since = deliveryClock();
+      const snapshot = await sessionsApi.deliveries(sessionId!, { signal });
+      return mergeDeliverySnapshot(sessionId!, snapshot ?? {}, qc.getQueryData<Record<string, MessageDelivery>>(key), since);
+    },
+    enabled: !!sessionId,
+    staleTime: 60_000,
+  });
+}
+
+/** Withdraw a message still waiting in its computer's queue. */
+export function useCancelDelivery(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (eventId: string) => sessionsApi.cancelDelivery(sessionId, eventId),
+    onMutate: () => ({ since: deliveryClock() }),
+    // Unless the stream said something newer about it meanwhile. Stamped
+    // like a stream update, so a snapshot read before it can't put the
+    // older state back (P3 re-check).
+    onSuccess: (delivery, eventId, context) => {
+      if (context && streamedSince(sessionId, eventId, context.since)) return;
+      noteDeliveryUpdate(sessionId, eventId);
+      qc.setQueryData<Record<string, MessageDelivery>>(['session', sessionId, 'deliveries'], (prev) => ({ ...(prev ?? {}), [eventId]: delivery }));
+    },
+    onError: (err) => toast.error("Couldn't withdraw that message", { description: apiErrorText(err) }),
+  });
+}
+
+// ─── Continue here (P4.2) ─────────────────────────────────────
+
+/** The execution's latest move between computers: fetched, then kept current by the session stream. */
+export function useTransfer(sessionId: string | null) {
+  return useQuery({
+    queryKey: ['session', sessionId, 'transfer'],
+    queryFn: async ({ signal }) => (await sessionsApi.transfer(sessionId!, { signal })).transfer,
+    enabled: !!sessionId,
+    staleTime: 30_000,
+  });
+}
+
+/** What a move would take, read where the execution runs, when the dialog opens. */
+export function useWorkingState(sessionId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['session', sessionId, 'working-state'],
+    queryFn: ({ signal }) => sessionsApi.workingState(sessionId!, { signal }),
+    enabled: !!sessionId && enabled,
+    staleTime: 0,
+  });
+}
+
+export function useStartTransfer(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { toComputerId: string; includeUntracked: string[] }) => sessionsApi.startTransfer(sessionId, body),
+    onSuccess: ({ transfer }) => qc.setQueryData(['session', sessionId, 'transfer'], transfer),
+  });
+}
+
+export function useResumeTransfer(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.resumeTransfer(sessionId),
+    onSuccess: ({ transfer }) => qc.setQueryData(['session', sessionId, 'transfer'], transfer),
+    onError: (err) => toast.error("Couldn't resume it", { description: apiErrorText(err) }),
+  });
+}
+
+export function useDeliverHeld(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.deliverHeld(sessionId),
+    onSuccess: ({ transfer }) => qc.setQueryData(['session', sessionId, 'transfer'], transfer),
+    onError: (err) => toast.error("Couldn't send them", { description: apiErrorText(err) }),
+  });
+}
+
+export function useFinishTransfer(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.finishTransfer(sessionId),
+    onSuccess: ({ transfer }) => qc.setQueryData(['session', sessionId, 'transfer'], transfer),
+    onError: (err) => toast.error("Couldn't finish the move", { description: apiErrorText(err) }),
+  });
+}
+
+/** Open code here (P4.1): this computer's review checkout of the execution. */
+export function useReview(sessionId: string | null) {
+  return useQuery({
+    queryKey: ['session', sessionId, 'review'],
+    queryFn: ({ signal }) => sessionsApi.review(sessionId!, { signal }),
+    enabled: !!sessionId,
+    staleTime: 15_000,
+  });
+}
+
+/** The review checkout another computer has of it, if any: Continue there says it stays apart. */
+export function useReviewOn(sessionId: string | null, computerId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['session', sessionId, 'review', computerId],
+    queryFn: ({ signal }) => sessionsApi.review(sessionId!, { signal, computerId: computerId! }),
+    enabled: enabled && !!sessionId && !!computerId,
+    staleTime: 15_000,
+  });
+}
+
+/** Make or refresh the review checkout here. */
+export function useOpenCodeHere(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => sessionsApi.openCodeHere(sessionId),
+    onSuccess: (state) => qc.setQueryData(['session', sessionId, 'review'], { viewer: state.viewer, review: state.review }),
+  });
+}
+
 export function useSendMessage(id: string) {
   const qc = useQueryClient();
   const eventsKey = ['session', id, 'events'] as const;
@@ -628,6 +792,7 @@ export function useSendMessage(id: string) {
         externalToolCallId: null,
         externalParentToolCallId: null,
         sourcePartIndex: 0,
+        partRevision: null,
         // A user's own optimistic row has no provider payload to lift
         // anything out of; the server's version arrives under the same id.
         raw: null,
@@ -950,7 +1115,7 @@ function deriveSessionMeta(events: ChatEventDTO[]): SessionMeta {
 export function useRuntimeStatus(id: string | null) {
   return useQuery({
     queryKey: ['session', id, 'runtime-status'],
-    queryFn: () => sessionsApi.runtimeStatus(id!),
+    queryFn: ({ signal }) => sessionsApi.runtimeStatus(id!, { signal }),
     enabled: !!id,
     refetchInterval: (query) => hasRuntimeActivity(query.state.data) ? 5_000 : false,
   });

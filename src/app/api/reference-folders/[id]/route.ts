@@ -47,6 +47,9 @@ export async function PATCH(
     const before = getReferenceFolder(id);
     const row = updateReferenceFolder(id, body);
     if (!row) return Response.json({ error: 'Reference folder not found' }, { status: 404 });
+    // A changed place on the home is recorded with it: check it's there (§4.1).
+    const { checkHomeFolders } = await import('@/lib/setups/folders');
+    await checkHomeFolders();
     // Recycle both scopes when the row moved between them (workspace ↔ global),
     // so neither the old nor the new audience keeps a stale list.
     await recycleForReferenceFolderChange(row.workspaceId);

@@ -140,7 +140,6 @@ beforeEach(() => {
     harness: 'claude',
     label: 'Test',
     workspaceId: 'ws-1',
-    takeoverStartedAt: null,
   });
 });
 
@@ -261,7 +260,6 @@ describe('POST /api/sessions/[id]/messages — pre-flight behavior', () => {
       executionId: EXECUTION_ID,
       harness: 'claude',
       workspaceId: 'ws-1',
-      takeoverStartedAt: null,
       surfaceKind: 'imported_agent',
       externalSessionId: null,
     });
@@ -335,7 +333,6 @@ describe('POST /api/sessions/[id]/messages — sender provenance', () => {
             harness: 'claude',
             label: null,
             workspaceId: 'ws-1',
-            takeoverStartedAt: null,
           },
     );
     insertChatEvent.mockImplementation((input: Record<string, unknown>) => ({

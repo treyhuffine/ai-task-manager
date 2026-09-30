@@ -31,6 +31,32 @@ export async function register() {
     console.error('[auth] failed to initialize local token:', err);
   }
 
+  // Home identity (docs/homes-spec.md §10.3). A root whose data came from
+  // another computer does not act as the home: no background work starts,
+  // and the API answers 503 until someone runs `ri home claim`.
+  try {
+    const { ensureHomeIdentity } = await import('@/lib/home/identity');
+    const identity = ensureHomeIdentity();
+    if (identity.created) console.log(`[home] created home ${identity.home.id} on ${identity.computer.name}`);
+  } catch (err) {
+    console.error(`[home] not acting as the home: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
+  // Every agent's folders are in the home's records (docs/homes-spec.md
+  // §4.1): move what existed before into them, once, then check the home's
+  // own. Connected computers check theirs when their workers connect.
+  try {
+    const { moveFolderRecords } = await import('@/lib/db/queries');
+    const moved = moveFolderRecords();
+    if (moved.setups || moved.links) console.log(`[setups] moved ${moved.setups} agent folder(s) and ${moved.links} linked folder(s) into the home's records`);
+    for (const line of moved.settled) console.log(`[setups] agents used different places for ${line}`);
+    const { checkHomeFolders } = await import('@/lib/setups/folders');
+    await checkHomeFolders();
+  } catch (err) {
+    console.warn('[setups] moving folder records failed', err);
+  }
+
   // Start the DB-to-markdown mirror: live export on every write + periodic
   // reconcile. Non-blocking; failures here don't stop the app.
   try {
@@ -48,6 +74,18 @@ export async function register() {
   // First-ever reconcile per session just initializes the byte-offset
   // cursor (no replay); subsequent calls replay only the delta.
   // Background; never blocks startup.
+  // Moves a restart interrupted stop where they were, holding what they
+  // held, before the sweep below re-fires unanswered messages (P4 review).
+  try {
+    const { recoverInterruptedTransfers } = await import('@/lib/transfer/continue');
+    const recovered = recoverInterruptedTransfers();
+    if (recovered.stopped || recovered.delivering) {
+      console.log(`[transfer] startup: ${recovered.stopped} interrupted move(s) stopped, ${recovered.delivering} still delivering`);
+    }
+  } catch (err) {
+    console.warn('[transfer] startup recovery failed', err);
+  }
+
   try {
     const { reconcileAllSessions } = await import('@/lib/executor/reconcile');
     reconcileAllSessions()
@@ -61,6 +99,24 @@ export async function register() {
       });
   } catch (err) {
     console.warn('[reconcile] init failed', err);
+  }
+
+  // Send notifications a crash left pending: queued in a transaction that
+  // committed, never sent (docs/homes-build.md, P2.3). At startup, then every
+  // 5 minutes.
+  try {
+    const { drainPendingNotifications } = await import('@/lib/notifications/notify');
+    const drain = () =>
+      drainPendingNotifications()
+        .then((n) => {
+          if (n > 0) console.log(`[notifier] sent ${n} notification(s) left pending`);
+        })
+        .catch((err) => console.warn('[notifier] drain failed', err));
+    void drain();
+    const interval = setInterval(drain, 5 * 60_000);
+    interval.unref?.();
+  } catch (err) {
+    console.warn('[notifier] drain init failed', err);
   }
 
   // Periodic background health check over the small set of sessions
@@ -82,7 +138,7 @@ export async function register() {
   // the previous sweep is still running (slow reconcile on cold
   // disks, etc.).
   try {
-    const { listRunningSessions } = await import('@/lib/executor/adapter');
+    const { listRunningSessions, closeIdleSessions } = await import('@/lib/executor/adapter');
     const { healthCheckSession } = await import('@/lib/executor/health');
     const HEALTH_SWEEP_INTERVAL_MS = 60_000;
     let sweeping = false;
@@ -96,6 +152,14 @@ export async function register() {
           } catch (err) {
             console.warn(`[health] background sweep failed for ${id}:`, err);
           }
+        }
+        // A harness nobody has used for a while holds a process for nothing.
+        // Closing it is safe: the next message resumes its native session.
+        try {
+          const closed = await closeIdleSessions();
+          if (closed.length > 0) console.log(`[health] closed ${closed.length} idle session(s)`);
+        } catch (err) {
+          console.warn('[health] idle close failed:', err);
         }
       } finally {
         sweeping = false;

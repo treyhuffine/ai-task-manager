@@ -13,6 +13,7 @@ import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
 import { useWorkspaceSelection } from './workspace-selection-context';
 import { executionView } from '@/lib/client/active-view';
+import { preparedFolder } from '@/lib/executions/location';
 import { BACKGROUND_DOT, BACKGROUND_LABEL, UNREAD_WITH_BACKGROUND_DOT } from './activity-style';
 
 interface SessionRowProps {
@@ -70,7 +71,8 @@ export function SessionRow({
 }: SessionRowProps) {
   const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(
-    session.worktreePath ? session.id : null,
+    // Its folder wherever it runs: an execution elsewhere has its +/- too (P3.5).
+    preparedFolder(session) ? session.id : null,
     session.executionId,
   );
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
@@ -231,6 +233,10 @@ export function SessionRow({
           </span>
           {showWorkspaceLabel && (
             <span className="text-muted-foreground/50 truncate">· {showWorkspaceLabel}</span>
+          )}
+          {/* Work away from the home says where (P3.1). The home's own stays quiet. */}
+          {session.location && !session.location.isHome && (
+            <span className="text-muted-foreground/60 truncate" title={`Runs on ${session.location.name}`}>· {session.location.name}</span>
           )}
           <DiffStatsPair stats={diffStats} className="flex-shrink-0" />
         </div>

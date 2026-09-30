@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils';
 import type { TriggerWithLastRun } from '@/db/types';
 import { isReservedTrigger } from '@/lib/triggers/reserved';
 import { findProvider } from '@/lib/harness/options';
+import { AwakeNote } from '@/components/triggers/awake-note';
 
 type View = 'list' | 'new' | 'webhook-credentials';
 
@@ -209,6 +210,7 @@ function ListBody({
           <NewTriggerButton onClick={onNew} />
         </div>
       )}
+      {hasContent && <AwakeNote lead="Schedules run" />}
 
       {isLoading && (
         <p className="text-sm text-muted-foreground text-center py-4">Loading…</p>

@@ -96,7 +96,7 @@ beforeEach(() => {
   // Notifications batch on a timer. Fake timers keep one test's burst out of the next.
   vi.useFakeTimers();
   h.sessions.clear();
-  h.sessions.set(CHAT, { id: CHAT, status: 'active', executionId: null, takeoverStartedAt: null, surfaceKind: null, externalSessionId: null });
+  h.sessions.set(CHAT, { id: CHAT, status: 'active', executionId: null, surfaceKind: null, externalSessionId: null });
   h.inserted.length = 0;
   h.dispatched.length = 0;
   h.notified.length = 0;
@@ -220,7 +220,7 @@ describe('recordApprovalDecision', () => {
   });
 
   it('writes one row per kind and one note per chat', async () => {
-    h.sessions.set('chat-2', { id: 'chat-2', status: 'active', executionId: 'exec-2', takeoverStartedAt: null, surfaceKind: null, externalSessionId: null });
+    h.sessions.set('chat-2', { id: 'chat-2', status: 'active', executionId: 'exec-2', surfaceKind: null, externalSessionId: null });
     await recordApprovalDecision(
       [
         resolved(pending('a1'), 'always'),

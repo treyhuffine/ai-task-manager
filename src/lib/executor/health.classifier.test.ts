@@ -31,6 +31,7 @@ function row(
     externalToolCallId: null,
     externalParentToolCallId: null,
     sourcePartIndex: 0,
+    partRevision: null,
     attachments: [],
     ...partial,
   };

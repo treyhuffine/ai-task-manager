@@ -1,6 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { detectInstalledApps, type DetectedApp } from '@/lib/fs/detect-apps';
-import { extractAppIconPng } from '@/lib/fs/extract-icon';
+import { listInstalledApps } from '@/lib/fs/installed-apps';
 import { withCompression } from '@/lib/api/compression';
 
 /**
@@ -17,18 +16,7 @@ import { withCompression } from '@/lib/api/compression';
  * a 5-minute TTL is more than fine.
  */
 
-export interface InstalledAppEntry {
-  target: DetectedApp['target'];
-  label: string;
-  /** `data:image/png;base64,…` when the platform supports icon
-   *  extraction (macOS) and the bundle yielded an icon, otherwise null. */
-  iconDataUrl: string | null;
-}
-
-export interface InstalledAppsResponse {
-  platform: NodeJS.Platform;
-  apps: InstalledAppEntry[];
-}
+export type { InstalledAppEntry, InstalledAppsResponse } from '@/lib/fs/installed-apps';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
@@ -36,19 +24,7 @@ export const GET = withCompression(handleGET);
 
 async function handleGET(_request: NextRequest) {
   try {
-    const detected = await detectInstalledApps();
-    const apps: InstalledAppEntry[] = await Promise.all(
-      detected.map(async (app) => {
-        let iconDataUrl: string | null = null;
-        if (app.source && process.platform === 'darwin' && app.source.endsWith('.app')) {
-          const png = await extractAppIconPng(app.source);
-          if (png) iconDataUrl = `data:image/png;base64,${png.toString('base64')}`;
-        }
-        return { target: app.target, label: app.label, iconDataUrl };
-      }),
-    );
-
-    const body: InstalledAppsResponse = { platform: process.platform, apps };
+    const body = await listInstalledApps();
     return Response.json(body, {
       headers: {
         'Cache-Control': 'private, max-age=300',

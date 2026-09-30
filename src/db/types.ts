@@ -4,13 +4,14 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, computers, computerGrants, workerEnrollments, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, agentSetups, folderLinks,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
   Attachment,
 } from '@/lib/db/schema';
+export type { SetupReferenceReport, WorkerHarnessReport, WorkerCommandActor } from '@/lib/db/schema';
 export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot, StoredNotificationEvent, StoredRenderedNotification, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel, TriageDisposition, LifecycleCommandResult } from '@/lib/db/schema';
 
 /**
@@ -162,6 +163,28 @@ export type UpdateDeckInput = Partial<Omit<CreateDeckInput, 'createdAt'>>;
 
 // ─── API Keys ─────────────────────────────────────────────────
 
+export type HomeRecord = InferSelectModel<typeof home>;
+export type HomeKind = HomeRecord['kind'];
+export type ComputerRecord = InferSelectModel<typeof computers>;
+export type CreateComputerInput = PolicyOptional<Omit<InferInsertModel<typeof computers>, 'id'>, 'status'> & { id?: string };
+export type UpdateComputerInput = Partial<Pick<ComputerRecord, 'name' | 'platform' | 'hostname' | 'lastSeenAt'>>;
+export type ComputerGrantRecord = InferSelectModel<typeof computerGrants>;
+export type ComputerGrantKind = ComputerGrantRecord['kind'];
+export type WorkerEnrollmentRecord = InferSelectModel<typeof workerEnrollments>;
+export type WorkerReportedState = NonNullable<ComputerRecord['reportedState']>;
+export type WorkerCommandRecord = InferSelectModel<typeof workerCommands>;
+export type WorkerCommandKind = WorkerCommandRecord['kind'];
+export type WorkerCommandState = WorkerCommandRecord['state'];
+export type ExecutionPlacementRecord = InferSelectModel<typeof executionPlacements>;
+export type ExecutionTransferRecord = InferSelectModel<typeof executionTransfers>;
+export type TransferStage = ExecutionTransferRecord['stage'];
+export type TransferState = ExecutionTransferRecord['state'];
+export type NativeSessionRecord = InferSelectModel<typeof nativeSessions>;
+export type ReviewCheckoutRecord = InferSelectModel<typeof reviewCheckouts>;
+export type AgentSetupRecord = InferSelectModel<typeof agentSetups>;
+export type AgentSetupStatus = AgentSetupRecord['status'];
+export type FolderLinkRecord = InferSelectModel<typeof folderLinks>;
+
 export type ApiKeyRecord = InferSelectModel<typeof apiKeys>;
 export type CreateApiKeyInput = PolicyOptional<Omit<InferInsertModel<typeof apiKeys>, 'id' | 'prefix' | 'suffix' | 'hash'>, 'deviceType' | 'env'>;
 // Only user-editable metadata is exposed — secret material and audit timestamps
@@ -284,8 +307,8 @@ export type UpdateExternalSessionImportInput = Partial<Omit<CreateExternalSessio
 
 /**
  * A chat_session joined to its execution, with the execution's durable
- * git/worktree/PR/takeover state flattened onto the top level. This is the
- * read shape every consumer of worktree/branch/PR/takeover state uses
+ * git/worktree/PR state flattened onto the top level. This is the read
+ * shape every consumer of worktree/branch/PR state uses
  * (`getChatSessionWithExecution`).
  */
 export type ChatSessionWithExecution = ChatSessionRecord & {
@@ -299,12 +322,25 @@ export type ChatSessionWithExecution = ChatSessionRecord & {
   setupWarning: string | null;
   setupScriptStatus: 'running' | 'done' | 'failed' | null;
   setupScriptError: string | null;
-  takeoverStartedAt: string | null;
-  takeoverBaseSha: string | null;
-  takeoverBranch: string | null;
-  takeoverToken: string | null;
-  takeoverTokenExpiresAt: string | null;
+  /** Where the execution runs. Null for a chat with no execution. */
+  location: ExecutionLocation | null;
 };
+
+/**
+ * Where an execution runs (docs/homes-spec.md §3.3, P3.1): its placement's
+ * computer, or the home's own. Shown on the execution by its stable name.
+ */
+export interface ExecutionLocation {
+  computerId: string;
+  /** The computer's name, as the person named it: MacBook, Mac Mini. Never a hostname or address. */
+  name: string;
+  isHome: boolean;
+  /**
+   * Elsewhere, the folder its computer prepared for it, or null until it has.
+   * The execution's own `worktreePath` is only ever a folder on the home.
+   */
+  folder: string | null;
+}
 
 // ─── Chat Events ──────────────────────────────────────────────
 

@@ -98,14 +98,14 @@ export function ExecutionActionBar({ session, workspace, variant = 'row', fit = 
 
   // No ship actions for non-git, no-worktree, or archived sessions.
   // `setupFailed` is rendered so the user can retry the fetch.
-  // `takenOver` is rendered as a separate banner above the transcript
-  // (see TakeoverBanner) — the regular ship actions don't apply while
-  // the user's laptop owns the work. A linked PR still gets its link.
+  // `moving` is shown as the move's progress above the composer (see
+  // TransferProgress). The ship actions wait until it arrives. A linked PR
+  // still gets its link.
   if (
     state.kind === 'noWorktree' ||
     state.kind === 'archived' ||
     state.kind === 'cleanNoBranch' ||
-    state.kind === 'takenOver'
+    state.kind === 'moving'
   ) {
     return openablePr ? (
       <PrChip sessionId={session.id} prNumber={openablePr.number} prUrl={openablePr.url} closed={openablePr.closed} />
@@ -623,10 +623,9 @@ const THEME_BY_STATE: Record<ActionState['kind'], ChipTheme | null> = {
   noWorktree: null,
   cleanNoBranch: null,
   archived: null,
-  // The action bar short-circuits before reaching this map when the
-  // session is in takeover (banner replaces the bar entirely), but
-  // TypeScript's exhaustiveness check still needs the entry.
-  takenOver: null,
+  // The bar short-circuits before reaching this map while it moves (the
+  // move's progress replaces it), but exhaustiveness still needs the entry.
+  moving: null,
   setupFailed: {
     chip: 'border-rose-500/40 bg-rose-500/10',
     text: 'text-rose-700 dark:text-rose-300',

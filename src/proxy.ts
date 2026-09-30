@@ -1,7 +1,19 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { hashToken } from '@/lib/auth/tokens';
-import { findApiKeyByHash, touchApiKey } from '@/lib/db/queries';
+import { findApiKeyByHash, getWorkerEnrollment, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
+import { isHomeActive } from '@/lib/home/identity';
+import {
+  API_KEY_ID_HEADER,
+  API_KEY_SCOPE_HEADER,
+  API_KEY_TYPE_HEADER,
+  CALLER_LOCATION_HEADER,
+  FORWARDED_KEY_HEADERS,
+  SESSION_CHAT_HEADER,
+  WORKER_COMPUTER_HEADER,
+} from '@/lib/auth/request-key';
+import { isSessionToken, sessionMayReach, verifySessionToken } from '@/lib/auth/session-token';
+import { isHostKeyHash } from '@/lib/auth/host-key';
 import { permitsCookieMutation } from '@/lib/auth/request-origin';
 
 export const config = {
@@ -10,6 +22,17 @@ export const config = {
 
 function unauthorized() {
   return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+}
+
+/** Where a worker key may go, and only a worker key (docs/homes-build.md, P2.2). */
+const WORKER_ROUTES = '/api/workers/me';
+
+function isWorkerRoute(pathname: string): boolean {
+  return pathname === WORKER_ROUTES || pathname.startsWith(`${WORKER_ROUTES}/`);
+}
+
+function forbidden(error: string, message: string) {
+  return NextResponse.json({ error, message }, { status: 403 });
 }
 
 // Paths that bypass auth. `/api/health` is our cross-origin reachability
@@ -50,6 +73,13 @@ function extractToken(request: NextRequest): string | null {
   return null;
 }
 
+/** Continue with the caller's key headers removed, so no handler trusts a forged one. */
+function nextWithoutKeyHeaders(request: NextRequest) {
+  const headers = new Headers(request.headers);
+  for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
+  return NextResponse.next({ request: { headers } });
+}
+
 export function proxy(request: NextRequest) {
   if (process.env.NODE_ENV === 'production' &&
       /^\/api\/(dev|playground|benchmark)(\/|$)/.test(request.nextUrl.pathname)) {
@@ -59,11 +89,25 @@ export function proxy(request: NextRequest) {
     if (request.nextUrl.pathname === '/api/session' && !permitsCookieMutation(request)) {
       return NextResponse.json({ error: 'request origin is not allowed' }, { status: 403 });
     }
-    return NextResponse.next();
+    return nextWithoutKeyHeaders(request);
+  }
+
+  // A root whose data came from another computer serves nothing until it is
+  // claimed, so two copies never act as one home (docs/homes-spec.md §10.3).
+  // Checked before the routes that carry their own credentials (webhooks,
+  // OAuth callbacks), since those can start work too.
+  if (!isHomeActive()) {
+    return NextResponse.json(
+      {
+        error: 'home_not_active',
+        message: 'This copy of your home is not active on this computer. Run `ri home claim` here if it should be.',
+      },
+      { status: 503 },
+    );
   }
 
   if (request.nextUrl.pathname.startsWith('/api/webhooks/')) {
-    return NextResponse.next();
+    return nextWithoutKeyHeaders(request);
   }
 
   // `/api/connectors/callback` is the OAuth redirect target. The provider
@@ -73,25 +117,22 @@ export function proxy(request: NextRequest) {
   // AuthRequest — a strictly weaker, single-purpose credential. Exempted so the
   // round-trip completes.
   if (request.nextUrl.pathname === '/api/connectors/callback') {
-    return NextResponse.next();
+    return nextWithoutKeyHeaders(request);
   }
 
   // `/api/connectors/mcp-oauth/<sid>` is the OAuth redirect target for an ingested MCP server.
   // Same rationale as the connectors callback: the provider redirects the user's browser here
   // without the app Bearer; the SDK's single-use authorization code + PKCE verifier are the auth.
   if (request.nextUrl.pathname.startsWith('/api/connectors/mcp-oauth/')) {
-    return NextResponse.next();
+    return nextWithoutKeyHeaders(request);
   }
 
-  // `/api/takeover/<token>/...` is the CLI surface for "Take over locally."
-  // The `token` in the path IS the auth — handlers validate it against
-  // `chat_sessions.takeoverToken` and its `_expires_at`. Tokens are
-  // single-purpose, scoped to one session, and rotate on every new
-  // takeover so they're a strictly weaker credential than the bearer
-  // key. Exempted here so the CLI can reach the endpoints without
-  // needing the user's long-lived account token.
-  if (request.nextUrl.pathname.startsWith('/api/takeover/')) {
-    return NextResponse.next();
+
+  // Redeeming an enroll grant is how a computer gets its first worker key, so
+  // the grant in the body is the credential: short-lived, single-use, and
+  // issued by an owner (docs/homes-build.md, P2.2).
+  if (request.nextUrl.pathname === '/api/workers/enroll') {
+    return nextWithoutKeyHeaders(request);
   }
 
   if (request.cookies.get(SESSION_COOKIE_NAME)?.value && !permitsCookieMutation(request)) {
@@ -101,7 +142,29 @@ export function proxy(request: NextRequest) {
   const token = extractToken(request);
   if (!token) return unauthorized();
 
-  const key = findApiKeyByHash(hashToken(token));
+  // A session on a connected computer speaks with a token of its own, which
+  // reaches only that session's servers, in its own scope, as that session
+  // (docs/homes-build.md, P2.7). It's never looked up as a key.
+  if (isSessionToken(token)) {
+    const session = verifySessionToken(token);
+    if (!session) return unauthorized();
+    if (!sessionMayReach(session.chat, request.nextUrl.pathname, request.nextUrl.searchParams)) {
+      return forbidden('session_token', "A session's token reaches only that session's own servers.");
+    }
+    const headers = new Headers(request.headers);
+    for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
+    headers.set(API_KEY_ID_HEADER, session.workerApiKeyId);
+    headers.set(API_KEY_TYPE_HEADER, 'computer');
+    headers.set(CALLER_LOCATION_HEADER, 'elsewhere');
+    headers.set(API_KEY_SCOPE_HEADER, 'session');
+    headers.set(WORKER_COMPUTER_HEADER, session.computerId);
+    headers.set(SESSION_CHAT_HEADER, session.chat.id);
+    return NextResponse.next({ request: { headers } });
+  }
+
+
+  const tokenHash = hashToken(token);
+  const key = findApiKeyByHash(tokenHash);
   if (!key || key.revokedAt) return unauthorized();
 
   if (key.expiresAt && new Date(key.expiresAt) < new Date()) {
@@ -117,5 +180,28 @@ export function proxy(request: NextRequest) {
     console.error('[auth] touchApiKey failed:', err);
   }
 
-  return NextResponse.next();
+  // A worker key reaches only the worker routes, and only a worker key
+  // reaches them: a worker can't read the owner's data, and a viewing key
+  // can't pose as a worker.
+  const workerRoute = isWorkerRoute(request.nextUrl.pathname);
+  const workerKey = isWorkerApiKey(key.id);
+  if (workerKey && !workerRoute) {
+    return forbidden('worker_key', 'A worker key can only reach the worker routes.');
+  }
+  if (!workerKey && workerRoute) {
+    return forbidden('not_a_worker', 'Only an enrolled worker can reach this route.');
+  }
+  const worker = workerKey ? getWorkerEnrollment(key.id) : null;
+  if (workerKey && !worker) return unauthorized();
+
+  // Tell handlers which key this is. Set after removing any the caller sent,
+  // so they can be trusted (src/lib/auth/request-key.ts).
+  const headers = new Headers(request.headers);
+  for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
+  headers.set(API_KEY_ID_HEADER, key.id);
+  headers.set(API_KEY_TYPE_HEADER, key.deviceType);
+  headers.set(CALLER_LOCATION_HEADER, isHostKeyHash(tokenHash) ? 'home' : 'elsewhere');
+  headers.set(API_KEY_SCOPE_HEADER, workerKey ? 'worker' : 'viewer');
+  if (worker) headers.set(WORKER_COMPUTER_HEADER, worker.computer.id);
+  return NextResponse.next({ request: { headers } });
 }

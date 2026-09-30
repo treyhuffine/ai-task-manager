@@ -20,7 +20,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { getWorkspace, listReferenceFoldersForWorkspace } from '@/lib/db/queries';
+import { getAgentSetup, getFolderLink, getHome, getWorkspace, listReferenceFoldersForWorkspace } from '@/lib/db/queries';
 import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
 import type {
   ReferenceFolderRecord,
@@ -109,17 +109,30 @@ async function probeGitStateUncached(
 }
 
 /**
- * Absolute path for a reference row, or null when the target workspace has
- * vanished. Pure: no filesystem or git access, so callers that only need the
- * path (the `@` picker, the settings list) don't pay for a probe.
+ * Where a linked folder is on a computer, the home's by default, as the
+ * home records it (docs/homes-spec.md §4.1): its place there, or, for
+ * another agent, that agent's project folder there. Null when it has none
+ * there, or goes without it. No filesystem or git access, so callers that
+ * only need the path (the `@` picker, the settings list) don't pay for a
+ * probe.
  */
-export function referenceFolderPath(ref: ReferenceFolderRecord): string | null {
-  if (ref.path) return path.resolve(ref.path);
-  if (!ref.targetWorkspaceId) return null;
-  // Archived target workspaces still resolve. Archiving a workspace is a
-  // statement about the rail, not about whether its folder is readable.
-  const ws = getWorkspace(ref.targetWorkspaceId);
-  return ws?.cwd ? path.resolve(ws.cwd) : null;
+export function referenceFolderPath(ref: ReferenceFolderRecord, computerId?: string | null): string | null {
+  const host = getHome()?.hostComputerId ?? null;
+  const on = computerId ?? host;
+  const atHome = !on || on === host;
+  if (ref.targetWorkspaceId) {
+    const setup = on ? getAgentSetup(ref.targetWorkspaceId, on) : null;
+    if (setup) return path.resolve(setup.sourcePath);
+    if (!atHome) return null;
+    // Archived target workspaces still resolve. Archiving a workspace is a
+    // statement about the rail, not about whether its folder is readable.
+    const ws = getWorkspace(ref.targetWorkspaceId);
+    return ws?.cwd ? path.resolve(ws.cwd) : null;
+  }
+  const link = on ? getFolderLink(on, ref.id) : null;
+  if (link) return link.path ? path.resolve(link.path) : null;
+  // The home's path from before its records held it, until the boot step moves it.
+  return atHome && ref.path ? path.resolve(ref.path) : null;
 }
 
 function isDirectory(absolutePath: string): boolean {

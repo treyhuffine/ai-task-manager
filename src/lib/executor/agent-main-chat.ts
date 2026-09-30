@@ -30,7 +30,7 @@ import {
   buildReferenceFolderSessionConfig,
   referenceFolderProviderWiring,
 } from '@/lib/reference-folders/session-config';
-import { planSessionInstructions, writeSessionInstructions } from './session-instructions';
+import { planSessionInstructions } from './session-instructions';
 
 /** Providers that enforce argv tool filtering (`disallowedTools`). */
 const TOOL_FILTER_PROVIDERS = new Set(['claude']);
@@ -46,12 +46,24 @@ export interface AgentMainChatSpawnArgs {
   appBrowserEnabled: boolean;
   /** No provider session to resume yet, so this spawn starts the conversation. */
   freshSession: boolean;
+  /**
+   * It runs on a connected computer, where none of the home's files are
+   * (P2.7): its folder there. Its reference folders are wired by the runner
+   * there, from where they resolve when the session starts (`agentFolders`
+   * on the spec), so none are wired here.
+   */
+  elsewhere?: { folder: string };
   port?: number;
 }
 
 export interface AgentMainChatSpawn {
   config: Partial<ProviderConfig>;
   extraArgs: string[];
+  /**
+   * The brief and reference-folder block as session instructions, for the
+   * runner to write where the harness reads them. Null when there are none.
+   */
+  instructions: string | null;
   /**
    * The brief (and reference-folder block) when this harness drops session
    * instructions. Sent ahead of the first message of a fresh session so the
@@ -93,7 +105,7 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
   }
 
   let referenceBlock = '';
-  try {
+  if (!args.elsewhere) try {
     const refs = await listUsableReferenceFolders(ws.id, { consumerCwd: ws.cwd });
     const refConfig = buildReferenceFolderSessionConfig(refs);
     const wiring = referenceFolderProviderWiring(refConfig, providerType);
@@ -109,14 +121,20 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
   }
 
   const blocks = [
-    { name: 'agent brief', text: renderAgentMainChatBrief(ws, { connectors: !!connectors, browser: !!browser }) },
+    {
+      name: 'agent brief',
+      text: renderAgentMainChatBrief(ws, {
+        connectors: !!connectors,
+        browser: !!browser,
+        ...(args.elsewhere ? { elsewhere: { folder: args.elsewhere.folder } } : {}),
+      }),
+    },
     { name: 'reference folders', text: referenceBlock },
   ];
   const plan = planSessionInstructions(providerType, blocks);
   const config: Partial<ProviderConfig> = { strictMcpConfig: true };
   if (servers.length > 0) config.mcpServers = servers;
   if (disallowedTools.length > 0) config.disallowedTools = disallowedTools;
-  if (plan.text) config.instructionsFile = writeSessionInstructions(args.chatSessionId, plan.text);
 
   let firstTurnPreamble: string | null = null;
   if (plan.undelivered.length > 0) {
@@ -129,7 +147,7 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
     }
   }
 
-  return { config, extraArgs, firstTurnPreamble, warnings };
+  return { config, extraArgs, instructions: plan.text || null, firstTurnPreamble, warnings };
 }
 
 /**
@@ -145,13 +163,4 @@ export function skillDirsWriteIntoCwd(providerType: string): boolean {
   return WRITES_SKILLS_INTO_CWD.has(providerType);
 }
 
-/** The text a harness receives on a fresh chat whose brief could not go in the instructions file. */
-export function withFirstTurnPreamble(message: string, preamble: string | null): string {
-  if (!preamble) return message;
-  return [
-    "[Session instructions for this chat, from the app. The user did not type this, and won't see it.]",
-    preamble,
-    "[The user's first message follows.]",
-    message,
-  ].join('\n\n');
-}
+export { withFirstTurnPreamble } from '@/lib/runner/first-turn';

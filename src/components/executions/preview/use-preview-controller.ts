@@ -32,6 +32,8 @@ export interface PreviewController {
   command: string | null;
   hasSetupCommand: boolean;
   runStatus: RunStatus;
+  /** The execution runs on another computer (P3.5): its app runs there, and Start does nothing here. */
+  elsewhere: PreviewState['elsewhere'];
   /** The setup script errored. Starting is still allowed. */
   setupFailed: boolean;
   setupError: string | null;
@@ -171,14 +173,17 @@ export function usePreviewController(
     );
   }, [executionId, mode, startMut]);
 
+  const elsewhere = state?.elsewhere ?? null;
   const start = useCallback(() => {
+    // Its app runs on its own computer, never here.
+    if (elsewhere) return;
     beginFastPolling();
     // A new spawn restarts the server's log sequence at 0, so the client
     // cursor has to start over too or the new run's first lines are skipped.
     clearLogs();
     setReloadKey((k) => k + 1);
     startRemoteAware();
-  }, [beginFastPolling, clearLogs, startRemoteAware]);
+  }, [beginFastPolling, clearLogs, elsewhere, startRemoteAware]);
 
   const stop = useCallback(() => {
     setActionError(null);
@@ -236,12 +241,14 @@ export function usePreviewController(
     command,
     hasSetupCommand,
     runStatus,
+    elsewhere,
     setupFailed: state?.setupStatus === 'failed',
     setupError: state?.setupError ?? null,
     isStarting: state?.serverStatus === 'starting' || startMut.isPending,
     isStopping: stopMut.isPending,
     actionError,
-    url: resolved.url,
+    // Elsewhere, only the address pasted for it: nothing runs here to show.
+    url: elsewhere ? pastedUrl(state) : resolved.url,
     urlMode: resolved.mode,
     remoteError,
     isResolvingRemote: startMut.isPending && mode === 'remote',
@@ -261,4 +268,9 @@ export function usePreviewController(
     saveUrls,
     resolveRemote,
   };
+}
+
+/** The URL pasted on the execution for its app, if any. */
+function pastedUrl(state: PreviewState | null): string | null {
+  return state?.manualUrls.find((u) => (u.service ?? null) === null && !!u.url?.trim())?.url.trim() ?? null;
 }

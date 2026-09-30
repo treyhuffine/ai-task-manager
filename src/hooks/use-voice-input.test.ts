@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useVoiceInput, type UseVoiceInputReturn } from './use-voice-input';
 import { hasActiveInput } from '@/lib/client/active-input';
 
@@ -32,6 +33,8 @@ class Recorder {
 }
 
 let root: Root | undefined;
+/** The app's query cache, fresh for each test so a cached provider probe never carries over. */
+let queries: QueryClient;
 let voice: UseVoiceInputReturn;
 let microphone: ReturnType<typeof vi.fn>;
 let track: { stop: ReturnType<typeof vi.fn> };
@@ -46,7 +49,7 @@ function Harness({ model = local }: { model?: string }) {
 
 async function mount(model = local) {
   root ??= createRoot(document.createElement('div'));
-  await act(async () => { root!.render(createElement(Harness, { model })); });
+  await act(async () => { root!.render(createElement(QueryClientProvider, { client: queries }, createElement(Harness, { model }))); });
 }
 async function start() { await act(async () => { voice.startRecording(); }); }
 async function finish() {
@@ -54,6 +57,7 @@ async function finish() {
 }
 
 beforeEach(() => {
+  queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   vi.useFakeTimers();
   const { window, document } = parseHTML('<!doctype html><html><body></body></html>');
   vi.stubGlobal('window', window);

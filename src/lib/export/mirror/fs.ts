@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import {
   archiveDir,
   ENTITY_TYPES,
@@ -89,7 +90,9 @@ export async function writeEntityFile(
   content: string,
 ): Promise<string> {
   const dir = typeDir(type);
-  const tmp = path.join(tmpDir(type), `${id}.tmp`);
+  // Its own temp name per write, so two writers (two processes, say) never
+  // rename each other's file out from under them.
+  const tmp = path.join(tmpDir(type), `${id}.${process.pid}.${randomUUID()}.tmp`);
   const finalPath = path.join(dir, finalFilename);
 
   await fsp.mkdir(dir, { recursive: true });
@@ -113,7 +116,10 @@ export async function writeEntityFile(
   }
 
   // 4) Rename tmp → final (overwrites if target exists)
-  await fsp.rename(tmp, finalPath);
+  await fsp.rename(tmp, finalPath).catch(async (err: unknown) => {
+    await fsp.rm(tmp, { force: true }).catch(() => void 0);
+    throw err;
+  });
 
   return finalPath;
 }

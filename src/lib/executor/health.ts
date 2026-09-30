@@ -27,10 +27,13 @@
  */
 
 import {
+  chatPlacement,
   getChatSession,
   listRecentChatEvents,
 } from '@/lib/db/queries';
 import { expandMarkers } from '@/lib/attachments/expand-markers';
+import { getExternalSessionImportForChat } from '@/lib/db/queries';
+import { actorOfMessage } from '@/lib/auth/actor';
 import type { ChatEventRecord, ChatEventSource, Attachment } from '@/db/types';
 import {
   isHarnessSessionAlive,
@@ -133,25 +136,38 @@ export async function healthCheckSession(
     return { classification: 'healthy', fixes, redispatched, replayed, error };
   }
 
+  // A chat on a connected computer (P2.4): its harness, its native history
+  // and its live state are that computer's. The home neither reconciles a
+  // transcript it doesn't have nor clears state it only mirrors. What's left
+  // is making sure a message that never reached the queue gets there, which
+  // the message's own id makes safe to repeat.
+  const placement = chatPlacement(sessionId);
+  const remote = !!placement && !placement.isHome;
+
   // 1. DB ↔ transcript. reconcileSession is itself idempotent and
-  //    deduped — calling it from multiple triggers is safe.
-  try {
-    const recon = await reconcileSession(sessionId);
-    replayed = recon.replayed;
-    error = recon.error;
-    if (recon.drift && recon.replayed > 0) {
-      fixes.push(`reconciled ${recon.replayed} transcript events`);
+  //    deduped — calling it from multiple triggers is safe. A session
+  //    imported from a connected computer is synced from there, through the
+  //    importer (P2.9).
+  if (!remote || getExternalSessionImportForChat(sessionId)?.computerId) {
+    try {
+      const recon = await reconcileSession(sessionId);
+      replayed = recon.replayed;
+      error = recon.error;
+      if (recon.drift && recon.replayed > 0) {
+        fixes.push(`reconciled ${recon.replayed} transcript events`);
+      }
+    } catch (err) {
+      console.error(`[health] reconcile failed for ${sessionId}:`, err);
+      error = err instanceof Error ? err.message : String(err);
     }
-  } catch (err) {
-    console.error(`[health] reconcile failed for ${sessionId}:`, err);
-    error = err instanceof Error ? err.message : String(err);
   }
 
-  // 2. In-memory ↔ reality.
-  const alive = isHarnessSessionAlive(sessionId);
+  // 2. In-memory ↔ reality. For a chat elsewhere, "alive" is what its
+  //    computer last reported: working, or not.
+  const alive = remote ? isRunning(sessionId) : isHarnessSessionAlive(sessionId);
   const wasRunning = isRunning(sessionId);
 
-  if (!alive) {
+  if (!alive && !remote) {
     // invalidateHarnessSession is a no-op when no cached handle exists,
     // so this covers both "handle present but dead" and "no handle but
     // still flagged running" cases.
@@ -188,7 +204,7 @@ export async function healthCheckSession(
     // A chat still mirroring an import is disqualified outright, whatever the
     // row looks like. It has no provider session to resume, so a dispatch
     // would spawn a fresh agent with none of the context the transcript
-    // shows — the exact silent fork the takeover gate exists to prevent, and
+    // shows — the exact silent fork the import gate exists to prevent, and
     // an automated trigger must not walk through that gate on the user's
     // behalf.
     const isMirroredImport = isImportMirror(session);
@@ -207,15 +223,19 @@ export async function healthCheckSession(
       }
       redispatchThrottle.lastAttempt.set(sessionId, now);
       try {
-        const expanded = await expandMarkers(
-          activity.orphan.content ?? '',
-          (activity.orphan.attachments ?? []) as Attachment[],
-        );
+        const attachments = (activity.orphan.attachments ?? []) as Attachment[];
+        const expanded = await expandMarkers(activity.orphan.content ?? '', attachments);
         // Fire-and-forget: awaiting the full turn would block the
         // sweep for minutes. Errors are logged and the throttle
         // prevents thrash if dispatch keeps failing.
         // Same label the messages route adds when another chat sent it.
-        void dispatch(sessionId, withSenderLabel(expanded, activity.orphan.senderSessionId)).catch((err) => {
+        // The orphan's own id: if the original send did reach a connected
+        // computer's queue, this finds that command instead of sending twice.
+        void dispatch(sessionId, withSenderLabel(expanded, activity.orphan.senderSessionId), {
+          sourceEventId: activity.orphan.id,
+          attachments,
+          actor: actorOfMessage(activity.orphan.senderSessionId),
+        }).catch((err) => {
           console.error(`[health] orphan redispatch failed for ${sessionId}:`, err);
         });
         redispatched = true;

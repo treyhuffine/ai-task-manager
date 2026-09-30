@@ -16,3 +16,7 @@ export const AGENT_SKILL_NAME = `agent-work-tasks-notes_${APP_SHORT_ID}`;
 export const AGENT_BROWSER_SKILL_NAME = `agent-browser_${APP_SHORT_ID}`;
 
 export const PAIRING_TOKEN_FRAGMENT_KEY = 'token';
+/** A worker opens `<home>/#associate=<code>` to tell its computer's browser which computer it's on. */
+export const ASSOCIATE_FRAGMENT_KEY = 'associate';
+/** Where the browser remembers the computer it's on, once associated. */
+export const THIS_COMPUTER_STORAGE_KEY = `${APP_SHORT_ID}.thisComputer`;

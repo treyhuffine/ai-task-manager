@@ -1,7 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { mapFileError } from '@/lib/workspaces/file-http';
-import { createWorkspaceDir, deleteWorkspacePath } from '@/lib/workspaces/write-file';
-import { openWritableWorkspaceFolder } from '../_folder';
+import { agentFolderWrite } from '../_folder';
 
 /**
  * Directory create and delete for the agent folder's tree. Mirrors
@@ -20,9 +19,7 @@ export async function POST(
     if (!body || typeof body.path !== 'string') {
       return Response.json({ error: 'Body must be { path: string }' }, { status: 400 });
     }
-    const resolved = openWritableWorkspaceFolder(id);
-    if (!resolved.ok) return resolved.response;
-    return Response.json({ ok: true, ...(await createWorkspaceDir(resolved.folder, body.path)) });
+    return await agentFolderWrite(id, { kind: 'create_dir', path: body.path });
   } catch (err) {
     return mapFileError(err, '[POST /api/workspaces/:id/dir]');
   }
@@ -36,9 +33,7 @@ export async function DELETE(
     const { id } = await params;
     const relPath = request.nextUrl.searchParams.get('path');
     if (!relPath) return Response.json({ error: 'Missing path parameter' }, { status: 400 });
-    const resolved = openWritableWorkspaceFolder(id);
-    if (!resolved.ok) return resolved.response;
-    return Response.json({ ok: true, ...(await deleteWorkspacePath(resolved.folder, relPath)) });
+    return await agentFolderWrite(id, { kind: 'delete', path: relPath });
   } catch (err) {
     return mapFileError(err, '[DELETE /api/workspaces/:id/dir]');
   }

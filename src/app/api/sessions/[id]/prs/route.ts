@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { getChatSession, getWorkspace } from '@/lib/db/queries';
 import { withCompression } from '@/lib/api/compression';
+import { notOnGithub } from '@/lib/github/execution-github';
 
 /**
  * Lightweight PR list for the chat composer's `#` mention menu. We
@@ -51,8 +52,7 @@ async function handleGET(
     if (ws.isGit !== true) return Response.json({ prs: [] } satisfies PrListResponse);
 
     // ESM-only — same dynamic import pattern the single-PR route uses.
-    const { github, NotInstalledError, NotAuthenticatedError, RepoNotFoundError, GhCommandError } =
-      await import('@agentex/github');
+    const { github, NotInstalledError, NotAuthenticatedError, RepoNotFoundError } = await import('@agentex/github');
     const repo = github.repo(ws.cwd);
 
     try {
@@ -91,7 +91,7 @@ async function handleGET(
       }
       // A local-only repo, or one whose remote isn't on GitHub, simply has
       // no PRs to mention.
-      if (err instanceof RepoNotFoundError || (err instanceof GhCommandError && /no git remotes/i.test(err.message))) {
+      if (err instanceof RepoNotFoundError || notOnGithub(err)) {
         return Response.json({ prs: [] } satisfies PrListResponse);
       }
       throw err;

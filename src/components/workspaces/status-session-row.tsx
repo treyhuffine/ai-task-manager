@@ -101,6 +101,10 @@ export function StatusSessionRow({
             <Pin size={9} className="fill-current text-muted-foreground/50 flex-shrink-0 -rotate-45" aria-label="Pinned" />
           )}
           <span className="truncate">{wsName}</span>
+          {/* Work away from the home says where (P3.1). The home's own stays quiet. */}
+          {session.location && !session.location.isHome && (
+            <span className="truncate text-muted-foreground/60" title={`Runs on ${session.location.name}`}>· {session.location.name}</span>
+          )}
         </div>
       </div>
 

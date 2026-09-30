@@ -1,6 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { sessionTerminalOwner } from '@/lib/terminal/owner';
-import { terminalResizeResponse } from '@/lib/terminal/http';
+import { sessionTerminalPlace, terminalResizeAt } from '@/lib/terminal/place';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,7 +10,7 @@ export async function POST(
 ) {
   try {
     const { id, terminalId } = await params;
-    return await terminalResizeResponse(request, sessionTerminalOwner(id), terminalId);
+    return await terminalResizeAt(request, sessionTerminalPlace(id), terminalId);
   } catch (err) {
     console.error('[POST /api/sessions/:id/terminals/:terminalId/resize]', err);
     return Response.json({ error: String(err) }, { status: 500 });

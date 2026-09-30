@@ -13,6 +13,7 @@ import { PreviewLogs } from './preview-logs';
 import { PreviewEmpty } from './preview-empty';
 import { PreviewManualUrl as PreviewManualUrlInput } from './preview-manual-url';
 import { SetupRecovery } from './setup-recovery';
+import { RunsElsewhere } from './run-view';
 import type { PreviewController } from './use-preview-controller';
 
 interface PreviewViewProps {
@@ -178,6 +179,23 @@ function PreviewBody({ controller: c, processControls, onOpenRun, onOpenWorkspac
       }
     />
   );
+
+  // Work on another computer: its app runs there (P3.5). A tunnel of the
+  // person's own, pasted here, is the one way to open it on this screen.
+  if (c.elsewhere) {
+    return (
+      <RunsElsewhere where={c.elsewhere} command={c.command}>
+        <div className="w-full border-t border-border pt-4">
+          <PreviewManualUrlInput
+            urls={state?.manualUrls ?? []}
+            onSave={(urls: PreviewManualUrl[]) => c.saveUrls(urls)}
+            isSaving={c.isSavingUrls}
+            description={`Reach it through your own tunnel from ${c.elsewhere.computerName}? Paste its address to open it here.`}
+          />
+        </div>
+      </RunsElsewhere>
+    );
+  }
 
   // The setup script is still installing deps, so the dev server is held back
   // (starting now would crash on missing node_modules).

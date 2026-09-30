@@ -1,8 +1,8 @@
 /**
  * A pairing link's token (`#token=...`) authenticates this browser from its
- * first request, whichever component makes it. The layout mounts components
- * whose requests could run before PairingBootstrap stored the token, and the
- * 401 signed the browser out.
+ * first request, whichever component makes it. Found after merging the
+ * desktop branch: its layout mounts components whose requests ran before
+ * PairingBootstrap stored the token, and the 401 signed the browser out.
  */
 
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';

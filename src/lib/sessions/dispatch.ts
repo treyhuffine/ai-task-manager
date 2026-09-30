@@ -41,6 +41,16 @@ import {
   archiveExecution,
   unarchiveExecution,
   ensureHarnessSettings,
+  getHome,
+  getComputer,
+  listEnrolledComputerIds,
+  getAgentSetup,
+  createPlacement,
+  queueWorkerCommand,
+  clearExecutionSetupError,
+  getOpenPlacement,
+  listWorkerCommands,
+  clearPlacementWorktree,
 } from '@/lib/db/queries';
 import type { CreateWorktreeForSessionResult } from '@/lib/workspaces';
 import {
@@ -55,9 +65,14 @@ import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
 import { killAllForOwner } from '@/lib/terminal/pty-manager';
 import { terminalOwnerId } from '@/lib/terminal/owner';
 import { invalidateHarnessSession, close as closeHarnessSession } from '@/lib/executor/adapter';
-import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord } from '@/db/types';
+import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord, WorkerCommandActor } from '@/db/types';
+import type { PreparePayload } from '@/lib/worker/handlers';
+import { isComputerConnected, wakeComputer } from '@/lib/workers/hub';
+import { runOnFor, setupProblem, setupUsable } from '@/lib/setups/run-on';
+import { checkComputerFolders } from '@/lib/setups/folders';
 import { requireHarnessId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
+import { admitChange } from '@/lib/transfer/moving';
 
 const execFileAsync = promisify(execFile);
 
@@ -83,6 +98,15 @@ async function snapshotLiveBranchAndSha(cwd: string): Promise<{ branch: string |
 
 export interface DispatchExecutionSessionArgs {
   workspaceId: string;
+  /**
+   * The computer to run on (docs/homes-spec.md §3.3, "Run on"). Omitted: the
+   * agent's default computer (`runOnFor`, P3.1). A connected computer
+   * prepares the execution in its own copy of the agent's folder. One that
+   * can't take it is refused with the reason, never swapped for another.
+   */
+  computerId?: string | null;
+  /** Who is starting it, from the caller's credentials, for the command a connected computer gets (P2.6). */
+  actor?: WorkerCommandActor;
   /**
    * The task this execution is doing, when launched via "Start with agent".
    * Ownership is recorded and, if the task is Consider/Todo, it is atomically
@@ -134,6 +158,14 @@ export class WorkspaceNotFoundForDispatch extends Error {
   constructor(public workspaceId: string) {
     super(`Workspace not found: ${workspaceId}`);
     this.name = 'WorkspaceNotFoundForDispatch';
+  }
+}
+
+/** The chosen computer can't take this execution now. Never silently replaced (spec §3.3). */
+export class ComputerUnavailableForDispatch extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ComputerUnavailableForDispatch';
   }
 }
 
@@ -209,12 +241,35 @@ export async function dispatchExecutionSession(
   const prNumber = normalizePrNumber(args.prNumber);
   const liveMode = !!args.liveMode && ws.isGit;
 
+  // Where it runs: the computer the start names, or else the agent's default
+  // (P3.1). A connected computer must be enrolled and have this agent set up,
+  // or the person hears why, rather than getting another computer.
+  const host = getHome()?.hostComputerId ?? null;
+  const target = args.computerId || runOnFor(ws.id)?.defaultId || host;
+  const elsewhere = target && target !== host ? target : null;
+  if (elsewhere) {
+    const computer = getComputer(elsewhere);
+    if (!computer || computer.status !== 'active') throw new ComputerUnavailableForDispatch('That computer is no longer connected to this home.');
+    if (!listEnrolledComputerIds().has(elsewhere)) {
+      throw new ComputerUnavailableForDispatch(`${computer.name} isn't set up to run agents. Run \`ri worker enroll\` there first.`);
+    }
+    // Its folders there, as that computer finds them now: one gone since it
+    // connected says so here, rather than failing the work there.
+    await checkComputerFolders(elsewhere, { timeoutMs: 5_000 });
+    const setup = getAgentSetup(ws.id, elsewhere);
+    if (!setup || !setupUsable(setup.status)) {
+      throw new ComputerUnavailableForDispatch(
+        setup ? setupProblem(`${ws.name}'s folder on ${computer.name}`, setup) : `${ws.name} isn't on ${computer.name} yet. Set it up there first.`,
+      );
+    }
+  }
+
   // Live mode: snapshot the current branch + HEAD of the workspace's
   // actual folder, set worktreePath = ws.cwd, skip provisioning. The
   // session lands fully populated; no SetupCard, no async wait.
   let liveBranch: string | null = null;
   let liveBaseSha: string | null = null;
-  if (liveMode) {
+  if (liveMode && !elsewhere) {
     const snap = await snapshotLiveBranchAndSha(ws.cwd);
     liveBranch = snap.branch;
     liveBaseSha = snap.sha;
@@ -255,11 +310,12 @@ export async function dispatchExecutionSession(
       modelVariant: selection.variant,
       effort: selection.effort,
       label,
-      worktreePath: liveMode ? ws.cwd : null,
+      worktreePath: liveMode && !elsewhere ? ws.cwd : null,
       branchName: liveBranch,
       baseSha: liveBaseSha,
       prNumber: prNumber,
-      setupStartedAt: ws.isGit && !liveMode ? new Date().toISOString() : null,
+      // Elsewhere, even a folder that isn't a repository is prepared there.
+      setupStartedAt: (ws.isGit && !liveMode) || elsewhere ? new Date().toISOString() : null,
       startTask: args.taskId ? { taskId: args.taskId, idempotencyKey: `start-with-agent:${sessionId}` } : undefined,
     }));
   } catch (err) {
@@ -270,7 +326,29 @@ export async function dispatchExecutionSession(
     throw err;
   }
 
-  if (ws.isGit && !liveMode) {
+  if (elsewhere) {
+    // The execution is placed on that computer from the start, and its worker
+    // prepares it there. The first message waits for that (ensureWorktreeReady).
+    const placement = createPlacement({ executionId: execution.id, computerId: elsewhere, startReason: 'created' });
+    const prepare: PreparePayload = {
+      workspace: ws,
+      chatSessionId: sessionId,
+      label,
+      baseBranch: args.baseBranch ?? null,
+      prNumber,
+      live: liveMode,
+    };
+    queueWorkerCommand({
+      computerId: elsewhere,
+      kind: 'prepare',
+      payload: prepare,
+      actor: args.actor ?? { source: 'system' },
+      executionId: execution.id,
+      chatSessionId: sessionId,
+      generation: placement.generation,
+    });
+    wakeComputer(elsewhere);
+  } else if (ws.isGit && !liveMode) {
     // Fire-and-forget. The promise resolves into the void; we record
     // setupError on the execution when it fails so the UI can surface a
     // retry affordance instead of spinning forever.
@@ -305,6 +383,9 @@ export async function retryProvisionWorktree(
 ): Promise<ChatSessionWithExecution | null> {
   const session = getChatSessionWithExecution(sessionId);
   if (!session) return null;
+  if (session.executionId && retryElsewhere(session.executionId, 'prepare')) {
+    return getChatSessionWithExecution(sessionId);
+  }
   if (session.worktreePath) return session;
   if (!session.workspaceId || !session.executionId) return session;
   const ws = getWorkspace(session.workspaceId);
@@ -500,11 +581,61 @@ async function runBackgroundProvisioning(
  * 'running' synchronously, so the UI reflects it on the next refetch.
  */
 export function retrySetupScript(executionId: string): boolean {
+  if (getPlacementElsewhere(executionId)) return retryElsewhere(executionId, 'run_script');
   const exec = getExecution(executionId);
   if (!exec?.worktreePath || !exec.workspaceId) return false;
   const ws = getWorkspace(exec.workspaceId);
   if (!ws?.setupCommand?.trim() || exec.worktreePath === ws.cwd) return false;
   void runBackgroundProvisioning(executionId, ws, exec.worktreePath, exec.branchName ?? '');
+  return true;
+}
+
+/** An execution's open placement when it's on a connected computer, not the home's. */
+function getPlacementElsewhere(executionId: string) {
+  const open = getOpenPlacement(executionId);
+  return open && open.computerId !== getHome()?.hostComputerId ? open : null;
+}
+
+/**
+ * Retry a setup step of an execution placed on a connected computer (P2.4):
+ * the command it was given, sent to its worker again. Never the home's own
+ * provisioning, which built a worktree on the home for work that runs
+ * elsewhere, nor a no-op for a script that only exists there (found in the
+ * P2.7 to P2.9 review's live check). False when the execution runs at home,
+ * or when it has no setup script to run.
+ */
+function retryElsewhere(executionId: string, kind: 'prepare' | 'run_script'): boolean {
+  const placement = getPlacementElsewhere(executionId);
+  if (!placement) return false;
+  if (kind === 'prepare' && placement.worktreePath) {
+    // Prepared there already: the failure was recorded against a setup that
+    // had finished. Nothing to redo.
+    clearExecutionSetupError(executionId);
+    return true;
+  }
+  const previous = listWorkerCommands(placement.computerId)
+    .filter((c) => c.executionId === executionId && c.kind === kind)
+    .at(-1);
+  if (!previous) {
+    if (kind === 'run_script') return false;
+    recordExecutionSetupError(executionId, "There's no setup to retry on that computer. Start a new execution there.");
+    return true;
+  }
+  // The agent as it is now, if its settings changed since.
+  const prepared = previous.payload as PreparePayload;
+  const payload = kind === 'prepare' ? { ...prepared, workspace: getWorkspace(prepared.workspace.id) ?? prepared.workspace } : previous.payload;
+  if (kind === 'prepare') markExecutionSetupStarted(executionId);
+  else setExecutionSetupScript(executionId, 'running', null);
+  queueWorkerCommand({
+    computerId: placement.computerId,
+    kind,
+    payload,
+    actor: { source: 'system' },
+    executionId,
+    chatSessionId: previous.chatSessionId,
+    generation: placement.generation,
+  });
+  wakeComputer(placement.computerId);
   return true;
 }
 
@@ -539,6 +670,30 @@ export async function archiveExecutionSession(
 ): Promise<ChatSessionWithExecution | null> {
   const session = getChatSessionWithExecution(args.sessionId);
   if (!session) return null;
+  // Counted for as long as it runs: it can't start while the work moves
+  // (ExecutionMovingError), and no move starts while it's removing the
+  // worktree a move would save (P4 review).
+  const release = admitChange(session.executionId, 'being archived');
+  try {
+    return await archiveAdmitted(args, session);
+  } finally {
+    release();
+  }
+}
+
+async function archiveAdmitted(
+  args: ArchiveExecutionSessionArgs,
+  session: ChatSessionWithExecution,
+): Promise<ChatSessionWithExecution | null> {
+
+  // On another computer (P4.5): stop it there (its sessions and terminals),
+  // then remove its worktree there, refused when it has work that isn't
+  // committed, as here. A computer that's away does both when it's back,
+  // and a worktree it finds dirty then is left as it is.
+  const elsewhere = session.executionId ? getPlacementElsewhere(session.executionId) : null;
+  if (elsewhere && session.executionId && session.workspaceId) {
+    await archiveOnOwner(session, elsewhere, args.force ?? false);
+  }
 
   // Workspace lookup is best-effort — a workspace can be deleted out from
   // under sessions, but we still want to be able to archive the row.
@@ -573,8 +728,7 @@ export async function archiveExecutionSession(
   //   - node-pty terminals belong to the execution, so one call covers
   //     every shell any of its chats opened
   //   - the cached agent CLI subprocess is per chat, and archiving an
-  //     execution cascades to all of them (takeover chats included), so
-  //     enumerate and close each
+  //     execution cascades to all of them, so enumerate and close each
   // We just tore down the worktree above; without closing the agent, its
   // Claude/Codex subprocess keeps running against a now-deleted cwd until
   // the server restarts. Both reapers are no-ops when nothing's live, so
@@ -586,6 +740,44 @@ export async function archiveExecutionSession(
   await Promise.all(reapSessionIds.map((id) => closeHarnessSession(id)));
 
   return getChatSessionWithExecution(args.sessionId);
+}
+
+/** A worktree with work that isn't committed, on another computer (P4.5): archiving it would lose that. */
+export class RemoteDirtyWorktreeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DirtyWorktreeError';
+  }
+}
+
+async function archiveOnOwner(
+  session: ChatSessionWithExecution,
+  placement: NonNullable<ReturnType<typeof getPlacementElsewhere>>,
+  force: boolean,
+): Promise<void> {
+  const executionId = session.executionId!;
+  const ws = getWorkspace(session.workspaceId!);
+  const chats = listChatSessions({ executionId }).map((s) => s.id);
+  const base = { computerId: placement.computerId, actor: { source: 'human' as const }, executionId, chatSessionId: session.id, generation: placement.generation };
+  const quiesce = queueWorkerCommand({ ...base, kind: 'quiesce', payload: { chatSessionIds: chats, transferId: '' } });
+  const remove = queueWorkerCommand({
+    ...base,
+    kind: 'git',
+    payload: { op: 'archive_worktree', force, teardownCommand: ws?.teardownCommand ?? null, workspaceId: session.workspaceId! },
+  });
+  wakeComputer(placement.computerId);
+  if (!isComputerConnected(placement.computerId)) return;
+  const { awaitWorkerCommand, CommandFailedError } = await import('@/lib/workers/await-command');
+  try {
+    await awaitWorkerCommand(quiesce.id, 60_000, 'Stopping it');
+    await awaitWorkerCommand(remove.id, 120_000, 'Removing its worktree');
+  } catch (err) {
+    if (err instanceof CommandFailedError && (err.result as { code?: string } | null)?.code === 'dirty_worktree') {
+      throw new RemoteDirtyWorktreeError(err.message);
+    }
+    // Anything else leaves the worktree where it is. The record is archived all the same.
+    console.warn(`[archive] ${executionId} on ${getComputer(placement.computerId)?.name}:`, err instanceof Error ? err.message : err);
+  }
 }
 
 export interface ContinueExecutionSessionArgs {
@@ -639,7 +831,39 @@ export async function continueExecutionSession(
   // place or not at all. `createImportSkeleton` sets `worktreePath` to the
   // workspace cwd so this is normally moot; the explicit test covers rows
   // imported before that was true.
-  if (!ws || !ws.isGit || session.surfaceKind === 'imported_agent') {
+  //
+  // And so do executions placed on a connected computer: their worktree is
+  // there, and only its worker prepares one. Rebuilding it on the home would
+  // put work that runs elsewhere in a folder here (P2.7 to P2.9 re-check).
+  // Routing a continuation to its computer is P4.5.
+  // An execution on another computer comes back there (P4.5): reopened, its
+  // computer rebuilds its worktree on its own branch, as the home would.
+  const elsewhere = getPlacementElsewhere(session.executionId);
+  if (elsewhere && ws?.isGit && session.surfaceKind !== 'imported_agent' && session.status === 'archived' && session.branchName) {
+    unarchiveExecution(session.executionId);
+    clearPlacementWorktree(elsewhere.id);
+    markExecutionSetupStarted(session.executionId);
+    queueWorkerCommand({
+      computerId: elsewhere.computerId,
+      kind: 'prepare',
+      payload: {
+        workspace: ws,
+        chatSessionId: session.id,
+        label: session.label ?? null,
+        baseBranch: ws.baseBranch,
+        prNumber: null,
+        live: false,
+        resume: { branch: session.branchName, baseSha: session.baseSha ?? null },
+      } satisfies PreparePayload,
+      actor: { source: 'human' },
+      executionId: session.executionId,
+      chatSessionId: session.id,
+      generation: elsewhere.generation,
+    });
+    wakeComputer(elsewhere.computerId);
+    return getChatSessionWithExecution(args.sessionId);
+  }
+  if (!ws || !ws.isGit || session.surfaceKind === 'imported_agent' || elsewhere) {
     if (session.status === 'archived') unarchiveExecution(session.executionId);
     return getChatSessionWithExecution(args.sessionId);
   }

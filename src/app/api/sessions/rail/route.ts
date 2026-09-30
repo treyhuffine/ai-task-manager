@@ -30,8 +30,7 @@ export const GET = withCompression(handleGET);
 
 async function handleGET(_request: Request) {
   try {
-    // Redacted: this poll ran every 15s carrying a live takeover token.
-    // See lib/api/dto/rail-session.ts.
+    // Redacted to what the rail draws. See lib/api/dto/rail-session.ts.
     const sessions = toRailSessionDTOs(listRailSessions());
     const pendingSessionIds = listSessionsWithPending();
     const runningSessionIds = listRunningSessions();

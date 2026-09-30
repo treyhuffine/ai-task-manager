@@ -38,7 +38,7 @@ Clicking Approve is the user's instruction. Making them also type "ok, go" would
 again with one more step. The note goes in as an app notice, not as the user's words, and it names
 the calls. An approval can't turn into a wider retry, and a denial reaches the agent too. That
 keeps it from asking again or thinking the request is still open. The note is not dispatched into
-a chat that is archived, taken over locally, or an import mirror. The decision is still recorded.
+a chat that is archived or an import mirror. The decision is still recorded.
 
 ## Card states
 

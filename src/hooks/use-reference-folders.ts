@@ -25,11 +25,17 @@ export function useReferenceFolders(workspaceId: string | null) {
 /**
  * Invalidate every scope, not just the one that changed. A global reference is
  * visible from every workspace, so a write to one scope can change what
- * another workspace sees.
+ * another workspace sees. Every agent's folders on each computer, and where
+ * it can run, follow its linked folders too.
  */
 function useInvalidateReferenceFolders() {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: REFERENCE_FOLDERS_KEY });
+  return () => {
+    void qc.invalidateQueries({
+      predicate: (q) => q.queryKey[0] === 'workspaces' && (q.queryKey[2] === 'folders' || q.queryKey[2] === 'run-on'),
+    });
+    return qc.invalidateQueries({ queryKey: REFERENCE_FOLDERS_KEY });
+  };
 }
 
 export function useCreateReferenceFolder() {

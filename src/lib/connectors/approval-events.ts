@@ -123,7 +123,7 @@ function baseView(p: PendingApproval, meta: ActionMeta) {
 /** A session that exists and can take a new turn from the app. */
 function deliverableSession(sessionId: string) {
   const session = getChatSessionWithExecution(sessionId);
-  if (!session || session.status === 'archived' || session.takeoverStartedAt || isImportMirror(session)) return null;
+  if (!session || session.status === 'archived' || isImportMirror(session)) return null;
   return session;
 }
 

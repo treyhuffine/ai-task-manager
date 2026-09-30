@@ -15,8 +15,8 @@ import { useEffect, useState } from 'react';
  *
  * Why this matters: same-machine clients can fire `file://` and editor
  * deep links because the worktree paths the UI shows ARE valid on the
- * client. Remote clients can't reach the laptop's filesystem and need
- * the takeover flow instead.
+ * client. A remote client opens things on its own computer through the
+ * worker there (P3.5), or moves the work with Continue here (P4.2).
  */
 
 export type ClientLocationKind = 'host' | 'remote';

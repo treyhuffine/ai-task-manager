@@ -83,11 +83,13 @@ describe('OpenCode durable history reconciliation', () => {
     const result = await reconcileSession('open-reconcile-1');
 
     expect(result).toEqual({ drift: true, replayed: 1 });
+    // Replay writes through the plain database writer, not the live one.
+    const { localEventWriter } = await import('./event-writer');
     expect(mocks.persistStreamEvent).toHaveBeenCalledWith('open-reconcile-1', {
       type: 'assistant_message',
       content: 'Recovered',
       eventId: 'm1:p1',
-    });
+    }, localEventWriter);
     expect(mocks.updateChatSession).toHaveBeenCalledWith('open-reconcile-1', {
       externalHistoryCheckpoint: checkpoint,
     });

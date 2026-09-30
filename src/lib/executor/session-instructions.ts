@@ -81,6 +81,19 @@ export function sessionInstructionsPath(chatSessionId: string): string {
   return path.join(sessionInstructionsDir(), `${chatSessionId}.md`);
 }
 
+/** Where an execution's resolved environment is written, beside its instructions (P2.7). */
+export function sessionEnvironmentPath(chatSessionId: string): string {
+  return path.join(sessionInstructionsDir(), `${chatSessionId}.environment.json`);
+}
+
+/** Persist an execution's resolved environment and return its path. */
+export function writeSessionEnvironment(chatSessionId: string, environment: unknown): string {
+  mkdirSync(sessionInstructionsDir(), { recursive: true, mode: 0o700 });
+  const file = sessionEnvironmentPath(chatSessionId);
+  writeFileSync(file, `${JSON.stringify(environment, null, 2)}\n`, { mode: 0o600 });
+  return file;
+}
+
 /**
  * Drop a session's instruction file when its harness session closes. Without
  * this every chat ever opened leaves a file behind in the scratch dir.
@@ -90,6 +103,7 @@ export function sessionInstructionsPath(chatSessionId: string): string {
 export function clearSessionInstructions(chatSessionId: string): void {
   try {
     rmSync(sessionInstructionsPath(chatSessionId), { force: true });
+    rmSync(sessionEnvironmentPath(chatSessionId), { force: true });
   } catch {
     /* scratch cleanup, never load-bearing */
   }

@@ -15,10 +15,14 @@ import { registerExportCommand } from './commands/export';
 import { registerAgentCommand } from './commands/agent';
 import { registerSkillsCommand } from './commands/skills';
 import { registerTriggerCommands } from './commands/trigger';
-import { registerTakeoverCommand } from './commands/takeover';
-import { registerResumeCommand } from './commands/resume';
 import { registerBrowserCommands } from './commands/browser';
 import { registerTlsCommand } from './commands/tls';
+import { registerHomeCommand } from './commands/home';
+import { registerStatusCommand } from './commands/status';
+import { registerSetupCommand } from './commands/setup';
+import { registerConnectCommands } from './commands/connect';
+import { registerWorkerCommand } from './commands/worker';
+import { installRoleGuard } from './lib/role-guard';
 import { registerUpdateCommand } from './commands/update';
 import { registerServiceCommand } from './commands/service';
 
@@ -106,12 +110,16 @@ registerExportCommand(program);
 registerAgentCommand(program);
 registerSkillsCommand(program);
 registerTriggerCommands(program);
-registerTakeoverCommand(program);
-registerResumeCommand(program);
 registerBrowserCommands(program);
 registerTlsCommand(program);
+registerHomeCommand(program);
+registerStatusCommand(program);
+registerSetupCommand(program);
+registerConnectCommands(program);
+registerWorkerCommand(program);
 registerServiceCommand(program);
 registerUpdateCommand(program);
+installRoleGuard(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);

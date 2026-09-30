@@ -1,12 +1,12 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
-import { openWorktreeHandle } from '@/lib/workspaces';
 import {
   buildResolveConflictsPrompt,
   type ConflictScenario,
 } from '@/lib/executor/prompts/resolve-conflicts';
 import * as executor from '@/lib/executor/adapter';
+import { executionFolder } from '@/lib/executor/owner-files';
 
 /**
  * Resolve-conflicts surface for the execution view's action bar.
@@ -48,7 +48,8 @@ export async function POST(
         { status: 409 },
       );
     }
-    if (!session.workspaceId || !session.worktreePath || !session.branchName) {
+    // Its worktree wherever it runs (P4.5).
+    if (!session.workspaceId || !executionFolder(id) || !session.branchName) {
       return Response.json(
         { error: 'noWorktree', message: 'No worktree or branch on this session.' },
         { status: 400 },
@@ -65,10 +66,7 @@ export async function POST(
       );
     }
 
-    const handle = await openWorktreeHandle(session, ws);
-    if (!handle || handle.kind !== 'git') {
-      return Response.json({ error: 'Worktree unavailable' }, { status: 404 });
-    }
+    if (!ws.isGit) return Response.json({ error: 'Worktree unavailable' }, { status: 404 });
 
     const prompt = buildResolveConflictsPrompt({
       scenario,
@@ -76,7 +74,7 @@ export async function POST(
       baseBranch: ws.baseBranch ?? undefined,
     });
 
-    insertChatEvent({
+    const event = insertChatEvent({
       sessionId: id,
       role: 'user',
       source: 'user',
@@ -84,7 +82,8 @@ export async function POST(
       createdAt: new Date().toISOString(),
     });
 
-    executor.dispatch(id, prompt).catch((err) => {
+    // Tied to its event, wherever the execution runs (P4.5).
+    executor.dispatch(id, prompt, { sourceEventId: event?.id ?? null }).catch((err) => {
       console.error(`[POST /api/sessions/:id/resolve-conflicts] dispatch failed for ${id}:`, err);
     });
 

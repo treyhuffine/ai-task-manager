@@ -5,15 +5,14 @@ import {
   ChevronRight, AlertTriangle, RefreshCw, MessageCircleMore,
   ShieldCheck, ShieldAlert, HelpCircle, LogIn, Loader2,
   FileText, Pencil, FilePlus, Terminal, Search, Globe, Boxes, ListTodo, Wrench,
-  ClipboardList, SquareTerminal, ArrowUpRight, Bot, CheckCircle2, XCircle, CircleSlash,
-} from 'lucide-react';
+  ClipboardList, SquareTerminal, ArrowUpRight, Bot, CheckCircle2, XCircle, CircleSlash, ArrowRightLeft } from 'lucide-react';
 import { describeToolCall, describeToolResult, fileTargetPath, isSubagentTool, type ToolGlyph } from '@/lib/executions/tool-display';
 import { computeEditDiff } from '@/lib/executions/edit-diff';
 import { extractPullRequestUrl } from '@/lib/executions/pr-link';
 import { FileChip, DiffLines } from './file-chip';
 import { EntityEditChip, parseEntityEditTool } from '@/components/entities/entity-edit-chip';
 import { useClaudeLogin, useClaudeAuthStatus } from '@/hooks/use-claude-login';
-import { useSessionEvents, useRetrySend } from '@/hooks/use-execution';
+import { useSessionEvents, useRetrySend, useDeliveries, useCancelDelivery, useSendMessage } from '@/hooks/use-execution';
 import type { ClientEventStatus } from '@/hooks/use-execution';
 import { useMutation } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api/sessions';
@@ -144,6 +143,9 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
               <Loader2 size={10} className="animate-spin" />
               <span>Sending…</span>
             </div>
+          )}
+          {sessionId && !isFailed && !isSending && (
+            <DeliveryLine sessionId={sessionId} eventId={event.id} content={content} attachments={event.attachments ?? []} />
           )}
           {event.content && (
             <CopyMessageButton
@@ -425,6 +427,31 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
             </div>
           )}
         </button>
+      );
+    }
+
+    case 'continuation': {
+      // Continued on another computer (P4.3): once in the chat, with the
+      // handoff the fresh session there started from.
+      const info = (event.raw ?? {}) as { from?: string; checkpoint?: { sha?: string }; handoff?: string };
+      return (
+        <div className="my-2 text-[11px] text-muted-foreground">
+          <button type="button" onClick={() => setExpanded((v) => !v)} className="flex w-full items-center gap-2">
+            <div className="h-px flex-1 bg-border/60" />
+            <span className="inline-flex items-center gap-1.5 font-medium text-foreground/80">
+              <ArrowRightLeft size={11} />
+              {event.content}
+            </span>
+            {info.from && <span className="text-muted-foreground/70">from {info.from}</span>}
+            {info.checkpoint?.sha && <span className="font-mono text-muted-foreground/60">{info.checkpoint.sha.slice(0, 7)}</span>}
+            <div className="h-px flex-1 bg-border/60" />
+          </button>
+          {expanded && info.handoff && (
+            <div className="mx-auto mt-1.5 max-w-2xl whitespace-pre-wrap break-words rounded-md border border-border/60 px-3 py-2 text-[11.5px] text-muted-foreground/90">
+              {info.handoff}
+            </div>
+          )}
+        </div>
       );
     }
 
@@ -812,6 +839,87 @@ function FailedSendBadge({
           </>
         )}
       </button>
+    </div>
+  );
+}
+
+/**
+ * Where a message sent to a computer elsewhere stands (docs/homes-spec.md
+ * §3.5, P3.2). Nothing once it's delivered, or for a chat at home, where a
+ * message reaches the harness as it's sent. Waiting and on its way can be
+ * withdrawn while still in the home's queue. Not delivered and uncertain
+ * offer Send again, which sends it as a new message: an uncertain one may
+ * have reached the agent, so it says so first.
+ */
+function DeliveryLine({
+  sessionId,
+  eventId,
+  content,
+  attachments,
+}: {
+  sessionId: string;
+  eventId: string;
+  content: string;
+  attachments: Attachment[];
+}) {
+  const { data: deliveries } = useDeliveries(sessionId);
+  const cancel = useCancelDelivery(sessionId);
+  const send = useSendMessage(sessionId);
+  const delivery = deliveries?.[eventId];
+  if (!delivery || delivery.state === 'delivered') return null;
+  const name = delivery.computerName;
+
+  let text: string;
+  let tone: 'muted' | 'warn' = 'muted';
+  switch (delivery.state) {
+    case 'waiting':
+      text = `Waiting for ${name}. Your message is saved.`;
+      break;
+    case 'sending':
+      text = delivery.connected ? `Sending to ${name}…` : `Sent to ${name}, which disconnected before confirming it.`;
+      break;
+    case 'not_delivered':
+      text = `Not delivered to ${name}.${delivery.reason ? ` ${delivery.reason}` : ''}`;
+      tone = 'warn';
+      break;
+    case 'uncertain':
+      text = `Delivery to ${name} couldn't be confirmed.${delivery.reason ? ` ${delivery.reason}` : ''} Check whether it answered before sending again.`;
+      tone = 'warn';
+      break;
+    case 'held':
+      // Moving to another computer (P4.2): it goes there once it arrives.
+      text = delivery.reason ?? `Held while this moves to ${name}. It goes there once it arrives.`;
+      if (delivery.reason) tone = 'warn';
+      break;
+  }
+
+  const again = delivery.state === 'not_delivered' || delivery.state === 'uncertain';
+  return (
+    <div className={cn('self-end mt-0.5 flex max-w-[85%] flex-wrap items-center justify-end gap-x-1.5 gap-y-0.5 text-[10.5px] text-right', tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground/75')}>
+      {delivery.state === 'sending' && delivery.connected && <Loader2 size={10} className="animate-spin" />}
+      {tone === 'warn' && <AlertTriangle size={10} />}
+      <span>{text}</span>
+      {delivery.cancellable && (
+        <button
+          type="button"
+          onClick={() => cancel.mutate(eventId)}
+          disabled={cancel.isPending}
+          className="rounded px-1 py-0.5 font-medium text-foreground/80 hover:bg-muted/60 disabled:opacity-50"
+        >
+          {cancel.isPending ? 'Withdrawing…' : 'Cancel'}
+        </button>
+      )}
+      {again && (
+        <button
+          type="button"
+          onClick={() => send.mutate({ content, attachments })}
+          disabled={send.isPending}
+          className="inline-flex items-center gap-1 rounded border border-current/30 px-1.5 py-0.5 font-medium hover:bg-muted/60 disabled:opacity-50"
+        >
+          <RefreshCw size={9} />
+          Send again
+        </button>
+      )}
     </div>
   );
 }

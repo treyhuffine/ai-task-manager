@@ -26,6 +26,8 @@ export interface StartExecutionArgs {
   /** "Start with agent": the task this workstream is associated with. The server
    *  records the association and atomically Starts the task (Consider/Todo -> In progress). */
   taskId?: string | null;
+  /** Run on this computer. Omitted: the agent's default (P3.1). */
+  computerId?: string | null;
 }
 
 export interface StartedExecution {
@@ -71,6 +73,7 @@ export function startExecution(qc: QueryClient, args: StartExecutionArgs): Start
         modelVariant: args.modelVariant ?? null,
         effort: args.effort ?? null,
         taskId: args.taskId ?? null,
+        computerId: args.computerId ?? null,
       });
 
       // Seed before invalidating. The execution view is already mounted and

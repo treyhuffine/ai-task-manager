@@ -1,7 +1,8 @@
 /**
- * Hand text to a session's harness as a new turn (or into the running one: concurrent sends queue
- * natively, see the messages route). Shared by the messages route, which delivers what the user or
- * another chat typed, and by connector approvals, which tell a waiting agent the user decided.
+ * Hand app-composed text to a session's harness as a new turn (or into the running one: concurrent
+ * sends queue natively, see the messages route). Used for app notices that should move a waiting
+ * agent along, like connector approvals telling it the user decided. Mirrors the messages route's
+ * dispatch (preparation hold, worktree self-heal, release once a chat elsewhere has it queued).
  *
  * Fire-and-forget: the caller has already persisted whatever the transcript should show.
  */
@@ -14,6 +15,14 @@ export function dispatchSessionTurn(sessionId: string, executionId: string | nul
   // nested dispatch takes its own reference, so the runtime flag remains
   // true until both preparation and the actual root turn have settled.
   const preparationRef = executor.beginDispatchPreparation(sessionId);
+  // Released once: when a turn for a computer elsewhere is saved in its queue (from then on its
+  // delivery state and the worker say what the chat is doing), or when the dispatch settles.
+  let held = true;
+  const release = () => {
+    if (!held) return;
+    held = false;
+    executor.endDispatchPreparation(sessionId, preparationRef);
+  };
   // Self-heal a missing worktree before dispatching. A git execution
   // can outlive its worktree directory (out-of-band `git worktree
   // remove`/`prune`, a multi-device home where `.work` wasn't synced,
@@ -31,9 +40,9 @@ export function dispatchSessionTurn(sessionId: string, executionId: string | nul
         console.error(`[sessions] worktree not ready for ${sessionId}: ${ready.error}`);
         return;
       }
-      await executor.dispatch(sessionId, text);
+      await executor.dispatch(sessionId, text, { onQueued: release });
     } finally {
-      executor.endDispatchPreparation(sessionId, preparationRef);
+      release();
     }
   })().catch((err) => {
     const msg = err instanceof Error ? err.message : String(err);

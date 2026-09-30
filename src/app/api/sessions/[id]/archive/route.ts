@@ -26,6 +26,9 @@ export async function POST(
     if (!row) return Response.json({ error: 'Session not found' }, { status: 404 });
     return Response.json(row);
   } catch (err) {
+    if (err instanceof Error && err.name === 'ExecutionMovingError') {
+      return Response.json({ error: 'moving', code: 'moving', message: err.message }, { status: 409 });
+    }
     if (err instanceof Error && err.name === 'DirtyWorktreeError') {
       return Response.json(
         { error: 'DirtyWorktreeError', code: 'dirty_worktree', message: err.message },

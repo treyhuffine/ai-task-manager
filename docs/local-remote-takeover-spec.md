@@ -1,6 +1,6 @@
 # Local/Remote Client Awareness + Take Over Locally: Implementation Spec
 
-> Historical takeover design, not an additional build plan. The [homes build specification](homes-spec.md#8-reviewing-locally-and-continuing-elsewhere) defines review snapshots, execution ownership, continuation, and their task sequence.
+> Retired. Continue here and Open code here replaced this flow in P4.5 of the [homes build specification](homes-spec.md#8-reviewing-locally-and-continuing-elsewhere), which defines review snapshots, execution ownership and continuation. The takeover routes, CLI commands (`ri takeover`, `ri resume`) and UI are gone. The `executions.takeover_*` columns stay, unused, until the next baseline squash. Kept for the history of the design.
 
 Self-contained plan for adapting the execution view to the machine the
 user is currently on, plus a "Take over locally" escape hatch when the

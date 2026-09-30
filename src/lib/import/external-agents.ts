@@ -1,18 +1,5 @@
 import path from 'node:path';
-import { createHash } from 'node:crypto';
-import { constants as fsConstants, realpathSync, type BigIntStats } from 'node:fs';
-import { lstat, open, realpath, stat, type FileHandle } from 'node:fs/promises';
-import {
-  getProvider,
-  type HistoryCheckpoint,
-  type LocalHistoryEvent,
-  type LocalHistoryOps,
-  type LocalHistorySession,
-  type ProviderRuntimeContext,
-  type SavedHistoryEvent,
-  type SavedHistoryOps,
-  type SavedHistorySession,
-} from '@agentex/agent';
+import type { HistoryCheckpoint } from '@agentex/agent';
 import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import { getDb } from '@/lib/db';
@@ -27,21 +14,18 @@ import {
 import {
   createWorkspace,
   getChatSessionWithExecution,
+  getComputer,
   getExternalSessionImportForChat,
   getWorkspace,
   listWorkspaces,
   updateChatSession,
   updateExecution,
 } from '@/lib/db/queries';
-import { parseStreamEvent } from '@/lib/executor/adapter';
 import {
   publishReconcileStarted,
   publishReconcileDone,
 } from '@/lib/realtime/bus';
 import { explicitHarnessSelection } from '@/lib/harness/options';
-import { openCodeRuntimeContext } from '@/lib/harness/opencode';
-import { runtimeContextForHarness } from '@/lib/harness/runtime';
-import { getAppRoot } from '@/lib/config/paths';
 import { detectBaseBranch, detectIsGit } from '@/lib/workspaces';
 import type {
   CreateChatEventInput,
@@ -56,9 +40,27 @@ import type {
   ExternalAgentSessionCandidate,
   ExternalAgentSource,
 } from './types';
+import {
+  EXTERNAL_AGENT_SOURCES,
+  codedError,
+  discoverCandidatesInternal,
+  discoverProvider,
+  errorCode,
+  historyEventInput,
+  mapLimited,
+  parseSessionKey,
+  pathIsDirectory,
+  providerLabel,
+  safeError,
+  sessionKey,
+  pinTranscript,
+  type FileCandidate,
+  type PinnedTranscript,
+  type InternalCandidate,
+  type ServiceCandidate,
+} from './history-source';
 
 const MAX_IMPORT_SELECTION = 1_000;
-const MAX_EXTERNAL_SESSION_ID_LENGTH = 512;
 const EVENT_BATCH_SIZE = 100;
 // How much normalized history is held in memory before it is committed. This
 // bounds memory, not transcript size: a long chat is imported as a sequence of
@@ -75,7 +77,6 @@ const EVENT_BATCH_SIZE = 100;
 // serves the UI and terminals, so the window stays small enough that an import
 // never freezes the app.
 const HISTORY_WINDOW_BYTES = 8 * 1024 * 1024;
-const EXTERNAL_AGENT_SOURCES = ['claude', 'codex', 'opencode'] as const satisfies readonly ExternalAgentSource[];
 // NUL, because it is the one byte a provider session id may never contain
 // (`validExternalSessionId` rejects it), so `source + id` can't be ambiguous.
 // Spelled this way rather than inline so the file stays free of raw control
@@ -83,52 +84,10 @@ const EXTERNAL_AGENT_SOURCES = ['claude', 'codex', 'opencode'] as const satisfie
 const SYNC_LOCK_SEPARATOR = String.fromCharCode(0);
 const sourceSyncTails = new Map<string, Promise<void>>();
 
-interface CandidateBase extends ExternalAgentSessionCandidate {
-  kind: 'file' | 'service';
-}
-
-interface FileCandidate extends CandidateBase {
-  kind: 'file';
-  history: LocalHistoryOps;
-  historySession: LocalHistorySession;
-  /**
-   * The real folder the transcript was found in, taken when it was
-   * discovered. Every read checks it's still there (`pinTranscript`), so a
-   * folder relinked since can't hand over a file nobody chose. Local-runtime
-   * detail, never sent to a client.
-   */
-  realDir: string;
-}
-
-interface ServiceCandidate extends CandidateBase {
-  kind: 'service';
-  history: SavedHistoryOps;
-  historySession: SavedHistorySession;
-  runtime: Pick<ProviderRuntimeContext, 'cwd' | 'env' | 'config'>;
-}
-
-type InternalCandidate = FileCandidate | ServiceCandidate;
-
-interface PendingHistoryEvent {
+export interface PendingHistoryEvent {
   input: CreateChatEventInput;
   /** Service sources only — the bookmark this event may be committed against. */
   checkpoint?: HistoryCheckpoint;
-}
-
-function providerLabel(source: ExternalAgentSource): string {
-  if (source === 'claude') return 'Claude';
-  if (source === 'codex') return 'Codex';
-  return 'OpenCode';
-}
-
-function validExternalSessionId(value: string): boolean {
-  return value.length > 0
-    && value.length <= MAX_EXTERNAL_SESSION_ID_LENGTH
-    && !/[\u0000-\u001f\u007f]/.test(value);
-}
-
-function sessionKey(source: ExternalAgentSource, externalSessionId: string): string {
-  return `${source}:${Buffer.from(externalSessionId, 'utf8').toString('base64url')}`;
 }
 
 /**
@@ -138,11 +97,11 @@ function sessionKey(source: ExternalAgentSource, externalSessionId: string): str
  * derive it the same way, none of them can replay a transcript window another
  * one is already committing.
  */
-function syncLockKey(source: ExternalAgentSource, externalSessionId: string): string {
+export function syncLockKey(source: ExternalAgentSource, externalSessionId: string): string {
   return `${source}${SYNC_LOCK_SEPARATOR}${externalSessionId}`;
 }
 
-async function withSourceSyncLock<T>(sourceIdentity: string, action: () => Promise<T>): Promise<T> {
+export async function withSourceSyncLock<T>(sourceIdentity: string, action: () => Promise<T>): Promise<T> {
   const previous = sourceSyncTails.get(sourceIdentity) ?? Promise.resolve();
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -157,299 +116,6 @@ async function withSourceSyncLock<T>(sourceIdentity: string, action: () => Promi
     release();
     if (sourceSyncTails.get(sourceIdentity) === tail) sourceSyncTails.delete(sourceIdentity);
   }
-}
-
-function parseSessionKey(key: string): { source: ExternalAgentSource; externalSessionId: string } | null {
-  const separator = key.indexOf(':');
-  if (separator <= 0 || separator === key.length - 1) return null;
-  const source = key.slice(0, separator);
-  if (!EXTERNAL_AGENT_SOURCES.includes(source as ExternalAgentSource)) return null;
-  try {
-    const externalSessionId = Buffer.from(key.slice(separator + 1), 'base64url').toString('utf8');
-    if (!validExternalSessionId(externalSessionId)) return null;
-    return { source: source as ExternalAgentSource, externalSessionId };
-  } catch {
-    return null;
-  }
-}
-
-function cleanLabel(value: string | null, fallback: string): string {
-  const cleaned = value
-    ?.replace(/<[^>]+>/g, ' ')
-    .replace(/\[\[[^\]]+\]\]/g, ' ')
-    .replace(/^[#>*_`\s-]+/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!cleaned) return fallback;
-  return cleaned.length > 120 ? `${cleaned.slice(0, 117).trimEnd()}...` : cleaned;
-}
-
-function normalizeAbsoluteCwd(value: string): string | null {
-  return path.isAbsolute(value) ? path.normalize(value) : null;
-}
-
-async function pathIsDirectory(filePath: string): Promise<boolean> {
-  try {
-    return (await stat(filePath)).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-interface PrefixDigest {
-  /** sha256 of `[0, offset)`. Offsets must be requested in ascending order. */
-  at(offset: number): Promise<string>;
-}
-
-/**
- * One transcript, opened once, for the length of a read. The provider's parser opens the path on its own, so what it parsed
- * and what a window's hash certifies are the same bytes only if the path named
- * this one file, unchanged, from before the parse to after the hash. Every
- * hash is taken from this handle, never by opening the path again, and
- * `assertUnchanged` checks the rest: the path still names this file, and its
- * size and modification time are what they were when it was opened. A
- * transcript rewritten in place or replaced, even mid-window, is refused, and
- * nothing of that read is committed.
- *
- * It opens without following a link: a transcript replaced by a symlink is
- * refused rather than followed to a file nobody selected. And `realDir`, the
- * real folder the transcript was discovered in, must still be its folder, so
- * one moved or relinked out of that folder is refused too (a parent that's a
- * link is one `O_NOFOLLOW` doesn't cover). An ordinary
- * atomic rewrite in place, in the same folder, is just a changed transcript.
- */
-interface PinnedTranscript {
-  readonly size: number;
-  readonly modifiedAtNs: string;
-  /** A rolling sha256 over the pinned file: hash forward once, snapshot at each boundary. */
-  digest(): PrefixDigest;
-  /** Throws `source_changed_during_read` unless the path still names the pinned file, unchanged. */
-  assertUnchanged(): Promise<void>;
-  close(): Promise<void>;
-}
-
-const changed = (message = 'The transcript changed while it was being read. Try again.') =>
-  codedError('source_changed_during_read', message);
-
-async function pinTranscript(filePath: string, opts: { realDir: string }): Promise<PinnedTranscript> {
-  let handle: FileHandle;
-  try {
-    handle = await open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ELOOP' || code === 'EMLINK') throw codedError('not_a_transcript', "That session's transcript is no longer a plain file where it was found.");
-    if (code === 'ENOENT') throw codedError('source_missing', "That session's transcript is gone.");
-    throw err;
-  }
-  try {
-    const opened = await handle.stat({ bigint: true });
-    if (!opened.isFile()) throw codedError('not_a_transcript', "That session's transcript is no longer a plain file where it was found.");
-    if ((await realpath(path.dirname(filePath))) !== opts.realDir) {
-      throw codedError('not_a_transcript', "That session's transcript is no longer in the folder it was found in.");
-    }
-    return {
-      size: Number(opened.size),
-      modifiedAtNs: opened.mtimeNs.toString(),
-      digest() {
-        const hash = createHash('sha256');
-        let hashedTo = 0;
-        return {
-          async at(offset: number): Promise<string> {
-            if (offset < hashedTo) throw changed('The provider transcript rewound while it was being synchronized.');
-            const buffer = Buffer.allocUnsafe(64 * 1024);
-            while (hashedTo < offset) {
-              const length = Math.min(buffer.length, offset - hashedTo);
-              const { bytesRead } = await handle.read(buffer, 0, length, hashedTo);
-              if (bytesRead === 0) throw changed('The provider transcript became shorter while it was read.');
-              hash.update(buffer.subarray(0, bytesRead));
-              hashedTo += bytesRead;
-            }
-            return hash.copy().digest('hex');
-          },
-        };
-      },
-      async assertUnchanged() {
-        const now = await handle.stat({ bigint: true });
-        let named: BigIntStats;
-        try {
-          named = await lstat(filePath, { bigint: true });
-        } catch {
-          throw changed();
-        }
-        if (now.size !== opened.size || now.mtimeNs !== opened.mtimeNs || named.dev !== opened.dev || named.ino !== opened.ino) {
-          throw changed();
-        }
-      },
-      close: () => handle.close(),
-    };
-  } catch (err) {
-    await handle.close();
-    throw err;
-  }
-}
-
-
-function baseCandidate(
-  source: ExternalAgentSource,
-  session: Pick<SavedHistorySession, 'externalSessionId' | 'cwd' | 'title' | 'startedAt' | 'updatedAt' | 'branch'>,
-): ExternalAgentSessionCandidate | null {
-  const id = session.externalSessionId;
-  const cwd = session.cwd ? normalizeAbsoluteCwd(session.cwd) : null;
-  if (!validExternalSessionId(id) || !cwd) return null;
-  return {
-    key: sessionKey(source, id),
-    source,
-    externalSessionId: id,
-    label: cleanLabel(session.title, `${providerLabel(source)} chat ${id.slice(0, 8)}`),
-    cwd,
-    startedAt: session.startedAt ?? session.updatedAt,
-    updatedAt: session.updatedAt,
-    branchName: session.branch,
-    imported: false,
-    importStatus: 'not_imported',
-  };
-}
-
-function fileCandidate(
-  source: ExternalAgentSource,
-  history: LocalHistoryOps,
-  historySession: LocalHistorySession,
-): FileCandidate | null {
-  const candidate = baseCandidate(source, historySession);
-  if (!candidate) return null;
-  let realDir: string;
-  try {
-    realDir = realpathSync(path.dirname(historySession.transcriptPath));
-  } catch {
-    return null;
-  }
-  return { ...candidate, kind: 'file', history, historySession, realDir };
-}
-
-function serviceCandidate(
-  source: ExternalAgentSource,
-  history: SavedHistoryOps,
-  historySession: SavedHistorySession,
-  runtime: Pick<ProviderRuntimeContext, 'cwd' | 'env' | 'config'>,
-): ServiceCandidate | null {
-  const candidate = baseCandidate(source, historySession);
-  return candidate ? { ...candidate, kind: 'service', history, historySession, runtime } : null;
-}
-
-async function mapLimited<T, U>(
-  values: T[],
-  limit: number,
-  mapper: (value: T) => Promise<U>,
-): Promise<U[]> {
-  const output = new Array<U>(values.length);
-  let cursor = 0;
-  async function worker(): Promise<void> {
-    while (cursor < values.length) {
-      const index = cursor++;
-      output[index] = await mapper(values[index]);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, () => worker()));
-  return output;
-}
-
-async function savedHistoryRuntime(
-  source: ExternalAgentSource,
-): Promise<Pick<ProviderRuntimeContext, 'cwd' | 'env' | 'config'>> {
-  const runtime = source === 'opencode'
-    ? await openCodeRuntimeContext()
-    : await runtimeContextForHarness(source, { cwd: getAppRoot() });
-  return { cwd: runtime.cwd, env: runtime.env, config: runtime.config };
-}
-
-async function discoverProvider(source: ExternalAgentSource): Promise<{
-  source: ExternalAgentSource;
-  available: boolean;
-  completed: boolean;
-  candidates: InternalCandidate[];
-}> {
-  const provider = getProvider(source);
-  const savedHistory = provider.savedHistory;
-  if (savedHistory) {
-    const runtime = await savedHistoryRuntime(source);
-    const probe = await savedHistory.probe({ ...runtime }).catch(() => null);
-    const candidates: InternalCandidate[] = [];
-    let completed = false;
-    try {
-      for await (const historySession of savedHistory.discover({
-        includeArchived: true,
-        mainSessionsOnly: true,
-        requireUserMessage: true,
-        ...runtime,
-      })) {
-        const candidate = serviceCandidate(source, savedHistory, historySession, runtime);
-        if (candidate) candidates.push(candidate);
-      }
-      completed = true;
-    } catch {
-      // A provider that cannot enumerate history should not prevent healthy
-      // providers from appearing in the import surface.
-    }
-    return {
-      source,
-      available: Boolean(probe?.sourceAvailable ?? probe?.historyAvailable ?? (candidates.length > 0)),
-      completed,
-      candidates,
-    };
-  }
-
-  const localHistory = provider.localHistory;
-  if (!localHistory) return { source, available: false, completed: false, candidates: [] };
-  const probe = await localHistory.probe().catch(() => null);
-  const candidates: InternalCandidate[] = [];
-  let completed = false;
-  try {
-    for await (const historySession of localHistory.discover({
-      includeArchived: true,
-      mainSessionsOnly: true,
-      requireUserMessage: true,
-    })) {
-      const candidate = fileCandidate(source, localHistory, historySession);
-      if (candidate) candidates.push(candidate);
-    }
-    completed = true;
-  } catch {
-    // Keep discovery isolated by provider.
-  }
-  return {
-    source,
-    available: Boolean(probe?.homeAvailable || probe?.historyAvailable || candidates.length > 0),
-    completed,
-    candidates,
-  };
-}
-
-async function discoverCandidatesInternal(): Promise<{
-  candidates: InternalCandidate[];
-  available: Record<ExternalAgentSource, boolean>;
-  completed: Record<ExternalAgentSource, boolean>;
-}> {
-  const discovered = await Promise.all(EXTERNAL_AGENT_SOURCES.map(discoverProvider));
-  const deduped = new Map<string, InternalCandidate>();
-  for (const provider of discovered) {
-    for (const candidate of provider.candidates) {
-      const prior = deduped.get(candidate.key);
-      if (!prior || candidate.updatedAt > prior.updatedAt) deduped.set(candidate.key, candidate);
-    }
-  }
-  return {
-    candidates: [...deduped.values()],
-    available: {
-      claude: discovered.find((provider) => provider.source === 'claude')?.available ?? false,
-      codex: discovered.find((provider) => provider.source === 'codex')?.available ?? false,
-      opencode: discovered.find((provider) => provider.source === 'opencode')?.available ?? false,
-    },
-    completed: {
-      claude: discovered.find((provider) => provider.source === 'claude')?.completed ?? false,
-      codex: discovered.find((provider) => provider.source === 'codex')?.completed ?? false,
-      opencode: discovered.find((provider) => provider.source === 'opencode')?.completed ?? false,
-    },
-  };
 }
 
 function sourceStatus(
@@ -487,7 +153,9 @@ export async function discoverExternalAgentSessions(): Promise<ExternalAgentDisc
   const { candidates, available, completed } = await discoverCandidatesInternal();
   const db = getDb();
   const scannedAt = new Date().toISOString();
-  const ledgers = db.select().from(externalSessionImports).all();
+  // This computer's own imports. One from a connected computer is that
+  // computer's (P2.9, `remote.ts`), and never missing from here.
+  const ledgers = db.select().from(externalSessionImports).where(isNull(externalSessionImports.computerId)).all();
   const ledgerBySource = new Map(ledgers.map((ledger) => [
     syncLockKey(ledger.providerType as ExternalAgentSource, ledger.externalSessionId),
     ledger,
@@ -577,6 +245,7 @@ export async function discoverExternalAgentSessions(): Promise<ExternalAgentDisc
     .innerJoin(chatSessions, eq(externalSessionImports.chatSessionId, chatSessions.id))
     .leftJoin(executions, eq(chatSessions.executionId, executions.id))
     .leftJoin(workspaces, eq(chatSessions.workspaceId, workspaces.id))
+    .where(isNull(externalSessionImports.computerId))
     .all();
 
   for (const row of missingRows) {
@@ -642,37 +311,6 @@ export async function discoverExternalAgentSessions(): Promise<ExternalAgentDisc
       opencode: sourceSummary('opencode'),
     },
     scannedAt,
-  };
-}
-
-function historyEventInput(
-  event: LocalHistoryEvent | SavedHistoryEvent,
-  eventId: string,
-  partIndex: number,
-): CreateChatEventInput | null {
-  // `parseStreamEvent` now sets messageId/parentToolCallId too, so those two
-  // are redundant on the non-user path — but the user path below builds its
-  // row by hand and has no other source for them. Kept in one place rather
-  // than split across the two branches.
-  const shared = {
-    externalEventId: eventId,
-    externalMessageId: event.messageId,
-    externalTurnId: event.turnId,
-    externalParentToolCallId: event.parentToolCallId,
-    sourcePartIndex: partIndex,
-  };
-  if (event.type !== 'user') {
-    const input = parseStreamEvent('', { ...event, eventId });
-    return input ? { ...input, ...shared } : null;
-  }
-  return {
-    sessionId: '',
-    role: 'user',
-    source: 'user',
-    content: event.text,
-    raw: event.raw,
-    createdAt: event.timestamp,
-    ...shared,
   };
 }
 
@@ -787,7 +425,7 @@ function createImportSkeleton(
   });
 }
 
-function cleanupFailedInitialImport(
+export function cleanupFailedInitialImport(
   chatSessionId: string,
   executionId: string,
   createdWorkspaceId: string | null,
@@ -818,23 +456,7 @@ function cleanupCreatedWorkspaceIfUnused(workspaceId: string): void {
   if (!hasExecution) db.delete(workspaces).where(eq(workspaces.id, workspaceId)).run();
 }
 
-function safeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/\s+/g, ' ').slice(0, 500);
-}
-
-function errorCode(error: unknown): string | null {
-  if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string') {
-    return error.code;
-  }
-  return null;
-}
-
-function codedError(code: string, message: string): Error & { code: string } {
-  return Object.assign(new Error(message), { code });
-}
-
-function markImportError(ledgerId: string, error: unknown): void {
+export function markImportError(ledgerId: string, error: unknown): void {
   const now = new Date().toISOString();
   getDb().update(externalSessionImports).set({
     status: 'error',
@@ -855,7 +477,7 @@ interface HistoryWindowWriter {
   readonly inserted: number;
 }
 
-function createHistoryWindowWriter(
+export function createHistoryWindowWriter(
   ledger: ExternalSessionImportRecord,
   options: { replace: boolean; sourceUpdatedAt: string },
 ): HistoryWindowWriter {
@@ -945,9 +567,9 @@ async function syncFileCandidate(
 ): Promise<number> {
   // Every check, window and hash below is of this one opened file, checked
   // unchanged before each commit, so a transcript replaced or rewritten
-  // mid-read can't leave old events certified by a new file's hash. What
-  // committed before a change stays valid: each window was checked when it
-  // committed.
+  // mid-read can't leave old events certified by a new file's hash (P2.7 to
+  // P2.9 review fixes). What committed before a change stays valid: each
+  // window was checked when it committed.
   const pinned = await pinTranscript(candidate.historySession.transcriptPath, { realDir: candidate.realDir });
   try {
     return await syncPinned(candidate, initialLedger, pinned);
@@ -1161,7 +783,7 @@ export interface ImportedSessionSyncResult {
    * longer has that transcript; `discovery_failed` means the provider could not
    * be enumerated, so absence proves nothing and the ledger is left alone.
    */
-  skipped?: 'not_imported' | 'unknown_source' | 'current' | 'source_missing' | 'discovery_failed';
+  skipped?: 'not_imported' | 'unknown_source' | 'current' | 'source_missing' | 'discovery_failed' | 'offline';
 }
 
 /**
@@ -1211,6 +833,11 @@ export async function syncImportedSession(
 ): Promise<ImportedSessionSyncResult> {
   const ledger = getExternalSessionImportForChat(chatSessionId);
   if (!ledger) return { replayed: 0, skipped: 'not_imported' };
+  // A connected computer's session is read from that computer (P2.9).
+  if (ledger.computerId) {
+    const { syncRemoteImport } = await import('./remote');
+    return syncRemoteImport(chatSessionId);
+  }
   const source = ledger.providerType as ExternalAgentSource;
   if (!EXTERNAL_AGENT_SOURCES.includes(source)) {
     return { replayed: 0, skipped: 'unknown_source' };
@@ -1249,6 +876,8 @@ export async function syncAllImportedSessions(): Promise<{
       // to from this app owns a live provider session, and that transcript is
       // its history now. The imported one stops being the source of truth.
       isNull(chatSessions.externalSessionId),
+      // This computer's own. A connected computer's are synced from there.
+      isNull(externalSessionImports.computerId),
     ))
     .all()
     .map((row) => row.ledger);
@@ -1319,6 +948,12 @@ export function takeOverImportedSession(chatSessionId: string): ImportedTakeover
   if (!session) throw new Error('Chat not found.');
   const ledger = getExternalSessionImportForChat(chatSessionId);
   if (!ledger) throw new Error('This chat was not imported.');
+  // Read-only here: continuing it would move a session between computers,
+  // which comes with P4 (docs/homes-build.md, P2.9).
+  if (ledger.computerId) {
+    const on = getComputer(ledger.computerId)?.name ?? 'another computer';
+    throw new Error(`This session lives on ${on}. It can be read here, and continued in a terminal there.`);
+  }
   if (ledger.status === 'missing') {
     throw new Error('The provider transcript this chat was imported from is no longer available.');
   }
@@ -1352,7 +987,7 @@ export function takeOverImportedSession(chatSessionId: string): ImportedTakeover
   };
 }
 
-function emptyImportResult(): ExternalAgentImportResult {
+export function emptyImportResult(): ExternalAgentImportResult {
   return {
     importedSessions: 0,
     importedEvents: 0,
@@ -1391,6 +1026,7 @@ export async function importExternalAgentSessions(sessionKeys: string[]): Promis
         .where(and(
           eq(externalSessionImports.providerType, parsed.source),
           eq(externalSessionImports.externalSessionId, parsed.externalSessionId),
+          isNull(externalSessionImports.computerId),
         ))
         .get();
       const candidate = byKey.get(key);
@@ -1485,7 +1121,7 @@ export async function refreshExternalAgentSessions(
     throw new Error(`Select at most ${MAX_IMPORT_SELECTION} chats per refresh.`);
   }
   const db = getDb();
-  const ledgers = db.select().from(externalSessionImports).all()
+  const ledgers = db.select().from(externalSessionImports).where(isNull(externalSessionImports.computerId)).all()
     .filter((ledger) => uniqueIds.includes(ledger.chatSessionId));
   const keys = ledgers.map((ledger) => sessionKey(
     ledger.providerType as ExternalAgentSource,

@@ -4,6 +4,8 @@ import type { HarnessId } from '@/lib/harness/registry';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { MessageSquare } from 'lucide-react';
+import { preparedFolder } from '@/lib/executions/location';
+import { useViewportTier } from '@/hooks/use-viewport-tier';
 import { useDashboard } from '@/contexts/dashboard-context';
 import {
   useSession,
@@ -34,11 +36,12 @@ import { BackgroundTasksBar } from './background-tasks-bar';
 import { PendingInputArea } from './pending-input-overlay';
 import { SyncingPill } from './syncing-pill';
 import { WipHandoffBanner } from './wip-handoff-banner';
+import { TransferProgress } from './transfer/transfer-progress';
+import { ReviewBar } from './transfer/review-bar';
 import { sessionFolder } from '@/lib/folders/source';
 import { useOpenFileListener, toWorktreeRelative } from '@/lib/entity-refs/open-file-event';
 import { useFileHistory } from '@/hooks/use-file-history';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
-import { TakeoverBanner } from './takeover/takeover-banner';
 import { ImportedTakeoverBar } from './imported-takeover-bar';
 import { providerLabel as importedProviderLabel } from './setup-card';
 import { ExecutionSkeleton } from './execution-skeleton';
@@ -191,8 +194,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // worktree add` + fromSource apply). Until worktreePath lands on the
   // row the worktree views show a placeholder. The row gets updated by
   // the server, so we poll the session query.
+  // Wherever it runs: on a laptop the folder is on its placement (P3.1).
   const isSettingUp =
-    !!session && !!workspace && workspace.isGit === true && !session.worktreePath;
+    !!session && !!workspace && workspace.isGit === true && !preparedFolder(session);
 
   // Gate for the terminal's auto-spawn. Its cwd resolves to the session's
   // worktree, but `workspace` loads from a separate query than `session` —
@@ -253,10 +257,12 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // Worktree just landed (provisioning finished) → pull the file tree + diff
   // immediately. The tree was fetched empty while `worktreePath` was null, and
   // nothing else refetches it on this transition.
-  const prevWorktreeRef = useRef(!!session?.worktreePath);
+  // Its folder wherever it runs (P3.1): the worktree here, or the one its computer prepared.
+  const folder = session ? preparedFolder(session) : null;
+  const prevWorktreeRef = useRef(!!folder);
   useEffect(() => {
     hot('effect ExecutionView.worktree-edge');
-    const has = !!session?.worktreePath;
+    const has = !!folder;
     const justLanded = !prevWorktreeRef.current && has && !!sessionId && !!worktreeScope;
     prevWorktreeRef.current = has;
     if (!justLanded) return;
@@ -269,7 +275,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       2500,
     );
     return () => clearTimeout(t);
-  }, [session?.worktreePath, sessionId, worktreeScope, qc]);
+  }, [folder, sessionId, worktreeScope, qc]);
 
   // Voice-sent event ids tracked in client memory for this open session.
   // Lost on reload by design. The set only grows.
@@ -280,6 +286,12 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   // parts mount only where the width is real.
   const [desktopRef, desktopWidth] = useElementWidth<HTMLDivElement>();
   const [mobileRef, mobileWidth] = useElementWidth<HTMLDivElement>();
+  // Which half the viewport shows, by the CSS breakpoint that hides the
+  // other (lg): true desktop, false phone and tablet, null until known.
+  // The chat body renders only in that half, so there's one composer and
+  // one transcript, not two.
+  const tier = useViewportTier();
+  const wide = tier === null ? null : tier === 'desktop';
   const desktopVisible = (desktopWidth ?? 0) > 0;
   const mobileVisible = (mobileWidth ?? 0) > 0;
   const desktopVisibleRef = useRef(desktopVisible);
@@ -339,12 +351,12 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   useOpenFileListener(
     useCallback(
       (detail) => {
-        const rel = toWorktreeRelative(detail.path, session?.worktreePath ?? null);
+        const rel = toWorktreeRelative(detail.path, folder);
         if (!rel) return;
         selectFile(rel);
         openViewHere('files', 'jump');
       },
-      [session?.worktreePath, selectFile, openViewHere],
+      [folder, selectFile, openViewHere],
     ),
   );
 
@@ -381,7 +393,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   }, [controller, openViewHere]);
 
   // Status for the box, tabs and sheet.
-  const diffStats = useDiffStats(session?.worktreePath ? sessionId : null, executionId);
+  const diffStats = useDiffStats(folder ? sessionId : null, executionId);
   const references = useSessionReferences(sessionId, 'all');
   const linkedCount = references.data?.inChat.length ?? 0;
   const { data: scratch } = useScratchpad(sessionId);
@@ -516,7 +528,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         ? 'Continue here to reply'
         : undefined;
 
-  const isGitWorktree = !!workspace?.isGit && !!session.worktreePath;
+  const isGitWorktree = !!workspace?.isGit && !!folder;
   const chatLabel = session.label ?? 'this chat';
   const needsInput = pendingInputSessionIds.has(session.id);
   const openWorkspaceSettings = session.workspaceId ? () => openAgent(session.workspaceId!, 'setup') : undefined;
@@ -533,7 +545,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
     sessionId: session.id,
     workspaceId: session.workspaceId ?? null,
     worktreeId,
-    worktreePath: session.worktreePath ?? null,
+    // Its folder wherever it runs: the Files view's paths and Open are on that computer (P3.5).
+    worktreePath: preparedFolder(session),
     baseBranch: workspace?.baseBranch ?? null,
     chatLabel,
     settingUp: isSettingUp ? { failed: !!session.setupError } : null,
@@ -585,12 +598,12 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
       )}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {workspace?.isGit &&
-          !!session.worktreePath &&
-          session.worktreePath !== workspace.cwd && (
+          !!folder &&
+          folder !== workspace.cwd && (
             // Skip for Live / in-place sessions: their "worktree" IS the source
             // checkout, so no WIP ever "stayed behind".
             <div className={clearBox}>
-              <WipHandoffBanner sessionId={session.id} worktreeReady={!!session.worktreePath} />
+              <WipHandoffBanner sessionId={session.id} worktreeReady={!!folder} />
             </div>
           )}
         {reconciling && (
@@ -614,6 +627,11 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             work as a strip attached to the top of the composer. No rule
             above it, so it reads as one piece with the conversation. */}
         <div className={cn('flex-shrink-0 bg-background', clearBox)}>
+          {/* A move to another computer, while it runs or once it stopped (P4.2). */}
+          <div className="space-y-1.5 px-3 pt-2 empty:hidden">
+            <TransferProgress sessionId={session.id} />
+            <ReviewBar session={session} workspace={workspace} />
+          </div>
           <PendingInputArea sessionId={session.id} />
           {isMirroredImport && (
             <ImportedTakeoverBar
@@ -681,7 +699,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const terminalOpen = wb.terminalOpen && !!session.workspaceId;
   const terminalMax = terminalOpen && wb.terminalMaximized;
   const runDot =
-    controller.runStatus === 'stopped' || controller.runStatus === 'not-configured' ? null : runDotClass(controller.runStatus);
+    controller.runStatus === 'stopped' || controller.runStatus === 'not-configured' || controller.runStatus === 'elsewhere'
+      ? null
+      : runDotClass(controller.runStatus);
 
   return (
     <div className="flex flex-col flex-1 min-w-0 min-h-0">
@@ -699,7 +719,6 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             onOpenTools={() => setToolsSheetOpen(true)}
             toolsBadgeClass={runDot}
           />
-          <TakeoverBanner session={session} />
           {(isGitWorktree || session.prNumber != null) && workspace && (
             // `empty:hidden`: the chip renders nothing in some states (a clean
             // worktree with no branch commits), and the row goes with it.
@@ -707,8 +726,9 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
               <ExecutionActionBar session={session} workspace={workspace} variant="narrative" />
             </div>
           )}
-          {/* Phone: Enter inserts a newline; the send button submits. */}
-          {renderChatBody(false, false)}
+          {/* Phone: Enter inserts a newline; the send button submits. Only
+              where the viewport shows this half (useViewportTier). */}
+          {!wide && renderChatBody(false, false)}
         </div>
         {mobileVisible && mobileView && (
           <MobileDestination
@@ -753,7 +773,6 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             panelLabel: PANEL_VIEW_LABELS[wb.last],
           }}
         />
-        <TakeoverBanner session={session} />
         <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col">
           <div ref={rowRef} className={cn('relative flex min-h-0 flex-1', terminalMax && 'hidden')}>
             {maximized && (
@@ -781,7 +800,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             )}
             <div key="chat" className={cn('@container/chat relative flex min-h-0 min-w-0 flex-1 flex-col bg-background', maximized && 'hidden')}>
               {/* Desktop: Enter submits (Shift+Enter for a newline). */}
-              {renderChatBody(true, !panelOpen)}
+              {wide !== false && renderChatBody(true, !panelOpen)}
             </div>
             {panelOpen && desktopVisible && (
               <>

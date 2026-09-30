@@ -1,0 +1,1615 @@
+# One Ri: build notes
+
+Working notes for building [the homes build specification](homes-spec.md). The spec is the contract. This file records how the build runs, what was found, and the design decisions the spec leaves to implementation. Sections are numbered by the spec task they serve.
+
+## P0.1 Isolated development setup
+
+Production must stay untouched while this is built (spec §10.4). A worktree isolates code, not data: every path helper falls back to `~/ri` when `RI_ROOT` is unset, and a shell started inside a harness session inherits that session's caller credential and Claude Code's own session variables. Isolation therefore comes from paths, checked before anything runs.
+
+### The launcher
+
+`pnpm iso <root> [--init] [--port <n>] [--tunnel <name>] [--check] [-- <command...>]` (`scripts/isolated.ts`, rules in `src/lib/config/dev-isolation.ts`):
+
+- Builds a clean environment. Inherited `RI_*` variables (including `RI_SESSION_CREDENTIAL`), `CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_PID` and `CLAUDE_EFFORT` are removed. `CLAUDE_CODE_MESSAGING_SOCKET` and its token point at the session that launched the command, so a harness started by a dev server would otherwise run as that session's child.
+- Pins `RI_ROOT`, `RI_DB_PATH`, `RI_CONFIG_DIR` and `RI_WORK_DIR` under the root and resolves them through the real path helpers.
+- Refuses, after following symlinks, when a resolved path lands in `~/ri` (production), `~/ri-dev` (other sessions' dev server on 42241) or `~/ri-test` (the smokes wipe it), when the root contains one of those, when the port is in use, when the root's config carries production's token or tunnel name, and when it would install the shipped skill machine-wide.
+- `--init` creates the root (0700) and seeds `globalSkillEnabled: false` and `onboardedAt`. The terminal wizard otherwise runs on the first interactive `start` and installs the skill into `~/.claude/skills`, replacing production's copy.
+
+### Running the dev home
+
+```sh
+pnpm iso ~/ri-homes --init --port 42251 --check
+pnpm iso ~/ri-homes --port 42251 -- pnpm -s cli:dev start --dev --no-open --no-voice --port 42251
+```
+
+- Open it at `http://127.0.0.1:42251`, not `localhost`. Every instance names its session cookie `ri_session`, and browsers don't separate cookies by port, so a dev tab on `localhost:42251` and a production tab on `localhost:4224` in one browser log each other's live updates out. Production is normally reached at its Beamd address, which is a different host.
+- Stop it by stopping the launcher process. Never use `ri stop` for an isolated instance: without a runtime record, `stop` falls back to the default dev port, which belongs to a different instance.
+- The dev address (a separate Beamd name) is set up when cross-device testing starts. Pass it with `--tunnel`, and leave production's `ri-trey` tunnel alone.
+
+Verified 2026-09-24: the dev home started from this worktree with its own host token, the startup sweep found nothing to act on, `lsof` showed the server holding only `~/ri-homes/data.db`, and production kept running on the same process with no machine-wide skill installed.
+
+### Existing roots (Mac Mini, 2026-09-24)
+
+Taken with `scripts/inventory-root.ts`, which reads a root without writing to it. `~/flow*` roots are retired and out of scope.
+
+| Root | What it is | Notes |
+| --- | --- | --- |
+| `~/ri` | Production home | 5.3 GB database (652k chat events), 613 tasks, 247 notes, 17 areas, 14 agents (9 active), 186 executions (49 active), 645 chats, 11 schedules, 9 keys. 507 attachment files, all referenced ones present. 425 native transcript paths recorded, 251 still on disk. One active execution has 15 commits on no remote ("Validate New Calculations Against Old Values", InsiderFinance). No reference folders. About 11 GB of old `data.db.bak-*` copies and 74 GB of worktrees sit in the root. |
+| `~/ri-dev` | Other sessions' dev home, running on 42241 | Not used by this build |
+| `~/ri-test` | Smoke home | Wiped by every smoke run |
+| `~/ri-homes` | This build's dev home | Created for this build |
+
+The laptop's home is inventoried before the consolidation rehearsal (P5.1), from a consistent backup rather than a broad copy of its folder.
+
+### Backup and restore
+
+`src/lib/home/backup.ts`, driven by `scripts/home-backup.ts`:
+
+- `backup <root> <out>`: a checksummed copy of the database, attachments, `.archive`, persona and memory files, user skills, and `.config` apart from what belongs to the machine (`browser/`, `tls/`, `cli-config.json`, connector locks). Every other top-level entry is listed in the manifest with the reason it was left out.
+- The source is only read. A database with `-wal`/`-shm` files may be in use, so it is copied with SQLite's online backup in one step (a stepped backup restarts whenever another connection writes, and a running home always writes). A database without them is cloned. Opening a WAL database read-only creates those files, which the tests caught.
+- `verify <dir>` checks every file's size and checksum, `quick_check`, and every table's row count against the manifest.
+- `restore <dir> <new-root>` refuses a root that already has a database and verifies what it wrote.
+- `dev-copy <root>` (`src/lib/home/dev-copy.ts`) makes a restored copy safe to boot, as §10.4 requires. It clears the token and tunnel, revokes every key, disables schedules and notification channels, removes connector credentials and push subscriptions, clears every chat's native session id (Claude Code resumes a session by id from any folder, so the copy's first message would append to production's transcript), and moves every folder path under `<root>/.detached/` so provisioning, continuing or scripts fail as "folder missing" instead of touching production's repositories.
+- `pnpm iso <root> -- pnpm tsx scripts/home-backup.ts open-check` opens a restored root through the app and reads it through the shared queries.
+
+Rehearsed 2026-09-24 on production: backup 16.6 s (660 files, 5.6 GB, `quick_check` ok), verify 3.6 s, restore 11.5 s, `dev-copy` (6 keys revoked, 10 schedules disabled, 427 native sessions and 209 folder paths detached), then `open-check` read 613 tasks and 247 notes. The production root's listing was identical before and after. The baseline backup is `~/ri-backups/ri-20260924T210433Z`, and the rehearsal copy was deleted.
+
+## P0.2 Test fixtures
+
+In `src/test/fixtures/`, each checked against the real app by `fixtures.test.ts`:
+
+- `home.ts`: `createTestHome()` gives a private root with every path override set, a config with a known host token, and a database opened through `getDb()`. `cleanup()` restores the environment. `createTestComputer(name)` makes a second root that stands in for another computer (config, work dir, and a user folder for its projects) without a database or environment changes.
+- `git.ts`: bare remotes, clones anywhere, commits, and `createTwoComputerLayout()`, the spec's §4.1 example: the app at `~/dynamism/ri` with `../agentex` on the MacBook, and at `~/ai-task-manager` with `../code/agentex` on the Mac Mini, with an optional monorepo subfolder.
+- `fake-harness.ts`: `installFakeHarness('claude')` swaps the agentex provider for one that spawns nothing and follows the real event order. Turn scripts can say things, raise a prompt and wait for the answer, emit raw events, and fail. Tests can interrupt, crash or close a session. Driven through the real executor, it covers a turn persisting events and capturing the native session id, a crash followed by a resume of the same native session, a permission prompt answered through the pending-input registry, and an interrupt.
+- `migrations.ts`: `createDatabaseAt(dbPath, tag)` builds a database exactly as an older build left it, to seed and then upgrade through `getDb()`.
+
+The worker connection fixtures (a fake worker and a home served over HTTP for reconnect, replay and revocation tests) are built with the worker protocol in P2.2, since they exercise that protocol.
+
+## P1.1 Identity as built
+
+- `home` and `computers` tables (migration `0002`), queries in the "Home and computers" section of `queries.ts`, logic in `src/lib/home/identity.ts`.
+- A new home is named "My Ri" and is editable later. A computer is named from macOS's Computer Name ("AI Mac Mini"), falling back to the hostname without `.local`.
+- The first boot writes `machine.json` with create-if-absent, so the CLI's `start` and the server booting a new root at the same time agree on the ids. If the database insert loses a race, the winner's row decides.
+- `machine.json` also records a fingerprint of this machine (a hash of the OS machine id, never the id itself) and the folder's real location. A whole-folder copy carries the file along, so a copy on another Mac (Migration Assistant, a disk clone) needs claiming, and so does a copy or move to another folder on the same Mac. Files written before this was added are bound the first time they match. What this can't prevent: once a copy is claimed, the original keeps running where it is until it's retired (P5.3).
+- A root that needs claiming: `ri start` refuses with the reason, the server's boot hook starts no background work (mirror, reconcile, sweeps, tunnel, triggers, scheduler), and the proxy answers `503 home_not_active` to everything except health and session, webhooks, OAuth callbacks and takeover included. `ri home claim` makes this machine the host, reusing its computer row when the home already has one, and leaves the previous host as an active computer that can reconnect as a worker.
+- `dev-copy` gives a development copy a new home id and host computer, names it "<name> (dev copy)", and revokes the original's computers in the copy.
+- Backup manifests record the home id.
+
+## P1.2 and P1.3 as built
+
+- A folder's role comes from what it holds (`src/lib/config/role.ts`). `getDb()` refuses to create a database where `connection.json` exists, and the CLI's pre-action guard refuses data commands on fresh and connected folders (`src/cli/lib/role-guard.ts`).
+- `src/lib/connection/home-client.ts` is the only way a connected computer calls its home. It maps failures to the spec's states (§3.5): unreachable, access removed, a different home at the address, not active, an older home, an untrusted certificate.
+- The proxy forwards the validated key as `x-ri-api-key-id` and `x-ri-api-key-type`, and `x-ri-caller-location`, after deleting any inbound copies, on every route. Handlers read them with `src/lib/auth/request-key.ts`.
+- `ActionContext.caller` says whether the caller holds the home's own key: the one `ensureLocalToken` minted and keeps in this root's config (`src/lib/auth/host-key.ts`), which the home's CLI and its sessions use. A key's `deviceType` label never decides it, and the device APIs no longer let anyone set `host`. It is permission to act on the home's folders, not proof of where the caller physically is.
+- Actions a connected computer can't run, and why:
+  - Folder paths resolve on the home: `create_workspace`, and `list_skills` with a folder. A connected computer sets up its own folders through its local setup (P1.4).
+  - The trusted local CLI only, as for MCP: `repair_attachment_metadata`, bare-path reference folders, and connector scopes or the browser switch in `update_workspace`.
+  - `ri browser` drives the browser on the machine it runs on, so it stays refused on a connected computer.
+- `ri trigger run` and `ri run cancel` on a connected computer run inside the home's server. On the home itself they still run in the CLI process, which is gap 1 in P0.4, fixed in P2.4.
+
+## P1.4 Setups as built
+
+- Files: `local-file.ts` (format, revision, writes, Git exclude), `registry.ts` (this computer's `<config>/setups.json`, locations only), `resolve.ts` (reports), `service.ts` (attach, ref, relink, restore, detach, all followed by a full report), `home-context.ts` (the home's side and its in-process link). The CLI's link is `src/cli/lib/setup-link.ts`.
+- Actions: `register_computer`, `rename_computer`, `get_setup_context`, `report_agent_setups`, `list_agent_setups`. The calling computer comes from the key: the host key means the home's own computer, and any other key must have registered.
+- A connected computer registers on its first `ri setup` or `ri connect`, and keeps the id in `connection.json` and in `known-homes.json`, which outlives `ri disconnect`. The key is linked to the computer in `api_keys.computer_id`. Registering doesn't let the home run work on that computer, which needs P2.2's separate worker credential. The pairing key itself keeps the full access it always had.
+- Re-pairing keeps the computer: a new key that presents the remembered id is linked to the same computer. It never binds to the home's own computer or a removed one.
+- Every setup change reads the file fresh and refuses a file that can't be read or belongs to another home. Moving an agent sets up the new folder first and clears the old one only after that succeeds. An agent taken out of a readable shared file is simply no longer reported, while a deleted file still is, so it can be restored. Detach never unregisters a folder another agent still uses.
+- A report about a folder or file that can't be read keeps the last observed references in the index. That's what restore rebuilds from. An agent removed from a computer's files disappears from the index on the next complete report.
+- Deliberately not in P1.4: creating an agent from a computer with no folder on the home (it needs `workspaces.cwd` to become optional, which is P1.5), editing setups from the web UI, and suggesting folders from harness history.
+
+## P1.5 Adoption as built
+
+- `src/lib/setups/adopt.ts` plans and applies. `planHomeAdoption` / `adoptHomeSetups` in `home-context.ts` run it for the live home, and `ri setup adopt` is the command.
+- Adoption is explicit, not automatic at boot, because it writes into the person's folders. The production cutover runbook runs it once. `ri setup` on the home says when agents still need it.
+- Stored reference paths are written as absolute paths. The spec allows it (§4.3: absolute paths stay local to that computer), and it changes nothing about where they point.
+- Home hooks: `POST /api/workspaces` and `create_workspace` check the folder can hold the setup before creating anything, then call `setHomeFolder`. If that still fails, the new agent is archived and the error returned. `PATCH /api/workspaces/:id` with `cwd` sets up the new folder before changing the database, and returns 400 with the old setup intact on failure. The reference routes and actions call `applyReferenceToHomeSetups` and return which setup files were updated or failed. A rename carries this computer's own value to the new name. The dev-only scratch agent is left as it was.
+- `workspaces.cwd` is the home computer's observed folder, updated from its reports and never the other way round. It stays until P2 moves the executor to setups. An agent with no folder on the home (created from another computer) needs `cwd` to become optional, and comes with P3.1's "use the first setup the person enables".
+- Production preview (`scripts/plan-adoption.ts ~/ri`, read-only): 9 setup files, one in each active agent's folder (`/Users/agent/ai-task-manager` and eight under `/Users/agent/code`), with no references.
+
+## Review of P0 and P1 (46a2b02)
+
+An independent review ran the branch through `pnpm iso` in `/private/tmp`, and found four high and seven medium issues. Each was first reproduced by the reviewer's probe, now kept as `src/test/regressions/homes-review.test.ts`. All are fixed:
+
+1. `deviceType: 'host'`, which any paired device could set, decided "on the home". Now the home's own key decides, and `host` is reserved.
+2. Webhooks, OAuth callbacks and takeover skipped the unclaimed-home check. The check now runs before them.
+3. The launcher compared paths as spelled, so a symlink into production passed. It follows links now.
+4. A failed folder change deleted the old setup and returned 200. It now sets up the new folder first and fails with the old one intact.
+5. Answering "No" still set an empty home aside. It now takes only an explicit yes, and only after the home accepted the link.
+6. Detaching one agent from a shared folder left it stuck as broken. Detaching it again unregistered the folder, silently dropping the other agent too.
+7. Renaming a reference reset this computer's own value to the default.
+8. Setup changes didn't check the file's home before writing.
+9. Gateway errors (a tunnel's 502 while the home sleeps) counted as the home answering, so the offline bar never showed on a phone.
+10. A whole-folder copy that included `machine.json` started as the home. Identity is now bound to the machine and folder.
+11. `getDb()` opened a database beside a connection record.
+
+The review agreed with the P0.3 runner design, and asked for the exact home and worker messages (command ids, placement generations, event positions, replay that can't double-count) to be written down before P2 code. They are in [P2 protocol](#p2-protocol-home-and-worker-messages).
+
+**Re-check at 8ad4a01.** Eight fixes were confirmed closed. Three were partial, with six new code cases now kept in `src/test/regressions/homes-recheck.test.ts`, and three protocol gaps. All are fixed:
+- A dangling symlink (one pointing at a file not yet created) still passed the launcher. Paths are now resolved one component at a time, following dangling and relative links, and a path that can't be resolved, such as a symlink loop, is refused.
+- Two reference bugs:
+  - A deliberate omission (`null`) was treated as unmapped and reset.
+  - Renaming a global reference took over an agent's own reference of the old name.
+
+  Both are fixed. A setup file that can't be updated is now reported as a failure, not skipped.
+- A rejected edit could already have moved the folder. The whole patch is validated first, and the move is undone if the database still refuses.
+- A failed cleanup of the old folder left the agent set up twice. The old folder is checked before anything is written, and the new one is put back if the cleanup still fails (`src/lib/setups/move-undo.test.ts`).
+- Three protocol gaps are now covered:
+  - durable command receipt, with recovery for every command kind;
+  - notifications queued in the event's own transaction, with sending to outside services stated as at-least-once;
+  - dedicated worker routes for attachments and artifacts, with the bytes stored before the event that refers to them is acknowledged.
+
+**Targeted review at 1d76d11.** It covered the path walker, folder moves, and the new P2 sections, and found five code cases and three protocol gaps. Notification queueing was confirmed complete. The reviewer's probes are kept in `src/test/regressions/homes-targeted-path-review.test.ts` and `homes-targeted-move-review.test.ts`. All are fixed:
+- `link/..` still escaped the launcher's check, because `..` was collapsed before the link in front of it was followed. The walker now keeps `..` until everything before it is resolved, in the input and in link targets.
+- Moving an agent had three more ways to lose or duplicate a setup:
+  - a failure while unregistering the old folder, after its file was gone, left no setup anywhere;
+  - a failed registration, or a failed report to the home, happened outside the undo;
+  - moving to another name for the same folder (a symlink) deleted the live file.
+
+  Every setup operation (attach, move, reference, relink, restore, detach) is now one `SetupChange` (`src/lib/setups/change.ts`). It records the exact bytes and registration it replaces, and undoes everything, newest first, if a step, the report, or the caller's last step fails. Folders compare by identity on disk, so a second name for a folder is a change of spelling only, and the registry holds a folder once.
+- A rejected agent edit moved the folder back through an ordinary move, which rebuilt the setup from defaults and lost local choices such as a left-out reference. Saving the agent is now the change's last step, so a refusal undoes the move exactly.
+- Three protocol gaps are now covered:
+  - Command numbers are assigned when a command is first streamed, so a cancelled command leaves no hole in the receipt cursor.
+  - The setup script in `prepare` is journaled like `run_script` and never re-run automatically.
+  - An artifact's bytes and its event are both kept on the worker before any upload, under a file name minted once, so an outage or crash loses neither and a retry repairs the same file.
+
+## P2 protocol: home and worker messages
+
+Written before P2 code, as the review asked. It refines the P0.3 records below; where they differ, this section wins. It is the contract the worker, the home's routes, and the home's in-process runner all follow.
+
+### Credentials
+
+- **Worker key.** An `api_keys` row with `computer_id` set and a worker scope, issued only by redeeming an enrollment grant (P2.2). A viewing key never gains it. The worker routes accept only worker keys, and a worker key reaches nothing else. The computer the worker acts as comes from the key, never from a field it sends.
+- **Session tokens for sessions on a worker.** A harness on the laptop still calls the home's orchestrator, connector and browser servers. Giving it the worker key would let a session act as the worker, so the home mints a token per session instead. The token is bound to the chat, the computer and the placement generation, reaches only those servers, and resolves to that session as the actor, with location `elsewhere`. The home's own sessions keep using the home's key.
+
+### Connection
+
+- `GET /api/workers/me/stream?after=<seq>` is a server-sent event stream. It sends `hello`, `command`, `request` (an ephemeral read), `revoked`, and a keepalive `ping`. `after` is the worker's durable receipt cursor (see Command receipt and recovery), never merely the last command it saw.
+- `POST /api/workers/me/commands/:id/ack` reports a command's delivery state.
+- `POST /api/workers/me/requests/:id/result` answers a read.
+- `POST /api/workers/me/events` delivers a batch of journaled events, and returns the highest contiguous position stored.
+- `POST /api/workers/me/heartbeat` sends every 20 seconds: protocol, version, harnesses, `awake | asleep | stopped`, and the placements the worker holds (execution id and generation).
+- Every request carries `x-ri-worker-protocol`. A home that can't speak it answers `426` with "Update Ri on MacBook". It never sends a command the worker can't read.
+
+### Commands
+
+```ts
+interface WorkerCommand {
+  id: string;            // UUIDv7, stable: the idempotency key
+  seq: number;           // per computer, assigned when first streamed: where a stream resumes
+  kind: 'prepare' | 'send' | 'interrupt' | 'stop_task' | 'stop' | 'answer_pending_input'
+      | 'run_script' | 'write_setup' | 'git';
+  target: { executionId?: string; chatSessionId?: string; generation?: number };
+  actor: { source: 'human' | 'ai' | 'system'; sessionId?: string | null; apiKeyId?: string | null };
+  issuedAt: string;
+  payload: unknown;      // per kind
+}
+```
+
+- **Persisted first.** A command is written to `worker_commands` in the same transaction as what it acts on. For `send`, that's the user's `chat_events` row, whose id the payload carries. Only then is it streamed.
+- **Numbered when streamed, never when queued.** In one transaction the home gives a queued command the computer's next `seq` and marks it `sent`, then writes it to the stream. A command cancelled while queued, or found stale before streaming, never gets a number. So the numbers a worker sees have no holes, and its contiguous receipt cursor always advances. A command resent after a reconnect keeps its number.
+- **Delivery states:**
+  - `queued`: saved at home.
+  - `sent`: written to the stream.
+  - `delivered`: the worker acknowledged it applied it. For `send`, the harness accepted the message.
+  - `failed`: the worker refused it, with a reason.
+  - `stale`: the generation didn't match.
+  - `uncertain`: see below.
+  - `cancelled`: withdrawn before `sent`. A `sent` command can't be cancelled. Stopping the execution is the way out.
+- **`send` carries everything to start or resume the session:**
+  - the session spec (harness, model, permission mode and its provider config, instructions, reference aliases and descriptions, the orchestrator and connector servers with the session's token, first-turn brief), plus the chat's current native session id;
+  - the text as the harness should receive it, with markers and sender label already applied;
+  - attachments as `{ fileName, originalName, mimeType, size, sha256 }`, which the worker downloads through the worker attachment route (see Attachments and artifacts). A home disk path is never sent;
+  - the `runId` the home created for the turn.
+- **Reads are not commands.** Tree, file, diff, status, diff stats, folder discovery and history listing go as `request` with a timeout and are never persisted.
+
+### Command receipt and recovery
+
+Seeing a command on the stream is not receipt, and applying it is not acknowledgement: either can be cut off by a crash or a dropped connection. So both sides keep durable state.
+
+- **The worker journals every command before acting on it.** It is appended to `<workDir>/commands/<homeId>.jsonl` as `received` and flushed to disk. The worker's receipt cursor is the highest `seq` with a contiguous run of durable `received` records, and that cursor is what it asks the stream to resume after. A command id already in the journal is never applied twice: a replayed one gets its recorded outcome back.
+- **Each command then records what happened.** `started` goes in before a command with effects outside the journal (injecting a message, running a script, a Git operation). `finished`, with its result or error, goes in afterwards. The acknowledgement is sent only after `finished` is on disk.
+- **Acknowledgements are resent until the home confirms them.** The ack route is idempotent by command id and returns the state the home recorded. The worker keeps resending on reconnect until the recorded state matches.
+- **The home resends what wasn't acknowledged.** After a reconnect, `sent` commands with no ack go out again, and the worker's journal keeps them from being applied twice.
+- **After a worker restart,** each command left `received` or `started` without `finished` is recovered by kind:
+
+| Kind | Recovery |
+| --- | --- |
+| `send` | Look for the message in the native history: found is `delivered`, missing is `uncertain`. Never re-sent automatically |
+| `interrupt`, `stop_task`, `stop` | Safe to repeat. Re-apply if the placement is still this computer's |
+| `answer_pending_input` | Re-apply if the prompt with that request id is still pending, otherwise `stale` |
+| `prepare` | Journaled step by step, because only some steps can safely be repeated. Creating the worktree, checking out the branch at the checkpoint and copying files are idempotent: inspect and continue from the step that stopped. The setup script is not. It records its own `started` and `finished`, and `started` without `finished` is `uncertain`, as for `run_script`. Preparation stops there, and the home shows "Setup may not have finished" with Run again and Continue without it. It is never re-run automatically |
+| `write_setup` | Revision-checked: the file at the target revision means done, at the base revision means apply, anything else means conflict |
+| `run_script` | Not idempotent. `started` without `finished` is `uncertain`, shown with Retry, never re-run automatically. The one exception is a preview start: if its supervised process is alive, it's running |
+| `git` | Push: done if the remote ref equals the local one, otherwise push again, which is safe. Base update: done if the base is already merged. Checkpoint commit: done if HEAD is the recorded commit |
+
+- **Recovery waits for the home.** A restarted worker recovers nothing until the home has opened its stream and a heartbeat has confirmed which placements are still its own. A placement the home releases is journaled and fences every older command for it (P2 review fixes).
+- **A delivered send's turn is tracked until it ends.** The journal records when a turn's result is journaled. A turn still open when the worker restarts was cut off with the process, and is reported to the home as failed, never sent again.
+- **The home's own runner keeps the same states** in `worker_commands`, writing `started` before and `finished` after each effect outside the database. After a home restart the same recovery table applies, using the home's own native history and worktrees. The home's restart reaps only runs it ran itself: a connected computer's runs end when its worker reports them.
+
+### Fencing
+
+- Every execution-scoped command carries the placement generation the home had when it queued it. This includes `interrupt`, `stop_task`, `stop` and `answer_pending_input`, not only `send`.
+- The worker keeps the generation of each placement it holds. It acknowledges any mismatch as `stale` and does nothing.
+- A pending-input answer must match the request id, chat, and generation. A late answer to a prompt from before a move is rejected.
+- **On reconnect**, the heartbeat lists the placements the worker holds. The home answers with any that are no longer the worker's (the computer was revoked, or the execution moved), and the worker stops those before it processes any queued command. A revoked worker gets `revoked` and nothing else, so replaying an old queue can't give it control back.
+
+### Events
+
+```ts
+interface WorkerEvent {
+  position: number;      // per computer journal, contiguous from 1
+  eventId: string;       // UUIDv7 minted on the worker when parsed
+  generation: number;
+  executionId?: string;
+  chatSessionId: string;
+  occurredAt: string;
+  kind: 'chat_event' | 'signal';
+  chatEvent?: CreateChatEventInput & { partRevision?: number };   // id = eventId
+  signal?:
+    | { type: 'turn_start' | 'turn_end'; turnId: string }
+    | { type: 'turn_result'; runId: string; status: string; costUsd: number | null; summary: string | null; error: string | null }
+    | { type: 'pending_input'; requestId: string; request: unknown }
+    | { type: 'pending_resolved'; requestId: string }
+    | { type: 'native_session'; harness: string; nativeSessionId: string; nativePath: string | null }
+    | { type: 'background_tasks'; active: string[] }
+    | { type: 'inventory'; commands: unknown }
+    | { type: 'prepare_result'; commandId: string; ok: boolean; worktreePath?: string; checkpointSha?: string;
+        setup?: 'done' | 'none' | 'failed' | 'uncertain'; error?: string }
+    | { type: 'process_state'; running: boolean };
+}
+```
+
+- **The worker stamps what it knows.** Each event carries the generation of the placement that ran it (for a turn's output, that of the send that opened the turn), which the home requires for an execution's events, and a chat event carries the run of the message that opened its turn. A turn result counts only for a send this computer was given for that chat and turn, and a result's cost only for such a send's run (P2 review fixes).
+- **The worker journals before it sends.** Each event is appended to `<workDir>/journal/<homeId>.jsonl` with its position and flushed to disk before being posted. The last acknowledged position is kept beside it, and the acknowledged prefix is compacted. After a restart or reconnect the worker resends from the last acknowledged position plus one.
+- **The home applies one event per transaction, in order.** A position at or below the stored one is a replay and is skipped. A gap stops the batch and returns the stored position, so the worker resends from there. Otherwise, in one transaction: apply the event, then advance `computers.acked_event_seq`.
+- **Applying is idempotent by key:**
+  - A chat event inserts by id, and nothing happens on conflict.
+  - A cumulative part replaces only with a higher `partRevision`.
+  - `turn_result` completes the run by `runId` only if it is still running, and records cost only on that transition.
+  - `native_session` upserts the binding.
+- **Notifications are recorded in the same transaction as the event that causes them.** When an event completes a run, the pending `notification_deliveries` rows for its channels are inserted in that same transaction, with a key that names the thing itself: `run:<runId>:finished`, never a replay's event id. `notification_deliveries` is already unique on dedupe key and channel. The notifier is split in two: queueing inside the transaction, and sending pending rows after commit, at startup, and periodically. A crash between commit and send therefore loses nothing: the rows are waiting.
+- **Sending to outside services is at-least-once, not exactly-once.** The local rows guarantee each notification is queued exactly once and attempted until it's sent. But if the process dies after a provider (web push, Telegram) accepted a message and before the row is marked sent, it will be sent again. Where a provider accepts an idempotency key, the dedupe key is passed as that key.
+- **The realtime publish runs after commit.** It only refreshes screens, so a lost publish is corrected by the next read.
+- **Old generations stay history, not state.** An event from an older generation is still stored as history, because it happened. Its signals don't change running flags, pending prompts, or run state for the new placement.
+
+### Attachments and artifacts
+
+A worker key reaches only worker routes, and a session token only the agent servers, so files move through two worker routes of their own. Neither falls back to a viewing key or the home's key.
+
+- **Files the person attached, from the home to the worker:** `GET /api/workers/me/attachments/:fileName?command=<commandId>`. It is allowed only when the worker key's computer is that command's target, the command isn't stale, and the file name is in that command's payload. The worker checks the sha256, stores the file under `<workDir>/attachments/<homeId>/<chat>/`, outside the repository, and gives the harness that path. Built in P2.5.
+- **Files an agent produced** follow the rules below once Ri keeps any. Today it keeps none (P2.5), so they aren't built yet, and the home drops any file a computer's chat event names.
+- **Files the agent produced are kept on the worker first.** When the harness produces a file, the worker mints its home file name there and then (`<UUIDv7>.<ext>`, the attachments naming). It copies the bytes to `<workDir>/artifacts/<homeId>/<fileName>` and flushes them to disk, and only then journals the chat event carrying the `Attachment` record with its sha256. Both are on the worker's disk before anything goes to the home. So an outage or a crash loses neither, and a turn that keeps running while the home is unreachable keeps its files.
+- **Uploaded under that name, idempotently:** `PUT /api/workers/me/artifacts/:fileName`, with the sha256 and the same 50 MiB cap and type allowlist as `POST /api/attachments`. The home accepts it only for a name in the attachments format, and only for a chat on a placement this computer held at the event's generation (`execution_placements`). It writes the bytes durably (a temp file, fsync, rename). The same name with the same sha256 again succeeds and changes nothing. The same name with different bytes is refused. A retry therefore repairs the file the journal already names, never makes another.
+- **Bytes before the event is posted.** Before posting a batch, the worker uploads every file its events refer to that the home hasn't confirmed. When the home applies an event, it checks each referenced file is on disk with that sha256. If one isn't (a home restored from a backup, say), the batch stops at that event with 409 naming the missing files, and the worker uploads them again from its spool and resends. So an event is acknowledged only once its files are at home.
+- **Acknowledgement clears the spool.** A spooled file is deleted once the event that refers to it is acknowledged. An upload whose event never arrives is swept at home after 7 days.
+
+### Uncertain delivery
+
+- For a `send`, `started` is written before the message is injected and `finished` once the harness accepts it (Command receipt and recovery).
+- If the worker restarts between the two, it looks for the message in the native history. Found means `delivered`. Not found, or no history to check, means `uncertain`.
+- An uncertain send is shown as such, and is retried only when the person asks (P3.2). It is never retried automatically, which could run a turn twice.
+
+### While the home is unreachable
+
+- A turn already running finishes under the permissions it started with. Its output, files included, is journaled.
+- A permission prompt waits. The worker accepts no new turns and no approvals, apart from the person stopping work through the companion on that computer.
+- The home never reassigns an execution because contact was lost, and shows "MacBook disconnected. Last heard from …" rather than stopped.
+
+### The home's own computer
+
+- The in-process runner uses the same command records and delivery states, delivering at once.
+- It sends its events through the same idempotent apply functions, straight into the database. There's no journal, because there's no network in between.
+- Run completion, cost and notifications are therefore driven by `turn_result` everywhere, rather than by `dispatch` awaiting a whole turn.
+
+## P2.1 The runner split
+
+`src/lib/executor/adapter.ts` does three jobs in one module: it resolves what a session needs from the database, it runs harness processes, and it keeps the live state (running flags, background tasks, pending prompts, command inventory). P2.1 separates them along the runner boundary in P0.3, with no change in behavior on the home's own computer.
+
+### The pieces
+
+- **`src/lib/runner/`**, the code that runs on the executing computer. It imports no database, notification or realtime module, directly or through anything it imports. `src/lib/runner/boundary.test.ts` walks the import graph and fails on one. It holds:
+  - `types.ts`: `SessionSpec`, `SendRequest`, `RunnerSink`, `RunnerSignal`, `ExecutionRunner`.
+  - `local-runner.ts`: the harness sessions and all live state, which move here from `adapter.ts` and `pending-input.ts`. It spawns from a spec, sends, interrupts, stops tasks, closes, recycles, and answers prompts. Everything it learns goes to its sink.
+  - `parse.ts`: `parseStreamEvent`, unchanged, so a worker mints event ids when it parses, as the protocol says.
+- **`SessionSpec`**, built by the home (`src/lib/executor/session-spec.ts`). It is plain JSON: the harness, the working folder, the native session id, the permission mode and the mode to return to after plan mode, the model, variant and effort, the provider config the home decided (MCP servers with their addresses and credentials, tool filters, extra arguments), the session instructions as text, any first-turn brief, the session credential, and whether user skills may be attached. What only the executing computer knows stays with the runner: the harness runtime's environment and binary paths, where session instructions are written, user skill folders, and legacy skill link cleanup.
+- **The home sink** (`src/lib/executor/home-sink.ts`) applies what a runner reports:
+  - chat events, inserted or, for a cumulative part, replaced, through `EventWriter`;
+  - run telemetry from result events;
+  - `native_session`, which saves the chat's native session id;
+  - `pending_input` and `pending_resolved`, which write the request and response rows, notify that input is needed, and mirror leaving plan mode;
+  - `running`, `background_tasks` and `pending_changed`, which publish to the realtime bus;
+  - `turn_result`, which finishes the run and wakes anything waiting on the turn.
+- **The live-state facade** (`src/lib/executor/live-state.ts`) answers "is it running, what's pending, which tasks, which commands" for routes, the rail and health. Today it reads the local runner. From P2.4 it merges the mirrors of each worker's reported state. `status-snapshot.ts` reads through it, instead of reaching into the adapter's global state by symbol.
+- **`adapter.ts`** stays the home's executor API, with the same exports, so its 30 callers and 25 test files are unchanged. `dispatch` validates the selection, checks the budget, creates the run, builds a spec when the runner has no live session, sends, and waits for the turn. Control functions look up the runner for the chat (`runnerFor`, the local runner until P2.4) and call it.
+
+### Sending and finishing a turn
+
+- `runner.send` resolves when the harness has accepted the message (the delivery acknowledgement), not when the turn ends. The runner then watches the turn and reports `turn_result` with the turn id and run id.
+- The home passes a spec only when the runner has no live session for the chat, so a follow-up to a live session does no spec work, exactly as today. If the session died in between, the runner answers `needs_spec`, and the home builds one and sends again.
+- **Runs finish from `turn_result`**, through one function (`finishRun` in `src/lib/runs/finish.ts`). It completes or fails the run only while it's still queued or running, records the trigger's last run, settles a quiet heartbeat, ends the run's telemetry window, touches the chat's outcome on failure, and notifies. Manual sends and scheduled runs both use it, so a run finishes even if whatever started it is gone, which is what a worker's turn needs.
+- `dispatch` still returns when the turn ends, by waiting on the turn's result at the home. Callers that hold a lease or a timeout keep working. A timeout fails the run first, and the later `turn_result` then changes nothing.
+- The concurrency gate (a harness without concurrent send takes one message at a time) stays before the run is created, reading the facade and the target computer's harness capabilities, so a refused send still creates no run. A send holds its place from the gate until the runner has it, since building a spec takes a moment, and keeps the chat marked running meanwhile. The runner enforces the gate again.
+
+### Pending prompts
+
+The prompt store moves into the runner, because the harness waits there. The runner decides auto-allow from the spec's permission mode, and on an allowed exit from plan mode it switches to the spec's pre-plan mode, as the adapter did by reading the database. Changing the mode is refused while a turn runs and recycles the session, so the spec's mode stays current. Answers go through `runner.answerPendingInput`, which checks the request belongs to that chat.
+
+### Closing the P0.4 gaps assigned to P2.1
+
+- The event seam: reconcile and Codex replay write through the sink's writer, and running flags, background tasks and pending prompts publish only from the home sink. User messages and run rows are the home's own records and stay home-side.
+- A quiet heartbeat check-in now closes its harness when it archives the chat. The runner closes a session idle for 30 minutes with no pending prompt and no background task. The next message resumes it by native session id.
+
+### As built
+
+- `src/lib/runner/`: `types.ts`, `local-runner.ts`, `live-state.ts` (the state and its readers, with no agent engine import), `pending.ts` and `pending-classify.ts` (the prompt store, and turning a request into a prompt), `parse.ts`, `sink.ts`, `errors.ts`, `first-turn.ts`. `boundary.test.ts` walks their import graph, and checks itself against the home sink, which must fail.
+- Home side: `session-spec.ts`, `home-sink.ts`, `live-state.ts` (the facade), `placement.ts` (`runnerFor`), `turns.ts`, and `src/lib/runs/finish.ts`. `adapter.ts` keeps its exports. `pending-input.ts` and `status-snapshot.ts` re-export the runner's store and state, and the two prompt-list routes read the light facade.
+- `EventWriter.write` resolves true when the event was new. The live writer takes run telemetry only from a result event it inserted. Reconcile replays through the plain writer, and all three replay paths (Claude, Codex, OpenCode) take a writer, so a worker can feed the same loops into its journal. The Codex path no longer inserts directly.
+- `dispatch(chat, message, options)` drops its unused writer argument. Scheduled runs pass their `runId`, so the turn's result finishes them. The scheduler's finalizers call `finishRun`.
+- The prompt answer route answers through `answerPendingInput`, the runner's check that a prompt belongs to the chat.
+- An agent main chat's brief is returned as text (`instructions`), and the runner writes the file.
+- The idle close runs in the server's 60-second sweep.
+- Tests: `runner-split.test.ts` (12, through the real executor with the fake harness: a spec only when a session must start, `needs_spec`, a second message refused without a run while the first starts on a one-at-a-time harness, runs finished from the turn result with or without a waiter, a late result after a timeout, prompts answered only by their own chat, plan mode followed after leaving it, the idle close and resume, a waiting session left alone, and the quiet heartbeat's close). Three of them were checked by breaking the behavior they cover. The boundary test adds 11.
+- Live on the dev home: a Demo execution resumed its Claude session from a spec, answered, and its run completed from the turn result, with cost and summary. A follow-up went into the same Claude process without building a spec.
+
+## P2.2 Enrollment and the worker connection
+
+P2.2 is the transport: how a computer becomes a worker, how it stays connected, and how the home asks it things. Durable commands and events, with their journals, are P2.3. Routing real work to a worker is P2.4.
+
+### Records (migration 0004, additive)
+
+- **`computer_grants`**: short-lived, single-use grants. `kind` is `enroll` (become a worker) or `associate` (link this computer's browser). Each has the sha256 of its secret, the computer it names (an enroll grant may name none, making a new computer when redeemed), the key that created it, `expires_at`, and when and by which key it was redeemed. Enroll grants last 10 minutes, and association grants 2 minutes.
+- **`worker_enrollments`**: one row per worker key (`api_key_id`, primary key) with its `computer_id` and the grant it came from. This row is what makes a key a worker key. A viewing key never gets one: only redeeming an enroll grant creates a worker key, and it's a new key. Revoking the key ends the enrollment.
+- **`computers`** gains what a worker reports: `worker_protocol`, `worker_version`, `harnesses` (JSON) and `reported_state` (`awake | asleep | stopped`). All are null until a worker reports, and stay null for the home's own computer.
+
+### Enrolling
+
+1. On the computer to enroll, `ri worker enroll` explains what enrolling allows and asks to continue. That confirmation on the computer itself is the local approval.
+2. It asks the home for an enroll grant for this computer, with the computer's existing viewing key. That request is the owner's authorization, and it names the computer the key belongs to.
+3. It redeems the grant at `POST /api/workers/enroll`. The grant is the only credential this route takes. The home creates the worker key and its enrollment in one transaction, and marks the grant used.
+4. The worker key goes in `<configDir>/worker.json` (0600), which is machine-local and never backed up.
+
+An owner can also create a grant elsewhere (`ri worker grant` on the home, and in the UI later) and type its code on the computer (`ri worker enroll --code`).
+
+### The boundary
+
+The proxy resolves each key's scope, forwards it as `x-ri-api-key-scope` with the worker's `x-ri-computer-id`, and strips inbound copies of both. A worker key reaches only `/api/workers/me/*`, and only a worker key reaches them. Everything else answers 403, so a worker key can't read tasks, and a viewing key can't pose as a worker. Handlers check the enrollment again.
+
+### The connection
+
+- The worker opens `GET /api/workers/me/stream`, a server-sent event stream. It carries `hello` (the home's id and the protocol it speaks), `request`, `revoked`, and a `ping` every 15 seconds. Commands join it in P2.3, with the `after` cursor.
+- Every worker request carries `x-ri-worker-protocol`. A home that doesn't speak that protocol answers 426 with "Update Ri on MacBook", and the worker stops rather than retrying.
+- The worker posts `POST /api/workers/me/heartbeat` every 20 seconds: protocol, version, harnesses, and `awake`. The home stores it and updates `last_seen_at`.
+- On a dropped connection the worker reconnects with backoff from 1 to 30 seconds, with jitter. A 401 or a `revoked` event stops it: the key was revoked, and it says so.
+- The stream checks the key on every ping, so a revoked worker is cut off within 15 seconds.
+
+### Requests
+
+A request is a read with a timeout, never persisted (P2 protocol, Commands). The home sends `request` with an id and kind on the stream, and the worker answers at `POST /api/workers/me/requests/:id/result`. The first kind is `describe_harnesses`, which the worker answers from its own harness runtime. An unanswered request fails after its timeout, and an unknown kind is answered as unsupported.
+
+### This Mac
+
+The worker links its computer's browser through the home, with no loopback server. `ri worker open` asks the home for an association grant (`POST /api/workers/me/associations`), then opens `<home>/#associate=<grant>` in this computer's default browser. The web app redeems the grant with its own viewing key (`POST /api/devices/associate`), which records that the browser's key is on that computer. The grant only proves the page was opened by that computer's worker, and it links identity only: the browser key gains no worker authority.
+
+### As built
+
+- Migration `0004_low_roulette`, additive: `computer_grants`, `worker_enrollments`, and the four reported columns on `computers`.
+- Queries: `createComputerGrant`, `redeemEnrollGrant` (one transaction: the computer, the new key, its enrollment, retiring an earlier worker key for the computer, and the used grant), `redeemAssociateGrant`, `getWorkerEnrollment`, `isWorkerApiKey`, `listEnrolledComputerIds`, `recordWorkerHeartbeat`.
+- The proxy forwards `x-ri-api-key-scope` and `x-ri-worker-computer-id`, stripping inbound copies, and holds the boundary for `/api/workers/me` and everything under it. `/api/workers/enroll` takes only its grant. Handlers check again through `requireWorker` (`src/lib/workers/route-auth.ts`), which also answers 426 to another protocol.
+- Home side: `src/lib/workers/protocol.ts` (shared with the worker), `hub.ts` (live streams and waiting requests), the routes under `/api/workers`, `/api/devices/associate`, `/api/computers` and `/api/computers/:id/harnesses` (`?fresh=1` asks the worker). Revoking a worker key closes its stream at once. A worker error answers 424, not a 5xx, because clients read gateway statuses as the home being unreachable.
+- Worker side: `src/lib/worker/` (`config.ts`, `client.ts`, `sse.ts`, `harnesses.ts`, `run.ts`), inside the import boundary with the runner. `ri worker enroll | run | status | open | disable | grant`.
+- Orchestrator actions `list_computers` and `describe_computer_harnesses`, which reach the server's hub over HTTP, since the home's CLI runs actions in its own process.
+- The web app redeems `#associate=` on load and on a hash change, remembers the computer in `ri.thisComputer`, and says "This browser is on MacBook".
+- Tests: `src/lib/workers/workers.test.ts` (17), over real HTTP through the real proxy and routes (`src/test/fixtures/home-server.ts`), with the real worker loop. They cover enrolling, single-use and expired codes, the home's own computer refused, another protocol refused with what to do, one worker per computer, both sides of the key boundary with forged headers, a request answered and one answered by the wrong computer, reconnecting after a drop, a stale stream replaced, revocation, a different home, turning itself off, This Mac, and the stream reader. The boundary test covers the worker. Writing them found that `/api/workers/me` itself was outside the boundary, which is fixed, and two tests that raced under full-suite load, which now wait on the right side.
+- Live on the dev home, after its restart applied 0004 (snapshot first, in `~/ri-homes-snapshots`): the stand-in laptop enrolled, connected, and its heartbeat reported protocol 1 and version 0.1.0. A fresh harness request went down the stream, and the worker answered with this Mac's real harnesses (Claude 2.1.281 and Codex 0.153.4 installed, Cursor and OpenCode missing). Revoking its key stopped the worker at once with the reason, and it removed its enrollment. In a real browser, an association link linked a throwaway key to the stand-in and showed "This browser is on MacBook (stand-in)", both in a new tab and by a hash change in an open page. That second case failed first and is now handled.
+
+## P2.3 Journals and applying what a worker reports
+
+P2.3 makes the P2 protocol's delivery rules real: durable commands with a receipt cursor and acknowledgements, a worker journal of events applied in order at home, cumulative parts that only move forward, and notifications that can't be lost between an event and its delivery. P2.4 then routes real work (send, interrupt, stop, answers) through it.
+
+### At home
+
+- **Migration 0005, additive.** `worker_commands` as in P0.3, with `seq` set when first streamed. `computers.acked_event_seq`, an integer counter starting at 0, the highest contiguous event position stored. `chat_events.part_revision`, null except on a cumulative provider part.
+- **Commands.** `queueWorkerCommand` writes a command in the caller's transaction and wakes that computer's stream. The stream, on connecting with `after`, numbers queued commands in order and marks them `sent`, then sends every command numbered after the cursor that is still waiting for an acknowledgement. An acknowledged command is never resent. Re-enrolling a computer marks its unacknowledged commands `uncertain`, since the earlier worker may have acted on them and the new one has no record. `POST /api/workers/me/commands/:id/ack` records `delivered`, `failed`, `stale` or `uncertain` idempotently and returns the state it holds. A command can be cancelled only while queued.
+- **One set of apply functions** (`src/lib/executor/apply.ts`) for everything a runner reports, used by the home's own runner through its sink and by `POST /api/workers/me/events` for a worker. Each event is applied in its own transaction together with advancing `acked_event_seq`: a chat event inserts by id or replaces a part only with a higher revision, a turn result finishes its run, a prompt writes its row. Realtime publishes and notification sending happen after commit.
+- **Notifications split in two.** `queueNotification` writes the pending delivery rows inside the transaction that caused them. Sending runs after commit, at startup, and every 5 minutes for rows left pending, so a crash between commit and send loses nothing. Sending to outside services is at least once.
+- **Run telemetry** from a result event runs synchronously inside the same transaction.
+
+### On the worker
+
+- **Command journal** `<workDir>/commands/<homeId>.jsonl`: `received` is appended and flushed to disk before a command is acted on, `started` before any effect outside the journal, `finished` with the result after. The receipt cursor is the highest number with every earlier one received, and it's what the stream resumes after. A command id already journaled is never applied again. Its recorded outcome is acknowledged instead.
+- **Acknowledgements** are sent after `finished` is on disk, and resent on reconnect until the home confirms the state.
+- **Event journal** `<workDir>/journal/<homeId>.jsonl`, with positions from 1 and the last acknowledged position beside it. The worker's runner sink appends each event and signal, flushed to disk, then the poster sends batches from the last acknowledged position. A 409 or a gap answer resends from what the home says it has. The acknowledged prefix is compacted.
+- **Recovery after a restart** runs each command left `received` or `started` through its kind's rule (the table in "Command receipt and recovery"). Kinds register their handler and their recovery together, so a kind can't exist without one.
+
+### As built
+
+- Migration `0005_clumsy_clint_barton`, additive: `worker_commands`, `computers.acked_event_seq`, `chat_events.part_revision`, and `chat_sessions.computer_id` (null is the home's own computer). The generated `ALTER` for the last dropped its `ON DELETE set null`, so the SQL was corrected by hand to match the schema. Rehearsed on a copy of the dev home first.
+- Home: `queueWorkerCommand`, `takeCommandsForStream`, `ackWorkerCommand` (a final state stays final; uncertain can still resolve), `cancelWorkerCommand`, the event position, and a revision guard in `replaceChatEventPart`. Routes: the stream sends commands from `after` and when woken, `POST /api/workers/me/commands/:id/ack`, and `POST /api/workers/me/events`, which applies events only for chats that run on the calling computer.
+- `src/lib/effects/after-commit.ts` collects what waits for commit. `finishRun` splits into `finishRunInTransaction`, the notifier into `queueNotification`, `deliverNotification` and `drainPendingNotifications` (at startup and every 5 minutes), and run telemetry has a synchronous core. The home sink is a thin wrapper over `apply.ts`.
+- Pending prompt rows now take their ids from the request id. They used a fresh random id each time, so the same prompt applied twice would have been stored twice, although a comment said otherwise.
+- Worker: `command-journal.ts` (received, started, finished, confirmed, the receipt cursor, and compaction that keeps the cursor's place), `event-journal.ts` (positions, acknowledgement, compaction, and a rebase when the home holds more than the journal, as after the work folder was cleared), `sink.ts`, `poster.ts` (one post at a time, and says which positions are gone if the home was restored from an older backup), `commands.ts` (per chat order, no double application, recovery by kind, acknowledgements resent until confirmed), and `durable-file.ts`. The worker loop wires them in, and `ri worker run` installs the worker sink for this computer's runner.
+- A kind the worker doesn't handle fails with "This computer doesn't handle … commands yet. Update Ri here." Real kinds arrive with P2.4.
+- Tests: `src/lib/workers/journals.test.ts` (16, over real HTTP with journals on disk): once-only application whatever is resent, recovery after a restart without running again, an acknowledgement outliving an outage, the receipt cursor, cancellation leaving no gap, re-enrollment, an unhandled kind, events in order, offline and across a restart, replays and gaps, refusal for another computer's chat, a cleared journal, compacted positions, part revisions, and the notification drain. Four were checked by breaking the behavior they cover.
+- Live on the dev home, after its restart applied 0005 (snapshot first): a queued command was numbered, streamed to the stand-in laptop as it connected, journaled received, finished and confirmed, and recorded at home as failed with that message. A restarted worker didn't receive it again. Stopping the worker with Ctrl-C now sends its last heartbeat as `stopped`. It didn't at first: tsx exits on a signal when no listener remains, and the worker's `once` listener was removed before it ran.
+
+## P2.4 Routing work to the computer that runs it
+
+P2.4 puts the protocol to work: an execution can be started on a connected computer, and everything about it (sends, interrupts, stops, prompt answers, file views) reaches that computer.
+
+### Placement
+
+- **`execution_placements`** (migration 0006, additive), as in P0.3: one open placement per execution, whose generation every execution command carries. An execution with no row runs on the home's own computer at generation 1, which covers every execution from before this build with no backfill. `worker_commands.source_event_id` is unique, so one message queues one send.
+- **`chatPlacement`** says where a chat runs: its execution's placement, or for a chat without one, its `computer_id` (null is the home). `runnerFor` returns the home's own runner or a **remote runner**, which turns each call into a durable command stamped with the placement generation. A send is `queued`, not `delivered`, and a stop is `queued`, not yet closed. Callers that report stops (the coordinated stop, the task stop) report a queued one as pending, not as a failure.
+- **Fencing.** Events are checked against placements: from the current one they apply fully, from one this computer held before they're kept as history without changing live state, and anything else is refused. On the worker, a command from a generation older than the newest it has seen for that execution is `stale`.
+
+### Starting and sending
+
+- `dispatchExecutionSession`, the create route and `start_execution` take a `computerId`. A computer that isn't enrolled, or doesn't have the agent set up and ready, is refused with the reason, never swapped for another (spec §3.3). The home creates the execution and its placement, and queues a `prepare`.
+- The worker finds the agent's folder in its own setup files, makes the worktree there (or uses the folder itself for live mode or a folder that isn't a repository), notes it in its journal before anything else so recovery reuses it, and copies the agent's files. The home records the worktree on the placement and the branch on the execution. `executions.worktree_path` stays the home's own path, so nothing on the home looks for the other computer's folder. A setup script follows as its own `run_script`, never repeated after a restart that caught it running.
+- A message sent before the worktree exists isn't held back. It's queued at once, with a note that its folder is the worktree this computer prepares for the execution. The worker carries out an execution's commands in order, so the prepare finishes first. The message is saved from the start.
+- `dispatch` builds the spec for the computer that runs it: capabilities from its worker's report, reference paths from its setup report, and, since P2.7, the home's servers at the worker's address for the home with a session token. The home's own model catalog stands in for the computer's. A second dispatch of a message already queued (the health check's orphan re-fire) returns before creating a run.
+- A send acknowledged failed, stale or uncertain finishes its run in the same transaction, since no turn result will come.
+
+### On the worker
+
+`executionHandlers` carries out `send`, `interrupt`, `stop_task`, `stop`, `answer_pending_input`, `prepare` and `run_script` through the local runner. Each kind has its own recovery rule after a restart:
+
+- **send:** received but never started is sent. Started is looked up in Claude's transcript for the session: found is `delivered`, and missing or not checkable is `uncertain`.
+- **interrupt, stops:** repeated.
+- **answer_pending_input:** stale once the prompt is gone.
+- **prepare:** resumes from its note.
+- **run_script:** uncertain.
+
+Heartbeats carry the worker's live state, which replaces the home's mirror for that computer, and the placements it holds. The home answers with any it no longer holds, and the worker stops their sessions.
+
+### Reads and live state
+
+- **Execution reads** (tree, file, diff, status, diff stats, bulk diff stats, work in progress) for an execution elsewhere are answered by its worker. `src/lib/workspaces/execution-reads.ts` is the same library code the routes use, with no database. The request names the execution, never a path: the worker reads only an execution it prepared, in the worktree it prepared, and the agent's folder from its own setup files. A computer that isn't connected answers 409 with "Laptop is not connected right now".
+- **Live state** for chats elsewhere is the home's mirror (`remote-live.ts`): running, prompts, background tasks and inventory from each worker's signals, replaced by each heartbeat's snapshot. The live-state facade merges it with the home's own runner, and prompt answers check the prompt belongs to the chat as its computer last reported.
+- **The health check** leaves a chat elsewhere alone: no reconcile of a transcript the home doesn't have, and no clearing of mirrored state. It only makes sure a message that never reached the queue gets there.
+
+### The P0.4 gaps closed here
+
+1. `run_trigger` and `cancel_run` from the home's CLI now run in the server, where the harness can be watched and stopped.
+2. `archive_workspace` stops the agent's chats and terminals like the app route, through one `archiveAgent`.
+3. `dispatch` refuses a chat someone took over, whichever path sends: commit, PR, conflicts, help, scheduler, coalesce, or health.
+8. Interrupting a turn denies the prompt it was waiting on.
+
+### Also found and fixed
+
+A test could reach production. The home's self-calls fall back to port 4224 when nothing says otherwise, and production answers there on this machine. The test setup now points them at a closed port, and the whole suite still passes, so no test relied on a real server.
+
+### As built
+
+- Home: `execution_placements` queries (`placementOf`, `createPlacement`, `markPlacementPrepared`, `chatPlacement`, `heldPlacement`), `remote-runner.ts`, `remote-live.ts`, `computers.ts` (capabilities and working folder per computer), `remote-reads.ts` (now `owner-files.ts`, which also makes changes since P3.5), and the create route's and the ack route's new paths.
+- Worker: `handlers.ts` (the kinds above, `executionReads`, `agentFolderHere`, `findInClaudeHistory`), and the journal's notes, generations, placements and prepared worktrees. `ri worker run` gives the worker its handlers and reads.
+- Tests:
+  - `remote-execution.test.ts` (5) and `remote-start.test.ts` (3) run the worker in a process of its own (`src/test/fixtures/worker-process.ts`) against the home over real HTTP. They cover a turn run there, sending once, a prompt answered from home, an interrupt, a stale placement, preparing from its own repository with a message sent first and the setup script after, reads, a disconnected computer, and refusing a computer without the agent.
+  - `handlers.test.ts` (8) covers each recovery rule and the fence.
+  - `runner-split.test.ts` adds the three gaps, and `journals.test.ts` the heartbeat's release.
+- Live on the dev home, after its restart applied 0006 (snapshot first): `start_execution` with the stand-in laptop's computer made a worktree in the stand-in's own Demo clone, and real Claude answered there, "pong from the laptop". The run completed with its cost and summary. The worktree's tree, status and diff stats came back through the home's own API.
+
+## P2.5 Attached files
+
+P2.5 gets the files a person attaches to a message to the computer that runs the chat, and settles what "retained output" means today.
+
+### Files the person attached
+
+- **Where the path is decided.** Expanding a message used to turn each file the agent reads itself (text, code, images, PDF, JSON, XML) into its path at home, before anything knew where the chat runs. Now expansion extracts only what the agent can't read (docx, xlsx, audio, as before) and leaves the rest as `[[file:]]` markers. `dispatch` takes the message's attachments and places them where it routes the send: home paths for a chat at home (`placeFilesAtHome`), and for a chat elsewhere the markers stay and the send carries the files as `{ fileName, originalName, mimeType, size, sha256 }` (`describeInputFiles`). A home disk path is never sent. The messages route and the health check's re-fire are the two callers that carry attachments, and both pass them.
+- **The worker attachment route**, `GET /api/workers/me/attachments/:fileName?command=<id>`, serves a file only for a send that names it, to the computer it went to, while that send is out and unacknowledged, and while the chat's placement is still at the send's generation. Anything else is 404 (not this computer's, or not in the send), 409 (acknowledged, or stale) or 400 (not a stored file name).
+- **On the worker**, the send handler fetches each file before journaling `started`, since fetching is safe to repeat. Each is written to a temporary name, checked against its size and sha256, flushed, and renamed. A copy already there that checks out is used as it is, and a partial one a crash left is replaced. The home and chat ids name the folder, so only plain ids are accepted. A dropped connection or short or damaged bytes are tried three times. A file that can't be brought (gone from home, refused, or damaged every time) fails the send with the reason, which finishes its run. The harness gets this computer's path where each marker was.
+- **Recovery** looks for the message in the native history as the harness got it. The placed path depends only on the home, the chat and the file name, so recovery computes the same text without fetching again.
+- The files stay with the chat on that computer for later turns to read. They go when the execution's folder there does, which comes with archiving on connected computers (P3 and P4).
+
+### Output an agent produced
+
+- What an agent makes on a connected computer is its work in the worktree there. It stays on that computer. The home shows it through the worker's reads (tree, file, diff, P2.4), and it leaves through Git. Nothing about it needs uploading.
+- "Retained artifacts" in the spec are something else: files an agent produces that Ri keeps at home as attachments, the way it keeps uploads. Ri has none from a harness. The runner persists messages, tool calls and results as chat events, never a file as an attachment. What does save attachments (uploads, capture, the Pebble webhook, favicons, the browser's downloads and page captures) runs at home, the browser included. `runs.artifactRefs` is a different thing: which tasks and notes a run's actions changed.
+- So there is nothing on a connected computer to upload yet, and the upload protocol above (spool, `PUT /api/workers/me/artifacts/:fileName`, the apply-time check, clearing on acknowledgement, the 7-day sweep) stays specified and unbuilt. Building it with no producer would be transport nobody exercises.
+- What P2.5 does enforce is the rule that matters now: a computer never presents a file only it has as a download. `WorkerChatEvent` has no `attachments`, and the home drops any a computer's chat event names.
+- The first producer brings the upload with it: say, harness image output kept in the transcript, or an action that attaches a file from an agent's disk to a note (with P2.7, a remote session's `describe_paths` would otherwise point at the home's attachments directory).
+
+### As built
+
+- `src/lib/attachments/markers.ts`: the marker rules, with no database, shared by home and worker. `expand-markers.ts` leaves files the agent reads itself as markers.
+- Home: `src/lib/executor/input-files.ts`, `DispatchOptions.attachments`, `SendRequest.files`, `SendPayload` in `protocol.ts` (shared by the remote runner and the worker), and the worker attachment route.
+- Worker: `src/lib/worker/input-files.ts` (`fetchInputFiles`, `placeInputFiles`, `inputFilesDir`), used by the send handler and its recovery.
+- Tests:
+  - `attachments.test.ts` (8) runs the route and the worker's fetch over real HTTP: who may fetch what and when, reuse of a good copy, replacing a partial one a crash left, damaged bytes, a file gone from home, folder names only from plain ids, and a computer's chat event naming a file.
+  - `handlers.test.ts` (+3): fetched before `started`, a failed fetch leaves the send unstarted, and recovery looks for the placed text.
+  - `remote-execution.test.ts` (+1): with the worker in its own process, the fake harness there gets the laptop's own copy, and the command carries markers and checksums, never a home path.
+  - `runner-split.test.ts` (+1): a chat at home gets home paths, and a marker for a file not attached stays.
+  - `markers.test.ts` (4).
+- Live on the dev home: an image and a text file uploaded there, sent through the messages route to a new execution on the stand-in laptop. Real Claude there read both from `~/ri-homes-laptop/.work/attachments/<home>/<chat>/` and answered "LAPTOP HERON 42" on green, with the passphrase from the text file. The send carried markers and checksums, no home path, and the laptop's copy matched the home's sha256.
+
+## P2.6 Who is acting
+
+P2.6 makes every command say who caused it, from their credentials, and keeps approving a permission a person's call.
+
+### The actor
+
+- `src/lib/auth/actor.ts` derives it, never from anything a caller says about itself:
+  - A request with a chat's signed session credential is that agent. Any other request the proxy let through is a person, on the key it accepted.
+  - An orchestrator action with a session credential is that agent. Without one, it's a person only from the home's own CLI, run there or passed to the server with the home's key. Over HTTP with any other key it's an agent, since a person elsewhere answers in the app and an agent there could hold a key it found on disk.
+  - A stored message's sender is its `sender_session_id`, else the person, for the health check's re-fire.
+- It goes on every command to a connected computer: sends (messages route, re-fire), answers, interrupts, task stops, restarts, resyncs, takeovers, the coordinated stop, agent archive, and `prepare` (the create route, and `start_execution`, which now forwards the calling chat's credential). Scheduled and internal work stays `system`.
+- The label on a message another chat sent is applied at home, so it reaches a connected computer in the send's text, as it reaches a home harness.
+
+### Only a person approves a permission
+
+- One rule, `answerRefusal` in the runner's pending module: an agent can't allow a permission request, which covers tools and leaving plan mode. It can deny one, which never widens what the agent there may do, and it can answer a question.
+- The home checks it before an answer leaves (the answer route answers 403 `human_only`, and the action throws `unsupported`, both saying to ask the person). The runner holding the prompt checks it again: the home's own, or a connected computer's worker, on the actor the command carries. So an agent approval that got past the home is refused on the laptop.
+- `answerPrompt` (`src/lib/executor/answer-prompt.ts`) is the one way to answer, for the route and the action. The action now answers in the server as its caller, instead of calling the route with the home's key, which would have made every agent look like a person there. An agent's deny tells the blocked agent who denied it.
+- The orchestrator's brief and the action's description say permission prompts belong to the user.
+- Permission modes: new sessions default to `auto_all`, `start_execution` may set the mode of the execution it starts, and no action changes an existing session's mode. So an agent can't widen a session's mode to get around a prompt.
+- **Open decision (Trey, 2026-09-25: fine for now, keep noted).** The spec's §6 says an agent can't *approve* a permission request, and the P2.6 line says it can't *answer* one. This build follows §6: an agent can still deny one, so the orchestrator can redirect a stuck agent with a reason. Refusing agent denials too is a one-line change to `answerRefusal`.
+- The limit: an agent that reads the home's own key file can pass for a person on the home. Credentials can't separate processes on one machine (the isolation is paths, not keys). Sessions on connected computers get tokens of their own in P2.7, not a key.
+
+### Ownership before delivery
+
+- The home marks a queued command stale, instead of streaming it, when its chat or execution no longer runs on that computer at its generation, and finishes a send's run. The worker's fence can't catch this case: a laptop that was away never saw the newer placement. Checked each time the stream sends. Only a move replaces a placement (P3), but the check is in place first.
+- Answers are bound to the request id and the chat at home and on the worker, and to the generation by the fence. The worker takes commands only from its enrolled home's stream.
+
+### Also found and fixed
+
+- Stopping `ri worker run` left its harness sessions running, which kept the process alive after "Stopped.". It now closes them, and each chat resumes from its native session on its next message.
+- Sessions on a connected computer never closed when idle. The 30-minute idle close ran only at home. `ri worker run` now sweeps every minute too.
+
+### As built
+
+- `src/lib/auth/actor.ts`, `answerRefusal` and `HUMAN_ONLY_APPROVAL` in `src/lib/runner/pending.ts`, `answerPrompt`, `staleQueuedCommands` in queries, `settleUndelivered` (`src/lib/workers/undelivered.ts`, shared by the ack route and the stream), `closeAllSessions` in the local runner.
+- The runner interface takes the actor on interrupt, stop, task stop and answer. The adapter's `abort`, `stopTask`, `close` and `answerPendingInput` pass it on.
+- Tests:
+  - `runner-split.test.ts` (+3): a person approves and an agent is refused but may deny, through the real route with a real credential. An agent answers a question through the action. The action refuses an agent, and a caller elsewhere without a session, and accepts the home's own CLI.
+  - `remote-execution.test.ts` (+3), with the worker in its own process: the home refuses an agent approval and queues nothing, an approval smuggled past the home is refused on the laptop while the prompt keeps waiting, and the person's goes through under their key. Sends through the real proxy and messages route carry the person, or the sending chat with its label. A message saved while the laptop was away, for a placement replaced meanwhile, is never sent, and its run fails with `placement_moved`.
+  - `handlers.test.ts` (+1) and `remote-start.test.ts` (the prepare's actor).
+  - Each new guard was checked by removing it and watching its test fail.
+- Live on the dev home: real Claude on the stand-in laptop, in ask mode, asked to run a command. An approval carrying the orchestrator chat's credential was refused with 403 and queued nothing, and the prompt kept waiting. The person's approval went through, Claude wrote the file in the laptop's worktree, and the send and the answer carry the person's key. Stopping the stand-in's worker then closed its Claude session and exited, with no process left.
+
+## P2.7 Sessions elsewhere: the home's servers, the environment, persona and memory
+
+P2.7 gives a session on a connected computer what a session at home has, without a home path, a home key, or a managed file in a repository. Today only executions run elsewhere (an agent's main chat can live elsewhere once P3.1 lets an agent have no folder at home), so executions are where each piece is exercised, and the main chat's piece is built on the same path.
+
+### The home's servers, reached with a session token
+
+- **Session token.** For a session elsewhere, the home mints `ri_session_<chat>.<computer>.<generation>.<signature>`, signed with the home's key (HMAC, as the session credential is). The signature also covers the worker enrollment it was issued to. It carries no authority of its own: the proxy accepts it only while that chat is active and placed on that computer at that generation, and while the enrollment it was issued to is that computer's current one. Archiving the chat, a move, a new generation, or turning off the computer's local execution ends every token for it, and enrolling the computer again doesn't bring one back, with nothing to revoke (the last three since the P2.7 to P2.9 review).
+- **Where it reaches.** Only the three servers a harness uses: the orchestrator MCP, the connectors MCP and the browser MCP, and on each only the session's own scope. An execution reaches connectors for its own agent's allowlist (`?ws=` its agent) and the browser in its own agent's profile (`?profile=ws-<agent>`). An agent's main chat also reaches the orchestrator MCP. Anything else is 403. The actor is the session, from the token, with location `elsewhere`, so path-taking actions refuse it as they refuse any caller elsewhere.
+- **Addressed through the worker.** The home doesn't know the address a computer reaches it by, and shouldn't guess. It sends each server as `ri-home:/api/...` with the token, and the worker puts its own home address in front before starting the harness. The token never touches argv: agentex stages MCP configs as a 0600 file.
+
+### The environment manifest
+
+The spec (§4.3) asks for a resolved environment manifest per execution: source folder, working folder, connected folders, Git checkpoint and capabilities, in the session instructions and in a readable local file outside the repository.
+
+- **The home decides what's expected**: the agent, the home and computer names, the working folder, the mode (a worktree, live in the agent's folder, or a plain folder), the branch and base, the reference aliases with their descriptions, and what the session can use (harness, model, permission mode, connectors, browser).
+- **The computer running it resolves what only it knows**, when the session starts: the agent's folder from its own setup files, each reference from the agent's local setup (`resolveSetups`, as the setup reports do), and the checked-out branch and commit. A reference that's omitted, unset or missing is listed as such, never replaced. A worker never starts against the home's cached copy of its own paths.
+- **Delivered twice.** Written to `<workDir>/session-instructions/<chat>.environment.json`, beside the session instructions and outside every repository, and rendered as a short "Your environment" block at the end of the session instructions, which names the file. Written when the session starts, so a change to the agent applies to the next session, never mid-turn.
+- Every execution gets it, at home too.
+
+### Persona and memory
+
+- **Persona as text, never as a file.** A session at home that uses the persona reads USER.md and SOUL.md at the home. A session elsewhere gets their text in its session instructions instead, and nothing is copied to that computer as a file. Today that's an agent's main chat, which runs elsewhere from P3.1. Executions don't use the persona, at home or elsewhere.
+- **Memory stays at home.** MEMORY.md has no copy anywhere else. Two actions, for any session: `read_memory` returns it, and `submit_memory_finding` sends a finding to the home's main chat, labeled with the session that found it, for the orchestrator to record in MEMORY.md with its own file tools if it's worth keeping. A session elsewhere reaches them through the orchestrator MCP or the CLI there, which calls the home.
+
+### Also for a main chat elsewhere
+
+An agent's main chat brief named other home paths besides the persona: its folder (the home's copy of the agent's folder) and where attached files are. Elsewhere, the folder is the one on that computer, its connected folders are the ones that computer reported, and an attached file is the path its message gives (P2.5).
+
+### As built
+
+- Token: `src/lib/auth/session-token.ts` (`mintSessionToken`, `verifySessionToken`, `sessionMayReach`), accepted in `src/proxy.ts` before any key lookup, with scope `session` and the chat in a proxy-owned header (`SESSION_CHAT_HEADER`, stripped from anything a caller sends). The orchestrator MCP route and `actorFromRequest` take the session from it. `getWorkerEnrollmentForComputer` in queries.
+- Spec: `buildSessionSpec` turns a session elsewhere's servers into `ri-home:` addresses with its token (`reachedFromElsewhere`), and the worker's send handler puts its home address in front (`atHome`). `HOME_ADDRESS_SCHEME` in the protocol.
+- Environment: `src/lib/runner/environment.ts` (`resolveEnvironment`, `renderEnvironment`), `SessionSpec.environment` built by the home (`expectedEnvironment`), resolved and written by the local runner when a session starts (`writeSessionEnvironment`, removed with the instructions).
+- Persona and memory: `personaSection` and `elsewhere` in the main chat brief, `AgentMainChatSpawnArgs.elsewhere` with the folder and references there, `read_memory` and `submit_memory_finding` in the registry, and the orchestrator skill's action list.
+- Tests:
+  - `session-token.test.ts` (5): the token holds while placed, ends on a new generation or a revoked worker, reaches only its servers in scope, and passes the real proxy as its session from elsewhere.
+  - `remote-execution.test.ts` (+1), with the worker in its own process: the harness there gets the browser server at the laptop's address for the home with a session token, never the home's key. The token initializes that MCP server through the real proxy, and is refused in another profile and on a worker route.
+  - `environment.test.ts` (3): resolved from this computer's setup (a worktree, live, a plain folder, each reference state), the home's view kept when there's no setup here, and the rendered block.
+  - `remote-start.test.ts` (+1): a laptop execution's environment file and block, with a reference mapped on the laptop and one left out, and nothing of Ri's in the repository. `runner-split.test.ts` (+1): the same for an execution at home.
+  - `agent-main-chat.test.ts` (+2): the brief elsewhere carries the persona as text, its folder there, and memory as actions, with no home path. Its spec reaches the orchestrator with a session token at `ri-home:`.
+  - `registry.memory.test.ts` (3): memory read from the home, a finding reaching the main chat labeled with its execution, and the main chat told to edit the file itself.
+- Live on the dev home, with real Claude on the stand-in laptop: it called `browser_status` on the home's browser server, and the home logged `POST /api/orchestrator/browser/mcp?profile=ws-<Demo>` answering 200, with the session's token. Asked about its environment, it named the laptop's worktree, the agent's folder on the laptop, its branch and base, and the `agentex` folder as the laptop maps it (`macbook/dynamism/agentex`), not the home's (`mini/code/agentex`). The worktree stayed clean.
+
+## P2.8 Faults
+
+P2.8 tests each fault the spec names, end to end where it matters, with the worker in a process of its own against a home over HTTP. Mapping them to what's already tested found three gaps, fixed here.
+
+### The gaps
+
+- **Turning off a computer's local execution left its work hanging.** Revoking a worker key (from the computer, or the owner revoking the device) closed its stream and nothing else. Its queued commands waited forever, its sent ones stayed sent, and runs on it stayed running with no one left to report them. Now one path (`retireWorker`) does it all in a transaction: queued commands are cancelled, sent ones become uncertain, and runs still open there fail with the reason, their waiting turns settled. Its live state leaves the home's mirror.
+- **A worker that said it was stopping left its prompts at home.** The stopped heartbeat now clears that computer's mirror, since a stopping worker closes its sessions and their prompts with them. A computer that just goes quiet keeps its mirror: unknown is not stopped.
+- **A hard crash left the harness running its tool call.** A restarted worker now stops what its predecessor left, before recovering anything. Their turns are then reported cut off, as before. How it finds them changed in the P2.7 to P2.9 review: first by command line (an orphan naming the worker's instructions folder), which the review showed any process could match, now by what the predecessor recorded starting, checked by start time before each signal (see that section).
+
+### The matrix
+
+| Fault | What must hold | Tested by |
+| --- | --- | --- |
+| Home outage | A turn already running finishes under its permissions, its output journaled, and everything reaches the home in order once it's back. No new turn or approval meanwhile | `faults.test.ts`: the home stops mid-turn and restarts on the same address |
+| Worker crash | A command interrupted mid-way recovers by its kind's rule. A turn cut off is reported failed, never re-sent. A leftover harness is stopped | `handlers.test.ts`, `homes-p2-review.test.ts`, `faults.test.ts` |
+| Reconnect | Unacknowledged commands are resent and applied once | `journals.test.ts` |
+| Revocation | The worker stops, recovers nothing, and the home settles its work | `homes-p2-review.test.ts`, `faults.test.ts` |
+| Replay | Events and commands resent are applied once | `journals.test.ts` |
+| Stale approval | An answer for a prompt that's gone, or from an earlier placement, changes nothing | `handlers.test.ts`, `faults.test.ts` |
+| Ambiguous acknowledgement | A lost acknowledgement is resent and recorded once. A send cut off between started and finished is checked against native history, else uncertain | `journals.test.ts`, `handlers.test.ts` |
+| Continued output | Output from a turn that kept running while the home was away is kept | `faults.test.ts` (the home outage) |
+
+### Also found and fixed
+
+- **The test worker's crash wasn't a crash.** The worker fixture ran through the `tsx` wrapper, which runs the script as a child of its own, so a SIGKILL meant as a crash killed only the wrapper and left the worker running, orphaned. Six were found still running after the first runs of these tests, and were stopped. The fixture now starts the worker as a direct child of Node with tsx's loader.
+- The real worker's steps on the way out (close its sessions, tell the home it's stopping) are one function, `finishWorker`, used by `ri worker run` and the test worker alike.
+- **A turn's run is fixed when the turn starts.** agentex runs event handlers one at a time, so a message's result can settle before the handler for its turn's last event runs. The run of the message that opened the turn is now held on the open turn, so that order can't move a turn's cost to another run.
+
+### As built
+
+- `src/lib/workers/retire.ts` (`retireWorker`), used by `DELETE /api/workers/me` and `DELETE /api/devices/:id` for a worker key, with `retireComputerCommands` and `deliveredSendsWithOpenRuns` in queries, and `cancelled` among the undelivered states. `clearComputerMirror` in the live mirror, used for retirement and for a stopped heartbeat.
+- `src/lib/worker/leftovers.ts`, run at the start of `runWorker` (`stopLeftovers` since the review, `stopLeftoverHarnesses` before). `finishWorker` in `run.ts`.
+- Fixtures: `startHomeServer({ port })` restarts a home at its address, and the worker process has `kill()`, a `SLOW` turn, and runs as a direct child.
+- Tests: `faults.test.ts` (4): the home stops mid-turn and restarts on the same address, and the turn's output and completed run arrive. Turning off a crashed laptop's execution fails its turn under way and cancels its waiting message. A stopped worker's prompt leaves the home and can't be answered. A crashed worker's prompt is answered stale after it restarts, its turn reported cut off. `leftovers.test.ts`: real orphaned processes, only this worker's stopped (4 since the review).
+- Live on the dev home: the stand-in's worker was killed with SIGKILL while real Claude ran a 60-second command. The Claude process stayed running, orphaned. On restart the worker logged `stopped 1 harness process(es) left running by an earlier worker`, the process was gone, and the run failed within four seconds with the restart message.
+
+## P2.9 Terminal history from connected computers
+
+P2.9 imports terminal sessions a person picks from a connected computer, read-only, reusing the home's own history import (`src/lib/import/external-agents.ts`) on the computer that has the native files.
+
+### What moves to the computer, and what stays
+
+- **Discovery and reading are split out, with no database** (`src/lib/import/history-source.ts`): listing a harness's sessions through agentex, and reading one transcript from a byte offset. The home runs them for its own files, and a worker runs them for its own. The rest of the importer (the ledger, the chat, the windowed commits) stays at home.
+- **Two requests, never commands.** `list_history` returns each session's key, harness, id, title, folder, times and branch: what a person needs to choose, and never a transcript or its path. `read_history` returns one window of a selected session's events, from an offset the home names, with the size and a hash of the transcript up to where it stopped. Only what's selected is read, and only by the home's asking. Nothing else leaves the computer.
+- **The same checks as at home.** The home sends the size and hash of what it already has. If the computer's transcript no longer starts with those bytes (rewritten, truncated, replaced), the read starts over from zero and the home replaces what it had, as the home's own sync does.
+
+### At home
+
+- **Identity is qualified by computer.** The import ledger gets `computer_id` (null for the home's own), and its uniqueness becomes (computer, harness, native id), so the same native id on two computers is two sessions. Migration: a nullable column and a replaced index, no table rebuild.
+- **Into an agent set up on that computer.** A session imports into the agent whose folder on that computer is the session's folder (its setup report). A session from any other folder is listed with the fix (set the folder up as an agent there first), since an agent with no folder at home comes with P3.1.
+- **Known sessions aren't imported twice.** A session Ri already runs on that computer (an execution there whose native session is that id) is shown as Ri's own. One already imported is synced instead.
+- **Placed where it lives.** The imported execution has a placement on that computer, so its folder views go to that worker and nothing at home reconciles it as local. It's read-only here: no "Continue here", which would move a session between computers (P4).
+- **Freshness.** Opening the chat, and the background sweep, read what's new from the computer when it's connected. When it isn't, the chat keeps what was imported and when it was last synced.
+- **Harnesses.** Claude and Codex keep their history in files, which the worker reads. OpenCode serves its history from a running OpenCode process, so its sessions on a connected computer are listed but not imported yet.
+
+### What a listing shows
+
+Each session's title is what a person chooses by. agentex takes it from the harness's own title, or else the first prompt, as it does for the home's own imports. The listing also carries each transcript's size, so an import is judged current when the home holds all of it, as at home. It never carries a transcript's path or any of the conversation beyond the title.
+
+### Also found and fixed
+
+- `external-agents.ts` had a raw NUL byte in a template string, the one byte its own comments say it avoids, which made `grep` treat the file as binary. It's an escape now, the same string.
+
+### As built
+
+- `src/lib/import/history-source.ts`: discovery, candidates, key parsing, the prefix digest and event mapping moved from `external-agents.ts` unchanged, plus `listedSession` and `readHistoryWindow`. `src/lib/worker/history.ts` answers `list_history` and `read_history`, among the requests every worker answers.
+- `src/lib/import/remote.ts`: `discoverRemoteSessions`, `importRemoteSessions`, `syncRemoteImport`, `syncRemoteImportsOn`. The home's own importer ignores imports from other computers and sends their syncs here. `GET` and `POST /api/imports/agents` take a computer, and "Continue here" is refused for a session that lives elsewhere, saying where.
+- Migration 0007: `external_session_imports.computer_id` and the two partial unique indexes. No table rebuild.
+- The import panel has a picker for whose history (this computer, or a connected one). It says which agent each folder imports into, and why a row can't be imported.
+- Not yet: the chat view doesn't say which computer an execution is on. Pressing "Continue here" on an import from elsewhere shows the refusal. Showing it up front belongs to P3.5's owner-computer views.
+- Tests: `remote-history.test.ts` (4), with the worker in its own process and its own Claude history. The listing has nothing of a transcript's content or place. A chosen session imports read-only into the agent there, placed on that computer, and only that one: one Ri runs there is recognized, and one from another folder is refused with the fix. It syncs what's new, starts over when the transcript was rewritten, keeps what it has while the computer is away, and its status tracks how much of the transcript the home holds. The same native id on two computers is two imports. The home's own importer tests pass unchanged.
+- Live on the dev home, after its restart applied 0007 (snapshot first, all 201 chat events kept): the stand-in's real Claude history listed 516 sessions in 76 folders, 9 of them recognized as Ri's own, with no transcript path. A terminal session run in the Demo agent's folder imported into Demo with both messages. Continuing it in the terminal and opening the chat at home brought the new exchange. "Continue here" was refused with where it lives. The panel, screenshotted, showed the picker, "Imports into the Demo agent", the reason on other folders, and "Imported" once synced.
+
+## P2 review fixes
+
+The review of P2.1–P2.6 (`09d788b..694cf64`, 2026-09-25) found 11 reproducible failures. Its probes are kept as `src/test/regressions/homes-p2-review.test.ts`: all 12 failed before the fixes and pass now, along with the migration check. Three probes were adapted to the real path, each noted in the file: re-enrollment goes through the enroll service, the sink probe first journals the send that started the chat's session, and the home-restart probe's run has its send.
+
+### A worker's reports count only for its own work
+
+1. **A turn result finishes only its own send's run.** A worker's `turn_result` is bound to the send this computer was given for that chat and turn (`sendForTurn`), from the placement that ran it. The run finished is the send's, whatever the event names. A turn it wasn't sent is ignored. Before, a worker could finish any run on the home by naming it.
+8. **The heartbeat mirrors only this computer's chats, at the generation it runs them.** The snapshot carries each chat's generation, and the home drops every chat, prompt and background task that isn't placed on this computer at that generation. Before, a worker could show a home-only chat as running, with a made-up prompt, and a late heartbeat could restore an old placement's state.
+11. **A result's cost goes to its own run.** The worker stamps each chat event with the run of the chat's open turn. The home charges a result to that run when it's one of this computer's sends, and never to whatever run is active at home. Before, an old placement's result charged the new placement's run.
+
+### Generations and ownership on the worker
+
+5. **Events carry the generation that ran them.** The worker's sink stamps each event with the chat's generation from its command journal, the newest command for that chat. The home refuses an execution's event without one, instead of assuming the placement it has when the event arrives. Before, every real event had none, so buffered output from before a move was refused rather than kept as history.
+2. **No command's effect before the home accepts the worker.** Recovery waits for the first stream the home opens (key valid, protocol and home right) and a heartbeat confirming which placements are still this computer's. A placement the home releases is journaled (`released`) and fences every older command for it, across restarts. Before, a restarted worker whose key was revoked ran a setup script it had received before learning it was revoked.
+
+### Runs that never end
+
+6. **A turn a worker restart cut off is reported.** The command journal keeps which delivered sends' turns have ended (`turn_ended`, written when the result is journaled). On restart, after recovery, each one still open is reported to the home as failed ("The turn stopped when Ri's worker on MacBook restarted"), with the generation that ran it. It is never sent again. Before, its run stayed running forever.
+3. **The home's restart reaps only its own runs.** `reapStaleRunningRuns` leaves runs of chats on connected computers, including sends still waiting to be delivered: their worker reports how they end. Before, a home restart failed every laptop run in flight, and the laptop's success couldn't undo that.
+9. **One message, one run, however many dispatches overlap.** The check that a message was already sent and the reservation of it happen in the same tick, so overlapping dispatches of one chat event can't both create a run. Before, two overlapping retries made two runs for one send, and one never ended.
+10. **Re-enrolling settles the runs it makes uncertain.** `enrollWorker` (the enroll route's path) finishes the runs of sends an earlier worker never acknowledged, in the same transaction that marks them uncertain.
+
+### Durability and preparation
+
+4. **A torn journal tail is repaired before anything is appended.** Opening either journal cuts a last record a crash left incomplete, or adds the newline to a whole one, keeping every whole record. Before, the next append ran on from the fragment and turned it into damage mid-file, and the worker couldn't start.
+7. **The setup script runs only in a worktree the worker made.** The prepare result says whether it made one (`isolated`), and the home also requires a repository and not live mode. Before, the home compared its own path with the laptop's, so live mode or a plain folder on the laptop looked like a new worktree, and the setup script ran in the person's own folder.
+
+### Also found and fixed
+
+- Tests run under `pnpm iso` inherited that instance's database, config and work paths, so a test that set only the root read and wrote the instance's database. Seven tests failed there for it. The test setup now gives every run a fresh root and clears the other path overrides. The review's three unhandled closed-database rejections don't reproduce after this, in either kind of run.
+- The migration probe counted migrations after 0003 rather than expecting three, so the next migration doesn't break it.
+
+### Tests and live checks
+
+- Beyond the probes: an execution event without a generation is refused. A result is charged to its own run from an old placement, and to no run this computer wasn't sent. A late heartbeat from before a re-placement changes nothing. The command journal keeps releases, chat generations and open turns across restarts and compaction, and repairs a torn tail. A send for a released placement is stale.
+- Suite: 2,536 passed, both plainly and under `pnpm iso`.
+- Live on the dev home, with real Claude on the stand-in laptop:
+  - A turn completed and its cost landed on its own run.
+  - The home restarted while a turn was running there. The run stayed running, then completed with its cost when the laptop finished.
+  - The worker was killed with SIGKILL mid-turn. After it restarted, the run failed within two seconds with the restart message.
+- Seen in that crash: the orphaned Claude process finished the tool call it was running, then exited on its own at its next write, since its output pipe was gone. So a hard crash leaves at most one tool call running. Cleaning such leftovers up on restart belongs with P2.8's crash tests.
+
+## P2 re-review fixes
+
+The re-review of `183391a` (2026-09-25) confirmed the eleven fixes and found two more. Its probes are kept as `src/test/regressions/homes-p2-recheck-extra.test.ts`.
+
+1. **A dispatch the home stopped before saving its send is reaped.** A run is created before its send is prepared and saved, so a home that stops in between leaves a run no worker ever heard of. The boot reaper now keeps a connected computer's run only when a send was saved for it (`hasSendForRun`), and reaps the rest like any other.
+2. **A turn's cost goes to the message that opened it.** The runner records each message's harness id (agentex's command uuid) with its run, and each `turn_start` names the message that opened the turn. What a turn produces, its result and cost included, belongs to that message's run (`producingRun`), at home and on a connected computer. Before, output was charged to the newest message sent, so two overlapping turns costing $3 and $5 were recorded as $0 and $8.
+   - A message the harness folds into a turn already running (Claude drains one sent mid-turn) is answered by that turn: its run finishes with it, and the turn is charged once, to the message that opened it.
+   - A turn the harness starts on its own (a background task finishing) belongs to no message and no run.
+   - A harness that doesn't name the opener: the oldest message still out.
+   - The worker stamps a turn's output and result with the generation of the send that opened it, not of the newest command for the chat. This also closes the re-review's third probe, in which a newer command relabeled an old turn's result.
+
+### P4 acceptance, recorded
+
+- A command the home streamed before a disconnect, for a placement that changed since, must not run when resent. Only P4's transfer changes a placement under a running worker today, and whether such a command becomes stale or uncertain (the worker may have received it) belongs to P4, with the transfer lock. Turned on with P4's foundations: the home marks such a command stale as it streams, and never resends it (`homes-p2-recheck-extra.test.ts`).
+
+### Also found and fixed
+
+- **Two messages to a chat with no live session started two harnesses.** The second replaced the first, whose process was never tracked or closed, and the messages went to different native sessions. Session starts are shared per chat now. Found while making the overlapping-cost test deterministic.
+- **The test suite called OpenAI.** With `OPENAI_API_KEY` in the shell, every task or note a test saved was sent for an embedding, and the answer arrived after the test had closed its database: the "closed database" rejections from both reviews. The test setup now clears provider keys, and tests that need one set their own.
+- **The markdown mirror could keep stale content.** Two overlapping syncs of one entity shared a temp file name and ran in parallel: one failed its rename, and an older one could finish last. Syncs of an entity now run in order, and each write has its own temp file. This was the late log behind the re-review's teardown error.
+- The suite now runs clean: 2,543 passed, exit 0, three runs in a row and once under `pnpm iso`, with no unhandled errors.
+
+### Live check
+
+With real Claude on the stand-in laptop, a second message sent while the first message's turn was running a 20-second command was folded into that turn ("The command printed 111, and 6 × 7 = 42"). The turn's $0.080 went to the first message's run, and the second message's run completed at $0.
+
+## P2.7 to P2.9 review fixes
+
+A review of P2.7 to P2.9 at d0fff04 found seven reproducible failures, each with a failing probe. All seven are fixed, and the probes are kept as regressions in `src/test/regressions/homes-p27-p29-review.test.ts`. The live check afterwards found two more.
+
+### Session tokens
+
+- **Archiving a chat ended its token.** Verification checked the placement but not the chat, and archiving leaves the placement as it was. A token is now refused unless its chat is active. The token is a function of what it names, so a chat restored at the same placement is issued the same token again. That's the chat's own, held only by its session, not a revival.
+- **Enrolling a computer again doesn't bring back a revoked worker's tokens.** A token was bound to its computer and accepted under whichever enrollment was current. The signature now covers the enrollment it was issued to, which verification takes from the computer's current enrollment, so a token issued to a worker since turned off fails once a new one enrolls. The format is unchanged, with nothing stored. A token is only minted for a computer with an enrolled worker.
+- Sessions already running on a connected computer hold tokens minted before this change, which now fail. They get a new one when their session next starts.
+
+### Reference folders on the running computer
+
+- **The flags followed the manifest.** For a session elsewhere, the home built the reference prompt block, `--add-dir` and the edit deny rules from the computer's last report, and the runner resolved the current setup only for the environment manifest. A folder moved or left out on the laptop showed its new state in the manifest while the harness still read and guarded the old path. Now the home wires nothing for a session elsewhere. The spec carries the agent's folders as the home expects them (`agentFolders`), and the runner resolves them once when the session starts and builds the prompt block, the read scope, the deny rules and the manifest from that one result. The home's own sessions are wired as before, on the computer that runs them.
+- The same applied to an agent's main chat elsewhere, which had no manifest to show it. It's wired the same way.
+
+### Processes left by a crashed worker
+
+- **Only what the predecessor recorded starting is stopped.** Cleanup matched any orphan whose command line named the worker's instructions folder, which any process can do, and signalled it with no check that the pid still named the same process. A worker now records its own children (agentex runs each harness as one) with each one's start time and command line, and its own, after every command it handles and on every heartbeat (`worker-processes.json` in its work directory). At startup, a leftover is a recorded process that is still the same process, whose recorded worker is gone. It's checked again right before each signal. Nothing unrecorded is touched, and a process started and orphaned between two records is missed, the safe way to be wrong. This also covers Codex, whose instructions never appear on its command line.
+
+### Reading transcripts
+
+- **A window is certified against the file it was parsed from.** The provider's parser opens the transcript itself, and the hash that certified a window was taken by opening the path again. A transcript replaced mid-window left old events certified by the new file's hash, and later syncs trusted it. Now every read pins the transcript (`pinTranscript`): one handle for every hash, and after the parse and the hash, a check that the path still names that file with the size and modification time it was opened with. A window read while the file changed is refused and read again, up to three times, and nothing of it is committed.
+- **The home's own importer had the same hole**, on main too: it commits windows during one long read, hashing by reopening the path. It pins the transcript the same way, checked before each commit.
+- **A listed transcript is read as it was listed.** Listing never descends into links, but a read reopened the cached path and followed one. A read now opens without following a link, and on a worker, checks the transcript is still in the real folder it was listed in. An ordinary atomic rewrite in the same folder is just a changed transcript.
+
+### Heartbeats after retirement
+
+- **A worker's request is checked again once its body has arrived.** The heartbeat authenticated, awaited its body, and then wrote, so a retirement landing in between was undone. The heartbeat, event, acknowledgement and request-result routes now re-check the enrollment after the body arrives. The attachment download checks again after opening the file. The re-check found the first version of this still returned the checked caller through one more await (see below).
+
+### A protocol bump
+
+- **The worker protocol is 2.** A worker on 1 ignores `agentFolders`, so it would start sessions without their reference folders, quietly. The spec calls for an incompatible worker to be told to update instead, so a home on 2 refuses it with 426, and it stops saying to update Ri on that computer. The tests take the version from `WORKER_PROTOCOL` rather than a literal. On the dev home, the MacBook's worker, on the checkout from gate A, was refused as expected, and the stand-in's reconnected on 2.
+
+### Found in the live check
+
+- **A home restart marked laptop executions as stuck setups.** The cold-start reaper takes an execution with no worktree path, set up more than five minutes ago, as a setup that died with the process. A laptop execution keeps its worktree on its placement, so every one was marked failed on the home's next restart, and its next message was refused. The reaper now skips executions placed on a connected computer, whose setup settles by its worker's recovery. Several of the stand-in's test executions still carry the false failure. Retry clears it.
+- **Retrying a laptop execution's setup built a worktree on the home.** Retry provisioned at home whatever the placement. It now sends the execution's own prepare command to its worker again, or, when the computer has already prepared it, just clears the failure. Retrying its setup script, a no-op for a laptop execution, sends its setup script command again. The one worktree the check built on the dev home was removed, with its branch, and the execution's path reset.
+
+### Tests and live checks
+
+- Probes: all ten of the review's, adapted where a fixed reader refuses what the probe first accepted (a window read while the file is replaced is read again from the replacement), plus a transcript that never stops changing, a listed folder relinked elsewhere, a main chat's references elsewhere, the reaper, and the retries. `leftovers.test.ts` (4): a crashed worker's recorded child is stopped and a process only naming its files isn't, nothing while the worker still runs, a recorded pid held by another process is never signalled, and the recorder. `external-agents.test.ts`: a real append during a read replaces a mocked fingerprint, and a transcript replaced mid-read leaves nothing of the old version.
+- Full suite: 2,591 passed, exit 0.
+- Live on the dev home, with real Claude on the stand-in laptop: the worker recorded the harness it started. Claude's `--add-dir` and edit deny rule, the reference prompt and the environment manifest all named the laptop's `agentex` folder, not the home's. The browser server answered the session's token (200). The worker was then killed with SIGKILL in the middle of a 90-second tool call, leaving Claude orphaned. On restart it logged `stopped 1 process(es) left running by an earlier worker` for exactly that pid, the tool call went with it, and the run failed with the restart message. The laptop's history listed 527 sessions with no transcript path, and a terminal session continued on the laptop synced its new exchange through the worker. Retry on a falsely failed laptop execution cleared the failure and sent nothing.
+
+### The re-check
+
+A re-check at d1f472a found four more, each with a failing probe, kept in `src/test/regressions/homes-p27-p29-recheck.test.ts`. The original fixes held.
+
+- **No single setup here, no reference folders.** When a laptop had no setup for the agent, or two folders claiming it, the runner fell back to the home's values, so a path the home cached as ready was wired as if the laptop had said so, even when both local files left it out. For a session elsewhere, only exactly one valid setup here counts. Without it the session starts with no source folder and every reference unavailable, shown as such in its environment, and a warning in the worker's log. The home's own sessions keep their fallback for agents from before setups, now asked for explicitly (`resolveAgentFolders(..., 'expected' | 'unavailable')`).
+- **The final enrollment check is the route's own.** The helper checked again after reading the body, then returned the caller through one more await, and a retirement could land in that gap. It now only reads the body (`readWorkerBody`) and returns no caller. Each of the four routes calls `requireWorker` itself after its last await, with nothing awaited between that and its writes.
+- **The home's importer checks the folder too.** It pinned the file but not its folder, so a project folder relinked after discovery handed over a file nobody chose. Discovery now records each transcript's real folder (`FileCandidate.realDir`, in `fileCandidate`), and every read, at home or on a worker, requires the transcript still to be there. Resolving the folder only at read time would have blessed the relink.
+- **One worker per root.** Two workers on one root overwrote each other's process record, so after both crashed a harness was left running, and they shared the journals besides. A worker now takes its root's lock before it opens anything (`src/lib/worker/lock.ts`, `worker.lock` in its work directory), naming its process by pid, start time and command line. A second is refused, "Another worker is already running for this computer", and exits without telling the home anything. A lock whose holder is gone is taken over.
+- **Also guarded: continuing an archived laptop execution.** Opening an archived execution continues it, and for one placed on a connected computer that rebuilt its worktree on the home. It now only unarchives it there. Routing a continuation to its computer stays with P4.5.
+- Not changed, and recorded: a transcript written to during every attempt can't be read until it settles. A window read while it changes is refused, and after three tries the read fails with nothing committed. The home's own importer keeps what it committed and resumes on the next sync.
+- Tests: the re-check's probes (the two-worker one starts as a worker does, lock first, and asserts the second is refused and the first's harness is still stopped after a crash), `lock.test.ts` (4), and a continuation probe. Full suite: 2,610 passed, exit 0.
+- Live on the dev home: a second worker on the stand-in's root was refused with that message while the first stayed connected and awake at the home. The lock was gone after a clean stop. A sync of a laptop terminal session through the worker and the home's own history listing (526 sessions) both worked.
+
+## Dogfood gate A: the real laptop and phone
+
+Automated coverage used a stand-in laptop on the Mac Mini (`~/ri-homes-laptop`). The gate itself needs the real devices. Status: **passed on 2026-09-25**, on the real MacBook and iPhone.
+
+Checked afterwards in the dev home's database and log:
+
+- One `home` row. No second home was created.
+- The MacBook registered as its own computer under the MacBook CLI key, and was renamed "MacBook". The key is bound to that computer.
+- The Ri agent has two setups, both ready: the Mini's `~/ri-homes-projects/ai-task-manager` with agentex at `../code/agentex`, and the MacBook's `~/ri-homes-projects/dynamism/ri` with agentex at `../agentex`. The folder and the reference were each given once, in one `setup attach`.
+- The task created in the MacBook's terminal is in the home. Every terminal step reached the home's action route, and none ran locally.
+- The browser and the phone each signed in with their own key, both used today. A note was created and edited, and a task was created and started, in the app. The log can't say which device made each write.
+- `~/ri-homes-connected` holds no database. It isn't inspected directly: after `connect` wrote the connection record, any database open there would have been refused, and every later command succeeded.
+
+Found while testing: the dev server blocked its live-reload socket for the Beamd address, because `*.beamd.run` was missing from `allowedDevOrigins`. It's added now. Production builds ignore the option.
+
+Still to do: revoke the three dev pairing keys in the dev home's Settings, Devices, once they're no longer needed. The stand-in computers from the automated checks ("MacBook (stand-in)" and "AI Mac Mini") are fixture records on the dev home only.
+
+The dev home runs on the Mac Mini at `https://ri-homes-trey.beamd.run` (Beamd name `ri-homes`, beside production's `ri`, which is untouched). It has a dev "Ri" agent set up on the Mini at `~/ri-homes-projects/ai-task-manager`, with agentex at `../code/agentex`. Pairing keys for a phone, the MacBook's CLI and the MacBook's browser were minted on the dev home. Revoke them in its Settings, Devices after testing.
+
+On the MacBook, with nothing of production's touched:
+
+```sh
+git clone git@github.com:treyhuffine/ai-task-manager.git ~/ri-homes-src
+cd ~/ri-homes-src && git checkout ai-task-manager/session-e4aa22 && pnpm install
+pnpm iso ~/ri-homes-connected -- pnpm -s cli:dev connect           # paste the "MacBook CLI" link
+pnpm iso ~/ri-homes-connected -- pnpm -s cli:dev agent rename_computer --name MacBook
+git clone git@github.com:treyhuffine/ai-task-manager.git ~/ri-homes-projects/dynamism/ri
+git clone git@github.com:dynamismlabs/agentex.git ~/ri-homes-projects/dynamism/agentex
+pnpm iso ~/ri-homes-connected -- pnpm -s cli:dev setup attach Ri ~/ri-homes-projects/dynamism/ri --ref agentex=../agentex
+pnpm iso ~/ri-homes-connected -- pnpm -s cli:dev agent create_task --title "Captured from the MacBook"
+pnpm iso ~/ri-homes-connected -- pnpm -s cli:dev agent list_agent_setups   # Ri: Mac Mini and MacBook, both ready
+```
+
+Then open the "MacBook browser" link on the laptop and the "phone" link on the phone. Capture and edit tasks and notes on each and see them everywhere. Pass when: there is one home and one Ri agent with both layouts ready, `~/ri-homes-connected` holds no `data.db`, and no step asked for a path more than once.
+
+## Dogfood gate B: real work across the laptop, Mini and phone
+
+Status: **started on 2026-09-25**, on the dev home with the real MacBook's worker awake.
+
+Found while testing:
+
+- The phone's main chat did nothing. A home where nobody had picked an orchestrator mode stores none, and the server runs that on the MCP surface, but the chat panel and Settings fell back to the retired Classic chat on their own. Classic posts to `/api/chat`, which main deleted in 3dd6586, so each send was a 404 (two in the dev home's log). Production never showed it because its stored mode is `harness_mcp`. The server and the UI now resolve the mode through one function (`resolveOrchestratorMode`, `src/lib/orchestrator/mode.ts`): unset and `legacy` both mean MCP. The Classic option, its chat component and a helper only it used are gone. The same bug is on main, and any fresh install hits it. Fixed there too (bcd0e1d).
+- The phone's Agents tab showed agents working while only the main chat was. Its badge counted every running chat, where the desktop pills count only executions (the rail's sessions). It counts executions now, by the pills' own classifier (`executionActivity` in `bucket-config.tsx`), and a turn in the main chat or an agent's main chat no longer reads as an agent at work. Fixed on main too (48ccc69).
+- The main chat sent "Hello" into an imported terminal session, which is read-only until a person takes it over. Only the composer enforced that: the messages route, `send_session_message` and dispatch let it through. This import lived on the stand-in laptop, whose worker was off, so the message waited in its queue to start a blank session there, under a transcript it never saw. Every send path now refuses an import nobody has taken over (`isImportMirror`, `src/lib/import/mirror.ts`), and the orchestrator's brief says so. On main, the same hole forked a local import. Fixed there too (48ccc69), with a dispatch test on a real import. The one stray message on the dev home was withdrawn through the query layer (`cancelWorkerCommand` and `settleUndelivered`, snapshot first), and the dev home restarted.
+- Open: a message waiting for a computer that's asleep reads as "working", in the rail and to the orchestrator, which told Trey the session "started working on it". The messages route holds the chat busy until the far end answers, and nothing says "waiting for the MacBook". Where a message is belongs with P3.5's owner-computer views.
+- Open, found during P3.1: requests from the app stall. With an execution open and nothing else touched, 32 API requests on the local address and 41 over the Beamd address were still unanswered after 10 seconds within a minute (the rail, needs review, workspaces, a session's tree, picker, slash commands and PR list, the deck). The server answers each one it receives quickly, so they wait before reaching it, behind the app's long-lived streams: six connections per host on plain HTTP, and apparently a similar cap through the tunnel even though it speaks HTTP/2 to a client. A screen whose next fetch is stuck shows what it last had, so this is the likeliest cause of any stale screen in dogfooding. P3.1 surfaced it: a laptop execution whose first fetch came before its computer had prepared it could keep showing "Setting up" until a later fetch got through. Not yet checked on production, which serves a build rather than the dev server.
+
+## P3.1 Run on: saved defaults, where an execution runs, one agent in the rail
+
+P3.1 follows spec §3.3: a new execution runs on the agent's default computer unless the person picks another for that one execution, the computer is named on the execution, and an agent stays one agent however many computers have its folder.
+
+### Where new work runs
+
+- **The choices** (`src/lib/setups/run-on.ts`, `runOnFor`) are the computers the agent is set up on: the home first, then the others in the order they were set up. An agent from before setups, with no setup anywhere, runs at home. Each choice says whether it can take work now, and if not, why: not running agents there, or its folder there not ready. A computer that's set up and enrolled but not connected can still take work, which waits for it.
+- **The default** is what the person saved with "Make this the default" (`workspaces.default_computer_id`, migration 0008, a nullable column with no default, where null means never chosen). Until they save one, it's the home when its setup is usable, otherwise the first computer set up for the agent. A saved default that has stopped working stays the default and says why, so a start there is refused with the reason rather than moved somewhere else.
+- **A start that names no computer runs on the default** (`dispatchExecutionSession`). That's the launcher, the phone's quick start and the orchestrator's `start_execution`. Scheduled work still creates its executions at home, as spec §7 says. A start the default can't take is refused with the reason, and nothing is created.
+- **The launcher's Run on control** sits with the other "where" controls. With one computer it's just that computer's name. With a choice it's a chip that opens the choices, each with why it can't take work if it can't, and "Make <computer> the default for this agent" as its own item when the pick differs from the default. A pick affects that execution only, and the next launch starts from the default again. A computer that can't take work can't be picked, and one that is the default blocks Start with its reason. The control shows only on a home with more than one computer that can run agents.
+- API: `GET` and `PUT /api/workspaces/:id/run-on`. Orchestrator: `get_workspace` returns `runOn`, `update_workspace` takes `defaultComputerId`, and the brief and skill say where `start_execution` runs.
+
+### Where an execution runs, shown
+
+- The session carries `location`: its computer's id and name, whether it's the home, and, away from the home, the folder its computer prepared (`executionLocation` in queries, on every flattened session, the rail's included).
+- The execution header shows the computer's name as a chip, on the phone as well, and its details list it. Rail rows and the phone's agent list name the computer for work away from the home. The home's own work stays unlabeled there, and on a home with only one computer nothing new shows at all.
+- **Found and fixed: a laptop execution never left "Setting up".** The execution view, header and setup card took a missing `worktreePath` as still provisioning, but a laptop execution keeps its folder on its placement, and `worktreePath` is only ever a folder on the home. So every laptop execution in a Git agent showed "Setting up worktree…" and kept its composer disabled. They now read the folder wherever it is (`preparedFolder`).
+- Not built: "This Mac", the secondary label for the computer the viewer is on. It needs the companion's authenticated association (P5.4). Names alone never establish which computer the viewer is on.
+
+### One agent in the rail
+
+Checked, not changed: the rail and the phone list one row per agent, and setups never add rows (they're unique per agent and computer). Terminal sessions imported from another computer land in the agent already set up for their folder there. A local import still makes a new agent for a folder at a different path on the home, as before.
+
+### Also found and fixed
+
+- A setup problem already ending with a period was quoted with a second one ("...is gone.."), in the launcher and in a refused start. `notReady` ends the sentence once.
+
+### Tests and live checks
+
+- `run-on.test.ts` (12): the choices and their reasons, the automatic and saved defaults, a saved default that stopped working, the start on the default and a one-off pick that doesn't change it, the refused start, `location` on the session and the rail, and the route. `location.test.ts` (2): the prepared folder wherever it is, and when a location is shown. Full suite: 2,625 passed, exit 0.
+- Live on the dev home (migration 0008 applied, snapshot first), screenshotted: the launcher showed "Mac Mini" with Demo's two choices, the stand-in marked not connected with the work waiting for it. Picking the stand-in and "Make MacBook (stand-in) the default" saved it, and a launch from the launcher ran there with real Claude answering. The stand-in's execution showed its name in the header on desktop and phone, and the phone's agent list named it on each laptop execution, with the home's own work unlabeled. None showed "Setting up" once prepared. Demo's default was put back to automatic afterwards.
+
+## P3 and P4 plan
+
+The working checklist for building through P4, in dependency order. Each item is checked when it's built, tested and checked live, with its notes in the section it gets below.
+
+### 0. Requests that stall (gate B finding, first)
+
+The dashboard mounts its phone, tablet and desktop layouts at once and hides two with CSS, and the execution view renders its chat twice, once per width. With an execution open that's two streams for it, a hidden main chat's stream, four composers each probing voice, and a pool of six HTTP/1.1 connections per host filled by streams. Superseded refetches don't abort their request, so rail requests pile up behind them.
+
+- [x] 0.1 Mount only the layout the viewport shows (`useViewportTier`, the CSS breakpoints by `matchMedia`). All three render only on the server and while hydrating, hidden by CSS as before, so the server's HTML doesn't change.
+- [x] 0.2 The execution view renders its chat body in the half the viewport shows, so one composer and one transcript, not two.
+- [x] 0.3 A superseded fetch aborts its request: the rail, needs review, agents, a session and its runtime status pass the query's AbortSignal.
+- [x] 0.4 One voice-status probe for every composer, reused for a minute (`fetchQuery`).
+- [x] 0.5 Rail invalidations coalesce across streams and bursts, one refetch per 250 ms (`invalidateRailSoon`).
+- [x] 0.6 Measured with an execution open and nothing touched for a minute, counting requests unanswered after 10 seconds: on the local address 32 before, 0 after. On the Beamd address about 16 of 90 still get no response headers in headless Chrome. The server answers the same requests in about 0.3 s through Beamd, and a direct HTTP/2 client over one connection, with three streams open, a burst of 60 requests, or 20 requests cancelled mid-flight first, never stalls. So what's left is between Chrome and the tunnel, not in the app, and is recorded for a browser network trace. The probes are in `personal/probes/` (`stalled-requests.mjs`, `h2-burst.mjs`, `h2-cancel.mjs`).
+
+### P3
+
+- [x] 3.2a Delivery state per sent message (waiting, sending, delivered, not delivered, uncertain), from its send command, announced on the session stream as it changes.
+- [x] 3.2b A message waiting for a computer doesn't read as working. The execution says "Waiting for MacBook", or "MacBook disconnected, last heard from…" when contact is lost mid-turn, and asleep only when reported.
+- [x] 3.2c Cancel before delivery, refused once it's on its way (stop the execution instead). Send again for a message not delivered or uncertain, as a new message.
+- [x] 3.2d Home unreachable keeps the draft (P1.6, verified). Setup failed on a computer says where, with its output and Retry. A missing folder or reference says which and where (P3.1's reasons).
+- [x] 3.3 Per-screen navigation independent (verified with two screens). Every execution control routes to its owner (see [P3.3](#p33-each-screen-its-own), closed with [4.5](#the-controls-follow-the-work-45)).
+- [x] 3.4 Agent main chats pinned to a computer at creation (the home when set up there, otherwise the agent's default). Scheduling stays at the home (verified). "Runs when MacBook is awake" for a laptop-hosted home's schedules.
+- [x] 3.5a File writes and folder operations for an execution elsewhere go to its computer.
+- [x] 3.5b Previews: never a home preview for work elsewhere, never a worker's localhost URL offered to another device, an honest unavailable state.
+- [x] 3.5c Terminals on a worker: create, list, input, output, resize, close through the worker, bounded replay, reconnect, input disabled while disconnected with no replay of unconfirmed keys, never a fallback shell at home. Agent-folder terminals on the agent's computer. Computer and folder shown.
+- [x] 3.5d Open in editor on the viewer's own computer through its worker, for a browser associated with it.
+- [x] 3.5e An agent that lives on another computer: its header shows its folder there, and its Files and Terminal open on that computer (found in P3.4's live check).
+- [x] 3.6 Deck: one scheduler and daily generation at the home (tests).
+- [x] 3.7 The whole flow at phone and laptop widths: keyboard, voice, pending-input controls.
+
+### P4
+
+- [x] 4.1 Open code here: a review worktree of the execution's published commit on the viewer's computer, labeled with the commit and source computer. Refresh only when clean. Edits kept. No published commit offers commit and push on the source.
+- [x] 4.2 Continue here: transfer record and lock (messages held), validate the destination, confirmed stop of the source (harness, background tasks, terminals, preview, scripts), events flushed and the conversation checkpoint recorded, Git checkpoint with explicit untracked files and no secrets, pushed without force, the destination fetches and verifies the exact commit.
+- [x] 4.3 Handoff: a fresh session on the destination with a summary (deterministic when summarizing fails), binding history kept, "Continued on MacBook" once in the chat, the generation changes atomically, held messages delivered once, a fresh terminal there.
+- [x] 4.4 Every failure stage leaves one owner and a safe retry or resume, with held messages, source artifacts and branches kept.
+- [x] 4.5 Commit, PR, push, pull base, restart and archive route through the owner. The takeover paths Continue here replaces are retired.
+- [x] 4.6 The failure matrix in tests, including the P2 re-review's placement probe.
+
+## P3.2 Saved, waiting, delivered
+
+Spec §3.5: saving a message at the home is not delivering it, and the states stay distinct.
+
+### Each message's state
+
+- **From its send command** (`src/lib/workers/delivery.ts`). A message to a chat elsewhere has one send, and its state is the message's: waiting (queued, its computer not connected), sending (queued while connected, or streamed and not yet acknowledged), delivered, not delivered (failed, withdrawn, or the execution moved first, with the reason), and uncertain (the worker couldn't tell from the native history). A chat at home has none: its messages reach the harness as they're sent.
+- **Announced as it changes**, on the chat's stream as a `delivery` frame, after the change commits: queued by dispatch, streamed to the worker, acknowledged, and every path through `settleUndelivered` (failed, stale, withdrawn, turned off, uncertain after re-enrollment). A worker connecting or dropping changes what its open sends say, so those are announced too, and every screen hears `computer_updated` on the global stream to refresh the computers list. `GET /api/sessions/:id/deliveries` gives them all at once.
+- **Under the message**: "Waiting for MacBook. Your message is saved." with Cancel, "Sending to MacBook…", "Not delivered to MacBook." with the reason and Send again, or "Delivery to MacBook couldn't be confirmed." with a note to check whether it answered before sending again. Nothing once delivered.
+- **Cancel** (`POST /api/sessions/:id/deliveries/:eventId/cancel`) withdraws only a message still in the home's queue, in one transaction with settling its run and turn. Once streamed to the worker it may be running, so it's refused: "It's already on its way to MacBook. Stop the execution to keep it from running."
+- **Send again** sends the same text and files as a new message. A message keeps its one send, and the old one stays, marked not delivered.
+
+### What the execution says
+
+- **A message waiting for a computer no longer reads as working.** The messages route held the chat busy until the dispatch settled, and a dispatch to a computer that's away settles only when it answers, so the rail and the header said "Working" for as long as the message waited. Dispatch now calls `onQueued` once the message is in its computer's queue, and the route lets go there. From then on the worker says whether a turn is running, and the message's state says the rest.
+- **The header** says "Waiting for MacBook, your message is saved" while a message waits, "MacBook disconnected, last heard from 4m ago" when contact was lost in the middle of a turn (unknown, not stopped), and "MacBook is asleep" only when it said so.
+- **Setup** on a computer says where it failed ("Setup failed on MacBook", "Couldn't prepare it on MacBook"), with its output and Retry, and the running-script and warning rows read the folder wherever it is (they looked at the home's path only).
+- Home unreachable was built in P1.6: the banner names the home's computer, unsent messages stay as failed with a retry, and drafts stay in the composer.
+
+### Tests and live checks
+
+- `delivery.test.ts` (4): waiting while the computer is away and not working meanwhile, withdrawn (not delivered, its run failed, its turn settled), refused once on its way, delivered and uncertain. `execution-header-status.test.ts` (+5): waiting, disconnected, asleep only when said, working while connected, and the words. Full suite: 2,634 passed, exit 0.
+- Live on the dev home, screenshotted, with the stand-in's worker off: a message to its execution showed "Waiting for MacBook (stand-in). Your message is saved. Cancel", and the header "Waiting for MacBook (stand-in), your message is saved". Cancel made it "Not delivered to MacBook (stand-in). It was withdrawn before it was delivered." with Send again, the command cancelled and its run failed as `delivery_cancelled`. With the worker started, Send again delivered a new message, which showed nothing under it, and real Claude answered.
+
+## P3.3 Each screen its own
+
+Spec §12.2: the same work opened on another screen keeps its identity and history, with no execution move and no forced navigation, and switching on one screen leaves the others where they are.
+
+### Navigation
+
+- **Per screen by design.** What a screen shows is its URL (`?session=`, `?agent=`) mirrored in that page's state, and the rest (rail, panels, last execution) is that browser's own storage. No server event navigates a client: the streams carry state (runtime, pending input, deliveries, computers), never a view. Opening an execution records that it was viewed (for Unread) and moves nothing.
+- **Found and fixed: the phone showed the main chat for an execution link.** The phone's tab started on Chat whatever the URL said, and only the Agents list switched it, so a link to an execution (a notification, a shared URL, Back or Forward) or an execution chip tapped in the main chat changed the URL and left the execution behind the Chat tab. The tab now follows the view (`mobileTabForView`): an execution or an agent shows under Agents however it was opened, and home leaves the tab alone.
+
+### Tests and live checks
+
+- `active-view.test.ts` (+1): an execution or an agent belongs under the phone's Agents tab, and home to none.
+- Live on the dev home with two screens at once, a desktop and a phone: the desktop opened an execution on the stand-in while the phone opened the Sweeps agent. The desktop moved to another agent and the phone stayed on Sweeps. The phone then opened the same execution by its link and showed the same history, the desktop stayed where it was, and the execution's placement was unchanged. On the phone, tapping an execution's chip in the main chat opened it.
+- Execution controls tied to the owner closed with P4.5 ([the controls follow the work](#the-controls-follow-the-work-45)). The P4 live check found the last one: the action bar of an execution on another computer didn't show at all.
+
+## P3.4 One scheduler, fixed main chats
+
+Spec §7: the home schedules, and an agent's main chat has a fixed computer.
+
+### Scheduled work
+
+- **New scheduled work starts on the home.** A fire that creates an execution (`at`, `manual`, and the first fire of `cron` or `every`) creates it with no placement, so it runs at home, whatever the agent's default computer. The scheduler never picks a computer, and there is no second scheduler to pick one.
+- **An agent that lives only elsewhere fails the fire and says why.** It has no folder at home to run in, and the fire isn't sent to another computer instead. `homeCantRun` (`src/lib/setups/run-on.ts`) checks before anything is created: an agent set up only on other computers gets a failed run, `not_set_up_here`, "Sweeps isn't set up on Mac Mini, where scheduled work runs. Attach its folder there to run this." It counts toward the failure banner like any failed run. An agent from before setups still runs in its folder here, and an imperfect setup here still runs, as a start from the launcher does.
+- **A fire into an existing execution goes to that execution's computer.** A recurring trigger's owning execution may run on the laptop, and its prompt waits there while the laptop is away: the run stays running, the message shows "Waiting for MacBook", and the next fire meets the busy execution and is skipped or coalesced by the trigger's own policy. Nothing starts at home in its place.
+- **Two fixes found by the tests.** A scheduled prompt now carries its message's id into dispatch, so a prompt to an execution elsewhere shows its delivery like a typed one. And a run whose execution is elsewhere no longer takes one of the home's four API leases: the lease caps provider sessions on this computer, and a prompt waiting on a sleeping laptop held one for as long as it slept, so four of them would have stopped every scheduled run at home.
+- **Overdue triggers fire once.** When the home next ticks, an overdue trigger is considered once and advanced, not once per missed interval. This was already the scheduler's behavior, and a test now holds it.
+
+### Runs when MacBook is awake
+
+- **Only on a laptop home.** `hostIsPortable` (`src/lib/home/portable.ts`) asks once per process whether the home's computer has a battery: `pmset -g batt` lists an InternalBattery on a Mac, and Linux lists a `BAT` power supply. It can't tell, and says nothing, anywhere else. `GET /api/computers` marks the home's own entry `portable`.
+- **Where schedules are.** The schedules list (the modal and `/triggers`) says "Schedules run when MacBook is awake.", a scheduled trigger's page says "Runs when MacBook is awake." under its cadence (not for manual triggers), and the heartbeat says "Checks in when MacBook is awake." while it's on. Hovering says missed times run once when it wakes. It explains the one scheduler and changes nothing about it.
+
+### An agent's main chat
+
+- **Pinned when it's created** (`agentComputerFor`): the home when the agent is set up there (or has no setup anywhere yet), otherwise its saved default, otherwise the first computer it's set up on. The chat's `computer_id` holds it. The app's own main chat is always the home's.
+- **It keeps its computer.** Changing the default doesn't move it, its history stays readable while that computer is away, and a message waits for it rather than running at home. New chat applies the rule again.
+- **Said where it is.** The agent's main chat header reads "on MacBook", with "not connected" while it's away. At home it says nothing new.
+
+### Tests and live checks
+
+- `dispatch-placement.test.ts` (5): a cron and an `at` fire start at home with the laptop saved as the default, and send nothing to it. An agent set up only on the laptop fails with the reason and starts nothing anywhere. An agent from before setups still runs. A fire into an execution on the away laptop waits there, shows waiting, stays running, and starts nothing at home. Five such waits leave all four leases free (fails without the fix). `main-chat-placement.test.ts` (7): home when set up there even with the laptop saved, the app's chat and a pre-setup agent at home, the saved default, the first set up, kept across a default change with New chat applying the rule again, a message waiting for the away laptop, and `homeCantRun`. `portable.test.ts` (2), `runner.test.ts` (+1 overdue). Full suite: 2,649 passed.
+- Live on the dev home: an agent "Sweeps" created at home, detached there and attached on the stand-in. Its new main chat was pinned to the stand-in and its header read "on MacBook (stand-in) · not connected". Run now on its daily trigger recorded a failed run with the reason, shown on the trigger's page, and created no execution. On the Mac Mini, which has no battery, no awake note shows. With the home's entry answered as a laptop, the list, the modal and the trigger's page showed "Schedules run when Mac Mini is awake." and "Runs when Mac Mini is awake.".
+- Found while checking: the agent's header, Files and Terminal use its folder at home, which an agent that lives on the laptop doesn't have. That goes with P3.5, which routes them to the agent's computer.
+
+## P3.7 The whole flow at phone and laptop widths
+
+Exercised live on the dev home, on an execution on the stand-in in Ask mode, with a laptop-width page (1440) and a phone-width page (390, touch) open on it at once:
+
+- **Keyboard.** On the laptop, typed into the composer and pressed Enter. The agent asked to run a Bash command.
+- **A permission, on the phone.** The phone showed "Permission requested · Bash" with the command, Deny and Allow. Allow ran it on the stand-in: the file it created is in the stand-in's worktree.
+- **A structured question, on the phone.** The phone showed the question with its options and Other. Choosing Blue and Submit answered it, and the agent replied with the answer.
+- **Typing and Send on the phone.** A message typed on the phone and sent with the Send button got its reply.
+- **Voice at both widths.** With Chromium's fake microphone and only the speech model stood in for, Voice input recorded (about 32 KB of audio each time), showed Stop recording, sent the audio for transcription, and the text went out as a message from the laptop and from the phone (voice sends on its own by default). Speech-to-text itself isn't available on the dev home: Parakeet runs in Docker, which isn't running on this Mac, and Groq isn't configured. It's the one part not exercised end to end here.
+
+### Found and fixed
+
+- **"Not started" in the middle of a turn.** A message sent while a turn waited on its permission prompt is folded into that turn by Claude. Right after the answer, for about 0.4 seconds, nothing counted as running while the harness went on: each message counts as in flight until its result settles, and the harness's own turn boundaries cover the rest, and at that fold both lapse together. With nothing pending either and no outcome yet, the header said "Not started". The header now holds a drop in running that brings no outcome for up to 1.5 seconds (`useSteadyRunning`), and a real end (an outcome, or running again) ends the hold at once. It also takes the latest turn's end from the transcript already on the page when the session record hasn't caught up (`useLastTurnEndedAt`, sharing the transcript's own query). Reproduced before and after on the phone, sampling the header every 300 ms: "Needs input", "Not started", "Working" became "Needs input", "Working". The flag itself is the runner's, shared by the home and workers, and the rail can still move the chat between buckets in that gap. That's recorded, not changed.
+- **P3.3's phone tab fix** was found here too: a link to an execution opened the main chat on the phone.
+
+### Tests
+
+- `steady-running.test.ts` (2): a drop with no outcome is held, and a real end, a new outcome, or a chat that wasn't running is not. Full suite: 2,702 passed.
+
+## P3.6 One deck authority
+
+Spec §7: the home is the one scheduler and makes the day's deck. Connected screens and computers add neither.
+
+- **Every path ends at the home.** A screen reads the deck from the home (`GET /api/deck`), which makes today's deck the first time it's asked for and keeps one in flight per day (`ensureTodaysDeck`), so screens opening at once share one generation. The morning refresh is a reserved orchestrator trigger that runs at home (P3.4 keeps orchestrator runs there) and calls `regenerate_deck` there. A session running on another computer can only ask the home, through its actions. Completion, the morning trigger's settings, and refresh were left as they were.
+- **A worker can't be a second authority.** The runner boundary test already kept worker modules off the database. It now also keeps them off the scheduler, the deck, the AI pipeline and scheduled runs, walking their real import graph, so a connected computer can neither schedule nor generate.
+
+### Tests and live checks
+
+- `deck/one-authority.test.ts` (3, the AI pipeline stubbed): three screens opening the deck at the same moment on a new day get one deck from one generation, and a refresh keeps it. A screen and the morning refresh asking at once make one deck. The morning refresh is an enabled orchestrator cron trigger whose run is placed at home with a laptop connected. `runner/boundary.test.ts` (+17, one per worker module): no scheduler, deck, AI pipeline or scheduled run. Full suite: 2,700 passed.
+- Live on the dev home: two screens opening the deck at once got the same deck, and today has one version.
+
+## P3.5 Files, previews, terminals and editors where the work is
+
+Spec §5.6 and §6: everything the viewer does to an execution's folder happens on the computer the execution runs on, through that computer's worker, and never on a folder at home.
+
+### Changing files (3.5a)
+
+- **The bug it fixes.** The routes that change an execution's files (save, new file, new folder, rename, delete, resolve a conflict, bring work in progress over) opened the execution's folder on the home's own disk. For an execution elsewhere that failed with "Workspace has no worktree", and had the path been recorded at home it could have named a different folder there: two Macs often have the same `/Users/trey/code/ri`.
+- **Defined operations, answered where the files are.** `writeExecution` (`src/lib/workspaces/execution-writes.ts`) makes each change with the same functions and path checks as at home, from filesystem and git only, so a worker can run it. The home sends it as a `write_execution` request (`writeOnOwner` in `src/lib/executor/owner-files.ts`, which was `remote-reads.ts`), naming the execution and one of the operations, never a path outside its folder (spec §5). The worker finds the worktree it prepared, and for work in progress the agent's folder from its own setup files.
+- **Only for the placement it holds.** The request carries the placement's generation, and the worker refuses one it has released or an older one than it has seen ("This execution no longer runs on this computer."), so a change can't land after the execution moved on.
+- **Refusals read the same wherever they happen.** Invalid paths, existing targets and missing files give the same status and words (`fileErrorAnswer`, shared with `mapFileError`). A computer that isn't connected refuses the change ("MacBook is not connected right now, so the change wasn't made."), since editing is live work, not something to queue. One that doesn't answer in time may have made it, so it says so: "MacBook didn't confirm the change. Check the file before trying again." An older worker says to update Ri there.
+- **The home refuses to open another computer's folder.** `openSessionWorktree` returns 409 for an execution placed elsewhere, so no route, now or later, can fall through to a folder at home.
+- **The reason reaches the person.** The editor's save, the conflict view, the file tree and the work-in-progress banner showed the HTTP status or the error code ("Save failed: API 409 …"). They show the route's message now, and an unsaved edit stays in the editor.
+
+### Tests and live checks (3.5a)
+
+- `remote-start.test.ts` (+1, through the real routes with the worker in its own process): save, new file, new folder, rename, rename onto an existing file (409, `exists`), a path outside (400, nothing written), delete a file and a folder, a resolved conflict staged there, work in progress copied from the laptop's agent folder, a write from an earlier generation refused by the worker, `openSessionWorktree` refusing, and a save while the laptop is away refused with nothing written. Full suite: 2,650 passed.
+- Live on the dev home with the stand-in's worker: README.md in an execution on the stand-in, edited in the Files view and saved with ⌘S, changed on the stand-in's disk. With the worker stopped while the file was open, the next save said "Save failed: MacBook (stand-in) is not connected right now, so the change wasn't made.", the file was unchanged, and the edit stayed in the editor.
+
+### Terminals (3.5c)
+
+- **The bug it fixes.** An execution elsewhere has no worktree path at home, so a git agent's terminal said "Worktree is still being set up" forever, and a non-git agent's opened a shell in the agent's folder at home: the fallback shell the spec rules out.
+- **Where a shell runs** (`src/lib/terminal/place.ts`), resolved on every operation: an execution's on the computer it runs on, in its working folder, and an agent's own on the computer it lives on (`agentComputerFor`, now also what pins its main chat), in its folder there. At home nothing changed. An execution elsewhere never gets a shell at home.
+- **On the worker** (`src/lib/worker/terminals.ts`), the same PTY manager the home uses. The home asks for each operation as a `terminal` request: list, create, get, input, resize, close, and replay. The worker opens a shell only in the worktree it prepared for the placement it holds, or in the agent's folder from its own setup files, never a path the home names. Each execution shell remembers its placement generation, and a request for another generation doesn't reach it ("This execution no longer runs on this computer." for an older one). When the home releases the placement, the worker stops that execution's shells, and stopping the worker stops them all.
+- **Output** goes to the home as batches the worker posts (`POST /api/workers/me/terminals/output`), each chunk carrying its offset, as the home's own terminals do. Nothing is kept at home: the home relays each batch to whoever is watching (`src/lib/terminal/remote.ts`), and a viewer catches up from the worker's ring buffer. A new stream starts watching, asks for the replay, then splices on what arrived meanwhile by offset. Output it can't splice (a batch the worker dropped because the home didn't take it, or trimmed past the ring's size) ends the stream, and the browser's reconnect catches up from the worker with its last offset. A batch the home doesn't take is dropped, never queued.
+- **Disconnected.** When the worker's stream closes, every viewer of its terminals gets `unavailable` ("MacBook isn't connected. Its terminals are still there and come back when it reconnects.") and the browser keeps reconnecting. Input is refused rather than kept: a keystroke to an away computer gets a 409, and the terminal turns typing off with that notice until its stream is back, so nothing typed meanwhile is sent later. Listing and creating are refused the same way, and the panel shows the notice instead of opening a new shell, checking every 5 seconds until the computer is back.
+- **Shown.** Every terminal carries its computer and whether that's the home, and the panel's tab strip shows the folder, with the computer's name when work here runs on more than one computer or the shell isn't at home.
+
+### Previews (3.5b)
+
+- **The bug it fixes.** A preview of an execution elsewhere started the agent's start command at home, in the agent's checkout there, because the service fell back to `workspace.cwd` when the execution had no worktree path here. Nothing in the preview code knew where an execution runs.
+- **Never started here.** The preview service knows when an execution runs on another computer (`elsewhere`) and then starts nothing, creates no target, and restoring an agent's pinned previews skips it ("It runs on MacBook."). Its state says where it runs and in which folder.
+- **Honest in every place.** Run, Preview and the tools box say "Runs on MacBook" and offer no Start. Preview explains that its app runs there, that Ri doesn't start it from here, and that its local address isn't reachable from other devices, and gives the command to run there in its folder.
+- **The person's own tunnel still works.** A URL pasted for it is its one address, used as given, with no port of the home's in it, and opens in Preview on any screen.
+- **Decided, and recorded.** Previews served by the worker (a supervised dev server on the laptop, with its logs and a tunnel from there) aren't built. The spec keeps this release to safe existing preview support and truthful unavailable states, and puts a new preview tunneling platform out of scope, with repeated transfers made only for a missing preview as the signal to add it (§6, §11).
+
+### Opening in an app on your own computer (3.5d)
+
+- **Who can open what.** An app opens files on the computer they're on, for the person at that computer. Files at home open from the home's own browser through `/api/fs/open`, as before. Files on another computer open from a browser linked to that computer ("This Mac", P2.2: `ri worker open` links the browser's viewing key to it), through that computer's worker. Any other browser gets Copy path and "The files are on MacBook. Open them from a browser on MacBook to launch apps there." Before this, the home's browser offered Open for an execution elsewhere and ran it on the home, against a path that isn't there (or is a different folder).
+- **The request** (`open_here`, `src/lib/worker/open-here.ts`) names the folder, an execution's worktree for the placement the worker holds or an agent's folder from its setup files, and a path inside it. The worker resolves it inside that folder, symlinks included, and opens only a known app (Finder, Terminal, iTerm and the editors), with the folder as the project. Never a custom command: that stays the home's, and the editor preference says so rather than run it elsewhere. The home checks on every request that the caller's viewing key is linked to the computer the files are on (`src/lib/open/on-viewer.ts`, `POST /api/sessions/:id/open` and `/api/workspaces/:id/open`). The same request lists the apps installed there, so the menu offers that computer's apps with their icons (`listInstalledApps`, now shared with the home's route).
+- **One opener for every surface** (`useOpener`): the Files view's Open button, the file viewer's Reveal and Open in editor, and the execution header's links.
+- **An execution's folder wherever it runs.** The workbench, the rail's +/- counts, the diff stats, the git chip, links to files from the chat, the work-in-progress banner and the setup card read `session.worktreePath`, which is only ever a folder at home, so for an execution elsewhere they showed nothing (the Files view had no Open button at all, and the rail no counts). They use `preparedFolder` now, as P3.1 began, and `useFolderRoot` follows the agent's computer too.
+
+### Tests and live checks (3.5d)
+
+- `worker/open-here.test.ts` (2, the app launch stubbed): a file inside the worktree opened with the worktree as the project, the agent's folder, and refusals for a path outside, an absolute path, a symlink out, a missing file, a command, a placement that moved on and an agent not set up there, with nothing opened. `open/on-viewer.test.ts` (3, real keys and links): a browser linked to the laptop opens through the laptop's worker with the placement's generation and lists its apps. A browser linked to another computer, one not linked, one with no key and a home execution are refused, and a command is refused, with the worker never asked. Full suite: 2,676 passed.
+- Live on the dev home: a browser not linked to the stand-in showed Copy path with "The files are on MacBook (stand-in). Open them from a browser on MacBook (stand-in) to launch apps there." Linked the way `ri worker open` links it (an association grant from the stand-in's worker, redeemed by the page), the same Files view showed the Open button with the stand-in's installed apps (Finder, Terminal, iTerm, VS Code), and Reveal in Finder opened through the stand-in's worker without an error.
+
+### An agent that lives on another computer (3.5e)
+
+- **Where it lives** is part of the agent's Run on answer now (`livesOn`: the computer and its folder there), from the same rule as its main chat.
+- **Its header** shows its folder there and "on MacBook". It showed the home's path, which an agent set up only on the laptop doesn't have.
+- **Its Files** come from that computer (`read_agent_folder`, answered by the worker from its own setup files with the same shapes as at home, `src/lib/workspaces/agent-folder-reads.ts`), and its Terminal opens there (above). While that computer is away, both say so.
+
+### Tests and live checks (3.5b, 3.5c, 3.5e)
+
+- `remote-workbench.test.ts` (4, the worker in its own process running real shells): an execution's terminal in the laptop's worktree, typed into and read back through the home's routes, resized, and resumed after a reconnect with only the missed output. A request for an earlier placement refused there. Never a shell at home. The agent's own terminal in its folder on the laptop. The laptop stopping: the open stream says so and closes, input, listing and creating are refused, and reopening the stream says so again. The agent's tree and files from the laptop, the committed side, a path outside refused, and unavailable while away.
+- `terminal/remote.test.ts` (4): output that arrives during the replay spliced on after it, output that can't be spliced ending the stream, another computer's output ignored, a dropped computer said, and a shell that ended or is gone there. `worker/terminals.test.ts` (4): shells only where the worker may open them, output posted with contiguous offsets, placement generations, release stopping the shell, and a dropped batch showing as a gap. The terminal route test (+2): where the shell runs, and an execution elsewhere relayed with no shell here. `preview/elsewhere.test.ts` (3): nothing started for a local or remote viewer (the start command would have touched a file in the home's checkout), a pasted URL used as given, and restore skipping it. `run-status.test.ts` (+1). Full suite: 2,670 passed.
+- Live on the dev home with the stand-in's worker: the terminal of an execution on the stand-in printed the stand-in's worktree for `pwd`, labeled "MacBook (stand-in) · demo/demo-fc4311", and reopening the page reattached to the same shell with its scrollback. Its Preview said "Runs on MacBook (stand-in)" with no Start, and so did the tools box. The Sweeps agent, which lives on the stand-in, showed its stand-in folder in its header, listed a file that exists only there, and opened its terminal there. Stopping the stand-in's worker while that terminal was open showed "MacBook (stand-in) isn't connected. Its terminals are still there and come back when it reconnects. Typing is off until then."
+
+## P3 review fixes
+
+A review of P3 at 50a642f (`d1f472a..50a642f`) found five reproducible failures, all still present at 35b0a11, each with a probe kept in `src/test/regressions/homes-p3-*-review.test.ts`. It also confirmed 35b0a11's fix of the last P4 race.
+
+- **Terminal streams stalled the app (P1).** A page opened a stream for the dashboard, one per chat on screen, and one per terminal tab, hidden ones included. A browser keeps six HTTP/1.1 connections to a host, so four terminals used them up and every ordinary request, typing included, waited. `4a5e53c` had removed the duplicate layouts but not this. Now a page follows everything live over one connection, `/api/live` (`src/lib/realtime/page-stream.ts` on the page): the dashboard's signals, each chat (the same feed as its own route, `openSessionFeed`), and each terminal on screen (its own stream, read where the terminal is by `runTerminalFeed`, and reopened from its last offset when it ends without the shell ending). The page reconnects only when what it follows changes, carrying where each left off, lets go of its connection after five seconds hidden, and reconnects itself after an error with backoff. A terminal streams only while it's the active tab of an open panel, and picks up what it missed when shown.
+- **A timed-out scheduled run stayed queued to run later (P1).** Its time limit ran while the message waited for a sleeping laptop; the run failed, and its send still went when the laptop woke. The clock now starts when the computer takes the message out of its queue: a fire waiting for a laptop waits, as P3.4 promises, and runs once when it wakes, the way the home fires an overdue trigger once.
+- **A delivery could go back to Waiting after it was delivered (P2).** A snapshot read before the stream's update, or Cancel's answer, arrived after it and put the older state back. Stream updates are stamped, and a snapshot or answer keeps what the stream changed after its request started (`src/lib/query/delivery-fence.ts`).
+- **An exited terminal on a worker couldn't be closed or replayed (P2).** Its placement's association went with the shell. It now stays until the terminal is closed or the placement released.
+- **Output that arrived during a replay was dropped at exit (P2).** The relay now sends it before the exit, and ends without an exit when it can't, so the reconnect catches up.
+
+Three probes were adapted. The stream probe opened six EventSources itself, which only showed the browser's limit, so it now runs the real `/api/live` route in headless Chromium: two pages, each following two chats and four real shells over one connection, their output arriving, and an ordinary request going straight through. The schedule probe follows the fix chosen (the review offered either). The delivery probe sends its update as the page stream frames it.
+
+Found and fixed on the way: the page stream was first written to `/api/stream`, which is the Stream inbox's route, and capture broke with the suite still green, because nothing tested that route. The inbox's route is restored exactly, it has a test now, and the page stream is at `/api/live` (7b9f7b1). The dev home's log showed no captures attempted while it was broken.
+
+Tests: the five probes; `page-stream.test.ts` (6: one connection for everything, reconnecting only on changes and from cursors, a remount getting the backlog, a chat starting fresh, letting go while hidden, reconnecting after an error); `terminal-feed.test.ts` (3: a remote terminal reopened once its computer answers and ended at the exit, a missing one not retried forever, a shell here resumed at exactly its offset); and the Stream route. Full suite: 2,786 passed.
+
+Live on the dev home: an execution with seven terminal tabs held one connection by the page's own count and Chrome's network log, the terminal showed its output, a chat reply arrived live, and hiding the page let go of its connection. A terminal on the stand-in came through the worker relay, and switching tabs and back resumed its screen intact.
+
+### Re-check at d0c788f
+
+A re-check of `35b0a11..d0c788f` confirmed the terminal exit fixes, the Stream inbox's route unchanged, and the label trial, and found five more failures at the edges of the fixes above. Their probes are kept (`homes-p3-*-recheck.test.ts`).
+
+- **A scheduled run could fail on time, then queue its message anyway (P1).** The clock started before the message was prepared, and running out didn't stop the preparation: model discovery held for longer than the limit, the run failed, and the send was queued for the sleeping worker after it. Until the message is queued, the limit now bounds preparing it, and running out aborts the send: the send boundary (the same tick that counts it, P4 review) refuses it rather than send, queue or hold it (`DispatchOptions.signal`). A late report of a queued command installs no clock, and, should one ever come after the run failed, withdraws that message (`withdrawQueuedSend`, shared with Cancel). Once queued, the clock starts over when the computer takes it, as before.
+- **Terminal output could be skipped on screen (P2).** The page stream moved a terminal's cursor for every frame, reaching a screen or not. Output arriving in the 20 ms before a hidden tab's reconnect moved it past what the screen had, and a late frame from the old connection gave a remounted screen a cursor, so it never got its backlog. Now each screen brings its own position (`TerminalPosition`), moved only by output the page stream hands that screen. A new screen takes frames only from a connection opened for it. A screen shown again joins the open connection only when that's exactly where it is, and screens of one terminal in different places start over from the backlog together, each resetting first. Chats follow the same rule: a frame that reaches no one moves nothing, and a chat followed again starts fresh.
+- **A reconnect could leave a transcript incomplete while saying it resumed (P2).** The replay stopped at 1,000 events but said `resumed`, so the page skipped its refetch, and a part revised in place (OpenCode's text grows under one id) was never replayed, since replay went by id. Now a resume replays all of what was missed or nothing: parts revised since the newest change the page saw (`updatedAt`, the home's clock, carried in the subscription) are replayed too, and `resumed` is false, with nothing replayed, when there was more than one replay holds, or revised parts can't be found (no watermark, as on the per-chat route). `ready` also says where the transcript stands, so a chat that was read afresh resumes next time instead of being refetched on every reconnect. The page keeps a revision newer than its copy, live or replayed: before this, a revision arriving live was dropped as a duplicate, so the fix covers that too.
+- **Cancel's answer could be undone by an older snapshot (P2).** Only stream updates were stamped. An applied answer is now stamped the same way, so a snapshot read before it can't put Waiting back, and an answer older than a stream update still gives way to it.
+- **A page opened hidden held its connection (P2).** Visibility was applied only on a change. It's applied when the page stream starts too, so a background tab lets go after five seconds.
+
+Found on the way: the chat cursor stays the last event handed on, not the greatest id. A message keeps the id its sender minted on its own clock, so a phone running ahead would have pushed a greatest-id cursor past what followed (`chatEventsPosition` uses the last written row for the same reason).
+
+Two probes were adapted. The terminal probes pass the screen's position where they passed `fresh` (a new position for a new screen, the same one for a screen shown again). The label probe opens the phone sheet from the agent's ⋯ menu, which replaced the hold on + in ece748f. The clock probe keeps its check and adds a stricter one: the run failed with `timeout`, no send exists, and no clock was left watching.
+
+Tests: the probes; `session-feed.test.ts` (5: revised parts replayed by watermark, a resume without one when nothing is revisable, nothing replayed without one when something is, nothing replayed past the cap, the position being the last written event); `page-stream.test.ts` (11, 5 new: an untaken chat frame moving nothing and a rejoined chat starting fresh, the watermark and `ready`'s position carried, a screen rejoining in step without a reconnect, a screen restarting from a snapshot, nothing taken from a replaced connection); the resume probe's third case (a revision taken live and on a complete resume, with no refetch); and `/api/live`'s subscription (the watermark passed on, one in another shape dropped rather than refused). Full suite: 2,809 passed.
+
+Live on the dev home: a background job's output that landed while its terminal tab was hidden was on the screen when the tab came back, on the home and through the stand-in's relay, and a screen remounted by leaving the execution and coming back got its whole backlog. Switching terminal tabs reconnected the page each time with no transcript refetch, the chat resuming from where `ready` said it stood, watermark included. The same checks against the previous client code rendered identically, so nothing on screen changed but the gaps.
+
+### Re-check at 15149a7
+
+A focused re-check of `d0c788f..15149a7` confirmed the earlier fixes and the phone's ⋯ menu (a real Chromium run of the agents list: open, dismiss and pick, focus and pointer input intact, a pick starting once). It found five more, with probes kept (`homes-p3-*-15149a7.test.ts`). Two are at the edges of the last round's fixes, one was pre-existing, and one was the id-order assumption flagged last round. This is where the review loop was closed: the findings had moved from everyday failures to timing windows and unusual setups, and more of them were in the newest code.
+
+- **A scheduled run could send after it timed out, on the home (P1).** The send boundary refused an aborted send, but starting a harness session here comes after it and can take a while. The give-up signal now rides the send request, and the local runner checks it again after startup, just before the message goes to the harness (`SendRequest.signal`). The session it started stays for the next message.
+- **A scheduled fire held by a move finished as completed, and ran later with no time limit (P1, pre-existing).** A held message resolved the dispatch, which the run took for its turn. Now a run keeps its prompt's event (`runs.source_event_id`, migration 0010), and a hold (`onHeld`) puts it back to `queued`, `held_by_move`, with nothing started. The move's delivery sends it as that run (`deliverHeldFire`, from `redispatchStoredMessage`): started then, under its trigger's limit from then, and finished by its turn. A delivery that fails before anything took it leaves it held and the run waiting, for Send them again. One whose time runs out first fails the run on time, and the move lets the message go. Held again by another move, it waits again. The boot sweep keeps a held run, since its message is saved with the move, and the concurrency gate counts it as under way, so later fires wait behind it (or fold into its chat, which the move now holds too: a folded message is tied to its event) rather than pile up behind a stuck move.
+- **A phone's clock could hide a reply after a reconnect (P2).** Replay went by id, and a message keeps the id its sender minted. A phone a minute ahead put its message past the reply that followed it, and the resume said it was complete. Replay now goes in the order the home wrote (rowid), from the cursor's row. A cursor the home doesn't know replays nothing and says so.
+- **`ready` could vouch for events the page never got (P2).** A fresh `ready` moved the chat's cursor to the transcript's position at once, but the read that should bring those events could be one already under way, from before them. Now a `ready` that didn't resume comes with an acknowledgement, and the page calls it only once its transcript has the event `ready` named as the last, asking for a second read if the first was older. Until then the cursor stays where it was, so a read that fails, or was stale, costs a refetch and never a gap. The transcript's own read keeps a part's newer revision from the stream over an older one in the snapshot.
+- **A terminal screen could rejoin past an `exit` or a recovery `ready` (P2).** Joining the open connection in step went by output offset, and a frame with no output doesn't move it. Each frame is now marked, and a screen joins in step only when it was handed the connection's last frame for that terminal. Anything it missed, from its own absence or another screen's, means a connection opened for it, which replays the terminal's state.
+
+Found on the way: the dev home applied the first draft of migration 0010 while it hot-reloaded, before the index was added, so the final 0010 failed to boot there ("duplicate column"). The stray column was empty: it was dropped and its record removed, with a snapshot taken first (`~/ri-homes-snapshots/data-before-0010.db`), and the dev home booted on the final 0010 with every row intact. A migration is generated once, when the schema is final.
+
+Tests: the seven probes and two controls; `held-fire.test.ts` (4: a held fire waiting with its message, a later fire folding into it or skipped, the boot sweep keeping it, delivery as the same run finished by its turn, a failed delivery leaving it held); `page-stream.test.ts` (12: the acknowledgement rule, a screen rejoining after a frame another screen got); `session-feed.test.ts` (6: a cursor the home doesn't know). Full suite: 2,824 passed.
+
+Live on the dev home, after its restart onto 0010: output that landed while a terminal tab was hidden was there when it came back, on the home and through the stand-in's relay, a remounted screen got its backlog, and switching tabs reconnected with no transcript refetch.
+
+## Simplification pass (before P5)
+
+Found in gates B and C: Trey couldn't get "Open code here" until his browser was linked with a terminal command, then met "Demo isn't set up on MacBook" with no way forward, and said plainly that he didn't understand how the whole thing works though he helped build it. Counted, the surface asked a person to know nine things, three of them only from a terminal. The spec already said the right thing ("Setup appears when someone first uses a project on a computer", "Routine use after setup requires no copied command… or folder path", and when a project isn't set up, "offer Use existing folder and Clone repository"), and the build hadn't delivered it.
+
+So the product is now measured against one page, [docs/homes-model.md](homes-model.md): *Your Ri lives on one computer. Your other computers can do work for it. Each piece of work runs on one computer at a time, and from anywhere you can see it, steer it, or move it to another computer.* Anything outside that either happens for the person or appears only when something's wrong.
+
+- **Moves are named by computer, from any screen.** Move to MacBook, Move to Mac Mini: one for each other computer that runs agents (`useMoves`), in the location chip's menu, or the execution's … menu for home work. The page never has to know which computer it's on, so no browser linking. The server takes any of the person's computers that can take the work (the transfer route no longer refuses "not the computer you're on"). Each move says why it can't happen yet, with how to start Ri on a computer that isn't running it. The move dialog is "Move to MacBook".
+- **Setting an agent up on a computer, from the app.** Wherever a computer is chosen (a move, New execution on… on the phone, the launcher's Run on), one the agent isn't on yet is offered, not a dead end (`runOnFor` lists every enrolled computer, the new ones with `needsSetup`). Choosing it opens Set up Ri on MacBook: Copy it from Git (the standard case: the remote of the agent's folder on the home, into `<Ri root>/projects/<agent>` there, or somewhere else), or Use a folder that's already there. The folders it uses come along beside it as on the home, copied from their own remotes, or reuse one another agent there already has (one copy of a shared library per computer). One that can't be found is asked about once, with Go without it. Then the move, or the start, carries on.
+  - The home builds the request (`src/lib/setups/set-up-agent.ts`), since only it knows the agent, its remote and its references' layout. The computer does it (`set-up-here.ts`): through a new worker request, `setup_agent`, on a connected computer, or in-process on the home. It's the same `attach` as `ri setup attach`, so the files, the registry and the report are identical, and the home records what the computer reports. A copy that fails, or a setup that fails after copying, leaves nothing behind. A folder with something else in it is refused, and a copy already where it would go is used as it is. An older worker that doesn't know the request says to update Ri there.
+  - `GET` and `POST /api/workspaces/:id/setups`, and `SetupAgentDialog`.
+- **Open code here is parked off the menu.** Built and kept (the review bar still works for a review checkout that exists), but seeing work from anywhere already covers the chat, changes, files and terminal, and moving covers working on it locally. Gate C is amended to match: viewing or moving.
+- **The dev home is cleaned up.** Trey's view had test fixtures in it: the Demo, Sweeps and Setup check agents are archived (status only: their history and folders are kept), and the stand-in laptop's enrollment is disabled (`worker disable`, re-enrollable for checks). The dev home shows one agent, Ri, on the Mac Mini and the MacBook.
+
+Tests: `set-up-agent.test.ts` (11: the plan from the home's remote and references, a copy with its references landing ready and recorded, a folder already there with a reference asked about and gone without, a shared reference reused, an existing copy used, a folder with something else refused and left alone, a failed copy leaving nothing, not running, an older worker, another home refused, the spellings of one remote); `run-on.test.ts` (the new choices and wording); the move route (any computer, refused only for a real reason); and the two browser probes adapted to the new labels and hooks. Full suite: 2,837 passed.
+
+Live on the dev home, with the stand-in: a throwaway agent's execution on the Mini offered Move to MacBook (not running Ri, with how to start it) and Move to MacBook (stand-in) (set it up first). Set up copied it from its remote into `~/ri-homes-laptop/projects/setup-check` with agentex alongside, the move dialog followed, and the execution moved and showed MacBook (stand-in). Moved back from the chip. On a phone, Ri's New execution on… offered the stand-in as "Ri isn't here yet. Set it up, once.", and the dialog planned a copy of `treyhuffine/ai-task-manager` reusing the agentex already there (opened, not run).
+
+Found on the way: a long path overflowed the dialog's card (wrapped now), and the phone sheet imported the move menu for one constant, pulling its whole graph along (moved to `lib/executions/location.ts`).
+
+Found in gate B right after: every Ri execution on the Mac Mini failed to set up ("SourceFileMissingError: … .env.local"). The Ri repository commits an `agentex.workspace.json` that links `.env.local` into each worktree, agentex refuses a link whose file isn't there, and the Mini's copy of Ri has no `.env.local`. The same would hit any fresh copy, including one set up from the app. Worktrees are now made with agentex's step off (`applyFromSource: false`), and Ri brings the repository's local files in itself (`bringLocalFiles`, the same merged list agentex reads): what the folder has is linked or copied, what it doesn't is skipped and named in the chat, and a local file never fails the worktree. The failed setup's button said Pull with a download icon, though it retries the setup: it says Try again now. Test: `local-files.test.ts` (a missing link still makes the worktree and names the file, which fails with the exact error on the old behavior; present files are linked and copied).
+
+## Folders in the home's database (before P5)
+
+Trey's call after the simplification pass: every computer's folders live in the home's database, and nowhere else (spec §4.1, amended). Built in dependency order:
+
+- [x] **Records.** `agent_setups` is the authority for each agent's project folder on each computer, its status derived from what the computer found (`found`, new, with `unchecked` until a check). A new `folder_links` holds where each linked folder is on each computer, or that it goes without, one place per computer for a linked folder every agent uses. `reference_folders` keeps the definitions: its home path moved to `folder_links` (the column is retired, kept to the next baseline squash), and its one-target check is gone, so a linked folder needn't be on the home (migration 0011, a rebuild of that small table, which has no search index). `recomputeAgentSetups` derives each setup's linked folders and status from the records. A boot step (`moveFolderRecords`, idempotent) moves what existed: each active agent without one gets its home row, each linked folder's home path its home link, and what other computers last reported their links. A linked folder's place on each computer, the home included, comes from what its agents last used there. When they disagree it keeps an active agent's before an archived one's, then a place someone chose before one that was only the linked folder's own path carried along, then the latest, and says at boot what it kept. The home falls back to the linked folder's own path when no agent reported one.
+- [x] **Checking.** The computer checks its folders (`check_folders`, a new worker request, or the home's own disk) after a change, when its worker connects, and when work starts there (a 5 second check in dispatch, so a folder gone since it connected is refused with where it was, and recorded). The worker's `prepare` also refuses a folder that went since, with the same way on: choose where it is now.
+- [x] **The worker follows the home.** The home sends a worker its folders on connect and after every change (`folders`, a stream event), and the worker keeps them in memory only. Its setup file and registry are gone (`local-file`, `registry`, `resolve`, `change`, `service`, `adopt`, and `scripts/plan-adoption.ts`), and linked folders reach sessions from the home's records. Worker protocol 3: every worker route refuses 2 with the update message. Old `setups.json` and `.ri.local.json` files are left on disk and ignored, so rolling back to the earlier build still finds them.
+- [x] **Choosing a folder on any computer.** `list_folders` lists one folder's folders within the person's home folder, hidden ones left out, Git projects marked, at most 500 (the home's own disk for the home). `GET /api/computers/:id/folders` and the `list_computer_folders` action. The app's folder picker takes a computer and browses it from any screen. A `~` path typed for a computer is expanded with that computer's home folder.
+- [x] **The Setup tab.** Folders replaces Reference folders and the read-only Folder field (`AgentFoldersSection`): a switcher across the person's computers (the home first, a dot for ready, not checked, a problem, or not set up), and for the one chosen the project folder and each linked folder with ✓, Not there or Not checked yet, Change (typed or Browse), Go without it, Add a linked folder (placed on that computer, or another agent), edit and remove of a linked folder, Set up on that computer, and Remove from that computer. The home can't be removed from: its folder there is where the agent lives. Changing the home's folder restarts the agent's live sessions into it, as the settings did, and changing a linked folder's place restarts the sessions that use it. Removing an agent from its default computer sends new work back to the home.
+- [x] **Setting up from the app and the CLI** write the records: the setup dialog (now with Browse for a folder that's already there, and for a linked folder it couldn't find), and `ri setup` through the home (attach, link, relink, detach), which names each agent. Restore and adopt, which existed for setup files, are gone.
+- [x] **Tests, live checks, docs.**
+
+Tests: `folder-records.test.ts` (one place per computer, status from checks, taking an agent off a computer, the boot move and its preference for active agents, listing limits, the worker's book), `app/api/workspaces/[id]/folders/route.test.ts` (the view, a whole path for a computer not running Ri, `~` needing that computer, the home's disk and its session restart, adding, going without, refusing to place another agent, never removing from the home, the default computer, listing), `remote-start.test.ts` (a folder moved away while the laptop was connected is refused at start and recorded missing), `handlers.test.ts` (prepare refuses a folder that went), and the adapted suites. Full suite: 2786 passed, 25 skipped, none failing. Typecheck clean. The P3 label probe's hook stub gained `isHostnameClaimed`, since setup now reaches the folder picker.
+
+Live on the dev home (snapshot `~/ri-homes-snapshots/data-before-folders-boot-20260929-102422.db` first): 0011 had applied on hot reload, and a restart ran the boot move (0 agent folders and 3 linked folder places moved). The Mac Mini's agentex checked found, the MacBook's waited for its worker. Re-enrolled the stand-in: on connect its folders were checked and recorded found. In the browser, at desktop and phone widths: the switcher (Mac Mini, MacBook, MacBook (stand-in) · not set up), each computer's folders with their states, the Change dialog, Browse on the Mac Mini and on the stand-in through its worker, Add a linked folder, and the set-up dialog's Browse filling a folder on the stand-in. Through the API: a missing folder on the stand-in was refused ("isn't a folder on MacBook (stand-in)"), and a `~` path was expanded there. `ri setup` on the stand-in listed its agents by name. The stand-in was disabled again after.
+
+Found by Trey right after: on the Mac Mini, Ri's agentex had moved to `…/mini/code/agentex`, a one-commit fixture from P1, instead of `…/code/agentex`, the real clone that Ri's setup file chose (`../code/agentex`) and where the Agentex agent lives. The first boot move took the home's place from the linked folder's own record, a path nobody had updated since P1, while taking other computers' places from what their agents used. Fixed as above, with a test of that exact layout. Rehearsed on a copy of the pre-move snapshot, the new rule kept `…/code/agentex` on the Mini ("Ri used …/code/agentex, Agentex used …/mini/code/agentex") and left the other computers as they were. The dev home's link was set back through the linked folder route (checked found, Ri's sessions restarted), since the move never changes a place already recorded.
+
+Found on the way: the folder picker could sit on Loading in a headless browser on localhost after a restart, which was Chrome's six connections per host held by the dashboard's streams and a deck generation, not the picker (the same request answered in 0.3 seconds directly). The Reference folder dialog's two set-state-in-effect lint errors, which predate this, are gone with its rework (mounted per open, the alias derived).
+
+## P5 Existing-data adoption and personal release (plan)
+
+The gate: the personal journey works without pasted commands after installation, preserves existing work, and supports moving from laptop-as-home to an always-on home. The order, and why:
+
+1. **P5.4 The companion.** Today a computer joins by pasted commands and runs its worker in an open terminal, which is exactly what the gate rules out. The desktop branch (`ai-task-manager/session-ca52f4`, `docs/desktop.md`) already has what this needs: one local service shared by the CLI and Electron (`src/lib/service/`), launchd and systemd adapters (a LaunchAgent per data root, restarted on an unsuccessful exit), staged runtimes outside the app bundle, and coordinated updates and maintenance. So nothing separate is built here. The plan, simple to follow later: one service per computer. On the home it runs Ri, on any other computer it runs the worker.
+   - [x] **Merge the desktop work into this branch** (297d4ab, the desktop branch at 2d5a37d, with main as of b369b20). Done in a scratch worktree, so the dev home never ran a half-merged tree, then fast-forwarded. See "P5.4 Merging the desktop branch" below.
+   - [ ] **The role, before anything starts.** Resolve home versus connected computer before Electron starts a local service or opens a database, keeping this branch's `assertMayOpenDatabase` and the desktop's maintenance and database-access locking (desktop.md, handoff item 1). On a connected computer the service runs `worker run`, under the same lifecycle, status, stop and update.
+   - [ ] **The other handoff items**: maintenance admission, draining and idle-harness closing kept with the split runner, and remote workers joining coordinated updates (2). Local filesystem, service, notification and OAuth capabilities kept from remote home and team pages (3). Deferred notification delivery carried into `deliverRow` (4). Connector account allowlists and owner and session authorization kept through the home and harness routing (5).
+   - [ ] **What the app adds for a connected computer**: connected, working or stopped at a glance, Open Ri, Stop local execution, joining a home by code or link without a terminal, and the browser association for This Mac (spec §3.1).
+2. **P5.5 The stranger test**, once the companion exists. Its script and what counts as coaching are written first.
+3. **P5.1 Consolidation rehearsal** on isolated copies of the Mini's production home and the laptop's home. The laptop's copy is a consistent backup Trey makes there, the one step that needs him.
+4. **P5.2** The worker replacing the laptop's local home in development, and the simulated retired root archived. The production cutover and its recovery, written.
+5. **P5.3** Stopped home relocation: the same home ID, paths relinked, an address change, and the role marker that keeps two roots from both being the home.
+6. **P5.6** Rollback rehearsed, and exactly what's preserved, listed.
+
+Decided: the desktop companion is the Electron app on the desktop branch, not the native menu bar app first proposed, and its service is the one every computer runs. No separate `ri worker install`: a second service beside the app's would fight the one-worker-per-root lock.
+
+## P5.4 Merging the desktop branch
+
+27 files conflicted. How each was settled:
+
+- **The executor.** This branch's split runner stays. Ported onto it: sends admitted through the desktop's maintenance gate (`withActivity` around `dispatch`), the Codex error that ends a turn shown (now in `runner/parse.ts`), and `closeIdleHarnessesForMaintenance`, whose idle close lives in the local runner, which owns the harness cache. The orchestrator mode and import-mirror fixes were already here as cherry-picks.
+- **Pull-base.** Both branches fixed the same bug. One implementation now: `pullBaseInto` (`branch-sync.ts`) runs in the worktree's own repository, so it works on any computer, and it gained the desktop's PR-head refetch and its loud fetch failure. The desktop's `pullBase` is a thin wrapper over it, so its tests stand as written.
+- **Editing in the agent's Files tab** (desktop 143f453) goes to the computer the agent lives on. `agentFolderWrite` writes at home, or sends `write_agent_folder` to that computer's worker, which writes in the folder the home recorded there: never the home's copy of an agent that lives elsewhere. Execution and agent-folder writes share `writeFolder`. Test: `remote-workbench.test.ts` saves, creates, renames and deletes in an agent on the laptop, refuses a path outside it and an archived agent, and finds nothing at home.
+- **`openWorktreeHandle` takes the workspace** (desktop e18f496, for agentex 0.0.5's per-worktree base). Execution locations and requests carry the agent's remote name, and the worker's push and pull open against the agent's folder there.
+- Takeover routes stay retired (P4.5). The importer keeps this branch's version, since the desktop's e7a4520 was ported from it. `deliverRow` carries the deferred-delivery rule (handoff item 4). `proxy.ts` has both the cookie-origin check and the inactive-home gate. The voice hook keeps its provider cache and gains the desktop's re-probe on focus and when providers change (fresh then).
+- **The runner boundary** names one exception: `atomic-file.ts` opens a SQLite file of its own as an OS lock beside a config file, never the app's database.
+- Handoff item 1 at the database: `getDb` refuses a connected computer's database (`assertMayOpenDatabase`) before it takes the desktop's access lock. The role choice for Electron is next.
+
+Verified: typecheck clean. App suite 3,343 passed, with one process-timing test flaking under full-suite load (a different one each run, `faults.test.ts` or `runtime-job-lifecycle.test.ts`, each passing alone every time). Desktop suite 247 passed.
+
+Found when the dev home restarted on the merge:
+
+- **It refused to start**: "Database migration 9 does not match this release", the desktop's schema-history check (S1). The dev home had applied a draft of 0008 on hot reload during P3.1, with `default_computer_id` referencing computers without `ON DELETE SET NULL`, and the committed file differs. Nothing but the dev home ever had it (production has none of these migrations, and a connected computer keeps no database). Fixed on the dev home after a snapshot (`~/ri-homes-snapshots/data-before-desktop-merge-*.db`), with the server stopped: the column's definition changed in place to the committed one (a delete action changes no stored data, and a rebuild would reassign rowids), and the committed hash recorded. Integrity and foreign-key checks clean.
+- **Pairing by link signed the browser straight out.** The desktop's layout mounts components whose first requests ran before `PairingBootstrap` stored the `#token=` from the link, and the 401 signed the browser out. The desktop branch has the same order. Now the API client takes a pairing link's token from the first request on, whichever component asks (`auth-token.test.ts`), and `PairingBootstrap` mounts first.
+
+The dev home runs the merge: the MacBook reconnected on protocol 3, and the Setup tab, the composer and the Folders section render at desktop and phone widths without errors.
+
+## P5.2 and P5.6 The switch, written down, and its rollback rehearsed
+
+- **`docs/homes-cutover.md`**: the switch for Trey's two computers. The Mini in one stop (stop, back up and verify, update the code, import the laptop's chats with the mapping the rehearsal found, start), then the MacBook (stop and back up, retire its home, connect, enroll as `MacBook`, run). What to do when each step fails, and a table of what's kept and where.
+- **One stop is enough** because the import brings the database up to the homes build and gives it its identity, as a first start would (`import-records.ts` calls `ensureHomeIdentity`, and refuses a copy that needs claiming). Test: a home with no identity yet gets one from the import.
+- **Rollback rehearsed** on a scratch database under `/tmp`: made by today's main with a task, backed up, upgraded by the homes build with another task, then main refused it ("Database migration 3 does not match this release. Use the matching or newer Ri release. No migration was applied."), and after swapping the database and `machine.json` aside and the backup in, main opened it with its first task. The same check on the Sep 24 production backup: main opens it (2 migrations, 0 pending). So a code revert alone can't run on or damage an upgraded database, and going back is the backup, swapping only the database, since `~/ri/.work` holds the home's worktrees.
+- Found on the way: an unquoted variable of settings in zsh (`env $E`) is one word, so a rehearsal ran under a folder named after the whole string, in `/tmp`. No real home was touched (checked), and the rehearsal now passes each variable on its own.
+
+## P5.4 The service decides the role first
+
+Handoff item 1 (docs/desktop.md): "Resolve Home versus connected-device role before Electron starts a local service or opens a database."
+
+- **`resolveServiceRole()`** (`src/lib/service/role.ts`), from files only (the connection record, the worker enrollment, a retired home's note): `home` (run it), `first-run` (nothing here yet), `worker` (connected and enrolled with that home: run the worker, show the home), `viewer` (connected, not enrolled: nothing runs, show the home), `retired` (connect to the home that took over), `conflict` (a database beside a connection).
+- **The service** (`src/service/main.ts`) resolves it right after recovery and before anything opens a database, reports it in its status (`role`, and `home: { url, name }` for a connected computer), and starts the home's server only for `home` and `first-run`. Otherwise it stays up for status and recovery, in `failed` with the reason, and never creates a database.
+- For the Electron side (Trey's): on `worker` and `viewer`, open `status.home.url` in the window. Running the worker under the service (`ri worker run` as its child, restarted with it) is the natural next step and is left to that design.
+- Tests: `role.test.ts` (each role from its files), and the desktop suite (247) passes with the status fields added.
+
+## P5.1 Comparing the two homes
+
+Started first, since P5.4 is now a merge of the desktop branch (above) rather than new work.
+
+- **`scripts/compare-homes.ts <a> <b>`** (`src/lib/home/compare.ts`): what B has that A lacks, before anything is imported. Each of A and B is a root or a backup, since a backup has a root's layout, and a running home is read in place without writing to it (`source-db.ts`). For areas, tasks, notes, stream, agents, executions, chats, schedules and linked folders: what's in both by id (unchanged, or changed later on one side), what's only on one side, and what's only in B but looks like something A has (the same title, name or text under another id, for a thing made on each side). Then chat histories with more events on one side, attachments, persona and memory files, and skills. Homes on different schemas compare on the columns both have. `--names Mini,Laptop` labels the sides, `--json` writes every record for choosing what to import. The share of shared ids says whether one home began as a copy of the other.
+- Tests: `compare.test.ts` (a home copied and then changed on both sides, a record made again under its own id, different schemas, and neither home written to).
+- Run for real, the Sep 24 baseline backup against production as it runs now, in 37 seconds on the 5.3 GB database: all ids shared, and five days of use found (15 executions, 46 chats, 33 attachments, the Blogging agent and 2 linked folders only in production, 9 tasks and 4 notes changed later there). Production's root had the same entries before and after.
+
+The laptop's backup arrived on 2026-09-29 (`~/ri-backups/laptop-20260929T180803Z`, 2.4 GB, verified). Compared with production (`~/ri-p5-rehearsal/compare-mini-laptop.txt`): nothing overlaps. The laptop has 414 chats (161 started by its schedules), 213 executions, 146 attachments, 15 agents (10 named like production's, 5 only there), 5 tasks, 2 notes, 1 stream item and 27 schedules of its own.
+
+Trey's choices: bring the chats he started, with their work and attachments. Leave the schedules' chats, the tasks and notes, the schedules, and the laptop's persona files (production's win).
+
+## P5.1 Importing the laptop's chats (rehearsed)
+
+- **`scripts/import-home.ts <source> --computer <name> [--map <sourceAgentId>=<agentId|new>]... [--apply]`** (`src/lib/home/import-records.ts`), run through `pnpm iso <dest-root>` with that home stopped (it refuses while anything else holds the database). Without `--apply` it says what it would do. It reads the source (a root or a backup of one) and writes only its own root.
+  - **What comes over:** every chat a person started, with its messages (in their order, so a chat reads as it did), its execution, attachments, terminal-history ledger and preview. Chats a schedule started are left out, and so are empty chats on a task or note this home doesn't have.
+  - **Agents:** one this home has by name is the same agent and its chats join it. One it doesn't have comes over with its id, its own slug where free (else the next, as creating an agent does), this home's area of the same name, and new work defaulting to that computer. Active work never quietly joins an agent archived here: the plan stops and asks for `--map` (another agent, or `new`).
+  - **Where they ran:** each execution is placed on that computer (`adopted`, generation 1, its folder there), and the home's own path column stays empty, so the home never looks for it on its disk. Chats that aren't work, and native sessions, are pinned there too. Each agent's folder on that computer is recorded (§4.1), in the same transaction, so an agent that lives only there never gets a folder at home at boot. Terminal-history ledgers are read from that computer from then on (never a path on it), where the laptop left off: the same offset and prefix digest the worker's reads check.
+  - **Nothing already there changes.** Ids are kept. A record whose id is here is skipped, so a second run does nothing. A chat that continues a conversation a chat here already has stops the plan. A main chat for an agent (or the app) that already has one here comes over archived, so it never replaces the current one. Imported chats come over read, so Unread isn't flooded.
+  - **Atomic.** Every row in one transaction, with link checks at commit and a foreign-key check before it. Attachments are copied first and removed again if the rows fail. A manifest of what came from where goes to `.archive/imports/`, which backups keep.
+- **`scripts/unpublished-work.ts <root>`** (`src/lib/home/unpublished-work.ts`): for each execution's worktree recorded in a home, whether it's on this computer, and whether it has uncommitted changes or commits no remote has. Read-only. Run on the MacBook against its own home, since its worktrees are only there. Importing moves no folders, so this work stays where it is and continuing the execution finds it.
+- Tests: `import-records.test.ts` (the plan writes nothing, joining by name and creating, placement on the MacBook, messages and search, the attachment, main chats, ledgers, what stays behind, the manifest, a second run, a failure leaving nothing, the home's own computer, archived-only matches and `new` with the next free slug, a conversation already here, and an agent map), `unpublished-work.test.ts`.
+
+**Rehearsed on copies**, originals only read:
+
+1. A fresh backup of production (6.1 GB, 694 files, 41 seconds) into `~/ri-p5-rehearsal/root`, verified, made a development copy (keys revoked, schedules off, native sessions and folders detached).
+2. Its first start on the homes code: 12 migrations, a home on AI Mac Mini, and the boot move (10 agents' home folders, 2 linked folders).
+3. The plan stopped at `insiderfinance`: active on the laptop, and production's only agent of that name archived. The laptop's `startups/insiderfinance` is `InsiderFinance/insiderfinance-app` (its own chats show the remote), so it was mapped to production's `insiderfinance-app`. Every other name match is the same repository on both sides.
+4. Applied in 172 seconds: 245 chats (5 main chats archived), 213 executions, 461,917 messages, 125 attachments, 47 ledgers, 1 preview, and a MacBook computer record. Left out: 161 schedule chats and 8 empty task and note chats. Five agents came over, living on the MacBook only (skilled.dev, bounce, ballcoach-scraper, insiderfinance-fmp-rebuild, flow).
+5. Checked independently of the importer: every chat's messages identical to the laptop's, in order (a digest per chat, 0 of 245 different). All 213 executions placed on the MacBook with no home path, 0 imported chats unread, 197 native sessions recorded, every attachment an imported message names on disk, 0 foreign-key problems, integrity ok. A second run imported nothing, the boot move after it added no home folders, `open-check` read the result through the app, and the laptop's backup still verifies.
+
+Found on the way: an agent brought over as new could collide with an archived agent's slug (fixed: the next free slug), and a name match to an archived agent would have folded 41 active chats into it (now a question). Production has two active app main chats of its own, both from today: not from the import.
+
+Not yet: the web UI over the rehearsal copy (Next allows one dev server per checkout, and this one serves the dev home), and the MacBook's unpublished-work report. Next (P5.2): run the rehearsal home with the MacBook's worker connected, continue an imported chat there, and retire a simulated laptop home.
+
+## P5.1 The laptop's unpublished work
+
+`scripts/unpublished-work.ts ~/ri`, run by Trey on the MacBook (read-only): 183 executions in 63 folders, 155 of them still there. 50 are worktrees inside the laptop's `~/ri/.work`, one per execution, and 13 are project folders that live executions share. Nine folders hold work no remote has: three worktrees inside `~/ri/.work` with unpushed commits (two bounce sessions, and "Designing cross-repo references" in ai-task-manager), and six project folders with uncommitted changes (insiderfinance 12 on `develop`, ai-task-manager 2, tra-quote-tool 1, insiderfinance-fmp-rebuild 507, beamd 2, insiderfinance-tradedata 1). The report now reads each folder once and goes by folder, naming the ones inside the home's folder.
+
+What it means: importing moves no folders, so this work stays where it is and continuing the execution finds it. Retiring the laptop's home must leave `~/ri` where it is, since 50 of its 63 folders are inside it. That's how retiring works (below).
+
+## P5.2-P5.3 Retiring and moving a home
+
+- **`ri home retire [--to <where>]`** (`src/lib/home/retire.ts`): with the home stopped (no server, nothing holding its database), its database and this machine's identity move into `<root>/.retired/<time>/` beside `retired.json`: its id, name, host, when, where its work went, and what it held. The database is checkpointed first, never migrated, so a home from an older version stays exactly as it was. Nothing else in the folder moves. `--undo` brings it back. The note is the role marker the spec asks for (§10.3): a folder with a retired home never grows a new, empty one. `getDb()` refuses to create a database there (`assertNotRetired`, checked in `assertMayOpenDatabase`), `ri start` and every data command say what happened and how to go on, first run offers only to connect, and `ri home` still shows or undoes it. `ri connect` in a home with data points at retiring it. After retiring, the folder is fresh, so it connects to the home that took over and can enroll as a worker in the same folder, its worktrees where the imported executions expect them.
+- **Moving a home** (`src/lib/home/move.ts`): `ri home export <dir>` (stopped, a verified backup), `ri home import <dir>` in a folder of its own on the new computer (restored and verified, then waiting to be claimed, as any restored home does), `ri home retire --to <address>` on the old one, and `ri home claim [--as <computer>]` on the new one. Claim asks which of the home's computers this is when it would otherwise guess: the one that ran it (a restore on the same computer, which moves nothing), one that already ran its work (the always-on computer it moves to, keeping its record and folders), or a new one.
+- **The host changing** (`moveHomeHost`, in the query layer, one transaction): what ran on the old host without saying so is pinned to it, since its worktrees and native transcripts are there. Executions with no placement get one on the old host with their worktree, and the home's own path column follows the host. An agent's chats outside an execution stay on the old host when the agent has no folder on the new one. The app's main chat, and agents set up on the new host, start fresh native sessions at the home. Terminal-history imports from the old host's disk are read from it through its worker. Each agent's home folder becomes its folder on the new host where it has one. The new host's worker key is revoked (it runs its own work now), and the old host stays a computer of the home, ready to enroll.
+- **A new address** (`changeHomeAddress`, `ri connect --address <url>`): a connected computer follows the home to a new address with its key and identity unchanged, once the new address answers as the same home and accepts the key. A different home, or a refused key, changes nothing.
+- Tests: `retire.test.ts` (retire, refusing a new home, undo, refusing while open or connected, a database from before homes), `move.test.ts` (the host moving pins and refreshes as above, the same host changes nothing, export while open is refused, export, retire, import and claim as the Mini with the same id, a restore claimed as the computer that ran it moves nothing), `connect.test.ts` (the new address), `role-guard.test.ts` (a retired folder, importing into a fresh one).
+- Rehearsed with the CLI on scratch folders on this Mac: a home exported (verified), imported into another folder (waiting to be claimed, saying why), the first retired (then explaining itself to `home show`, `start` and data commands), and the second claimed as a new computer, pinning the first's execution to it. `start` in the retired folder refused, and `--undo` restored it with its task.
+
+End to end over HTTP (`retired-worker.test.ts`, P5.2): a laptop home with work in a worktree inside its own folder, its chats imported into the Mini's home and placed on it, its home retired, and the same folder enrolled as that computer, running its worker. A message from the Mini ran there in that worktree (the agent's instructions name it), the placement unchanged, the chat's history whole, and no database grew in the retired folder.
+
+Not yet: a live move of a home with its own server, which needs a second Next server beside the dev home (one dev server per checkout, and the disk had no room for a second checkout today). P5.2 for Trey's laptop is: a final backup and import into production after its switch to the homes build, then `ri home retire --to <Mac Mini's address>` in the laptop's `~/ri`, `ri connect` and `ri worker enroll` there.
+
+## The standard case goes unsaid (after gate B)
+
+Found in gate B on the phone: + made an execution on the Mac Mini with no way to choose, and every execution carried a computer badge, the home's too. Trey's direction: standard cases with escape hatches, no repeated decisions, and the base case assumed.
+
+- **A plain + asks nothing.** It starts on the agent's default, the home unless someone chose otherwise (already the rule, spec §3.3).
+- **Only the exception is named.** An execution on the home shows no computer; one away from it shows "MacBook", in the header and the rail (`locationLabel`, `away` by default). Its computer stays in its details, and Continue here and Open code here, which lived in the chip, are in its … menu when there's no chip (`MoveActions`).
+- **The escape hatch on the phone:** each agent's ⋯ menu has "New execution on…", which opens "New execution in Demo, on…" with each computer that can take the work, the default marked, and Make default beside the others (`RunOnSheet`). Picking one starts that one execution there and changes nothing else. The same menu opens the agent's Files, Terminal and Setup. The desktop launcher's Run on control is the same hatch. (First built as holding +, then moved to the ⋯ menu at Trey's suggestion: a hold is invisible.)
+- **One click back:** Settings, General, Computers switches to always naming the computer (`lib/client/computer-label-mode.ts`), as a reversible trial.
+
+Spec §3.3 and the P3.1 line are amended to match. Tests: the label rule both ways. Live on the dev home: home work showed no badge and its … menu offered Continue here on the stand-in and Open code here, the stand-in's execution showed its name, and on a phone the agent's ⋯ menu opened the sheet and picking the stand-in started the execution there.
+
+## P4 Reviewing locally and continuing elsewhere
+
+Spec §8. Git carries the code: a move commits and pushes the work, and the destination checks out that exact commit. The execution, its chat and its task links stay the same. What changes is the computer, the folder and the native session.
+
+### Open code here (4.1)
+
+- **From the location chip**, on a screen linked to a computer other than the one the work runs on (the home's own browser counts as the home). Not on a phone, which follows the work rather than runs it.
+- **The execution's latest published commit**, checked out detached in a folder of that computer's own (`<work dir>/reviews/<agent>-<execution>`), by the home directly or by that computer's worker (`review_checkout`). Labeled "Reviewing 3292e3f from Mac Mini here". The execution keeps running where it is.
+- **Refresh** brings the newest published commit only while the checkout is clean. Edits are kept and never published to the execution's branch. The bar then offers the two ways on (§8.1): Continue here, which moves the execution into a clean worktree of its own, or a branch of the person's own, as the plain Git command to copy (`git switch -c <branch>-mine`).
+- **Nothing published yet**: the error offers Commit and push on the source, the ordinary commit flow, which waits for a turn in flight rather than commit under it.
+- **Continue there**, when that computer already has a review checkout, says it stays as it is, apart from the work, and that nothing in it goes along.
+
+### Continue here (4.2)
+
+- **Offered from the location chip**: Continue here (the computer this screen is on) and Continue on the home (from any screen). Each says why when it can't happen yet: not Git, already moving, not set up there, not connected, or the source away. The dialog says what goes: tracked changes always, new files only when chosen, local setup and secrets never.
+- **One record and lock** (`execution_transfers`, one active row per execution). Its stages are the four a person sees: Preparing, Saving work, Setting up MacBook, Continuing.
+  1. **Stop the source and confirm it.** At a worker, a `quiesce` command closes the chats' sessions (and their prompts), background tasks, the execution's terminals, its preview and scripts, and flushes its last events to the home. At home, the same through close, the terminal manager and the preview supervisor. A setup script still running refuses the move.
+  2. **The conversation checkpoint**: the last event before the move.
+  3. **The Git checkpoint**: tracked changes and the chosen new files committed (never `filesToCopy` or ignored files), pushed without force, and verified on the remote.
+  4. **The destination** fetches and checks out that exact commit. It reuses the worktree it had for this execution when that fast-forwards, and refuses a divergent branch, one checked out elsewhere, or a dirty one, without touching it. Then its own local files and its setup script.
+  5. **The handoff** (4.3).
+  6. **Ownership changes in one transaction** (`continueOwnership`): the source's placement ends as transferred, the destination's opens at its generation, and the native sessions end as continued.
+  7. **"Continued on MacBook"** once in the chat, then held messages delivered once.
+- **Messages sent while it moves** are saved and held (`heldEventIds`), each saying so under it, and go once to wherever the work ends up.
+- **Generations.** Each attempt targets its own: one past the source's, and past every earlier attempt from it. A computer given a generation by an attempt that stopped lets go of it on its next heartbeat, and a let-go generation is never taken up again, so Try again never reuses one. While the destination prepares, its generation is reserved: its commands aren't stale, and its heartbeat isn't told to let go.
+
+### The handoff (4.3)
+
+- **A fresh native session** on the destination. Always the deterministic part: the task, the exact checkpoint and the files it took, the latest messages, the linked tasks and notes, where the earlier conversation is (`get_session_messages`), and that the destination's environment and tools are in its instructions (P2.7). A summary from the background harness on top when it can write one.
+- **It rides the next message**, held or new, as a `<continuation>` preamble. No turn starts on its own because the work moved.
+- **Native session history** is kept (`native_sessions`), and the destination's binding is recorded when its session starts.
+- **The terminal** opens fresh in the destination's worktree: every terminal request goes to the current owner, and the source's shells were stopped.
+
+### When a move stops (4.4)
+
+- **Before the destination owns the work**, the source keeps it, stopped, its folder and branch as they were. Try again (the same choice of files, carrying held messages) or Resume on the source (which delivers held messages there).
+- **After**, the destination has it, and Finish delivers what is still held.
+- **Never both resumed.** Nothing is stashed, reset, force-pushed or deleted, and branches and source worktrees are kept after success too.
+- **Held messages go only with Resume, Try again or the delivery where the work arrived.** Found in P4.5: opening a chat whose move had stopped ran a health check that re-fired the held message at the source.
+
+### The controls follow the work (4.5)
+
+- **Git** on the execution's worktree runs on the computer that has it, as a `git` command carried out in order with its other work: push, pull base, the checkpoint, and archive's worktree removal. At home, directly.
+- **GitHub** (the pull request, merge, auto-merge) needs only a clone: the agent's folder here, or through the worker where the agent lives only there (`github` request). While that computer is away the PR chip says nothing and a merge says it's away.
+- **Commit, Open PR and Resolve conflicts** read the diff where the worktree is, and send their prompt tied to its saved message, so it reaches the agent once wherever it runs and a move holds it. Restart, resync and interrupts were already placement-aware (P2.4).
+- **Archive elsewhere** stops the work there, then removes its worktree there, refusing uncommitted work as at home. A computer that's away does both when it's back, and leaves a worktree it then finds dirty as it is. **Reopen elsewhere** prepares the worktree there again on its branch.
+- **While a move runs**, file changes, push, pull base, merge, auto-merge and archive answer 409 `moving` ("It's moving to MacBook. Try again once it has arrived there."), and the action bar gives way to the move's progress.
+- **The action bar** reads the folder wherever the work is. Found in the live check: an execution on another computer had no action bar at all.
+- **Retired**: the takeover routes (`/api/sessions/:id/takeover`, `takeover-cancel`, `/api/takeover/:token/*`), `ri takeover` and `ri resume`, the takeover banner, button and modal, and the send gate. The `executions.takeover_*` columns stay, unused, until the next baseline squash, since SQLite can't drop a foreign-key column without rebuilding `executions`. The imported session's "Continue here" is a different flow and stays.
+
+Found and fixed on the way, at home too:
+
+- **The Push button failed on a branch never published.** A worktree starts from `origin/main` and tracks it, and a plain push refuses an upstream with another name. The first push now publishes the branch under its own name and tracks that (`src/lib/workspaces/branch-sync.ts`, here and on workers).
+- **Pull base fetched `origin origin/main`**, the recorded base taken as a branch name. It fetches the base's branch from its own remote now.
+- **A repository whose remote isn't on GitHub** answered 500 for its pull request and its PR list. One check serves both, and merge says it isn't on GitHub.
+
+### The failure matrix (4.6)
+
+| Spec P4.6 | Test (`continue.test.ts` unless named) |
+| --- | --- |
+| Unavailable source | won't start while the source is away, and changes nothing |
+| Push rejection | stops at Saving work when the push is rejected: the source keeps the work, its held message, and resumes. `git-checkpoint.test.ts` |
+| Untracked work | moves work from the home to the laptop, with its changes and the chosen file, and back. `git-checkpoint.test.ts` |
+| Divergent and stale branches | stops at Setting up on a branch with commits of its own there, and goes through once that is fixed (on a fresh generation). `git-checkpoint.test.ts`: divergent, checked out elsewhere, dirty target, moved remote |
+| Failed setup | stops at Setting up when the setup script fails there, keeping what it made |
+| Changed references | won't move to a computer whose setup is missing a reference |
+| Before and after the ownership change | carries held messages into Try again; after the destination took the work, finishing delivers what is still held there and nothing at the source; stops when the destination drops while it sets up, and can be tried again |
+| The P2 placement probe | `homes-p2-recheck-extra.test.ts`: an obsolete command streamed before a disconnect never runs |
+
+Also: the controls on the laptop and at home, the GitHub path through a worker and while it's away, archive refusing and reopening, archive while away, the move guard (6 in `continue.test.ts`), the held message and a health re-fire, the retry generation, and the action bar's state (`use-execution-actions.test.ts`). Each new fix has a test that fails without it. Full suite: 2,732 passed.
+
+### Decisions
+
+- **Previews after a move.** A destination preview starts only once its setup is ready (§8.2). Ri doesn't start previews on a worker yet (P3.5b), so after a move there Preview says where it runs and takes a pasted URL, and after a move to the home the person starts it. Starting it there belongs with worker previews.
+- **The handoff rides the next message** rather than starting a turn: an agent doesn't start working on its own because it moved.
+- **Stale, not uncertain**, for a command streamed before a disconnect for a placement that has moved on: it is never resent.
+- **A branch of one's own** is offered as the Git command rather than a Ri feature: Ri coordinates ordinary Git (§8.1).
+- **Archive while away** is queued rather than refused, and never forces what it finds.
+
+### Live check
+
+On the dev home with the stand-in's worker, real Claude on both:
+
+- **Continue here** from a browser linked to the stand-in: the dialog listed a changed file and two new ones, the move took `feature.ts` and left `scratch.txt`, and the card ran through its stages. A message typed mid-move said "Held while this moves to MacBook (stand-in)" and was answered on the stand-in from the handoff, naming the stand-in's worktree. "Continued on MacBook (stand-in)" once.
+- **Continue on Mac Mini** from the stand-in's browser, after a change and a new file there: the home reused its worktree and got both, and `scratch.txt` was still there.
+- **Open code here** on the stand-in for work at home: a detached checkout at 3292e3f in the stand-in's reviews folder, labeled. After an edit, Refresh kept it, the bar showed the edits, the branch command and Continue here, and that dialog said the review checkout stays apart.
+- **A rejected push**: someone else pushed to the branch, and the move stopped at Saving work, forcing nothing, and the remote kept their commit. Reloading the chat didn't send the held message. Resume on Mac Mini sent it once, answered at home.
+- **The controls on the stand-in**: Push from the action bar published a new branch there, Pull base brought main in, archive refused uncommitted work and then removed the worktree there, and reopen prepared it again on its branch at the saved commit.
+- **Found and fixed**: the missing action bar, the location menu saying "isn't set up" while it loaded, the PR list's 500 for a repository not on GitHub, a push rejection naming "this computer" to a browser on another one, and four copy slips (c9c2f29).
+
+## P4 review fixes
+
+A review of P4 at cbbd90c found eight reproducible failures in thirteen failing probes, six of them P1. All eight are fixed, and the probes are kept as regressions in `src/test/regressions/homes-p4-review.test.ts`. Two probes were adapted to go through the paths the app uses, their invariants kept: the archive race takes the lock with `startTransfer` rather than inserting the record, and the cold restart runs the startup's transfer recovery as well as the transcript sweep.
+
+### What a checkpoint takes
+
+- **Staged or changed local files were pushed.** The local-only rule filtered the new files offered, but the checkpoint then staged every tracked change and committed the whole index, so a staged `.env.local`, or a `filesToCopy` file already tracked and changed, went to the remote. Now only permitted paths are staged: a change to local setup or secrets stays uncommitted where it is, the dialog lists it as staying, and one already staged stops the checkpoint with nothing touched ("unstage it there").
+- **A half-done merge was committed.** Staging a conflicted file marks it resolved, and the commit finished the merge with its markers. A merge, rebase, cherry-pick or revert in progress, or unresolved conflicts, now stop it with nothing touched, and the dialog says so before Continue is offered.
+- **Try again refused its own chosen files.** A retry after the first attempt committed them found them tracked and called them invalid. A chosen file already tracked is accepted as it is.
+- **Ignored files were overwritten.** Moving a reused destination worktree forward, or refreshing a review checkout, let Git replace an ignored local file the newer commit starts tracking. Incoming paths are checked against local files first: the destination stops ("move it aside there"), and the review stays as it was and says which files.
+- Paths are passed to Git literally, from a file, so names like `[id].tsx` or `*.md` are those files, and no list is too long.
+
+### The boundary around the source
+
+- **A send, an archive or a new terminal could reach a source the move had stopped.** Each checked once at its start, and a move could start while it was still under way. Now every operation on an execution passes one boundary (`src/lib/transfer/moving.ts`) in the same tick as it starts, and is counted until it ends. File changes, push, pull base, merge, auto-merge, archive and new terminals are refused while the work moves, and a move doesn't start while one of them runs ("It's being archived right now"). A send is checked again at the moment it goes to the harness, held if a move started meanwhile, and started over for the new owner if the work changed hands. A move stops its source only once the sends already let through have reached it.
+- **A message sent after a move stopped went to the source.** Only messages already held were kept back. Now a move that stopped holds new messages too, until Try again, Resume or Finish. The card has no Dismiss: it says what's held and that new messages wait.
+
+### Recovery
+
+- **A restart left a move under way forever**, holding messages, refusing changes, and offering nothing. At startup, before the sweep that re-fires unanswered messages, a move still under way stops where it was, with its messages: Try again or Resume before the destination owned the work, Finish after. Commands it queued that no computer took yet are withdrawn. One a computer took finishes there first, since a worker runs an execution's commands in order.
+- **Two Resumes delivered a held message twice.** Resume and Finish now settle the move once, and a second click, another tab or Try again at the same moment finds it settled. Try again takes the held messages in the same transaction that supersedes the stopped move. Each held message is taken off the list by one delivery alone before it's sent, and the home's own harness is protected from the same message twice at once, as a worker's queue already was.
+- Held messages now go one after another as each is accepted, not after each whole turn, so Resume answers at once (a harness that takes one message at a time still gets them turn by turn). A move settled before its held messages all went finishes delivering them after a restart, and nothing else sends them meanwhile.
+
+### Tests
+
+- The review's 15 probes, all passing. `coordination.test.ts` (8): the boundary both ways, draining admitted sends, a send prepared while the work changed hands built for the new owner's folder, new messages held until a stopped move is settled and a second Resume finding nothing, Resume answering before the held turns end, in order, Try again carrying held messages, and restart recovery withdrawing queued commands and finishing a settled delivery. `git-checkpoint.test.ts` (+4): a changed local file left uncommitted, the staged-secret and half-done-merge refusals said before anything is touched, pattern-like names taken literally and again on a retry, and a review kept when a local file is in the way. Each fix fails without it. Full suite: 2,759 passed.
+
+### Live check
+
+On the dev home with the stand-in's worker, from a browser linked to the stand-in: with `.env.local` staged at home, the Continue dialog said so and wouldn't continue. With someone else's push on the branch, the move stopped at Saving work, naming Mac Mini. A message typed then said "The move to MacBook (stand-in) stopped. Try again, or resume on Mac Mini." and nothing was sent, and the card had no Dismiss and said the message was held. Two Resume requests at once answered 200 and 409, and the held message was answered at home once.
+
+A move the earlier code "resumed" was left marked stopped, so it showed as stopped again, holding new messages, until Resume. Only the dev home ran that code, so there is nothing to migrate.
+
+### Re-check at c8473cd
+
+A focused re-check confirmed the eight fixes and found three more, each with a probe, kept in `src/test/regressions/homes-p4-recheck.test.ts`.
+
+- **A tracked file that became a folder took the folder along.** Staging the removed file by name added the folder in its place, everything in it included, secrets and files nobody chose. Each tracked change is now staged as it is on disk: one that's gone or became a folder is staged as removed, and what's in the folder goes only when chosen. Before committing, the index is checked against what may go, and anything else is taken back out and nothing is committed.
+- **A held message that nothing took was lost.** It came off the list before it was sent, and when sending failed early (the model check, a harness that isn't there) the next went ahead, and its answer hid the missed one from the health check. Now a message stays held, first in line, until its harness or its computer's queue has it. One that nothing took stops the delivery where it is, with the rest and any new messages behind it, and the card says why with Send them again. A restart tries it again.
+- **A file becoming a folder, or the reverse, was taken for local data.** The overwrite check now counts only what the current commit doesn't track: a clean tracked file the commit replaces goes, and a folder the commit turns into a file is checked for local files inside it.
+
+The held-message probe was adapted to the fix the review asked for (delivery stops at the message nothing took), where it had observed the next message going first. Its requirement is kept and Send them again is exercised. Tests: the three probes, plus a message sent while held ones go out joining the line with no move starting meanwhile, a stopped-short delivery tried again after a restart, and a folder becoming a file with and without local files in it. Full suite: 2,765 passed.
+
+Live on the dev home with the stand-in's worker restarted on this code: a fresh execution went to the stand-in from its browser, with a message typed mid-move held and then answered there once from the handoff, and came back to Mac Mini with the stand-in's change and chosen new file, the home's unchosen file still in place.
+
+### Final re-check at 3fb2d87
+
+The Git fixes held. One delivery race remained, with a probe kept in `src/test/regressions/homes-p4-final-recheck.test.ts`: a message still being prepared by another dispatch was taken as accepted, so Resume took it off the held list, and when that preparation failed it reached no harness and had no retry left. A second dispatch of a message under way now waits for what became of that attempt: accepted, and it's accepted; failed, and it fails the same way, so the delivery keeps the message and offers Send them again; held, or the work changed hands, and it starts over (held again, or sent by the delivery). Only a harness or a computer's queue taking a message counts as accepted, never a hold, and a dispatch that ends without anything taking it keeps the message. Tests: the review's four probes, plus the other two outcomes (the first attempt accepted, and the first attempt held). Full suite: 2,771 passed. Live on the dev home, a message to an execution at home and one on the stand-in were each answered once.
+
+## P0.3 Records and the runner boundary
+
+### Principles
+
+- One authority per value (spec §2.3). The home owns identity, work and conversation. A computer owns its paths and processes. The home keeps an observed index of what computers report and never edits a disconnected computer's paths.
+- Extend existing records. Executions, chats and chat events keep their ids and meaning, and gain placement.
+- Schema per repository rules: shared timestamps, no policy defaults, state columns NOT NULL with the creator setting them. Ri has one user and isn't live, so migrations are written clean, and existing data moves through a rehearsed one-time step rather than compatibility shapes.
+
+### Identity
+
+**`home`**, exactly one row:
+
+| Column | Notes |
+| --- | --- |
+| `id` | Stable home id, independent of any address |
+| `kind` | `personal \| team`, a fact set at creation |
+| `name` | Shown to computers and, later, to spaces |
+| `host_computer_id` | FK `computers.id`. The computer whose in-process runner serves this home |
+
+**This machine's identity** lives in `<config>/machine.json` (`{ version, homeId, computerId }`, 0600). It is machine-local, so the backup leaves it out. At boot a home compares it with `home.host_computer_id`:
+
+- Both present and equal: normal.
+- No home row (a new database, or one from before this build): create the host computer and the home, writing `machine.json` first with the new ids so a crash between the two steps repeats the same ids.
+- A home row but no matching `machine.json`: the database was restored or copied onto another machine. The home refuses to run as the authority until that root is explicitly selected (§10.3), which prevents two roots acting as one home. `dev-copy` gives a copy a new home id and host computer, because a development copy is a different home.
+
+**`computers`**, one row per enrolled machine, the host included:
+
+| Column | Notes |
+| --- | --- |
+| `id`, timestamps | |
+| `name` | Human name ("Mac Mini"), editable |
+| `platform`, `hostname` | Reported. The hostname is display only and never identity (§3.3) |
+| `status` | `active \| revoked`, set by the creator. `revoked_at` |
+| `worker_protocol`, `worker_version` | Reported by a worker. Null for the in-process host |
+| `harnesses` | JSON, reported: installed harnesses, versions, login state, models |
+| `reported_state` | `awake \| asleep \| stopped`, as last reported. Availability is derived: asleep only when reported, unavailable when contact is older than the liveness window (§3.5) |
+| `last_seen_at` | |
+| `acked_event_seq` | Highest contiguous worker event position the home has stored |
+
+Worker credentials are `api_keys` rows with `computer_id` set (P2.2). Browser and phone keys stay as they are, and a viewing key never becomes a worker key.
+
+### Setups
+
+**`.ri.local.json`** in each source folder is the authority for that computer's paths (spec §4.1). The worker keeps the list of registered files in its private config, and the home computer does the same in its own.
+
+**`agent_setups`** is the home's observed index, one row per agent per computer:
+
+| Column | Notes |
+| --- | --- |
+| `workspace_id`, `computer_id` | Unique together, both cascade |
+| `source_path` | Absolute path on that computer, as reported |
+| `config_revision` | sha256 of the file as last observed. Edits made through the UI carry it and fail on a mismatch |
+| `references` | JSON: each alias with its form (`path`, `agent`, `omitted`), resolved path and whether it exists |
+| `status` | `ready \| missing_folder \| invalid_config \| wrong_home \| missing_reference`, as reported |
+| `problem`, `reported_at` | |
+
+Reference aliases, scope and descriptions stay in `reference_folders` at the home. Each computer's physical mapping for an alias lives in its local files. `workspaces.cwd` and `worktree_root` become the host computer's observed values during the move to setups, and are dropped once nothing reads them (P1.5).
+
+### Placement
+
+**`execution_placements`**, the history of where an execution runs:
+
+| Column | Notes |
+| --- | --- |
+| `execution_id`, `computer_id` | |
+| `generation` | 1 for the first placement, then one more per continuation. Unique per execution |
+| `worktree_path` | On that computer. Moves here from `executions.worktree_path` |
+| `checkpoint_sha` | The Git commit the placement started from (continuation) |
+| `start_reason` | `created \| adopted \| continued` |
+| `ended_at`, `end_reason` | `transferred` in this release |
+
+A partial unique index allows one open placement per execution. The open placement is the owner, and its generation is the ownership generation every command carries.
+
+**`native_sessions`**, the history of harness sessions behind a chat: `chat_session_id`, `computer_id`, `placement_id` (execution chats), `harness`, `native_session_id`, `native_path` (a path on that computer), `started_at`, `ended_at`, `end_reason`. `chat_sessions.external_session_id` stays the current binding. The history keeps old bindings when a continuation starts a fresh session (§5.1).
+
+**Chats without an execution** run where `chat_sessions.computer_id` says. Null means the home's own computer, which is right for the app's main chat, content chats and scheduled orchestrator fires, because they belong to the home wherever it is. An agent main chat fixed to another computer has it set (§7).
+
+### Commands
+
+**`worker_commands`**, persisted before delivery (§5.4):
+
+| Column | Notes |
+| --- | --- |
+| `id` | Stable command id, the deduplication key |
+| `computer_id` | Target |
+| `seq` | Per computer, set when the command is first streamed. Null while queued, and for a command cancelled or found stale before streaming |
+| `execution_id`, `chat_session_id` | Target, when execution-scoped |
+| `generation` | The target's ownership generation when queued. A command from an older generation is rejected |
+| `kind` | `send_message`, `interrupt`, `stop`, `stop_task`, `answer_pending_input`, `prepare`, `run_script`, `write_setup`, `git` |
+| `payload`, `actor` | JSON. The actor comes from credentials, never from the caller's claim |
+| `state` | `queued \| sent \| delivered \| failed \| cancelled \| uncertain \| stale` |
+| `attempts`, `sent_at`, `delivered_at`, `finished_at`, `result`, `error` | |
+
+A user message is one transaction: the `chat_events` row, plus a `send_message` command whose payload names that event. The saved, waiting, delivered, failed and uncertain states in the UI (P3.2) read from the command. The home's own runner uses the same records and delivers at once, so every placement behaves the same way.
+
+Reads are not persisted: tree, file, diff, status, diff stats, folder discovery and history listing. They are request and response over the worker connection with a timeout.
+
+### Events from a worker
+
+- A worker mints each `chat_events.id` (UUIDv7) when it parses the event, so a replay inserts nothing new.
+- Cumulative provider parts carry a revision (`chat_events.part_revision`). The home replaces a part only with a newer revision, so a late replay cannot overwrite newer text.
+- The worker writes every event and signal to a local journal before sending, with a position per computer. The home stores them in order and acknowledges the highest contiguous position (`computers.acked_event_seq`). On reconnect the worker replays from there.
+
+### The runner boundary
+
+Today `ensureHarnessSession` and `dispatch` mix two jobs. The split:
+
+**The home prepares a session spec**, a plain serializable description: harness, permission mode and its provider config, model, variant and effort, the orchestrator, connector and browser servers (with home URLs and credentials suited to where the session runs), agent instructions, reference aliases and descriptions, the session credential, the chat's current native session id, and any first-turn brief. Everything that needs the database is resolved here.
+
+**The runner turns a spec into a running harness** on its computer. It has no database access:
+
+```ts
+interface ExecutionRunner {
+  readonly computerId: string;
+  describeHarnesses(): Promise<HarnessReport[]>;           // runtime, capabilities, models on this computer
+  prepare(req: PrepareRequest): Promise<PrepareResult>;    // worktree on the branch, files to copy, setup script (journaled apart)
+  send(req: SendRequest): Promise<DeliveryAck>;            // spawn or resume, then inject; acks delivery, not turn end
+  interrupt(chatSessionId: string): Promise<void>;
+  stopTask(chatSessionId: string, taskId: string): Promise<void>;
+  stop(req: StopRequest): Promise<StopReport>;             // harness, background tasks, owned processes; confirmed
+  answerPendingInput(req: AnswerRequest): Promise<AnswerResult>;
+  read(req: ReadRequest): Promise<ReadResult>;             // execution-scoped tree, file, diff, status, stats
+}
+```
+
+**Everything the runner learns flows back through one sink**: chat events (insert and cumulative replace, the existing `EventWriter`), plus signals for turn start and end, turn result, background tasks, pending input raised and resolved, native session id captured, and command inventory. On the home, the sink writes the database, publishes to the realtime bus and notifies, as today. On a worker, it writes the journal and posts to the home.
+
+**Run bookkeeping becomes event driven.** `dispatch` awaits a whole turn and then marks the run complete. A home cannot hold that promise across a worker disconnect, so run completion, failure, cost and notifications react to the turn-result signal, for every placement.
+
+**Home only:** runs, budget, notifications, saved model defaults, unread and activity, labels, the scheduler, triggers, deck, orchestrator actions, search and embeddings.
+
+**Runner only:** agentex sessions, harness discovery, pending-input resolvers and turn state held in memory, worktrees, Git and files, setup scripts, previews and terminals, and reading native transcripts, including reconcile after a crash.
+
+**Live state.** Running flags, background tasks and pending prompts live with the runner. The home keeps a mirror of each worker's reported state and marks it unknown when contact is lost. Rail, runtime status, stream seeding and oversight actions read one facade over the local state and those mirrors.
+
+## P0.4 Execution entry points
+
+Every current path that starts, messages, controls or reads an execution, and the boundary each goes through. File references are at `200fb36`.
+
+| Group | Entry points | Goes through |
+| --- | --- | --- |
+| Send a message | messages route; commit, PR, resolve-conflicts and help-with-error routes; scheduler `dispatchRun` and coalesce; health orphan redispatch; webhook triggers; `start_execution` and `send_session_message` (already over HTTP) | Persist the command, then route to the owner's `runner.send` |
+| Control | interrupt; stop background task; restart; resync; `stop-agent`; session and agent archive; close chat; main chat retire; the `recycle*` family; run cancel; heartbeat quiet settle | `runner.interrupt`, `runner.stopTask`, `runner.stop` |
+| Pending input | pending-input list and answer routes; `get_pending_input`, `answer_pending_input`; rail pending snapshot | `runner.answerPendingInput`, bound to request id, chat and generation. Listing reads the live-state facade |
+| Preparation | `dispatchExecutionSession` provisioning; `ensureWorktreeReady`; retry setup; retry setup script; continue; take-over-import | `runner.prepare` |
+| Execution reads | tree; file GET; diff; status; diff stats (one and bulk); WIP detect; the diffs the commit and PR routes read | `runner.read` |
+| Execution writes and Git | push; pull base; merge; auto-merge; file PUT, DELETE, create, rename, resolve-conflict; dir; WIP copy and move; takeover | Owner-routed commands. Retire takeover (P4.5) |
+| Terminals | execution terminals, agent-folder terminals | Run on the owner computer in its resolved folder. P3.5 must expose Home and worker terminals through authenticated owner routing to personal viewing surfaces, per [spec §5.6](homes-spec.md#56-in-app-terminals-and-cli-location). This is a build requirement, not a shipped worker capability |
+| Other owner-computer surfaces | previews, open in editor | Safe preview access with an honest unavailable state where unsupported, and local editor opening through the companion (P3.5) |
+| Live state | runtime status; stream seed; history running flags; slash command inventory; rail; pending list; run observe | The live-state facade |
+| Boot and background | cold-start reconcile; 60 s health sweep; orphaned setup scripts; orphaned previews; preview idle eviction; scheduler | Runner work for the home's own sessions. A worker reconciles its own. Scheduling stays home only |
+| Agent folder operations | agent tree and file; branches; base status; agent pull base; GitHub lists; detect stack; `create_workspace` detection; `list_skills`; reference folder resolution; harness discovery and one-shot calls keyed by folder | Resolved per computer through that computer's setup |
+
+### Paths that already break "the process serving the UI owns the execution"
+
+Found while mapping. Each is fixed where its phase lands.
+
+1. `ri trigger run`, `ri agent run_trigger`, `ri run cancel` and `ri agent cancel_run` run `dispatchRun` or `abort` inside the short-lived CLI process (`src/cli/commands/trigger.ts:149,287`, `registry.ts:2275,2335`). The server can't see, stop or answer that harness, and cancel does nothing there. Route them through the server (P2.4). Fixed in P2.4.
+2. `archive_workspace` (`registry.ts:1468`) archives in the database only. The REST route also kills terminals and closes sessions (P2.4). Fixed in P2.4.
+3. The takeover block exists only in the messages route. Commit, PR, resolve-conflicts, help-with-error, the scheduler, coalesce and health redispatch still dispatch. Owner routing replaces it (P2.4, P4.5). Fixed in P2.4.
+4. The event seam is partial. Reconcile replays, Codex replay, user messages, run rows and every live-state publish bypass `EventWriter` (P2.1). Fixed in P2.1: every replay path writes through a writer, and live state publishes only from the home sink. User messages and run rows are the home's own records.
+5. Orchestrator, connector and browser server URLs for harness sessions are `http://localhost:<port>` with the local bearer token (`harness-surface.ts:623,646,670`), so a harness can only run beside the server today (P2.7). Fixed in P2.7: a session elsewhere gets them at its worker's address for the home, with a session token.
+6. Preview uses `worktreePath ?? workspace.cwd` (`preview/service.ts:117`), so it can start in the source checkout while a worktree is still being prepared (P3.5).
+7. A quiet heartbeat archives its chat without closing the harness (`heartbeat/quiet.ts:40`), and handles have no idle timeout (P2.1). Fixed in P2.1.
+8. Interrupt leaves pending prompts registered. Only close rejects them (`adapter.ts:815,872`) (P2.4). Fixed in P2.4.
+
+Other facts that shape the work:
+
+- Migrations are read from `process.cwd()/drizzle`, so the CLI only works from the repository root.
+- The realtime bus is in-process, so a CLI write publishes nothing. Live paths already go through the server.
+- Session credentials are HMACs keyed by the home's local token. A home must sign credentials for sessions it sends to a worker, because the worker never holds that token.
+- `ensureLocalToken` mints a new host key when the database lacks one, so a restored database without its config quietly gets new credentials.
+
+### Upstream fixes
+
+- `@agentex/workspace` 0.0.4 resolved `git rev-parse --git-path` output against the process's working directory instead of the repository. A server or worker started outside the checkout it opened read another repository's metadata, or failed with `ENOTDIR` from a linked worktree. That broke agent folder views in a dev home run from a worktree, and 8 existing tests. It was patched here first, then fixed upstream in 0.0.5, which Ri now uses, and the patch is gone. 0.0.5 also stores base metadata per worktree: 0.0.4 shared one file across all worktrees of a repository, so a new sibling worktree overwrote an older one's base. Worktrees made before 0.0.5 fall back to the old file.
+

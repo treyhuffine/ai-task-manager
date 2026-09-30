@@ -31,7 +31,9 @@ const HISTORY_KEY = ['sessions', 'history'] as const;
 export function useWorkspaces(filter?: { status?: WorkspaceStatus }) {
   return useQuery({
     queryKey: [...WORKSPACES_KEY, filter],
-    queryFn: () => workspacesApi.list(filter),
+    // The signal aborts a request a newer refetch superseded, rather than
+    // leaving it queued behind the page's streams (gate B finding).
+    queryFn: ({ signal }) => workspacesApi.list(filter, { signal }),
   });
 }
 
@@ -63,10 +65,102 @@ export function useWorkspaceSessions(
   });
 }
 
+/** Where the agent's new executions can run, and the default (P3.1). */
+export function useRunOn(workspaceId: string | null) {
+  return useQuery({
+    queryKey: [...WORKSPACES_KEY, workspaceId, 'run-on'],
+    queryFn: () => workspacesApi.runOn(workspaceId!),
+    enabled: !!workspaceId,
+    staleTime: 15_000,
+  });
+}
+
+/** The agent's folders on each of the person's computers (docs/homes-spec.md §4.1). */
+export function useAgentFolders(workspaceId: string | null) {
+  return useQuery({
+    queryKey: [...WORKSPACES_KEY, workspaceId, 'folders'],
+    queryFn: ({ signal }) => workspacesApi.folders(workspaceId!, { signal }),
+    enabled: !!workspaceId,
+    staleTime: 10_000,
+  });
+}
+
+/** Changing where an agent's folders are: the view comes back with the answer, and where it can run follows. */
+export function useChangeAgentFolders(workspaceId: string) {
+  const qc = useQueryClient();
+  const settle = (data: Awaited<ReturnType<typeof workspacesApi.folders>>) => {
+    qc.setQueryData([...WORKSPACES_KEY, workspaceId, 'folders'], data);
+    void qc.invalidateQueries({ queryKey: [...WORKSPACES_KEY, workspaceId, 'run-on'] });
+    void qc.invalidateQueries({ queryKey: ['reference-folders'] });
+  };
+  return {
+    project: useMutation({
+      mutationFn: (v: { computerId: string; folder: string }) => workspacesApi.setProjectFolder(workspaceId, v.computerId, v.folder),
+      onSuccess: settle,
+    }),
+    linked: useMutation({
+      mutationFn: (v: { computerId: string; referenceFolderId: string; folder: string | null }) =>
+        workspacesApi.setLinkedFolder(workspaceId, v.computerId, v.referenceFolderId, v.folder),
+      onSuccess: settle,
+    }),
+    add: useMutation({
+      mutationFn: (v: Parameters<typeof workspacesApi.addLinkedFolder>[1]) => workspacesApi.addLinkedFolder(workspaceId, v),
+      onSuccess: settle,
+    }),
+    remove: useMutation({
+      mutationFn: (computerId: string) => workspacesApi.removeFromComputer(workspaceId, computerId),
+      onSuccess: settle,
+    }),
+  };
+}
+
+/** A folder's folders on a computer, for choosing one. */
+export function useComputerFolders(computerId: string | null, at: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['computers', computerId, 'folders', at],
+    queryFn: ({ signal }) => workspacesApi.computerFolders(computerId!, at, { signal }),
+    enabled: enabled && !!computerId,
+    staleTime: 5_000,
+    retry: false,
+  });
+}
+
+/** What setting the agent up on that computer would do, asked of that computer when the dialog opens. */
+export function useSetupPlan(workspaceId: string | null, computerId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: [...WORKSPACES_KEY, workspaceId, 'setup-plan', computerId],
+    queryFn: ({ signal }) => workspacesApi.setupPlan(workspaceId!, computerId!, { signal }),
+    enabled: enabled && !!workspaceId && !!computerId,
+    staleTime: 0,
+    retry: false,
+  });
+}
+
+/** Set the agent up on a computer from the app. Where it can run follows at once. */
+export function useSetUpAgent(workspaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Parameters<typeof workspacesApi.setUp>[1]) => workspacesApi.setUp(workspaceId!, body),
+    onSuccess: (outcome) => {
+      if (outcome.runOn) qc.setQueryData([...WORKSPACES_KEY, workspaceId, 'run-on'], outcome.runOn);
+      void qc.invalidateQueries({ queryKey: [...WORKSPACES_KEY, workspaceId] });
+    },
+  });
+}
+
+/** "Make this the default" for an agent's new executions (P3.1). */
+export function useSetDefaultComputer(workspaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (computerId: string | null) => workspacesApi.setDefaultComputer(workspaceId!, computerId),
+    onSuccess: (runOn) => qc.setQueryData([...WORKSPACES_KEY, workspaceId, 'run-on'], runOn),
+  });
+}
+
 export function useNeedsReviewSessions() {
   return useQuery({
     queryKey: NEEDS_REVIEW_KEY,
-    queryFn: () => sessionsApi.needsReview(),
+    queryFn: ({ signal }) => sessionsApi.needsReview({ signal }),
     refetchInterval: 5_000,
   });
 }
@@ -334,7 +428,7 @@ export function useUnpinSession() {
 export function useRailSessions() {
   return useQuery({
     queryKey: RAIL_KEY,
-    queryFn: () => sessionsApi.rail(),
+    queryFn: ({ signal }) => sessionsApi.rail({ signal }),
     refetchInterval: 15_000,
   });
 }

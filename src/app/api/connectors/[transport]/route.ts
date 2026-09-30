@@ -16,8 +16,9 @@
  * built PER REQUEST so it can read `?ws` (mcp-handler's init callback has no request access). The
  * filter is always derived server-side from the validated workspace — never a client-asserted scope.
  *
- * Caller identity: a harness session's config carries its signed session credential (the same
- * header the orchestrator MCP reads). A verified one stamps the call as coming from that chat, so
+ * Caller identity: a harness session at home carries its signed session credential (the same
+ * header the orchestrator MCP reads), and a session on another computer speaks with its own session
+ * token, which the proxy verifies. Either stamps the call as coming from that chat, so
  * an action paused on "Ask first" surfaces as an approval card in exactly that transcript, and the
  * grant the user gives matches only that chat's retry. Unverified or absent → an anonymous MCP call,
  * still fully gated.
@@ -34,6 +35,7 @@ import {
 } from '@/lib/connectors/runtime';
 import { sessionCaller } from '@/lib/connectors/approval';
 import { actorFromSessionCredential, sessionCredentialFromHeaders } from '@/lib/orchestrator/session-credential';
+import { getRequestKey } from '@/lib/auth/request-key';
 
 const SERVER_INSTRUCTIONS = `${APP_NAME} connectors: typed tools for taking authenticated actions on the user's connected external accounts (Gmail, Calendar, Slack, Notion, Linear, and more).
 
@@ -99,10 +101,19 @@ function buildHandler(workspaceId: string | null, sessionId: string | null) {
   );
 }
 
+/**
+ * Which chat is calling. A session on another computer is the chat its token names, as the proxy
+ * verified it (P2.7). A session at home is the chat its signed credential names. Neither: none.
+ */
+function callingChat(req: NextRequest): string | null {
+  const key = getRequestKey(req.headers);
+  if (key?.scope === 'session') return key.sessionChatId;
+  return actorFromSessionCredential(sessionCredentialFromHeaders(req.headers))?.sessionId ?? null;
+}
+
 function handle(req: NextRequest): Promise<Response> {
   const ws = new URL(req.url).searchParams.get('ws');
-  const actor = actorFromSessionCredential(sessionCredentialFromHeaders(req.headers));
-  return buildHandler(ws, actor?.sessionId ?? null)(req);
+  return buildHandler(ws, callingChat(req))(req);
 }
 
 export const GET = handle;

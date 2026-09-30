@@ -10,6 +10,9 @@ export interface TerminalDescriptor {
   exited: boolean;
   exitCode: number | null;
   createdAt: string;
+  /** Where the shell runs (P3.5): its computer's name, and whether that's the home's. */
+  computerName: string | null;
+  isHome: boolean;
 }
 
 /**
@@ -35,8 +38,8 @@ const WRITE_TIMEOUT_MS = 30_000;
  * agent's own folder. Both expose the same terminal routes.
  */
 export const terminalsApi = {
-  list(base: string): Promise<TerminalDescriptor[]> {
-    return api.get<TerminalDescriptor[]>(`${base}/terminals`);
+  list(base: string, signal?: AbortSignal): Promise<TerminalDescriptor[]> {
+    return api.get<TerminalDescriptor[]>(`${base}/terminals`, { signal });
   },
 
   create(
