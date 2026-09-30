@@ -22,20 +22,6 @@
       "when": 1790728732298,
       "tag": "0002_curvy_magma",
       "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1790787209414,
-      "tag": "0003_large_dark_phoenix",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1790792118119,
-      "tag": "0004_harsh_moondragon",
-      "breakpoints": true
     }
   ]
 }
