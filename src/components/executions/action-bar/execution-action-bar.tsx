@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowUpToLine, ArrowDownToLine, ArrowUpRight, CheckCircle2, XCircle, Clock, AlertCircle, Archive } from 'lucide-react';
+import { ArrowUpToLine, ArrowDownToLine, ArrowUpRight, CheckCircle2, XCircle, Clock, AlertCircle, Archive, GitMerge, RotateCw } from 'lucide-react';
 import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState, type OpenablePr } from '@/hooks/use-execution-actions';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
@@ -304,8 +304,8 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
     case 'setupFailed':
       return (
         <ActionButton
-          icon={<ArrowDownToLine size={11} />}
-          label="Pull"
+          icon={<RotateCw size={11} />}
+          label="Try again"
           onClick={retrySetup.onClick}
           pending={retrySetup.pending}
           variant="primary"
@@ -417,7 +417,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
         <>
           <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
           <ActionButton
-            icon={<AlertCircle size={11} />}
+            icon={<GitMerge size={11} />}
             label="Resolve conflicts"
             onClick={() => resolveConflicts.onClick('pr_vs_base')}
             pending={resolveConflicts.pending}
@@ -437,7 +437,7 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
     case 'localDiverged':
       return (
         <ActionButton
-          icon={<AlertCircle size={11} />}
+          icon={<GitMerge size={11} />}
           label="Resolve conflicts"
           onClick={() => resolveConflicts.onClick('local_vs_remote')}
           pending={resolveConflicts.pending}
@@ -753,8 +753,8 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
             </span>
           </NarrativeLeft>
           <ActionButton
-            icon={<ArrowDownToLine size={11} />}
-            label="Pull"
+            icon={<RotateCw size={11} />}
+            label="Try again"
             onClick={retrySetup.onClick}
             pending={retrySetup.pending}
             variant="primary"
@@ -894,7 +894,7 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
             </span>
           </NarrativeLeft>
           <ActionButton
-            icon={<AlertCircle size={11} />}
+            icon={<GitMerge size={11} />}
             label="Resolve conflicts"
             onClick={() => resolveConflicts.onClick('pr_vs_base')}
             pending={resolveConflicts.pending}
@@ -915,7 +915,7 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
             </span>
           </NarrativeLeft>
           <ActionButton
-            icon={<AlertCircle size={11} />}
+            icon={<GitMerge size={11} />}
             label="Resolve conflicts"
             onClick={() => resolveConflicts.onClick('local_vs_remote')}
             pending={resolveConflicts.pending}
