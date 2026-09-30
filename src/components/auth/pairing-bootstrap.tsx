@@ -1,5 +1,6 @@
 'use client';
 
+import { API_PROTOCOL, API_PROTOCOL_HEADER } from '@/lib/releases/api-contract';
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
@@ -21,7 +22,7 @@ async function associateThisBrowser(code: string, token: string, queryClient: Qu
   try {
     const res = await fetch('/api/devices/associate', {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', [API_PROTOCOL_HEADER]: String(API_PROTOCOL) },
       body: JSON.stringify({ code }),
     });
     const body = (await res.json().catch(() => null)) as { device?: { id: string; name: string }; message?: string } | null;

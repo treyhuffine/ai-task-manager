@@ -86,3 +86,15 @@ it('retains failed writes in memory even when draft persistence also fails', asy
   expect(writer.mock.calls).toEqual([[{ body: 'latest' }], [{ body: 'latest' }]]);
   expect(saves.has()).toBe(false);
 });
+
+it('retains unacknowledged patches for an explicit API-upgrade refresh, refusing quota failure', async () => {
+  const saves = queue();
+  saves.schedule('notes:upgrade', { body: 'newest text' }, { body: 'before' }, async () => { throw new Error('api_protocol'); });
+  await expect(saves.flushAll()).rejects.toThrow();
+  saves.retainAll();
+  expect(saves.draft('notes:upgrade')).toEqual({ patch: { body: 'newest text' }, base: { body: 'before' } });
+  const noStorage = new DocumentSaveQueue(() => { throw new Error('quota'); });
+  expect(() => noStorage.schedule('notes:1', { body: 'unsaved' }, { body: '' }, async () => {})).toThrow('quota');
+  expect(() => noStorage.retainAll()).toThrow('quota');
+  await noStorage.flushAll();
+});

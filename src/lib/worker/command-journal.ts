@@ -20,7 +20,7 @@
 import path from 'node:path';
 import { getWorkDir } from '@/lib/config/paths';
 import type { WorkerCommand, WorkerCommandAckBody } from '@/lib/workers/protocol';
-import { appendLine, readJsonLines, repairTornTail, writeFileAtomic } from './durable-file';
+import { appendLine, assertJournalFormat, readJsonLines, repairTornTail, writeFileAtomic } from './durable-file';
 
 type JournalRecord =
   | { stage: 'received'; commandId: string; at: string; command: WorkerCommand }
@@ -65,6 +65,7 @@ export class CommandJournal {
 
   constructor(homeId: string, file = commandJournalPath(homeId)) {
     this.file = file;
+    assertJournalFormat(file);
     repairTornTail(this.file);
     for (const record of readJsonLines<JournalRecord>(this.file)) this.apply(record);
     this.compact();

@@ -22,7 +22,7 @@ import {
 import { NoteIcon } from '@/components/shared/note-icon'
 import { coverAttachmentUrl } from '@/lib/attachments/view'
 import { cn } from '@/lib/utils'
-import { useDocumentAutosave } from '@/hooks/use-document-autosave'
+import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave'
 import { formatLocalDate, isPastDate } from '@/lib/dates'
 
 const DEFAULT_WIDTH = 640
@@ -38,12 +38,13 @@ interface AreaSlideoutProps {
 
 export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSlideoutProps) {
   const isOpen = areaId !== null
-  const { data: area } = useArea(areaId)
+  const { data: savedArea } = useArea(areaId)
+  const area = usePendingDocument('areas', areaId, savedArea)
   const { data: tasks = [] } = useTasks(areaId ? { areaId: areaId } : { areaId: '__none__' })
   const { data: notes = [] } = useNotes(areaId ? { areaId: areaId } : { areaId: '__none__' })
   const { openTask, openNote } = useDashboard()
   const updateArea = useUpdateArea()
-  const autosave = useDocumentAutosave('areas', areaId, area, updateArea.mutateAsync)
+  const autosave = useDocumentAutosave('areas', areaId, savedArea, updateArea.mutateAsync)
   const createTask = useCreateTask()
   const lifecycle = useTaskLifecycle()
   const createNote = useCreateNote()

@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getWorkDir } from '@/lib/config/paths';
 import type { WorkerEvent } from '@/lib/workers/protocol';
-import { appendLine, readJsonLines, repairTornTail, writeFileAtomic } from './durable-file';
+import { appendLine, assertJournalFormat, readJsonLines, repairTornTail, writeFileAtomic } from './durable-file';
 
 export type JournalInput = WorkerEvent extends infer E ? (E extends WorkerEvent ? Omit<E, 'position'> : never) : never;
 
@@ -31,6 +31,7 @@ export class EventJournal {
 
   constructor(homeId: string, file = eventJournalPath(homeId)) {
     this.file = file;
+    assertJournalFormat(file);
     this.ackedFile = `${file.replace(/\.jsonl$/, '')}.acked`;
     this.acked = fs.existsSync(this.ackedFile) ? Number(fs.readFileSync(this.ackedFile, 'utf8').trim()) || 0 : 0;
     repairTornTail(this.file);

@@ -14,7 +14,7 @@ export default defineConfig([{
   // Resolve `@/*` aliases the same way tsconfig does.
   tsconfig: 'tsconfig.json',
 }, {
-  entry: ['src/service/main.ts', 'src/service/watchdog.ts', 'src/service/http-server.ts', 'src/service/handoff.ts', 'src/service/runtime-job.ts'],
+  entry: ['src/service/main.ts', 'src/service/worker.ts', 'src/service/watchdog.ts', 'src/service/http-server.ts', 'src/service/handoff.ts', 'src/service/runtime-job.ts'],
   outDir: 'dist/service', format: ['cjs'], target: 'node22',
   outExtension: () => ({ js: '.cjs' }), clean: true, splitting: false, shims: true,
   noExternal: [/^@connectors\/engine(?:\/.*)?$/], tsconfig: 'tsconfig.json',

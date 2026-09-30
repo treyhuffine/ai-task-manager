@@ -20,15 +20,16 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { useDocumentAutosave } from '@/hooks/use-document-autosave';
+import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave';
 import type { Attachment } from '@/db/types';
 
 export default function NotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: noteId } = use(params);
   const router = useRouter();
-  const { data: note } = useNote(noteId);
+  const { data: savedNote } = useNote(noteId);
+  const note = usePendingDocument('notes', noteId, savedNote);
   const updateNote = useUpdateNote();
-  const autosave = useDocumentAutosave('notes', noteId, note, updateNote.mutateAsync);
+  const autosave = useDocumentAutosave('notes', noteId, savedNote, updateNote.mutateAsync);
   const deleteNote = useDeleteNote();
   const chat = useDocumentChat('note', note ?? null);
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted';

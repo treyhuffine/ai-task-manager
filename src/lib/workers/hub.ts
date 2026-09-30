@@ -9,6 +9,7 @@
  * persisted. Kept on globalThis so every route bundle shares it.
  */
 
+import { readMaintenance } from '@/lib/service/maintenance';
 import { uuidv7 } from 'uuidv7';
 import {
   WORKER_REQUEST_TIMEOUT_MS,
@@ -21,6 +22,7 @@ export interface WorkerConnection {
   readonly id: string;
   readonly deviceId: string;
   readonly openedAt: number;
+  readonly capabilities?: readonly string[];
   send(event: WorkerStreamEvent): void;
   /** Send whatever commands are waiting for this device. */
   wake(): void;
@@ -115,9 +117,14 @@ export function requestWorker(
   kind: WorkerRequestKind,
   payload: unknown = null,
   timeoutMs = WORKER_REQUEST_TIMEOUT_MS,
+  requiredCapability = 'worker.protocol4',
 ): Promise<unknown> {
+  if (readMaintenance()) return Promise.reject(new WorkerRequestError('The Home is preparing an update. Please retry shortly.'));
   const connection = newest(deviceId);
   if (!connection) return Promise.reject(new WorkerUnavailableError(deviceId));
+  if (!(connection.capabilities ?? ['worker.protocol4']).includes(requiredCapability)) {
+    return Promise.reject(new WorkerRequestError(`Update Ri on this device before using ${requiredCapability}.`, true));
+  }
   const id = uuidv7();
   return new Promise<unknown>((resolve, reject) => {
     const timer = setTimeout(() => {

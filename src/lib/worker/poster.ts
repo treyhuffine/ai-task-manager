@@ -6,7 +6,7 @@
  * time, so the order holds.
  */
 
-import { WorkerNetworkError, workerFetch, type WorkerTarget } from './client';
+import { WorkerNetworkError, WorkerStoppedError, workerFetch, type WorkerTarget } from './client';
 import type { EventJournal } from './event-journal';
 
 export const POST_BATCH = 200;
@@ -18,6 +18,7 @@ export class EventPoster {
   constructor(
     private readonly target: WorkerTarget,
     private readonly journal: EventJournal,
+    private readonly onStopped?: (error: WorkerStoppedError) => void,
   ) {}
 
   /** Post what's pending, now or right after the post in flight. Never throws. */
@@ -53,7 +54,8 @@ export class EventPoster {
         });
       } catch (err) {
         if (err instanceof WorkerNetworkError) return; // try again on the next kick or reconnect
-        throw err;
+        if (err instanceof WorkerStoppedError) this.onStopped?.(err);
+        return;
       }
       if (!res.ok) return;
       const body = (await res.json().catch(() => null)) as { acked?: number } | null;

@@ -16,6 +16,7 @@
  * - `conflict`: both a database and a connection. A person has to choose.
  */
 
+import { hasDesktopHomeIntent } from './desktop-role-intent';
 import { getInstallationRole, RoleConflictError } from '@/lib/config/role';
 import { readConnection } from '@/lib/connection/config';
 import { describeRetired, retiredHomes } from '@/lib/home/retired';
@@ -48,15 +49,17 @@ export function resolveServiceRole(): ServiceRole {
   try {
     worker = readWorkerConfig();
   } catch {
-    // An enrollment this version can't read runs nothing until it's enrolled again.
+    // Retain an unreadable/future enrollment. Never silently downgrade a
+    // worker to a viewer or suggest discarding its local execution history.
+    return { role: 'conflict', message: 'The local worker enrollment needs attention. Update or repair this installation without removing its files.' };
   }
-  if (worker && worker.homeId === connection.homeId) return { role: 'worker', home, deviceName: worker.deviceName };
+  if (worker && worker.homeId === connection.homeId && (!connection.deviceId || connection.deviceId === worker.deviceId)) return { role: 'worker', home, deviceName: worker.deviceName };
   return { role: 'viewer', home };
 }
 
 /** Whether the service starts the home's own server for this role. */
 export function servesHome(role: ServiceRole): boolean {
-  return role.role === 'home' || role.role === 'first-run';
+  return role.role === 'home' || (role.role === 'first-run' && hasDesktopHomeIntent());
 }
 
 /** Why the service doesn't start the home's server here, for its status. */
@@ -66,7 +69,7 @@ export function describeServiceRole(role: ServiceRole): string | null {
     case 'first-run':
       return null;
     case 'worker':
-      return `This device runs work for ${role.home.name} at ${role.home.url}, which keeps the data. Run its worker here (\`ri worker run\`), not a home.`;
+      return `This device runs work for ${role.home.name} at ${role.home.url}, which keeps the data. Its background service runs local execution.`;
     case 'viewer':
       return `This device is connected to ${role.home.name} at ${role.home.url}, where the data lives. Nothing runs here.`;
     case 'retired':

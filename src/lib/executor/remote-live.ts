@@ -20,6 +20,7 @@ export interface RemoteChatState {
   pending: PendingInput[];
   backgroundTaskIds: string[];
   inventory: RuntimeCommandInventory | null;
+  inventoryPosition?: number;
 }
 
 /** What a worker reports as live, in its heartbeat. */
@@ -33,6 +34,28 @@ const MIRROR_KEY = Symbol.for('@ri/remote-live');
 const globalRef = globalThis as unknown as { [MIRROR_KEY]?: Map<string, RemoteChatState> };
 if (!globalRef[MIRROR_KEY]) globalRef[MIRROR_KEY] = new Map();
 const mirror = globalRef[MIRROR_KEY]!;
+const POSITION_KEY = Symbol.for('@ri/remote-live-position');
+const positionsRef = globalThis as unknown as { [POSITION_KEY]?: Map<string, number> };
+const positions = positionsRef[POSITION_KEY] ??= new Map();
+const ENROLLMENT_KEY = Symbol.for('@ri/remote-live-enrollment');
+const enrollmentRef = globalThis as unknown as { [ENROLLMENT_KEY]?: Map<string, string> };
+const enrollments = enrollmentRef[ENROLLMENT_KEY] ??= new Map();
+
+/** Only an authenticated new enrollment may reset ordering. A low journal
+ * position alone can be an older in-flight heartbeat and grants no reset. */
+export function bindDeviceMirrorEnrollment(deviceId: string, keyId: string): void {
+  if (enrollments.get(deviceId) === keyId) return;
+  enrollments.set(deviceId, keyId);
+  positions.delete(deviceId);
+  for (const [chat, state] of mirror) if (state.deviceId === deviceId) mirror.delete(chat);
+}
+
+/** Heartbeats and journal replay use separate requests. A live snapshot already
+ * includes every event through its journal position, even ones still in flight.
+ * Applying those older signals afterward must not resurrect a crashed prompt. */
+export function currentRemoteSignal(deviceId: string, position?: number): boolean {
+  return position === undefined || position > (positions.get(deviceId) ?? -1);
+}
 
 function chatState(chatSessionId: string, deviceId: string): RemoteChatState {
   let state = mirror.get(chatSessionId);
@@ -44,7 +67,19 @@ function chatState(chatSessionId: string, deviceId: string): RemoteChatState {
 }
 
 /** Fold one signal a worker reported for one of its chats. */
-export function mirrorSignal(deviceId: string, chatSessionId: string, signal: RunnerSignal): void {
+export function mirrorSignal(deviceId: string, chatSessionId: string, signal: RunnerSignal, position?: number): void {
+  // Inventory is not part of WorkerLiveSnapshot. Order it independently so
+  // a heartbeat arriving before journal replay cannot erase slash commands.
+  if (signal.type === 'inventory') {
+    const state = chatState(chatSessionId, deviceId);
+    if (position === undefined || position > (state.inventoryPosition ?? -1)) {
+      state.inventory = signal.inventory;
+      if (position !== undefined) state.inventoryPosition = position;
+    }
+    return;
+  }
+  if (!currentRemoteSignal(deviceId, position)) return;
+  if (position !== undefined) positions.set(deviceId, position);
   const state = chatState(chatSessionId, deviceId);
   switch (signal.type) {
     case 'running':
@@ -52,9 +87,6 @@ export function mirrorSignal(deviceId: string, chatSessionId: string, signal: Ru
       return;
     case 'background_tasks':
       state.backgroundTaskIds = signal.taskIds;
-      return;
-    case 'inventory':
-      state.inventory = signal.inventory;
       return;
     case 'pending_input':
       if (!state.pending.some((p) => p.requestId === signal.pending.requestId)) state.pending = [...state.pending, signal.pending];
@@ -71,7 +103,11 @@ export function mirrorSignal(deviceId: string, chatSessionId: string, signal: Ru
 }
 
 /** Replace everything the mirror holds for a device with its heartbeat's snapshot. */
-export function replaceDeviceMirror(deviceId: string, snapshot: WorkerLiveSnapshot): void {
+export function replaceDeviceMirror(deviceId: string, snapshot: WorkerLiveSnapshot, position?: number): void {
+  if (position !== undefined) {
+    if (position < (positions.get(deviceId) ?? -1)) return;
+    positions.set(deviceId, position);
+  }
   const touched = new Set<string>([
     ...snapshot.running,
     ...snapshot.pending.map((p) => p.sessionId),
@@ -125,4 +161,6 @@ export function findRemotePending(requestId: string): PendingInput | null {
 /** Test helper. */
 export function _resetRemoteLive(): void {
   mirror.clear();
+  positions.clear();
+  enrollments.clear();
 }

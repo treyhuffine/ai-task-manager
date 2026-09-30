@@ -11,6 +11,7 @@ import { assertExistingInstallation, type InstallationInspection } from './insta
 import { installedRuntime } from '../src/lib/service/runtime';
 import { ReleaseSchema } from '../src/lib/service/release-trust';
 import { MaintenanceWindowSchema } from '../src/lib/service/update-settings';
+import { resolveServiceRole } from '../src/lib/service/role';
 import { pendingDesktopInitialization } from '../src/lib/service/initialization';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -76,6 +77,17 @@ function hasRecordedRecovery(active: NonNullable<ReturnType<typeof installedRunt
 
 export async function inspectExistingInstallation(): Promise<InstallationInspection> {
   const identity = serviceIdentity();
+  const role = resolveServiceRole();
+  if (role.role === 'conflict' || role.role === 'retired') return { identity, phase: role.role, pendingMigrations: 0, appliedMigrations: 0, canUse: false, reason: role.message };
+  if (role.role === 'worker' || role.role === 'viewer') {
+    assertExistingInstallation(identity, { allowMissingDatabase: true });
+    const status = await serviceStatus();
+    // A connected installation has no authoritative SQLite schema to inspect.
+    // Its existing runtime, worker journal and credentials stay where they are.
+    return { identity, phase: status?.phase ?? role.role, version: status?.version,
+      pendingMigrations: 0, appliedMigrations: 0, canUse: !status || status.phase === 'running',
+      reason: status && status.phase !== 'running' ? 'Resolve the existing service state before connecting.' : undefined };
+  }
   const selected = fs.existsSync(identity.database) ? undefined : installedRuntime();
   const pendingInitialization = !!selected && pendingDesktopInitialization(selected.id);
   if (!pendingInitialization) assertExistingInstallation(identity);

@@ -21,8 +21,21 @@ async function start() {
     const gate = readMaintenance();
     // Readiness is private to the local controller. During validation the
     // public gateway is still closed, including to ordinary read requests.
-    if (pathname === '/__ri_ready' || pathname === '/__ri_activity' || pathname === '/__ri_prepare') {
+    if (pathname === '/__ri_ready' || pathname === '/__ri_activity' || pathname === '/__ri_prepare' || pathname === '/__ri_compatibility') {
       if (!process.env.RI_SERVICE_CONTROL_TOKEN || request.headers['x-ri-service-control'] !== process.env.RI_SERVICE_CONTROL_TOKEN) { response.writeHead(404).end(); return; }
+      if (pathname === '/__ri_compatibility') {
+        if (request.method !== 'POST') { response.writeHead(405).end(); return; }
+        void (async () => {
+          let body = '';
+          for await (const chunk of request) { body += chunk; if (body.length > 16_384) throw new Error('Request too large'); }
+          const { repo } = JSON.parse(body) as { repo?: string };
+          if (typeof repo !== 'string' || !repo.startsWith('/')) throw new Error('Invalid runtime path');
+          const { homeUpdateCompatibility } = await import('@/lib/workers/update-compatibility');
+          response.setHeader('content-type', 'application/json');
+          response.end(JSON.stringify({ reasons: homeUpdateCompatibility(repo) }));
+        })().catch(() => { if (!response.headersSent) response.writeHead(409); response.end(); });
+        return;
+      }
       if (pathname === '/__ri_prepare') {
         const prepare = (globalThis as typeof globalThis & { __riPrepareIdle?: () => Promise<void> }).__riPrepareIdle;
         if (!prepare) { response.writeHead(503).end(); return; }
@@ -38,7 +51,8 @@ async function start() {
       response.end(JSON.stringify({ ready: true, validation: process.env.RI_SERVICE_VALIDATING === '1', pid: process.pid, repo: process.cwd() }));
       return;
     }
-    const saving = request.method === 'PATCH' && /^\/api\/(tasks|notes|areas)\/[^/]+$/.test(pathname);
+    const workerCompletion = request.method === 'POST' && /^\/api\/workers\/me\/(?:heartbeat|events|commands\/[^/]+\/ack|requests\/[^/]+\/result)$/.test(pathname);
+    const saving = workerCompletion || request.method === 'PATCH' && /^\/api\/(tasks|notes|areas)\/[^/]+$/.test(pathname);
     const safeRead = request.method === 'GET' || request.method === 'HEAD';
     if (process.env.RI_SERVICE_VALIDATING === '1' || gate?.phase === 'offline' || (gate && !saving && !safeRead)) {
       response.writeHead(503, { 'Retry-After': '5', 'Cache-Control': 'no-store', 'Content-Type': 'application/json' });

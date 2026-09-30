@@ -30,6 +30,10 @@ export function bundledCliCommand(node: string, repo: string, root: string, loca
 
 export interface BackendReady {
   type: 'ready';
+  connection?: 'home' | 'remote';
+  homeId?: string;
+  homeName?: string;
+  deviceId?: string | null;
   serviceRunId?: string;
   desktopClient?: string;
   runtime?: { repo: string; node: string; launcher?: string };
@@ -38,4 +42,4 @@ export interface BackendReady {
   token: string;
 }
 
-export type BackendMessage = BackendReady | { type: 'certificate'; origin: string; certificate: string } | { type: 'error'; message: string };
+export type BackendMessage = BackendReady | { type: 'setup'; status: import('./connection-setup').ConnectionSetupStatus } | { type: 'status'; status: import('../src/lib/service/client').ServiceStatus } | { type: 'certificate'; origin: string; certificate: string } | { type: 'error'; message: string };

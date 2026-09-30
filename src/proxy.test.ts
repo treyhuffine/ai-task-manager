@@ -85,3 +85,31 @@ describe('proxy', () => {
     expect(passesThrough(proxy(request('/api/health')))).toBe(true);
   });
 });
+
+describe('browser API compatibility before handlers', () => {
+  it('rejects a newer client before any route handler can mutate data', async () => {
+    const { proxy } = await import('./proxy');
+    const res = proxy(new NextRequest('http://127.0.0.1/api/tasks', { method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'x-ri-api-protocol': '99' }, body: '{"title":"must not be written"}' }));
+    expect(passesThrough(res)).toBe(false);
+    expect(res.status).toBe(426);
+    expect(await res.json()).toMatchObject({ code: 'api_protocol', update: 'home' });
+  });
+  it('keeps API-compatible patch clients working and authenticates unsupported ones first', async () => {
+    const { proxy } = await import('./proxy');
+    expect(passesThrough(proxy(new NextRequest('http://127.0.0.1/api/tasks', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'x-ri-api-protocol': '1' } })))).toBe(true);
+    expect(proxy(new NextRequest('http://127.0.0.1/api/tasks', { method: 'POST', headers: { 'x-ri-api-protocol': '99' } })).status).toBe(401);
+  });
+  it('does not make missing old metadata a bypass once baseline1 is retired', async () => {
+    const { proxy } = await import('./proxy');
+    const { CURRENT_COMPATIBILITY } = await import('@/lib/releases/compatibility');
+    const before = CURRENT_COMPATIBILITY.apiProtocols;
+    CURRENT_COMPATIBILITY.apiProtocols = [2];
+    try {
+      expect(proxy(request('/api/tasks', token)).status).toBe(426);
+      expect(passesThrough(proxy(request('/api/version', token)))).toBe(true);
+      expect(proxy(request('/api/version')).status).toBe(401);
+      for (const endpoint of ['/api/mcp', '/api/connectors/mcp', '/api/webhooks/example', '/api/connectors/callback']) expect(passesThrough(proxy(request(endpoint, token)))).toBe(true);
+    } finally { CURRENT_COMPATIBILITY.apiProtocols = before; }
+  });
+});

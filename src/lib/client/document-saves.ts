@@ -5,6 +5,7 @@ interface PendingSave extends DocumentDraft {
   timer?: ReturnType<typeof setTimeout>;
   running?: Promise<void>;
   inFlight?: Patch;
+  visible: Readonly<Patch>;
 }
 const prefix = 'ri:document-draft:v1:';
 
@@ -12,6 +13,7 @@ const prefix = 'ri:document-draft:v1:';
  * Drafts are retained synchronously before the network debounce begins. */
 export class DocumentSaveQueue {
   private pending = new Map<string, PendingSave>();
+  private listeners = new Map<string, Set<() => void>>();
   constructor(private storage: () => Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>) {}
 
   draft(key: string): DocumentDraft | null {
@@ -25,10 +27,21 @@ export class DocumentSaveQueue {
   discard(key: string) { this.storage().removeItem(prefix + key); }
   has(key?: string) { return key ? this.pending.has(key) : this.pending.size > 0; }
 
+  /** Only this session's unacknowledged edits belong in the active document.
+   * Reading a retained draft must never silently restore an older session. */
+  pendingPatch(key: string): Readonly<Patch> | undefined { return this.pending.get(key)?.visible; }
+  subscribe(key: string, listener: () => void) {
+    let listeners = this.listeners.get(key);
+    if (!listeners) this.listeners.set(key, listeners = new Set());
+    listeners.add(listener);
+    return () => { listeners.delete(listener); if (!listeners.size) this.listeners.delete(key); };
+  }
+  private changed(key: string) { for (const listener of this.listeners.get(key) ?? []) listener(); }
+
   schedule(key: string, patch: Patch, base: Patch, writer: PendingSave['writer']) {
     let state = this.pending.get(key);
     if (!state) {
-      state = { patch: {}, base: {}, writer };
+      state = { patch: {}, base: {}, writer, visible: {} };
       this.pending.set(key, state);
     }
     for (const field of Object.keys(patch)) {
@@ -36,6 +49,8 @@ export class DocumentSaveQueue {
     }
     Object.assign(state.patch, patch);
     state.writer = writer;
+    state.visible = { ...state.inFlight, ...state.patch };
+    this.changed(key);
     this.persist(key, state);
     clearTimeout(state.timer);
     state.timer = setTimeout(() => { void this.flush(key).catch(() => {}); }, 500);
@@ -68,6 +83,8 @@ export class DocumentSaveQueue {
         state.inFlight = undefined;
         Object.assign(state.base, patch);
         if (Object.keys(state.patch).length) {
+          state.visible = { ...state.patch };
+          this.changed(key);
           // Storage restrictions must not prevent already-queued edits from
           // reaching the server. schedule() reports retention failures.
           try { this.persist(key, state); } catch { /* Continue the serial writer. */ }
@@ -77,9 +94,14 @@ export class DocumentSaveQueue {
       // leave a phantom pending save that blocks close or reload forever.
       try { this.discard(key); } catch { /* Recovery never silently replays retained drafts. */ }
       this.pending.delete(key);
+      this.changed(key);
     })();
     try { await state.running; } finally { state.running = undefined; }
   }
+
+  /** Explicit update recovery may reload only after every unsaved edit is
+   * durably retained. A storage error must keep this view open. */
+  retainAll() { for (const [key, state] of this.pending) this.persist(key, state); }
 
   async flushAll() {
     const results = await Promise.allSettled([...this.pending.keys()].map(key => this.flush(key)));

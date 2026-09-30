@@ -1,3 +1,4 @@
+import { writeDesktopHomeIntent } from '../src/lib/service/desktop-role-intent';
 /** Real Electron + real Next app. No certificate-bypass flag or mock frontend. */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -30,6 +31,7 @@ const mode = packaged || process.env.RI_DESKTOP_MODE === 'production' ? 'product
 const env = demoEnvironment(repo, { ...process.env, RI_DESKTOP_ROOT: root, RI_INSTALL_ROOT: path.join(root, '..', 'smoke-runtime') }, mode);
 for (const key of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR']) delete process.env[key];
 Object.assign(process.env, env);
+writeDesktopHomeIntent();
 const launch = () => _electron.launch({ executablePath: packaged ? path.join(packaged, 'Contents/MacOS/Ri') : electron as unknown as string, args: packaged ? [] : [path.join(repo, 'dist/desktop/main.cjs')], cwd: packaged ? os.tmpdir() : repo,
   env: { ...env, ...(packaged ? { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' } : { RI_DESKTOP_NODE: process.execPath }), RI_DESKTOP_SMOKE: '1' }, timeout: 240_000 });
 let app: ElectronApplication | undefined;

@@ -36,6 +36,7 @@ afterEach(() => {
 
 it('runs a home where there is one, and on a first run', () => {
   expect(resolveServiceRole()).toEqual({ role: 'first-run' });
+  expect(servesHome(resolveServiceRole())).toBe(false);
   fs.writeFileSync(path.join(root, 'data.db'), '');
   const role = resolveServiceRole();
   expect(role).toEqual({ role: 'home' });
@@ -65,4 +66,11 @@ it('never starts a home where one was retired, or where a database sits beside a
   fs.writeFileSync(path.join(root, 'data.db'), '');
   write(path.join(config(), 'connection.json'), connection);
   expect(resolveServiceRole().role).toBe('conflict');
+});
+
+it('keeps a future worker enrollment visibly blocked rather than erasing its role', () => {
+  write(path.join(config(), 'connection.json'), connection);
+  write(path.join(config(), 'worker.json'), { version: 999, homeId: 'home-1', deviceId: 'c', workerKey: 'secret' });
+  expect(resolveServiceRole()).toMatchObject({ role: 'conflict', message: expect.stringContaining('without removing its files') });
+  expect(fs.readFileSync(path.join(config(), 'worker.json'), 'utf8')).toContain('999');
 });

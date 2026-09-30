@@ -1,3 +1,4 @@
+import { writeDesktopHomeIntent } from '../src/lib/service/desktop-role-intent';
 /** Shared isolated-home fixture for packaged desktop acceptance checks.
  * No builds, OS login jobs, real accounts, tunnels or external providers. */
 import assert from 'node:assert/strict';
@@ -5,6 +6,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import electron from 'electron';
 import { _electron, type ElectronApplication, type Page } from 'playwright-core';
 import { demoEnvironment } from './config';
 import { desktopPackageLayout } from './package-layout';
@@ -92,16 +94,18 @@ export class AcceptanceFixture {
   readonly root: string;
   readonly env: Record<string, string>;
   readonly executable: string;
+  readonly source: boolean;
   readonly report: Record<string, unknown>;
   app?: ElectronApplication;
   page?: Page;
   origin?: string;
 
-  constructor(name: string) {
+  constructor(name: string, options: { chooseHome?: boolean; source?: boolean } = {}) {
+    this.source = options.source === true;
     const packaged = process.env.RI_DESKTOP_PACKAGE;
-    assert(packaged, 'Set RI_DESKTOP_PACKAGE to an already built package directory (.app on macOS, linux-unpacked on Linux).');
-    const layout = desktopPackageLayout(packaged);
-    this.executable = layout.executable;
+    assert(packaged || this.source, 'Set RI_DESKTOP_PACKAGE to an already built package directory (.app on macOS, linux-unpacked on Linux).');
+    const layout = packaged ? desktopPackageLayout(packaged) : undefined;
+    this.executable = this.source ? electron as unknown as string : layout!.executable;
     assert(fs.existsSync(this.executable), `No packaged executable at ${this.executable}`);
     this.base = fs.mkdtempSync(path.join(os.tmpdir(), `ri-${name}-`));
     this.root = path.join(this.base, 'home');
@@ -119,14 +123,19 @@ export class AcceptanceFixture {
       RI_DESKTOP_STATE_DIR: path.join(this.base, 'desktop-state'), RI_DESKTOP_ROOT: this.root,
       RI_INSTALL_ROOT: path.join(this.base, 'runtime'), RI_DESKTOP_SMOKE: '1',
     }, 'production')).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
-    const manifest = JSON.parse(fs.readFileSync(path.join(layout.resources, 'runtime-manifest.json'), 'utf8'));
+    // Empty values prevent Next from filling provider secrets back from a
+    // source checkout's .env.local during isolated acceptance.
+    for (const key of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GROQ_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'CODEX_API_KEY', 'BEAMD_API_KEY']) this.env[key] = '';
+    if (this.source) this.env.RI_DESKTOP_NODE = process.execPath;
+    const manifest = layout && !this.source ? JSON.parse(fs.readFileSync(path.join(layout.resources, 'runtime-manifest.json'), 'utf8')) : undefined;
     this.report = {
       name, artifacts: this.base, platform: process.platform, startedAt: new Date().toISOString(),
-      package: path.resolve(packaged), runtimeId: manifest.id,
-      asarSha256: createHash('sha256').update(fs.readFileSync(path.join(layout.resources, 'app.asar'))).digest('hex'),
+      package: this.source ? 'source Electron and runtime' : path.resolve(packaged!), runtimeId: manifest?.id,
+      asarSha256: layout && !this.source ? createHash('sha256').update(fs.readFileSync(path.join(layout.resources, 'app.asar'))).digest('hex') : undefined,
       checks: [],
     };
     this.select();
+    if (options.chooseHome !== false) writeDesktopHomeIntent();
   }
 
   select() {
@@ -134,11 +143,11 @@ export class AcceptanceFixture {
     Object.assign(process.env, this.env);
   }
 
-  async launch(args: string[] = []) {
+  async launchRaw(args: string[] = [], options: { source?: boolean } = {}) {
+    this.select();
     assert(!this.app, 'Quit the current viewer before reopening it');
-    const started = Date.now();
-    console.info(`[acceptance] Launching packaged viewer with temporary home ${this.root}`);
-    this.app = await _electron.launch({ executablePath: this.executable, args, cwd: this.base, env: this.env, timeout: 240_000 });
+    console.info(`[acceptance] Launching ${this.source || options.source ? 'source' : 'packaged'} viewer with temporary home ${this.root}`);
+    this.app = await _electron.launch({ executablePath: options.source || this.source ? electron as unknown as string : this.executable, args: options.source || this.source ? [path.resolve(__dirname, '../dist/desktop/main.cjs'), ...args] : args, cwd: this.base, env: this.env, timeout: 240_000 });
     const page = await this.app.firstWindow({ timeout: 30_000 });
     page.setDefaultTimeout(30_000);
     // Electron can cancel beforeunload before Chromium's CDP dialog reply.
@@ -150,8 +159,14 @@ export class AcceptanceFixture {
       const url = new URL(route.request().url());
       return /^https?:$/.test(url.protocol) && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ? route.abort() : route.continue();
     });
-    await page.waitForURL(url => url.protocol === 'https:', { timeout: 240_000 });
     this.page = page;
+    return page;
+  }
+
+  async launch(args: string[] = []) {
+    const started = Date.now();
+    const page = await this.launchRaw(args);
+    await page.waitForURL(url => url.protocol === 'https:', { timeout: 240_000 });
     this.origin = new URL(page.url()).origin;
     if (new URL(page.url()).pathname === '/welcome') {
       await page.getByText('Welcome to Ri', { exact: true }).waitFor();
@@ -160,6 +175,8 @@ export class AcceptanceFixture {
     }
     await page.locator('aside:visible').first().waitFor();
     assert.equal(await page.evaluate(() => window.riDesktop?.platform), process.platform);
+    assert.equal(await page.evaluate(() => typeof window.riDesktop?.settings), 'function', 'Local Home viewer requires its settings bridge');
+    assert.equal(await page.evaluate(() => typeof window.riDesktop?.notifications), 'function', 'Local Home viewer requires its notification bridge');
     assert.equal((await serviceStatus())?.phase, 'running');
     const launches = (this.report.launches ??= []) as unknown[];
     launches.push({ readyMs: Date.now() - started, origin: this.origin });
@@ -205,8 +222,8 @@ export class AcceptanceFixture {
   }
 }
 
-export async function acceptance(name: string, run: (fixture: AcceptanceFixture) => Promise<void>) {
-  const fixture = new AcceptanceFixture(name);
+export async function acceptance(name: string, run: (fixture: AcceptanceFixture) => Promise<void>, options: { source?: boolean } = {}) {
+  const fixture = new AcceptanceFixture(name, options);
   let failure: unknown;
   try { await run(fixture); }
   catch (error) {

@@ -225,3 +225,89 @@ it('excludes other controller actions throughout an asynchronous recovery', asyn
   } finally { finishRestore(); await recovery; }
   expect(updater.status()).toMatchObject({ busy: false, phase: 'failed' });
 });
+
+it('keeps a release waiting when an unreachable peer has incompatible unresolved work', async () => {
+  backend.compatibility = vi.fn(async () => ['Waiting for MacBook journals before an incompatible update']);
+  const updater = coordinator(); updater.approve(); await updater.apply();
+  expect(updater.status()).toMatchObject({ phase: 'waiting', approved: true, reason: expect.stringContaining('MacBook') });
+  expect(backend.stop).not.toHaveBeenCalled();
+  expect(readMaintenance()).toBeNull();
+  expect(installedRuntime()?.id).toBe(prior);
+});
+it('rechecks peer compatibility after admission drains, before stopping the Home', async () => {
+  backend.compatibility = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValue(['MacBook disconnected with undelivered work']);
+  const updater = coordinator(); await updater.apply();
+  expect(updater.status().phase).toBe('waiting');
+  expect(backend.stop).not.toHaveBeenCalled();
+  expect(read()).toBe('before');
+});
+
+
+it('updates a connected device without any Home database or migration access', async () => {
+  fs.rmSync(database);
+  backend.storage = 'worker';
+  backend.exclusiveStorage = vi.fn(async () => () => {});
+  backend.checkpoint = vi.fn(async () => '/verified/worker-checkpoint');
+  backend.restore = vi.fn(async () => {});
+  backend.validate = vi.fn(async () => {});
+  backend.verifyDatabase = vi.fn(async () => {});
+  backend.prepareIdle = vi.fn(async () => {});
+  backend.resumeAdmission = vi.fn(async () => {});
+  await coordinator().apply();
+  expect(backend.checkpoint).toHaveBeenCalledOnce();
+  expect(backend.verifyDatabase).toHaveBeenCalledOnce();
+  expect(backend.restore).not.toHaveBeenCalled();
+  expect(backend.activate).toHaveBeenCalledOnce();
+  expect(fs.existsSync(database)).toBe(false);
+  expect(fs.existsSync(`${database}.access.sqlite`)).toBe(false);
+});
+it('refuses a connected-device updater with missing local checkpoint adapters', async () => {
+  fs.rmSync(database); backend.storage = 'worker';
+  await expect(coordinator().apply()).rejects.toThrow('local journal checkpoint');
+  expect(backend.stop).not.toHaveBeenCalled(); expect(fs.existsSync(database)).toBe(false);
+});
+it('reopens worker admission when busy work defers an approved update', async () => {
+  backend.prepareIdle = vi.fn(async () => {}); backend.resumeAdmission = vi.fn(async () => {});
+  backend.activity = vi.fn(async () => ['A local setup request is still running']);
+  const updater = coordinator(); updater.approve(); await updater.apply();
+  expect(backend.prepareIdle).toHaveBeenCalledOnce(); expect(backend.resumeAdmission).toHaveBeenCalledOnce();
+  expect(backend.stop).not.toHaveBeenCalled(); expect(updater.status().phase).toBe('waiting');
+});
+it('recovers an interrupted worker validation without opening a database or rewinding journals', async () => {
+  fs.rmSync(database); backend.storage = 'worker';
+  backend.exclusiveStorage = vi.fn(async () => () => {});
+  backend.restore = vi.fn(async () => {});
+  save({ phase: 'validating', checkpoint: '/verified/worker-checkpoint' });
+  await coordinator().recover();
+  expect(backend.restore).toHaveBeenCalledWith('/verified/worker-checkpoint');
+  expect(fs.existsSync(database)).toBe(false);
+  expect(fs.existsSync(`${database}.access.sqlite`)).toBe(false);
+});
+
+it('holds the worker journal writer lock through checkpoint and validation and preserves pending results', async () => {
+  fs.rmSync(database);
+  const { acquireWorkerLock } = await import('@/lib/worker/lock');
+  const { createWorkerCheckpoint, verifyWorkerCheckpoint } = await import('./worker-checkpoint');
+  const { getWorkDir } = await import('@/lib/config/paths');
+  const journal = path.join(getWorkDir(), 'journal/home.jsonl');
+  fs.mkdirSync(path.dirname(journal), { recursive: true });
+  const pending = '{"position":1,"eventId":"pending-result"}\n';
+  fs.writeFileSync(journal, pending);
+  backend.storage = 'worker';
+  backend.exclusiveStorage = async () => (await acquireWorkerLock()).release;
+  backend.checkpoint = async directory => {
+    await expect(acquireWorkerLock()).rejects.toThrow('already running');
+    return createWorkerCheckpoint(directory);
+  };
+  backend.restore = async directory => verifyWorkerCheckpoint(directory);
+  backend.validate = async () => {
+    await expect(acquireWorkerLock()).rejects.toThrow('already running');
+    expect(fs.readFileSync(journal, 'utf8')).toBe(pending);
+  };
+  backend.verifyDatabase = async () => expect(fs.existsSync(database)).toBe(false);
+  backend.activate = async () => { const lock = await acquireWorkerLock(); lock.release(); };
+  const updater = coordinator(); await updater.apply();
+  expect(updater.status().phase).toBe('committed');
+  expect(fs.readFileSync(journal, 'utf8')).toBe(pending);
+  expect(fs.existsSync(database)).toBe(false);
+});

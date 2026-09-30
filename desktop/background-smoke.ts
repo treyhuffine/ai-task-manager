@@ -133,7 +133,7 @@ void acceptance('background-smoke', async fixture => {
     await page.waitForURL(url => url.pathname === '/' && url.searchParams.get('settings') === 'notifications'); await foreground();
     await page.getByRole('button', { name: 'Enable desktop notifications', exact: true }).click();
     await page.getByRole('button', { name: 'Disable desktop notifications', exact: true }).waitFor();
-    const enabled = await page.evaluate(() => window.riDesktop!.notifications('status')) as DesktopNotificationStatus;
+    const enabled = await page.evaluate(() => window.riDesktop!.notifications!('status')) as DesktopNotificationStatus;
     assert(enabled.enabled && enabled.channelId);
     await fixture.navigate(`/note/${note.id}`); await title.waitFor();
     const notificationDocument = await page.evaluate(() => performance.timeOrigin);

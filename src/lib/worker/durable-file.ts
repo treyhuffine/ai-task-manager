@@ -8,6 +8,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+export const WORKER_JOURNAL_FORMAT = 1;
+
+/** Legacy journals already use format 1. Record that fact without rewriting
+ * receipts or payloads. Refuse unknown formats before torn-tail repair. */
+export function assertJournalFormat(file: string): void {
+  const marker = `${file}.format`;
+  if (fs.existsSync(marker)) {
+    if (fs.readFileSync(marker, 'utf8').trim() !== String(WORKER_JOURNAL_FORMAT)) {
+      throw new Error(`This journal needs a compatible Ri release. Its data was preserved: ${file}`);
+    }
+  } else writeFileAtomic(marker, `${WORKER_JOURNAL_FORMAT}\n`);
+}
+
 /** Append one line and flush it to disk. */
 export function appendLine(file: string, line: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });

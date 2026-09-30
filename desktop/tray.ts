@@ -26,11 +26,12 @@ export function desktopMenuCommands(actions: DesktopMenuActions) {
     recovery: { id: 'ri-recovery', label: 'Local Installation and Recovery…', click: actions.recovery },
     quit: { id: 'ri-quit', label: `Quit ${APP_NAME}`, click: actions.quit },
     capture: { id: 'ri-quick-capture', label: 'Quick Capture', click: actions.capture },
-    preferences: { id: 'ri-desktop-preferences', label: 'Desktop Settings…', click: actions.preferences },
+    preferences: { id: 'ri-desktop-preferences', label: 'Ri on This Device…', click: actions.preferences },
   } satisfies Record<keyof DesktopMenuActions, MenuItemConstructorOptions>;
 }
 
 export function activitySummary(snapshot: DesktopActivitySnapshot) {
+  if (snapshot.connection === 'connected' && !snapshot.activity) return 'Connected to your Home';
   if (snapshot.connection !== 'connected' || !snapshot.activity) return snapshot.connection === 'connecting' ? 'Connecting to Ri…' : 'Ri service is unreachable';
   const { running, needsInput, unread } = snapshot.activity;
   if (!running && !needsInput && !unread) return 'No sessions need attention';
@@ -48,12 +49,12 @@ export function activityMenuItems(snapshot: DesktopActivitySnapshot, open: (sess
   ];
 }
 
-export function updateDesktopTray(tray: Tray, actions: DesktopMenuActions, snapshot: DesktopActivitySnapshot, open: (sessionId: string) => void) {
+export function updateDesktopTray(tray: Tray, actions: DesktopMenuActions, snapshot: DesktopActivitySnapshot, open: (sessionId: string) => void, localItems: MenuItemConstructorOptions[] = []) {
   const commands = desktopMenuCommands(actions);
   tray.setToolTip(`${APP_NAME}: ${activitySummary(snapshot)}`);
   if (process.platform === 'darwin') tray.setTitle(snapshot.connection === 'connected' && snapshot.activity?.attention ? String(snapshot.activity.attention) : '');
   tray.setContextMenu(Menu.buildFromTemplate([
-    ...activityMenuItems(snapshot, open), { type: 'separator' },
+    ...localItems, ...activityMenuItems(snapshot, open), { type: 'separator' },
     commands.capture, commands.show, commands.hide, { type: 'separator' }, commands.preferences, commands.notifications,
     commands.update, commands.status, commands.recovery, { type: 'separator' }, commands.quit,
   ]));

@@ -18,6 +18,7 @@
  * query the DB directly; it works from any process.
  */
 
+import { API_PROTOCOL, API_PROTOCOL_HEADER } from '@/lib/releases/api-contract';
 import { readAuthConfig } from '@/lib/auth/config-file';
 import { getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { PUBLIC_BASE_URL_ENV, readLiveServerRuntime } from '@/lib/server-runtime/record';
@@ -103,6 +104,7 @@ export async function serverFetch<T>(path: string, init: RequestInit = {}): Prom
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
+        [API_PROTOCOL_HEADER]: String(API_PROTOCOL),
         Connection: 'close',
         ...(init.headers ?? {}),
       },

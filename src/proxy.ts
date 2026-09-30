@@ -1,3 +1,5 @@
+import { API_PROTOCOL_HEADER, apiCompatibilityIssue, hasIndependentProtocol } from '@/lib/releases/api-contract';
+import { CURRENT_COMPATIBILITY } from '@/lib/releases/compatibility';
 import { NextResponse, type NextRequest } from 'next/server';
 import { hashToken } from '@/lib/auth/tokens';
 import { findApiKeyByHash, getWorkerDevice, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
@@ -167,6 +169,13 @@ export function proxy(request: NextRequest) {
 
   if (key.expiresAt && new Date(key.expiresAt) < new Date()) {
     return unauthorized();
+  }
+
+  // An authenticated stale view is refused before route writes or effects.
+  // Worker and MCP transports retain their own authenticated negotiation.
+  if (!isWorkerApiKey(key.id) && !hasIndependentProtocol(request.nextUrl.pathname) && request.nextUrl.pathname !== '/api/version') {
+    const mismatch = apiCompatibilityIssue(request.headers.get(API_PROTOCOL_HEADER), CURRENT_COMPATIBILITY.apiProtocols);
+    if (mismatch) return NextResponse.json(mismatch, { status: 426, headers: { 'Cache-Control': 'no-store' } });
   }
 
   try {

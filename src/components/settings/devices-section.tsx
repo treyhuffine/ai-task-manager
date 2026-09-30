@@ -336,6 +336,7 @@ function Marker({ children, tone = 'muted' }: { children: React.ReactNode; tone?
 /** What a worker last said, for a device that runs agents. */
 function workerLine(device: DeviceView): string | null {
   if (!device.worker?.enrolled) return null;
+  if (device.worker.compatibility?.state === 'update-required') return device.worker.compatibility.reason ?? 'Update required';
   if (device.worker.connected) return 'Connected';
   if (device.worker.reportedState === 'asleep') return 'Asleep';
   return `Not connected, last seen ${formatDate(device.lastSeenAt)}`;
@@ -480,6 +481,7 @@ function DeviceCard({
             <p className="text-[11px] text-muted-foreground/60">
               {status ?? `Last active ${formatDate(lastActive(device))}`}
             </p>
+            <DeviceRelease device={device} />
             {device.isHome && device.portable && (
               <p className="text-[11px] text-muted-foreground/60">A laptop, so schedules run while it&apos;s awake.</p>
             )}
@@ -547,5 +549,22 @@ function KeyRow({ keyView, onRevoke, revoking }: { keyView: DeviceKeyView; onRev
         </Button>
       )}
     </li>
+  );
+}
+
+/** Read-only status. Updating another computer always uses its local owner. */
+function DeviceRelease({ device }: { device: DeviceView }) {
+  const compatibility = device.worker?.compatibility;
+  const release = device.release ?? compatibility?.release;
+  if (!release && !device.worker?.enrolled) return null;
+  const pending = (compatibility?.pendingEvents ?? 0) + (compatibility?.pendingCommands ?? 0);
+  return (
+    <div className="space-y-0.5 text-[11px] text-muted-foreground/70">
+      {release && <p title={`Build ${release.build}`}>Ri {release.version} · {release.source === 'source' ? 'Source build' : release.build.slice(0, 12)}</p>}
+      {compatibility?.state === 'compatible' && <p>Compatible{device.worker?.connected ? '' : ' at last contact'}</p>}
+      {compatibility?.state === 'unknown' && <p>Waiting for this device to report its version.</p>}
+      {!!compatibility?.openTurns && <p>Waiting for {compatibility.openTurns} execution{compatibility.openTurns === 1 ? '' : 's'} to finish before updating.</p>}
+      {pending > 0 && <p>{pending} result{pending === 1 ? '' : 's'} waiting to reach your Home.</p>}
+    </div>
   );
 }

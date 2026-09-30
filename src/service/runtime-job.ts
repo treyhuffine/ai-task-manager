@@ -1,3 +1,4 @@
+import { createWorkerCheckpoint, verifyWorkerCheckpoint } from '@/lib/service/worker-checkpoint';
 import { verifyRuntime } from '@/lib/service/runtime';
 import { downloadRelease, type Release } from '@/lib/service/release';
 import { createCheckpoint, restoreCheckpointDatabase, validateDatabase } from '@/lib/service/checkpoint';
@@ -20,6 +21,8 @@ process.once('message', (message: { action: string; value: unknown; owner: Runti
           });
           return null;
         }
+        case 'worker-checkpoint': return createWorkerCheckpoint(String(message.value));
+        case 'worker-checkpoint-verify': return verifyWorkerCheckpoint(String(message.value));
         case 'checkpoint': return await createCheckpoint(String(message.value));
         case 'restore': await restoreCheckpointDatabase(String(message.value)); return null;
         case 'validate-database': validateDatabase(String(message.value), true); return null;

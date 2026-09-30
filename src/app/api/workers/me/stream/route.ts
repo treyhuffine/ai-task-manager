@@ -9,6 +9,8 @@
  * no longer runs here at its generation is marked stale instead of sent.
  */
 
+import { readMaintenance } from '@/lib/service/maintenance';
+import { runtimePeerRelease } from '@/lib/releases/runtime-identity';
 import { checkDeviceFolders, folderSetupsFor } from '@/lib/setups/folders';
 import type { NextRequest } from 'next/server';
 import { uuidv7 } from 'uuidv7';
@@ -17,7 +19,7 @@ import { getAckedEventSeq, getHome, getWorkerDevice, staleQueuedCommands, takeCo
 import { inTransaction } from '@/lib/effects/after-commit';
 import { isDeviceConnected, registerConnection } from '@/lib/workers/hub';
 import { deviceTerminalsGone } from '@/lib/terminal/remote';
-import { WORKER_PROTOCOL, WORKER_STREAM_PING_MS, type WorkerCommand, type WorkerStreamEvent } from '@/lib/workers/protocol';
+import { WORKER_STREAM_PING_MS, type WorkerCommand, type WorkerStreamEvent } from '@/lib/workers/protocol';
 import { requireWorker } from '@/lib/workers/route-auth';
 import { settleUndelivered } from '@/lib/workers/undelivered';
 import { announceDelivery, announceOpenSends } from '@/lib/workers/delivery';
@@ -71,7 +73,7 @@ export async function GET(request: NextRequest) {
       // What this stream has sent, starting from what the worker has received.
       let cursor = after;
       const pump = () => {
-        if (closed) return;
+        if (closed || readMaintenance()) return;
         // Ownership first: a command for a placement this device no longer
         // holds is never sent, and a send among them finishes its run (P2.6).
         inTransaction((after) => {
@@ -88,6 +90,7 @@ export async function GET(request: NextRequest) {
         id: uuidv7(),
         deviceId: worker.device.id,
         openedAt: Date.now(),
+        capabilities: worker.agreement.capabilities,
         send,
         wake: pump,
         close,
@@ -101,6 +104,7 @@ export async function GET(request: NextRequest) {
           return;
         }
         send({ type: 'ping' });
+        pump(); // Resume queued delivery when an idle update was deferred.
       }, WORKER_STREAM_PING_MS);
       cleanup = () => {
         clearInterval(ping);
@@ -117,7 +121,9 @@ export async function GET(request: NextRequest) {
         type: 'hello',
         homeId,
         deviceId: worker.device.id,
-        protocol: WORKER_PROTOCOL,
+        protocol: worker.agreement.protocol,
+        peer: runtimePeerRelease(),
+        capabilities: worker.agreement.capabilities,
         ackedEventSeq: getAckedEventSeq(worker.device.id),
       });
       // Its folders, as the home records them, before any command that needs

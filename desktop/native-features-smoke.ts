@@ -56,7 +56,7 @@ void acceptance('native-features-smoke', async fixture => {
     item.click(item, BrowserWindow.getAllWindows()[0], {} as never);
   }, id), `native ${id}`, 10_000);
   const activityMenu = () => app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('ri-activity-menu')?.submenu?.items.map(item => ({ id: item.id, label: item.label, enabled: item.enabled })) ?? []);
-  const settings = (action: DesktopSettingsAction) => bounded(page.evaluate(action => window.riDesktop!.settings(action), action), 'desktop settings IPC');
+  const settings = (action: DesktopSettingsAction) => bounded(page.evaluate(action => window.riDesktop!.settings!(action), action), 'desktop settings IPC');
   const initial = await state(); assert.equal(initial.length, 1); const windowId = initial[0].id;
   const background = () => eventually(async () => {
     const rows = await state(); return rows.length === 1 && rows[0].id === windowId && (process.platform === 'darwin' ? !rows[0].visible : rows[0].minimized);
@@ -297,7 +297,7 @@ void acceptance('native-features-smoke', async fixture => {
     await fixture.quit();
     assert.equal((await serviceStatus())?.runId, originalService!.runId);
     page = await fixture.launch(['--ri-background']);
-    const reopened = await page.evaluate(() => window.riDesktop!.settings({ type: 'status' }));
+    const reopened = await page.evaluate(() => window.riDesktop!.settings!({ type: 'status' }));
     assert.equal(reopened.shortcut.enabled, false);
     assert.equal(reopened.shortcut.accelerator, alternateShortcut);
     assert.equal(reopened.shortcut.state, 'off');

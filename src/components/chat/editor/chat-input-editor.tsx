@@ -36,6 +36,7 @@
  * caller wraps the editor with maxHeight + overflow-y-auto.
  */
 
+import { registerChatDraftWriter } from '@/lib/client/chat-drafts';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { useEditor, EditorContent, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -843,6 +844,23 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         editor.commands.clearContent(true);
       }
     }, [editor, draftKey, writeDraftSync, resetHistoryNav]);
+
+    // A reload verifies the same retained JSON used on mount. Failed storage
+    // or an uploading chip leaves the live editor open, never silently lost.
+    useEffect(() => registerChatDraftWriter(editorRef, () => {
+      const ed = editorRef.current;
+      if (!ed || ed.isDestroyed) return true;
+      if (editorHasPendingChip(ed)) return false;
+      const key = draftKeyRef.current;
+      if (!key) return ed.isEmpty;
+      if (!hydratedKeysRef.current.has(key)) return false;
+      writeDraftSync(key);
+      const doc = historyIndexRef.current !== null ? historyStashRef.current?.doc : ed.isEmpty ? undefined : ed.getJSON();
+      try {
+        const retained = window.localStorage.getItem(`${DRAFT_STORAGE_PREFIX}${key}`);
+        return doc ? retained === JSON.stringify(doc) : retained === null;
+      } catch { return false; }
+    }), [writeDraftSync, editorHasPendingChip]);
 
     // Final flush on unmount so a debounced save in flight isn't lost
     // when the editor tears down (page nav, parent unmount).

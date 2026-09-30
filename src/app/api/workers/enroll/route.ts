@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   const input = parsed.data;
   if (input.protocol !== WORKER_PROTOCOL) {
     return Response.json(
-      { error: 'worker_protocol', protocol: WORKER_PROTOCOL, message: protocolMismatchMessage(input.name) },
+      { error: 'worker_protocol', protocol: WORKER_PROTOCOL, message: protocolMismatchMessage(input.name, input.protocol) },
       { status: 426 },
     );
   }

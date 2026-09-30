@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Command } from 'commander';
 import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
-import { ensureService, serviceRequest, serviceStatus, stopService } from '@/lib/service/client';
+import { ensureServiceStatus, serviceRequest, serviceStatus, stopService } from '@/lib/service/client';
 import { readAwakePreferences } from '@/lib/service/awake';
 import { servicePaths } from '@/lib/service/paths';
 import { createRuntimeManifest, installedRuntime, stageRuntime, verifyRuntime } from '@/lib/service/runtime';
@@ -19,15 +19,28 @@ export function registerServiceCommand(program: Command) {
   });
   service.command('start').description('Start or attach without keeping this terminal open')
     .option('--dev', 'use the development server')
-    .action(async (options: { dev?: boolean }) => {
+    .option('--home', 'choose this new installation as a Home before starting')
+    .action(async (options: { dev?: boolean; home?: boolean }) => {
       // Resolve the identity before runtime lookup or service discovery, just
       // as the foreground `start --dev` command does.
       if (options.dev && !process.env[APP_ROOT_ENV]) process.env[APP_ROOT_ENV] = getDevAppRoot();
+      if (options.home && (await import('@/lib/service/role')).resolveServiceRole().role !== 'home') {
+        (await import('@/lib/service/desktop-role-intent')).writeDesktopHomeIntent();
+      }
       const installed = installedRuntime();
       const repo = installed?.repo ?? process.env.RI_RUNTIME_REPO ?? process.env.RI_DESKTOP_REPO ?? process.cwd();
-      const ready = await ensureService({ repo, node: installed?.node ?? process.execPath,
+      const existing = await serviceStatus();
+      if (existing && existing.phase !== 'starting' && !existing.origin && existing.role !== 'home') {
+        await serviceRequest('/role/refresh', 'POST', 200_000);
+      }
+      const ready = await ensureServiceStatus({ repo, node: installed?.node ?? process.execPath,
         env: { ...process.env, ...(installed ? { NEXT_DIST_DIR: '.next-desktop', RI_DESKTOP: '1' } : {}), RI_DESKTOP_MODE: options.dev ? 'development' : 'production' } });
-      console.info(`Ri is running at ${ready.origin}\nData: ${ready.identity.root}`);
+      console.info(ready.origin ? `Ri is running at ${ready.origin}\nData: ${ready.identity.root}` : `Ri service: ${ready.role ?? ready.phase}\n${ready.home ? `Home: ${ready.home.url}\n` : ''}Local folder: ${ready.identity.root}`);
+    });
+  service.command('worker <action>').description('Stop or resume local execution without stopping your Home or viewer')
+    .action(async (action: string) => {
+      if (!['stop', 'resume'].includes(action)) throw new Error('Choose stop or resume.');
+      console.info(JSON.stringify(await serviceRequest(`/worker/${action}`, 'POST', 60_000), null, 2));
     });
   service.command('status').description('Show the verified service identity and state').action(async () => {
     console.info(JSON.stringify(await serviceStatus() ?? { phase: 'stopped', identity: servicePaths().identity }, null, 2));

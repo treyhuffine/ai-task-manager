@@ -165,7 +165,12 @@ describe('enrolling', () => {
       body: { protocol: 99, version: 'x', harnesses: [], state: 'awake' },
     });
     expect(res.status).toBe(426);
-    expect(res.json!.message).toMatch(/Update Ri on MacBook/);
+    expect(res.json!.message).toMatch(/Update Ri on your Home/);
+    const older = await call('/api/workers/me/heartbeat', {
+      bearer: target.workerKey, headers: { 'x-ri-worker-protocol': '3' }, body: { protocol: 3, version: 'old', harnesses: [], state: 'awake' },
+    });
+    expect(older).toMatchObject({ status: 426, json: { update: 'worker' } });
+    expect(older.json!.message).toMatch(/Update Ri on MacBook/);
   });
 
   it('keeps one worker per device: enrolling again retires the earlier key', async () => {
@@ -350,5 +355,47 @@ describe('reading an event stream', () => {
       { event: 'hello', data: '{"a":\n1}' },
       { event: 'message', data: 'plain' },
     ]);
+  });
+});
+
+describe('authenticated release compatibility', () => {
+  it('negotiates a legacy protocol-4 worker without granting optional capabilities', async () => {
+    const target = await enrolledTarget();
+    const controller = new AbortController(); running.push(controller);
+    const stream = await fetch(`${server.url}/api/workers/me/stream`, { signal: controller.signal,
+      headers: { authorization: `Bearer ${target.workerKey}`, 'x-ri-worker-protocol': '4' } });
+    expect(stream.status).toBe(200);
+    const { readEventStream } = await import('@/lib/worker/sse');
+    const reader = readEventStream(stream.body!);
+    const first = await reader.next();
+    const hello = JSON.parse(first.value!.data);
+    expect(hello).toMatchObject({ type: 'hello', protocol: 4, capabilities: ['worker.protocol4'], peer: { release: { source: 'source' } } });
+    const { requestWorker } = await import('@/lib/workers/hub');
+    await expect(requestWorker(laptopDeviceId, 'describe_harnesses', null, 10, 'new-operation.v1')).rejects.toMatchObject({ unsupported: true });
+    controller.abort();
+  });
+  it('rejects required unsupported behavior before dispatch and reports which side is older', async () => {
+    const target = await enrolledTarget();
+    const { runtimePeerRelease } = await import('@/lib/releases/runtime-identity');
+    const peer = runtimePeerRelease();
+    peer.compatibility = { ...peer.compatibility, requiredCapabilities: ['new-operation.v1'] };
+    const compatibility = Buffer.from(JSON.stringify(peer)).toString('base64url');
+    const rejected = await call('/api/workers/me/stream', { bearer: target.workerKey,
+      headers: { 'x-ri-worker-protocol': '4', 'x-ri-worker-compatibility': compatibility } });
+    expect(rejected).toMatchObject({ status: 426, json: { update: 'home' } });
+    const { isDeviceConnected } = await import('@/lib/workers/hub');
+    expect(isDeviceConnected(laptopDeviceId)).toBe(false);
+    const list = await call('/api/devices', { bearer: laptopKey });
+    const device = (list.json as unknown as Array<{ id: string; worker: unknown }>).find(d => d.id === laptopDeviceId);
+    expect(device?.worker).toMatchObject({ compatibility: { state: 'update-required', update: 'home' } });
+  });
+  it('authenticates before trusting or persisting a forged compatibility report', async () => {
+    const rejected = await call('/api/workers/me/heartbeat', { bearer: laptopKey,
+      headers: { 'x-ri-worker-protocol': '4', 'x-ri-worker-compatibility': 'not-json' }, body: {} });
+    expect([401, 403]).toContain(rejected.status);
+    const target = await enrolledTarget();
+    const malformed = await call('/api/workers/me/heartbeat', { bearer: target.workerKey,
+      headers: { 'x-ri-worker-protocol': '4', 'x-ri-worker-compatibility': 'not-json' }, body: {} });
+    expect(malformed).toMatchObject({ status: 400, json: { error: 'invalid_compatibility' } });
   });
 });

@@ -185,3 +185,32 @@ it('refuses an older foreground launcher and missing database without bootstrapp
   await expect(inspectExistingInstallation()).rejects.toThrow();
   expect(fs.existsSync(database)).toBe(false);
 });
+
+it('adopts a connected viewer without a database, work directory or schema inspection', async () => {
+  fs.rmSync(path.join(directory, '.work'), { recursive: true });
+  fs.writeFileSync(path.join(directory, '.config/connection.json'), JSON.stringify({ version: 1, homeId: 'remote', homeName: 'My Ri', homeUrl: 'https://ri.example', credential: 'sign-in' }), { mode: 0o600 });
+  expect(await inspectExistingInstallation()).toMatchObject({ canUse: true, phase: 'viewer', appliedMigrations: 0, pendingMigrations: 0 });
+  expect(fs.existsSync(database)).toBe(false);
+  expect(fs.existsSync(path.join(directory, '.work'))).toBe(false);
+  expect(fs.existsSync(path.join(getRuntimeInstallDir(), 'active-release'))).toBe(false);
+});
+it('adopts an enrolled worker without opening data or replacing its runtime', async () => {
+  fs.writeFileSync(path.join(directory, '.config/connection.json'), JSON.stringify({ version: 1, homeId: 'remote', homeUrl: 'https://ri.example', credential: 'sign-in' }), { mode: 0o600 });
+  fs.writeFileSync(path.join(directory, '.config/worker.json'), JSON.stringify({ version: 1, homeId: 'remote', deviceId: 'laptop', workerKey: 'worker' }), { mode: 0o600 });
+  expect(await inspectExistingInstallation()).toMatchObject({ canUse: true, phase: 'worker', pendingMigrations: 0 });
+  expect(fs.existsSync(database)).toBe(false);
+  mocks.status.mockResolvedValue({ phase: 'failed', role: 'worker' });
+  expect(await inspectExistingInstallation()).toMatchObject({ canUse: false, phase: 'failed' });
+});
+it('refuses conflicting and retired roots before opening a database', async () => {
+  const connection = path.join(directory, '.config/connection.json');
+  fs.writeFileSync(connection, JSON.stringify({ version: 1, homeId: 'remote', homeUrl: 'https://ri.example', credential: 'sign-in' }));
+  fs.writeFileSync(database, 'preserved invalid database');
+  expect(await inspectExistingInstallation()).toMatchObject({ canUse: false, phase: 'conflict' });
+  expect(fs.readFileSync(database, 'utf8')).toBe('preserved invalid database');
+  fs.unlinkSync(connection); fs.unlinkSync(database);
+  const retired = path.join(directory, '.retired/previous'); fs.mkdirSync(retired, { recursive: true });
+  fs.writeFileSync(path.join(retired, 'retired.json'), JSON.stringify({ version: 1, homeName: 'Old Ri', retiredAt: '2026-09-30' }));
+  expect(await inspectExistingInstallation()).toMatchObject({ canUse: false, phase: 'retired' });
+  expect(fs.existsSync(database)).toBe(false);
+});

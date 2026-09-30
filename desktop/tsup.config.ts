@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['desktop/main.ts', 'desktop/backend.ts', 'desktop/preload.ts', 'desktop/maintenance-preload.ts', 'desktop/inspect-installation.ts'],
+  entry: ['desktop/main.ts', 'desktop/backend.ts', 'desktop/preload.ts', 'desktop/maintenance-preload.ts', 'desktop/inspect-installation.ts', 'desktop/connection-setup-entry.ts', 'desktop/companion-preload.ts'],
   outDir: 'dist/desktop',
   format: ['cjs'],
   outExtension: () => ({ js: '.cjs' }),

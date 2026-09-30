@@ -43,7 +43,7 @@ import { inTransaction, type AfterCommit } from '@/lib/effects/after-commit';
 import type { PendingInput } from '@/lib/runner/pending';
 import type { RunnerSignal } from '@/lib/runner/types';
 import type { WorkerEvent } from '@/lib/workers/protocol';
-import { mirrorSignal } from './remote-live';
+import { currentRemoteSignal, mirrorSignal } from './remote-live';
 import { settleTurn } from './turns';
 
 /**
@@ -75,15 +75,16 @@ export function applyRunnerSignal(
   chatSessionId: string,
   signal: RunnerSignal,
   after: AfterCommit,
-  from: { deviceId: string } | null = null,
+  from: { deviceId: string; eventPosition?: number } | null = null,
 ): void {
-  if (from) after.tasks.push(() => mirrorSignal(from.deviceId, chatSessionId, signal));
+  const current = !from || currentRemoteSignal(from.deviceId, from.eventPosition);
+  if (from) after.tasks.push(() => mirrorSignal(from.deviceId, chatSessionId, signal, from.eventPosition));
   switch (signal.type) {
     case 'running':
-      after.tasks.push(() => publishRuntime(chatSessionId, signal.running));
+      if (current) after.tasks.push(() => publishRuntime(chatSessionId, signal.running));
       return;
     case 'background_tasks':
-      after.tasks.push(() => publishBackgroundTaskActivity(chatSessionId, signal.active, signal.taskIds));
+      if (current) after.tasks.push(() => publishBackgroundTaskActivity(chatSessionId, signal.active, signal.taskIds));
       return;
     case 'inventory':
       // Read through the live-state facade when the slash-command list asks.
@@ -110,13 +111,13 @@ export function applyRunnerSignal(
       return;
     }
     case 'pending_input':
-      recordPendingRequest(chatSessionId, signal.pending, after);
+      recordPendingRequest(chatSessionId, signal.pending, after, current);
       return;
     case 'pending_resolved':
       recordPendingResponse(chatSessionId, signal.pending, signal.response);
       return;
     case 'pending_changed':
-      after.tasks.push(() => publishPendingInput(chatSessionId, signal.pending));
+      if (current) after.tasks.push(() => publishPendingInput(chatSessionId, signal.pending));
       return;
     case 'turn_result':
       if (signal.runId) finishRunInTransaction(signal.runId, turnOutcome(signal), after);
@@ -229,11 +230,11 @@ function applyWorkerEvent(deviceId: string, event: WorkerEvent, after: AfterComm
       after.tasks.push(() => settleTurn(signal.turnId, signal.ok ? null : signal.error ?? 'The turn failed'));
       return;
     }
-    applyRunnerSignal(event.chatSessionId, { ...signal, runId }, after, { deviceId });
+    applyRunnerSignal(event.chatSessionId, { ...signal, runId }, after, { deviceId, eventPosition: event.position });
     return;
   }
   if (historyOnly) return;
-  applyRunnerSignal(event.chatSessionId, signal, after, { deviceId });
+  applyRunnerSignal(event.chatSessionId, signal, after, { deviceId, eventPosition: event.position });
 }
 
 function turnOutcome(signal: Extract<RunnerSignal, { type: 'turn_result' }>) {
@@ -250,8 +251,9 @@ function turnOutcome(signal: Extract<RunnerSignal, { type: 'turn_result' }>) {
  * The rows' ids come from the request id, so a replayed or retried prompt
  * inserts once.
  */
-function recordPendingRequest(chatSessionId: string, pending: PendingInput, after: AfterCommit): void {
+function recordPendingRequest(chatSessionId: string, pending: PendingInput, after: AfterCommit, notify = true): void {
   insertChatEvent(buildPendingRequestEvent(chatSessionId, pending));
+  if (!notify) return;
   // Notifier: the agent is blocked on the human (§2.4).
   const queued = queueNeedsInput({
     sessionId: chatSessionId,

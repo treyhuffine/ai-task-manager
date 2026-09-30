@@ -8,6 +8,7 @@
  * home isn't active. It never falls back to anything local.
  */
 
+import { API_PROTOCOL, API_PROTOCOL_HEADER } from '@/lib/releases/api-contract';
 import os from 'node:os';
 import { APP_SHORT_ID } from '@/constants/app';
 import type { ConnectionConfig } from './config';
@@ -95,6 +96,7 @@ export async function homeFetch(
       ...rest,
       headers: {
         authorization: `Bearer ${connection.credential}`,
+        [API_PROTOCOL_HEADER]: String(API_PROTOCOL),
         'user-agent': userAgent(),
         ...(rest.body && !(headers as Record<string, string> | undefined)?.['content-type']
           ? { 'content-type': 'application/json' }

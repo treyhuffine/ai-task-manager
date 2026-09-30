@@ -29,6 +29,10 @@ import { ServiceControlCoordination } from '@/lib/service/control-coordination';
 import { consumeDesktopInitialization } from '@/lib/service/initialization';
 import { redactServiceLine, rotateServiceLog } from '@/lib/service/logging';
 import { ServiceAwake } from '@/lib/service/awake';
+import { ServiceWorker, validateWorkerRuntime } from '@/lib/service/worker';
+import { acquireWorkerLock } from '@/lib/worker/lock';
+import { assertWorkerStorage } from '@/lib/service/worker-checkpoint';
+import { workerUpdateCompatibility, runtimePeerRelease } from '@/lib/releases/runtime-identity';
 import { describeServiceRole, resolveServiceRole, servesHome } from '@/lib/service/role';
 
 const paths = servicePaths();
@@ -40,7 +44,7 @@ process.env.RI_RUNTIME_REPO = repo;
 process.env.RI_DESKTOP_CLIENT_SECRET = randomBytes(32).toString('base64url');
 process.env.RI_SERVICE_CONTROL_TOKEN = randomBytes(32).toString('base64url');
 const status: ServiceStatus = { protocol: 1, identity: paths.identity, runId: newRunId(), pid: process.pid,
-  phase: 'starting', version: JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version, repo, node };
+  phase: 'starting', release: runtimePeerRelease(repo), version: JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version, repo, node };
 let next: ChildProcess | undefined;
 let gateway: Http2GatewayHandle | undefined;
 let certificate = '';
@@ -52,18 +56,23 @@ let releaseOwner: (() => void) | undefined;
 let stopping: Promise<void> | undefined;
 let updater: UpdateCoordinator;
 const coordination = new ServiceControlCoordination(() => updater.status().busy);
-const updateTick = () => coordination.tick(() => updater.tick());
+const updateTick = () => roleChange ? Promise.resolve() : coordination.tick(() => updater.tick());
 const childRecord = path.join(paths.identity.work, 'service-child.json');
 const awake = new ServiceAwake();
+let worker: ServiceWorker | undefined;
+let role = resolveServiceRole();
+let roleChange: Promise<void> | undefined;
 
-async function backendRequest<T>(route: string, timeout = 3000): Promise<T> {
+async function backendRequest<T>(route: string, timeout = 3000, body?: unknown): Promise<T> {
   const response = await fetch(`http://127.0.0.1:${privatePort}${route}`, {
-    headers: { 'x-ri-service-control': process.env.RI_SERVICE_CONTROL_TOKEN! }, signal: AbortSignal.timeout(timeout),
+    method: body === undefined ? 'GET' : 'POST', body: body === undefined ? undefined : JSON.stringify(body),
+    headers: { 'x-ri-service-control': process.env.RI_SERVICE_CONTROL_TOKEN!, ...(body === undefined ? {} : { 'content-type': 'application/json' }) }, signal: AbortSignal.timeout(timeout),
   });
   if (!response.ok) throw new Error('Backend readiness is unavailable');
   return response.json() as Promise<T>;
 }
 async function stopBackend() {
+  await worker?.stop();
   if (!next) return;
   const child = next;
   expectedExit = true;
@@ -104,6 +113,7 @@ async function startBackend(target?: RuntimeTarget, validating?: string) {
         status.repo = repo;
         status.node = node;
         status.version = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version;
+        status.release = runtimePeerRelease(repo);
         return;
       }
     } catch { /* retry while Next initializes */ }
@@ -117,6 +127,7 @@ function publish() {
     mode: 'https', http2: true, publicBaseUrl: status.origin!, publicPort, privateUpstreams: { next: `http://127.0.0.1:${privatePort}` } });
 }
 async function activity() {
+  if (!servesHome(role)) return worker ? worker.activity() : [];
   if (!next?.pid) return ['Backend is unavailable'];
   const [state, children] = await Promise.all([
     backendRequest<{ executions: number; background: number; permissions: number }>('/__ri_activity'), ownedProcesses(next.pid),
@@ -127,8 +138,24 @@ async function activity() {
 
 const control = http.createServer(async (request, response) => {
   response.setHeader('content-type', 'application/json'); response.setHeader('cache-control', 'no-store');
-  const reply = (body: object, code = 200) => { response.statusCode = code; response.end(JSON.stringify({ ...status, ...body })); };
+  const reply = (body: object, code = 200) => { response.statusCode = code; response.end(JSON.stringify({ ...status, worker: worker?.status(), ...body })); };
   try {
+    if (request.method === 'POST' && request.url === '/role/refresh') {
+      if (updater.status().busy || coordination.handingOff || roleChange) throw new Error('Wait for the current service action before refreshing this device.');
+      if (['recovery-required', 'validating', 'checkpointing', 'draining'].includes(updater.status().phase)) throw new Error('Complete runtime recovery before changing this device connection.');
+      if (next || gateway) throw new Error('Stop the local Home before changing this device connection.');
+      roleChange = refreshRole();
+      try { await roleChange; } finally { roleChange = undefined; }
+      return reply({});
+    }
+    if (request.method === 'POST' && ['/worker/stop', '/worker/resume'].includes(request.url ?? '')) {
+      if (updater.status().busy || coordination.handingOff || roleChange) throw new Error('Wait for the current service action before changing local execution.');
+      if (!worker || role.role !== 'worker') throw new Error('This device does not run a connected worker.');
+      if (request.url === '/worker/resume' && status.phase !== 'running') throw new Error('Complete runtime recovery before resuming local execution.');
+      roleChange = request.url === '/worker/stop' ? worker.stop(true) : worker.resume();
+      try { await roleChange; } finally { roleChange = undefined; }
+      return reply({});
+    }
     if (request.method === 'GET' && request.url === '/status') return reply({ update: updater?.status(), awake: awake.status() });
     if (request.method === 'GET' && request.url === '/awake') return reply({ awake: awake.status() });
     if (request.method === 'PATCH' && request.url === '/awake') {
@@ -138,7 +165,7 @@ const control = http.createServer(async (request, response) => {
       if (status.phase !== 'running' || coordination.handingOff || updater.status().busy) throw new Error('Wait until the background service is running before changing keep-awake preferences.');
       return reply({ awake: await awake.configure(JSON.parse(Buffer.concat(chunks).toString())) });
     }
-    if (request.method === 'GET' && request.url === '/session' && status.phase === 'running') return reply({ certificate, token, desktopClient: process.env.RI_DESKTOP_CLIENT_SECRET });
+    if (request.method === 'GET' && request.url === '/session' && status.phase === 'running' && servesHome(role) && !!status.origin) return reply({ certificate, token, desktopClient: process.env.RI_DESKTOP_CLIENT_SECRET });
     if (request.method === 'GET' && request.url === '/update') return reply({ update: updater.status() });
     if (request.method === 'PATCH' && request.url === '/update/policy') {
       if (coordination.handingOff || updater.status().busy) throw new Error('Wait for the current service action before changing update preferences.');
@@ -148,6 +175,7 @@ const control = http.createServer(async (request, response) => {
       return reply({ policy: updateReleasePreferences(JSON.parse(Buffer.concat(chunks).toString())) });
     }
     if (request.method === 'POST' && request.url === '/update') {
+      if (roleChange || ['first-run', 'retired', 'conflict'].includes(role.role)) throw new Error('Complete device setup before updating this installation.');
       await coordination.dispatchUpdate(request, body => {
         if (body.action === 'check' || body.action === 'download') {
           const promise = body.action === 'check' ? updater.check() : updater.download();
@@ -169,6 +197,8 @@ const control = http.createServer(async (request, response) => {
       await coordination.handoff(async () => {
         let release: (() => void) | undefined;
         try {
+          if (roleChange) throw new Error('Wait for device setup to finish before installing login supervision.');
+          await worker?.prepareIdle();
           const reasons = await activity();
           if (reasons.length) throw new Error(`Finish or close active work before installing login supervision: ${reasons.join(', ')}`);
           writeMaintenance({ phase: 'draining', token: randomBytes(32).toString('hex'), startedAt: new Date().toISOString() });
@@ -180,12 +210,12 @@ const control = http.createServer(async (request, response) => {
           clearMaintenance();
           reply({ phase: 'stopping' });
           setImmediate(() => void shutdown());
-        } finally { clearMaintenance(); release?.(); }
+        } finally { clearMaintenance(); release?.(); if (!stopping) await worker?.resumeAdmission(); }
       });
       return;
     }
     if (request.method === 'POST' && request.url === '/stop') {
-      if (updater?.status().busy || coordination.handingOff) return reply({ error: 'A service action is in progress. Wait before stopping the service.' }, 409);
+      if (updater?.status().busy || coordination.handingOff || roleChange) return reply({ error: 'A service action is in progress. Wait before stopping the service.' }, 409);
       reply({ phase: 'stopping' }); void shutdown(); return;
     }
     reply({ error: 'Control action unavailable' }, 404);
@@ -198,6 +228,7 @@ async function shutdown(code = 0) {
   stopping = (async () => {
     status.phase = 'stopping';
     await awake.stop();
+    await worker?.dispose();
     await stopRuntimeJobs();
     await gateway?.close(1000).catch(() => {});
     await stopBackend();
@@ -213,19 +244,30 @@ async function start() {
   if (readLiveServerRuntime()) throw new Error('An existing launcher is using this data root. Stop it before enabling the service.');
   if (fs.existsSync(childRecord)) {
     const child = JSON.parse(fs.readFileSync(childRecord, 'utf8')) as { pid: number };
-    const deadline = Date.now() + 20_000;
+    const deadline = Date.now() + 50_000;
     while (isProcessAlive(child.pid) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 200));
     if (isProcessAlive(child.pid)) throw new Error('The previous backend process is still alive. Inspect it before restarting.');
   }
-  updater = new UpdateCoordinator({ activity, assertNoLegacyWriters,
+  updater = new UpdateCoordinator({ activity,
+    get storage() { return servesHome(role) ? 'home' as const : 'worker' as const; },
+    exclusiveStorage: async () => (await acquireWorkerLock()).release,
+    assertNoLegacyWriters: () => servesHome(role) ? assertNoLegacyWriters() : Promise.resolve(assertWorkerStorage()),
+    compatibility: async target => servesHome(role)
+      ? (await backendRequest<{ reasons: string[] }>('/__ri_compatibility', 30_000, { repo: target.repo })).reasons
+      : workerUpdateCompatibility(target.repo),
     verify: directory => runtimeJob(controllerRepo, 'verify', directory),
     download: (release, progress) => runtimeJob(controllerRepo, 'download', release, progress),
-    checkpoint: directory => runtimeJob(controllerRepo, 'checkpoint', directory),
-    restore: directory => runtimeJob(controllerRepo, 'restore', directory),
-    verifyDatabase: target => runtimeJob(target.repo, 'validate-database', paths.identity.database, undefined, target.node),
-    prepareIdle: async () => { await backendRequest('/__ri_prepare', 30_000); },
+    checkpoint: directory => runtimeJob(controllerRepo, servesHome(role) ? 'checkpoint' : 'worker-checkpoint', directory),
+    restore: directory => runtimeJob(controllerRepo, servesHome(role) ? 'restore' : 'worker-checkpoint-verify', directory),
+    verifyDatabase: target => servesHome(role) ? runtimeJob(target.repo, 'validate-database', paths.identity.database, undefined, target.node) : Promise.resolve(assertWorkerStorage()),
+    prepareIdle: async () => { if (servesHome(role)) await backendRequest('/__ri_prepare', 30_000); else await worker?.prepareIdle(); },
+    resumeAdmission: async () => { if (!stopping) await worker?.resumeAdmission(); },
     stop: async () => { status.phase = 'updating'; await stopBackend(); },
-    validate: (target, secret) => startBackend(target, secret),
+    validate: async (target, secret) => {
+      if (servesHome(role)) return startBackend(target, secret);
+      await validateWorkerRuntime(target);
+      repo = canonical(target.repo); node = target.node; process.env.RI_RUNTIME_REPO = repo;
+    },
     activate: async () => {
       // A new controller must load its own Node ABI and implementation before
       // the service accepts work. Validation boot has not started effects.
@@ -238,7 +280,10 @@ async function start() {
       relay.unref(); setImmediate(() => void shutdown());
     },
     restart: async target => {
-      try { await startBackend(target); publish(); }
+      try {
+        if (servesHome(role)) { await startBackend(target); publish(); }
+        else { repo = target.repo; node = target.node; process.env.RI_RUNTIME_REPO = repo; await refreshRole(true); }
+      }
       catch (error) { await stopBackend(); throw error; }
     },
     unavailable: error => { status.phase = 'failed'; status.error = error; },
@@ -252,15 +297,49 @@ async function start() {
   // Keep the private recovery/status surface alive without a crash loop.
   try { await updater.recover(); }
   catch (error) { status.phase = 'failed'; status.error = error instanceof Error ? error.message : 'Recovery required'; return; }
-  // What this device is for, before anything opens a database: a device
-  // connected to a home elsewhere, or whose home was retired, never starts
-  // one here. Its window goes to the home instead.
-  const role = resolveServiceRole();
-  status.role = role.role;
-  status.home = 'home' in role ? role.home : null;
-  if (!servesHome(role)) { status.phase = 'failed'; status.error = describeServiceRole(role) ?? 'This device does not run a home'; return; }
   const installed = installedRuntime();
   if (installed) { repo = installed.repo; node = installed.node; process.env.RI_RUNTIME_REPO = repo; process.env.NEXT_DIST_DIR = '.next-desktop'; process.chdir(repo); }
+  await refreshRole();
+  startTimers();
+}
+
+async function refreshRole(force = false) {
+  const selected = resolveServiceRole();
+  if (!force && worker && selected.role === 'worker' && worker.matchesEnrollment()) {
+    role = selected; status.role = selected.role; status.home = selected.home; return;
+  }
+  if (worker && !force) {
+    const reasons = await worker.activity();
+    if (reasons.length) throw new Error(`Stop local execution before changing this device: ${reasons.join(', ')}`);
+  }
+  status.phase = 'starting';
+  await awake.stop();
+  await worker?.dispose(); worker = undefined;
+  role = selected;
+  status.role = role.role; status.home = 'home' in role ? role.home : null;
+  status.error = undefined;
+  status.repo = repo; status.node = node;
+  status.version = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version;
+  status.release = runtimePeerRelease(repo);
+  if (!servesHome(role)) {
+    delete status.origin;
+    if (role.role === 'worker') {
+      worker = new ServiceWorker({ repo, node, onChild: pid => {
+        if (pid) atomicWriteFile(childRecord, JSON.stringify({ pid, runId: status.runId, role: 'worker' }));
+        else fs.rmSync(childRecord, { force: true });
+      } });
+      await worker.start();
+    }
+    if (role.role === 'retired' || role.role === 'conflict') { status.phase = 'failed'; status.error = describeServiceRole(role) ?? 'Resolve the device role before starting.'; }
+    else status.phase = 'running';
+    if (role.role === 'worker') await awake.start();
+    return;
+  }
+  await startHome();
+  role = resolveServiceRole(); status.role = role.role;
+}
+
+async function startHome() {
   let saved: { version: number; port: number; privatePort?: number };
   if (fs.existsSync(paths.settings)) saved = JSON.parse(fs.readFileSync(paths.settings, 'utf8'));
   else saved = { version: 1, port: await getPort({ host: '127.0.0.1', port: 42242 }) };
@@ -285,8 +364,11 @@ async function start() {
   if (!probe.ok) throw new Error(`HTTP/2 readiness failed: ${probe.detail ?? probe.status}`);
   publish(); console.info(`[service] Ready at ${status.origin}`);
   await awake.start();
+}
+
+function startTimers() {
   const renewal = setInterval(() => {
-    if (updater.status().busy || coordination.handingOff) return;
+    if (!servesHome(role) || updater.status().busy || coordination.handingOff) return;
     void ensureGeneratedTls().then(tls => {
       if (tls.cert !== certificate) { gateway?.rotate(tls); certificate = tls.cert; }
     }).catch(() => console.warn('[service] Certificate renewal failed. Check disk permissions and TLS diagnostics.'));
@@ -301,7 +383,7 @@ async function start() {
   // Checking/downloading never approves activation. Metered mode suppresses
   // automatic downloads, while an explicit Download remains available.
   const check = async () => {
-    const policy = releasePolicy(); if (!policy || updater.status().busy || coordination.handingOff) return;
+    const policy = releasePolicy(); if (!policy || updater.status().busy || coordination.handingOff || roleChange || ['first-run', 'retired', 'conflict'].includes(role.role)) return;
     try {
       await updater.check();
       if (!coordination.handingOff && policy.automaticDownload && !policy.metered && updater.status().phase === 'available') await updater.download();

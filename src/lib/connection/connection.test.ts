@@ -45,6 +45,32 @@ describe('connection record', () => {
     expect(() => readConnection()).toThrow(ConnectionConfigError);
   });
 
+  it('reads a versionless legacy record without rewriting or losing its device association', () => {
+    const file = path.join(configDir, 'connection.json');
+    const bytes = JSON.stringify({ ...base, computerId: 'legacy-device' }, null, 2);
+    fs.writeFileSync(file, bytes);
+    expect(readConnection()).toMatchObject({ version: 1, deviceId: 'legacy-device', homeUrl: 'https://ri-trey.beamd.run' });
+    expect(fs.readFileSync(file, 'utf8')).toBe(bytes);
+    writeConnection({ ...readConnection()!, homeName: 'Renamed' });
+    expect(readConnection()).toMatchObject({ version: 1, deviceId: 'legacy-device', homeName: 'Renamed' });
+  });
+
+  it.each([2, 0, null, '1'])('preserves unsupported version %s on both read and direct reconnect writes', version => {
+    const file = path.join(configDir, 'connection.json');
+    const bytes = JSON.stringify({ ...base, version, future: { credentialReference: 'preserve-me' } }, null, 2);
+    fs.writeFileSync(file, bytes);
+    expect(() => readConnection()).toThrow(/connection format/);
+    expect(() => writeConnection({ ...base, homeUrl: 'invalid url to normalize' })).toThrow(/connection format/);
+    expect(fs.readFileSync(file, 'utf8')).toBe(bytes);
+    expect(fs.readdirSync(configDir)).toEqual(['connection.json']);
+  });
+
+  it('refuses a caller-supplied future version before creating a saved connection', () => {
+    const future = { ...base, version: 2 };
+    expect(() => writeConnection(future)).toThrow(/connection format/);
+    expect(fs.readdirSync(configDir)).toEqual([]);
+  });
+
   it('keeps http for a local address and drops paths', () => {
     expect(normalizeHomeUrl('http://127.0.0.1:42251/some/path')).toBe('http://127.0.0.1:42251');
     expect(normalizeHomeUrl('https://ri.example.com')).toBe('https://ri.example.com');

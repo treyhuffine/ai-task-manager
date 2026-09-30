@@ -17,6 +17,7 @@
  * the same tick as the writes (P2.7 to P2.9 review fixes and re-check).
  */
 
+import { recordWorkerCompatibility, WorkerJournalReportSchema } from '@/lib/workers/update-compatibility';
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { chatPlacement, getOpenPlacement, recordWorkerHeartbeat, transferReservation } from '@/lib/db/queries';
@@ -38,6 +39,7 @@ const body = z.object({
   version: z.string().max(80),
   harnesses: z.array(harness).max(20),
   state: z.enum(['awake', 'asleep', 'stopped']),
+  journal: WorkerJournalReportSchema.optional(),
   live: z
     .object({
       running: z.array(z.string()).max(1000),
@@ -85,12 +87,14 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return Response.json({ error: 'invalid_params', message: parsed.error.issues[0]?.message }, { status: 400 });
   }
-  const { live, placements, ...report } = parsed.data;
+  const { live, placements, journal, ...report } = parsed.data;
+  if (report.protocol !== worker.agreement.protocol) return Response.json({ error: 'worker_protocol', message: 'Heartbeat differs from the authenticated negotiated protocol.' }, { status: 426 });
   const device = recordWorkerHeartbeat(worker.device.id, report);
   if (!device) return Response.json({ error: 'unauthorized' }, { status: 401 });
+  recordWorkerCompatibility(device.id, worker.apiKeyId, worker.peer, journal, report.state === 'stopped', report.protocol);
   // Awake, asleep or stopping: what its work says about it changes (P3.2).
   if (worker.device.reportedState !== report.state) publishDeviceUpdated(device.id);
-  if (live) replaceDeviceMirror(device.id, ownLive(device.id, live));
+  if (live) replaceDeviceMirror(device.id, ownLive(device.id, live), journal?.lastEvent);
   // A worker that's stopping closes its sessions, and their prompts with
   // them. One that just goes quiet keeps its mirror: unknown is not stopped.
   else if (report.state === 'stopped') clearDeviceMirror(device.id);

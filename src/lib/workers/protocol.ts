@@ -5,6 +5,7 @@
  */
 
 import { APP_SHORT_ID } from '@/constants/app';
+import type { PeerRelease } from '@/lib/releases/compatibility';
 import type {
   CreateChatEventInput,
   WorkerCommandActor,
@@ -43,6 +44,7 @@ export const HOME_ADDRESS_SCHEME = 'ri-home:';
  */
 export const WORKER_PROTOCOL = 4;
 export const WORKER_PROTOCOL_HEADER = `x-${APP_SHORT_ID}-worker-protocol`;
+export const WORKER_COMPATIBILITY_HEADER = `x-${APP_SHORT_ID}-worker-compatibility`;
 
 export const WORKER_HEARTBEAT_MS = 20_000;
 export const WORKER_STREAM_PING_MS = 15_000;
@@ -266,7 +268,7 @@ export type WorkerEvent = {
 );
 
 export type WorkerStreamEvent =
-  | { type: 'hello'; homeId: string; deviceId: string; protocol: number; ackedEventSeq: number }
+  | { type: 'hello'; homeId: string; deviceId: string; protocol: number; ackedEventSeq: number; peer?: PeerRelease; capabilities?: string[] }
   | { type: 'command'; command: WorkerCommand }
   | { type: 'request'; id: string; kind: WorkerRequestKind; payload: unknown }
   | { type: 'revoked'; message: string }
@@ -296,6 +298,7 @@ export interface WorkerHeartbeat {
   /** Live state and held placements. Absent from a worker that runs nothing yet. */
   live?: WorkerLive;
   placements?: WorkerPlacementReport[];
+  journal?: { pendingEvents: number; pendingCommands: number; openTurns: number; lastEvent: number };
 }
 
 /** The home's answer to a heartbeat: placements this device no longer holds, whose sessions it stops. */
@@ -310,6 +313,7 @@ export type WorkerRequestResult =
   | { ok: false; error: string; unsupported?: boolean };
 
 /** What a home says to a worker on another protocol. */
-export function protocolMismatchMessage(deviceName: string): string {
-  return `Update Ri on ${deviceName}. It speaks a different version of the home and worker protocol than this home.`;
+export function protocolMismatchMessage(deviceName: string, peerProtocol = 0): string {
+  const side = peerProtocol > WORKER_PROTOCOL ? 'your Home' : deviceName;
+  return `Update Ri on ${side}. These releases do not share a supported worker protocol. Existing work and enrollment are retained.`;
 }

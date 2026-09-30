@@ -5,6 +5,16 @@ on:
     paths:
       - 'desktop/**'
       - 'src/lib/service/**'
+      - 'src/lib/releases/**'
+      - 'src/lib/worker/**'
+      - 'src/lib/executor/**'
+      - 'src/hooks/use-document*'
+      - 'src/lib/workers/**'
+      - 'src/lib/connection/**'
+      - 'src/app/api/workers/**'
+      - 'src/app/api/devices/**'
+      - 'src/app/api/version/**'
+      - 'src/proxy*'
       - 'src/lib/stt/**'
       - 'src/lib/client/**'
       - 'src/lib/connectors/**'
@@ -31,6 +41,7 @@ on:
       - 'scripts/smoke-phone-web-app.ts'
       - 'packages/connectors/**'
       - 'next.config.ts'
+      - 'tsup.config.ts'
       - '.github/workflows/desktop.yml'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -136,6 +147,19 @@ jobs:
       - name: Exercise Linux recovery in a virtual display
         if: runner.os == 'Linux'
         run: xvfb-run --auto-servernum pnpm exec tsx desktop/recovery-smoke.ts
+      - name: Exercise Home selection and connected-device companion lifecycle
+        timeout-minutes: 15
+        env:
+          TMPDIR: ${{ runner.temp }}/ri-acceptance
+        run: |
+          mkdir -p "$TMPDIR"
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run --auto-servernum pnpm desktop:companion-smoke
+            xvfb-run --auto-servernum pnpm desktop:version-smoke
+          else
+            pnpm desktop:companion-smoke
+            pnpm desktop:version-smoke
+          fi
       - name: Exercise packaged shortcuts, editor navigation and downloads
         timeout-minutes: 15
         env:
@@ -221,6 +245,11 @@ jobs:
           # fixture homes. Failed cleanup must not publish helper binaries.
           path: |
             release/qualification/*.json
+            ${{ runner.temp }}/ri-acceptance/ri-version-smoke-*/report.json
+            ${{ runner.temp }}/ri-acceptance/ri-version-smoke-*/*.png
+            ${{ runner.temp }}/ri-acceptance/ri-companion-home-*/companion-report.json
+            ${{ runner.temp }}/ri-acceptance/ri-companion-home-*/*.png
+            ${{ runner.temp }}/ri-acceptance/ri-companion-worker-*/*.png
             ${{ runner.temp }}/ri-acceptance/ri-interaction-smoke-*/report.json
             ${{ runner.temp }}/ri-acceptance/ri-interaction-smoke-*/*.png
             ${{ runner.temp }}/ri-acceptance/ri-oauth-smoke-*/report.json

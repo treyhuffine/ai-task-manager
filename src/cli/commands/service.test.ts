@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { APP_ROOT_ENV, getAppRoot, getDevAppRoot } from '@/lib/config/paths';
 const mocks = vi.hoisted(() => ({ ensure: vi.fn(), installed: vi.fn(), status: vi.fn(), request: vi.fn(), awake: vi.fn() }));
-vi.mock('@/lib/service/client', () => ({ ensureService: mocks.ensure, serviceStatus: mocks.status, serviceRequest: mocks.request, stopService: vi.fn() }));
+vi.mock('@/lib/service/client', () => ({ ensureServiceStatus: mocks.ensure, serviceStatus: mocks.status, serviceRequest: mocks.request, stopService: vi.fn() }));
 vi.mock('@/lib/service/awake', () => ({ readAwakePreferences: mocks.awake }));
 vi.mock('@/lib/service/runtime', () => ({ installedRuntime: mocks.installed, createRuntimeManifest: vi.fn(), stageRuntime: vi.fn(), verifyRuntime: vi.fn() }));
 import { registerServiceCommand } from './service';
@@ -63,4 +63,11 @@ it('shows the retained preference while stopped and requires explicit service st
   await expect(run('awake', 'wat')).rejects.toThrow('Choose on, off, or status');
   expect(mocks.request).not.toHaveBeenCalled();
   expect(mocks.ensure).not.toHaveBeenCalled();
+});
+
+it('refreshes an existing connected controller after CLI enrollment without starting another Home', async () => {
+  mocks.status.mockResolvedValue({ phase: 'running', role: 'viewer' });
+  await run('start');
+  expect(mocks.request).toHaveBeenCalledWith('/role/refresh', 'POST', 200_000);
+  expect(mocks.ensure).toHaveBeenCalledOnce();
 });

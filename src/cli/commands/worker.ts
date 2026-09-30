@@ -21,6 +21,7 @@ import type { Command } from 'commander';
 import { APP_SHORT_ID } from '@/constants/app';
 import { readConnection, rememberDeviceId, writeConnection, type ConnectionConfig } from '@/lib/connection/config';
 import { homeFetch, HomeRequestError } from '@/lib/connection/home-client';
+import { runtimeReleaseIdentity, runtimePeerRelease } from '@/lib/releases/runtime-identity';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 import { readWorkerConfig, removeWorkerConfig, writeWorkerConfig, type WorkerConfig } from '@/lib/worker/config';
 import { workerFetch, WorkerNetworkError, WorkerStoppedError, type WorkerTarget } from '@/lib/worker/client';
@@ -29,7 +30,7 @@ import { openBrowser } from '../lib/browser';
 import { dispatchAction } from '../lib/dispatch';
 
 function workerVersion(): string {
-  return process.env.npm_package_version ?? 'dev';
+  return runtimeReleaseIdentity().version;
 }
 
 function fail(message: string): void {
@@ -113,6 +114,7 @@ async function enroll(opts: { code?: string; yes?: boolean }): Promise<void> {
         hostname: os.hostname(),
         protocol: WORKER_PROTOCOL,
         version: workerVersion(),
+        compatibility: runtimePeerRelease(),
       }),
     });
     const body = (await res.json().catch(() => null)) as {
@@ -156,7 +158,7 @@ async function run(): Promise<void> {
   const found = enrolledTarget();
   if (typeof found === 'string') return fail(found);
   const { target } = found;
-  const { runWorker } = await import('@/lib/worker/run');
+  const { runWorker, finishWorker } = await import('@/lib/worker/run');
   const controller = new AbortController();
   const onSignal = () => controller.abort();
   // `on`, not `once`: tsx exits the process on a signal when no other
@@ -171,26 +173,28 @@ async function run(): Promise<void> {
   const { closeIdleSessions } = await import('@/lib/runner/local-runner');
   // Sessions idle for 30 minutes close here as they do at home (P2.1).
   const sweep = setInterval(() => void closeIdleSessions().catch(() => {}), 60_000);
-  const exit = await runWorker({
+  let unclosed: string[] = [];
+  let exit: Awaited<ReturnType<typeof runWorker>>;
+  try { exit = await runWorker({
     target,
     version: workerVersion(),
     signal: controller.signal,
     // This device's runner reports to the worker's journal.
     onSink: installRunnerSink,
+    // Keep exclusive journal ownership until this worker's harnesses close.
+    beforeUnlock: async outcome => { unclosed = await finishWorker(target, workerVersion(), outcome ?? { reason: 'protocol', message: 'Worker failed' }); },
     handlers: (journal, extras) => executionHandlers({ journal, ...extras }),
     requests: (journal) => executionRequests({ journal, homeId: target.homeId }),
     onStatus: (status) => {
       const at = new Date().toLocaleTimeString();
       if (status.state === 'connected') console.log(`${pc.dim(at)} ${pc.green('connected')}`);
-      else if (status.state === 'disconnected') {
+      else if (status.state === 'update-required') {
+        console.log(`${pc.dim(at)} ${pc.yellow('update required')}: ${status.error} Checking again in ${Math.round(status.retryInMs / 1000)}s.`);
+      } else if (status.state === 'disconnected') {
         console.log(`${pc.dim(at)} ${pc.yellow('disconnected')}: ${status.error} Retrying in ${Math.round(status.retryInMs / 1000)}s.`);
       }
     },
-  });
-  clearInterval(sweep);
-  // Stopping the worker stops what it runs here, and tells the home.
-  const { finishWorker } = await import('@/lib/worker/run');
-  const unclosed = await finishWorker(target, workerVersion(), exit);
+  }); } finally { clearInterval(sweep); }
   if (unclosed.length > 0) console.log(pc.yellow(`${unclosed.length} session(s) didn't close. Check for leftover harness processes.`));
   process.off('SIGINT', onSignal);
   process.off('SIGTERM', onSignal);

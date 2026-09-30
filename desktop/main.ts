@@ -14,10 +14,11 @@ import { installTerminalCommand, removeTerminalCommand, type CliInstallation } f
 import { updateDesktop } from './shell-update';
 import { parseDeepLink, resultLocation, watchOAuthResults } from './oauth-client';
 import { servicePaths } from '../src/lib/service/paths';
-import { serviceRequest, serviceStatus } from '../src/lib/service/client';
+import { serviceRequest, serviceStatus, type ServiceStatus } from '../src/lib/service/client';
 import { redactServiceLine } from '../src/lib/service/logging';
 import { assertExistingInstallation, installationEnvironment, localInstallation, readInstallation, saveInstallation, type InstallationInspection } from './installation';
 import { maintenanceWindow } from './maintenance-window';
+import { RemoteNotificationPermission } from './notification-permission';
 import { DesktopNotifications } from './notifications';
 import { backgroundWindow, revealWindow } from './window-visibility';
 import { createDesktopTray, desktopMenuCommands, activityMenuItems, updateDesktopTray } from './tray';
@@ -27,6 +28,13 @@ import { createDesktopLogin } from './login';
 import { desktopSettingsAction } from './settings';
 import { DesktopActivity } from './activity';
 import { desktopActivityPath, type DesktopActivitySnapshot } from '../src/lib/sessions/desktop-activity-contract';
+import { companionWindow } from './companion-window';
+import { setupRequest } from './setup-client';
+import type { ConnectionSetupStatus, ConnectionSetupRequest } from './connection-setup';
+import { hasLoginSupervision } from '../src/lib/service/supervision-state';
+import { localDeviceMenu } from './local-device-menu';
+import { isLocalViewer, isViewerReload, trustedViewerFrame, viewerPermission } from './viewer-trust';
+import { ViewerTransitions } from './viewer-transitions';
 import type { DesktopNotificationAction } from '../src/lib/notifications/desktop-contract';
 
 const repo = app.isPackaged ? path.join(process.resourcesPath, 'server') : process.env.RI_DESKTOP_REPO || path.resolve(__dirname, '../..');
@@ -93,6 +101,9 @@ let exitCode = 0;
 let startupTimer: ReturnType<typeof setTimeout> | undefined;
 let appOrigin: string | undefined;
 let appToken: string | undefined;
+let localViewer = false;
+const viewerTransitions = new ViewerTransitions<BackendReady>();
+let localService: ServiceStatus | undefined;
 let installedRuntime: BackendReady['runtime'];
 let preparingClose = false;
 let closeGuard: { nonce: string; resolve: (ok: boolean) => void } | undefined;
@@ -102,6 +113,7 @@ let backgroundPending = false;
 let visibilityRevision = 0;
 let oauthAbort = new AbortController();
 let notifications: DesktopNotifications | undefined;
+let notificationPermission: RemoteNotificationPermission | undefined;
 let notificationAbort = new AbortController();
 let navigating = false;
 let tray: ReturnType<typeof createDesktopTray>;
@@ -141,7 +153,7 @@ function updateActivity(snapshot: DesktopActivitySnapshot) {
   const presentation = JSON.stringify({ connection: snapshot.connection, activity: snapshot.activity });
   if (presentation === activityPresentation) return;
   activityPresentation = presentation;
-  if (tray && !tray.isDestroyed() && menuActions) updateDesktopTray(tray, menuActions, snapshot, openActivity);
+  if (tray && !tray.isDestroyed() && menuActions) updateDesktopTray(tray, menuActions, snapshot, openActivity, localDeviceMenu(localService, action => void localWorkerCommand(action).catch(error => dialog.showErrorBox('Local execution', error.message))));
   // Electron makes MenuItem.submenu read-only. Rebuild from the template only
   // when visible activity changes, keeping ordinary polls from replacing menus.
   refreshApplicationMenu?.();
@@ -194,6 +206,9 @@ async function checkDesktopUpdate() {
 }
 
 async function handleDeepLink(raw: string) {
+  // Native OAuth completes only for our pinned local Home. Remote Home
+  // authorization uses its ordinary web callback and never our native channel.
+  if (appOrigin && !localViewer) return;
   const params = parseDeepLink(raw);
   if (!params) return;
   if (!appOrigin || !window) { if (pendingLinks.length < 8) pendingLinks.push(raw); return; }
@@ -302,6 +317,100 @@ const maintenance = maintenanceWindow({
   default: () => switchInstallation(),
 });
 
+function connectionRequest<T>(request: ConnectionSetupRequest) {
+  return setupRequest<T>(process.env.RI_DESKTOP_NODE!, repo, { ...env, RI_DESKTOP_SETUP_DEVELOPMENT: !app.isPackaged && mode === 'development' ? '1' : '' }, request);
+}
+
+async function runLocalServiceCommand(action: 'install' | 'uninstall') {
+  const options = cliInstallation();
+  if (!options.launcher) throw new Error('Start at login requires the packaged app and a staged runtime.');
+  await new Promise<void>((resolve, reject) => execFile(options.launcher!, ['cli', 'service', action], { env, timeout: 240_000, maxBuffer: 128 * 1024 },
+    error => error ? reject(new Error('Could not change login startup. Check this device’s service log and retry.')) : resolve()));
+}
+
+async function refreshRole() {
+  const status = await serviceStatus();
+  if (status) await serviceRequest('/role/refresh', 'POST', 200_000);
+  await detachConnection();
+  startConnection();
+}
+
+async function localWorkerCommand(action: 'stop' | 'resume') {
+  if (action === 'stop') {
+    const choice = await dialog.showMessageBox({ type: 'question', message: 'Stop execution on this device?',
+      detail: 'Local agent sessions stop. Your Home and work on other devices keep running. Local execution stays stopped until you resume it.',
+      buttons: ['Keep running', 'Stop local execution'], defaultId: 0, cancelId: 0 });
+    if (choice.response !== 1) return;
+  }
+  await serviceRequest('/worker/' + action, 'POST', 60_000);
+}
+
+function changeDesktopPreferences(raw: unknown) {
+  if (quitting || preparingClose || updatingShell) throw new Error('Ri is restarting. Try again after it reconnects.');
+  const action = desktopSettingsAction(raw);
+  if (!captureShortcut) throw new Error('Desktop settings are still loading.');
+  if (action.type === 'shortcut') captureShortcut.configure(action);
+  const login = action.type === 'login' ? desktopLogin.setEnabled(action.enabled) : desktopLogin.status();
+  return { shortcut: captureShortcut.status(), login };
+}
+
+const companion = companionWindow(async (action, value) => {
+  if (action === 'status') {
+    const setup = await connectionRequest<ConnectionSetupStatus>({ action: 'inspect' });
+    const service = await serviceStatus();
+    const update = service ? await serviceRequest<{ update: unknown }>('/update').catch(() => null) : null;
+    return { ...setup, desktop: app.getVersion(), service, worker: service?.worker, update: update?.update, connectionError: selectionError,
+      login: { enabled: hasLoginSupervision() }, preferences: captureShortcut ? { shortcut: captureShortcut.status(), login: desktopLogin.status() } : null,
+      notifications: notifications ? await notifications.action('status').catch(() => ({ supported: Notification.isSupported(), enabled: notificationPermission?.enabled() ?? false, error: 'Waiting for your Home to reconnect.' })) : null };
+  }
+  if (action === 'preferences') return changeDesktopPreferences(value);
+  if (action === 'create-home') {
+    await connectionRequest({ action: 'create-home' });
+    await refreshRole();
+    return {};
+  }
+  if (action === 'connect') {
+    if (!value || typeof value !== 'object' || typeof (value as { pairingLink?: unknown }).pairingLink !== 'string' || typeof (value as { runWork?: unknown }).runWork !== 'boolean') throw new Error('Enter a pairing link and choose whether to run work here.');
+    const input = value as { pairingLink: string; runWork: boolean };
+    await connectionRequest({ action: 'connect', pairingLink: input.pairingLink });
+    // If enrollment fails, the valid connection remains and Enable local
+    // execution is a retry, never an implicit new Home or duplicate device.
+    if (input.runWork) await connectionRequest({ action: 'enable-worker', consent: true });
+    await refreshRole();
+    return {};
+  }
+  if (action === 'enable-worker') {
+    const choice = await dialog.showMessageBox({ type: 'question', message: 'Run agents on this device?',
+      detail: 'Your Home will be able to run work in the agent folders you set up here, using this device’s tools and harness sign-ins.',
+      buttons: ['Cancel', 'Enable local execution'], defaultId: 0, cancelId: 0 });
+    if (choice.response === 1) { await connectionRequest({ action: 'enable-worker', consent: true }); await refreshRole(); }
+    return {};
+  }
+  if (action === 'stop-worker' || action === 'resume-worker') { await localWorkerCommand(action === 'stop-worker' ? 'stop' : 'resume'); return {}; }
+  if (action === 'login') {
+    if (!value || typeof value !== 'object' || typeof (value as { enabled?: unknown }).enabled !== 'boolean') throw new Error('Choose whether to start at login.');
+    await runLocalServiceCommand((value as { enabled: boolean }).enabled ? 'install' : 'uninstall');
+    return {};
+  }
+  if (action === 'open') { if (viewerTransitions.pending) { await openApp(viewerTransitions.pending); return {}; } if (selectionError) { await retryConnection(); return {}; } if (appOrigin) { companion.close(); showWindow(); } else await retryConnection(); return {}; }
+  if (action === 'notification-enable' || action === 'notification-disable' || action === 'notification-test') {
+    if (!notifications) throw new Error('Open your Home before configuring notifications.');
+    const kind = action.slice(13) as 'enable' | 'disable' | 'test';
+    if (kind !== 'test') notificationPermission?.set(kind === 'enable');
+    try { return await notifications.action(kind); }
+    catch (error) { if (kind === 'enable') notificationPermission?.set(false); throw error; }
+  }
+  if (action === 'recovery') { await maintenance.show(); return {}; }
+  if (action === 'updates') return serviceRequest('/update');
+  if (action.startsWith('update-')) {
+    const guarded = action === 'update-apply' && localViewer;
+    if (guarded && !(await prepareClose())) return {};
+    try { return await serviceRequest('/update', 'POST', 30_000, { action: action === 'update-apply' ? 'when-idle' : action.slice(7) }); }
+    finally { if (guarded && !quitting && window && !window.isDestroyed()) window.webContents.send('desktop:resume'); }
+  }
+  throw new Error('Unknown companion action.');
+});
+
 async function manageTerminalCommand(remove = false) {
   const record = path.join(profile, 'terminal-command.json');
   try {
@@ -396,6 +505,7 @@ async function quit(skipGuard = false) {
   }
   finished = true;
   maintenance.close();
+  companion.close();
   // Keep the native window alive until the helper exits. On macOS, destroying
   // the last window during app.quit can suspend delivery of child exit events.
   window?.destroy();
@@ -410,7 +520,8 @@ function fail(message: string) {
   selectionError = message;
   updateActivity({ connection: 'disconnected' });
   if (process.env.RI_DESKTOP_SMOKE && !process.env.RI_DESKTOP_RECOVERY_SMOKE) { exitCode = 1; void quit(true); return; }
-  void maintenance.show();
+  if (localService?.role === 'worker' || localService?.role === 'viewer') void companion.show();
+  else void maintenance.show();
 }
 
 async function navigateSafely(url: string) {
@@ -433,17 +544,19 @@ async function loadPreparedPage(url: string) {
   finally { if (!contents.isDestroyed()) contents.removeListener('will-prevent-unload', approved); }
 }
 
-async function openApp(ready: BackendReady) {
-  const reconnecting = appOrigin === ready.origin;
-  if (appOrigin && !reconnecting && !(await prepareClose())) return;
-  if (quitting || preparingClose || !window || window.isDestroyed()) return;
-  oauthAbort.abort(); oauthAbort = new AbortController();
-  notifications?.stop(); notificationAbort.abort(); notificationAbort = new AbortController();
-  activity?.stop();
-  installedRuntime = ready.runtime;
-  selectionError = undefined;
-  appToken = ready.token;
-  clearTimeout(startupTimer);
+function configureViewerSession(ready: BackendReady | undefined) {
+  if (!window || window.isDestroyed()) return;
+  if (!ready) {
+    const ses = window.webContents.session;
+    ses.webRequest.onBeforeSendHeaders(null);
+    ses.setCertificateVerifyProc((_request, callback) => callback(-3));
+    ses.setPermissionCheckHandler(() => false);
+    ses.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    window.webContents.removeAllListeners('will-navigate');
+    window.webContents.on('will-navigate', event => event.preventDefault());
+    return;
+  }
   const ses = window!.webContents.session;
   ses.webRequest.onBeforeSendHeaders((details, callback) => {
     const headers = desktopRequestHeaders({ headers: details.requestHeaders, url: details.url,
@@ -454,15 +567,17 @@ async function openApp(ready: BackendReady) {
     callback({ requestHeaders: headers });
   });
   ses.setCertificateVerifyProc((request, callback) => {
-    callback(certificateDecision(request.hostname, request.certificate.data, ready));
+    callback(isLocalViewer(ready) ? certificateDecision(request.hostname, request.certificate.data, ready) : -3);
   });
-  // Both hooks are needed. Frame URL validation prevents an embedded preview
-  // from inheriting the main app's microphone or clipboard permission.
-  const allowed = new Set(['media', 'notifications', 'clipboard-sanitized-write', 'fullscreen']);
-  ses.setPermissionCheckHandler((_contents, permission, origin, details) =>
-    allowed.has(permission) && sameOrigin(details?.requestingUrl || origin, ready.origin));
-  ses.setPermissionRequestHandler((_contents, permission, callback, details) => {
-    callback(allowed.has(permission) && sameOrigin(details.requestingUrl, ready.origin));
+  // Both hooks enforce actual main-frame ownership. OS notifications only
+  // use the separate native pipeline and its trusted local permission.
+  ses.setPermissionCheckHandler((contents, permission, _origin, details) => viewerPermission({
+    permission, senderId: contents?.id, windowId: window?.webContents.id,
+    isMainFrame: details.isMainFrame, requestingUrl: details.requestingUrl, origin: ready.origin,
+  }));
+  ses.setPermissionRequestHandler((contents, permission, callback, details) => {
+    callback(viewerPermission({ permission, senderId: contents.id, windowId: window?.webContents.id,
+      isMainFrame: details.isMainFrame, requestingUrl: details.requestingUrl, origin: ready.origin }));
   });
   const openExternal = (url: string) => {
     const safe = externalWebUrl(url);
@@ -475,16 +590,70 @@ async function openApp(ready: BackendReady) {
   });
   window!.webContents.removeAllListeners('will-navigate');
   window!.webContents.on('will-navigate', (event, url) => {
+    if (isViewerReload(url, window!.webContents.getURL(), ready.origin)) return;
     event.preventDefault();
     if (sameOrigin(url, ready.origin)) void navigateSafely(url);
     else openExternal(url);
   });
-  // Establish the existing cookie before the first page mounts SSE/images.
-  const response = await ses.fetch(`${ready.origin}/api/session`, { method: 'POST', headers: { authorization: `Bearer ${ready.token}` } });
-  if (!response.ok) throw new Error('The local app rejected its desktop session.');
-  await response.text();
-  if (quitting || preparingClose || window.isDestroyed()) return;
-  appOrigin = ready.origin;
+}
+
+function publishViewerIdentity(ready: BackendReady | undefined) {
+  appOrigin = ready?.origin;
+  appToken = ready?.token;
+  localViewer = !!ready && isLocalViewer(ready);
+  installedRuntime = ready?.runtime;
+}
+
+async function openApp(ready: BackendReady) {
+  await viewerTransitions.run(ready, {
+    prepare: async previous => {
+      if (quitting || preparingClose || !window || window.isDestroyed()) return false;
+      if (previous && (previous.origin !== ready.origin || previous.token !== ready.token) && !(await prepareClose())) {
+        selectionError = 'Your connection is ready. Finish saving, then choose Open Ri to use the new sign-in.';
+        void companion.show(); return false;
+      }
+      return !quitting && !preparingClose && !!window && !window.isDestroyed();
+    },
+    stage: async () => {
+      configureViewerSession(ready);
+      // The existing renderer and its monitors stay alive until the candidate
+      // session has been accepted. A failed sign-in never strands a frozen view.
+      const response = await window!.webContents.session.fetch(`${ready.origin}/api/session`, {
+        method: 'POST', headers: { authorization: `Bearer ${ready.token}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) throw new Error('Your Home rejected this sign-in. Connect this device again.');
+      await response.text();
+    },
+    open: async previous => {
+      if (quitting || preparingClose || !window || window.isDestroyed()) throw new Error('Ri stopped opening this connection.');
+      const reconnecting = previous?.origin === ready.origin;
+      const reload = !reconnecting || previous?.token !== ready.token;
+      const oldUrl = reconnecting ? new URL(window.webContents.getURL()) : null;
+      // Preload must see the candidate's privilege level on the new document.
+      // A failed navigation restores the last accepted identity below.
+      publishViewerIdentity(ready);
+      if (reload) await loadPreparedPage(`${ready.origin}${oldUrl ? oldUrl.pathname + oldUrl.search : '/'}#${PAIRING_TOKEN_FRAGMENT_KEY}=${encodeURIComponent(ready.token)}`);
+    },
+    rollback: previous => {
+      publishViewerIdentity(previous);
+      configureViewerSession(previous);
+      if (window && !window.isDestroyed()) window.webContents.send('desktop:resume');
+    },
+    commit: () => {
+      selectionError = undefined;
+      clearTimeout(startupTimer);
+      activateViewerMonitors(ready);
+    },
+  });
+}
+
+function activateViewerMonitors(ready: BackendReady) {
+  if (quitting || preparingClose || !window || window.isDestroyed()) return;
+  oauthAbort.abort(); oauthAbort = new AbortController();
+  notifications?.stop(); notificationAbort.abort(); notificationAbort = new AbortController();
+  activity?.stop();
+  const ses = window.webContents.session;
   if (ready.desktopClient) {
     activity = new DesktopActivity({
       request: async signal => {
@@ -495,13 +664,18 @@ async function openApp(ready: BackendReady) {
       onChange: updateActivity,
     });
     activity.start();
+  }
+  notificationPermission = !localViewer && ready.homeId && ready.deviceId ? new RemoteNotificationPermission(path.join(profile, 'remote-notifications.json'), ready.homeId, ready.deviceId) : undefined;
+  if (localViewer || notificationPermission) {
+    const endpoint = localViewer ? '/api/desktop/notifications' : '/api/devices/me/desktop-notifications';
     const signal = notificationAbort.signal;
     notifications = new DesktopNotifications({
       supported: () => Notification.isSupported(),
+      permitted: () => localViewer || !!notificationPermission?.enabled(),
       request: async <T>(body?: object): Promise<T> => {
-        const response = await ses.fetch(`${ready.origin}/api/desktop/notifications`, {
+        const response = await ses.fetch(`${ready.origin}${endpoint}`, {
           method: body ? 'POST' : 'GET', signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
-          headers: { authorization: `Bearer ${ready.token}`, 'x-ri-desktop-client': ready.desktopClient!, 'content-type': 'application/json' },
+          headers: { authorization: `Bearer ${ready.token}`, ...(localViewer ? { 'x-ri-desktop-client': ready.desktopClient! } : {}), 'content-type': 'application/json' },
           ...(body ? { body: JSON.stringify(body) } : {}),
         });
         const data = await response.json();
@@ -517,18 +691,13 @@ async function openApp(ready: BackendReady) {
     });
     notifications.start();
   }
-  // Refresh credentials immediately after controller replacement, even while
-  // a recording or unsaved draft delays reload. The renderer's connection
-  // observer reloads the current route only when its input is safe.
-  if (!reconnecting) await loadPreparedPage(`${ready.origin}/#${PAIRING_TOKEN_FRAGMENT_KEY}=${encodeURIComponent(ready.token)}`);
-  if (quitting || preparingClose || window.isDestroyed()) return;
   const cursorFile = path.join(profile, 'oauth-cursor.json');
   let cursor = 0;
   try {
     const saved = JSON.parse(fs.readFileSync(cursorFile, 'utf8'));
     if (ready.serviceRunId && saved.runId === ready.serviceRunId && Number.isSafeInteger(saved.sequence)) cursor = saved.sequence;
   } catch { /* first connection to this service */ }
-  void watchOAuthResults(ses, ready.origin, oauthAbort.signal, (result) => {
+  if (localViewer) void watchOAuthResults(ses, ready.origin, oauthAbort.signal, (result) => {
     if (quitting || !window) return;
     fs.writeFileSync(`${cursorFile}.tmp`, JSON.stringify({ runId: ready.serviceRunId, sequence: result.sequence }), { mode: 0o600 });
     fs.renameSync(`${cursorFile}.tmp`, cursorFile);
@@ -536,7 +705,9 @@ async function openApp(ready: BackendReady) {
     void navigateSafely(resultLocation(ready.origin, result));
   }, cursor);
   for (const raw of pendingLinks.splice(0)) void handleDeepLink(raw);
-  console.info('[desktop] App loaded. The local certificate is pinned inside this Electron session only.');
+  if (!localViewer) updateActivity({ connection: 'connected' });
+  companion.close();
+  console.info(localViewer ? '[desktop] Local Home connected with a pinned certificate.' : '[desktop] Remote Home connected with standard TLS and no local native capability.');
 }
 
 async function start() {
@@ -578,14 +749,13 @@ async function start() {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) return;
     captureReady = true; deliverCapture();
   });
+  ipcMain.on('desktop:bridge-mode', event => {
+    event.returnValue = localViewer && trustedViewerFrame({ senderId: event.sender.id, windowId: window?.webContents.id, mainFrame: event.senderFrame === window?.webContents.mainFrame, url: event.senderFrame?.url ?? '', origin: appOrigin }) ? 'local' : 'viewer';
+  });
   ipcMain.handle('desktop:settings', (event, raw: unknown) => {
+    if (!localViewer) throw new Error('Use Ri on this device in the application menu to change local settings.');
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) throw new Error('Untrusted window');
-    if (quitting || preparingClose || updatingShell) throw new Error('Ri is restarting. Try again after it reconnects.');
-    const action = desktopSettingsAction(raw);
-    if (!captureShortcut) throw new Error('Desktop settings are still loading.');
-    if (action.type === 'shortcut') captureShortcut.configure(action);
-    const login = action.type === 'login' ? desktopLogin.setEnabled(action.enabled) : desktopLogin.status();
-    return { shortcut: captureShortcut.status(), login };
+    return changeDesktopPreferences(raw);
   });
   ipcMain.on('desktop:background-ready', (event, message: unknown) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) return;
@@ -606,6 +776,7 @@ async function start() {
     await shell.openExternal(url);
   });
   ipcMain.handle('desktop:notifications', async (event, action: unknown) => {
+    if (!localViewer) throw new Error('This remote Home uses browser notifications.');
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) throw new Error('Untrusted window');
     if (typeof action !== 'string' || !['status', 'enable', 'disable', 'test'].includes(action)) throw new Error('Invalid notification action');
     if (!notifications) throw new Error('The local service has not connected yet.');
@@ -617,7 +788,7 @@ async function start() {
   const actions = {
     show: showWindow, hide: hideWindow, quit: () => { void quit(); },
     capture: requestQuickCapture,
-    preferences: () => { showWindow(); if (appOrigin) void navigateSafely(`${appOrigin}/?settings=general`); },
+    preferences: () => { void companion.show(); },
     notifications: () => { showWindow(); if (appOrigin) void navigateSafely(`${appOrigin}/?settings=notifications`); },
     update: () => { void checkDesktopUpdate(); }, status: () => { void serviceCommand('status'); },
     recovery: () => { if (!quitting) void maintenance.show(); },
@@ -649,10 +820,12 @@ async function start() {
     { label: 'Tools', submenu: [
       commands.capture, { id: 'ri-activity-menu', label: 'Activity', submenu: activityMenuItems(activityState, openActivity) }, commands.preferences,
       commands.notifications, commands.update, commands.status, commands.recovery,
+      { label: 'Ri on This Device…', click: () => void companion.show() },
+      ...(localService?.role === 'worker' ? [{ label: localService.worker?.enabled === false ? 'Resume Local Execution' : 'Stop Local Execution', click: () => void localWorkerCommand(localService?.worker?.enabled === false ? 'resume' : 'stop').catch(error => dialog.showErrorBox('Local execution', error.message)) }] : []),
       { label: 'Start at Login…', click: () => void serviceCommand('install') },
       { label: 'Disable Start at Login…', click: () => void serviceCommand('uninstall') },
-      { label: 'Start Service', click: () => void serviceCommand('start') },
-      { label: 'Stop Service', click: () => void serviceCommand('stop') },
+      { label: 'Start This Device’s Service', click: () => void serviceCommand('start') },
+      { label: 'Stop This Device’s Service', click: () => void serviceCommand('stop') },
       { type: 'separator' },
       { label: 'Install Terminal Command…', click: () => void manageTerminalCommand() },
       { label: 'Remove Terminal Command…', click: () => void manageTerminalCommand(true) },
@@ -685,9 +858,15 @@ function startConnection() {
   }
   backend.on('message', (message: BackendMessage) => {
     if (backend !== child || quitting) return;
-    if (message.type === 'certificate' && window && message.origin === appOrigin) window.webContents.session.setCertificateVerifyProc((request, callback) => callback(certificateDecision(request.hostname, request.certificate.data, message)));
+    if (message.type === 'setup') { clearTimeout(startupTimer); void companion.show(); }
+    if (message.type === 'status') {
+      const changed = JSON.stringify(localService) !== JSON.stringify(message.status);
+      localService = message.status;
+      if (changed) { refreshApplicationMenu?.(); if (tray && !tray.isDestroyed() && menuActions) updateDesktopTray(tray, menuActions, activityState, openActivity, localDeviceMenu(localService, action => void localWorkerCommand(action).catch(error => dialog.showErrorBox('Local execution', error.message)))); }
+    }
+    if (message.type === 'certificate' && localViewer && window && message.origin === appOrigin) window.webContents.session.setCertificateVerifyProc((request, callback) => callback(certificateDecision(request.hostname, request.certificate.data, message)));
     if (message.type === 'error') fail(message.message);
-    if (message.type === 'ready') void openApp(message).catch(() => fail('Could not load the local app. Check the backend output and relaunch the demo.'));
+    if (message.type === 'ready') void openApp(message).catch(error => fail(error instanceof Error ? error.message : 'Could not open your Home. Retry when it is reachable.'));
   });
   child.once('error', (error) => { if (backend === child) fail(error.message); });
   child.once('exit', (code) => { if (!quitting && backend === child && !selectionError) fail(`The desktop connection helper stopped (${code ?? 'signal'}). Inspect the service and retry.`); });

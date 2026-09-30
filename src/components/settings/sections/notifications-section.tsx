@@ -67,6 +67,7 @@ export function NotificationsSection() {
   const [isLoading, setIsLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [desktopViewer, setDesktopViewer] = useState(false);
   const [desktopStatus, setDesktopStatus] = useState<DesktopNotificationStatus | null>(null);
 
   // Telegram add flow
@@ -101,7 +102,8 @@ export function NotificationsSection() {
     setDigests(dg.digests);
     setBaseUrls(bu);
     setHistoryRefresh(value => value + 1);
-    if (window.riDesktop) setDesktopStatus(await window.riDesktop.notifications('status'));
+    setDesktopViewer(!!window.riDesktop);
+    if (window.riDesktop?.notifications) setDesktopStatus(await window.riDesktop.notifications!('status'));
   }, []);
 
   useEffect(() => {
@@ -111,9 +113,9 @@ export function NotificationsSection() {
   }, [refresh]);
 
   useEffect(() => {
-    if (!window.riDesktop) return;
+    if (!window.riDesktop?.notifications) return;
     const timer = setInterval(() => {
-      void window.riDesktop!.notifications('status').then(setDesktopStatus).catch(() => {});
+      void window.riDesktop!.notifications!('status').then(setDesktopStatus).catch(() => {});
     }, 5000);
     return () => clearInterval(timer);
   }, []);
@@ -145,9 +147,9 @@ export function NotificationsSection() {
 
   const toggleEnabled = (channel: NotificationChannelRecord) =>
     run(async () => {
-      if (isDesktopNotificationChannel(channel) && window.riDesktop && channel.id === desktopStatus?.channelId) {
+      if (isDesktopNotificationChannel(channel) && window.riDesktop?.notifications && channel.id === desktopStatus?.channelId) {
         if (!channel.enabled) await removeDesktopWebPushSubscription();
-        setDesktopStatus(await window.riDesktop.notifications(channel.enabled ? 'disable' : 'enable'));
+        setDesktopStatus(await window.riDesktop.notifications!(channel.enabled ? 'disable' : 'enable'));
       } else await api.patch(`/notifications/channels/${channel.id}`, { enabled: !channel.enabled });
     });
 
@@ -160,8 +162,8 @@ export function NotificationsSection() {
     setTesting(id);
     setError(null);
     try {
-      if (id === desktopStatus?.channelId && window.riDesktop) {
-        const status = await window.riDesktop.notifications('test');
+      if (id === desktopStatus?.channelId && window.riDesktop?.notifications) {
+        const status = await window.riDesktop.notifications!('test');
         setDesktopStatus(status);
         setTestResults(p => ({ ...p, [id]: status.error ? { status: 'error', error: status.error } : { status: 'queued' } }));
         return;
@@ -400,7 +402,7 @@ export function NotificationsSection() {
               </div>
               <Button variant="outline" size="sm" disabled={busy || (!desktopStatus.enabled && !desktopStatus.supported)} onClick={() => run(async () => {
                 if (!desktopStatus.enabled) await removeDesktopWebPushSubscription();
-                setDesktopStatus(await window.riDesktop!.notifications(desktopStatus.enabled ? 'disable' : 'enable'));
+                setDesktopStatus(await window.riDesktop!.notifications!(desktopStatus.enabled ? 'disable' : 'enable'));
               })}>{desktopStatus.enabled ? 'Disable desktop notifications' : 'Enable desktop notifications'}</Button>
             </div>
             {!desktopStatus.supported && <p className="text-xs text-muted-foreground">Native notifications are unavailable on this computer.</p>}
@@ -413,6 +415,8 @@ export function NotificationsSection() {
           {/* Web push */}
           {desktopStatus ? (
             <div className="rounded-xl border border-border p-3 text-[11px] text-muted-foreground">For alerts on your phone, enable browser push from Ri on that device.</div>
+          ) : desktopViewer ? (
+            <div className="rounded-xl border border-border p-3 text-[11px] text-muted-foreground">To enable alerts on this computer, choose Ri on This Device from the app menu. Keep Ri running in the menu bar to receive them. For phone alerts, enable browser push on your phone.</div>
           ) : (
             <BrowserNotifications channel={channels.find(channel => channel.kind === 'web_push') ?? null} onChanged={refresh} />
           )}

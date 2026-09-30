@@ -1,3 +1,4 @@
+import { writeDesktopHomeIntent } from '../src/lib/service/desktop-role-intent';
 /** Real native failed-service recovery and advanced local association. */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -32,6 +33,8 @@ async function close() {
 }
 async function mainSmoke() {
 try {
+  select(env);
+  writeDesktopHomeIntent();
   fs.mkdirSync(path.join(root, '.config'), { recursive: true });
   fs.writeFileSync(path.join(root, '.config/local-service.json'), JSON.stringify({ version: 1, port: 0 }));
   instance = await _electron.launch({ executablePath, args, env: { ...env, RI_DESKTOP_SMOKE: '1', RI_DESKTOP_RECOVERY_SMOKE: '1' }, timeout: 240_000 });

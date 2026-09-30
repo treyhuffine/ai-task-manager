@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { atomicWriteFile, withFileLock } from '@/lib/config/atomic-file';
 import { getRuntimeInstallDir } from './paths';
+import { CURRENT_COMPATIBILITY } from '@/lib/releases/compatibility';
 
 interface RuntimeFile { name: string; sha256?: string; link?: string; executable: boolean }
 export interface RuntimeManifest {
@@ -70,6 +71,9 @@ function manifestId(manifest: Omit<RuntimeManifest, 'id'>) {
 
 export function createRuntimeManifest(resources: string): RuntimeManifest {
   const pkg = JSON.parse(fs.readFileSync(path.join(resources, 'server/package.json'), 'utf8'));
+  // Keep release envelope 1 parseable by old updaters. This metadata is
+  // authenticated transitively by the existing signed runtime inventory.
+  atomicWriteFile(path.join(resources, 'server/ri-compatibility.json'), JSON.stringify(CURRENT_COMPATIBILITY));
   const content = { format: 1 as const, version: pkg.version as string, platform: process.platform, arch: process.arch,
     node: process.versions.node, files: inventory(resources) };
   const manifest = { ...content, id: manifestId(content) };

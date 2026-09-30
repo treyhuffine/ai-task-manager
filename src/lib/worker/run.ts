@@ -4,8 +4,8 @@
  * It holds the home's event stream open and answers what arrives, sends a
  * heartbeat every 20 seconds, and reconnects when the connection drops, with
  * backoff from 1 to 30 seconds. It stops for good only when the home says so:
- * the key was revoked, the home speaks another protocol, or the address now
- * answers for another home. A stream that goes quiet for three ping
+ * the key was revoked or the address now answers for another home. A protocol
+ * mismatch pauses admission and retries while preserving live work and journals. A stream that goes quiet for three ping
  * intervals is treated as dropped, since a half-open connection never errors
  * on its own.
  *
@@ -19,6 +19,9 @@
  * Runs on the connected device, so it never touches a database.
  */
 
+import { compatibilityMessage, legacyCompatibility, negotiateWorker, PeerReleaseSchema } from '@/lib/releases/compatibility';
+import { runtimePeerRelease } from '@/lib/releases/runtime-identity';
+import { readMaintenance, MaintenanceError } from '@/lib/service/maintenance-state';
 import { uuidv7 } from 'uuidv7';
 import type { WorkerHarnessReport } from '@/db/types';
 import { runnerState } from '@/lib/runner/live-state';
@@ -37,7 +40,7 @@ import {
   type WorkerStreamEvent,
 } from '@/lib/workers/protocol';
 import type { RunnerSink } from '@/lib/runner/types';
-import { WorkerNetworkError, WorkerStoppedError, workerFetch, type WorkerStopReason, type WorkerTarget } from './client';
+import { WorkerNetworkError, WorkerProtocolError, WorkerStoppedError, workerFetch, type WorkerStopReason, type WorkerTarget } from './client';
 import { CommandJournal } from './command-journal';
 import { CommandProcessor, type CommandHandlers } from './commands';
 import { EventJournal } from './event-journal';
@@ -57,7 +60,8 @@ export type WorkerExit = { reason: 'stopped' } | { reason: WorkerStopReason | 'a
 export type WorkerStatus =
   | { state: 'connecting'; attempt: number }
   | { state: 'connected' }
-  | { state: 'disconnected'; error: string; retryInMs: number };
+  | { state: 'disconnected'; error: string; retryInMs: number }
+  | { state: 'update-required'; error: string; retryInMs: number; update: 'home' | 'worker' | 'both' };
 
 export type RequestHandler = (kind: WorkerRequestKind, payload: unknown) => Promise<unknown>;
 
@@ -66,6 +70,11 @@ export interface WorkerRunOptions {
   version: string;
   signal?: AbortSignal;
   onStatus?: (status: WorkerStatus) => void;
+  /** Local update admission fence. Journals/heartbeats keep flushing while paused. */
+  paused?: () => boolean;
+  onJournals?: (journals: { commands: CommandJournal; events: EventJournal; requests: () => number }) => void;
+  /** Teardown before releasing the root's exclusive worker ownership. */
+  beforeUnlock?: (exit: WorkerExit | undefined) => Promise<void>;
   /** Makes the handler for the home's reads, given this worker's command journal. Tried before the built-in ones. */
   requests?: (journal: CommandJournal) => RequestHandler;
   /** What this device can run. Defaults to probing its harness runtimes. */
@@ -171,7 +180,7 @@ export async function sendHeartbeat(
   version: string,
   state: WorkerHeartbeat['state'] = 'awake',
   describe: () => Promise<WorkerHarnessReport[]> = describeHarnesses,
-  extras: { live?: WorkerLive; placements?: WorkerPlacementReport[] } = {},
+  extras: { live?: WorkerLive; placements?: WorkerPlacementReport[]; journal?: WorkerHeartbeat['journal'] } = {},
 ): Promise<WorkerHeartbeatReply | null> {
   const heartbeat: WorkerHeartbeat = { protocol: WORKER_PROTOCOL, version, harnesses: await describe(), state, ...extras };
   const res = await workerFetch(target, '/api/workers/me/heartbeat', { method: 'POST', body: JSON.stringify(heartbeat) });
@@ -206,17 +215,26 @@ async function answerRequest(
  * opened, held until this returns (lock.ts).
  */
 export async function runWorker(options: WorkerRunOptions): Promise<WorkerExit> {
+  // Check on both sides of durable ownership: the updater closes admission
+  // before stopping its child and holds this same worker lock while touching
+  // storage. No worker opens SQLite or creates database lease sidecars.
+  if (readMaintenance()) throw new MaintenanceError();
   let lock;
   try {
     lock = await acquireWorkerLock(options.lockFile);
+    if (readMaintenance()) throw new MaintenanceError();
   } catch (err) {
+    lock?.release();
     if (err instanceof WorkerLockedError) return { reason: 'already_running', message: err.message };
     throw err;
   }
+  let exit: WorkerExit | undefined;
   try {
-    return await runLocked(options);
+    exit = await runLocked(options);
+    return exit;
   } finally {
-    lock.release();
+    try { await options.beforeUnlock?.(exit); }
+    finally { lock.release(); }
   }
 }
 
@@ -245,6 +263,8 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
   // device's runner reports, both on disk before the home hears of them.
   const commandJournal = options.journals?.commands ?? new CommandJournal(target.homeId);
   const eventJournal = options.journals?.events ?? new EventJournal(target.homeId);
+  let pendingRequests = 0;
+  options.onJournals?.({ commands: commandJournal, events: eventJournal, requests: () => pendingRequests });
   // In-app terminals here (P3.5): shells in the worktrees this device
   // prepared and the agent folders set up here, their output posted home.
   const terminals = new WorkerTerminals({
@@ -255,7 +275,9 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
       if (!res.ok) throw new WorkerNetworkError(`${target.homeName} answered with HTTP ${res.status}.`);
     },
   });
-  const poster = new EventPoster(target, eventJournal);
+  const poster = new EventPoster(target, eventJournal, (err) => {
+    if (err instanceof WorkerStoppedError) stop({ reason: err.reason, message: err.message });
+  });
   const handlers =
     typeof options.handlers === 'function'
       ? options.handlers(commandJournal, { terminals, events: eventJournal, flushEvents: () => void poster.kick() })
@@ -321,7 +343,10 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
     const live = liveSnapshot();
     const chats = new Set([...live.running, ...live.pending.map((p) => p.sessionId), ...Object.keys(live.backgroundTasks)]);
     live.generations = Object.fromEntries([...chats].map((chat) => [chat, commandJournal.chatGeneration(chat)]));
-    const reply = await sendHeartbeat(target, version, 'awake', describe, { live, placements: commandJournal.placements() });
+    const reply = await sendHeartbeat(target, version, 'awake', describe, { live, placements: commandJournal.placements(), journal: {
+      pendingEvents: eventJournal.pending().length, pendingCommands: commandJournal.interrupted().length + commandJournal.unconfirmed().length,
+      openTurns: commandJournal.openTurns().length, lastEvent: eventJournal.lastPosition(),
+    } });
     for (const released of reply?.release ?? []) {
       commandJournal.release(released.executionId, released.generation);
       for (const chat of released.chatSessionIds) await closeSession(chat).catch(() => {});
@@ -371,15 +396,18 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
   let attempt = 0;
   try {
     while (!exit && !signal?.aborted) {
+      if (options.paused?.()) { await sleep(200, signal); continue; }
       onStatus?.({ state: 'connecting', attempt });
       current = new AbortController();
       const connection = signal ? AbortSignal.any([signal, current.signal]) : current.signal;
       let lastEventAt = Date.now();
       const watchdog = setInterval(() => {
-        if (Date.now() - lastEventAt > staleAfterMs) current?.abort();
+        if (options.paused?.() || Date.now() - lastEventAt > staleAfterMs) current?.abort();
       }, Math.min(staleAfterMs, 5_000));
       watchdog.unref?.();
       let error = 'The connection closed.';
+      let mismatch: WorkerProtocolError | null = null;
+      let accepted = false;
       try {
         const res = await workerFetch(target, `/api/workers/me/stream?after=${commandJournal.cursor()}`, {
           signal: connection,
@@ -398,6 +426,11 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
               });
               break;
             }
+            const peer = event.peer ? PeerReleaseSchema.parse(event.peer) : undefined;
+            const agreement = negotiateWorker(peer?.compatibility ?? legacyCompatibility(event.protocol), runtimePeerRelease().compatibility);
+            if (!agreement.compatible) throw new WorkerProtocolError(compatibilityMessage(agreement, target.deviceName, target.homeName), agreement.update);
+            if (event.protocol !== agreement.protocol) throw new WorkerProtocolError('The Home selected a worker protocol outside the agreed contract.', 'home');
+            accepted = true;
             attempt = 0;
             // A journal that was cleared numbers on after what the home holds.
             eventJournal.rebase(event.ackedEventSeq);
@@ -411,6 +444,11 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
             onStatus?.({ state: 'connected' });
             void poster.kick();
             void processor.resendAcks();
+          } else if (!accepted) {
+            throw new WorkerNetworkError('The Home sent work before its compatibility handshake.');
+          } else if (options.paused?.() && (event.type === 'command' || event.type === 'request')) {
+            current.abort();
+            break; // No receipt cursor advance, so reconnect delivers it exactly once.
           } else if (event.type === 'folders') {
             // This device's folders, as its home records them: the only
             // copy it has, in memory (docs/homes-spec.md §4.1).
@@ -418,23 +456,25 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
           } else if (event.type === 'command') {
             processor.receive(event.command);
           } else if (event.type === 'request') {
+            pendingRequests++;
             void answerRequest(target, event, handleRequest).catch(() => {
-              // The home stopped waiting, or the connection dropped. Nothing to undo.
-            });
+              // The Home stopped waiting, or the connection dropped.
+            }).finally(() => { pendingRequests--; });
           } else if (event.type === 'revoked') {
             stop({ reason: 'revoked', message: event.message });
             break;
           }
         }
       } catch (err) {
-        if (err instanceof WorkerStoppedError) stop({ reason: err.reason, message: err.message });
+        if (err instanceof WorkerProtocolError) { mismatch = err; error = err.message; }
+        else if (err instanceof WorkerStoppedError) stop({ reason: err.reason, message: err.message });
         else error = err instanceof Error ? err.message : String(err);
       } finally {
         clearInterval(watchdog);
       }
       if (exit || signal?.aborted) break;
       const retryInMs = backoffDelay(attempt++, backoffMinMs, backoffMaxMs);
-      onStatus?.({ state: 'disconnected', error, retryInMs });
+      onStatus?.(mismatch ? { state: 'update-required', error, retryInMs, update: mismatch.update } : { state: 'disconnected', error, retryInMs });
       await sleep(retryInMs, signal);
     }
   } finally {

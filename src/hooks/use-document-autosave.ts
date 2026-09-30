@@ -1,7 +1,21 @@
 'use client';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { documentSaves, draftDisposition } from '@/lib/client/document-saves';
+
+/** Keep current-session edits visible through rollback, blur and refetch. The
+ * shared query cache still represents the server, and older retained drafts
+ * remain untouched until the person explicitly restores them. */
+export function usePendingDocument<Entity extends object>(
+  kind: 'notes' | 'tasks' | 'areas', id: string | null | undefined,
+  entity: Entity | null | undefined,
+): Entity | null | undefined {
+  const key = id ? `${kind}:${id}` : null;
+  const subscribe = useCallback((listener: () => void) => key ? documentSaves.subscribe(key, listener) : () => {}, [key]);
+  const snapshot = useCallback(() => key ? documentSaves.pendingPatch(key) : undefined, [key]);
+  const patch = useSyncExternalStore(subscribe, snapshot, () => undefined);
+  return useMemo(() => entity && patch ? { ...entity, ...patch } : entity, [entity, patch]);
+}
 
 export function useDocumentAutosave<Input extends { id: string }>(
   kind: 'notes' | 'tasks' | 'areas', id: string | null | undefined,

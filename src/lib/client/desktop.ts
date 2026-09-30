@@ -8,8 +8,8 @@ export interface RiDesktop {
   onPrepareClose(callback: () => Promise<boolean>): () => void;
   onPrepareBackground(callback: () => boolean): () => void;
   onQuickCapture(callback: () => void): () => void;
-  settings(action: DesktopSettingsAction): Promise<DesktopSettingsStatus>;
-  notifications(action: DesktopNotificationAction): Promise<DesktopNotificationStatus>;
+  settings?(action: DesktopSettingsAction): Promise<DesktopSettingsStatus>;
+  notifications?(action: DesktopNotificationAction): Promise<DesktopNotificationStatus>;
 }
 
 declare global { interface Window { riDesktop?: RiDesktop } }

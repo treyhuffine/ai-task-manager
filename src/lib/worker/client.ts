@@ -7,7 +7,8 @@
 
 import os from 'node:os';
 import { APP_SHORT_ID } from '@/constants/app';
-import { WORKER_PROTOCOL, WORKER_PROTOCOL_HEADER } from '@/lib/workers/protocol';
+import { runtimePeerRelease } from '@/lib/releases/runtime-identity';
+import { WORKER_COMPATIBILITY_HEADER, WORKER_PROTOCOL, WORKER_PROTOCOL_HEADER } from '@/lib/workers/protocol';
 
 export interface WorkerTarget {
   homeUrl: string;
@@ -38,6 +39,10 @@ export class WorkerNetworkError extends Error {
   }
 }
 
+export class WorkerProtocolError extends WorkerNetworkError {
+  constructor(message: string, readonly update: 'home' | 'worker' | 'both' = 'worker') { super(message); this.name = 'WorkerProtocolError'; }
+}
+
 export const WORKER_REQUEST_TIMEOUT_MS = 15_000;
 
 export async function workerFetch(
@@ -56,6 +61,7 @@ export async function workerFetch(
       headers: {
         authorization: `Bearer ${target.workerKey}`,
         [WORKER_PROTOCOL_HEADER]: String(WORKER_PROTOCOL),
+        [WORKER_COMPATIBILITY_HEADER]: Buffer.from(JSON.stringify(runtimePeerRelease())).toString('base64url'),
         'user-agent': `${APP_SHORT_ID}-worker (${os.hostname()})`,
         ...(rest.body ? { 'content-type': 'application/json' } : {}),
         ...(headers as Record<string, string> | undefined),
@@ -66,8 +72,8 @@ export async function workerFetch(
     throw new WorkerNetworkError(`Cannot reach ${target.homeName} at ${target.homeUrl}.`);
   }
   if (res.status === 426) {
-    const body = (await res.json().catch(() => null)) as { message?: string } | null;
-    throw new WorkerStoppedError('protocol', body?.message ?? `Update Ri on ${target.deviceName}.`);
+    const body = (await res.json().catch(() => null)) as { message?: string; update?: 'home' | 'worker' | 'both' } | null;
+    throw new WorkerProtocolError(body?.message ?? `Update Ri on ${target.deviceName}. Existing work is retained.`, body?.update);
   }
   if (res.status === 401 || res.status === 403) {
     throw new WorkerStoppedError(

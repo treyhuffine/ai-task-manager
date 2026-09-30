@@ -25,7 +25,7 @@ import { EntityViewToggle } from '@/components/entities/entity-view-toggle'
 import { EntityAgentView } from '@/components/entities/entity-agent-view'
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode'
 import { cn } from '@/lib/utils'
-import { useDocumentAutosave } from '@/hooks/use-document-autosave';
+import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave';
 import type { Attachment } from '@/db/types'
 
 const DEFAULT_WIDTH = 1200
@@ -41,9 +41,10 @@ interface NoteSlideoutProps {
 
 export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSlideoutProps) {
   const isOpen = noteId !== null
-  const { data: note } = useNote(noteId ?? '')
+  const { data: savedNote } = useNote(noteId ?? '')
+  const note = usePendingDocument('notes', noteId, savedNote)
   const updateNote = useUpdateNote()
-  const autosave = useDocumentAutosave('notes', noteId, note, updateNote.mutateAsync);
+  const autosave = useDocumentAutosave('notes', noteId, savedNote, updateNote.mutateAsync);
   const deleteNote = useDeleteNote()
   const router = useRouter()
   const chat = useDocumentChat('note', note ?? null)

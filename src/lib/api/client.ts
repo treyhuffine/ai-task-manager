@@ -23,6 +23,8 @@
  * client prevents that.
  */
 
+import { API_PROTOCOL, API_PROTOCOL_HEADER } from '@/lib/releases/api-contract';
+import { reportApiCompatibility } from '@/lib/client/api-compatibility';
 import { APP_SHORT_ID, PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
 import { isGatewayFailure, isNetworkFailure, reportNetworkFailure, reportReachable } from './connectivity';
 
@@ -219,6 +221,7 @@ export class ApiClient {
       if (isNetworkFailure(err)) void reportNetworkFailure();
       throw err;
     }
+    if (res.status === 426) reportApiCompatibility(await res.clone().json().catch(() => null));
     if (isGatewayFailure(res.status)) void reportNetworkFailure();
     else reportReachable();
     return res;
@@ -277,6 +280,7 @@ export class ApiClient {
 
   private buildHeaders(init?: HeadersInit, contentType?: string): Headers {
     const headers = new Headers(init);
+    if (!headers.has(API_PROTOCOL_HEADER)) headers.set(API_PROTOCOL_HEADER, String(API_PROTOCOL));
     const token = this.getToken();
     if (token && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${token}`);

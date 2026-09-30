@@ -130,3 +130,14 @@ describe('desktop capability header admission', () => {
     expect(desktopRequestHeaders({ ...base, headers: {}, trustedMainFrame: true })).toEqual({ 'x-ri-desktop-client': 'secret' });
   });
 });
+
+
+it('server channel enablement cannot grant local OS presentation permission', async () => {
+  const f = fixture(); let permitted = false;
+  const controller = new DesktopNotifications({ ...f.deps, permitted: () => permitted }); controllers.push(controller);
+  await controller.pump();
+  expect(f.created).toHaveLength(0); expect(f.request).not.toHaveBeenCalled();
+  expect((await controller.action('status')).enabled).toBe(false);
+  permitted = true; await controller.pump(); expect(f.created).toHaveLength(1);
+  permitted = false; await controller.pump(); expect(f.created).toHaveLength(1);
+});

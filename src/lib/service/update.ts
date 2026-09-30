@@ -17,13 +17,20 @@ export interface UpdateRecord {
 }
 export interface RuntimeTarget { id: string; repo: string; node: string }
 export interface UpdateBackend {
+  /** A connected device never checkpoints, opens or migrates a Home database. */
+  storage?: 'home' | 'worker';
+  /** The connected device's journal writer lock, held through validation/recovery. */
+  exclusiveStorage?(): Promise<() => void>;
   activity(): Promise<string[]>;
+  /** Local formats and unresolved work on peers must remain readable. */
+  compatibility?(target: RuntimeTarget): Promise<string[]>;
   verify?(resources: string): Promise<{ id: string }>;
   download?(release: Release, progress: (bytes: number) => void): Promise<unknown>;
   checkpoint?(directory: string): Promise<string>;
   restore?(directory: string): Promise<unknown>;
   verifyDatabase?(target: RuntimeTarget): Promise<unknown>;
   prepareIdle?(): Promise<void>;
+  resumeAdmission?(): Promise<void>;
   stop(): Promise<void>;
   validate(target: RuntimeTarget, token: string): Promise<void>;
   activate(): Promise<void>;
@@ -120,6 +127,7 @@ export class UpdateCoordinator {
   async apply() {
     return this.exclusive(async () => {
       if (!this.record.release || !['ready', 'waiting'].includes(this.record.phase)) throw new Error('No verified update is ready');
+      if (this.backend.storage === 'worker' && (!this.backend.checkpoint || !this.backend.restore || !this.backend.verifyDatabase || !this.backend.exclusiveStorage)) throw new Error('Connected-device updates require local journal checkpoint and validation support.');
       const target = await this.target(this.record.release.runtime.id);
       const prior = installedRuntime();
       if (!prior) throw new Error('Managed updates require a staged installation');
@@ -132,6 +140,9 @@ export class UpdateCoordinator {
         this.save({ phase: 'failed', approved: false, error: message(error) });
         throw error;
       }
+      const compatibility = () => this.backend.compatibility?.(target) ?? Promise.resolve([]);
+      const blocked = await compatibility();
+      if (blocked.length) { this.save({ phase: 'waiting', reason: blocked.join(', ') }); return this.status(); }
       const token = randomBytes(32).toString('hex');
       const gate = { phase: 'draining' as const, token, startedAt: new Date().toISOString() };
       this.save({ phase: 'draining', priorId: prior.id, checkpoint: undefined, error: undefined, committedAt: undefined });
@@ -141,7 +152,7 @@ export class UpdateCoordinator {
       let stopped = false;
       try {
         await this.backend.prepareIdle?.();
-        const reasons = await this.backend.activity();
+        const reasons = [...await this.backend.activity(), ...await compatibility()];
         if (reasons.length) { clearMaintenance(); this.save({ phase: 'waiting', reason: reasons.join(', ') }); return this.status(); }
         // Give every viewer a chance to flush. New foreground/background work
         // is refused, document PATCH completions still get acknowledged.
@@ -149,7 +160,7 @@ export class UpdateCoordinator {
         const deadline = started + this.timing.drain;
         while (Date.now() < deadline) {
           await new Promise(resolve => setTimeout(resolve, this.timing.poll));
-          const current = await this.backend.activity();
+          const current = [...await this.backend.activity(), ...await compatibility()];
           if (current.length) { this.save({ reason: current.join(', ') }); continue; }
           if (Date.now() - started < this.timing.grace) continue;
           try { activity = exclusiveActivity(); break; } catch { /* admitted request/CLI is still draining */ }
@@ -158,19 +169,19 @@ export class UpdateCoordinator {
         writeMaintenance({ ...gate, phase: 'offline' });
         stopped = true;
         await this.backend.stop();
-        access = exclusiveDatabaseAccess();
+        access = this.backend.storage === 'worker' ? await this.backend.exclusiveStorage!() : exclusiveDatabaseAccess();
         await this.backend.assertNoLegacyWriters();
         this.save({ phase: 'checkpointing' });
         const checkpoint = await (this.backend.checkpoint ?? createCheckpoint)(path.join(this.directory, 'recovery', `${Date.now()}-${target.id.slice(0, 12)}`));
         this.save({ phase: 'validating', checkpoint });
         await this.backend.validate(target, token);
         if (this.backend.verifyDatabase) await this.backend.verifyDatabase(target);
-        else validateDatabase(serviceIdentity().database, true);
+        else if (this.backend.storage !== 'worker') validateDatabase(serviceIdentity().database, true);
         // Durable point of no rollback. From here every recovery preserves
         // the upgraded DB, even if activation or the controller then crashes.
         this.save({ phase: 'committed', committedAt: new Date().toISOString(), approved: false, reason: undefined });
         await this.select(target.id);
-        access(); access = undefined;
+        access?.(); access = undefined;
         activity(); activity = undefined;
         clearMaintenance();
         await this.backend.activate();
@@ -188,7 +199,7 @@ export class UpdateCoordinator {
           await this.backend.stop();
           if (this.record.checkpoint) {
             try {
-              if (!access) access = exclusiveDatabaseAccess();
+              if (!access) access = this.backend.storage === 'worker' ? await this.backend.exclusiveStorage!() : exclusiveDatabaseAccess();
               await (this.backend.restore ?? restoreCheckpointDatabase)(this.record.checkpoint);
             } catch (recoveryError) {
               this.save({ phase: 'recovery-required', approved: false, error: `Recovery needs attention. ${message(recoveryError)}` });
@@ -208,6 +219,7 @@ export class UpdateCoordinator {
         throw error;
       } finally {
         access?.(); activity?.();
+        if (!stopped) await this.backend.resumeAdmission?.();
         if (stopped) this.backend.unavailable?.(this.record.error ?? 'The backend stopped during an update. Review recovery before restarting.');
       }
     });
@@ -230,7 +242,8 @@ export class UpdateCoordinator {
       await this.select(this.record.release.runtime.id); clearMaintenance(); return;
     }
     if (this.record.phase === 'validating') {
-      const release = exclusiveDatabaseAccess();
+      if (this.backend.storage === 'worker' && !this.backend.exclusiveStorage) throw new Error('Connected-device recovery requires its journal writer lock.');
+      const release = this.backend.storage === 'worker' ? await this.backend.exclusiveStorage!() : exclusiveDatabaseAccess();
       try {
         await this.backend.assertNoLegacyWriters();
         if (!this.record.checkpoint || !this.record.priorId) throw new Error('Incomplete recovery record');

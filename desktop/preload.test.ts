@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ expose: vi.fn(), on: vi.fn(), remove: vi.fn(), send: vi.fn() }));
-vi.mock('electron', () => ({ contextBridge: { exposeInMainWorld: mocks.expose }, ipcRenderer: { on: mocks.on, removeListener: mocks.remove, send: mocks.send } }));
+const mocks = vi.hoisted(() => ({ expose: vi.fn(), on: vi.fn(), remove: vi.fn(), send: vi.fn(), sendSync: vi.fn(() => 'local') }));
+vi.mock('electron', () => ({ contextBridge: { exposeInMainWorld: mocks.expose }, ipcRenderer: { on: mocks.on, removeListener: mocks.remove, send: mocks.send, sendSync: mocks.sendSync } }));
 afterEach(() => vi.unstubAllGlobals());
 
 it('passes no IPC event or sender to renderer resume callbacks and removes its exact listener', async () => {
@@ -46,4 +46,17 @@ it('capture registers its listener before announcing readiness and never exposes
   listener({ sender: { invoke: vi.fn() } }, 'untrusted payload');
   expect(callback).toHaveBeenCalledExactlyOnceWith();
   remove(); expect(mocks.remove).toHaveBeenLastCalledWith('desktop:quick-capture', listener);
+});
+
+
+it('remote Home viewers get save/capture hooks without native settings or notification authority', async () => {
+  vi.resetModules(); mocks.expose.mockClear(); mocks.sendSync.mockReturnValue('viewer');
+  vi.stubGlobal('process', { ...process, isMainFrame: true });
+  await import('./preload');
+  const bridge = mocks.expose.mock.calls[0][1];
+  expect(bridge.settings).toBeUndefined();
+  expect(bridge.notifications).toBeUndefined();
+  expect(bridge.onPrepareClose).toBeTypeOf('function');
+  expect(bridge.onQuickCapture).toBeTypeOf('function');
+  mocks.sendSync.mockReturnValue('local');
 });

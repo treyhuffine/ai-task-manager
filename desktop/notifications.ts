@@ -12,6 +12,7 @@ interface State {
 interface Dependencies {
   request<T>(body?: object): Promise<T>;
   supported(): boolean;
+  permitted?(): boolean;
   create(id: string, title: string, body: string): NativeNotification;
   history?(): Promise<NativeNotification[]>;
   navigate(path: string): void;
@@ -70,7 +71,7 @@ export class DesktopNotifications {
     if (this.stopped || sequence !== this.refreshSequence) return;
     this.state = state;
     if (!state.channel?.enabled) this.clearActive();
-    if (!this.restored && this.state.channel?.enabled && this.deps.history) {
+    if (!this.restored && this.state.channel?.enabled && (this.deps.permitted?.() ?? true) && this.deps.history) {
       this.restored = true;
       const paths = new Map(this.state.history.map(row => [`${this.state.channel!.id}:${row.id}`, row.url]));
       for (const notification of (await this.deps.history().catch(() => [])).slice(0, 100)) {
@@ -82,7 +83,7 @@ export class DesktopNotifications {
   }
   private snapshot(): DesktopNotificationStatus {
     const error = this.error ?? this.transportError;
-    return { supported: this.deps.supported(), enabled: this.state.channel?.enabled ?? false,
+    return { supported: this.deps.supported(), enabled: (this.deps.permitted?.() ?? true) && (this.state.channel?.enabled ?? false),
       ...(this.state.channel ? { channelId: this.state.channel.id } : {}),
       ...(error ? { error } : {}) };
   }
@@ -151,13 +152,13 @@ export class DesktopNotifications {
     return this.running;
   }
   private async deliver() {
-    if (this.stopped || !this.deps.supported()) return;
+    if (this.stopped || !this.deps.supported() || !(this.deps.permitted?.() ?? true)) return;
     await this.refresh();
     if (this.stopped || this.muted || !this.state.channel?.enabled || this.blocked) return;
     const channelId = this.state.channel.id;
     for (let index = 0; index < DESKTOP_NOTIFICATION_BATCH && !this.stopped; index++) {
       const { claim } = await this.request<{ claim: DesktopNotificationClaim | null }>({ action: 'claim' });
-      if (!claim || this.stopped || this.muted || !this.state.channel?.enabled) return;
+      if (!claim || this.stopped || this.muted || !this.state.channel?.enabled || !(this.deps.permitted?.() ?? true)) return;
       const result = await this.present(claim, channelId);
       if (result.status !== 'sent') { this.error = result.error; this.blocked = true; }
       else this.error = undefined;

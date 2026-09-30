@@ -1,5 +1,5 @@
 'use client';
-import { useDocumentAutosave } from '@/hooks/use-document-autosave';
+import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave';
 
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { Dialog } from 'radix-ui';
@@ -84,12 +84,13 @@ interface TaskSlideoutProps {
 
 export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSlideoutProps) {
   const isOpen = taskId !== null;
-  const { data: task } = useTask(taskId);
+  const { data: savedTask } = useTask(taskId);
+  const task = usePendingDocument('tasks', taskId, savedTask);
   const { data: parentTask } = useTask(task?.parentId ?? null);
   const { openTask } = useDashboard();
   const router = useRouter();
   const updateTask = useUpdateTask();
-  const autosave = useDocumentAutosave('tasks', taskId, task, updateTask.mutateAsync);
+  const autosave = useDocumentAutosave('tasks', taskId, savedTask, updateTask.mutateAsync);
   const deleteTask = useDeleteTask();
   const lifecycle = useTaskLifecycle();
   const chat = useDocumentChat('task', task ?? null);

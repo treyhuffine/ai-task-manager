@@ -1,3 +1,4 @@
+import { writeDesktopHomeIntent } from '../src/lib/service/desktop-role-intent';
 /** Packaged Electron + real managed speech. All state belongs to a disposable home.
  * RI_DESKTOP_PACKAGE points at a --with-speech package.
  * RI_SPEECH_MODEL_FIXTURE points at the verified model revision directory.
@@ -35,6 +36,7 @@ const env = demoEnvironment(repo, { NODE_ENV: 'production', HOME: isolatedUser, 
 }, 'production');
 for (const key of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR', 'RI_SPEECH_HELPER']) delete process.env[key];
 Object.assign(process.env, env);
+writeDesktopHomeIntent();
 let instance: ElectronApplication | undefined;
 let helperPids: number[] = [];
 

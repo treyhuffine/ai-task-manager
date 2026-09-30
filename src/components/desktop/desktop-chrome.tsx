@@ -3,7 +3,9 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { hasActiveInput } from '@/lib/client/active-input';
-import { flushCaptureDrafts, hasPendingCapture } from '@/lib/client/capture-draft';
+import { flushCaptureDrafts } from '@/lib/client/capture-draft';
+import { shouldBlockViewerUnload } from '@/lib/client/version-reload';
+import { flushChatDrafts } from '@/lib/client/chat-drafts';
 import { documentSaves } from '@/lib/client/document-saves';
 import '@/lib/client/desktop';
 import { ServiceConnection } from './service-connection';
@@ -13,7 +15,7 @@ export function DesktopChrome() {
   useEffect(() => {
     if (window.riDesktop) document.documentElement.dataset.riDesktop = window.riDesktop.platform;
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (documentSaves.has() || queryClient.isMutating() || hasActiveInput() || hasPendingCapture()) {
+      if (shouldBlockViewerUnload(() => queryClient.isMutating())) {
         void documentSaves.flushAll().catch(() => {});
         event.preventDefault();
         event.returnValue = '';
@@ -36,6 +38,7 @@ export function DesktopChrome() {
       try {
         await documentSaves.flushAll();
         await flushCaptureDrafts();
+        flushChatDrafts();
         const deadline = Date.now() + 10_000;
         while (queryClient.isMutating() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
         const ready = queryClient.isMutating() === 0 && !documentSaves.has();

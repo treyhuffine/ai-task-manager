@@ -29,14 +29,14 @@ function ShortcutForm({ status, busy, save }: { status: DesktopSettingsStatus['s
 
 export function DesktopSettings() {
   const [desktop, setDesktop] = useState<RiDesktop>();
-  useEffect(() => setDesktop(window.riDesktop), []);
+  useEffect(() => setDesktop(window.riDesktop?.settings ? window.riDesktop : undefined), []);
   const client = useQueryClient(); const [busy, setBusy] = useState(false);
-  const query = useQuery({ queryKey: ['desktop-settings'], queryFn: () => desktop!.settings({ type: 'status' }), enabled: !!desktop, refetchInterval: 5000, retry: false });
+  const query = useQuery({ queryKey: ['desktop-settings'], queryFn: () => desktop!.settings!({ type: 'status' }), enabled: !!desktop, refetchInterval: 5000, retry: false });
   if (!desktop) return null;
   const save = async (action: DesktopSettingsAction) => {
     setBusy(true);
     try {
-      const result = await desktop.settings(action);
+      const result = await desktop.settings!(action);
       client.setQueryData(['desktop-settings'], result);
       if (action.type === 'login' && ['error', 'unavailable', 'conflict'].includes(result.login.state)) toast.error(result.login.detail ?? 'Login setup could not be changed.');
     }

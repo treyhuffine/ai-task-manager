@@ -6,6 +6,8 @@
  * available while the home answers.
  */
 
+import { runtimeReleaseIdentity } from '@/lib/releases/runtime-identity';
+import { workerCompatibilityView } from '@/lib/workers/update-compatibility';
 import type { ApiKeyRecord } from '@/db/types';
 import type { DeviceKeyView, DeviceView } from '@/lib/api/devices';
 import { isHostKeyHash } from '@/lib/auth/host-key';
@@ -53,6 +55,7 @@ export async function listDeviceViews(opts: { includeRevoked?: boolean; callerKe
       hostname: d.hostname,
       status: d.status,
       isHome,
+      release: isHome ? runtimeReleaseIdentity() : undefined,
       // The home on a laptop: its schedules run only while it's awake (P3.4).
       portable: isHome ? portable : undefined,
       isThisDevice: deviceKeys.some((k) => k.current),
@@ -66,6 +69,7 @@ export async function listDeviceViews(opts: { includeRevoked?: boolean; callerKe
             protocol: d.workerProtocol,
             version: d.workerVersion,
             reportedState: d.reportedState,
+            compatibility: workerCompatibilityView(d.id, d.name, d.workerProtocol),
           },
       keys: deviceKeys,
     };

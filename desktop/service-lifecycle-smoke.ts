@@ -1,3 +1,4 @@
+import { writeDesktopHomeIntent } from '../src/lib/service/desktop-role-intent';
 /** Ordinary-Node lifecycle qualification using only disposable application
  * data. Default mode never changes login jobs. --os-supervisor additionally
  * exercises real launchd/systemd adapters on an opted-in hosted CI account. */
@@ -30,6 +31,7 @@ const environment = fixtureEnvironment(process.env, { temporary, ...(native ? { 
 // remove every inherited app override and provider credential first.
 for (const name of Object.keys(process.env)) delete process.env[name];
 Object.assign(process.env, environment);
+writeDesktopHomeIntent();
 fs.mkdirSync(process.env.HOME!, { recursive: true });
 const paths = servicePaths();
 const observed = new Set<number>();

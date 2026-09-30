@@ -54,7 +54,7 @@ void acceptance('notifications-smoke', async fixture => {
   });
   assert.equal(ownerOnlyStatus, 403);
   assert.equal(await page.evaluate(async () => {
-    try { await window.riDesktop!.notifications('claim' as never); return 'accepted'; }
+    try { await window.riDesktop!.notifications!('claim' as never); return 'accepted'; }
     catch { return 'rejected'; }
   }), 'rejected');
   fixture.check('Ordinary owner client cannot claim desktop delivery and renderer IPC actions are narrow');
@@ -110,7 +110,7 @@ void acceptance('notifications-smoke', async fixture => {
   await page.getByRole('button', { name: 'Disable desktop notifications', exact: true }).waitFor();
   // An explicit enable also pumps the real consumer. Old sent rows must not
   // be claimed again after renderer reload and preferences must survive.
-  await page.evaluate(() => window.riDesktop!.notifications('enable'));
+  await page.evaluate(() => window.riDesktop!.notifications!('enable'));
   assert.equal((await presented()).length, 1);
   assert.deepEqual((await channel()).events, selectedEvents);
   await page.getByRole('button', { name: 'Disable desktop notifications', exact: true }).click();
@@ -118,7 +118,7 @@ void acceptance('notifications-smoke', async fixture => {
   assert.equal((await channel()).enabled, false);
   await page.evaluate(async () => {
     let rejected = false;
-    try { await window.riDesktop!.notifications('test'); } catch { rejected = true; }
+    try { await window.riDesktop!.notifications!('test'); } catch { rejected = true; }
     if (!rejected) throw new Error('Disabled desktop channel accepted a test alert');
   });
   assert.equal(deliveries().length, 1);

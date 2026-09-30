@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { servicePaths } from './paths';
-import { serviceRequest, serviceStatus } from './client';
+import { serviceRequest, serviceStatus, ensureServiceStatus, ensureService } from './client';
 
 let directory: string;
 let server: http.Server | undefined;
@@ -42,3 +42,17 @@ it('does not mask an identity mismatch as a stopped or replaceable service', asy
   await expect(serviceStatus()).rejects.toThrow('identity'); expect(requests).toBe(1);
 });
 it('reports an absent endpoint as stopped', async () => { expect(await serviceStatus()).toBeNull(); });
+
+it('attaches a worker status without requesting local Home credentials', async () => {
+  const routes: string[] = [];
+  await listen((request, response) => { routes.push(request.url!); response.end(JSON.stringify({ protocol: 1, identity: servicePaths().identity, phase: 'running', role: 'worker', home: { url: 'https://home.example', name: 'Home' } })); });
+  expect((await ensureServiceStatus({ repo: '/repo', node: '/node' })).role).toBe('worker');
+  expect(routes).not.toContain('/session');
+  await expect(ensureService({ repo: '/repo', node: '/node' })).rejects.toThrow('Home elsewhere');
+  expect(routes).not.toContain('/session');
+});
+it('returns a first-run status for setup without inventing a local session', async () => {
+  await listen((_request, response) => response.end(JSON.stringify({ protocol: 1, identity: servicePaths().identity, phase: 'running', role: 'first-run' })));
+  expect((await ensureServiceStatus({ repo: '/repo', node: '/node' })).origin).toBeUndefined();
+  await expect(ensureService({ repo: '/repo', node: '/node' })).rejects.toThrow('Choose how');
+});

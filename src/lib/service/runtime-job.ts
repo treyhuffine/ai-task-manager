@@ -31,7 +31,7 @@ export async function stopRuntimeJobs(graceMs = 5000) {
 
 /** Heavy filesystem/hash work must never freeze the controller's status and
  * ownership surface. The helper uses the controller's trusted runtime/ABI. */
-export function runtimeJob<T>(repo: string, action: 'verify' | 'download' | 'checkpoint' | 'restore' | 'validate-database', value: unknown, progress?: (bytes: number) => void, node = process.execPath): Promise<T> {
+export function runtimeJob<T>(repo: string, action: 'verify' | 'download' | 'checkpoint' | 'restore' | 'validate-database' | 'worker-checkpoint' | 'worker-checkpoint-verify', value: unknown, progress?: (bytes: number) => void, node = process.execPath): Promise<T> {
   if (!owner || stopping) return Promise.reject(new Error('Runtime jobs are unavailable while the service is starting or stopping'));
   return new Promise((resolve, reject) => {
     const child = fork(path.join(repo, 'dist/service/runtime-job.cjs'), [], { execPath: node, execArgv: [], cwd: repo, env: process.env, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });

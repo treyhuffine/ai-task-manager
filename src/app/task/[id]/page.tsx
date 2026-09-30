@@ -1,5 +1,5 @@
 'use client';
-import { useDocumentAutosave } from '@/hooks/use-document-autosave';
+import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave';
 
 import { use, useEffect, useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -56,10 +56,11 @@ const EFFORT_OPTIONS: { value: Effort; label: string }[] = [
 export default function TaskPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: taskId } = use(params);
   const router = useRouter();
-  const { data: task } = useTask(taskId);
+  const { data: savedTask } = useTask(taskId);
+  const task = usePendingDocument('tasks', taskId, savedTask);
   const { data: parentTask } = useTask(task?.parentId ?? null);
   const updateTask = useUpdateTask();
-  const autosave = useDocumentAutosave('tasks', taskId, task, updateTask.mutateAsync);
+  const autosave = useDocumentAutosave('tasks', taskId, savedTask, updateTask.mutateAsync);
   const deleteTask = useDeleteTask();
   const lifecycle = useTaskLifecycle();
   const chat = useDocumentChat('task', task ?? null);

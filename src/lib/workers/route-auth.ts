@@ -5,14 +5,20 @@
  * home's protocol. A worker on another protocol gets 426 and stops.
  */
 
+import { recordWorkerCompatibility } from './update-compatibility';
+import { bindDeviceMirrorEnrollment } from '@/lib/executor/remote-live';
 import type { DeviceRecord } from '@/db/types';
 import { getRequestKey } from '@/lib/auth/request-key';
+import { runtimePeerRelease } from '@/lib/releases/runtime-identity';
+import { compatibilityMessage, legacyCompatibility, negotiateWorker, PeerReleaseSchema, type PeerRelease, type CompatibilityResult } from '@/lib/releases/compatibility';
 import { getWorkerDevice } from '@/lib/db/queries';
-import { protocolMismatchMessage, WORKER_PROTOCOL, WORKER_PROTOCOL_HEADER } from './protocol';
+import { WORKER_PROTOCOL, WORKER_PROTOCOL_HEADER, WORKER_COMPATIBILITY_HEADER } from './protocol';
 
 export interface WorkerCaller {
   apiKeyId: string;
   device: DeviceRecord;
+  peer?: PeerRelease;
+  agreement: Extract<CompatibilityResult, { compatible: true }>;
 }
 
 export function requireWorker(headers: Headers): WorkerCaller | Response {
@@ -24,14 +30,27 @@ export function requireWorker(headers: Headers): WorkerCaller | Response {
   if (!device || device.id !== key.workerDeviceId) {
     return Response.json({ error: 'unauthorized', message: 'This worker is no longer enrolled.' }, { status: 401 });
   }
+  bindDeviceMirrorEnrollment(device.id, key.apiKeyId);
   const protocol = Number(headers.get(WORKER_PROTOCOL_HEADER));
-  if (protocol !== WORKER_PROTOCOL) {
-    return Response.json(
-      { error: 'worker_protocol', protocol: WORKER_PROTOCOL, message: protocolMismatchMessage(device.name) },
-      { status: 426 },
-    );
+  // Authentication above precedes decoding any compatibility claims.
+  const header = headers.get(WORKER_COMPATIBILITY_HEADER);
+  let peer: PeerRelease | undefined;
+  if (header) {
+    try {
+      if (header.length > 8192) throw new Error('oversized');
+      peer = PeerReleaseSchema.parse(JSON.parse(Buffer.from(header, 'base64url').toString('utf8')));
+      if (!peer.compatibility.workerProtocols.includes(protocol)) throw new Error('protocol not advertised');
+    } catch { return Response.json({ error: 'invalid_compatibility', message: 'Invalid worker compatibility report.' }, { status: 400 }); }
   }
-  return { apiKeyId: key.apiKeyId, device };
+  const local = runtimePeerRelease();
+  const agreement = negotiateWorker(local.compatibility, peer?.compatibility ?? legacyCompatibility(protocol));
+  if (!agreement.compatible || protocol !== agreement.protocol) {
+    const mismatch = !agreement.compatible ? agreement : { compatible: false as const, update: 'worker' as const, reason: 'Select the negotiated worker protocol before dispatch.' };
+    recordWorkerCompatibility(device.id, key.apiKeyId, peer, undefined, false, protocol);
+    return Response.json({ error: 'worker_protocol', protocol: WORKER_PROTOCOL, update: mismatch.update, peer: local,
+      message: compatibilityMessage(mismatch, device.name, 'your Home') }, { status: 426 });
+  }
+  return { apiKeyId: key.apiKeyId, device, peer, agreement };
 }
 
 /**

@@ -11,6 +11,7 @@ export interface ServiceStatus {
   pid: number;
   phase: 'starting' | 'running' | 'stopping' | 'failed' | 'updating';
   version: string;
+  release?: import('../releases/compatibility').PeerRelease;
   repo: string;
   /** Executable used by the owning backend, when reported by this controller. */
   node?: string;
@@ -22,6 +23,7 @@ export interface ServiceStatus {
    */
   role?: import('./role').ServiceRole['role'];
   home?: { url: string; name: string } | null;
+  worker?: import('./worker').ServiceWorkerStatus;
 }
 
 export interface ServiceSession extends ServiceStatus { origin: string; certificate: string; token: string; desktopClient: string }
@@ -68,7 +70,10 @@ export async function serviceStatus(): Promise<ServiceStatus | null> {
   }
 }
 
-export async function ensureService(options: { repo: string; node: string; env?: NodeJS.ProcessEnv; timeoutMs?: number }): Promise<ServiceSession> {
+export interface ServiceStartOptions { repo: string; node: string; env?: NodeJS.ProcessEnv; timeoutMs?: number }
+
+/** Start or attach to any role without granting a local Home session. */
+export async function ensureServiceStatus(options: ServiceStartOptions): Promise<ServiceStatus> {
   const paths = servicePaths();
   let status = await serviceStatus();
   if (!status && !(await (await import('./install')).startInstalledService())) {
@@ -88,7 +93,7 @@ export async function ensureService(options: { repo: string; node: string; env?:
   const deadline = Date.now() + (options.timeoutMs ?? 180_000);
   while (Date.now() < deadline) {
     status = await serviceStatus();
-    if (status?.phase === 'running') return serviceRequest<ServiceSession>('/session');
+    if (status?.phase === 'running') return status;
     if (status?.phase === 'failed') throw new Error(status.error ?? 'Service failed to start');
     if (status?.phase === 'stopping') throw new Error('The service is stopping. Wait for it to stop before reopening.');
     await new Promise(resolve => setTimeout(resolve, 250));
@@ -96,11 +101,19 @@ export async function ensureService(options: { repo: string; node: string; env?:
   throw new Error(`The service did not start. Read ${paths.log} for diagnostics.`);
 }
 
+/** Only a local Home can issue the private native session. */
+export async function ensureService(options: ServiceStartOptions): Promise<ServiceSession> {
+  const status = await ensureServiceStatus(options);
+  if (status.role && !['home', 'first-run'].includes(status.role)) throw new Error('This device connects to a Home elsewhere. Use its connected viewer session.');
+  if (!status.origin) throw new Error('Choose how to use this device before opening Ri.');
+  return serviceRequest<ServiceSession>('/session');
+}
+
 export async function stopService(): Promise<void> {
   const status = await serviceStatus();
   if (!status) return;
   await serviceRequest('/stop', 'POST');
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + 75_000;
   while (Date.now() < deadline) {
     const next = await serviceStatus();
     if (!next) return;

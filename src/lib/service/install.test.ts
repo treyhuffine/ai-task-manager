@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { servicePaths } from './paths';
+import { acquireServiceOwner } from './owner';
 import { hasLoginSupervision, installService, startInstalledService, uninstallService } from './install';
 
 const mocks = vi.hoisted(() => ({ exec: vi.fn(), status: vi.fn(), request: vi.fn(), stop: vi.fn(), runtime: vi.fn() }));
@@ -54,7 +55,7 @@ describe.each(['darwin', 'linux'] as const)('%s user service adapter', platform 
     mocks.request.mockRejectedValue(new Error('Work is active'));
     const job = await installService(true);
     await expect(installService()).rejects.toThrow('Work is active');
-    expect(mocks.request).toHaveBeenCalledWith('/handoff', 'POST', 10_000);
+    expect(mocks.request).toHaveBeenCalledWith('/handoff', 'POST', 60_000);
     expect(fs.existsSync(job.file)).toBe(false); expect(hasLoginSupervision()).toBe(false); expect(mocks.exec).not.toHaveBeenCalled();
   });
 
@@ -81,6 +82,98 @@ describe.each(['darwin', 'linux'] as const)('%s user service adapter', platform 
     expect(mocks.request).not.toHaveBeenCalled(); expect(mocks.status).not.toHaveBeenCalled();
     if (platform === 'darwin') expect(mocks.exec).toHaveBeenLastCalledWith('launchctl', ['kickstart', `gui/${process.getuid!()}/${job.label}`], { stdio: 'pipe' });
     else expect(mocks.exec).toHaveBeenCalledWith('systemctl', ['--user', 'start', `${job.label}.service`], { stdio: 'pipe' });
+  });
+
+  function previousContent(content: string) {
+    return platform === 'darwin'
+      ? content.replace('<key>ExitTimeOut</key><integer>60</integer>', '<key>ExitTimeOut</key><integer>30</integer>')
+      : content.replace('TimeoutStopSec=60\n', 'TimeoutStopSec=30\n');
+  }
+
+  it('migrates only the known previous definition after a successful idle handoff', async () => {
+    const job = await installService(); const previous = previousContent(job.content);
+    write(job.file, previous); mocks.exec.mockClear(); mocks.request.mockClear();
+    mocks.status.mockResolvedValueOnce({ phase: 'running' }).mockResolvedValue(null);
+    const operations: string[] = [];
+    mocks.request.mockImplementation(async () => { operations.push('handoff'); });
+    mocks.exec.mockImplementation((command: string, args: string[]) => {
+      const stopping = command === 'launchctl' ? args[0] === 'bootout' : args[1] === 'stop';
+      const starting = command === 'launchctl' ? args[0] === 'bootstrap' : args[1] === 'enable';
+      if (stopping) { operations.push('unload'); expect(fs.readFileSync(job.file, 'utf8')).toBe(previous); }
+      if (starting) { operations.push('load'); expect(fs.readFileSync(job.file, 'utf8')).toBe(job.content); }
+    });
+    await installService();
+    expect(operations).toEqual(['handoff', 'unload', 'load']);
+    expect(fs.readFileSync(job.file, 'utf8')).toBe(job.content); expect(hasLoginSupervision()).toBe(true);
+    if (platform === 'linux') expect(mocks.exec).toHaveBeenCalledWith('systemctl', ['--user', 'daemon-reload'], { stdio: 'pipe' });
+  });
+
+  it('upgrades the known previous registration when starting the installed service', async () => {
+    const job = await installService(); write(job.file, previousContent(job.content)); mocks.exec.mockClear();
+    await expect(startInstalledService()).resolves.toBe(true);
+    expect(fs.readFileSync(job.file, 'utf8')).toBe(job.content);
+    if (platform === 'darwin') expect(mocks.exec).toHaveBeenLastCalledWith('launchctl', ['bootstrap', `gui/${process.getuid!()}`, job.file], { stdio: 'pipe' });
+    else expect(mocks.exec).toHaveBeenLastCalledWith('systemctl', ['--user', 'enable', '--now', `${job.label}.service`], { stdio: 'pipe' });
+  });
+
+  it('preserves the previous definition and its live worker when handoff is busy', async () => {
+    const job = await installService(); const previous = previousContent(job.content); write(job.file, previous);
+    mocks.exec.mockClear(); mocks.status.mockResolvedValue({ phase: 'running' }); mocks.request.mockRejectedValue(new Error('Work is active'));
+    await expect(installService()).rejects.toThrow('Work is active');
+    await expect(startInstalledService()).rejects.toThrow('Work is active');
+    expect(mocks.exec).not.toHaveBeenCalled(); expect(mocks.stop).not.toHaveBeenCalled();
+    expect(fs.readFileSync(job.file, 'utf8')).toBe(previous); expect(hasLoginSupervision()).toBe(true);
+  });
+
+  it('refuses to unload an unreachable controller that still owns this root', async () => {
+    const job = await installService(); const previous = previousContent(job.content); write(job.file, previous); mocks.exec.mockClear();
+    const release = acquireServiceOwner();
+    try {
+      await expect(installService()).rejects.toThrow('Another Ri launcher owns');
+      expect(mocks.exec).not.toHaveBeenCalled(); expect(fs.readFileSync(job.file, 'utf8')).toBe(previous);
+    } finally { release(); }
+  });
+
+  it('does not treat a modified previous template as an owned migration', async () => {
+    const job = await installService(); const modified = previousContent(job.content).replace('RI_DESKTOP', 'OTHER_DESKTOP'); write(job.file, modified);
+    mocks.exec.mockClear(); mocks.status.mockClear(); mocks.request.mockClear();
+    await expect(installService()).rejects.toThrow('different service definition');
+    await expect(startInstalledService()).rejects.toThrow('modified or removed');
+    await expect(uninstallService()).rejects.toThrow('modified');
+    expect(mocks.exec).not.toHaveBeenCalled(); expect(mocks.request).not.toHaveBeenCalled(); expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.status).not.toHaveBeenCalled();
+    expect(fs.readFileSync(job.file, 'utf8')).toBe(modified);
+  });
+
+  it('leaves the previous template intact if the supervisor refuses to unload it', async () => {
+    const job = await installService(); const previous = previousContent(job.content); write(job.file, previous); mocks.exec.mockClear();
+    mocks.exec.mockImplementation((command: string, args: string[]) => {
+      if (command === 'launchctl' ? args[0] === 'bootout' : args[1] === 'stop') throw new Error('Supervisor refused');
+    });
+    await expect(installService()).rejects.toThrow('Supervisor refused');
+    expect(fs.readFileSync(job.file, 'utf8')).toBe(previous); expect(hasLoginSupervision()).toBe(true);
+  });
+
+  it('refuses a definition changed while the previous registration is unloading', async () => {
+    const job = await installService(); write(job.file, previousContent(job.content)); mocks.exec.mockClear();
+    mocks.exec.mockImplementation((command: string, args: string[]) => {
+      if (command === 'launchctl' ? args[0] === 'bootout' : args[1] === 'stop') write(job.file, 'changed during unload');
+    });
+    await expect(installService()).rejects.toThrow('different service definition');
+    expect(fs.readFileSync(job.file, 'utf8')).toBe('changed during unload');
+    expect(mocks.exec.mock.calls.some(([command, args]) => command === 'launchctl' ? args[0] === 'bootstrap' : args[1] === 'enable')).toBe(false);
+  });
+
+  it('can remove the exact previous template without requiring a migration first', async () => {
+    const job = await installService(); write(job.file, previousContent(job.content)); mocks.exec.mockClear();
+    await uninstallService();
+    expect(mocks.stop).toHaveBeenCalledTimes(1); expect(fs.existsSync(job.file)).toBe(false); expect(hasLoginSupervision()).toBe(false);
+  });
+
+  it('does not remove a job modified while its controller is stopping', async () => {
+    const job = await installService(); mocks.exec.mockClear();
+    mocks.stop.mockImplementation(async () => { write(job.file, 'changed during stop'); });
+    await expect(uninstallService()).rejects.toThrow('modified');
+    expect(mocks.exec).not.toHaveBeenCalled(); expect(fs.readFileSync(job.file, 'utf8')).toBe('changed during stop'); expect(hasLoginSupervision()).toBe(true);
   });
 
   it('does not claim supervision after OS registration fails', async () => {
@@ -114,5 +207,15 @@ it('bootstraps an installed macOS job after its launch domain lost the registrat
   const job = await installService(); mocks.exec.mockClear();
   mocks.exec.mockImplementation((_command, args: string[]) => { if (args[0] === 'print') throw new Error('Not loaded'); });
   await expect(startInstalledService()).resolves.toBe(true);
+  expect(mocks.exec).toHaveBeenLastCalledWith('launchctl', ['bootstrap', `gui/${process.getuid!()}`, job.file], { stdio: 'pipe' });
+});
+
+it('migrates an unloaded previous macOS registration without booting out a different job', async () => {
+  Object.defineProperty(process, 'platform', { value: 'darwin' });
+  const job = await installService(); write(job.file, job.content.replace('<key>ExitTimeOut</key><integer>60</integer>', '<key>ExitTimeOut</key><integer>30</integer>')); mocks.exec.mockClear();
+  mocks.exec.mockImplementation((_command, args: string[]) => { if (args[0] === 'print') throw new Error('Not loaded'); });
+  await startInstalledService();
+  expect(mocks.exec.mock.calls.some(([, args]) => args[0] === 'bootout')).toBe(false);
+  expect(fs.readFileSync(job.file, 'utf8')).toBe(job.content);
   expect(mocks.exec).toHaveBeenLastCalledWith('launchctl', ['bootstrap', `gui/${process.getuid!()}`, job.file], { stdio: 'pipe' });
 });

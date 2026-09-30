@@ -2,11 +2,14 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 // No Node, filesystem, arbitrary IPC, or credentials cross this bridge.
 if (process.isMainFrame) {
+  const local = ipcRenderer.sendSync('desktop:bridge-mode') === 'local';
   contextBridge.exposeInMainWorld('riDesktop', Object.freeze({
     platform: process.platform,
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('desktop:open-external', url),
-    notifications: (action: unknown) => ipcRenderer.invoke('desktop:notifications', action),
-    settings: (action: unknown) => ipcRenderer.invoke('desktop:settings', action),
+    ...(local ? {
+      notifications: (action: unknown) => ipcRenderer.invoke('desktop:notifications', action),
+      settings: (action: unknown) => ipcRenderer.invoke('desktop:settings', action),
+    } : {}),
     onQuickCapture: (callback: () => void) => {
       const listener = () => callback();
       ipcRenderer.on('desktop:quick-capture', listener);

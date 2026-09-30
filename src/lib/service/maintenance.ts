@@ -5,17 +5,11 @@ import { canonical } from './paths';
 import { getDbPath } from '@/lib/config/paths';
 import { atomicWriteFile } from '@/lib/config/atomic-file';
 
-export interface MaintenanceGate { phase: 'draining' | 'offline'; token: string; startedAt: string }
-export function gatePath(database = getDbPath()) { return `${canonical(database)}.maintenance.json`; }
-export function readMaintenance(database?: string): MaintenanceGate | null {
-  try { return JSON.parse(fs.readFileSync(gatePath(database), 'utf8')); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
-}
+import { readMaintenance, gatePath, MaintenanceError, type MaintenanceGate } from './maintenance-state';
+export { readMaintenance, gatePath, MaintenanceError, type MaintenanceGate } from './maintenance-state';
+
 export function writeMaintenance(gate: MaintenanceGate, database?: string) { atomicWriteFile(gatePath(database), JSON.stringify(gate)); }
 export function clearMaintenance(database?: string) { fs.rmSync(gatePath(database), { force: true }); }
-export class MaintenanceError extends Error {
-  constructor() { super('Ri is preparing an update. Please retry shortly.'); this.name = 'MaintenanceError'; }
-}
 
 /** Rollback-journal locks are shared across processes and released by the OS
  * after a crash. Never unlink these sidecars or replace them with timed leases. */

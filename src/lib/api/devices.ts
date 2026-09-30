@@ -1,3 +1,4 @@
+import type { PeerRelease } from '@/lib/releases/compatibility';
 import { api } from './client';
 import type { ApiKeyRole, DeviceKind } from '@/db/types';
 
@@ -41,6 +42,8 @@ export interface DeviceView {
   /** When it was last heard from. */
   lastSeenAt: string | null;
   /** Its worker, for any device but the home's own. */
+  /** The Home's running build. Does not grant installation authority. */
+  release?: PeerRelease['release'];
   worker: {
     enrolled: boolean;
     connected: boolean;
@@ -48,6 +51,11 @@ export interface DeviceView {
     version: string | null;
     /** What it last said about itself. Asleep only when it said so: silence is unavailable, not asleep. */
     reportedState: 'awake' | 'asleep' | 'stopped' | null;
+    compatibility?: {
+      state: 'compatible' | 'update-required' | 'unknown'; release?: PeerRelease['release'];
+      protocol?: number; capabilities: string[]; update?: 'home' | 'worker' | 'both'; reason?: string;
+      reportedAt?: string; pendingEvents?: number; pendingCommands?: number; openTurns?: number;
+    };
   } | null;
   keys: DeviceKeyView[];
 }

@@ -41,15 +41,28 @@ export function normalizeHomeUrl(raw: string): string {
   return `${url.protocol}//${url.host}`;
 }
 
+function assertConnectionVersion(version: unknown, file: string): void {
+  // The first connection records had no version field. Only that legacy
+  // format and explicit version 1 are readable by this release.
+  if (version !== undefined && version !== CONNECTION_VERSION) {
+    throw new ConnectionConfigError(`${file} uses a connection format this version of Ri cannot read. Update to a compatible Ri release. The saved connection was left unchanged.`);
+  }
+}
+
+function readConnectionRecord(file: string): Partial<ConnectionConfig> & { computerId?: string | null } {
+  let parsed: unknown;
+  try { parsed = JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch { throw new ConnectionConfigError(`${file} is not valid JSON. Repair the saved connection before reconnecting.`); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new ConnectionConfigError(`${file} is not a connection record. Repair the saved connection before reconnecting.`);
+  const record = parsed as Partial<ConnectionConfig> & { computerId?: string | null };
+  assertConnectionVersion(record.version, file);
+  return record;
+}
+
 export function readConnection(): ConnectionConfig | null {
   const file = getConnectionPath();
   if (!fs.existsSync(file)) return null;
-  let parsed: Partial<ConnectionConfig> & { computerId?: string | null };
-  try {
-    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    throw new ConnectionConfigError(`${file} is not valid JSON. Connect this device again.`);
-  }
+  const parsed = readConnectionRecord(file);
   // Written as `computerId` before devices were named devices (2026-09-29).
   parsed.deviceId ??= parsed.computerId;
   for (const key of ['homeId', 'homeUrl', 'credential'] as const) {
@@ -72,8 +85,12 @@ export function readConnection(): ConnectionConfig | null {
 /** Atomic write, 0600 in a 0700 directory. */
 export function writeConnection(config: Omit<ConnectionConfig, 'version'>): ConnectionConfig {
   const file = getConnectionPath();
+  // Recheck persisted state at every writer, including a fresh pairing path
+  // that did not first read it. Never normalize a future format into this one.
+  if (fs.existsSync(file)) readConnectionRecord(file);
+  assertConnectionVersion((config as Partial<ConnectionConfig>).version, file);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const record: ConnectionConfig = { version: CONNECTION_VERSION, ...config, homeUrl: normalizeHomeUrl(config.homeUrl) };
+  const record: ConnectionConfig = { ...config, version: CONNECTION_VERSION, homeUrl: normalizeHomeUrl(config.homeUrl) };
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
   fs.renameSync(tmp, file);

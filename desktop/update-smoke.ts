@@ -1,3 +1,4 @@
+import { writeDesktopHomeIntent } from '../src/lib/service/desktop-role-intent';
 /** Real signed HTTPS download, SQLite migration and ordinary-Node handoff.
  * Uses only a disposable home. No OS trust store or login service is changed. */
 import assert from 'node:assert/strict';
@@ -29,6 +30,7 @@ for (const name of Object.keys(process.env)) {
   if (/^(?:RI_|OPENAI_|ANTHROPIC_|GROQ_|BEAMD_|CLAUDE_|CODEX_|CURSOR_|OPENCODE_)/.test(name)) delete process.env[name];
 }
 Object.assign(process.env, { HOME: fixtureHome, XDG_CONFIG_HOME: path.join(fixtureHome, '.config'), PATH: '/usr/bin:/bin:/usr/sbin:/sbin', RI_ROOT: path.join(temporary, 'home'), RI_INSTALL_ROOT: path.join(temporary, 'installed'), RI_DESKTOP_STATE_DIR: path.join(temporary, 'desktop-state'), RI_DESKTOP: '1', RI_DESKTOP_MODE: 'production', NEXT_DIST_DIR: '.next-desktop' });
+writeDesktopHomeIntent();
 let server: https.Server | undefined;
 let envelope: object;
 let archive: string;
@@ -180,7 +182,8 @@ try {
     gui = await _electron.launch({ executablePath: desktopPackageLayout(guiPackage).executable, env: { ...process.env, RI_DESKTOP_ROOT: process.env.RI_ROOT!, RI_DESKTOP_SMOKE: '1' }, timeout: 240_000 });
     const page = await gui.firstWindow();
     await page.waitForURL(url => url.origin === initial.origin, { timeout: 240_000 });
-    const notifications = await page.evaluate(() => window.riDesktop!.notifications('status'));
+    assert.equal(await page.evaluate(() => typeof window.riDesktop?.notifications), 'function', 'Local Home update smoke requires native notifications');
+    const notifications = await page.evaluate(() => window.riDesktop!.notifications!('status'));
     assert.equal(notifications.enabled, false);
     assert.equal(notifications.error, undefined);
     await nativeNavigate(page, `${initial.origin}/?settings=updates`, guiNavigation);
@@ -230,7 +233,7 @@ try {
     const bridge = await waitFor(async () => {
       bridgeAttempts++;
       return page.evaluate(async () => {
-        try { return { ok: true as const, status: await window.riDesktop!.notifications('status') }; }
+        try { return { ok: true as const, status: await window.riDesktop!.notifications!('status') }; }
         catch (error) { return { ok: false as const, error: String(error) }; }
       });
     }, value => value.ok, 'native notification capability after controller replacement', 15_000);

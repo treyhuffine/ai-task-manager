@@ -12,9 +12,9 @@ export function runtimeForOwner(owner: Pick<ServiceStatus, 'repo' | 'node'>, act
 
 /** Attach-only wait. If the owner goes away, require an explicit retry rather
  * than silently spawning this shell's bundled code in its data directory. */
-export async function attachExistingOwner(dependencies: {
+export async function attachExistingOwner<T extends ServiceStatus = ServiceSession>(dependencies: {
   status: () => Promise<ServiceStatus | null>;
-  session: () => Promise<ServiceSession>;
+  session: () => Promise<T>;
   delay?: () => Promise<void>;
   timeoutMs?: number;
 }) {
