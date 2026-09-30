@@ -3,6 +3,7 @@ import { isConnectorError } from '@connectors/engine';
 import { getConnectorRuntime } from '@/lib/connectors/runtime';
 import { withCompression } from '@/lib/api/compression';
 import { oauthReturnRedirect, takeOAuthReturn } from '@/lib/connectors/oauth-return';
+import { runAuthCompleted } from '@/lib/connectors/begin-connect';
 
 /**
  * OAuth redirect target (public — see proxy PUBLIC_PATHS). The provider sends the
@@ -39,6 +40,8 @@ async function handleGET(request: NextRequest) {
 
   try {
     const connection = await (await getConnectorRuntime()).completeAuth({ code, state, params, expectedChannel: 'web' });
+    // Whatever the connect start asked for next (a Connect card recording itself, say).
+    await runAuthCompleted(state, connection);
     return redirect({ connected: connection.email ?? connection.accountId });
   } catch (e) {
     // Map to a coarse code — never put the raw error (which may carry request detail) into the

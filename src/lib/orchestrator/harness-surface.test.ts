@@ -309,6 +309,26 @@ describe('connectorsMcpServer', () => {
       url: 'http://localhost:5151/api/connectors/mcp?ws=ws-123',
     });
   });
+
+  it('carries the calling chat’s signed credential, so an approval card lands in that chat', async () => {
+    fs.mkdirSync(root, { recursive: true });
+    seedToken();
+    const { verifySessionCredential } = await import('./session-credential');
+    const bare = connectorsMcpServer(5151) as { headers: Record<string, string> };
+    expect(bare.headers).toEqual({ Authorization: 'Bearer tok_test_123' });
+
+    const scoped = connectorsMcpServer(5151, { workspaceId: 'ws-123', sessionId: 'chat-42' }) as {
+      headers: Record<string, string>;
+    };
+    expect(verifySessionCredential(scoped.headers['x-ri-session'], 'tok_test_123')).toBe('chat-42');
+
+    // The orchestrator chat threads its session through to the connectors server too.
+    const config = orchestratorSessionConfig('harness_mcp', { port: 5151, sessionId: 'chat-42' });
+    const connectors = config.mcpServers?.find((server) => server.name === 'connectors') as
+      | { headers: Record<string, string> }
+      | undefined;
+    expect(verifySessionCredential(connectors?.headers['x-ri-session'], 'tok_test_123')).toBe('chat-42');
+  });
 });
 
 describe('browserMcpServer', () => {

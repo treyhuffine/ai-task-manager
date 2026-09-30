@@ -25,6 +25,7 @@ import { buildTranscriptNodes } from './transcript-grouping';
 import { useTranscriptDensity } from '@/lib/client/transcript-density';
 import { isPlumbingTool } from '@/lib/executions/tool-display';
 import { partitionSubagentEvents } from '@/lib/executions/subagent';
+import { coalesceApprovalRequests } from '@/lib/executions/connector-approvals';
 import { NO_RESPONSE_REQUESTED } from '@/lib/executions/conversation';
 import { SetupCard } from './setup-card';
 import { ThinkingState } from './thinking-state';
@@ -86,6 +87,14 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
   );
   const hasEvents = topLevel.length > 0;
 
+  // A batch of the same paused connector action (eight parallel calendar
+  // deletes) folds into one approval card: the batch's first request row
+  // stays in the flow as the card, the rest ride along in `approvalGroups`.
+  const { events: flowEvents, groups: approvalGroups } = useMemo(
+    () => coalesceApprovalRequests(topLevel),
+    [topLevel],
+  );
+
   // Pair each `tool_result` to its `tool_call` (via externalToolCallId) so
   // a call row can render the result's summary inline ("150 lines"). Built
   // from the full event list — including subagent events — so a nested call
@@ -103,19 +112,19 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
   //   - tool_result rows whose tool_call is present (merged onto the call)
   //   - PTY plumbing calls (Codex write_stdin/read_thread_terminal)
   const renderEvents = useMemo(() => {
-    if (density !== 'condensed') return topLevel;
+    if (density !== 'condensed') return flowEvents;
     const callIds = new Set<string>();
-    for (const e of topLevel) {
+    for (const e of flowEvents) {
       if (e.source === 'tool_call' && e.externalToolCallId) callIds.add(e.externalToolCallId);
     }
-    return topLevel.filter((e) => {
+    return flowEvents.filter((e) => {
       if (e.source === 'tool_result' && e.externalToolCallId && callIds.has(e.externalToolCallId)) {
         return false;
       }
       if (e.source === 'tool_call' && isPlumbingTool(e.toolName)) return false;
       return true;
     });
-  }, [topLevel, density]);
+  }, [flowEvents, density]);
 
   // Condensed (default) folds each completed turn's intermediate activity
   // into a collapsible summary; `full` renders every event. Recomputes
@@ -216,9 +225,14 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
               // new user message has been sent. Treat the banner as still
               // actionable until the user actually moves past it with a
               // fresh message — i.e. no user event sent after it.
-              isLatestUnresolved={event.source === 'auth_required' && idx > lastUserIdx}
+              // Approval cards use the same signal: an expired card offers
+              // "ask the agent to retry" only until the user moves on.
+              isLatestUnresolved={
+                (event.source === 'auth_required' || event.source === 'approval_request') && idx > lastUserIdx
+              }
               voiceSent={voiceSentIds?.has(event.id) ?? false}
               clientStatus={clientStatus[event.id]}
+              approvalGroup={approvalGroups.get(event.id)}
             />
           );
         })}

@@ -8668,6 +8668,23 @@ export function getLastChatEventBySource(
  * the existing row instead of 500ing, making the HTTP semantics match
  * the DB's idempotent `onConflictDoNothing`.
  */
+/**
+ * A session's events of the given sources, oldest first. Narrow by design: connection cards read
+ * their own requests and decisions with it (connectors/connection-requests.ts). Rides the
+ * (session_id, created_at) index, so it scans one chat, never the whole table.
+ */
+export function listSessionEventsBySource(sessionId: string, sources: readonly string[]): ChatEventRecord[] {
+  if (sources.length === 0) return [];
+  const db = getDb();
+  return db
+    .select()
+    .from(chatEvents)
+    .where(and(eq(chatEvents.sessionId, sessionId), inArray(chatEvents.source, [...sources])))
+    .orderBy(asc(chatEvents.createdAt), asc(chatEvents.id))
+    .all()
+    .map((r) => hydrateRow(r));
+}
+
 export function getChatEventById(id: string): ChatEventRecord | null {
   const db = getDb();
   const rows = db.select().from(chatEvents).where(eq(chatEvents.id, id)).limit(1).all();

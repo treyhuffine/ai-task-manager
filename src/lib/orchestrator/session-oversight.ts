@@ -49,6 +49,13 @@ export interface CondensedEvent {
 /** Sources that carry no signal for an overseeing agent. */
 const DROP_SOURCES = new Set(['system', 'thinking', 'recap', 'rate_limit', 'unknown']);
 
+/**
+ * Connector approval and connection rows: the text already says what paused or was asked for and
+ * what the user decided. Their input only adds ids, which an agent has no business holding (only
+ * the user answers these, from the card in chat).
+ */
+const TEXT_ONLY_SOURCES = new Set(['approval_request', 'approval_response', 'connection_request', 'connection_response']);
+
 export function condenseEvents(events: ChatEventRecord[]): CondensedEvent[] {
   const out: CondensedEvent[] = [];
   for (const e of events) {
@@ -59,7 +66,7 @@ export function condenseEvents(events: ChatEventRecord[]): CondensedEvent[] {
     // otherwise returns dozens of rows that look identical to the reply.
     if (e.externalParentToolCallId) row.nestedUnder = e.externalParentToolCallId;
     if (e.toolName) row.tool = e.toolName;
-    if (e.toolInput && Object.keys(e.toolInput).length > 0) {
+    if (e.toolInput && Object.keys(e.toolInput).length > 0 && !TEXT_ONLY_SOURCES.has(e.source)) {
       try {
         row.input = truncate(JSON.stringify(e.toolInput), TOOL_INPUT_MAX);
       } catch {

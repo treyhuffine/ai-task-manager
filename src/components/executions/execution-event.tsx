@@ -34,6 +34,9 @@ import { hot } from '@/lib/_debug/hot-path';
 import { cn } from '@/lib/utils';
 import type { ChatEventRecord, Attachment } from '@/db/types';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
+import { approvalResponseView } from '@/lib/executions/connector-approvals';
+import { ConnectorApprovalCard } from './connector-approval-card';
+import { ConnectionRequestCard } from './connection-request-card';
 import { backgroundTaskOutcomePresentation } from './background-task-presentation';
 
 interface ExecutionEventProps {
@@ -82,6 +85,12 @@ interface ExecutionEventProps {
    * malformed data; empty in the normal case.
    */
   nestedAncestorCallIds?: ReadonlySet<string>;
+  /**
+   * For an `approval_request` leader row: every request row its card
+   * covers (a batch of the same connector action folds into one card, see
+   * lib/executions/connector-approvals.ts). Absent → the row stands alone.
+   */
+  approvalGroup?: readonly ChatEventRecord[];
 }
 
 /**
@@ -94,7 +103,7 @@ interface ExecutionEventProps {
  *   - tool_call / tool_result — collapsible cards, paired visually.
  *   - system / result / background_task / recap / rate_limit / error / unknown — bespoke.
  */
-export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent, clientStatus, resultByCallId, subagentEventsByCallId, nestedAncestorCallIds }: ExecutionEventProps) {
+export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent, clientStatus, resultByCallId, subagentEventsByCallId, nestedAncestorCallIds, approvalGroup }: ExecutionEventProps) {
   hot(`render ExecutionEvent[${event.source}]`);
   const [expanded, setExpanded] = useState(false);
 
@@ -484,6 +493,55 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
           isActionable={isLatestUnresolved ?? false}
         />
       );
+
+    case 'approval_request':
+      return (
+        <ConnectorApprovalCard
+          rows={approvalGroup ?? [event]}
+          sessionId={sessionId}
+          isLatest={isLatestUnresolved ?? false}
+        />
+      );
+
+    case 'approval_response': {
+      // The user's answer on an approval card, at the point in the
+      // conversation where they gave it (right-aligned: it's their turn).
+      const outcome = approvalResponseView(event)?.outcome;
+      const tone = outcome === 'deny'
+        ? 'bg-destructive/10 text-destructive'
+        : outcome === 'settled'
+          ? 'bg-muted text-muted-foreground'
+          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+      return (
+        <div className="flex justify-end">
+          <div className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10.5px] font-medium', tone)}>
+            {outcome === 'deny' ? <ShieldAlert size={11} /> : <ShieldCheck size={11} />}
+            <span>{event.content ?? (outcome === 'deny' ? 'Denied' : 'Approved')}</span>
+          </div>
+        </div>
+      );
+    }
+
+    case 'connection_request':
+      return <ConnectionRequestCard event={event} sessionId={sessionId} />;
+
+    case 'connection_response': {
+      // The user's answer on a Connect card, where they gave it (right-aligned: their turn).
+      const declined = event.toolIsError === true;
+      return (
+        <div className="flex justify-end">
+          <div
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10.5px] font-medium',
+              declined ? 'bg-muted text-muted-foreground' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+            )}
+          >
+            {declined ? <CircleSlash size={11} /> : <ShieldCheck size={11} />}
+            <span>{event.content ?? (declined ? 'Not now' : 'Connected')}</span>
+          </div>
+        </div>
+      );
+    }
 
     case 'recap':
       return (

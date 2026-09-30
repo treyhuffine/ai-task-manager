@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthConfigRequiredError, isConnectorError } from '@connectors/engine';
 import { getHostedMcpProvider } from '@connectors/engine/providers';
-import { getConnectorRuntime, getConnectorConnectionStore, getConnectorOwnerId, getMcpServerStore, invalidateConnectorRuntime, selectHostedOAuthConfig, withHostedOAuthConfigLock } from '@/lib/connectors/runtime';
+import { getConnectorConnectionStore, getConnectorOwnerId, getMcpServerStore, invalidateConnectorRuntime, selectHostedOAuthConfig, withHostedOAuthConfigLock } from '@/lib/connectors/runtime';
 import { ensureHostedMcpServer, hostedAccountSelection, resolveHostedMcpAccount } from '@/lib/connectors/hosted-mcp';
 import { beginMcpAuthorization } from '@/lib/connectors/mcp-authorization';
-import { isDesktopRequest, desktopOAuth, desktopRelayFor, type DesktopOAuthFlow } from '@/lib/connectors/desktop-oauth';
-import { rememberOAuthReturn, safeReturnPath } from '@/lib/connectors/oauth-return';
+import { beginConnect } from '@/lib/connectors/begin-connect';
+import { safeReturnPath } from '@/lib/connectors/oauth-return';
 import { usesRegisteredOAuth } from '@/lib/connectors/hosted-oauth-config';
 
 /**
@@ -32,7 +32,6 @@ export async function POST(request: NextRequest) {
   // paths only (single leading slash). Anything else is ignored, and the
   // callback falls back to the connectors settings pane.
   const returnTo = safeReturnPath(body.returnTo);
-  let desktopFlow: DesktopOAuthFlow | undefined;
   try {
     const hosted = getHostedMcpProvider(providerId);
     if (hosted) {
@@ -59,33 +58,16 @@ export async function POST(request: NextRequest) {
       invalidateConnectorRuntime();
       return NextResponse.json({ ...result, serverId: entry.id, ...('authUrl' in result ? { authorizationUrl: result.authUrl } : {}) });
     }
-    const runtime = await getConnectorRuntime();
-    if (isDesktopRequest(request)) {
-      const provider = runtime.getProviders().find((p) => p.id === providerId);
-      if (!provider?.auth.oauth) throw new Error('This provider does not support OAuth sign-in');
-      desktopFlow = await desktopOAuth().begin(`connector:${providerId}`, {
-        returnTo,
-        relayUrl: desktopRelayFor(providerId, provider.auth.oauth.usePkce ?? false),
-      });
-    }
-    const result = await runtime.beginAuth(providerId, {
-      callbackChannel: desktopFlow ? 'desktop' : 'web',
-      ...(desktopFlow ? { redirectUri: desktopFlow.redirectUri } : {}),
+    const result = await beginConnect(request, {
+      providerId,
       scopes: Array.isArray(body.scopes) ? (body.scopes as string[]) : undefined,
       label: typeof body.label === 'string' ? body.label : undefined,
       existingConnectionId: typeof body.existingConnectionId === 'string' ? body.existingConnectionId : undefined,
-      // Connect through a SPECIFIC auth client (BYO work/personal); else §4a default resolves.
       authConfigId: typeof body.authConfigId === 'string' ? body.authConfigId : undefined,
+      returnTo,
     });
-    desktopFlow?.arm(result.requestId, async (params) => {
-      const metadata = Object.fromEntries([...params].filter(([key]) => !['code', 'state', 'error'].includes(key)));
-      await runtime.completeAuth({ code: params.get('code')!, state: params.get('state')!, params: metadata, expectedChannel: 'desktop' });
-    });
-    // The callback returns the browser to this page's origin (see oauth-return.ts).
-    if (!desktopFlow) rememberOAuthReturn(result.requestId, request, returnTo);
-    return NextResponse.json({ ...result, ...(desktopFlow ? { desktopFlowId: desktopFlow.id } : {}) });
+    return NextResponse.json(result);
   } catch (e) {
-    desktopFlow?.cancel();
     // A multi-client provider with no resolvable default surfaces a picker — relay the choices.
     if (isAuthConfigRequiredError(e)) {
       return NextResponse.json({ error: 'auth_config_required', choices: e.choices }, { status: 409 });

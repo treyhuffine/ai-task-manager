@@ -122,6 +122,10 @@ const SOURCE_REASONS: Record<ChatEventSource, ActivityReason> = {
   question_request: 'awaiting_user',
   permission_response: 'user_answered',
   question_response: 'user_answered',
+  approval_request: 'awaiting_user',
+  approval_response: 'user_answered',
+  connection_request: 'awaiting_user',
+  connection_response: 'user_answered',
   unknown: 'unknown_event',
 };
 

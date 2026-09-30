@@ -13,11 +13,12 @@ import { staticAuthConfigs } from '../auth-configs';
 import { inMemoryStore, plaintextSecretBox, fakeHttp } from '../testing';
 import type { AuthedHttp } from '../core/types';
 
-function setup() {
+function setup(opts: { rejectKey?: boolean; authorizationRequired?: (r: { providerId: string; existingConnectionId?: string }) => string } = {}) {
   const calls: string[] = [];
   const http = fakeHttp(async (call) => {
     calls.push(call.url);
     if (call.url.endsWith('/me')) return { json: { id: 'u1', email: 'a@svc.test' } };
+    if (opts.rejectKey) return { status: 401, json: { error: 'invalid token' } };
     return { json: { ok: true } };
   });
   const provider = defineProvider({
@@ -48,6 +49,7 @@ function setup() {
     redactor: createRedactor(),
     approval: { async check() { return 'allow'; } },
     fetch: http.fetch,
+    ...(opts.authorizationRequired ? { authorizationRequired: opts.authorizationRequired } : {}),
   });
   return { runtime, store, http, calls };
 }
@@ -85,5 +87,26 @@ describe('connectDirect', () => {
       s.runtime.connectDirect('svc', { credential: { type: 'api_key', apiKey: 'KEY' }, authConfigId: 'does-not-exist' }),
     ).rejects.toMatchObject({ code: 'invalid_input' });
     expect((await s.store.list({ providerId: 'svc' })).length).toBe(0); // nothing persisted
+  });
+
+  it('a rejected key asks the person to enter it again, through the host landing page', async () => {
+    const s = setup({
+      rejectKey: true,
+      authorizationRequired: (r) => `https://app.test/connect?provider=${r.providerId}&connection=${r.existingConnectionId}`,
+    });
+    const conn = await s.runtime.connectDirect('svc', { credential: { type: 'api_key', apiKey: 'WRONG' } });
+    const out = await s.runtime.runAction('svc.ping', {});
+    expect(out).toMatchObject({
+      ok: false,
+      reason: 'auth_required',
+      providerId: 'svc',
+      authorizationUrl: `https://app.test/connect?provider=svc&connection=${conn.id}`,
+    });
+  });
+
+  it('without a host landing page, a rejected key stays provider_not_configured', async () => {
+    const s = setup({ rejectKey: true });
+    await s.runtime.connectDirect('svc', { credential: { type: 'api_key', apiKey: 'WRONG' } });
+    expect(await s.runtime.runAction('svc.ping', {})).toMatchObject({ ok: false, reason: 'error', code: 'provider_not_configured' });
   });
 });

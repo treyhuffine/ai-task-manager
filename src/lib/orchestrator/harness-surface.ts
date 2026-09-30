@@ -56,12 +56,26 @@ import {
 import { readAuthConfig } from '@/lib/auth/config-file';
 import { SOUL_MD_FILENAME, USER_MD_FILENAME } from '@/lib/config/personalization-templates';
 import { SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
+import { connectorRequestsEnabled } from '@/lib/connectors/request-settings';
 import type { WorkspaceRecord } from '@/db/types';
 
 export type OrchestratorMode = 'legacy' | 'harness_skills' | 'harness_mcp';
 
 export const ORCHESTRATOR_MCP_SERVER_NAME = 'orchestrator';
 export const CONNECTORS_MCP_SERVER_NAME = 'connectors';
+
+/**
+ * The brief's half of asking for a connection (the tool description carries the full rule). The
+ * one thing an agent must know is that connecting is possible at all: without it, "I can't reach
+ * your calendar" is a dead end instead of a request.
+ */
+const REQUEST_CONNECTION_BRIEF = `If the user's request needs an outside service you have no tools for
+(their email, calendar, Slack, a Linear ticket), don't say you can't: call
+\`request_connection\` with the service's name. The user gets a Connect card in
+this chat, and you get a note when they decide. Never for ${APP_NAME}'s own tasks,
+notes, deck or stream, or content they pasted. Don't guess a provider: if they
+said something generic ("my email", "my calendar") that more than one service
+could be, ask which one they use before calling.`;
 export const BROWSER_MCP_SERVER_NAME = 'browser';
 
 // ─── Server endpoint resolution ───────────────────────────────────
@@ -403,7 +417,11 @@ external accounts, typed tools to act on them (e.g. \`gmail__send_email\`,
 When several accounts of a provider are connected, pass \`account\`. A tool may
 return a structured next-step (authorization_required, choose_account,
 additional_permission_required, approval_required) instead of a result. Relay
-it and retry after the user acts. Never improvise an auth flow.`;
+it and retry after the user acts. Never improvise an auth flow. For
+approval_required the user gets an approval card in this chat: stop and wait.
+A note arrives when they decide, naming which calls to retry and which not to.${connectorRequestsEnabled() ? `
+
+${REQUEST_CONNECTION_BRIEF}` : ''}`;
     case 'harness_skills':
       return `## Your tools (CLI)
 
@@ -579,7 +597,11 @@ action. Use it for every read and write of ${APP_NAME} data.`,
 accounts this agent may use. A tool may return a structured next step
 (authorization_required, choose_account, additional_permission_required,
 approval_required) instead of a result. Relay it and retry after the user
-acts. Never improvise an auth flow.`
+acts. Never improvise an auth flow. For approval_required the user gets an
+approval card in this chat: stop and wait. A note arrives when they decide,
+naming which calls to retry and which not to.${connectorRequestsEnabled() ? `
+
+${REQUEST_CONNECTION_BRIEF}` : ''}`
       : '',
   ].filter(Boolean).join('\n\n');
 
@@ -708,7 +730,7 @@ export function orchestratorMcpServer(
  */
 export function connectorsMcpServer(
   port = resolveServerPort(),
-  opts: { workspaceId?: string } = {},
+  opts: { workspaceId?: string; sessionId?: string | null } = {},
 ): McpServerConfig | null {
   const token = readAuthConfig()?.localToken;
   if (!token) return null;
@@ -717,11 +739,17 @@ export function connectorsMcpServer(
   // validated workspace id, never from a client-asserted scope (spec §6b).
   const base = `http://localhost:${port}/api/connectors/mcp`;
   const url = opts.workspaceId ? `${base}?ws=${encodeURIComponent(opts.workspaceId)}` : base;
+  // Which chat is calling, so an action paused on "Ask first" shows its approval card in that
+  // chat and the user's grant matches that chat's retry (see connectors/approval.ts).
+  const credential = opts.sessionId ? sessionCredential(opts.sessionId, token) : null;
   return {
     name: CONNECTORS_MCP_SERVER_NAME,
     type: 'http',
     url,
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(credential ? { [SESSION_CREDENTIAL_HEADER]: credential } : {}),
+    },
   };
 }
 
@@ -853,7 +881,7 @@ export function orchestratorSessionConfig(
     // both over localhost + the local bearer. Each routes through its own gated runtime.
     const servers = [
       orchestratorMcpServer(opts.port, { sessionId: opts.sessionId }),
-      connectorsMcpServer(opts.port),
+      connectorsMcpServer(opts.port, { sessionId: opts.sessionId }),
     ].filter(
       (s): s is McpServerConfig => s !== null,
     );

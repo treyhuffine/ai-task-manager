@@ -200,7 +200,7 @@ transient UI churn can't fire it:
 |---|---|---|---|---|---|
 | `execution.needs_input` | after the `permission_request`/`question_request` **chat_event is persisted** (not the in-memory `pending_input` signal) | execution title | the agent's question/prompt | `/executions/<id>` | `…:<requestEventId>` |
 | `execution.finished` | the **shared run terminal path** (covers manual AND scheduled executions) | `✅/❌ <title>` | derived `result.summary` (fallback: status) | `/executions/<id>` | `…:<runId>` |
-| `connector.approval_required` | connectors `approval.ts` register-pending (`'ask'`) | `Approve <action>?` | action + target account | the pending-approvals link | `…:<approvalId>` |
+| `connector.approval_required` | connectors `approval-events.ts`, once per burst of one kind after register-pending (`'ask'`) | `Approval needed` | toolkit + account + action (× count) | the asking chat, `/?session=<id>`, where the approval card is | `…:<first approvalId>` |
 | `schedule.run_completed` | `runs/dispatch.ts` terminal, **orchestrator-target runs only** (execution-target → `execution.finished`, §2.8) | schedule name | run summary (for a digest, the produced content, §2.9) | `/schedules/<id>` | `…:<runId>` |
 | `deck.surfaced` | when proactive-deck logic writes a **durable deck/change record** (**pending** that work, §2.11) | `New on your deck` | what surfaced | `/deck` | `…:<deckChangeId>` |
 
@@ -212,7 +212,9 @@ pending state is **in-memory** by design (`approval.ts`, single-process). So thi
 emitted from a durable transition like the others — and it doesn't need to be: if the process dies,
 the pending approval vanishes too (the agent re-requests on retry), so a lost notification is
 *consistent* with the lost state. Treat it as best-effort. Making approvals DB-backed is a separate
-engine/host concern, not a notifier v1 task.
+engine/host concern, not a notifier v1 task. (The asking chat's transcript does record each request
+and decision durably, so its approval card reads as expired after a restart. See
+`docs/connector-approvals.md`.)
 
 **Two routing modes** (this is the "keep lifecycle vs digest separate" decision made concrete):
 - **`matrix`** — routed by the per-channel `events[]` toggles (§2.7). The ambient lifecycle events.

@@ -31,6 +31,7 @@ import { ConnectorLogo } from '@/components/connectors/connector-logo';
 import { connectorMeta, CATEGORY_ORDER, type ConnectorCategory } from '@/components/connectors/connector-meta';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 import { CatalogTile, GroupHeading, McpLogo } from './connectors/parts';
+import { ConnectionRequestsSetting } from './connectors/connection-requests-setting';
 import { ProviderDetail } from './connectors/provider-detail';
 import { PreviousConnections } from './connectors/previous-connections';
 import { watchOAuthReturn } from './connectors/oauth-focus-refresh';
@@ -732,6 +733,7 @@ export function ConnectorsSection() {
               )}
             </div>
           )}
+          {!q && <ConnectionRequestsSetting />}
         </>
       ) : view.kind === 'mcp-new' ? (
         <McpServerForm
