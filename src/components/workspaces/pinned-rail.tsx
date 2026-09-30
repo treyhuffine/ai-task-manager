@@ -3,8 +3,10 @@
 import { useMemo } from 'react';
 import { Pin } from 'lucide-react';
 import { useRailSessions } from '@/hooks/use-workspaces';
+import { useInactivity } from '@/hooks/use-inactivity';
 import { selectPinnedSessions } from '@/lib/utils/session-sort';
 import { SessionRow } from './session-row';
+import { InactiveFold } from './inactive-fold';
 
 /**
  * The rail's "Pinned" group — a stable, cross-workspace shelf of the
@@ -24,16 +26,36 @@ import { SessionRow } from './session-row';
  *
  * Renders nothing when no execution is pinned, so it costs zero footprint
  * until the user opts in.
+ *
+ * A pin goes inactive like any execution (src/lib/sessions/inactive.ts): it
+ * folds behind "N inactive hidden · Show" at the foot of the group, where it
+ * shows dimmed with Unpin and Archive on hover. The count is active pins.
  */
 export function PinnedRail() {
   const { data } = useRailSessions();
+  const { partition } = useInactivity();
 
   const pinned = useMemo(
     () => selectPinnedSessions(data?.sessions ?? []),
     [data?.sessions],
   );
+  const { active, inactive } = useMemo(() => partition(pinned), [partition, pinned]);
 
   if (pinned.length === 0) return null;
+
+  const row = (s: (typeof pinned)[number], isInactive: boolean) => (
+    <SessionRow
+      key={s.id}
+      session={s}
+      // Cross-workspace shelf: name the workspace so a pin is
+      // orientable without its folder header above it.
+      showWorkspaceLabel={s.workspaceName ?? undefined}
+      // The section title already says "Pinned"; a per-row glyph
+      // would just repeat it here.
+      hidePinMarker
+      inactive={isInactive}
+    />
+  );
 
   return (
     <section className="flex flex-col pb-1 mb-0.5 border-b border-border/40">
@@ -42,21 +64,16 @@ export function PinnedRail() {
         <span className="text-[8.5px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
           Pinned
         </span>
-        <span className="text-[9px] tabular-nums text-muted-foreground/50">{pinned.length}</span>
+        {/* Active pins only. With every pin folded, no "0": the fold says it. */}
+        {active.length > 0 && (
+          <span className="text-[9px] tabular-nums text-muted-foreground/50">{active.length}</span>
+        )}
       </div>
       <div className="px-1 space-y-0.5">
-        {pinned.map((s) => (
-          <SessionRow
-            key={s.id}
-            session={s}
-            // Cross-workspace shelf: name the workspace so a pin is
-            // orientable without its folder header above it.
-            showWorkspaceLabel={s.workspaceName ?? undefined}
-            // The section title already says "Pinned"; a per-row glyph
-            // would just repeat it here.
-            hidePinMarker
-          />
-        ))}
+        {active.map((s) => row(s, false))}
+        <InactiveFold sectionId="pinned" count={inactive.length} className="pl-8">
+          {inactive.map((s) => row(s, true))}
+        </InactiveFold>
       </div>
     </section>
   );

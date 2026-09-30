@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useRailSessions } from '@/hooks/use-workspaces';
+import { useInactivity } from '@/hooks/use-inactivity';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   BUCKET_CONFIG,
@@ -30,6 +31,7 @@ export function RailStatusPills() {
   // Agents that want you count where their work counts, so "needs you"
   // anywhere in the app is one number. Thinking stays out of Working.
   const agents = useAgentAttention();
+  const { isInactive } = useInactivity();
 
   const buckets = useMemo(() => {
     const map: Record<BucketId, RailSession[]> = {
@@ -40,6 +42,9 @@ export function RailStatusPills() {
     };
     for (const s of data?.sessions ?? []) {
       if (s.status !== 'active') continue;
+      // Inactive work is folded out of the rail's attention, so it doesn't
+      // count here either (src/lib/sessions/inactive.ts).
+      if (isInactive(s)) continue;
       const id = classifySession(s, pendingInputSessionIds, streamingSessionIds);
       // null = not live work (a settled import). Skipped in both readers so the
       // HUD pill counts keep matching the rail body row for row.
@@ -50,7 +55,7 @@ export function RailStatusPills() {
       map[key] = sortSessionsHotnessDesc(map[key]);
     }
     return map;
-  }, [data?.sessions, pendingInputSessionIds, streamingSessionIds]);
+  }, [data?.sessions, pendingInputSessionIds, streamingSessionIds, isInactive]);
 
   return (
     <div className="flex items-center gap-1">

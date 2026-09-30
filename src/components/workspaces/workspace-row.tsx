@@ -14,6 +14,8 @@ import { cn } from '@/lib/utils';
 import { hot } from '@/lib/_debug/hot-path';
 import type { WorkspaceWithCounts } from '@/db/types';
 import { SessionRow } from './session-row';
+import { InactiveFold } from './inactive-fold';
+import { useInactivity } from '@/hooks/use-inactivity';
 
 interface WorkspaceRowProps {
   workspace: WorkspaceWithCounts;
@@ -66,6 +68,7 @@ export function WorkspaceRow({
   useWorkspaceSessions(null);
   const { data: railData } = useRailSessions();
   const { data: areas } = useAreas();
+  const { isInactive, partition } = useInactivity();
 
   // Icon resolution: workspace own > linked area > default folder.
   const wsImage = coverAttachmentUrl(workspace.attachments);
@@ -98,6 +101,11 @@ export function WorkspaceRow({
       ),
     [railData?.sessions, workspace.id],
   );
+  // Idle executions fold to the foot of the list (src/lib/sessions/inactive.ts).
+  const { active: activeChildren, inactive: inactiveChildren } = useMemo(
+    () => partition(childSessions),
+    [partition, childSessions],
+  );
 
   // Per-state counts for the header dots. Computed off the rail data
   // (cross-workspace, always loaded) so the indicators are accurate
@@ -112,6 +120,8 @@ export function WorkspaceRow({
     const rows = railData?.sessions ?? [];
     for (const s of rows) {
       if (s.workspaceId !== workspace.id || s.status !== 'active') continue;
+      // Inactive work sits folded, so it no longer asks for attention here.
+      if (isInactive(s)) continue;
       if (pendingInputSessionIds.has(s.id)) {
         needsApproval++;
         continue;
@@ -125,7 +135,7 @@ export function WorkspaceRow({
       }
     }
     return { working, needsApproval, unread };
-  }, [railData?.sessions, workspace.id, streamingSessionIds, pendingInputSessionIds]);
+  }, [railData?.sessions, workspace.id, streamingSessionIds, pendingInputSessionIds, isInactive]);
   // `attention` rolls unread + needs-approval into one amber count — they
   // share the same urgency color across the rail (NeedsReviewSection
   // header, by-status bucket, here), so rendering them as two identical
@@ -237,15 +247,29 @@ export function WorkspaceRow({
               No sessions yet
             </div>
           ) : (
-            childSessions.map((s) => (
-              <SessionRow
-                key={s.id}
-                session={s}
-                workspaceIsGit={workspace.isGit}
-                onOpenWorkspaceSettings={onOpenSettings}
-                onOpenLauncher={onOpenLauncher}
-              />
-            ))
+            <>
+              {activeChildren.map((s) => (
+                <SessionRow
+                  key={s.id}
+                  session={s}
+                  workspaceIsGit={workspace.isGit}
+                  onOpenWorkspaceSettings={onOpenSettings}
+                  onOpenLauncher={onOpenLauncher}
+                />
+              ))}
+              <InactiveFold sectionId={`agent:${workspace.id}`} count={inactiveChildren.length} className="pl-8">
+                {inactiveChildren.map((s) => (
+                  <SessionRow
+                    key={s.id}
+                    session={s}
+                    workspaceIsGit={workspace.isGit}
+                    onOpenWorkspaceSettings={onOpenSettings}
+                    onOpenLauncher={onOpenLauncher}
+                    inactive
+                  />
+                ))}
+              </InactiveFold>
+            </>
           )}
         </div>
       )}

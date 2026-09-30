@@ -4,6 +4,7 @@ import { MessageSquare, Bot, Plus, Layers3, MoreHorizontal } from 'lucide-react'
 import { useMemo } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useNeedsReviewSessions, useRailSessions } from '@/hooks/use-workspaces';
+import { useInactivity } from '@/hooks/use-inactivity';
 import { executionActivity } from '@/components/workspaces/bucket-config';
 import { cn } from '@/lib/utils';
 import type { MobileTab } from '@/types/dashboard';
@@ -28,6 +29,8 @@ export function MobileTabBar() {
   } = useDashboard();
   const { data: needsReview } = useNeedsReviewSessions();
   const { data: rail } = useRailSessions();
+  // Inactive work is folded out of the lists, so it doesn't badge either.
+  const { isInactive } = useInactivity();
 
   // Three signals worth surfacing on the Agents tab:
   //   - pending    → an execution is blocked on a user response
@@ -38,11 +41,16 @@ export function MobileTabBar() {
   // working, which outranks output you haven't read yet. Only executions
   // count, as on the desktop pills: the live sets also hold the main chat.
   const { pending: pendingCount, working: workingCount } = useMemo(
-    () => executionActivity(rail?.sessions ?? [], pendingInputSessionIds, streamingSessionIds),
-    [rail?.sessions, pendingInputSessionIds, streamingSessionIds],
+    () =>
+      executionActivity(
+        (rail?.sessions ?? []).filter((s) => !isInactive(s)),
+        pendingInputSessionIds,
+        streamingSessionIds,
+      ),
+    [rail?.sessions, pendingInputSessionIds, streamingSessionIds, isInactive],
   );
   const reviewCount = (needsReview ?? []).filter(
-    (s) => pendingInputSessionIds.has(s.id) || !streamingSessionIds.has(s.id),
+    (s) => (pendingInputSessionIds.has(s.id) || !streamingSessionIds.has(s.id)) && !isInactive(s),
   ).length;
   const badgeKind: 'pending' | 'working' | 'review' | null =
     pendingCount > 0 ? 'pending' : workingCount > 0 ? 'working' : reviewCount > 0 ? 'review' : null;

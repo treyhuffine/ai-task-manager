@@ -25,7 +25,7 @@ So there's one state vocabulary for every conversation, the same colors and shap
 
 **Executions** sit under the agent, one 32px line each, inset so their dots sit under its icon: a status dot, the label, and on the right the pin, where it runs when that's not this machine, and time. No diff stats: in the rail they don't help decide where to go, and they live in the execution's header and the agent's Overview.
 
-**Which executions show:** every live one (needs you, working, unread, pinned, or the one open now), then the three most recent quiet ones. "N more" shows the rest right there, and "Show fewer" folds them back.
+**Which executions show:** every live one (needs you, working, unread, pinned, or the one open now), then the three most recent quiet ones. The rest sit behind a toggle, "4 more hidden" with Show on the right (then "4 more shown" with Hide), that expands them in place, and each agent remembers whether it's open. Executions idle past the inactive threshold, pinned ones included, fold behind their own "N inactive hidden" toggle below it and leave the counts (`docs/inactive-executions.md`). The one open right now stays.
 
 **Hiding executions** is one click on the agent row's hover (the chevrons next to +). Hidden executions fold into one line, like "› 6 executions · 1 needs you · 2 working", so hiding never hides what wants you, and clicking that line shows them again.
 

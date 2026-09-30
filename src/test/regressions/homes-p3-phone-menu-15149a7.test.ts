@@ -2,6 +2,8 @@
  * Actual mobile agents view and sheet in Chromium at phone width; data hooks only are fixtures.
  * Adapted at the simplification pass: the fixture hooks gain the setup ones
  * the sheet now uses (a device the agent isn't on offers to set it up).
+ * Adapted again for inactive executions: the view folds idle rows through
+ * `useInactivity`, stubbed here to fold nothing.
  */
 import http from 'node:http';
 import { createRequire } from 'node:module';
@@ -20,6 +22,8 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
     export const useWorkspaceSessions=()=>({data:[]});
     export const useUpdateWorkspace=()=>({mutate:()=>{}});
     export const useAreas=()=>({data:[]});
+    export const useInactivity=()=>({afterDays:null,stored:null,isInactive:()=>false,partition:(l)=>({active:[...l],inactive:[]})});
+    export const useSetInactiveAfterDays=()=>({mutate:()=>{}});
     export const useQueryClient=()=>({});
     export const useDashboard=()=>({streamingSessionIds:new Set(),pendingInputSessionIds:new Set(),setActiveView:()=>{},setMobileTab:()=>{},openAgent:(id,tab)=>record('open',tab)});
     export const useAgentViewMode=()=>({opensView:true});
@@ -40,7 +44,7 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
       onResolve(opts:{filter:RegExp},fn:()=>{path:string;namespace:string}):void;
       onLoad(opts:{filter:RegExp;namespace:string},fn:()=>{contents:string;loader:string}):void;
     }){
-      api.onResolve({filter:/^(?:@\/hooks\/use-(?:workspaces|areas)|@\/contexts\/dashboard-context|@\/lib\/executions\/start-execution|@\/lib\/client\/agent-view-mode|@\/components\/workspaces\/workspace-create-modal|@tanstack\/react-query)$/},()=>({path:'data-hooks',namespace:'fixture'}));
+      api.onResolve({filter:/^(?:@\/hooks\/use-(?:workspaces|areas|inactivity)|@\/contexts\/dashboard-context|@\/lib\/executions\/start-execution|@\/lib\/client\/agent-view-mode|@\/components\/workspaces\/workspace-create-modal|@tanstack\/react-query)$/},()=>({path:'data-hooks',namespace:'fixture'}));
       api.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:fixture,loader:'js'}));
     }}],
   });

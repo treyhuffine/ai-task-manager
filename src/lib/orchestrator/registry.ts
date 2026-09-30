@@ -144,6 +144,7 @@ import { PERMISSION_MODES } from '@/lib/permissions/modes';
 import { APP_SHORT_ID } from '@/constants/app';
 import { condenseEvents, derivePendingFromEvents } from './session-oversight';
 import { isSessionUnread } from '@/lib/utils/session-sort';
+import { isSessionInactive, resolveInactiveAfterDays } from '@/lib/sessions/inactive';
 import { listResolvedReferenceFolders } from '@/lib/reference-folders/resolve';
 import path from 'node:path';
 import {
@@ -1748,13 +1749,18 @@ const list_executions_action = defineAction({
   description:
     'List active execution sessions across all workspaces with status flags: running (turn in ' +
     'flight), awaitingInput (blocked on a prompt), unread (output the user has not viewed, what ' +
-    'the rail\'s Unread section shows, minus currently-running sessions). The returned sessionId ' +
+    'the rail\'s Unread section shows, minus currently-running sessions), inactive (no activity ' +
+    'for longer than the user\'s inactive threshold, so the rail folds it away; leave these out of ' +
+    '"what needs my attention" unless the user asks about older work). The returned sessionId ' +
     'is the handle for get_session_messages, send_session_message, and [[execution:SESSION_ID]] links. ' +
     'When available, resumeCommand is the provider CLI command for the external session id.',
   params: {},
   handler: async () => {
     const rows = listRailSessions();
     const live = await fetchLiveSignals();
+    // The same rule the rail folds by (src/lib/sessions/inactive.ts).
+    const inactiveAfterDays = resolveInactiveAfterDays(getUserState()?.executionInactiveAfterDays);
+    const now = Date.now();
     return {
       /** False ⇒ the app server was unreachable: running/awaitingInput are unknown-but-idle. */
       live: live !== null,
@@ -1780,6 +1786,12 @@ const list_executions_action = defineAction({
           // unread yet. Keeps the agent's answer to "what's unread?"
           // identical to what the user sees in the rail.
           unread: !running && isSessionUnread(r),
+          inactive: isSessionInactive(
+            r,
+            inactiveAfterDays,
+            now,
+            running || (live?.backgroundSessionIds.includes(r.id) ?? false),
+          ),
         };
       }),
     };

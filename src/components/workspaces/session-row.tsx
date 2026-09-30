@@ -1,8 +1,9 @@
 'use client';
 
-import { GitBranch, Pin } from 'lucide-react';
+import { Archive, GitBranch, Moon, Pin, PinOff } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useDiffStats } from '@/hooks/use-workspaces';
+import { useDiffStats, useUnpinSession } from '@/hooks/use-workspaces';
+import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
@@ -49,6 +50,12 @@ interface SessionRowProps {
    * `regular` is the two-line row everywhere else.
    */
   density?: 'regular' | 'compact';
+  /**
+   * Idle past the inactive threshold (src/lib/sessions/inactive.ts). The row
+   * dims, marks its age with a moon, and offers Archive (and Unpin when
+   * pinned) on hover, so stale work is one click from gone.
+   */
+  inactive?: boolean;
 }
 
 /**
@@ -77,6 +84,7 @@ export function SessionRow({
   onOpenLauncher,
   hidePinMarker,
   density = 'regular',
+  inactive = false,
 }: SessionRowProps) {
   const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(
@@ -161,9 +169,10 @@ export function SessionRow({
         }
       }}
       className={cn(
-        'relative w-full group flex gap-2 pr-1.5 rounded-md transition-colors text-left cursor-pointer',
+        'relative w-full group flex gap-2 pr-1.5 rounded-md transition-[color,background-color,opacity] text-left cursor-pointer',
         // Compact: 32px, inset so the dot sits under the agent's icon.
         density === 'compact' ? 'items-center pl-4 h-8' : 'items-start pl-5 py-1',
+        inactive && !isActive && !selected && 'opacity-60 hover:opacity-100',
         selectable
           ? selected
             ? 'bg-primary/10 text-foreground'
@@ -245,6 +254,7 @@ export function SessionRow({
                 {session.location.name}
               </span>
             )}
+            {inactive && <Moon size={9} className="text-muted-foreground/60" aria-label="Inactive" />}
             <span className="text-muted-foreground/60 tabular-nums">{formatCompactRelative(timestamp)}</span>
           </span>
         </>
@@ -272,7 +282,13 @@ export function SessionRow({
                 aria-label="Pinned"
               />
             )}
-            <span className="text-muted-foreground/60 flex-shrink-0">
+            {inactive && (
+              <Moon size={9} className="text-muted-foreground/60 flex-shrink-0" aria-label="Inactive" />
+            )}
+            <span
+              className="text-muted-foreground/60 flex-shrink-0"
+              title={inactive ? `Inactive: no activity for ${formatCompactRelative(timestamp)}` : undefined}
+            >
               {formatCompactRelative(timestamp)}
             </span>
             {showWorkspaceLabel && (
@@ -291,6 +307,9 @@ export function SessionRow({
           or displacing anything. Hidden in selection mode: the row's
           only job then is to toggle, and a per-row menu would invite a
           one-off archive that competes with the batch action. */}
+      {!selectable && inactive && (
+        <InactiveQuickActions sessionId={session.id} label={label} isPinned={isPinned} />
+      )}
       {!selectable && (
         <SessionRowMenu
           sessionId={session.id}
@@ -304,6 +323,51 @@ export function SessionRow({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * One-click ways out for an inactive row, beside the kebab on hover: Unpin
+ * (pinned rows) and Archive. Everything else stays in the kebab.
+ */
+function InactiveQuickActions({ sessionId, label, isPinned }: { sessionId: string; label: string; isPinned: boolean }) {
+  const unpin = useUnpinSession();
+  const { confirmArchive } = useArchiveWithConfirm();
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  const button =
+    'p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/40';
+  return (
+    <span
+      onPointerDown={stop}
+      className="absolute right-7 top-1/2 -translate-y-1/2 flex items-center opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
+    >
+      {isPinned && (
+        <button
+          type="button"
+          aria-label="Unpin"
+          title="Unpin"
+          className={button}
+          onClick={(e) => {
+            stop(e);
+            unpin.mutate(sessionId);
+          }}
+        >
+          <PinOff size={12} />
+        </button>
+      )}
+      <button
+        type="button"
+        aria-label="Archive"
+        title="Archive"
+        className={button}
+        onClick={(e) => {
+          stop(e);
+          void confirmArchive({ id: sessionId, label });
+        }}
+      >
+        <Archive size={12} />
+      </button>
+    </span>
   );
 }
 

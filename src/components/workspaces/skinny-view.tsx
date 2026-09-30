@@ -1,7 +1,10 @@
 'use client';
 
 import { useMemo } from 'react';
+import { Moon } from 'lucide-react';
 import { useRailSessions, useWorkspaces } from '@/hooks/use-workspaces';
+import { useInactivity } from '@/hooks/use-inactivity';
+import { useFoldShown } from '@/lib/client/rail-fold';
 import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import type { RailSession } from '@/lib/api/sessions';
 import { SkinnySessionRow } from './skinny-session-row';
@@ -28,12 +31,23 @@ interface SkinnyViewProps {
  * Bucket headers and workspace headers are intentionally omitted; the
  * rail's width is too small for text and the existing hover preview
  * supplies execution + workspace context on demand.
+ *
+ * Inactive executions (src/lib/sessions/inactive.ts), pins included, leave the
+ * strip behind one moon button at its foot that shows or hides them.
  */
 export function SkinnyView({ tab }: SkinnyViewProps) {
   const { data, isLoading } = useRailSessions();
   const { data: workspaces } = useWorkspaces({ status: 'active' });
 
   const ordered = useMemo(() => orderSessions(data?.sessions ?? [], workspaces, tab), [data?.sessions, workspaces, tab]);
+  const { isInactive } = useInactivity();
+  const [showInactive, setShowInactive] = useFoldShown('inactive:skinny');
+  // Inactive ones leave the strip, pins included, behind the moon button.
+  const { visible, inactive } = useMemo(() => {
+    const out = { visible: [] as RailSession[], inactive: [] as RailSession[] };
+    for (const s of ordered) (isInactive(s) ? out.inactive : out.visible).push(s);
+    return out;
+  }, [ordered, isInactive]);
 
   if (isLoading && !data) {
     return (
@@ -55,9 +69,27 @@ export function SkinnyView({ tab }: SkinnyViewProps) {
 
   return (
     <div className="flex flex-col gap-1 py-1">
-      {ordered.map((s) => (
+      {visible.map((s) => (
         <SkinnySessionRow key={s.id} session={s} />
       ))}
+      {inactive.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowInactive(!showInactive)}
+          aria-expanded={showInactive}
+          title={`${showInactive ? 'Hide' : 'Show'} ${inactive.length} inactive`}
+          className="mx-auto flex h-6 w-8 items-center justify-center gap-0.5 rounded-md text-[9px] text-muted-foreground/60 transition-colors hover:bg-muted/40 hover:text-foreground"
+        >
+          <Moon size={10} aria-hidden />
+          <span className="tabular-nums">{inactive.length}</span>
+        </button>
+      )}
+      {showInactive &&
+        inactive.map((s) => (
+          <div key={s.id} className="opacity-60 hover:opacity-100 transition-opacity">
+            <SkinnySessionRow session={s} />
+          </div>
+        ))}
     </div>
   );
 }

@@ -245,9 +245,11 @@ const EXECUTION_OVERSIGHT_SECTION = `## Execution oversight
 You are the conductor over the executing agents:
 
 - \`list_executions\`: every active execution with status flags: \`running\`
-  (turn in flight), \`awaitingInput\` (blocked on a permission/question), and
+  (turn in flight), \`awaitingInput\` (blocked on a permission/question),
   \`unread\` (finished output the user hasn't viewed, matches the rail's
-  Unread section). "What needs my attention?" = unread + awaitingInput.
+  Unread section), and \`inactive\` (idle past the user's threshold, folded
+  out of the rail). "What needs my attention?" = unread + awaitingInput,
+  leaving out inactive ones unless the user asks about older work.
 - \`get_session_messages\`: the condensed transcript tail of a session.
   **Always read before acting.** Know where the agent actually is.
 - \`send_session_message\`: drop a message into an execution: nudge a
@@ -640,7 +642,8 @@ ${instructions}`,
 - \`list_workspace_sessions\` with \`workspaceId\` "${id}": this agent's
   executions, one row each.
 - \`list_executions\`: live flags across every execution (\`running\`,
-  \`awaitingInput\`, \`unread\`). Keep to this agent's.
+  \`awaitingInput\`, \`unread\`, \`inactive\`). Keep to this agent's, and
+  leave inactive ones out of what needs the user unless they ask.
 - \`get_session_messages\`: an execution's transcript tail. **Always read it
   before answering about an execution or acting on it.**
 - \`search_sessions\` with \`workspaceId\` "${id}": find past work by content.`,

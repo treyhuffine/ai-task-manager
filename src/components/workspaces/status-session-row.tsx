@@ -1,6 +1,6 @@
 'use client';
 
-import { Pin } from 'lucide-react';
+import { Moon, Pin } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
@@ -18,6 +18,8 @@ interface StatusSessionRowProps {
   isUnread: boolean;
   onOpenWorkspaceSettings?: (workspaceId: string) => void;
   onOpenLauncher?: (workspaceId: string) => void;
+  /** Idle past the inactive threshold: dimmed, with a moon before the agent name. */
+  inactive?: boolean;
 }
 
 /**
@@ -32,6 +34,7 @@ export function StatusSessionRow({
   isUnread,
   onOpenWorkspaceSettings,
   onOpenLauncher,
+  inactive = false,
 }: StatusSessionRowProps) {
   const { activeSessionId, setActiveView } = useDashboard();
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
@@ -74,7 +77,8 @@ export function StatusSessionRow({
         }
       }}
       className={cn(
-        'group flex items-start gap-1.5 pl-4 pr-1.5 py-1.5 rounded-md transition-colors text-left cursor-pointer',
+        'group flex items-start gap-1.5 pl-4 pr-1.5 py-1.5 rounded-md transition-[color,background-color,opacity] text-left cursor-pointer',
+        inactive && !isActive && 'opacity-60 hover:opacity-100',
         isActive
           ? 'bg-secondary'
           : 'hover:bg-muted/40',
@@ -99,6 +103,9 @@ export function StatusSessionRow({
         <div className="flex items-center gap-1 text-[10px] mt-0.5 text-muted-foreground/70">
           {isPinned && (
             <Pin size={9} className="fill-current text-muted-foreground/50 flex-shrink-0 -rotate-45" aria-label="Pinned" />
+          )}
+          {inactive && (
+            <Moon size={9} className="text-muted-foreground/60 flex-shrink-0" aria-label="Inactive" />
           )}
           <span className="truncate">{wsName}</span>
           {/* Work away from the home says where (P3.1). The home's own stays quiet. */}

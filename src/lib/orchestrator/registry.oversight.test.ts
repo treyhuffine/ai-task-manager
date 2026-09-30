@@ -64,7 +64,7 @@ async function seedExecutionSession() {
   const wsId = uuidv7();
   getDb()
     .insert(workspaces)
-    .values({ id: wsId, name: 'OversightWs', slug: `ows-${Date.now()}`, cwd: '/tmp/ows', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true })
+    .values({ id: wsId, name: 'OversightWs', slug: `ows-${wsId}`, cwd: '/tmp/ows', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true })
     .run();
   const { session } = q.createExecutionWithChat({
     workspaceId: wsId,
@@ -162,6 +162,45 @@ describe('execution oversight actions', () => {
     const byId = new Map(result.executions.map((e) => [e.sessionId, e]));
     expect(byId.get(unreadSession.id)?.unread).toBe(true);
     expect(byId.get(readSession.id)?.unread).toBe(false);
+  });
+
+  it('list_executions flags inactive work by the user\'s threshold, the way the rail folds it', async () => {
+    await resetDb();
+    const q = await import('@/lib/db/queries');
+    const list = await findAction('list_executions');
+    const daysAgo = (d: number) => new Date(Date.now() - d * 24 * 60 * 60 * 1000).toISOString();
+
+    const { getDb } = await import('@/lib/db');
+    const { chatSessions } = await import('@/lib/db/schema');
+    const { eq } = await import('drizzle-orm');
+    // Backdate a seeded session: started a month ago, last active `days` ago.
+    const lastActive = (id: string, days: number) =>
+      getDb().update(chatSessions).set({ startedAt: daysAgo(30), lastActivityAt: daysAgo(days) }).where(eq(chatSessions.id, id)).run();
+
+    const { session: stale } = await seedExecutionSession();
+    lastActive(stale.id, 10);
+    const { session: fresh } = await seedExecutionSession();
+    lastActive(fresh.id, 2);
+
+    const run = async () => {
+      const result = (await list.handler(ctx, {} as never)) as {
+        executions: Array<{ sessionId: string; inactive: boolean }>;
+      };
+      return new Map(result.executions.map((e) => [e.sessionId, e.inactive]));
+    };
+
+    // Default threshold: a week.
+    let byId = await run();
+    expect(byId.get(stale.id)).toBe(true);
+    expect(byId.get(fresh.id)).toBe(false);
+
+    // A shorter threshold folds the fresher one too, and 0 turns folding off.
+    q.updateUserState({ executionInactiveAfterDays: 1 });
+    byId = await run();
+    expect(byId.get(fresh.id)).toBe(true);
+    q.updateUserState({ executionInactiveAfterDays: 0 });
+    byId = await run();
+    expect(byId.get(stale.id)).toBe(false);
   });
 
   it('get_session_messages condenses the tail, drops noise, and surfaces pending prompts', async () => {

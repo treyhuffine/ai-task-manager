@@ -22,6 +22,8 @@ import { useDeckLayoutMode, type DeckLayoutMode } from '@/lib/client/deck-layout
 import { useEntityViewMode, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { useAgentViewMode, type AgentViewMode } from '@/lib/client/agent-view-mode';
 import { useRailStyle, type RailStyle } from '@/lib/client/rail-style';
+import { useInactivity, useSetInactiveAfterDays } from '@/hooks/use-inactivity';
+import { DEFAULT_INACTIVE_AFTER_DAYS, formatInactiveAfter, INACTIVE_AFTER_PRESETS } from '@/lib/sessions/inactive';
 
 const DEFAULT_START = '09:00';
 const DEFAULT_END = '18:00';
@@ -371,7 +373,7 @@ export function GeneralSection() {
           <p className="text-[11px] text-muted-foreground/85">
             {agentViewMode === 'view'
               ? "Clicking an agent's name in the rail opens its view: its main chat on the left, its work and tools on the right. The chevron still folds its list. Switch back here at any time."
-              : "Clicking an agent's name in the rail folds or unfolds its list of executions. The gear still opens its setup."}
+              : "Clicking an agent's name in the rail folds or unfolds its list of executions."}
           </p>
           <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">
             <span className="text-sm text-foreground">Agents in the rail</span>
@@ -386,11 +388,14 @@ export function GeneralSection() {
           </div>
           <p className="text-[11px] text-muted-foreground/85">
             {railStyle === 'agents'
-              ? 'Each agent shows what it last said, bold with a dot when it wants you. Its executions hang under it on one line each: the live ones, a few recent ones, and the rest one click away.'
+              ? 'Each agent shows what it last said, bold with a dot when it wants you. Its executions hang under it on one line each: the live ones, a few recent ones, and the rest behind a Show toggle.'
               : 'One line per agent, with every active execution listed under it on two lines.'}
           </p>
         </div>
       </section>
+
+      {/* Inactive executions */}
+      <InactiveExecutionsSetting />
 
       {/* Editor */}
       <section className="space-y-2">
@@ -444,5 +449,52 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
         className="rounded-md border border-border bg-background px-2 py-1 text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
       />
     </label>
+  );
+}
+
+/**
+ * When executions go inactive and fold to the bottom of each list
+ * (src/lib/sessions/inactive.ts). The rail's fold rows carry the same
+ * choice behind their timer button.
+ */
+function InactiveExecutionsSetting() {
+  const { stored } = useInactivity();
+  const set = useSetInactiveAfterDays();
+  // null stores the default, so it follows a later change of default.
+  const value = stored === undefined ? '' : stored === null ? String(DEFAULT_INACTIVE_AFTER_DAYS) : String(stored);
+  const options = stored && stored > 0 && !INACTIVE_AFTER_PRESETS.includes(stored)
+    ? [...INACTIVE_AFTER_PRESETS, stored].sort((a, b) => a - b)
+    : INACTIVE_AFTER_PRESETS;
+  const choose = (raw: string) => {
+    const days = Number(raw);
+    set.mutate(days === DEFAULT_INACTIVE_AFTER_DAYS ? null : days);
+  };
+  return (
+    <section className="space-y-2">
+      <h3 className="text-[12px] font-medium text-foreground">Inactive executions</h3>
+      <div className="space-y-2 rounded-lg border border-border bg-background p-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-foreground">Go inactive after</span>
+          <select
+            value={value}
+            disabled={stored === undefined}
+            onChange={(e) => choose(e.target.value)}
+            className="rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+          >
+            {options.map((days) => (
+              <option key={days} value={String(days)}>
+                {formatInactiveAfter(days)} with no activity{days === DEFAULT_INACTIVE_AFTER_DAYS ? ' (default)' : ''}
+              </option>
+            ))}
+            <option value="0">Never</option>
+          </select>
+        </div>
+        <p className="text-[11px] text-muted-foreground/85">
+          {stored === 0
+            ? 'Every execution stays in its list however long it sits.'
+            : 'Executions with no activity for this long fold into an "inactive" row at the bottom of each list, where one click shows them. Pinned ones stay put, marked inactive. Nothing is archived, and new activity brings one back.'}
+        </p>
+      </div>
+    </section>
   );
 }

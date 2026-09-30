@@ -140,6 +140,11 @@ export const userState = sqliteTable('user_state', {
    *  raise (the user's acceptance writes it); demotion writes automatically. */
   streamAutonomy: text({ mode: 'json' }).$type<StreamAutonomyConfig>(),
   onboardedAt: text(),
+  // Days of no activity before an execution goes inactive and folds away in
+  // the rail. Null → the product default (resolveInactiveAfterDays, 7 days),
+  // 0 → never. A preference, so no schema default. See
+  // src/lib/sessions/inactive.ts.
+  executionInactiveAfterDays: integer(),
 });
 
 // ─── Harness Settings ─────────────────────────────────────────

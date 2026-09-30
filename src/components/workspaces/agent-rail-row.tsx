@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { ChevronRight, ChevronsDownUp, ChevronsUpDown, MoreHorizontal, Plus, SlidersHorizontal } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -26,6 +26,10 @@ import {
 import { cn } from '@/lib/utils';
 import type { WorkspaceWithCounts } from '@/db/types';
 import { SessionRow } from './session-row';
+import { FoldRow } from './fold-row';
+import { InactiveFold } from './inactive-fold';
+import { useInactivity } from '@/hooks/use-inactivity';
+import { useFoldShown } from '@/lib/client/rail-fold';
 
 interface AgentRailRowProps {
   workspace: WorkspaceWithCounts;
@@ -50,6 +54,9 @@ const SUMMARY_TONE = {
   muted: 'text-muted-foreground/65',
 } as const;
 
+/** The fold toggles under an agent match its 32px threads. */
+const THREAD_FOLD_ROW = 'h-8 py-0 text-[10.5px]';
+
 const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: string }> = {
   waiting: { dot: 'bg-amber-500 animate-pulse', label: 'Waiting on you' },
   thinking: { dot: 'bg-emerald-500 animate-pulse', label: 'Thinking' },
@@ -68,9 +75,14 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  *
  * Its executions sit under it on one 32px line each, inset so their dots sit
  * under its icon: every live one and the three most recent quiet ones, with
- * "N more" to show the rest in place. Hiding them is one click on hover, and
- * hidden executions fold into a line that still
- * says what wants you, so hiding never hides that. The whole row drags.
+ * "N more hidden · Show" to show the rest in place (remembered per agent).
+ * Hiding them is one click on hover, and hidden executions fold into a line
+ * that still says what wants you, so hiding never hides that. The whole row
+ * drags.
+ *
+ * Inactive executions (src/lib/sessions/inactive.ts), pinned ones included,
+ * leave the threads for an "N inactive hidden · Show" toggle at the foot, and
+ * the counts leave them out. Only the execution open right now stays.
  */
 export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onOpenLauncher }: AgentRailRowProps) {
   const { streamingSessionIds, pendingInputSessionIds, activeView, activeSessionId, activeExecutionId, openAgent } =
@@ -78,7 +90,8 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
   const { opensView } = useAgentViewMode();
   const { data: rail } = useRailSessions();
   const updateWs = useUpdateWorkspace();
-  const [showAll, setShowAll] = useState(false);
+  const { isInactive } = useInactivity();
+  const [showAll, setShowAll] = useFoldShown(`more:agent:${workspace.id}`);
   const isActive = activeView.kind === 'agent' && activeView.id === workspace.id;
   const expanded = !workspace.collapsed;
 
@@ -94,36 +107,52 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     purpose: workspace.purpose,
   });
 
-  const { sessions, capped, summary } = useMemo(() => {
+  const { sessions, inactive, total, capped, summary } = useMemo(() => {
     const all = sortSessionsHotnessDesc(
       (rail?.sessions ?? []).filter((s) => s.workspaceId === workspace.id && s.status === 'active'),
     );
+    const isOpen = (s: (typeof all)[number]) =>
+      activeSessionId === s.id || (!!s.executionId && activeExecutionId === s.executionId);
+    // Inactive work folds away, pins included. The one open right now stays.
+    const kept: typeof all = [];
+    const folded: typeof all = [];
+    for (const s of all) (isInactive(s) && !isOpen(s) ? folded : kept).push(s);
     let working = 0;
     let needsYou = 0;
-    for (const s of all) {
+    for (const s of kept) {
+      if (isInactive(s)) continue;
       // The rail's buckets: pending wins over streaming, unread needs you too.
       if (pendingInputSessionIds.has(s.id)) needsYou++;
       else if (streamingSessionIds.has(s.id)) working++;
       else if (isSessionUnread(s)) needsYou++;
     }
     return {
-      sessions: all,
+      sessions: kept,
+      inactive: folded,
+      total: all.length,
       capped: pickRailThreads(
-        all,
+        kept,
         (s) =>
           pendingInputSessionIds.has(s.id) ||
           streamingSessionIds.has(s.id) ||
           isSessionUnread(s) ||
           !!s.execution?.pinnedAt ||
-          activeSessionId === s.id ||
-          (!!s.executionId && activeExecutionId === s.executionId),
+          isOpen(s),
       ),
       summary: threadSummary({ total: all.length, needsYou, working }),
     };
-  }, [rail?.sessions, workspace.id, streamingSessionIds, pendingInputSessionIds, activeSessionId, activeExecutionId]);
+  }, [
+    rail?.sessions,
+    workspace.id,
+    streamingSessionIds,
+    pendingInputSessionIds,
+    activeSessionId,
+    activeExecutionId,
+    isInactive,
+  ]);
 
   const threads = showAll ? sessions : capped.shown;
-  const hasThreads = sessions.length > 0;
+  const hasThreads = total > 0;
   const toggleThreads = () => updateWs.mutate({ id: workspace.id, collapsed: expanded });
   const open = () => (opensView ? openAgent(workspace.id) : toggleThreads());
   const stop = (e: React.PointerEvent | React.MouseEvent) => e.stopPropagation();
@@ -231,17 +260,30 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         // and size and weight carry the rest of the hierarchy.
         <div className="mt-0.5 mb-1.5 space-y-px">
           {threads.map((s) => (
-            <SessionRow key={s.id} session={s} density="compact" workspaceIsGit={workspace.isGit} />
+            <SessionRow
+              key={s.id}
+              session={s}
+              density="compact"
+              workspaceIsGit={workspace.isGit}
+              inactive={isInactive(s)}
+            />
           ))}
+          {/* Both folds are thread-height and indent to the thread labels. */}
           {capped.hidden > 0 && (
-            <button
-              onPointerDown={stop}
-              onClick={() => setShowAll((v) => !v)}
-              className="flex h-8 w-full items-center rounded-md pl-[2.125rem] text-left text-[10.5px] text-muted-foreground/60 hover:bg-muted/40 hover:text-foreground transition-colors"
-            >
-              {showAll ? 'Show fewer' : `${capped.hidden} more`}
-            </button>
+            <FoldRow
+              count={capped.hidden}
+              noun="more"
+              shown={showAll}
+              onToggle={() => setShowAll(!showAll)}
+              className="pl-[28px]"
+              rowClassName={THREAD_FOLD_ROW}
+            />
           )}
+          <InactiveFold sectionId={`agent:${workspace.id}`} count={inactive.length} className="pl-[28px]" rowClassName={THREAD_FOLD_ROW}>
+            {inactive.map((s) => (
+              <SessionRow key={s.id} session={s} density="compact" workspaceIsGit={workspace.isGit} inactive />
+            ))}
+          </InactiveFold>
         </div>
       )}
 

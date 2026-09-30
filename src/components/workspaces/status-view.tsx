@@ -5,6 +5,8 @@ import { openLauncher } from './launcher/launcher-store';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useRailSessions } from '@/hooks/use-workspaces';
 import { BucketSection } from './bucket-section';
+import { InactiveFold } from './inactive-fold';
+import { useInactivity } from '@/hooks/use-inactivity';
 import { StatusSessionRow } from './status-session-row';
 import { BUCKET_CONFIG, BUCKET_ORDER, classifySession, type BucketId } from './bucket-config';
 import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
@@ -22,6 +24,7 @@ export function StatusView() {
   const { streamingSessionIds, pendingInputSessionIds, setActiveView, openAgent } = useDashboard();
   // Session row menus open the agent's setup: its view, on the Setup tab.
   const openSetup = (id: string) => openAgent(id, 'setup');
+  const { partition } = useInactivity();
 
   const buckets = useMemo(() => {
     const map: Record<BucketId, RailSession[]> = {
@@ -85,13 +88,28 @@ export function StatusView() {
       <div className="flex flex-col">
         {BUCKET_ORDER.map((bucketId) => {
           const cfg = BUCKET_CONFIG[bucketId];
-          const sessions = buckets[bucketId];
+          // Idle rows fold to the foot of their bucket. The count is active
+          // work, like the header's pills, and a bucket holding only inactive
+          // rows still shows, one click away.
+          const { active, inactive } = partition(buckets[bucketId]);
+          const row = (s: RailSession, isInactive: boolean) => (
+            <StatusSessionRow
+              key={s.id}
+              session={s}
+              bucket={bucketId}
+              isUnread={bucketId === 'unread' || bucketId === 'needsApproval'}
+              onOpenWorkspaceSettings={openSetup}
+              onOpenLauncher={openLauncher}
+              inactive={isInactive}
+            />
+          );
           return (
             <BucketSection
               key={cfg.id}
               id={cfg.id}
               label={cfg.label}
-              count={sessions.length + agentsIn(bucketId).length}
+              count={active.length + agentsIn(bucketId).length}
+              hideWhenEmpty={buckets[bucketId].length + agentsIn(bucketId).length === 0}
               accentClass={cfg.accentClass}
               countBgClass={cfg.countBgClass}
               headerBgClass={cfg.headerBgClass}
@@ -100,16 +118,10 @@ export function StatusView() {
               {agentsIn(bucketId).map((item) => (
                 <AgentAttentionRow key={item.workspace.id} item={item} variant="status" />
               ))}
-              {sessions.map((s) => (
-                <StatusSessionRow
-                  key={s.id}
-                  session={s}
-                  bucket={bucketId}
-                  isUnread={bucketId === 'unread' || bucketId === 'needsApproval'}
-                  onOpenWorkspaceSettings={openSetup}
-                  onOpenLauncher={openLauncher}
-                />
-              ))}
+              {active.map((s) => row(s, false))}
+              <InactiveFold sectionId={`status:${bucketId}`} count={inactive.length} className="pl-9">
+                {inactive.map((s) => row(s, true))}
+              </InactiveFold>
             </BucketSection>
           );
         })}

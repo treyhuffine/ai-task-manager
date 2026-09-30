@@ -1,0 +1,1 @@
+ALTER TABLE `user_state` ADD `execution_inactive_after_days` integer;

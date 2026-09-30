@@ -131,6 +131,8 @@ export interface LiveSignals {
   runningSessionIds: string[];
   /** Chat-session ids blocked on a permission/question prompt. */
   pendingSessionIds: string[];
+  /** Chat-session ids whose turn ended with a background task still running. */
+  backgroundSessionIds: string[];
 }
 
 /**
@@ -144,10 +146,12 @@ export async function fetchLiveSignals(): Promise<LiveSignals | null> {
     const rail = await serverFetch<{
       runningSessionIds: string[];
       pendingSessionIds: string[];
+      backgroundSessionIds?: string[];
     }>('/sessions/rail');
     return {
       runningSessionIds: rail.runningSessionIds ?? [],
       pendingSessionIds: rail.pendingSessionIds ?? [],
+      backgroundSessionIds: rail.backgroundSessionIds ?? [],
     };
   } catch {
     return null;

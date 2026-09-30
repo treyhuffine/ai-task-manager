@@ -1,13 +1,14 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { AppWindow, ExternalLink, ListTodo, Loader2, Pin, Plus } from 'lucide-react';
+import { AppWindow, ExternalLink, ListTodo, Loader2, Moon, Pin, Plus } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useAgentExecutions, useAgentPreviews, useAgentTasks } from '@/hooks/use-agent';
 import { useDiffStats } from '@/hooks/use-workspaces';
 import { openLauncher } from '@/components/workspaces/launcher/launcher-store';
 import { DiffStatsPair } from '@/components/workspaces/diff-stats';
 import { SessionRowMenu } from '@/components/workspaces/session-row-menu';
+import { InactiveFold } from '@/components/workspaces/inactive-fold';
 import { harnessDefinition } from '@/lib/harness/registry';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import type { RailSession } from '@/lib/api/sessions';
@@ -31,7 +32,8 @@ export function AgentOverview({
   workspace: WorkspaceRecord;
   onSelectTab: (tab: AgentTab) => void;
 }) {
-  const { needsYou, working, recent, pinned, all, isLoading } = useAgentExecutions(workspace.id);
+  const { needsYou, needsYouInactive, working, recent, recentInactive, pinned, pinnedInactive, all, isLoading } =
+    useAgentExecutions(workspace.id);
   const archived = workspace.status === 'archived';
 
   if (isLoading) {
@@ -68,28 +70,48 @@ export function AgentOverview({
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-5">
-      {pinned.length > 0 && (
-        <Section title="Pinned" icon={<Pin size={10} className="-rotate-45" />} count={pinned.length}>
+      {pinned.length + pinnedInactive.length > 0 && (
+        <Section title="Pinned" icon={<Pin size={10} className="-rotate-45" />} count={pinned.length} showBody>
           {pinned.map((s) => (
             <ExecutionRow key={s.id} session={s} state={stateOf(s, needsYou, working)} />
           ))}
+          <InactiveFold sectionId={`overview:${workspace.id}:pinned`} count={pinnedInactive.length} className="pl-4">
+            {pinnedInactive.map((s) => (
+              <ExecutionRow key={s.id} session={s} state={stateOf(s, needsYouInactive, working)} inactive />
+            ))}
+          </InactiveFold>
         </Section>
       )}
-      <Section title="Needs you" count={needsYou.length} tone="attention" empty="Nothing waiting on you.">
+      <Section title="Needs you" count={needsYou.length} tone="attention" empty={needsYou.length + needsYouInactive.length > 0 ? undefined : 'Nothing waiting on you.'}>
         {needsYou.map(({ session, bucket }) => (
           <ExecutionRow key={session.id} session={session} state={bucket === 'needsApproval' ? 'approve' : 'unread'} />
         ))}
+        <InactiveFold sectionId={`overview:${workspace.id}:needs`} count={needsYouInactive.length} className="pl-4">
+          {needsYouInactive.map(({ session, bucket }) => (
+            <ExecutionRow
+              key={session.id}
+              session={session}
+              state={bucket === 'needsApproval' ? 'approve' : 'unread'}
+              inactive
+            />
+          ))}
+        </InactiveFold>
       </Section>
       <Section title="Working" count={working.length} tone="working" empty="Nothing running right now.">
         {working.map((s) => (
           <ExecutionRow key={s.id} session={s} state="working" />
         ))}
       </Section>
-      {recent.length > 0 && (
-        <Section title="Recent" count={recent.length}>
+      {recent.length + recentInactive.length > 0 && (
+        <Section title="Recent" count={recent.length} showBody>
           {recent.map((s) => (
             <ExecutionRow key={s.id} session={s} state="idle" />
           ))}
+          <InactiveFold sectionId={`overview:${workspace.id}:recent`} count={recentInactive.length} className="pl-4">
+            {recentInactive.map((s) => (
+              <ExecutionRow key={s.id} session={s} state="idle" inactive />
+            ))}
+          </InactiveFold>
         </Section>
       )}
       <AgentTasksSection workspaceId={workspace.id} />
@@ -115,6 +137,7 @@ function Section({
   count,
   tone,
   empty,
+  showBody = false,
   children,
 }: {
   title: string;
@@ -123,6 +146,8 @@ function Section({
   tone?: 'attention' | 'working';
   /** Shown when the section has nothing. Sections without it hide instead. */
   empty?: string;
+  /** Render the body even at a count of 0 (a section holding only folded inactive rows). */
+  showBody?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -145,7 +170,7 @@ function Section({
           </span>
         )}
       </h3>
-      {count === 0 && empty ? (
+      {count === 0 && empty && !showBody ? (
         <p className="px-1 text-[11px] text-muted-foreground/60">{empty}</p>
       ) : (
         <div className="space-y-px">{children}</div>
@@ -155,7 +180,7 @@ function Section({
 }
 
 /** One execution: label, diff, harness and last activity. Opens the execution view. */
-function ExecutionRow({ session, state }: { session: RailSession; state: RowState }) {
+function ExecutionRow({ session, state, inactive = false }: { session: RailSession; state: RowState; inactive?: boolean }) {
   const { openExecution, activeSessionId, backgroundSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(session.id, session.executionId ?? null);
   // The turn is over but something it started is still running. Not working.
@@ -177,8 +202,9 @@ function ExecutionRow({ session, state }: { session: RailSession; state: RowStat
         }
       }}
       className={cn(
-        'group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors',
+        'group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-[color,background-color,opacity]',
         activeSessionId === session.id ? 'bg-secondary' : 'hover:bg-muted/50',
+        inactive && activeSessionId !== session.id && 'opacity-60 hover:opacity-100',
       )}
     >
       <StateDot state={state} background={background} />
@@ -204,7 +230,10 @@ function ExecutionRow({ session, state }: { session: RailSession; state: RowStat
           ) : state === 'working' ? (
             <span className="text-emerald-600/80 dark:text-emerald-400/80">working</span>
           ) : (
-            <span className="text-muted-foreground/70">{formatCompactRelative(timestamp)}</span>
+            <span className="inline-flex items-center gap-1 text-muted-foreground/70">
+              {inactive && <Moon size={10} aria-label="Inactive" />}
+              {formatCompactRelative(timestamp)}
+            </span>
           )}
         </span>
         <SessionRowMenu

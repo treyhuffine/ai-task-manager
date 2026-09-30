@@ -12,12 +12,15 @@ import {
   GitBranch,
   Inbox,
   Laptop,
+  Moon,
   MoreHorizontal,
   Plus,
   Settings,
   SquareTerminal,
 } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { useInactivity } from '@/hooks/use-inactivity';
+import { InactiveFold } from '@/components/workspaces/inactive-fold';
 import {
   useWorkspaces,
   useNeedsReviewSessions,
@@ -92,6 +95,7 @@ function NeedsReviewBlock() {
   const { streamingSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: candidates } = useNeedsReviewSessions();
   const { data: workspaces } = useWorkspaces({ status: 'active' });
+  const { partition } = useInactivity();
 
   // Exclude sessions that are mid-turn — they'll generate a fresh
   // outcome shortly. Exception: a streaming session blocked on user
@@ -103,6 +107,8 @@ function NeedsReviewBlock() {
       ),
     [candidates, streamingSessionIds, pendingInputSessionIds],
   );
+  // Inactive ones fold to the foot, as on the desktop rail.
+  const { active, inactive } = useMemo(() => partition(filtered), [partition, filtered]);
 
   if (filtered.length === 0) return null;
 
@@ -116,11 +122,11 @@ function NeedsReviewBlock() {
           Needs Review
         </span>
         <span className="text-[11px] font-mono text-muted-foreground/70">
-          {filtered.length}
+          {active.length}
         </span>
       </div>
       <div className="space-y-1">
-        {filtered.map((session) => (
+        {active.map((session) => (
           <MobileSessionRow
             key={session.id}
             session={session}
@@ -129,6 +135,17 @@ function NeedsReviewBlock() {
           />
         ))}
       </div>
+      <InactiveFold sectionId="unread" count={inactive.length} touch className="pl-10">
+        {inactive.map((session) => (
+          <MobileSessionRow
+            key={session.id}
+            session={session}
+            workspaceLabel={wsName(session.workspaceId)}
+            forceState="needs_review"
+            inactive
+          />
+        ))}
+      </InactiveFold>
     </section>
   );
 }
@@ -136,8 +153,10 @@ function NeedsReviewBlock() {
 // ─── Workspace block (collapsible) ────────────────────────────────
 
 function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
-  const { streamingSessionIds, setActiveView, setMobileTab, openAgent } = useDashboard();
+  const { streamingSessionIds, pendingInputSessionIds, setActiveView, setMobileTab, openAgent } = useDashboard();
   const { opensView } = useAgentViewMode();
+  const { isInactive, partition } = useInactivity();
+  const { data: reviewCandidates } = useNeedsReviewSessions();
   const { data: areas } = useAreas();
   const updateWs = useUpdateWorkspace();
   // Guards double-fire only — see WorkspaceNav.handleCreateExecution.
@@ -175,8 +194,16 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
   const iconEmoji = workspace.emoji ?? (wsImage ? null : linkedArea?.emoji ?? null);
 
   const childSessions = sessions ?? [];
+  const { active: activeChildren, inactive: inactiveChildren } = partition(childSessions);
   const streamingCount = childSessions.filter((s) => streamingSessionIds.has(s.id)).length;
-  const reviewCount = Math.max(workspace.needsReviewCandidateCount - streamingCount, 0);
+  // The agent's unread and waiting work, by the Needs Review block's rule,
+  // minus what has gone inactive (it sits folded, so it doesn't badge).
+  const reviewCount = (reviewCandidates ?? []).filter(
+    (s) =>
+      s.workspaceId === workspace.id &&
+      (pendingInputSessionIds.has(s.id) || !streamingSessionIds.has(s.id)) &&
+      !isInactive(s),
+  ).length;
 
   const toggle = () => updateWs.mutate({ id: workspace.id, collapsed: expanded });
 
@@ -289,7 +316,12 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
               <Plus size={13} /> New execution
             </button>
           ) : (
-            childSessions.map((s) => <MobileSessionRow key={s.id} session={s} />)
+            <>
+              {activeChildren.map((s) => <MobileSessionRow key={s.id} session={s} />)}
+              <InactiveFold sectionId={`agent:${workspace.id}`} count={inactiveChildren.length} touch className="pl-10">
+                {inactiveChildren.map((s) => <MobileSessionRow key={s.id} session={s} inactive />)}
+              </InactiveFold>
+            </>
           )}
         </div>
       )}
@@ -307,9 +339,11 @@ interface MobileSessionRowProps {
   /** Force the status pill to "needs_review" — used by the Needs Review
    *  block where we already filtered for that. */
   forceState?: 'needs_review';
+  /** Idle past the inactive threshold: dimmed, with a moon before its age. */
+  inactive?: boolean;
 }
 
-function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSessionRowProps) {
+function MobileSessionRow({ session, workspaceLabel, forceState, inactive = false }: MobileSessionRowProps) {
   const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds, setMobileTab } =
     useDashboard();
   const isPending = pendingInputSessionIds.has(session.id);
@@ -350,8 +384,9 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
       type="button"
       onClick={open}
       className={cn(
-        'w-full flex items-center gap-2 pl-7 pr-2 py-2 rounded-lg text-left transition-colors',
+        'w-full flex items-center gap-2 pl-7 pr-2 py-2 rounded-lg text-left transition-[color,background-color,opacity]',
         isActive ? 'bg-secondary' : 'active:bg-muted/40',
+        inactive && !isActive && 'opacity-60',
       )}
     >
       <GitBranch size={12} className="flex-shrink-0 text-muted-foreground/60" />
@@ -400,10 +435,14 @@ function MobileSessionRow({ session, workspaceLabel, forceState }: MobileSession
         ) : needsReview ? (
           <>
             <span className="w-1.5 h-1.5 rounded-full border border-amber-500" />
+            {inactive && <Moon size={10} className="text-muted-foreground/60" aria-label="Inactive" />}
             <span className="text-muted-foreground/70">{formatCompactRelative(timestamp)}</span>
           </>
         ) : (
-          <span className="text-muted-foreground/60">{formatCompactRelative(timestamp)}</span>
+          <>
+            {inactive && <Moon size={10} className="text-muted-foreground/60" aria-label="Inactive" />}
+            <span className="text-muted-foreground/60">{formatCompactRelative(timestamp)}</span>
+          </>
         )}
       </span>
     </button>

@@ -3,6 +3,7 @@
 import { Zap } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useRailSessions, useWorkspaces } from '@/hooks/use-workspaces';
+import { useInactivity } from '@/hooks/use-inactivity';
 import { ContentPanel } from '@/components/dashboard/content-panel';
 import { ExecutionView } from '@/components/executions/execution-view';
 import { AgentView } from '@/components/agents/agent-view';
@@ -23,15 +24,17 @@ export function TabletLayout() {
   const { theme, activeView, goHome, openAgent, pendingInputSessionIds, streamingSessionIds } = useDashboard();
   const { data: workspaces } = useWorkspaces({ status: 'active' });
   const { data: rail } = useRailSessions();
+  const { isInactive } = useInactivity();
   const isDark = theme === 'dark';
 
   // One amber dot per agent that wants you: the agent itself (its main chat
   // is waiting on you or replied) or any of its work, the rail's rule.
+  // Inactive work is folded in the rail, so it doesn't light a dot here.
   const agentsWanting = useAgentAttention();
   const needsYou = new Set([
     ...agentsWanting.map((a) => a.workspace.id),
     ...(rail?.sessions ?? [])
-      .filter((s) => s.status === 'active' && s.workspaceId)
+      .filter((s) => s.status === 'active' && s.workspaceId && !isInactive(s))
       .filter((s) => {
         const bucket = classifySession(s, pendingInputSessionIds, streamingSessionIds);
         return bucket === 'needsApproval' || bucket === 'unread';
