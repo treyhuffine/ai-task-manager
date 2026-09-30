@@ -46,9 +46,10 @@ interface Connection {
 interface ProviderStatus {
   id: string;
   displayName: string;
-  method: 'oauth2' | 'api_key' | 'custom';
+  method: 'oauth2' | 'api_key' | 'custom' | 'mcp';
   configured: boolean;
   credentialFields?: string[];
+  mcp?: { authKind?: 'oauth' | 'bearer' | 'none' };
 }
 interface Status {
   redirectUri: string;
@@ -130,19 +131,28 @@ export default function ConnectorsTestPage() {
     async (p: ProviderStatus, authConfigId?: string) => {
       setBusy(true);
       try {
-        const { authorizationUrl } = await api.post<{ authorizationUrl: string }>('/connectors/connect', {
+        const result = await api.post<{ authorizationUrl?: string; authUrl?: string; requiresAuth?: boolean }>('/connectors/connect', {
           providerId: p.id,
           scopes: providerScopes(p.id),
           label: p.displayName,
           ...(authConfigId ? { authConfigId } : {}), // connect through a SPECIFIC client (BYO)
         });
-        window.location.href = authorizationUrl;
+        const authorizationUrl = result.authorizationUrl ?? result.authUrl;
+        if (authorizationUrl) {
+          window.location.href = authorizationUrl;
+        } else if (p.method === 'mcp' && result.requiresAuth === false) {
+          await refresh();
+          setBanner({ kind: 'ok', text: `Connected ${p.displayName}` });
+          setBusy(false);
+        } else {
+          throw new Error('No sign-in link was returned. Try connecting again.');
+        }
       } catch (e) {
         setBanner({ kind: 'err', text: e instanceof Error ? e.message : 'connect failed' });
         setBusy(false);
       }
     },
-    [providerScopes],
+    [providerScopes, refresh],
   );
 
   const setDefaultByo = useCallback(async (p: ProviderStatus, id: string) => {
@@ -362,7 +372,7 @@ export default function ConnectorsTestPage() {
                     </button>
                   )}
                 </div>
-                {p.method === 'oauth2' ? (
+                {p.method === 'oauth2' || (p.method === 'mcp' && (p.mcp?.authKind ?? 'oauth') === 'oauth') ? (
                   <button
                     disabled={busy || !p.configured}
                     onClick={() => connectOAuth(p)}
@@ -373,7 +383,7 @@ export default function ConnectorsTestPage() {
                   </button>
                 ) : (
                   <div className="flex shrink-0 items-center gap-2">
-                    {(p.credentialFields ?? ['apiKey']).map((f) => (
+                    {(p.method === 'mcp' ? p.mcp?.authKind === 'none' ? [] : ['token'] : p.credentialFields ?? ['apiKey']).map((f) => (
                       <input
                         key={f}
                         type="password"

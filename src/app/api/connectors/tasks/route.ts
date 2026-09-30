@@ -3,7 +3,7 @@ import { listConnectorTasks } from '@/lib/connectors/task-sources';
 import { withCompression } from '@/lib/api/compression';
 
 /**
- * Tasks from connected task-management providers (Todoist, Linear).
+ * Tasks from connected task-management providers (Todoist, Jira, Asana).
  *
  * Read-only and app-initiated — see `task-sources.ts` for why this bypasses the
  * agent tool path and calls the connector engine directly. Providers that fail

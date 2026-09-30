@@ -5,6 +5,7 @@ import { quickbooksToolkit } from './toolkit';
 
 export { quickbooks } from './provider';
 export type { QuickbooksProviderOptions } from './provider';
+export type { QuickbooksEnvironment } from './shared';
 export { quickbooksToolkit } from './toolkit';
 
 /** Register the QuickBooks provider with its toolkit in one call. */

@@ -26,14 +26,20 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { openConnectorAuthorization } from '@/lib/client/desktop';
+import { type HostedEndpointSelection } from '@/lib/client/connector-endpoint';
 import { ConnectorLogo } from '@/components/connectors/connector-logo';
 import { connectorMeta, CATEGORY_ORDER, type ConnectorCategory } from '@/components/connectors/connector-meta';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 import { CatalogTile, GroupHeading, McpLogo } from './connectors/parts';
 import { ProviderDetail } from './connectors/provider-detail';
+import { PreviousConnections } from './connectors/previous-connections';
+import { watchOAuthReturn } from './connectors/oauth-focus-refresh';
+import { hostedAccountRequestFields, hostedAccountSignedIn } from './connectors/hosted-account-request';
 import { McpServerDetail, McpServerForm, mcpTone } from './connectors/mcp-server-detail';
 import {
   connectionIdentity,
+  isRegisteredMcp,
+  oauthAppRedirectUri,
   EMPTY_BYO_FORM,
   EMPTY_MCP_FORM,
   errMsg,
@@ -41,6 +47,7 @@ import {
   type AuthConfigSummary,
   type ByoForm,
   type Connection,
+  type HostedConnectIntent,
   type McpForm,
   type McpServerEntry,
   type McpToolOverride,
@@ -100,6 +107,7 @@ export function ConnectorsSection() {
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [pendingOAuth, setPendingOAuth] = useState<string | null>(null);
+  const [pendingRegisteredOAuth, setPendingRegisteredOAuth] = useState<{ id: string; displayName: string; serverId?: string; authorizationId?: string } | null>(null);
   const [query, setQuery] = useState('');
 
   const [view, setView] = useState<View>(CATALOG);
@@ -108,6 +116,7 @@ export function ConnectorsSection() {
   const catalogScroll = useRef(0);
 
   const [creds, setCreds] = useState<Record<string, Record<string, string>>>({});
+  const [endpointSelections, setEndpointSelections] = useState<Record<string, HostedEndpointSelection>>({});
   const [serviceSel, setServiceSel] = useState<Record<string, string[]>>({}); // providerId → selected toolkit ids at connect (§5)
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
   const [testing, setTesting] = useState<string | null>(null);
@@ -169,8 +178,22 @@ export function ConnectorsSection() {
     // Fetch MCP server health AFTER the runtime-touching calls above (which force a rebuild +
     // re-ingest), so the health reflects the latest ingest, not a pre-rebuild snapshot.
     const mcp = await api.get<{ servers: McpServerEntry[] }>('/connectors/mcp-servers');
-    setMcpServers(mcp.servers);
+    // Built-in hosted connectors have a normal provider card and its connect flow.
+    setMcpServers(mcp.servers.filter((server) => !server.providerId));
+    return st.providers;
   }, []);
+
+  useEffect(() => {
+    if (!pendingRegisteredOAuth) return;
+    return watchOAuthReturn(window, async () => {
+      const current = await refresh();
+      const provider = current.find(candidate => candidate.id === pendingRegisteredOAuth.id);
+      return hostedAccountSignedIn(provider, pendingRegisteredOAuth.serverId, pendingRegisteredOAuth.authorizationId);
+    }, () => {
+      setBanner(`Connected ${pendingRegisteredOAuth.displayName}`);
+      setPendingRegisteredOAuth(null);
+    }, error => setError(errMsg(error)));
+  }, [pendingRegisteredOAuth, refresh]);
 
   // Read the post-OAuth result the callback bounced back with, then strip it
   // from the URL (keep ?settings=connectors so the modal stays put).
@@ -288,6 +311,16 @@ export function ConnectorsSection() {
       await api.patch(`/connectors/mcp-servers/${id}`, {}); // invalidate
       await api.get('/connectors/connections'); // force a rebuild so health refreshes
     });
+  const reviewCapabilities = (serverId: string, reviewedRevision: string) => run(async () => {
+    try {
+      await api.patch(`/connectors/mcp-servers/${encodeURIComponent(serverId)}`, { reviewedRevision });
+    } catch (error) {
+      // A newer discovery may have landed while this review was open. Keep its
+      // latest changes visible and preserve the stale-review error.
+      await refresh().catch(() => {});
+      throw error;
+    }
+  });
   // Per-tool switches apply optimistically: the list never locks or flashes while
   // the patch lands, and a failure restores server truth.
   const setMcpToolOverride = (s: McpServerEntry, toolName: string, patch: McpToolOverride) => {
@@ -334,10 +367,12 @@ export function ConnectorsSection() {
         setError('Label and client ID are required.');
         return;
       }
+      const callback = oauthAppRedirectUri(p, redirectUri);
+      if (!callback) throw new Error('The callback address is unavailable. Reload Settings and try again.');
       await api.post('/connectors/auth-configs', {
         providerId: p.id,
         label: form.label,
-        oauth: { clientId: form.clientId, redirectUri: p.desktopCallback ? p.desktopCallback.redirectUri || 'http://127.0.0.1/oauth/callback' : redirectUri },
+        oauth: { clientId: form.clientId, redirectUri: callback },
         clientSecret: form.clientSecret || undefined,
       });
       setByoForm((f) => ({ ...f, [p.id]: EMPTY_BYO_FORM }));
@@ -358,7 +393,10 @@ export function ConnectorsSection() {
     });
 
   const copyRedirect = () => {
-    void navigator.clipboard?.writeText((view.kind === 'provider' && providers.find((p) => p.id === view.id)?.desktopCallback?.redirectUri) || redirectUri).then(() => {
+    const provider = view.kind === 'provider' ? providers.find(p => p.id === view.id) : undefined;
+    const callback = provider ? oauthAppRedirectUri(provider, redirectUri) : redirectUri;
+    if (!callback) return;
+    void navigator.clipboard?.writeText(callback).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -379,53 +417,96 @@ export function ConnectorsSection() {
   const openProvider = (p: ProviderStatus) => {
     navigate({ kind: 'provider', id: p.id });
     // OAuth details show the bring-your-own apps, so have them ready on arrival.
-    if (p.method === 'oauth2' && !p.orphan) loadByo(p.id).catch(() => {});
+    if ((p.method === 'oauth2' || isRegisteredMcp(p)) && !p.orphan) loadByo(p.id).catch(() => {});
   };
 
   const connectOAuth = useCallback(
-    async (p: ProviderStatus, authConfigId?: string) => {
+    async (p: ProviderStatus, authConfigId?: string, intent?: HostedConnectIntent) => {
       setBusy(true);
       setError(null);
       try {
-        const { authorizationUrl, desktopFlowId } = await api.post<{ authorizationUrl: string; desktopFlowId?: string }>('/connectors/connect', {
+        const result = await api.post<{
+          authorizationUrl?: string;
+          authUrl?: string;
+          desktopFlowId?: string;
+          requiresAuth?: boolean;
+          serverId?: string;
+          authorizationId?: string;
+        }>('/connectors/connect', {
           providerId: p.id,
-          scopes: connectScopes(p),
-          label: p.displayName,
-          ...(authConfigId ? { authConfigId } : {}),
+          ...(p.method === 'mcp' ? hostedAccountRequestFields(p, intent, authConfigId, endpointSelections[p.id], connections) : {
+            label: p.displayName,
+            scopes: connectScopes(p),
+            ...(authConfigId ? { authConfigId } : {}),
+          }),
         });
-        await authorize(authorizationUrl, desktopFlowId);
-        if (desktopFlowId) setBusy(false);
+        if (p.mcp?.accounts || p.mcp?.endpointConfig || isRegisteredMcp(p)) await refresh();
+        const authorizationUrl = result.authorizationUrl ?? result.authUrl;
+        if (authorizationUrl) {
+          if (isRegisteredMcp(p)) setPendingRegisteredOAuth({ id: p.id, displayName: intent?.label || p.displayName, serverId: result.serverId ?? intent?.serverId, authorizationId: result.authorizationId });
+          await authorize(authorizationUrl, result.desktopFlowId);
+          if (result.desktopFlowId || isRegisteredMcp(p)) setBusy(false);
+        } else if (p.method === 'mcp' && result.requiresAuth === false) {
+          await refresh();
+          setBanner(`Connected ${p.displayName}`);
+          setBusy(false);
+        } else {
+          throw new Error(`${p.displayName} did not provide a sign-in link. Try connecting again.`);
+        }
       } catch (e) {
+        if (isRegisteredMcp(p)) setPendingRegisteredOAuth(null);
+        // Discovery can fail after the endpoint has been saved. Show its locked
+        // state and Cancel setup without hiding the original connection error.
+        if (p.mcp?.accounts || p.mcp?.endpointConfig || isRegisteredMcp(p)) await refresh().catch(() => {});
         // Multi-client provider with no default → open Advanced so the user picks one.
-        if ((e as { body?: { error?: string } }).body?.error === 'auth_config_required') {
+        if ((p.method === 'oauth2' || isRegisteredMcp(p)) && (e as { body?: { error?: string } }).body?.error === 'auth_config_required') {
           setAdvancedOpen(true);
           await loadByo(p.id).catch(() => {});
-          setError('This provider has more than one OAuth app. Pick one under Use your own OAuth app to connect.');
+          setError(`This provider has more than one OAuth app. Pick one under ${isRegisteredMcp(p) ? 'OAuth apps' : 'Use your own OAuth app'} to connect.`);
         } else {
           setError(errMsg(e));
         }
         setBusy(false);
       }
     },
-    [connectScopes, loadByo, authorize],
+    [connectScopes, loadByo, authorize, refresh, endpointSelections, connections],
   );
 
-  const connectDirect = (p: ProviderStatus) =>
+  const connectDirect = (p: ProviderStatus, intent?: HostedConnectIntent) =>
     run(async () => {
-      const { connection } = await api.post<{
-        connection?: { email?: string | null; label?: string | null; accountId?: string };
-      }>('/connectors/connectDirect', { providerId: p.id, fields: creds[p.id] ?? {}, label: p.displayName });
-      setCreds((c) => ({ ...c, [p.id]: {} }));
-      // Show the identity the engine discovered (identify()) so the connect lands with confidence.
-      const who = connection?.email || connection?.accountId;
-      setBanner(who ? `Connected ${p.displayName} as ${who}` : `Connected ${p.displayName}`);
+      try {
+        const { connection } = await api.post<{
+          connection?: { email?: string | null; label?: string | null; accountId?: string };
+        }>('/connectors/connectDirect', {
+          providerId: p.id, fields: intent?.fields ?? creds[p.id] ?? {},
+          ...(p.method === 'mcp' ? hostedAccountRequestFields(p, intent, undefined, endpointSelections[p.id], connections) : { label: p.displayName }),
+        });
+        setCreds((c) => ({ ...c, [p.id]: {} }));
+        // Show the identity the engine discovered (identify()) so the connect lands with confidence.
+        const who = connection?.email || (p.method === 'mcp' && connection?.accountId === `${p.id}:default` ? undefined : connection?.accountId);
+        setBanner(who ? `Connected ${p.displayName} as ${who}` : `Connected ${p.displayName}`);
+      } catch (error) {
+        if (p.mcp?.accounts) await refresh().catch(() => {});
+        throw error;
+      }
     });
 
   const disconnect = (c: Connection) =>
     run(async () => {
       await api.post('/connectors/disconnect', { id: c.id });
+      const account = providers.find(provider => provider.id === c.providerId)?.mcp?.accounts?.find(candidate => candidate.connectionId === c.id);
+      setPendingRegisteredOAuth(pending => pending?.id === c.providerId && (!pending.serverId || pending.serverId === account?.serverId) ? null : pending);
+      setEndpointSelections(previous => ({ ...previous, [c.providerId]: {} }));
       setBanner(`Disconnected ${connectionIdentity(c)}`);
     });
+
+  const cancelSetup = (p: ProviderStatus, serverId = p.mcp?.serverId) => run(async () => {
+    if (!serverId) return;
+    await api.delete(`/connectors/mcp-servers/${encodeURIComponent(serverId)}`);
+    setPendingRegisteredOAuth(pending => pending?.id === p.id && (!pending.serverId || pending.serverId === serverId) ? null : pending);
+    setEndpointSelections(previous => ({ ...previous, [p.id]: {} }));
+    setBanner(`Cancelled ${p.displayName} setup`);
+  });
 
   const testConnection = async (id: string) => {
     setTesting(id);
@@ -453,7 +534,7 @@ export function ConnectorsSection() {
   const catalogProviders = useMemo(() => {
     const known = new Set(providers.map((p) => p.id));
     const orphans: ProviderStatus[] = [...connectionsByProvider.keys()]
-      .filter((id) => !known.has(id))
+      .filter((id) => !known.has(id) && id !== 'jira' && id !== 'confluence')
       .map((id) => ({ id, displayName: id, method: 'custom', configured: false, credentialFields: [], orphan: true }));
     return [...providers, ...orphans];
   }, [providers, connectionsByProvider]);
@@ -482,9 +563,11 @@ export function ConnectorsSection() {
     const servers = mcpServers.filter(
       (s) => !q || s.displayName.toLowerCase().includes(q) || s.url.toLowerCase().includes(q),
     );
-    const total = connected.length + groups.reduce((n, g) => n + g.items.length, 0) + servers.length;
-    return { connected, groups, servers, total };
-  }, [q, catalogProviders, connectionsByProvider, mcpServers]);
+    const previous = connections.filter(c => (c.providerId === 'jira' || c.providerId === 'confluence') &&
+      (!q || `${c.providerId} ${connectionIdentity(c)} Atlassian`.toLowerCase().includes(q)));
+    const total = connected.length + groups.reduce((n, g) => n + g.items.length, 0) + servers.length + previous.length;
+    return { connected, groups, servers, previous, total };
+  }, [q, catalogProviders, connectionsByProvider, mcpServers, connections]);
 
   const selectedProvider = view.kind === 'provider' ? catalogProviders.find((p) => p.id === view.id) : undefined;
   const selectedServer = view.kind === 'mcp' ? mcpServers.find((s) => s.id === view.id) : undefined;
@@ -566,7 +649,7 @@ export function ConnectorsSection() {
                   <TileGrid>
                     {catalog.connected.map((p) => {
                       const conns = connectionsByProvider.get(p.id) ?? [];
-                      const healthy = conns.every((c) => c.status === 'active');
+                      const healthy = conns.every((c) => c.status === 'active') && !p.mcp?.requiresAuth && (!p.mcp?.status || p.mcp.status === 'ok');
                       return (
                         <CatalogTile
                           key={p.id}
@@ -582,6 +665,8 @@ export function ConnectorsSection() {
                   </TileGrid>
                 </section>
               )}
+
+              {catalog.previous.length > 0 && <PreviousConnections connections={catalog.previous} busy={busy} onDisconnect={disconnect} />}
 
               {catalog.groups.map(({ category, items }) => (
                 <section key={category} className="space-y-2">
@@ -667,6 +752,7 @@ export function ConnectorsSection() {
           onToggleEnabled={() => toggleMcp(selectedServer)}
           onRemove={() => removeMcp(selectedServer)}
           onToolOverride={(toolName, patch) => setMcpToolOverride(selectedServer, toolName, patch)}
+          onReviewCapabilities={revision => reviewCapabilities(selectedServer.id, revision)}
         />
       ) : selectedProvider ? (
         <ProviderDetail
@@ -679,6 +765,10 @@ export function ConnectorsSection() {
           testing={testing}
           testResults={testResults}
           creds={creds[selectedProvider.id] ?? {}}
+          endpointSelection={endpointSelections[selectedProvider.id]}
+          onEndpointChange={selection => setEndpointSelections(previous => ({ ...previous, [selectedProvider.id]: selection }))}
+          onCancelSetup={serverId => cancelSetup(selectedProvider, serverId)}
+          onReviewCapabilities={reviewCapabilities}
           selectedServices={
             serviceSel[selectedProvider.id] ?? providerToolkits(selectedProvider.id).map((t) => t.id)
           }
@@ -688,8 +778,8 @@ export function ConnectorsSection() {
           byoConfigs={byoConfigs[selectedProvider.id] ?? []}
           byoForm={byoForm[selectedProvider.id] ?? EMPTY_BYO_FORM}
           onBack={back}
-          onConnectOAuth={(authConfigId) => connectOAuth(selectedProvider, authConfigId)}
-          onConnectDirect={() => connectDirect(selectedProvider)}
+          onConnectOAuth={(authConfigId, intent) => connectOAuth(selectedProvider, authConfigId, intent)}
+          onConnectDirect={intent => connectDirect(selectedProvider, intent)}
           onCredChange={(field, value) =>
             setCreds((c) => ({ ...c, [selectedProvider.id]: { ...(c[selectedProvider.id] ?? {}), [field]: value } }))
           }

@@ -1,0 +1,946 @@
+{
+  "checked_at": "2026-09-29T04:40:48.111Z",
+  "method": "GET-only MCP SDK OAuth discovery. No client registration, authorization or account reads.",
+  "records": [
+    {
+      "id": "robinhood",
+      "endpoint": "https://agent.robinhood.com/mcp/trading",
+      "checked_at": "2026-09-29T04:40:47.171Z",
+      "requests": [
+        {
+          "url": "https://agent.robinhood.com/mcp/trading",
+          "status": 405,
+          "final_url": "https://agent.robinhood.com/mcp/trading"
+        },
+        {
+          "url": "https://agent.robinhood.com/.well-known/oauth-protected-resource/mcp/trading",
+          "status": 200,
+          "final_url": "https://agent.robinhood.com/.well-known/oauth-protected-resource/mcp/trading"
+        },
+        {
+          "url": "https://agent.robinhood.com/.well-known/oauth-authorization-server/mcp/trading",
+          "status": 200,
+          "final_url": "https://agent.robinhood.com/.well-known/oauth-authorization-server/mcp/trading"
+        }
+      ],
+      "endpoint_status": 405,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://agent.robinhood.com/mcp/trading",
+        "authorizationServerMetadata": {
+          "issuer": "https://agent.robinhood.com/mcp/trading",
+          "authorization_endpoint": "https://robinhood.com/oauth",
+          "token_endpoint": "https://api.robinhood.com/oauth2/token/",
+          "registration_endpoint": "https://agent.robinhood.com/oauth/trading/register",
+          "scopes_supported": [
+            "internal"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "none"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://agent.robinhood.com/mcp/trading",
+          "authorization_servers": [
+            "https://agent.robinhood.com/mcp/trading"
+          ],
+          "scopes_supported": [
+            "internal"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      }
+    },
+    {
+      "id": "posthog",
+      "endpoint": "https://mcp.posthog.com/mcp",
+      "checked_at": "2026-09-29T04:40:47.191Z",
+      "requests": [
+        {
+          "url": "https://mcp.posthog.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.posthog.com/mcp"
+        },
+        {
+          "url": "https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://oauth.posthog.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://oauth.posthog.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer resource_metadata=\"https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp\"",
+      "discovery": {
+        "authorizationServerUrl": "https://oauth.posthog.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://oauth.posthog.com",
+          "authorization_endpoint": "https://oauth.posthog.com/oauth/authorize/",
+          "token_endpoint": "https://oauth.posthog.com/oauth/token/",
+          "registration_endpoint": "https://oauth.posthog.com/oauth/register/",
+          "scopes_supported": [
+            "openid",
+            "profile",
+            "email",
+            "introspection",
+            "action:read",
+            "action:write",
+            "access_control:read",
+            "access_control:write",
+            "account:read",
+            "account:write",
+            "activity_log:read",
+            "activity_log:write",
+            "alert:read",
+            "alert:write",
+            "annotation:read",
+            "annotation:write",
+            "approvals:read",
+            "approvals:write",
+            "autoresearch:read",
+            "autoresearch:write",
+            "batch_export:read",
+            "batch_export:write",
+            "batch_import:read",
+            "batch_import:write",
+            "billing:read",
+            "billing:write",
+            "business_knowledge:read",
+            "business_knowledge:write",
+            "canvas:read",
+            "canvas:write",
+            "cohort:read",
+            "cohort:write",
+            "comment:read",
+            "comment:write",
+            "conversation:read",
+            "conversation:write",
+            "customer_analytics:read",
+            "customer_analytics:write",
+            "customer_task:read",
+            "customer_task:write",
+            "customer_journey:read",
+            "customer_journey:write",
+            "customer_profile_config:read",
+            "customer_profile_config:write",
+            "data_catalog:read",
+            "data_catalog:write",
+            "data_catalog_approval:read",
+            "data_catalog_approval:write",
+            "data_deletion:read",
+            "data_deletion:write",
+            "dashboard:read",
+            "dashboard:write",
+            "event_filter:read",
+            "event_filter:write",
+            "dashboard_template:read",
+            "dashboard_template:write",
+            "dataset:read",
+            "dataset:write",
+            "early_access_feature:read",
+            "early_access_feature:write",
+            "endpoint:read",
+            "endpoint:write",
+            "engineering_analytics:read",
+            "engineering_analytics:write",
+            "error_tracking:read",
+            "error_tracking:write",
+            "evaluation:read",
+            "evaluation:write",
+            "element:read",
+            "element:write",
+            "event_definition:read",
+            "event_definition:write",
+            "experiment:read",
+            "experiment:write",
+            "experiment_holdout:read",
+            "experiment_holdout:write",
+            "experiment_saved_metric:read",
+            "experiment_saved_metric:write",
+            "export:read",
+            "export:write",
+            "external_data_schema:read",
+            "external_data_schema:write",
+            "external_data_source:read",
+            "external_data_source:write",
+            "feature_flag:read",
+            "feature_flag:write",
+            "file_system:read",
+            "file_system:write",
+            "file_system_shortcut:read",
+            "file_system_shortcut:write",
+            "group:read",
+            "group:write",
+            "health_issue:read",
+            "health_issue:write",
+            "heatmap:read",
+            "heatmap:write",
+            "hog_flow:read",
+            "hog_flow:write",
+            "hog_function:read",
+            "hog_function:write",
+            "ingestion_warning:read",
+            "ingestion_warning:write",
+            "insight:read",
+            "insight:write",
+            "insight_variable:read",
+            "insight_variable:write",
+            "integration:read",
+            "integration:write",
+            "legal_document:read",
+            "legal_document:write",
+            "link:read",
+            "link:write",
+            "live_debugger:read",
+            "live_debugger:write",
+            "llm_analytics:read",
+            "llm_analytics:write",
+            "ai_observability_clusters:read",
+            "ai_observability_clusters:write",
+            "llm_playground:read",
+            "llm_playground:write",
+            "llm_prompt:read",
+            "llm_prompt:write",
+            "llm_provider_key:read",
+            "llm_provider_key:write",
+            "llm_skill:read",
+            "llm_skill:write",
+            "logs:read",
+            "logs:write",
+            "loop:read",
+            "loop:write",
+            "marketing_analytics:read",
+            "marketing_analytics:write",
+            "mcp_analytics:read",
+            "mcp_analytics:write",
+            "mcp_registry:read",
+            "mcp_registry:write",
+            "metrics:read",
+            "metrics:write",
+            "notebook:read",
+            "notebook:write",
+            "offline_evaluation_ingestion:read",
+            "offline_evaluation_ingestion:write",
+            "organization:read",
+            "organization:write",
+            "organization_integration:read",
+            "organization_integration:write",
+            "organization_member:read",
+            "organization_member:write",
+            "person:read",
+            "person:write",
+            "plugin:read",
+            "plugin:write",
+            "product_enablement:read",
+            "product_enablement:write",
+            "product_tour:read",
+            "product_tour:write",
+            "project:read",
+            "project:write",
+            "property_definition:read",
+            "property_definition:write",
+            "query:read",
+            "query:write",
+            "replay_scanner:read",
+            "replay_scanner:write",
+            "review_hog:read",
+            "review_hog:write",
+            "revenue_analytics:read",
+            "revenue_analytics:write",
+            "session_recording:read",
+            "session_recording:write",
+            "session_recording_playlist:read",
+            "session_recording_playlist:write",
+            "sharing_configuration:read",
+            "sharing_configuration:write",
+            "signal_scout:read",
+            "signal_scout:write",
+            "stamphog:read",
+            "stamphog:write",
+            "streamlit_app:read",
+            "streamlit_app:write",
+            "subscription:read",
+            "subscription:write",
+            "survey:read",
+            "survey:write",
+            "tagger:read",
+            "tagger:write",
+            "ticket:read",
+            "ticket:write",
+            "task:read",
+            "task:write",
+            "toolbar:read",
+            "toolbar:write",
+            "tracing:read",
+            "tracing:write",
+            "field_note:read",
+            "field_note:write",
+            "uploaded_media:read",
+            "uploaded_media:write",
+            "usage_metric:read",
+            "usage_metric:write",
+            "user:read",
+            "user:write",
+            "user_interview:read",
+            "user_interview:write",
+            "vision_action:read",
+            "vision_action:write",
+            "vision_alert:read",
+            "vision_alert:write",
+            "visual_review:read",
+            "visual_review:write",
+            "warehouse_objects:read",
+            "warehouse_objects:write",
+            "warehouse_table:read",
+            "warehouse_table:write",
+            "warehouse_view:read",
+            "warehouse_view:write",
+            "web_analytics:read",
+            "web_analytics:write",
+            "webhook:read",
+            "webhook:write"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "none",
+            "client_secret_post",
+            "private_key_jwt"
+          ],
+          "service_documentation": "https://posthog.com/docs/api",
+          "revocation_endpoint": "https://oauth.posthog.com/oauth/revoke/",
+          "introspection_endpoint": "https://oauth.posthog.com/oauth/introspect/",
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "client_id_metadata_document_supported": true,
+          "userinfo_endpoint": "https://oauth.posthog.com/oauth/userinfo/",
+          "jwks_uri": "https://oauth.posthog.com/.well-known/jwks.json",
+          "authorization_grant_profiles_supported": [
+            "urn:ietf:params:oauth:grant-profile:id-jag"
+          ],
+          "agent_auth": {
+            "skill": "https://oauth.posthog.com/auth.md",
+            "identity_endpoint": "https://oauth.posthog.com/oauth/token/",
+            "identity_types_supported": [
+              "identity_assertion"
+            ],
+            "identity_assertion": {
+              "assertion_types_supported": [
+                "urn:ietf:params:oauth:token-type:id-jag"
+              ]
+            }
+          },
+          "posthog_region": "us",
+          "posthog_base_url": "https://us.posthog.com"
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.posthog.com/mcp",
+          "authorization_servers": [
+            "https://oauth.posthog.com"
+          ],
+          "scopes_supported": [
+            "openid",
+            "profile",
+            "email",
+            "introspection",
+            "action:read",
+            "action:write",
+            "access_control:read",
+            "access_control:write",
+            "account:read",
+            "account:write",
+            "activity_log:read",
+            "alert:read",
+            "alert:write",
+            "annotation:read",
+            "annotation:write",
+            "approvals:read",
+            "approvals:write",
+            "autoresearch:read",
+            "autoresearch:write",
+            "batch_export:read",
+            "batch_export:write",
+            "billing:read",
+            "business_knowledge:read",
+            "business_knowledge:write",
+            "canvas:read",
+            "canvas:write",
+            "cohort:read",
+            "cohort:write",
+            "comment:read",
+            "comment:write",
+            "conversation:read",
+            "customer_analytics:read",
+            "customer_analytics:write",
+            "customer_task:read",
+            "customer_task:write",
+            "data_catalog:read",
+            "data_catalog:write",
+            "data_catalog_approval:write",
+            "dashboard:read",
+            "dashboard:write",
+            "dashboard_template:read",
+            "dataset:read",
+            "dataset:write",
+            "early_access_feature:read",
+            "early_access_feature:write",
+            "endpoint:read",
+            "endpoint:write",
+            "engineering_analytics:read",
+            "error_tracking:read",
+            "error_tracking:write",
+            "evaluation:read",
+            "evaluation:write",
+            "element:read",
+            "event_definition:read",
+            "event_definition:write",
+            "experiment:read",
+            "experiment:write",
+            "experiment_holdout:read",
+            "experiment_holdout:write",
+            "experiment_saved_metric:read",
+            "experiment_saved_metric:write",
+            "external_data_source:read",
+            "external_data_source:write",
+            "feature_flag:read",
+            "feature_flag:write",
+            "group:read",
+            "health_issue:read",
+            "heatmap:read",
+            "heatmap:write",
+            "hog_flow:read",
+            "hog_flow:write",
+            "hog_function:read",
+            "hog_function:write",
+            "insight:read",
+            "insight:write",
+            "insight_variable:write",
+            "integration:read",
+            "integration:write",
+            "llm_analytics:read",
+            "llm_analytics:write",
+            "ai_observability_clusters:read",
+            "ai_observability_clusters:write",
+            "llm_prompt:read",
+            "llm_prompt:write",
+            "llm_provider_key:read",
+            "llm_skill:read",
+            "llm_skill:write",
+            "logs:read",
+            "logs:write",
+            "loop:read",
+            "loop:write",
+            "marketing_analytics:read",
+            "marketing_analytics:write",
+            "mcp_analytics:read",
+            "mcp_analytics:write",
+            "mcp_registry:read",
+            "metrics:read",
+            "notebook:read",
+            "notebook:write",
+            "organization:read",
+            "organization:write",
+            "organization_member:read",
+            "person:read",
+            "person:write",
+            "product_enablement:write",
+            "project:read",
+            "project:write",
+            "property_definition:read",
+            "property_definition:write",
+            "query:read",
+            "replay_scanner:read",
+            "replay_scanner:write",
+            "review_hog:read",
+            "review_hog:write",
+            "session_recording:read",
+            "session_recording:write",
+            "session_recording_playlist:read",
+            "session_recording_playlist:write",
+            "signal_scout:read",
+            "signal_scout:write",
+            "stamphog:read",
+            "stamphog:write",
+            "streamlit_app:read",
+            "streamlit_app:write",
+            "subscription:read",
+            "subscription:write",
+            "survey:read",
+            "survey:write",
+            "tagger:read",
+            "tagger:write",
+            "ticket:read",
+            "ticket:write",
+            "task:read",
+            "task:write",
+            "tracing:read",
+            "field_note:read",
+            "field_note:write",
+            "uploaded_media:read",
+            "uploaded_media:write",
+            "usage_metric:read",
+            "usage_metric:write",
+            "user:read",
+            "user:write",
+            "user_interview:read",
+            "user_interview:write",
+            "vision_alert:read",
+            "vision_alert:write",
+            "visual_review:read",
+            "visual_review:write",
+            "warehouse_table:read",
+            "warehouse_table:write",
+            "warehouse_view:read",
+            "warehouse_view:write",
+            "web_analytics:read",
+            "web_analytics:write"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      }
+    },
+    {
+      "id": "paypal-production",
+      "endpoint": "https://mcp.paypal.com/http",
+      "checked_at": "2026-09-29T04:40:47.192Z",
+      "requests": [
+        {
+          "url": "https://mcp.paypal.com/http",
+          "status": 404,
+          "final_url": "https://mcp.paypal.com/http"
+        },
+        {
+          "url": "https://mcp.paypal.com/.well-known/oauth-protected-resource/http",
+          "status": 200,
+          "final_url": "https://mcp.paypal.com/.well-known/oauth-protected-resource/http"
+        },
+        {
+          "url": "https://mcp.paypal.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.paypal.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 404,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.paypal.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.paypal.com",
+          "authorization_endpoint": "https://mcp.paypal.com/authorize",
+          "token_endpoint": "https://mcp.paypal.com/token",
+          "registration_endpoint": "https://mcp.paypal.com/register",
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+          ],
+          "revocation_endpoint": "https://mcp.paypal.com/token",
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "client_id_metadata_document_supported": false
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.paypal.com/http",
+          "authorization_servers": [
+            "https://mcp.paypal.com"
+          ],
+          "scopes_supported": [
+            "openid",
+            "email",
+            "profile"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      }
+    },
+    {
+      "id": "paypal-sandbox",
+      "endpoint": "https://mcp.sandbox.paypal.com/http",
+      "checked_at": "2026-09-29T04:40:47.192Z",
+      "requests": [
+        {
+          "url": "https://mcp.sandbox.paypal.com/http",
+          "status": 404,
+          "final_url": "https://mcp.sandbox.paypal.com/http"
+        },
+        {
+          "url": "https://mcp.sandbox.paypal.com/.well-known/oauth-protected-resource/http",
+          "status": 200,
+          "final_url": "https://mcp.sandbox.paypal.com/.well-known/oauth-protected-resource/http"
+        },
+        {
+          "url": "https://mcp.sandbox.paypal.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.sandbox.paypal.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 404,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.sandbox.paypal.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.sandbox.paypal.com",
+          "authorization_endpoint": "https://mcp.sandbox.paypal.com/authorize",
+          "token_endpoint": "https://mcp.sandbox.paypal.com/token",
+          "registration_endpoint": "https://mcp.sandbox.paypal.com/register",
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+          ],
+          "revocation_endpoint": "https://mcp.sandbox.paypal.com/token",
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "client_id_metadata_document_supported": false
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.sandbox.paypal.com/http",
+          "authorization_servers": [
+            "https://mcp.sandbox.paypal.com"
+          ],
+          "scopes_supported": [
+            "openid",
+            "email",
+            "profile"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      }
+    },
+    {
+      "id": "paypal-production-current",
+      "endpoint": "https://mcp.paypal.com/mcp",
+      "checked_at": "2026-09-29T04:40:47.193Z",
+      "requests": [
+        {
+          "url": "https://mcp.paypal.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.paypal.com/mcp"
+        },
+        {
+          "url": "https://mcp.paypal.com/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.paypal.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://mcp.paypal.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.paypal.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer realm=\"OAuth\", resource_metadata=\"https://mcp.paypal.com/.well-known/oauth-protected-resource/mcp\", error=\"invalid_token\", error_description=\"Missing or invalid access token\"",
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.paypal.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.paypal.com",
+          "authorization_endpoint": "https://mcp.paypal.com/authorize",
+          "token_endpoint": "https://mcp.paypal.com/token",
+          "registration_endpoint": "https://mcp.paypal.com/register",
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+          ],
+          "revocation_endpoint": "https://mcp.paypal.com/token",
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "client_id_metadata_document_supported": false
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.paypal.com/mcp",
+          "authorization_servers": [
+            "https://mcp.paypal.com"
+          ],
+          "scopes_supported": [
+            "openid",
+            "email",
+            "profile"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      }
+    },
+    {
+      "id": "paypal-sandbox-current",
+      "endpoint": "https://mcp.sandbox.paypal.com/mcp",
+      "checked_at": "2026-09-29T04:40:47.193Z",
+      "requests": [
+        {
+          "url": "https://mcp.sandbox.paypal.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.sandbox.paypal.com/mcp"
+        },
+        {
+          "url": "https://mcp.sandbox.paypal.com/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.sandbox.paypal.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://mcp.sandbox.paypal.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.sandbox.paypal.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer realm=\"OAuth\", resource_metadata=\"https://mcp.sandbox.paypal.com/.well-known/oauth-protected-resource/mcp\", error=\"invalid_token\", error_description=\"Missing or invalid access token\"",
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.sandbox.paypal.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.sandbox.paypal.com",
+          "authorization_endpoint": "https://mcp.sandbox.paypal.com/authorize",
+          "token_endpoint": "https://mcp.sandbox.paypal.com/token",
+          "registration_endpoint": "https://mcp.sandbox.paypal.com/register",
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+          ],
+          "revocation_endpoint": "https://mcp.sandbox.paypal.com/token",
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "client_id_metadata_document_supported": false
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.sandbox.paypal.com/mcp",
+          "authorization_servers": [
+            "https://mcp.sandbox.paypal.com"
+          ],
+          "scopes_supported": [
+            "openid",
+            "email",
+            "profile"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      }
+    },
+    {
+      "id": "docusign-production",
+      "endpoint": "https://mcp.docusign.com/mcp",
+      "checked_at": "2026-09-29T04:40:47.193Z",
+      "requests": [
+        {
+          "url": "https://mcp.docusign.com/mcp",
+          "status": 403,
+          "final_url": "https://mcp.docusign.com/mcp"
+        },
+        {
+          "url": "https://mcp.docusign.com/.well-known/oauth-protected-resource/mcp",
+          "status": 403,
+          "final_url": "https://mcp.docusign.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://mcp.docusign.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "final_url": "https://mcp.docusign.com/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://mcp.docusign.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.docusign.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 403,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.docusign.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://account.docusign.com",
+          "authorization_endpoint": "https://account.docusign.com/oauth/auth",
+          "token_endpoint": "https://account.docusign.com/oauth/token",
+          "scopes_supported": [
+            "adm_store_unified_repo_read",
+            "aow_manage",
+            "cors",
+            "signature",
+            "spring_read",
+            "spring_write"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.docusign.com/mcp",
+          "authorization_servers": [
+            "https://mcp.docusign.com"
+          ],
+          "scopes_supported": [
+            "adm_store_unified_repo_read",
+            "aow_manage",
+            "cors",
+            "signature",
+            "spring_read",
+            "spring_write"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "Docusign MCP",
+          "resource_documentation": "https://developers.docusign.com/tools/mcp-server/"
+        }
+      }
+    },
+    {
+      "id": "docusign-demo",
+      "endpoint": "https://mcp-d.docusign.com/mcp",
+      "checked_at": "2026-09-29T04:40:47.194Z",
+      "requests": [
+        {
+          "url": "https://mcp-d.docusign.com/mcp",
+          "status": 403,
+          "final_url": "https://mcp-d.docusign.com/mcp"
+        },
+        {
+          "url": "https://mcp-d.docusign.com/.well-known/oauth-protected-resource/mcp",
+          "status": 403,
+          "final_url": "https://mcp-d.docusign.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://mcp-d.docusign.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "final_url": "https://mcp-d.docusign.com/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://mcp-d.docusign.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp-d.docusign.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 403,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://mcp-d.docusign.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://account-d.docusign.com",
+          "authorization_endpoint": "https://account-d.docusign.com/oauth/auth",
+          "token_endpoint": "https://account-d.docusign.com/oauth/token",
+          "scopes_supported": [
+            "adm_store_unified_repo_read",
+            "aow_manage",
+            "cors",
+            "signature",
+            "spring_read",
+            "spring_write"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp-d.docusign.com/mcp",
+          "authorization_servers": [
+            "https://mcp-d.docusign.com"
+          ],
+          "scopes_supported": [
+            "adm_store_unified_repo_read",
+            "aow_manage",
+            "cors",
+            "signature",
+            "spring_read",
+            "spring_write"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "Docusign MCP",
+          "resource_documentation": "https://developers.docusign.com/tools/mcp-server/"
+        }
+      }
+    }
+  ]
+}

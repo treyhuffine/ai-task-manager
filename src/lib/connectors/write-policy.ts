@@ -5,7 +5,7 @@
  *
  * The engine's `risk` score is "how bad if wrong," not "safe to run unattended,"
  * so it is a poor gate on its own — several outward sends sit at `low`/`medium`
- * (slack.post_message, telegram.send_message, resend.send_email, ...). We instead
+ * (slack.post_message, telegram.send_message, mailgun.send_message, ...). We instead
  * split on two independent properties:
  *
  *   - OUTWARD: the action leaves the user's control (send / post / publish /
@@ -37,14 +37,14 @@ export interface ActionApprovalFacts {
 /**
  * Outward = the action pushes content out to other people/systems, where an
  * unwanted call cannot be quietly taken back. Keyed off the method segment
- * (`provider.method`) rather than a per-action allowlist so new providers inherit
+ * (`provider.method` or `mcp.server.method`) rather than a per-action allowlist so new providers inherit
  * the safe default automatically.
  */
 export function isOutwardAction(actionId: string): boolean {
-  const method = actionId.includes('.') ? actionId.slice(actionId.indexOf('.') + 1) : actionId;
+  const method = actionId.slice(actionId.lastIndexOf('.') + 1);
   // Leading verb (send_email, post_message, publish_page, upload_media, share_file, dm_user,
   // tweet, broadcast_*) or a trailing noun that is inherently a message (…_message, …_mail).
-  return /^(send|post|publish|share|upload|dm|tweet|broadcast|reply)(_|$)/.test(method) || /(message|mail)$/.test(method);
+  return /^(send|post|publish|share|upload|dm|tweet|broadcast|reply)([_-]|$)/.test(method) || /(message|mail)$/.test(method);
 }
 
 /** The built-in default for an action, before any user override. */
@@ -58,21 +58,23 @@ export function defaultApprovalMode(facts: ActionApprovalFacts): ApprovalMode {
 // ── Persisted per-action overrides ───────────────────────────────────────────
 
 interface WritePolicyFile {
-  overrides?: Record<string, ApprovalMode>;
+  /** Null is treated as unset when reading persisted preferences. */
+  overrides?: Record<string, ApprovalMode | null>;
 }
 
 function policyPath(): string {
   return path.join(getConfigDir(), 'connectors', 'write-policy.json');
 }
 
-let cache: { mtimeMs: number; data: WritePolicyFile } | null = null;
+let cache: { file: string; mtimeMs: number; data: WritePolicyFile } | null = null;
 
 function read(): WritePolicyFile {
   try {
-    const st = fs.statSync(policyPath());
-    if (cache && cache.mtimeMs === st.mtimeMs) return cache.data;
-    const data = JSON.parse(fs.readFileSync(policyPath(), 'utf8')) as WritePolicyFile;
-    cache = { mtimeMs: st.mtimeMs, data: data && typeof data === 'object' ? data : {} };
+    const file = policyPath();
+    const st = fs.statSync(file);
+    if (cache && cache.file === file && cache.mtimeMs === st.mtimeMs) return cache.data;
+    const data = JSON.parse(fs.readFileSync(file, 'utf8')) as WritePolicyFile;
+    cache = { file, mtimeMs: st.mtimeMs, data: data && typeof data === 'object' ? data : {} };
     return cache.data;
   } catch {
     return {};
@@ -93,9 +95,9 @@ function write(data: WritePolicyFile): void {
   cache = null;
 }
 
-/** The user's override for an action, if any. */
+/** The preference for this exact action ID. */
 export function getActionOverride(actionId: string): ApprovalMode | undefined {
-  return read().overrides?.[actionId];
+  return read().overrides?.[actionId] ?? undefined;
 }
 
 /** Effective mode = override, else the built-in default. */
@@ -103,7 +105,7 @@ export function resolveApprovalMode(facts: ActionApprovalFacts): ApprovalMode {
   return getActionOverride(facts.actionId) ?? defaultApprovalMode(facts);
 }
 
-/** Set (or clear, with `null`) an action's override. Clearing restores the default. */
+/** Set an exact action's override, or clear it with null. */
 export function setActionOverride(actionId: string, mode: ApprovalMode | null): void {
   const overrides = { ...(read().overrides ?? {}) };
   if (mode === null) delete overrides[actionId];
@@ -111,7 +113,12 @@ export function setActionOverride(actionId: string, mode: ApprovalMode | null): 
   write({ overrides });
 }
 
-/** All current overrides (for the settings UI). */
+/** All explicitly configured action preferences. */
 export function listOverrides(): Record<string, ApprovalMode> {
-  return { ...(read().overrides ?? {}) };
+  const data = read();
+  const effective: Record<string, ApprovalMode> = {};
+  for (const [actionId, mode] of Object.entries(data.overrides ?? {})) {
+    if (mode === 'ask' || mode === 'auto') effective[actionId] = mode;
+  }
+  return effective;
 }

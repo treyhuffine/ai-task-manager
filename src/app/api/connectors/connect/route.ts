@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthConfigRequiredError, isConnectorError } from '@connectors/engine';
-import { getConnectorRuntime } from '@/lib/connectors/runtime';
+import { getHostedMcpProvider } from '@connectors/engine/providers';
+import { getConnectorRuntime, getConnectorConnectionStore, getConnectorOwnerId, getMcpServerStore, invalidateConnectorRuntime, selectHostedOAuthConfig, withHostedOAuthConfigLock } from '@/lib/connectors/runtime';
+import { ensureHostedMcpServer, hostedAccountSelection, resolveHostedMcpAccount } from '@/lib/connectors/hosted-mcp';
+import { beginMcpAuthorization } from '@/lib/connectors/mcp-authorization';
 import { isDesktopRequest, desktopOAuth, desktopRelayFor, type DesktopOAuthFlow } from '@/lib/connectors/desktop-oauth';
 import { rememberOAuthReturn, safeReturnPath } from '@/lib/connectors/oauth-return';
+import { usesRegisteredOAuth } from '@/lib/connectors/hosted-oauth-config';
 
 /**
  * Start an OAuth connect for a provider. Returns the provider authorization URL; the client
@@ -17,6 +21,11 @@ export async function POST(request: NextRequest) {
     existingConnectionId?: unknown;
     authConfigId?: unknown;
     returnTo?: unknown;
+    endpointId?: unknown;
+    instanceUrl?: unknown;
+    serverId?: unknown;
+    addAccount?: unknown;
+    setupId?: unknown;
   };
   const providerId = typeof body.providerId === 'string' ? body.providerId : 'google';
   // Where the OAuth callback should land the browser afterwards. Same-origin
@@ -25,6 +34,31 @@ export async function POST(request: NextRequest) {
   const returnTo = safeReturnPath(body.returnTo);
   let desktopFlow: DesktopOAuthFlow | undefined;
   try {
+    const hosted = getHostedMcpProvider(providerId);
+    if (hosted) {
+      if (hosted.auth && hosted.auth.kind !== 'oauth') {
+        return NextResponse.json({ error: hosted.auth.kind === 'bearer' ? 'This connector uses a connection token. Connect it from Settings.' : 'This connector does not use browser sign-in. Connect it from Settings.' }, { status: 400 });
+      }
+      const selection = hostedAccountSelection(body);
+      const existing = await resolveHostedMcpAccount(hosted, getMcpServerStore(), getConnectorConnectionStore(), getConnectorOwnerId(), selection);
+      const selectedId = typeof body.authConfigId === 'string' ? body.authConfigId : existing?.authConfigId;
+      if (existing?.authConfigId && selectedId !== existing.authConfigId) throw new Error('Disconnect this connector before changing its OAuth app.');
+      const registered = usesRegisteredOAuth(hosted);
+      const selected = registered ? await selectHostedOAuthConfig(providerId, selectedId) : undefined;
+      const create = async () => {
+        // Resolve again under the same lock used by app deletion.
+        if (selected) await selectHostedOAuthConfig(providerId, selected.config.id);
+        return ensureHostedMcpServer(hosted, getMcpServerStore(), getConnectorConnectionStore(), getConnectorOwnerId(), {
+          ...selection,
+          endpointId: body.endpointId, instanceUrl: body.instanceUrl,
+          ...(selected ? { authConfigId: selected.config.id } : {}),
+        });
+      };
+      const entry = selected ? await withHostedOAuthConfigLock(selected.config.id, create) : await create();
+      const result = await beginMcpAuthorization(entry, request, returnTo ?? undefined);
+      invalidateConnectorRuntime();
+      return NextResponse.json({ ...result, serverId: entry.id, ...('authUrl' in result ? { authorizationUrl: result.authUrl } : {}) });
+    }
     const runtime = await getConnectorRuntime();
     if (isDesktopRequest(request)) {
       const provider = runtime.getProviders().find((p) => p.id === providerId);

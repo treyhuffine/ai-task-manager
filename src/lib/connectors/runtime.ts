@@ -16,6 +16,7 @@ import {
   fileLock,
   storeAuthConfigRegistry,
   createAuthConfigAdmin,
+  ConnectorError,
   type AuthConfigAdmin,
   type AuthConfigInput,
   type ConnectorRuntime,
@@ -28,31 +29,28 @@ import {
   registerAllProviders,
   PROVIDER_CATALOG,
   DEFAULT_AUTH_CONFIGS,
+  HOSTED_MCP_PROVIDERS,
+  getHostedMcpProvider,
   type ProviderCatalogEntry,
+  type HostedMcpEndpointSetup,
 } from '@connectors/engine/providers';
 import { toToolSet } from '@connectors/engine/ai-sdk';
-import { connectMcpClient, ingestMcpServer, type ConnectedMcpClient } from '@connectors/engine/mcp';
+import { connectMcpClient, ingestMcpServers, type ConnectedMcpClient, type McpToolDef } from '@connectors/engine/mcp';
 import type { ToolSet } from 'ai';
 import { appApprovalPolicy } from './approval';
 import { getConfigDir } from '@/lib/config/paths';
 import { getRemoteBaseUrl, getLocalBaseUrl } from '@/lib/auth/bootstrap';
-import { mcpServerStore, type McpServerStore, type McpServerAuth } from './mcp-servers';
+import { mcpServerStore, type McpServerStore, type McpServerAuth, type McpServerEntry } from './mcp-servers';
 import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
+import { registerMcpSecrets } from './mcp-secrets';
 import { APP_NAME } from '@/constants/app';
 import { getWorkspace } from '@/lib/db/queries';
 import { resolveConnectorFilter, type WorkspaceConnectorFilter } from './workspace-filter';
+import { hostedMcpConnectionId, hostedMcpDefinition, hostedMcpRequiresAuth, markHostedMcpReconnectRequired, hostedMcpEndpointSetup, trustHostedMcpAnnotations } from './hosted-mcp';
+import { finalizeMcpServer, finalizeMcpServers, isCurrentMcpTransport } from './mcp-lifecycle';
+import { resolveHostedOAuthConfig, usesRegisteredOAuth } from './hosted-oauth-config';
 
 const CONNECTOR_CALLBACK_PATH = '/api/connectors/callback';
-
-/** Parse a comma-separated env var into a trimmed, non-empty list (or undefined). */
-function parseEnvList(value: string | undefined): string[] | undefined {
-  if (!value) return undefined;
-  const items = value
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return items.length ? items : undefined;
-}
 
 /**
  * The shared OAuth callback every provider redirects back to. Must be an
@@ -91,7 +89,7 @@ function oauthClientFromEnv(providerId: string): { clientId: string; clientSecre
   const redirectUri =
     process.env[`CONNECTORS_${up}_REDIRECT_URI`] ??
     (providerId === 'google' ? process.env.CONNECTORS_GOOGLE_REDIRECT_URI : undefined) ??
-    getConnectorRedirectUri();
+    (usesRegisteredOAuth(getHostedMcpProvider(providerId)) ? getRegisteredMcpRedirectUrl(providerId) : getConnectorRedirectUri());
   return { clientId, clientSecret, redirectUri };
 }
 
@@ -99,7 +97,7 @@ function oauthClientFromEnv(providerId: string): { clientId: string; clientSecre
 function buildAuthConfigs(): AuthConfigInput[] {
   const configs: AuthConfigInput[] = [];
   for (const entry of PROVIDER_CATALOG) {
-    if (entry.method !== 'oauth2') continue;
+    if (entry.method !== 'oauth2' && !usesRegisteredOAuth(getHostedMcpProvider(entry.id))) continue;
     const c = oauthClientFromEnv(entry.id);
     if (!c) continue;
     configs.push({
@@ -116,10 +114,30 @@ function buildAuthConfigs(): AuthConfigInput[] {
   return configs;
 }
 
+export interface HostedAccountStatus {
+  serverId: string;
+  connectionId: string;
+  accountId: string;
+  label: string;
+  enabled: boolean;
+  configured: boolean;
+  requiresAuth: boolean;
+  authConfigId?: string;
+  endpointConfig?: HostedMcpEndpointSetup;
+  status?: McpServerEntry['lastStatus'];
+  error?: string;
+  toolCount?: number;
+  lastCheckedAt?: string;
+  lastAuthorizationId?: string;
+  capabilityRevision?: string;
+  capabilityChanges?: McpServerEntry['capabilityChanges'];
+}
+
 export interface ProviderStatus extends ProviderCatalogEntry {
   /** OAuth providers: client configured in env. API-key/custom: always true (paste at connect). */
   configured: boolean;
   desktopCallback?: { kind: 'loopback' | 'relay'; redirectUri?: string };
+  mcp?: { serverId?: string; status?: 'ok' | 'unreachable' | 'error'; error?: string; requiresAuth: boolean; authKind?: 'oauth' | 'bearer' | 'none'; credentialLabel?: string; helpUrl?: string; endpointConfig?: HostedMcpEndpointSetup; oauthRegistration?: 'dynamic' | 'registered'; authConfigId?: string; redirectUri?: string; accounts: HostedAccountStatus[] };
 }
 
 /**
@@ -133,6 +151,58 @@ export async function getProviderStatuses(nativeDesktop = false): Promise<Provid
   const providers = nativeDesktop && desktopEnabled() ? (await getConnectorRuntime()).getProviders() : [];
   return Promise.all(
     PROVIDER_CATALOG.map(async (entry) => {
+      if (entry.method === 'mcp') {
+        const servers = getMcpServerStore();
+        const entries = servers.list().filter((s) => s.providerId === entry.id);
+        const definition = getHostedMcpProvider(entry.id)!;
+        const auth = definition.auth ?? { kind: 'oauth' as const };
+        const registered = usesRegisteredOAuth(definition);
+        let configured = true;
+        if (registered) {
+          const registry = getConnectorAuthConfigRegistry();
+          const configs = await registry.listForConnect(entry.id, { ownerId: getConnectorOwnerId() });
+          configured = false;
+          for (const config of configs) {
+            try {
+              await resolveHostedOAuthConfig(definition, registry, getConnectorOwnerId(), getRegisteredMcpRedirectUrl(entry.id), config.id);
+              configured = true;
+              break;
+            } catch { /* Unusable clients are shown under setup, without exposing secret values. */ }
+          }
+        }
+        const accounts = await Promise.all(entries.map(async (server): Promise<HostedAccountStatus> => {
+          let accountConfigured = true;
+          if (registered) {
+            try {
+              if (!server.authConfigId) throw new Error('Missing registered app');
+              const state = await servers.getOAuthState(server.id);
+              const redirectUri = state?.tokens && typeof state.redirectUri === 'string' ? state.redirectUri : getRegisteredMcpRedirectUrl(entry.id);
+              await resolveHostedOAuthConfig(definition, getConnectorAuthConfigRegistry(), getConnectorOwnerId(), redirectUri, server.authConfigId);
+            } catch { accountConfigured = false; }
+          }
+          return {
+            serverId: server.id, connectionId: hostedMcpConnectionId(server), accountId: server.accountId ?? `${entry.id}:default`,
+            label: server.displayName, enabled: server.enabled, configured: accountConfigured,
+            requiresAuth: !accountConfigured || await hostedMcpRequiresAuth(server, servers),
+            authConfigId: server.authConfigId, endpointConfig: hostedMcpEndpointSetup(definition, server),
+            status: server.lastStatus, error: server.lastError, toolCount: server.lastToolCount, lastCheckedAt: server.lastCheckedAt,
+            lastAuthorizationId: server.lastAuthorizationId,
+            capabilityRevision: server.capabilityRevision, capabilityChanges: server.capabilityChanges,
+          };
+        }));
+        const single = accounts.length === 1 ? accounts[0] : undefined;
+        const unhealthy = accounts.find(account => account.status && account.status !== 'ok');
+        return { ...entry, configured, ...(auth.kind === 'bearer' ? { credentialFields: ['token'] } : {}), mcp: {
+          accounts,
+          ...(single ? { serverId: single.serverId } : {}),
+          ...(accounts.length ? { status: unhealthy?.status ?? 'ok', error: unhealthy?.error } : {}),
+          authKind: auth.kind,
+          ...(registered ? { oauthRegistration: 'registered' as const, redirectUri: getRegisteredMcpRedirectUrl(entry.id), authConfigId: single?.authConfigId } : {}),
+          ...(auth.kind === 'bearer' ? { credentialLabel: auth.label, helpUrl: auth.helpUrl } : {}),
+          requiresAuth: accounts.length === 0 || accounts.every(account => account.requiresAuth),
+          endpointConfig: hostedMcpEndpointSetup(definition),
+        } };
+      }
       let configured = entry.method !== 'oauth2';
       if (entry.method === 'oauth2') {
         const hasEnvOrBundled = oauthClientFromEnv(entry.id) !== null || DEFAULT_AUTH_CONFIGS.some((c) => c.providerId === entry.id);
@@ -195,6 +265,12 @@ function connectorsDir(): string {
   return path.join(getConfigDir(), 'connectors');
 }
 
+/** Shared metadata store, also used before a hosted connector has discovered any tools. */
+export function getConnectorConnectionStore() {
+  const dir = connectorsDir();
+  return fileStore({ dir, lock: fileLock({ dir: path.join(dir, 'locks') }) });
+}
+
 /** Best-effort tighten a path's mode (no-op on filesystems/platforms that reject chmod). */
 function hardenMode(target: string, mode: number): void {
   try {
@@ -226,7 +302,7 @@ function getOrCreateKey(dir: string): string {
   return key;
 }
 
-let mcpStoreCached: McpServerStore | null = null;
+let mcpStoreCached: { dir: string; store: McpServerStore } | null = null;
 /**
  * The MCP-server store (user-added remote MCP servers), built standalone from the same
  * dir + key + lock as the runtime — so routes can manage servers without building the
@@ -234,11 +310,13 @@ let mcpStoreCached: McpServerStore | null = null;
  * and dir is interchangeable with the runtime's (key-derived seal, file-based lock).
  */
 export function getMcpServerStore(): McpServerStore {
-  if (mcpStoreCached) return mcpStoreCached;
   const dir = connectorsDir();
+  if (mcpStoreCached?.dir === dir) return mcpStoreCached.store;
   const lock = fileLock({ dir: path.join(dir, 'locks') });
   const secretBox = aesGcmSecretBox({ key: getOrCreateKey(dir) });
-  return (mcpStoreCached = mcpServerStore({ dir, secretBox, lock }));
+  const store = mcpServerStore({ dir, secretBox, lock });
+  mcpStoreCached = { dir, store };
+  return store;
 }
 
 /** Deterministic engine connection id for an ingested MCP server (stable across boots). */
@@ -252,21 +330,79 @@ export function getMcpOAuthRedirectUrl(serverId: string): string {
   return `${origin}/api/connectors/mcp-oauth/${serverId}`;
 }
 
+/** Stable callback that can be registered before a saved server exists. */
+export function getRegisteredMcpRedirectUrl(providerId: string): string {
+  return getMcpOAuthRedirectUrl(`builtin_${providerId}`);
+}
+
+/** Read independently of runtime construction, which itself consumes these clients. */
+export function getConnectorAuthConfigRegistry() {
+  const dir = connectorsDir();
+  const lock = fileLock({ dir: path.join(dir, 'locks') });
+  return storeAuthConfigRegistry({
+    bundled: dedupeById([...DEFAULT_AUTH_CONFIGS, ...buildAuthConfigs()]),
+    store: authConfigFileStore({ dir, lock }),
+    secretBox: aesGcmSecretBox({ key: getOrCreateKey(dir) }),
+  });
+}
+
+export async function selectHostedOAuthConfig(providerId: string, selectedId?: string) {
+  const definition = getHostedMcpProvider(providerId);
+  if (!definition || !usesRegisteredOAuth(definition)) throw new Error('This connector does not use a registered OAuth app.');
+  return resolveHostedOAuthConfig(definition, getConnectorAuthConfigRegistry(), getConnectorOwnerId(), getRegisteredMcpRedirectUrl(providerId), selectedId);
+}
+
+/** Serialize pending connection creation against deleting its registered app. */
+export function withHostedOAuthConfigLock<T>(id: string, operation: () => Promise<T>): Promise<T> {
+  return fileLock({ dir: path.join(connectorsDir(), 'locks') }).withLock(`mcp-auth-config:${id}`, operation);
+}
+
 /**
  * An `OAuthClientProvider` for an MCP server, backed by the sealed MCP-server store. Pass
  * `onRedirect` during an interactive add to capture the authorization URL; omit it at build time
  * (the SDK only redirects when interactive, and build can't).
  */
-export function mcpOAuthProviderFor(entry: { id: string }, onRedirect?: (url: URL) => void, options?: { redirectUri?: string; interactive?: boolean; callbackChannel?: 'web' | 'desktop' }) {
+export function mcpOAuthProviderFor(entry: { id: string }, onRedirect?: (url: URL) => void, options?: {
+  redirectUri?: string;
+  interactive?: boolean;
+  callbackChannel?: 'web' | 'desktop';
+  onState?: (state: McpOAuthState) => void;
+}) {
   const store = getMcpServerStore();
+  const server = store.get(entry.id);
+  const hosted = server ? hostedMcpDefinition(server) : undefined;
+  const profile = hosted?.auth?.kind === 'oauth' ? hosted.auth : undefined;
+  const registered = usesRegisteredOAuth(hosted);
   return makeMcpOAuthProvider({
-    redirectUrl: options?.redirectUri ?? getMcpOAuthRedirectUrl(entry.id),
+    redirectUrl: registered ? getRegisteredMcpRedirectUrl(hosted!.id) : options?.redirectUri ?? getMcpOAuthRedirectUrl(entry.id),
     clientName: APP_NAME,
+    grantTypes: profile?.grantTypes,
+    tokenEndpointAuthMethod: profile?.tokenEndpointAuthMethod,
+    scopes: profile?.scopes,
+    requireInteractiveAuthorization: profile?.authorizeBeforeConnect,
+    authorizationParams: profile?.authorizationParams,
+    ...(registered ? { registeredClient: async () => {
+      const current = store.get(entry.id);
+      // Token invalidation legitimately changes credentialRevision during SDK
+      // recovery. OAuth authority is the server/client binding, while captured
+      // tool transports separately enforce the credential revision on execution.
+      if (!current?.enabled || !server || !current.authConfigId || current.authConfigId !== server.authConfigId ||
+          current.url !== server.url || current.slug !== server.slug || current.providerId !== server.providerId ||
+          current.accountId !== server.accountId || current.auth.kind !== 'oauth') {
+        throw new Error('The connector OAuth app changed or was disconnected. Reconnect from Settings.');
+      }
+      const saved = await store.getOAuthState(entry.id);
+      const redirectUri = !options?.interactive && typeof saved?.redirectUri === 'string' ? saved.redirectUri : getRegisteredMcpRedirectUrl(hosted!.id);
+      const opened = await resolveHostedOAuthConfig(hosted!, getConnectorAuthConfigRegistry(), getConnectorOwnerId(), redirectUri, current.authConfigId);
+      return { clientId: opened.config.oauth!.clientId, clientSecret: opened.clientSecret };
+    } } : {}),
     load: async () => ((await store.getOAuthState(entry.id)) ?? {}) as McpOAuthState,
-    save: async (state) => store.setOAuthState(entry.id, state as unknown as Record<string, unknown>),
+    compareAndSave: async (revision, state) => store.compareAndSetOAuthState(entry.id, revision,
+      state as unknown as Record<string, unknown>) as Promise<McpOAuthState | null>,
     ...(onRedirect ? { onRedirect } : {}),
     interactive: options?.interactive,
     callbackChannel: options?.callbackChannel,
+    onState: options?.onState,
   });
 }
 
@@ -279,11 +415,23 @@ export function mcpAuthHeaders(auth: McpServerAuth, secret: string | null): Reco
 }
 
 export const MCP_TIMEOUT_MS = 10_000;
-export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)),
-  ]);
+export function withTimeout<T>(p: Promise<T>, ms: number, label: string, onLateResolve?: (value: T) => void | Promise<unknown>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let expired = false;
+    const timer = setTimeout(() => {
+      expired = true;
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+    p.then((value) => {
+      clearTimeout(timer);
+      if (expired) {
+        void Promise.resolve().then(() => onLateResolve?.(value)).catch(() => {});
+      } else resolve(value);
+    }, (error) => {
+      clearTimeout(timer);
+      if (!expired) reject(error);
+    });
+  });
 }
 
 /**
@@ -305,6 +453,8 @@ interface Built {
   runtime: ConnectorRuntime;
   admin: AuthConfigAdmin;
   mcpClients: ConnectedMcpClient[];
+  builtAt: number;
+  configuration: string;
 }
 
 let generation = 0;
@@ -316,6 +466,7 @@ let inFlight: Promise<Built> | null = null;
 // session/API key and pass it to runAction/beginAuth/connectDirect/listConnections (and pair it
 // with row-level tenant isolation, spec §20). Until then this is single-user local.
 async function build(): Promise<Built> {
+  const buildGeneration = generation;
   const dir = connectorsDir();
   // CLI + dev server share one home, so the file store's read-modify-write and the runtime's
   // refresh single-flight need a CROSS-PROCESS lock, not an in-process mutex.
@@ -324,19 +475,18 @@ async function build(): Promise<Built> {
   const secretBox = aesGcmSecretBox({ key: getOrCreateKey(dir) });
   const authConfigStore = authConfigFileStore({ dir, lock });
   const registry = createRegistry();
-  // X's toolkit is the full OpenAPI surface (~130 actions); an operator can trim it the way XMCP's
-  // X_API_TOOL_ALLOWLIST does. Env-reading stays here (the engine package is process.env-free).
-  const twitterAllowlist = parseEnvList(process.env.CONNECTORS_TWITTER_TOOL_ALLOWLIST);
-  const twitterDenylist = parseEnvList(process.env.CONNECTORS_TWITTER_TOOL_DENYLIST);
-  const twitterTags = parseEnvList(process.env.CONNECTORS_TWITTER_TOOL_TAGS);
+  const quickbooksEnvironment = process.env.CONNECTORS_QUICKBOOKS_ENVIRONMENT;
+  if (quickbooksEnvironment !== undefined && quickbooksEnvironment !== 'production' && quickbooksEnvironment !== 'sandbox') {
+    throw new Error('CONNECTORS_QUICKBOOKS_ENVIRONMENT must be production or sandbox.');
+  }
   registerAllProviders(registry, {
-    twitter: {
-      ...(twitterAllowlist ? { allowlist: twitterAllowlist } : {}),
-      ...(twitterDenylist ? { denylist: twitterDenylist } : {}),
-      ...(twitterTags ? { tags: twitterTags } : {}),
+    quickbooks: {
+      // Existing connections retain their stored environment. This selects new authorizations.
+      environment: quickbooksEnvironment ?? 'production',
     },
   }); // all first-party providers (real global fetch)
 
+  const redactor = createRedactor();
   const runtime = createConnectorRuntime({
     registry,
     store,
@@ -351,7 +501,7 @@ async function build(): Promise<Built> {
     },
     secretBox,
     lock,
-    redactor: createRedactor(),
+    redactor,
     // The production registry: bundled default public clients ∪ operator env clients (in-process)
     // ∪ the persisted BYO store (`.config/connectors/auth-configs.json`, secrets sealed). The home
     // store — managed via the admin/UI — is the durable, syncs-with-your-home path; env is a
@@ -378,85 +528,194 @@ async function build(): Promise<Built> {
     store: authConfigStore,
     connections: store,
     secretBox,
-    getProvider: (id) => registry.getProvider(id),
+    getProvider: (id) => usesRegisteredOAuth(getHostedMcpProvider(id)) ? undefined : registry.getProvider(id),
+  });
+  const removeConfig = admin.removeConfig.bind(admin);
+  admin.removeConfig = async (id) => withHostedOAuthConfigLock(id, async () => {
+    if (getMcpServerStore().list().some(server => server.authConfigId === id)) {
+      throw new ConnectorError('conflict', 'Disconnect the connector or cancel its pending setup before removing its OAuth app.');
+    }
+    await removeConfig(id);
   });
 
-  // Re-ingest every enabled MCP server into the (live) registry so its tools become gated
-  // actions — BEFORE returning, so callers never see a dangling `mcp_<slug>` connection.
-  // Each server is isolated: a slow/unreachable one is skipped (health recorded), never fatal.
-  // Sequential because the registry's addBundle is not concurrency-safe.
+  // Discover accounts independently, then publish each provider once. Its canonical
+  // tools dispatch through the selected connection rather than the last client loaded.
   const mcpClients: ConnectedMcpClient[] = [];
   const mcpStore = getMcpServerStore();
-  for (const entry of mcpStore.list()) {
+  const entries = mcpStore.list();
+  for (const definition of HOSTED_MCP_PROVIDERS) {
+    const accounts = entries.filter(entry => entry.providerId === definition.id);
+    for (const connection of await store.list({ ownerId: getConnectorOwnerId(), providerId: definition.id })) {
+      const account = accounts.find(entry => hostedMcpConnectionId(entry) === connection.id);
+      if (await hostedMcpRequiresAuth(account, mcpStore)) {
+        await markHostedMcpReconnectRequired(definition.id, store, getConnectorOwnerId(), connection.id);
+      }
+    }
+  }
+  interface PreparedAccount {
+    entry: McpServerEntry;
+    client: ConnectedMcpClient;
+    tools: McpToolDef[];
+    sessionToken: string;
+    changed: boolean;
+    discoveryStarted: boolean;
+    ready: boolean;
+  }
+  const prepared: PreparedAccount[] = [];
+  const recordFailure = async (entry: McpServerEntry, error: unknown) => {
+    const message = redactor.redact(error instanceof Error ? error.message : String(error));
+    await finalizeMcpServer(entry, mcpStore, async current => {
+      if (current.providerId && await hostedMcpRequiresAuth(current, mcpStore)) {
+        await markHostedMcpReconnectRequired(current.providerId, store, getConnectorOwnerId(), hostedMcpConnectionId(current));
+      }
+      await mcpStore.setHealth(current.id, { lastStatus: 'unreachable', lastError: message, lastCheckedAt: new Date().toISOString() });
+    }).catch(() => {});
+    console.warn(`[connectors] MCP server "${entry.slug}" not ingested: ${message}`);
+  };
+  for (const entry of entries) {
     if (!entry.enabled) continue;
+    let client: ConnectedMcpClient | undefined;
+    const candidate = { entry, changed: false, discoveryStarted: false, ready: false } as PreparedAccount;
+    const onToolsChanged = () => {
+      // An initial notification before discovery is covered by the first read.
+      // During pagination it can invalidate pages already read, so restart.
+      if (!candidate.discoveryStarted || candidate.changed) return;
+      candidate.changed = true;
+      if (candidate.ready) invalidateConnectorRuntime();
+    };
     try {
-      let client: ConnectedMcpClient;
+      hostedMcpDefinition(entry);
       let sessionToken = 'mcp-session';
       if (entry.auth.kind === 'oauth') {
         const state = await mcpStore.getOAuthState(entry.id);
+        if (state) registerMcpSecrets(redactor, state as McpOAuthState);
         if (!state?.tokens) {
-          // Not authorized yet — its tools appear after the OAuth callback completes. Not an error.
-          await mcpStore.setHealth(entry.id, {
-            lastStatus: 'unreachable',
-            lastError: 'Awaiting authorization',
-            lastCheckedAt: new Date().toISOString(),
-          });
+          await mcpStore.setHealth(entry.id, { lastStatus: 'unreachable', lastError: 'Awaiting authorization', lastCheckedAt: new Date().toISOString() });
           continue;
         }
-        // The SDK authProvider uses the stored tokens and refreshes them transparently on 401.
         client = await withTimeout(
-          connectMcpClient({ url: entry.url, name: entry.slug, authProvider: mcpOAuthProviderFor(entry) }),
-          MCP_TIMEOUT_MS,
-          `connect MCP "${entry.slug}"`,
+          connectMcpClient({ url: entry.url, name: entry.slug, onToolsChanged, authProvider: mcpOAuthProviderFor(entry, undefined, { onState: state => registerMcpSecrets(redactor, state) }) }),
+          MCP_TIMEOUT_MS, `connect MCP "${entry.slug}"`, lateClient => lateClient.close(),
         );
+        const tokens = (await mcpStore.getOAuthState(entry.id))?.tokens as { access_token?: string } | undefined;
+        sessionToken = tokens?.access_token ?? 'mcp-session';
       } else {
         const secret = await mcpStore.openSecret(entry.id);
-        sessionToken = secret ?? 'mcp-session'; // real secret → redactor scrubs it (§7)
+        if (entry.providerId && entry.auth.kind === 'bearer' && !secret) {
+          await mcpStore.setHealth(entry.id, { lastStatus: 'unreachable', lastError: 'A connection token is required.', lastCheckedAt: new Date().toISOString() });
+          continue;
+        }
+        if (secret) redactor.register(secret, 'mcp_secret');
+        sessionToken = secret ?? 'mcp-session';
         client = await withTimeout(
-          connectMcpClient({ url: entry.url, name: entry.slug, headers: mcpAuthHeaders(entry.auth, secret) }),
-          MCP_TIMEOUT_MS,
-          `connect MCP "${entry.slug}"`,
+          connectMcpClient({ url: entry.url, name: entry.slug, headers: mcpAuthHeaders(entry.auth, secret), onToolsChanged }),
+          MCP_TIMEOUT_MS, `connect MCP "${entry.slug}"`, lateClient => lateClient.close(),
         );
       }
-      const res = await withTimeout(
-        ingestMcpServer(registry, store, secretBox, {
-          name: entry.slug,
-          client,
-          connectionId: mcpConnectionId(entry.slug),
-          sessionToken,
-          ...(entry.toolOverrides ? { toolOverrides: entry.toolOverrides } : {}),
-        }),
-        MCP_TIMEOUT_MS,
-        `ingest MCP "${entry.slug}"`,
-      );
-      mcpClients.push(client);
-      await mcpStore.setHealth(entry.id, {
-        lastStatus: 'ok',
-        lastToolCount: res.toolCount,
-        lastCheckedAt: new Date().toISOString(),
-        tools: res.tools, // refresh the persisted tool list for the UI
-      });
-    } catch (e) {
-      await mcpStore
-        .setHealth(entry.id, {
-          lastStatus: 'unreachable',
-          lastError: e instanceof Error ? e.message : String(e),
-          lastCheckedAt: new Date().toISOString(),
-        })
-        .catch(() => {});
-      console.warn(`[connectors] MCP server "${entry.slug}" not ingested: ${e instanceof Error ? e.message : e}`);
+      candidate.discoveryStarted = true;
+      let discovered: { tools: McpToolDef[] } | undefined;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        candidate.changed = false;
+        const result = await withTimeout(client.listTools(), MCP_TIMEOUT_MS, `discover MCP "${entry.slug}"`);
+        if (!candidate.changed) { discovered = result; break; }
+      }
+      if (!discovered) throw new ConnectorError('provider_unavailable', 'The provider kept changing its tools during discovery. Test the connection again.');
+      Object.assign(candidate, { client, tools: redactor.redact(discovered.tools), sessionToken, ready: true });
+      prepared.push(candidate);
+    } catch (error) {
+      await client?.close().catch(() => {});
+      await recordFailure(entry, error);
     }
   }
 
-  return { runtime, admin, mcpClients };
+  const groups = new Map<string, PreparedAccount[]>();
+  for (const candidate of prepared) {
+    const key = candidate.entry.providerId ?? `custom:${candidate.entry.id}`;
+    groups.set(key, [...(groups.get(key) ?? []), candidate]);
+  }
+  for (const accounts of groups.values()) {
+    const accepted = new Set<string>();
+    try {
+      await finalizeMcpServers(accounts.map(account => account.entry), mcpStore, async currentAccounts => {
+        const valid = currentAccounts.flatMap(current => {
+          const account = accounts.find(candidate => candidate.entry.id === current.id)!;
+          return account.changed ? [] : [{ account, current }];
+        });
+        if (!valid.length) return;
+        const definitions = [];
+        for (const { account, current } of valid) {
+          // Another account may have loaded later. Scrub against every secret
+          // known by this build before persisting or projecting any definition.
+          account.tools = redactor.redact(account.tools);
+          const snapshot = await mcpStore.recordCapabilities(current.id, account.tools);
+          if (!snapshot) throw new Error('The connector was removed during discovery.');
+          account.entry = snapshot;
+          const hosted = hostedMcpDefinition(snapshot);
+          definitions.push({
+            name: snapshot.slug,
+            client: { listTools: async () => ({ tools: account.tools }), callTool: (params: { name: string; arguments?: Record<string, unknown> }) => account.client.callTool(params) },
+            ownerId: getConnectorOwnerId(), connectionId: hostedMcpConnectionId(snapshot), sessionToken: account.sessionToken,
+            isCurrentTransport: () => {
+              if (generation !== buildGeneration || account.changed || mcpStore.get(snapshot.id)?.capabilityRevision !== snapshot.capabilityRevision) {
+                throw new ConnectorError('tools_changed', 'The connector tools changed. Refresh the available tools before trying again.');
+              }
+              return isCurrentMcpTransport(snapshot, mcpStore);
+            },
+            ...(hosted ? {
+              identity: { providerId: hosted.id, displayName: hosted.displayName, label: snapshot.displayName, accountId: snapshot.accountId, authConfigId: snapshot.authConfigId },
+              trustToolAnnotations: trustHostedMcpAnnotations(hosted),
+              ...(hosted.defaultMutationRisk ? { defaultRisk: hosted.defaultMutationRisk } : {}),
+            } : {}),
+            ...(snapshot.toolOverrides ? { toolOverrides: snapshot.toolOverrides } : {}),
+          });
+        }
+        const results = await ingestMcpServers(registry, store, secretBox, definitions);
+        for (const result of results) {
+          const { account } = valid.find(item => hostedMcpConnectionId(item.current) === result.connectionId)!;
+          await mcpStore.setHealth(account.entry.id, {
+            lastStatus: 'ok', lastToolCount: result.toolCount, lastCheckedAt: new Date().toISOString(),
+            tools: result.tools.map(tool => ({ name: tool.name, description: tool.description })),
+          });
+          accepted.add(account.entry.id);
+          mcpClients.push(account.client);
+        }
+      });
+    } catch (error) {
+      for (const account of accounts) await recordFailure(account.entry, error);
+    } finally {
+      await Promise.all(accounts.filter(account => !accepted.has(account.entry.id)).map(account => account.client.close().catch(() => {})));
+    }
+  }
+
+  const configuration = mcpConfigurationSignature(entries.map(entry => prepared.find(candidate => candidate.entry.id === entry.id)?.entry ?? entry));
+  if (configuration !== mcpConfigurationSignature(mcpStore)) invalidateConnectorRuntime();
+  return { runtime, admin, mcpClients, builtAt: Date.now(), configuration };
 }
+
+/** Changes made by another process must also refresh the tool projection. */
+function mcpConfigurationSignature(source: McpServerStore | readonly McpServerEntry[]): string {
+  const entries = 'list' in source ? source.list() : source;
+  return JSON.stringify(entries.map(entry => ({
+    id: entry.id, slug: entry.slug, providerId: entry.providerId, connectionId: entry.connectionId,
+    accountId: entry.accountId, authConfigId: entry.authConfigId, displayName: entry.displayName,
+    url: entry.url, enabled: entry.enabled, auth: entry.auth, credentialRevision: entry.credentialRevision,
+    capabilityRevision: entry.capabilityRevision, toolOverrides: entry.toolOverrides,
+  })).sort((a, b) => a.id.localeCompare(b.id)));
+}
+
+/** Servers without list-change notifications are rechecked on use after five minutes. */
+export const MCP_DISCOVERY_MAX_AGE_MS = 5 * 60_000;
 
 async function closeClients(b: Built): Promise<void> {
   await Promise.all(b.mcpClients.map((c) => c.close().catch(() => {})));
 }
 
 async function getBuilt(): Promise<Built> {
-  if (cachedBuilt) return cachedBuilt;
+  if (cachedBuilt) {
+    if (Date.now() - cachedBuilt.builtAt < MCP_DISCOVERY_MAX_AGE_MS &&
+      cachedBuilt.configuration === mcpConfigurationSignature(getMcpServerStore())) return cachedBuilt;
+    invalidateConnectorRuntime();
+  }
   if (inFlight) return inFlight;
   inFlight = (async () => {
     // Loop so a config change that lands mid-build (a `generation` bump from

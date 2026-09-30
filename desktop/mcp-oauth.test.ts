@@ -3,7 +3,12 @@ import { makeMcpOAuthProvider, type McpOAuthState } from '../src/lib/connectors/
 
 it('persists unpredictable state and PKCE, restores the callback, and clears consumed secrets', async () => {
   let saved: McpOAuthState = {};
-  const persistence = { load: async () => structuredClone(saved), save: async (s: McpOAuthState) => { saved = structuredClone(s); } };
+  let revision = 0;
+  const persistence = { load: async () => structuredClone(saved), compareAndSave: async (expected: string | undefined, s: McpOAuthState) => {
+    if (saved.revision !== expected) return null;
+    saved = structuredClone({ ...s, revision: String(++revision) });
+    return structuredClone(saved);
+  } };
   const callback = 'http://127.0.0.1:12345/oauth/callback';
   const provider = makeMcpOAuthProvider({ ...persistence, clientName: 'Ri', redirectUrl: callback, interactive: true });
   const state = await provider.state!();
@@ -12,6 +17,10 @@ it('persists unpredictable state and PKCE, restores the callback, and clears con
   expect(saved.authorizationExpiresAt).toBeGreaterThan(Date.now());
   await provider.saveCodeVerifier('verifier');
   await provider.saveClientInformation!({ client_id: 'registered' });
+  // The callback atomically consumes browser state before the code exchange.
+  delete saved.authorizationState;
+  delete saved.authorizationExpiresAt;
+  saved.revision = String(++revision);
   const callbackProvider = makeMcpOAuthProvider({ ...persistence, clientName: 'Ri', redirectUrl: 'https://web.example/api/callback' });
   await callbackProvider.clientInformation();
   expect(callbackProvider.redirectUrl).toBe(callback);

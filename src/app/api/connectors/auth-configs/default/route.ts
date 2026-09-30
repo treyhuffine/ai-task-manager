@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isConnectorError } from '@connectors/engine';
-import { getConnectorAdmin } from '@/lib/connectors/runtime';
+import { getConnectorAdmin, invalidateConnectorRuntime } from '@/lib/connectors/runtime';
 
 /** Set which auth config is the default for a provider (blocked while legacy connections exist). */
 export async function POST(request: NextRequest) {
@@ -10,6 +10,7 @@ export async function POST(request: NextRequest) {
   }
   try {
     await (await getConnectorAdmin()).setDefault(body.providerId, body.id);
+    invalidateConnectorRuntime();
     return NextResponse.json({ ok: true });
   } catch (e) {
     const code = isConnectorError(e) ? e.code : undefined;

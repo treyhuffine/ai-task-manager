@@ -1,0 +1,616 @@
+{
+  "checked_at": "2026-09-29T02:46:22.901Z",
+  "method": "GET-only MCP SDK OAuth discovery. No client registration, authorization or account reads.",
+  "records": [
+    {
+      "id": "twitter",
+      "endpoint": "https://api.x.com/mcp",
+      "checked_at": "2026-09-29T02:46:22.159Z",
+      "requests": [
+        {
+          "url": "https://api.x.com/mcp",
+          "status": 401,
+          "final_url": "https://api.x.com/mcp"
+        },
+        {
+          "url": "https://api.x.com/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://api.x.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://api.x.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://api.x.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://api.x.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://api.x.com",
+          "authorization_endpoint": "https://x.com/i/oauth2/authorize",
+          "token_endpoint": "https://api.x.com/2/oauth2/token",
+          "scopes_supported": [
+            "tweet.read",
+            "users.read",
+            "follows.read",
+            "space.read",
+            "mute.read",
+            "like.read",
+            "list.read",
+            "list.write",
+            "block.read",
+            "block.write",
+            "bookmark.read",
+            "bookmark.write",
+            "dm.read",
+            "dm.write",
+            "developer.billing.write",
+            "developer.write",
+            "offline.access",
+            "ads.read",
+            "ads.write",
+            "media.write"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "none",
+            "client_secret_basic"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://api.x.com/mcp",
+          "authorization_servers": [
+            "https://api.x.com"
+          ],
+          "scopes_supported": [
+            "tweet.read",
+            "users.read",
+            "follows.read",
+            "space.read",
+            "mute.read",
+            "like.read",
+            "list.read",
+            "list.write",
+            "block.read",
+            "block.write",
+            "bookmark.read",
+            "bookmark.write",
+            "dm.read",
+            "dm.write",
+            "developer.billing.write",
+            "developer.write",
+            "offline.access"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      }
+    },
+    {
+      "id": "slack",
+      "endpoint": "https://mcp.slack.com/mcp",
+      "checked_at": "2026-09-29T02:46:22.179Z",
+      "requests": [
+        {
+          "url": "https://mcp.slack.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.slack.com/mcp"
+        },
+        {
+          "url": "https://mcp.slack.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "final_url": "https://mcp.slack.com/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://mcp.slack.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.slack.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer resource_metadata=\"https://mcp.slack.com/.well-known/oauth-protected-resource\"",
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.slack.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.slack.com",
+          "authorization_endpoint": "https://slack.com/oauth/v2_user/authorize",
+          "token_endpoint": "https://slack.com/api/oauth.v2.user.access",
+          "scopes_supported": [
+            "canvases:read",
+            "canvases:write",
+            "channels:history",
+            "channels:read",
+            "channels:write",
+            "chat:write",
+            "emoji:read",
+            "files:read",
+            "files:write",
+            "groups:history",
+            "groups:read",
+            "groups:write",
+            "im:history",
+            "im:read",
+            "im:write",
+            "lists:read",
+            "lists:write",
+            "mpim:history",
+            "mpim:read",
+            "mpim:write",
+            "reactions:read",
+            "reactions:write",
+            "search:read.files",
+            "search:read.im",
+            "search:read.mpim",
+            "search:read.private",
+            "search:read.public",
+            "search:read.users",
+            "users:read",
+            "users:read.email"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_post"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "authorization_grant_profiles_supported": [
+            "urn:ietf:params:oauth:grant-profile:id-jag"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.slack.com",
+          "authorization_servers": [
+            "https://mcp.slack.com"
+          ],
+          "scopes_supported": [
+            "canvases:read",
+            "canvases:write",
+            "channels:history",
+            "channels:read",
+            "channels:write",
+            "chat:write",
+            "emoji:read",
+            "files:read",
+            "files:write",
+            "groups:history",
+            "groups:read",
+            "groups:write",
+            "im:history",
+            "im:read",
+            "im:write",
+            "lists:read",
+            "lists:write",
+            "mpim:history",
+            "mpim:read",
+            "mpim:write",
+            "reactions:read",
+            "reactions:write",
+            "search:read.files",
+            "search:read.im",
+            "search:read.mpim",
+            "search:read.private",
+            "search:read.public",
+            "search:read.users",
+            "users:read",
+            "users:read.email"
+          ],
+          "bearer_methods_supported": [
+            "header",
+            "form"
+          ],
+          "resource_name": "Slack API",
+          "resource_documentation": "https://api.slack.com",
+          "tls_client_certificate_bound_access_tokens": false
+        }
+      }
+    },
+    {
+      "id": "asana",
+      "endpoint": "https://mcp.asana.com/v2/mcp",
+      "checked_at": "2026-09-29T02:46:22.179Z",
+      "requests": [
+        {
+          "url": "https://mcp.asana.com/v2/mcp",
+          "status": 401,
+          "final_url": "https://mcp.asana.com/v2/mcp"
+        },
+        {
+          "url": "https://mcp.asana.com/.well-known/oauth-protected-resource/v2",
+          "status": 200,
+          "final_url": "https://mcp.asana.com/.well-known/oauth-protected-resource/v2"
+        },
+        {
+          "url": "https://app.asana.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://app.asana.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer realm=\"Asana MCP\", resource_metadata=\"https://mcp.asana.com/.well-known/oauth-protected-resource/v2\", error=\"invalid_request\", error_description=\"Authorization header is required for MCP V2 access\"",
+      "discovery": {
+        "authorizationServerUrl": "https://app.asana.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://app.asana.com",
+          "authorization_endpoint": "https://app.asana.com/-/oauth_authorize",
+          "token_endpoint": "https://app.asana.com/-/oauth_token",
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_post",
+            "client_secret_basic"
+          ],
+          "revocation_endpoint": "https://app.asana.com/-/oauth_revoke",
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "authorization_grant_profiles_supported": [
+            "urn:ietf:params:oauth:grant-profile:id-jag"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.asana.com/v2/mcp",
+          "authorization_servers": [
+            "https://app.asana.com"
+          ],
+          "scopes_supported": [
+            "default"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "Asana MCP",
+          "resource_documentation": "https://developers.asana.com/docs/using-asanas-mcp-server"
+        }
+      }
+    },
+    {
+      "id": "hubspot",
+      "endpoint": "https://mcp.hubspot.com/",
+      "checked_at": "2026-09-29T02:46:22.180Z",
+      "requests": [
+        {
+          "url": "https://mcp.hubspot.com/",
+          "status": 401,
+          "final_url": "https://mcp.hubspot.com/"
+        },
+        {
+          "url": "https://mcp.hubspot.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "final_url": "https://mcp.hubspot.com/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://mcp.hubspot.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.hubspot.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer resource_metadata=\"https://mcp.hubspot.com/.well-known/oauth-protected-resource\"",
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.hubspot.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.hubspot.com",
+          "authorization_endpoint": "https://mcp.hubspot.com/oauth/authorize/user",
+          "token_endpoint": "https://mcp.hubspot.com/oauth/v3/token",
+          "scopes_supported": [],
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "client_credentials"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_post"
+          ],
+          "service_documentation": "https://developers.hubspot.com/docs/guides/apps/authentication/oauth-quickstart-guide",
+          "introspection_endpoint": "https://mcp.hubspot.com/oauth/v3/token/introspect",
+          "introspection_endpoint_auth_methods_supported": [
+            "client_secret_post"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "introspection_endpoint_token_types_supported": [
+            "access_token",
+            "refresh_token",
+            "client_credentials"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.hubspot.com",
+          "authorization_servers": [
+            "https://mcp.hubspot.com"
+          ],
+          "scopes_supported": [],
+          "resource_documentation": "https://developers.hubspot.com/mcp"
+        }
+      }
+    },
+    {
+      "id": "box",
+      "endpoint": "https://mcp.box.com/",
+      "checked_at": "2026-09-29T02:46:22.180Z",
+      "requests": [
+        {
+          "url": "https://mcp.box.com/",
+          "status": 401,
+          "final_url": "https://mcp.box.com/"
+        },
+        {
+          "url": "https://mcp.box.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "final_url": "https://mcp.box.com/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://api.box.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://api.box.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer realm=\"Service\", error=\"invalid_request\", error_description=\"The access token was not found.\", resource_metadata=\"https://mcp.box.com/.well-known/oauth-protected-resource\"",
+      "discovery": {
+        "authorizationServerUrl": "https://api.box.com/",
+        "authorizationServerMetadata": {
+          "issuer": "https://api.box.com",
+          "authorization_endpoint": "https://account.box.com/api/oauth2/authorize",
+          "token_endpoint": "https://api.box.com/oauth2/token",
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post"
+          ],
+          "service_documentation": "https://developer.box.com/guides/authentication/",
+          "revocation_endpoint": "https://api.box.com/oauth2/revoke",
+          "revocation_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "op_policy_uri": "https://www.box.com/legal/termsofservice",
+          "op_tos_uri": "https://www.box.com/legal/termsofservice"
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.box.com/",
+          "authorization_servers": [
+            "https://api.box.com/"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "Box Model Context Protocol Server",
+          "resource_documentation": "https://developer.box.com/guides/box-mcp/remote/",
+          "resource_policy_uri": "https://www.box.com/legal/termsofservice",
+          "resource_tos_uri": "https://www.box.com/legal/termsofservice"
+        }
+      }
+    },
+    {
+      "id": "zoom",
+      "endpoint": "https://mcp.zoom.us/mcp/zoom/streamable",
+      "checked_at": "2026-09-29T02:46:22.181Z",
+      "requests": [
+        {
+          "url": "https://mcp.zoom.us/mcp/zoom/streamable",
+          "status": 405,
+          "final_url": "https://mcp.zoom.us/mcp/zoom/streamable"
+        },
+        {
+          "url": "https://mcp.zoom.us/.well-known/oauth-protected-resource/mcp/zoom/streamable",
+          "status": 200,
+          "final_url": "https://mcp.zoom.us/.well-known/oauth-protected-resource/mcp/zoom/streamable"
+        },
+        {
+          "url": "https://zoom.us/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://zoom.us/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 405,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://zoom.us",
+        "authorizationServerMetadata": {
+          "issuer": "https://zoom.us",
+          "authorization_endpoint": "https://zoom.us/oauth/authorize",
+          "token_endpoint": "https://zoom.us/oauth/token",
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "client_credentials",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic"
+          ],
+          "service_documentation": "https://developers.zoom.us/docs/integrations/oauth/",
+          "code_challenge_methods_supported": [
+            "S256"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.zoom.us/mcp/zoom/streamable",
+          "authorization_servers": [
+            "https://zoom.us"
+          ],
+          "scopes_supported": [
+            "agentic_search:read:search",
+            "meeting:write:meeting",
+            "meeting:read:search",
+            "docs:update:collaborator",
+            "docs:read:export",
+            "docs:write:import",
+            "agentic_search:read:ask",
+            "hub:write:content",
+            "meeting:update:in_meeting_controls",
+            "cloud_recording:read:content",
+            "meeting:update:meeting",
+            "meeting:delete:meeting",
+            "docs:read:list_file_collaborators",
+            "cloud_recording:read:list_user_recordings",
+            "meeting:read:assets",
+            "docs:write:collaborator",
+            "my_notes:read:content",
+            "docs:delete:collaborator",
+            "hub:read:content"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      }
+    },
+    {
+      "id": "dropbox",
+      "endpoint": "https://mcp.dropbox.com/mcp",
+      "checked_at": "2026-09-29T02:46:22.181Z",
+      "requests": [
+        {
+          "url": "https://mcp.dropbox.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.dropbox.com/mcp"
+        },
+        {
+          "url": "https://mcp.dropbox.com/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.dropbox.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://www.dropbox.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://www.dropbox.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer resource_metadata=\"https://mcp.dropbox.com/.well-known/oauth-protected-resource/mcp\", error=\"invalid_token\", error_description=\"missing bearer token\"",
+      "discovery": {
+        "authorizationServerUrl": "https://www.dropbox.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://www.dropbox.com",
+          "authorization_endpoint": "https://www.dropbox.com/oauth2/authorize",
+          "token_endpoint": "https://api.dropboxapi.com/oauth2/token",
+          "registration_endpoint": "https://www.dropbox.com/oauth2/register",
+          "scopes_supported": [
+            "account_info.read",
+            "contacts.read",
+            "contacts.write",
+            "files.metadata.read",
+            "files.content.read",
+            "files.content.write",
+            "files.permanent_delete",
+            "files.metadata.write",
+            "sharing.read",
+            "sharing.write",
+            "file_requests.read",
+            "file_requests.write",
+            "openid",
+            "profile",
+            "email",
+            "account_info.write",
+            "backup.read",
+            "backup.write",
+            "dash/content.read",
+            "dash/content.write",
+            "team_info.read",
+            "team_info.write",
+            "sessions.list",
+            "sessions.modify",
+            "members.read",
+            "members.write",
+            "members.delete",
+            "groups.read",
+            "groups.write",
+            "events.read",
+            "team_data.governance.read",
+            "team_data.governance.write",
+            "team_data.member",
+            "team_data.content.read",
+            "team_data.content.write",
+            "team_data.team_space",
+            "files.team_metadata.write",
+            "events.write",
+            "files.team_metadata.read"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "client_credentials",
+            "refresh_token",
+            "device_code"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_post",
+            "client_secret_basic",
+            "none"
+          ],
+          "revocation_endpoint": "https://api.dropboxapi.com/2/auth/token/revoke",
+          "code_challenge_methods_supported": [
+            "plain",
+            "S256"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.dropbox.com/mcp",
+          "authorization_servers": [
+            "https://www.dropbox.com"
+          ],
+          "scopes_supported": [
+            "account_info.read",
+            "file_requests.read",
+            "file_requests.write",
+            "files.content.read",
+            "files.content.write",
+            "files.metadata.read",
+            "files.metadata.write",
+            "sharing.read",
+            "sharing.write"
+          ]
+        }
+      }
+    }
+  ]
+}

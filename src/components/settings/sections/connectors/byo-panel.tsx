@@ -4,7 +4,7 @@ import { Check, Copy, ExternalLink, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { connectorMeta } from '@/components/connectors/connector-meta';
-import type { AuthConfigSummary, ByoForm, ProviderStatus } from './types';
+import { isRegisteredMcp, oauthAppRedirectUri, type AuthConfigSummary, type ByoForm, type ProviderStatus } from './types';
 
 /**
  * Bring-your-own OAuth app for an OAuth provider: the redirect URI to register,
@@ -26,6 +26,8 @@ export function ByoPanel({
   onConnect,
   onSetDefault,
   onDelete,
+  connectDisabled = false,
+  usedAuthConfigIds = [],
 }: {
   provider: ProviderStatus;
   redirectUri: string;
@@ -39,16 +41,26 @@ export function ByoPanel({
   onConnect: (authConfigId: string) => void;
   onSetDefault: (id: string) => void;
   onDelete: (id: string) => void;
+  connectDisabled?: boolean;
+  usedAuthConfigIds?: string[];
 }) {
-  const docsUrl = connectorMeta(provider.id).docsUrl;
+  const { docsUrl, setup } = connectorMeta(provider.id);
+  const registered = isRegisteredMcp(provider);
+  const boundClientId = registered ? provider.mcp?.authConfigId : undefined;
+  const callback = oauthAppRedirectUri(provider, redirectUri);
   return (
     <div className="space-y-3">
       <p className="text-[11px] leading-normal text-muted-foreground">
-        {provider.desktopCallback?.kind === 'loopback'
+        {!registered && provider.desktopCallback?.kind === 'loopback'
           ? `Create a desktop or native OAuth app with ${provider.displayName} that accepts loopback redirects on a temporary port. Paste its client ID below.`
           : `Register an app with ${provider.displayName}, add the callback address below, then paste the client below.`}
         {' '}Credentials are stored encrypted in your app home.
       </p>
+      {setup && setup.length > 0 && (
+        <ol className="list-decimal space-y-1 pl-4 text-[11px] leading-normal text-muted-foreground">
+          {setup.map((step) => <li key={step}>{step}</li>)}
+        </ol>
+      )}
       {docsUrl && (
         <a
           href={docsUrl}
@@ -63,11 +75,13 @@ export function ByoPanel({
 
       {/* Redirect URI to register */}
       <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 p-2">
-        <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">{provider.desktopCallback ? provider.desktopCallback.kind === 'loopback' ? 'http://127.0.0.1:<temporary-port>/oauth/callback' : provider.desktopCallback.redirectUri || 'Configure a hosted callback service first' : redirectUri}</code>
-        <Button disabled={!!provider.desktopCallback && !provider.desktopCallback.redirectUri} variant="ghost" size="icon-xs" onClick={onCopyRedirect} title="Copy redirect URI">
+        <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-foreground">{registered ? callback || 'Callback address unavailable' : provider.desktopCallback ? provider.desktopCallback.kind === 'loopback' ? 'http://127.0.0.1:<temporary-port>/oauth/callback' : provider.desktopCallback.redirectUri || 'Configure a hosted callback service first' : redirectUri}</code>
+        <Button disabled={registered ? !callback : !!provider.desktopCallback && !provider.desktopCallback.redirectUri} variant="ghost" size="icon-xs" onClick={onCopyRedirect} title="Copy redirect URI">
           {copied ? <Check size={12} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={12} />}
         </Button>
       </div>
+
+      {boundClientId && <p className="text-[11px] text-muted-foreground">This connection uses {configs.find(config => config.id === boundClientId)?.label ?? boundClientId}. Disconnect before changing or removing its OAuth app.</p>}
 
       {/* Existing BYO clients */}
       {configs.length > 0 && (
@@ -83,14 +97,16 @@ export function ByoPanel({
               </span>
               <span className="flex shrink-0 items-center gap-2">
                 <button
+                  aria-label={`Connect using ${cfg.label ?? cfg.id}`}
                   onClick={() => onConnect(cfg.id)}
-                  disabled={busy}
+                  disabled={busy || connectDisabled || cfg.status !== 'active' || (!!boundClientId && cfg.id !== boundClientId)}
                   className="inline-flex items-center gap-1 font-semibold text-primary hover:underline disabled:opacity-40"
                 >
                   <ExternalLink size={11} /> Connect
                 </button>
                 {!cfg.isDefault && (
                   <button
+                    aria-label={`Make ${cfg.label ?? cfg.id} default`}
                     onClick={() => onSetDefault(cfg.id)}
                     disabled={busy}
                     className="text-muted-foreground hover:text-foreground disabled:opacity-40"
@@ -99,8 +115,9 @@ export function ByoPanel({
                   </button>
                 )}
                 <button
+                  aria-label={`Remove ${cfg.label ?? cfg.id}`}
                   onClick={() => onDelete(cfg.id)}
-                  disabled={busy}
+                  disabled={busy || cfg.id === boundClientId || usedAuthConfigIds.includes(cfg.id)}
                   className="text-destructive hover:underline disabled:opacity-40"
                 >
                   Remove
@@ -130,7 +147,8 @@ export function ByoPanel({
           autoComplete="off"
           value={form.clientSecret}
           onChange={(e) => onField('clientSecret', e.target.value)}
-          placeholder="Client secret (blank for PKCE)"
+          placeholder={registered ? 'Client secret' : 'Client secret (if required)'}
+          required={registered}
           className="h-8 rounded-lg font-mono text-xs @lg:col-span-2"
         />
       </div>
@@ -138,7 +156,7 @@ export function ByoPanel({
         size="sm"
         variant="outline"
         onClick={onAdd}
-        disabled={busy || !form.label.trim() || !form.clientId.trim()}
+        disabled={busy || !form.label.trim() || !form.clientId.trim() || (registered && (!callback || !form.clientSecret.trim()))}
         className="text-xs font-semibold"
       >
         <Plus size={14} /> Add app

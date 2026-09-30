@@ -194,6 +194,26 @@ export interface Provider {
   id: string;
   displayName: string;
   auth: AuthStrategy;
+  /**
+   * Trusted host-managed transport, such as an already-authenticated MCP client.
+   * Only explicitly bound connections may execute the provider's actions. Their authConfigId is
+   * retained for account identity/pins and labels, not for transport authentication.
+   * The host owns sign-in, refresh, health and revocation. Native auth entrypoints,
+   * ctx.http and ctx.getToken are unavailable. Omit for runtime-managed providers.
+   * Never populate this from remote server metadata.
+   */
+  externalAuth?: {
+    connectionId: string;
+    /**
+     * Checks that the stored credential still belongs to this captured transport.
+     * A second host process may replace the connection before this runtime is
+     * rebuilt. Keep secret comparisons in this closure, never in public fields.
+     */
+    isCurrentCredential(credential: Credentials): boolean;
+  } | {
+    /** Select only a captured transport for this exact account. Never fall back to another account. */
+    forConnection(connection: Connection): { isCurrentCredential(credential: Credentials): boolean } | undefined;
+  };
   baseUrl?: string;
   /** OAuth: always-requested scopes that `identify()` needs (e.g. `['openid','email']`). */
   identityScopes?: string[];
@@ -253,6 +273,8 @@ export interface Action<I = unknown, O = unknown> {
   deprecated?: boolean;
   /** The action id to use instead, when `deprecated`. Surfaced in the projected description. */
   replacedBy?: string;
+  /** Trusted local validation after account resolution and before approval. No side effects. */
+  validateForConnection?(connection: ConnectionMetadata, input: I): void;
   execute(ctx: ActionContext, input: I): Promise<O>;
 }
 
@@ -271,6 +293,8 @@ export interface Connection {
    * `undefined` ⇒ the provider's default — either a pre-feature connection (OAuth) or a
    * self-credentialed non-OAuth connection that never consults a client. A token is
    * refreshed/revoked/re-consented ONLY with the config that minted it.
+   * For a provider with externalAuth, a retained native config identifies the old
+   * account/client pin only. The host transport manages the replacement credentials.
    */
   authConfigId?: string;
   config?: Record<string, unknown>;   // per-connection provider metadata captured at connect (cloudId, realmId, …)

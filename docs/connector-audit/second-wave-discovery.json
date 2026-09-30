@@ -1,0 +1,1384 @@
+{
+  "checked_at": "2026-09-29T01:11:36.728Z",
+  "method": "GET-only MCP SDK OAuth discovery, no account authorization or registration",
+  "records": [
+    {
+      "id": "canva",
+      "endpoint": "https://mcp.canva.com/mcp",
+      "checked_at": "2026-09-29T01:11:36.237Z",
+      "requests": [
+        {
+          "url": "https://mcp.canva.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.canva.com/mcp"
+        },
+        {
+          "url": "https://mcp.canva.com/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.canva.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://mcp.canva.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.canva.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer realm=\"OAuth\", resource_metadata=\"https://mcp.canva.com/.well-known/oauth-protected-resource/mcp\", error=\"invalid_token\", error_description=\"Missing or invalid access token\"",
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.canva.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.canva.com",
+          "authorization_endpoint": "https://mcp.canva.com/authorize",
+          "token_endpoint": "https://mcp.canva.com/token",
+          "registration_endpoint": "https://mcp.canva.com/register",
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+          ],
+          "revocation_endpoint": "https://mcp.canva.com/token",
+          "code_challenge_methods_supported": [
+            "plain",
+            "S256"
+          ],
+          "client_id_metadata_document_supported": true,
+          "authorization_grant_profiles_supported": [
+            "urn:ietf:params:oauth:grant-profile:id-jag"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.canva.com/mcp",
+          "authorization_servers": [
+            "https://mcp.canva.com"
+          ],
+          "scopes_supported": [
+            "profile:read",
+            "design:meta:read",
+            "design:content:write",
+            "design:content:read",
+            "folder:read",
+            "folder:write",
+            "brandtemplate:content:read",
+            "brandtemplate:meta:read",
+            "brandtemplate:content:write",
+            "comment:write",
+            "comment:read",
+            "asset:read",
+            "asset:write",
+            "brandkit:read",
+            "help:answers:read",
+            "help:answers:write"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      },
+      "sha256": "f6973a29d071b8e2c3538a657c48c3becfa875e92b36ce47ff4724ba34c89d1c"
+    },
+    {
+      "id": "clickup",
+      "endpoint": "https://mcp.clickup.com/mcp",
+      "checked_at": "2026-09-29T01:11:33.766Z",
+      "requests": [
+        {
+          "url": "https://mcp.clickup.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.clickup.com/mcp"
+        },
+        {
+          "url": "https://mcp.clickup.com/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.clickup.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://mcp.clickup.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.clickup.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer realm=\"MCP Server\", error=\"invalid_token\", error_description=\"Bearer token required\", resource_metadata=\"https://mcp.clickup.com/.well-known/oauth-protected-resource/mcp\"",
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.clickup.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.clickup.com",
+          "authorization_endpoint": "https://mcp.clickup.com/oauth/authorize",
+          "token_endpoint": "https://mcp.clickup.com/oauth/token",
+          "registration_endpoint": "https://mcp.clickup.com/oauth/register",
+          "scopes_supported": [
+            "read",
+            "write"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "none"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "authorization_response_iss_parameter_supported": true,
+          "resource_indicators_supported": true,
+          "mcp_authorization_spec_version": "2026-07-28",
+          "mcp_server_capabilities": [
+            "task_management",
+            "document_management",
+            "chat"
+          ],
+          "mcp_server_contact": "support@clickup.com"
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.clickup.com/mcp",
+          "authorization_servers": [
+            "https://mcp.clickup.com"
+          ],
+          "scopes_supported": [
+            "read",
+            "write"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "ClickUp MCP Server",
+          "resource_description": "API for managing ClickUp tasks, documents, and chat via MCP.",
+          "resource_type": "api",
+          "resource_owner": "ClickUp",
+          "resource_owner_url": "https://mcp.clickup.com",
+          "resource_server_origin": "https://api.clickup.com",
+          "resource_indicators_supported": true
+        }
+      },
+      "sha256": "8d06b0dbef73e049f980b143840347130ea44e8a57b3e43ba754a5d162a1c961"
+    },
+    {
+      "id": "cloudflare",
+      "endpoint": "https://mcp.cloudflare.com/mcp",
+      "checked_at": "2026-09-29T01:11:35.781Z",
+      "requests": [
+        {
+          "url": "https://mcp.cloudflare.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.cloudflare.com/mcp"
+        },
+        {
+          "url": "https://mcp.cloudflare.com/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.cloudflare.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://mcp.cloudflare.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.cloudflare.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer realm=\"OAuth\", resource_metadata=\"https://mcp.cloudflare.com/.well-known/oauth-protected-resource/mcp\", scope=\"user:read account:read\"",
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.cloudflare.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.cloudflare.com",
+          "authorization_endpoint": "https://mcp.cloudflare.com/authorize",
+          "token_endpoint": "https://mcp.cloudflare.com/token",
+          "registration_endpoint": "https://mcp.cloudflare.com/register",
+          "scopes_supported": [
+            "offline_access",
+            "user:read",
+            "account:read",
+            "access-acct.read",
+            "access-acct.revoke",
+            "access-acct.write",
+            "access-app.read",
+            "access-app.revoke",
+            "access-app.write",
+            "access-audit-log.read",
+            "access-certificate.read",
+            "access-certificate.write",
+            "access-custom-page.read",
+            "access-custom-page.write",
+            "access-device-posture.read",
+            "access-device-posture.write",
+            "access-group.read",
+            "access-group.write",
+            "access-idp.read",
+            "access-idp.write",
+            "access-key.read",
+            "access-key.write",
+            "access-org.read",
+            "access-org.revoke",
+            "access-org.write",
+            "access-policy-test.read",
+            "access-policy-test.write",
+            "access-policy.read",
+            "access-policy.write",
+            "access-population.read",
+            "access-population.write",
+            "access-saml-certificate.read",
+            "access-saml-certificate.write",
+            "access-scim-log.read",
+            "access-seats.write",
+            "access-service-token.read",
+            "access-service-token.write",
+            "access-ssh-auditing.read",
+            "access-ssh-auditing.write",
+            "access-tag.read",
+            "access-tag.write",
+            "access-users.read",
+            "access-users.write",
+            "access.read",
+            "access.revoke",
+            "access.write",
+            "account-analytics.read",
+            "account-api-gateway.read",
+            "account-api-gateway.write",
+            "account-custom-asset.read",
+            "account-custom-asset.write",
+            "account-custom-error-rules.read",
+            "account-custom-error-rules.write",
+            "account-custom-pages.read",
+            "account-custom-pages.write",
+            "account-disable-esc.read",
+            "account-disable-esc.write",
+            "account-dns-settings.read",
+            "account-dns-settings.write",
+            "account-firewall-access-rules.read",
+            "account-firewall-access-rules.write",
+            "account-logs.read",
+            "account-logs.write",
+            "account-rule-lists.read",
+            "account-rule-lists.write",
+            "account-rulesets.read",
+            "account-rulesets.write",
+            "account-security-center-insights.read",
+            "account-security-center-insights.write",
+            "account-settings.read",
+            "account-settings.write",
+            "account-ssl-and-certificates.read",
+            "account-ssl-and-certificates.write",
+            "account-waf.read",
+            "account-waf.write",
+            "account-waiting-rooms.read",
+            "address-maps.read",
+            "address-maps.write",
+            "agent-memory.write",
+            "agw.read",
+            "agw.run",
+            "agw.write",
+            "ai-search.index",
+            "ai-search.metadata_read",
+            "ai-search.read",
+            "ai-search.run",
+            "ai-search.write",
+            "ai.read",
+            "ai.write",
+            "aiaudit.read",
+            "aiaudit.write",
+            "aig.metadata_read",
+            "aig.read",
+            "aig.run",
+            "aig.write",
+            "analytics.read",
+            "api-gateway.read",
+            "api-gateway.write",
+            "apps.write",
+            "argotunnel.read",
+            "argotunnel.write",
+            "artifacts.read",
+            "artifacts.write",
+            "bot-management-feedback.read",
+            "bot-management-feedback.write",
+            "bot-management.read",
+            "bot-management.write",
+            "browser-rendering.read",
+            "browser-rendering.write",
+            "cache-settings.read",
+            "cache-settings.write",
+            "cache.purge",
+            "calls.read",
+            "calls.write",
+            "casb.read",
+            "casb.write",
+            "cf-agents.read",
+            "cf-agents.write",
+            "challenge-widgets.read",
+            "challenge-widgets.write",
+            "chinanetwork-steering.read",
+            "chinanetwork-steering.write",
+            "cloud-connector.read",
+            "cloud-connector.write",
+            "cloud-email-security.read",
+            "cloud-email-security.write",
+            "cloudchamber.read",
+            "cloudchamber.write",
+            "cloudforce-one.read",
+            "cloudforce-one.write",
+            "config-settings.read",
+            "config-settings.write",
+            "connectivity-directory.admin",
+            "connectivity-directory.bind",
+            "connectivity-directory.read",
+            "constellation.read",
+            "constellation.write",
+            "containers.read",
+            "containers.write",
+            "custom-errors.read",
+            "custom-errors.write",
+            "custom-pages.read",
+            "custom-pages.write",
+            "d1.metadata_read",
+            "d1.read",
+            "d1.write",
+            "ddos-botnet-feed.read",
+            "ddos-botnet-feed.write",
+            "ddos-protection.read",
+            "ddos-protection.write",
+            "dls.read",
+            "dls.write",
+            "dns-firewall.read",
+            "dns-firewall.write",
+            "dns-view.read",
+            "dns-view.write",
+            "dns.read",
+            "dns.write",
+            "domain-page-shield.read",
+            "domain-page.shield",
+            "dynamic-redirect.read",
+            "dynamic-redirect.write",
+            "email-routing-account-rule.read",
+            "email-routing-address.read",
+            "email-routing-address.write",
+            "email-routing-rule.read",
+            "email-routing-rule.write",
+            "email-routing-suppression.read",
+            "email-routing-suppression.write",
+            "email-security-dmarcreports.read",
+            "email-security-dmarcreports.write",
+            "email-sending.read",
+            "email-sending.write",
+            "fbm.admin",
+            "fbm.read",
+            "fbm.write",
+            "field-extractor.read",
+            "field-extractor.write",
+            "firewall-for-ai.read",
+            "firewall-for-ai.write",
+            "firewall-services.read",
+            "firewall-services.write",
+            "flagship.evaluate",
+            "flagship.read",
+            "flagship.write",
+            "fraud-detection-pii.read",
+            "fraud-detection.read",
+            "fraud-detection.write",
+            "fraud-events.write",
+            "fraud-feedback.read",
+            "fraud-feedback.write",
+            "healthcheck.read",
+            "healthcheck.write",
+            "http-applications.read",
+            "http-applications.write",
+            "http-ddos-managed-ruleset.read",
+            "http-ddos-managed-ruleset.write",
+            "images.metadata_read",
+            "images.read",
+            "images.write",
+            "integration.write",
+            "intel.read",
+            "intel.write",
+            "iot.read",
+            "iot.write",
+            "ip-prefix-bgp-on-demand.read",
+            "ip-prefix-bgp-on-demand.write",
+            "ip-prefix.read",
+            "ip-prefix.write",
+            "l4-ddos-managed-ruleset.read",
+            "l4-ddos-managed-ruleset.write",
+            "load-balancers-account.read",
+            "load-balancers-account.write",
+            "load-balancers.read",
+            "load-balancers.write",
+            "load-balancing-monitors-and-pools.read",
+            "load-balancing-monitors-and-pools.write",
+            "logs.read",
+            "logs.write",
+            "magic-firewall.read",
+            "magic-firewall.write",
+            "magic-transit.read",
+            "magic-transit.write",
+            "magic-wan.read",
+            "magic-wan.write",
+            "managed-headers.read",
+            "managed-headers.write",
+            "mass-url-redirects.read",
+            "mass-url-redirects.write",
+            "mcp-portals.read",
+            "mcp-portals.write",
+            "memberships.read",
+            "memberships.write",
+            "messaging.edit",
+            "messaging.metadata_read",
+            "messaging.read",
+            "moq.read",
+            "moq.write",
+            "notifications.read",
+            "notifications.write",
+            "origin.read",
+            "origin.write",
+            "page-rules.read",
+            "page-rules.write",
+            "page-shield.read",
+            "page.read",
+            "page.shield",
+            "page.write",
+            "pages.metadata_read",
+            "payments-gateway.read",
+            "payments-gateway.write",
+            "pcaps-api.read",
+            "pcaps-api.write",
+            "pipelines.read",
+            "pipelines.send",
+            "pipelines.write",
+            "precursor.read",
+            "precursor.write",
+            "pubsub.read",
+            "pubsub.write",
+            "query-cache.read",
+            "query-cache.write",
+            "queues.metadata_read",
+            "queues.read",
+            "queues.write",
+            "r2-catalog-sql.read",
+            "r2-catalog.read",
+            "r2-catalog.write",
+            "radar.read",
+            "rag.read",
+            "rag.run",
+            "rag.write",
+            "realtime.admin",
+            "realtime.read",
+            "realtime.write",
+            "registrar-domains.admin",
+            "registrar-domains.read",
+            "registrar-sandbox-domains.admin",
+            "registrar-sandbox-domains.read",
+            "reports-application-security-report.read",
+            "request-tracer.read",
+            "resource-library.read",
+            "resource-library.write",
+            "resource-sharing.read",
+            "response-compression.read",
+            "response-compression.write",
+            "sanitize.read",
+            "sanitize.write",
+            "scim-provisioning.write",
+            "secrets-store.read",
+            "secrets-store.write",
+            "select-configuration.read",
+            "select-configuration.write",
+            "snippets.read",
+            "snippets.write",
+            "ssl-and-certificates.read",
+            "ssl-and-certificates.write",
+            "stream.metadata_read",
+            "stream.read",
+            "stream.write",
+            "tag.read",
+            "tag.write",
+            "teams-cds-compute-account.read",
+            "teams-cds-compute-account.write",
+            "teams-connector-cloudflared.monitoring",
+            "teams-connector-cloudflared.read",
+            "teams-connector-cloudflared.write",
+            "teams-connector-warp.read",
+            "teams-connector-warp.write",
+            "teams-connectors.read",
+            "teams-connectors.write",
+            "teams-dex.read",
+            "teams-dex.write",
+            "teams-networks.read",
+            "teams-networks.write",
+            "teams-pii.read",
+            "teams-resilience.read",
+            "teams-resilience.write",
+            "teams-secure.location",
+            "teams.read",
+            "teams.report",
+            "teams.write",
+            "transform-rules.read",
+            "transform-rules.write",
+            "trust-and-safety.read",
+            "trust-and-safety.write",
+            "url-scanner.read",
+            "url-scanner.write",
+            "user-details.read",
+            "user-details.write",
+            "vectorize.read",
+            "vectorize.write",
+            "waiting-rooms.read",
+            "waiting-rooms.write",
+            "web3-hostnames.read",
+            "web3-hostnames.write",
+            "websearch.metadata_read",
+            "websearch.read",
+            "websearch.run",
+            "websearch.write",
+            "workers-ci.read",
+            "workers-ci.write",
+            "workers-kv-storage.metadata_read",
+            "workers-kv-storage.read",
+            "workers-kv-storage.write",
+            "workers-observability-telemetry.write",
+            "workers-observability.read",
+            "workers-observability.write",
+            "workers-r2-bucket-item.read",
+            "workers-r2-bucket-item.write",
+            "workers-r2.metadata_read",
+            "workers-r2.read",
+            "workers-r2.write",
+            "workers-routes.read",
+            "workers-routes.write",
+            "workers-scripts.bind",
+            "workers-scripts.read",
+            "workers-scripts.write",
+            "workers-tail.read",
+            "workers_ai.metadata_read",
+            "zaraz.edit",
+            "zaraz.read",
+            "zaraz.write",
+            "zone-access.read",
+            "zone-access.revoke",
+            "zone-access.write",
+            "zone-custom-asset.read",
+            "zone-custom-asset.write",
+            "zone-disable-esc.read",
+            "zone-disable-esc.write",
+            "zone-dns-settings.read",
+            "zone-dns-settings.write",
+            "zone-security-center-insights.read",
+            "zone-security-center-insights.write",
+            "zone-settings.read",
+            "zone-settings.write",
+            "zone-transform-rules.read",
+            "zone-transform-rules.write",
+            "zone-versioning.read",
+            "zone-versioning.write",
+            "zone-waf.read",
+            "zone-waf.write",
+            "zone.read",
+            "zone.write"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+          ],
+          "revocation_endpoint": "https://mcp.cloudflare.com/token",
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "client_id_metadata_document_supported": true,
+          "protected_resources": [
+            "https://mcp.cloudflare.com/mcp"
+          ],
+          "authorization_response_iss_parameter_supported": true
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.cloudflare.com/mcp",
+          "authorization_servers": [
+            "https://mcp.cloudflare.com"
+          ],
+          "scopes_supported": [
+            "user:read",
+            "account:read"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "Cloudflare API MCP Server"
+        }
+      },
+      "sha256": "35e6ea1dcd85c2fe89ce135c857e1f918695c303356d4b2eea8e256dc3cf42a1"
+    },
+    {
+      "id": "figma",
+      "endpoint": "https://mcp.figma.com/mcp",
+      "checked_at": "2026-09-29T01:11:36.235Z",
+      "requests": [
+        {
+          "url": "https://mcp.figma.com/mcp",
+          "status": 405,
+          "final_url": "https://mcp.figma.com/mcp"
+        },
+        {
+          "url": "https://mcp.figma.com/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.figma.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://api.figma.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://api.figma.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 405,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://api.figma.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://api.figma.com",
+          "authorization_endpoint": "https://www.figma.com/oauth/mcp",
+          "token_endpoint": "https://api.figma.com/v1/oauth/token",
+          "registration_endpoint": "https://api.figma.com/v1/oauth/mcp/register",
+          "scopes_supported": [
+            "mcp:connect"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "authorization_grant_profiles_supported": [
+            "urn:ietf:params:oauth:grant-profile:id-jag"
+          ],
+          "require_state_parameter": true,
+          "authorization_response_iss_parameter_supported": true
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.figma.com/mcp",
+          "authorization_servers": [
+            "https://api.figma.com"
+          ],
+          "scopes_supported": [
+            "mcp:connect"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "Figma MCP",
+          "resource_documentation": "https://developers.figma.com/docs/figma-mcp-server/"
+        }
+      },
+      "sha256": "050185e43f696c05b0202661289e0f31a306296c8a55bd890306ad31f8186a23"
+    },
+    {
+      "id": "gitlab",
+      "endpoint": "https://gitlab.com/api/v4/mcp",
+      "checked_at": "2026-09-29T01:11:35.782Z",
+      "requests": [
+        {
+          "url": "https://gitlab.com/api/v4/mcp",
+          "status": 401,
+          "final_url": "https://gitlab.com/api/v4/mcp"
+        },
+        {
+          "url": "https://gitlab.com/.well-known/oauth-protected-resource/api/v4/mcp",
+          "status": 200,
+          "final_url": "https://gitlab.com/.well-known/oauth-protected-resource/api/v4/mcp"
+        },
+        {
+          "url": "https://gitlab.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://gitlab.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer realm=\"GitLab\", scope=\"mcp\", resource_metadata=\"https://gitlab.com/.well-known/oauth-protected-resource/api/v4/mcp\"",
+      "discovery": {
+        "authorizationServerUrl": "https://gitlab.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://gitlab.com",
+          "authorization_endpoint": "https://gitlab.com/oauth/authorize",
+          "token_endpoint": "https://gitlab.com/oauth/token",
+          "registration_endpoint": "https://gitlab.com/oauth/register",
+          "scopes_supported": [
+            "api",
+            "read_api",
+            "read_user",
+            "create_runner",
+            "manage_runner",
+            "k8s_proxy",
+            "self_rotate",
+            "mcp",
+            "mcp_orbit",
+            "read_repository",
+            "write_repository",
+            "read_registry",
+            "write_registry",
+            "read_virtual_registry",
+            "write_virtual_registry",
+            "read_observability",
+            "write_observability",
+            "ai_features",
+            "sudo",
+            "admin_mode",
+            "read_service_ping",
+            "openid",
+            "profile",
+            "email",
+            "ai_workflows",
+            "user:*"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query",
+            "fragment",
+            "form_post"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "client_credentials",
+            "device_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post"
+          ],
+          "revocation_endpoint": "https://gitlab.com/oauth/revoke",
+          "introspection_endpoint": "https://gitlab.com/oauth/introspect",
+          "code_challenge_methods_supported": [
+            "plain",
+            "S256"
+          ],
+          "userinfo_endpoint": "https://gitlab.com/oauth/userinfo",
+          "jwks_uri": "https://gitlab.com/oauth/discovery/keys",
+          "subject_types_supported": [
+            "public"
+          ],
+          "id_token_signing_alg_values_supported": [
+            "RS256"
+          ],
+          "claim_types_supported": [
+            "normal"
+          ],
+          "claims_supported": [
+            "iss",
+            "sub",
+            "aud",
+            "exp",
+            "iat",
+            "sub_legacy",
+            "name",
+            "nickname",
+            "preferred_username",
+            "given_name",
+            "family_name",
+            "email",
+            "email_verified",
+            "website",
+            "profile",
+            "picture",
+            "groups",
+            "groups_direct",
+            "https://gitlab.org/claims/groups/owner",
+            "https://gitlab.org/claims/groups/maintainer",
+            "https://gitlab.org/claims/groups/developer",
+            "project_path",
+            "ci_config_ref_uri",
+            "ref_path",
+            "sha",
+            "environment",
+            "jti"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://gitlab.com/api/v4/mcp",
+          "authorization_servers": [
+            "https://gitlab.com"
+          ],
+          "scopes_supported": [
+            "mcp"
+          ]
+        }
+      },
+      "sha256": "28b3d781ec59944a1160c26a1290a8d631184bf0831043c05a5d3337620311c0"
+    },
+    {
+      "id": "neon",
+      "endpoint": "https://mcp.neon.tech/mcp",
+      "checked_at": "2026-09-29T01:11:35.780Z",
+      "requests": [
+        {
+          "url": "https://mcp.neon.tech/mcp",
+          "status": 401,
+          "final_url": "https://mcp.neon.tech/mcp"
+        },
+        {
+          "url": "https://mcp.neon.tech/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.neon.tech/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://mcp.neon.tech/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.neon.tech/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer error=\"invalid_token\", error_description=\"No authorization provided\", resource_metadata=\"https://mcp.neon.tech/.well-known/oauth-protected-resource/mcp\"",
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.neon.tech",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.neon.tech",
+          "authorization_endpoint": "https://mcp.neon.tech/api/authorize",
+          "token_endpoint": "https://mcp.neon.tech/api/token",
+          "registration_endpoint": "https://mcp.neon.tech/api/register",
+          "scopes_supported": [
+            "read",
+            "write"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_post",
+            "client_secret_basic",
+            "none"
+          ],
+          "revocation_endpoint": "https://mcp.neon.tech/api/revoke",
+          "revocation_endpoint_auth_methods_supported": [
+            "client_secret_post",
+            "client_secret_basic",
+            "none"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "registration_endpoint_auth_methods_supported": [
+            "client_secret_post",
+            "client_secret_basic",
+            "none"
+          ],
+          "x-neon-scope-categories": [
+            "projects",
+            "branches",
+            "endpoints",
+            "snapshots",
+            "schema",
+            "querying",
+            "neon_auth",
+            "data_api",
+            "observability",
+            "docs",
+            "functions",
+            "storage"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.neon.tech/mcp",
+          "authorization_servers": [
+            "https://mcp.neon.tech"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_documentation": "https://neon.com/docs/ai/neon-mcp-server"
+        }
+      },
+      "sha256": "6ee38be3055b026051a11c4d267669987b6a8d975723d0bdf8672ceb8f40437b"
+    },
+    {
+      "id": "raindrop",
+      "endpoint": "https://api.raindrop.io/rest/v2/ai/mcp",
+      "checked_at": "2026-09-29T01:11:33.787Z",
+      "requests": [
+        {
+          "url": "https://api.raindrop.io/rest/v2/ai/mcp",
+          "status": 401,
+          "final_url": "https://api.raindrop.io/rest/v2/ai/mcp"
+        },
+        {
+          "url": "https://api.raindrop.io/.well-known/oauth-protected-resource",
+          "status": 200,
+          "final_url": "https://api.raindrop.io/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://api.raindrop.io/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://api.raindrop.io/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer resource_metadata=\"https://api.raindrop.io/.well-known/oauth-protected-resource\"",
+      "discovery": {
+        "authorizationServerUrl": "https://api.raindrop.io",
+        "authorizationServerMetadata": {
+          "issuer": "https://api.raindrop.io",
+          "authorization_endpoint": "https://api.raindrop.io/v2/oauth/authorize",
+          "token_endpoint": "https://api.raindrop.io/v2/oauth/access_token",
+          "registration_endpoint": "https://api.raindrop.io/v2/oauth/register",
+          "scopes_supported": [
+            "read",
+            "write"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_post",
+            "none"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://api.raindrop.io/rest/v2",
+          "authorization_servers": [
+            "https://api.raindrop.io"
+          ],
+          "scopes_supported": [
+            "read",
+            "write"
+          ]
+        }
+      },
+      "sha256": "2941fb64fc11cb4f2657b1a87d9058ef5dfa43f52b03466bf4c801c290c9dd53"
+    },
+    {
+      "id": "readwise",
+      "endpoint": "https://mcp2.readwise.io/mcp",
+      "checked_at": "2026-09-29T01:11:33.786Z",
+      "requests": [
+        {
+          "url": "https://mcp2.readwise.io/mcp",
+          "status": 401,
+          "final_url": "https://mcp2.readwise.io/mcp"
+        },
+        {
+          "url": "https://mcp2.readwise.io/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp2.readwise.io/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://readwise.io/.well-known/oauth-authorization-server/o",
+          "status": 200,
+          "final_url": "https://readwise.io/.well-known/oauth-authorization-server/o"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer error=\"invalid_token\", error_description=\"Authentication failed. The provided bearer token is invalid, expired, or no longer recognized by the server. To resolve: clear authentication tokens in your MCP client and reconnect. Your client should automatically re-register and obtain new tokens.\", resource_metadata=\"https://mcp2.readwise.io/.well-known/oauth-protected-resource/mcp\"",
+      "discovery": {
+        "authorizationServerUrl": "https://readwise.io/o/",
+        "authorizationServerMetadata": {
+          "issuer": "https://readwise.io/o/",
+          "authorization_endpoint": "https://readwise.io/o/authorize/",
+          "token_endpoint": "https://readwise.io/o/token/",
+          "registration_endpoint": "https://readwise.io/o/register/",
+          "scopes_supported": [
+            "openid",
+            "read",
+            "write"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "implicit",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "none",
+            "client_secret_basic",
+            "client_secret_post"
+          ],
+          "revocation_endpoint": "https://readwise.io/o/revoke-token/",
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "jwks_uri": "https://readwise.io/o/.well-known/jwks.json",
+          "id_token_signing_alg_values_supported": [
+            "HS256"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp2.readwise.io/mcp",
+          "authorization_servers": [
+            "https://readwise.io/o/"
+          ],
+          "scopes_supported": [
+            "openid",
+            "read",
+            "write"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      },
+      "sha256": "842534c2fd9a3d5c5e792772389585a556be4e78d9d90353c9a157bde69b9b5a"
+    },
+    {
+      "id": "supabase",
+      "endpoint": "https://mcp.supabase.com/mcp",
+      "checked_at": "2026-09-29T01:11:35.778Z",
+      "requests": [
+        {
+          "url": "https://mcp.supabase.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.supabase.com/mcp"
+        },
+        {
+          "url": "https://mcp.supabase.com/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.supabase.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://api.supabase.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://api.supabase.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer error=\"invalid_request\", error_description=\"No access token was provided in this request\", resource_metadata=\"https://mcp.supabase.com/.well-known/oauth-protected-resource/mcp\"",
+      "discovery": {
+        "authorizationServerUrl": "https://api.supabase.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://api.supabase.com",
+          "authorization_endpoint": "https://api.supabase.com/v1/oauth/authorize",
+          "token_endpoint": "https://api.supabase.com/v1/oauth/token",
+          "registration_endpoint": "https://api.supabase.com/platform/oauth/apps/register",
+          "scopes_supported": [
+            "organizations:read",
+            "projects:read",
+            "projects:write",
+            "database:write",
+            "database:read",
+            "analytics:read",
+            "secrets:read",
+            "edge_functions:read",
+            "edge_functions:write",
+            "environment:read",
+            "environment:write",
+            "storage:read",
+            "storage:write"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post"
+          ],
+          "code_challenge_methods_supported": [
+            "S256",
+            "plain"
+          ],
+          "authorization_grant_profiles_supported": [
+            "urn:ietf:params:oauth:grant-profile:id-jag"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.supabase.com/mcp",
+          "authorization_servers": [
+            "https://api.supabase.com"
+          ],
+          "scopes_supported": [
+            "organizations:read",
+            "projects:read",
+            "projects:write",
+            "database:write",
+            "database:read",
+            "analytics:read",
+            "secrets:read",
+            "edge_functions:read",
+            "edge_functions:write",
+            "environment:read",
+            "environment:write",
+            "storage:read",
+            "storage:write"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "Supabase MCP (Beta)",
+          "resource_documentation": "https://mcp.supabase.com/api/mcp"
+        }
+      },
+      "sha256": "1889fd668a11e705a7ce9145a708fa84bc1c3939529e05c6fde7ecffcf10b3d4"
+    },
+    {
+      "id": "trello",
+      "endpoint": "https://mcp.trello.com/v1",
+      "checked_at": "2026-09-29T01:11:33.786Z",
+      "requests": [
+        {
+          "url": "https://mcp.trello.com/v1",
+          "status": 401,
+          "final_url": "https://mcp.trello.com/v1"
+        },
+        {
+          "url": "https://mcp.trello.com/.well-known/oauth-protected-resource/v1",
+          "status": 200,
+          "final_url": "https://mcp.trello.com/.well-known/oauth-protected-resource/v1"
+        },
+        {
+          "url": "https://auth.atlassian.com/.well-known/oauth-authorization-server/VCeDsk8ZHncYF1g234fKtc4lNipbBhu3",
+          "status": 200,
+          "final_url": "https://auth.atlassian.com/.well-known/oauth-authorization-server/VCeDsk8ZHncYF1g234fKtc4lNipbBhu3"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer resource_metadata=\"https://mcp.trello.com/.well-known/oauth-protected-resource/v1\"",
+      "discovery": {
+        "authorizationServerUrl": "https://auth.atlassian.com/VCeDsk8ZHncYF1g234fKtc4lNipbBhu3",
+        "authorizationServerMetadata": {
+          "issuer": "https://auth.atlassian.com/VCeDsk8ZHncYF1g234fKtc4lNipbBhu3",
+          "authorization_endpoint": "https://auth.atlassian.com/authorize",
+          "token_endpoint": "https://auth.atlassian.com/oauth/token",
+          "registration_endpoint": "https://auth.atlassian.com/VCeDsk8ZHncYF1g234fKtc4lNipbBhu3/dcr/register",
+          "response_types_supported": [
+            "code",
+            "token"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "client_credentials",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:token-revoke",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "urn:ietf:params:oauth:grant-type:token-exchange"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "none",
+            "client_secret_post",
+            "client_secret_basic",
+            "private_key_jwt"
+          ],
+          "revocation_endpoint": "https://auth.atlassian.com/oauth/revoke",
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "client_id_metadata_document_supported": true,
+          "jwks_uri": "https://auth.atlassian.com/.well-known/jwks.json",
+          "pushed_authorization_request_endpoint": "https://auth.atlassian.com/oauth/par"
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.trello.com/v1",
+          "authorization_servers": [
+            "https://auth.atlassian.com/VCeDsk8ZHncYF1g234fKtc4lNipbBhu3"
+          ],
+          "scopes_supported": [
+            "offline_access",
+            "read:me",
+            "read:account",
+            "read:board:trello",
+            "write:board:trello",
+            "read:organization:trello",
+            "write:organization:trello",
+            "read:member:trello",
+            "read:member.inbox:trello",
+            "write:member.inbox:trello",
+            "read:member.planner:trello",
+            "write:member.planner:trello"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_documentation": "https://www.atlassian.com/platform/remote-mcp-server"
+        }
+      },
+      "sha256": "d3098c39b688338b8c6202d20c187179cdd756f88e5d7827db671457dd61b62f"
+    },
+    {
+      "id": "vercel",
+      "endpoint": "https://mcp.vercel.com",
+      "checked_at": "2026-09-29T01:11:36.237Z",
+      "requests": [
+        {
+          "url": "https://mcp.vercel.com",
+          "status": 401,
+          "final_url": "https://mcp.vercel.com/"
+        },
+        {
+          "url": "https://mcp.vercel.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "final_url": "https://mcp.vercel.com/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://vercel.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://vercel.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer error=\"invalid_token\", error_description=\"No authorization provided\", resource_metadata=\"https://mcp.vercel.com/.well-known/oauth-protected-resource\"",
+      "discovery": {
+        "authorizationServerUrl": "https://vercel.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://vercel.com",
+          "authorization_endpoint": "https://vercel.com/oauth/authorize",
+          "token_endpoint": "https://api.vercel.com/login/oauth/token",
+          "registration_endpoint": "https://api.vercel.com/login/oauth/register",
+          "scopes_supported": [
+            "openid",
+            "email",
+            "profile",
+            "offline_access"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "web_message.opener"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "client_credentials",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:device_code"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "client_secret_jwt",
+            "private_key_jwt"
+          ],
+          "token_endpoint_auth_signing_alg_values_supported": [
+            "HS256",
+            "HS384",
+            "HS512",
+            "RS256",
+            "RS384",
+            "RS512",
+            "PS256",
+            "PS384",
+            "PS512",
+            "ES256",
+            "ES384",
+            "ES512",
+            "EdDSA"
+          ],
+          "revocation_endpoint": "https://api.vercel.com/login/oauth/token/revoke",
+          "revocation_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "client_secret_jwt",
+            "private_key_jwt"
+          ],
+          "revocation_endpoint_auth_signing_alg_values_supported": [
+            "HS256",
+            "HS384",
+            "HS512",
+            "RS256",
+            "RS384",
+            "RS512",
+            "PS256",
+            "PS384",
+            "PS512",
+            "ES256",
+            "ES384",
+            "ES512",
+            "EdDSA"
+          ],
+          "introspection_endpoint": "https://api.vercel.com/login/oauth/token/introspect",
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "jwks_uri": "https://vercel.com/.well-known/jwks",
+          "subject_types_supported": [
+            "public"
+          ],
+          "claims_supported": [
+            "sub",
+            "aud",
+            "exp",
+            "iat",
+            "iss",
+            "jti",
+            "nbf",
+            "nonce",
+            "preferred_username",
+            "email",
+            "picture"
+          ],
+          "id_token_signing_alg_values_supported": [
+            "RS256"
+          ],
+          "device_authorization_endpoint": "https://api.vercel.com/login/oauth/device-authorization",
+          "userinfo_endpoint": "https://api.vercel.com/login/oauth/userinfo"
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.vercel.com/",
+          "authorization_servers": [
+            "https://vercel.com"
+          ],
+          "scopes_supported": [
+            "openid"
+          ],
+          "resource_name": "Vercel MCP",
+          "resource_documentation": "https://vercel.com/docs/mcp/vercel-mcp",
+          "organization_name": "Vercel",
+          "organization_uri": "https://vercel.com",
+          "description": "Vercel's official MCP server — Vercel platform tools, deployment management, and documentation for AI assistants.",
+          "logo_uri": "https://mcp.vercel.com/icons/vercel-light.svg"
+        }
+      },
+      "sha256": "8838f086379358418f94f62a55a7210235d802971bb7fc4b2deafd5e4c90a1c3"
+    }
+  ]
+}

@@ -145,13 +145,6 @@ export function todoistPriority(raw: unknown): number | null {
   return (n - 1) / 3;
 }
 
-/** Linear: 0 = none, then 1 (urgent) … 4 (low). Inverted relative to Todoist. */
-export function linearPriority(raw: unknown): number | null {
-  const n = typeof raw === 'number' ? raw : null;
-  if (n === null || n < 1 || n > 4) return null;
-  return (4 - n) / 3;
-}
-
 const JIRA_PRIORITY: Record<string, number> = {
   highest: 1,
   high: 0.75,

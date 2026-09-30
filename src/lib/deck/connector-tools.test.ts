@@ -50,15 +50,15 @@ describe('getReadOnlyConnectorTools', () => {
 
   it('drops tools whose provider is not connected', async () => {
     mocks.getConnectorRuntime.mockResolvedValue({
-      listConnections: async () => [{ id: 'c1', providerId: 'google' }], // linear NOT connected
+      listConnections: async () => [{ id: 'c1', providerId: 'google' }], // Atlassian is not connected.
       getToolkits: () => [
         { id: 'google_calendar', providerId: 'google', actions: [{ id: 'google_calendar.list_events', mutating: false }] },
-        { id: 'linear', providerId: 'linear', actions: [{ id: 'linear.list_issues', mutating: false }] },
+        { id: 'atlassian', providerId: 'atlassian', actions: [{ id: 'atlassian.searchJiraIssuesUsingJql', mutating: false }] },
       ],
     });
     mocks.getConnectorTools.mockResolvedValue({
       google_calendar__list_events: {},
-      linear__list_issues: {},
+      atlassian__searchJiraIssuesUsingJql: {},
     });
 
     const tools = await getReadOnlyConnectorTools('local');

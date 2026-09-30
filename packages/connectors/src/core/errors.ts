@@ -10,6 +10,8 @@ export type ConnectorErrorCode =
   // The caller constrained the run to an allowed connection set (a workspace's account subset) and
   // the requested account / connection is outside it.
   | 'account_not_allowed'
+  | 'account_required'          // more than one account/setup matches the requested host operation
+  | 'tools_changed'             // cached MCP capabilities changed; refresh tools instead of OAuth
   | 'invalid_input'
   | 'denied'
   | 'provider_error'
@@ -83,8 +85,9 @@ export function isAuthConfigRequiredError(e: unknown): e is AuthConfigRequiredEr
  * returns an `auth_required` outcome (§9). Never surfaces to callers directly.
  */
 export class NeedsReauthError extends Error {
-  readonly connectionId: string;
-  constructor(connectionId: string, message = 'connection needs re-authentication') {
+  /** Optional for external transports, whose connection is bound by the runtime. */
+  readonly connectionId?: string;
+  constructor(connectionId?: string, message = 'connection needs re-authentication') {
     super(message);
     this.name = 'NeedsReauthError';
     this.connectionId = connectionId;

@@ -320,6 +320,192 @@ describe('ingestMcpServer (§12) — external MCP as a gated provider', () => {
     const out = await s.runtime.runAction('mcp.demo.echo', {}); // non-mutating → no approval
     expect(out.ok).toBe(true);
   });
+
+  it('lets an official MCP provider retain its canonical identity and account bindings', async () => {
+    const s = ingestSetup();
+    const res = await ingestMcpServer(s.registry, s.store, s.secretBox, {
+      name: 'todoist-official',
+      client: demoClient([]),
+      identity: { providerId: 'todoist', displayName: 'Todoist' },
+      connectionId: 'todoist-existing-connection',
+    });
+    expect(res).toMatchObject({ providerId: 'todoist', toolkitId: 'todoist', connectionId: 'todoist-existing-connection' });
+    expect(s.registry.getProvider('todoist')?.displayName).toBe('Todoist');
+    expect(s.registry.getToolkit('todoist')?.displayName).toBe('Todoist');
+    expect(s.registry.getAction('todoist.echo')).toBeTruthy();
+    expect(s.registry.getAction('mcp.todoist_official.echo')).toBeUndefined();
+    expect(await s.store.list({})).toMatchObject([{
+      id: 'todoist-existing-connection', providerId: 'todoist', accountId: 'todoist:default', label: 'Todoist',
+    }]);
+  });
+
+  it('accepts a host-specified account identity for an official provider', async () => {
+    const s = ingestSetup();
+    await ingestMcpServer(s.registry, s.store, s.secretBox, {
+      name: 'official', client: demoClient([]),
+      identity: { providerId: 'todoist', displayName: 'Todoist', accountId: 'user-42' },
+    });
+    expect(await s.store.list({})).toMatchObject([{ accountId: 'user-42' }]);
+  });
+
+  it('retains connection history, account labels, and scopes when replacing a native connection', async () => {
+    const s = ingestSetup();
+    const original = {
+      id: 'todoist-existing', ownerId: 'owner-42', providerId: 'todoist', accountId: 'old-account-id',
+      label: 'My tasks', email: 'me@example.com', scopes: ['task:read', 'task:write'],
+      status: 'needs_reauth' as const, createdAt: '2025-01-01T00:00:00.000Z', updatedAt: '2025-01-02T00:00:00.000Z',
+      lastUsedAt: '2025-01-03T00:00:00.000Z', config: { imported: true },
+    };
+    await s.store.save(original, await s.secretBox.seal({ type: 'bearer', token: 'old-token' }));
+    await ingestMcpServer(s.registry, s.store, s.secretBox, {
+      name: 'todoist', client: demoClient([]), connectionId: original.id, sessionToken: 'new-token',
+      identity: { providerId: 'todoist', displayName: 'Todoist', accountId: 'todoist:default' },
+    });
+    const saved = await s.store.get(original.id);
+    expect(saved?.connection).toMatchObject({ ...original, accountId: 'todoist:default', status: 'active', updatedAt: expect.any(String) });
+    expect(saved?.connection.updatedAt).not.toBe(original.updatedAt);
+    expect(await s.secretBox.open(saved!.sealed)).toEqual({ type: 'bearer', token: 'new-token' });
+  });
+
+  it.each([{ providerId: 'another-provider', ownerId: 'local' }, { providerId: 'todoist', ownerId: 'other-owner' }])(
+    'rejects a stable id belonging to a different identity: %o', async (identity) => {
+      const s = ingestSetup();
+      await s.store.save({
+        id: 'existing', ...identity, accountId: 'account', scopes: [], status: 'active', createdAt: 'then', updatedAt: 'then',
+      }, await s.secretBox.seal({ type: 'bearer', token: 'existing-token' }));
+      await expect(ingestMcpServer(s.registry, s.store, s.secretBox, {
+        name: 'todoist', client: demoClient([]), ownerId: 'local', connectionId: 'existing',
+        identity: { providerId: 'todoist', displayName: 'Todoist' },
+      })).rejects.toMatchObject({ code: 'conflict' });
+      expect(s.registry.getProvider('todoist')).toBeUndefined();
+      expect((await s.store.get('existing'))?.connection).toMatchObject(identity);
+    },
+  );
+
+  it('exposes only the tools discovered from the server under the built-in identity', async () => {
+    const s = ingestSetup();
+    const result = await ingestMcpServer(s.registry, s.store, s.secretBox, {
+      name: 'todoist', client: demoClient([]),
+      identity: { providerId: 'todoist', displayName: 'Todoist' },
+    });
+    expect(result.toolCount).toBe(2);
+    expect(result.tools).toHaveLength(2);
+    expect(s.registry.getToolkit('todoist')?.actions.map((action) => action.id)).toEqual(
+      result.tools.map((tool) => `todoist.${tool.name}`),
+    );
+  });
+
+  const annotatedClient: McpClientLike = {
+    async listTools() {
+      return { tools: [
+        { name: 'find-tasks', annotations: { readOnlyHint: true } },
+        { name: 'add-tasks', annotations: { readOnlyHint: false, destructiveHint: false } },
+        { name: 'delete-object', annotations: { destructiveHint: true } },
+        { name: 'unknown-operation' },
+      ] };
+    },
+    async callTool() { return { content: [{ type: 'text', text: 'ok' }] }; },
+  };
+
+  it('ignores arbitrary servers claiming to be read-only or non-destructive', async () => {
+    const s = ingestSetup();
+    await ingestMcpServer(s.registry, s.store, s.secretBox, { name: 'untrusted', client: annotatedClient });
+    for (const name of ['find-tasks', 'add-tasks', 'delete-object', 'unknown-operation']) {
+      expect(await s.runtime.runAction(`mcp.untrusted.${name}`, {})).toMatchObject({
+        ok: false, reason: 'approval_required', risk: 'high',
+      });
+    }
+  });
+
+  it('trusts official read annotations while continuing to gate every mutation', async () => {
+    const s = ingestSetup();
+    await ingestMcpServer(s.registry, s.store, s.secretBox, {
+      name: 'official', client: annotatedClient, trustToolAnnotations: true,
+    });
+    expect((await s.runtime.runAction('mcp.official.find-tasks', {})).ok).toBe(true);
+    expect(await s.runtime.runAction('mcp.official.add-tasks', {})).toMatchObject({
+      ok: false, reason: 'approval_required', risk: 'medium',
+    });
+    for (const name of ['delete-object', 'unknown-operation']) {
+      expect(await s.runtime.runAction(`mcp.official.${name}`, {})).toMatchObject({
+        ok: false, reason: 'approval_required', risk: 'high',
+      });
+    }
+  });
+
+  it('gives per-tool policies precedence over trusted annotations', async () => {
+    const s = ingestSetup();
+    await ingestMcpServer(s.registry, s.store, s.secretBox, {
+      name: 'official', client: annotatedClient, trustToolAnnotations: true,
+      toolOverrides: {
+        'find-tasks': { mutating: true, risk: 'medium' },
+        'add-tasks': { mutating: false },
+        'delete-object': { enabled: false },
+      },
+    });
+    expect(await s.runtime.runAction('mcp.official.find-tasks', {})).toMatchObject({
+      ok: false, reason: 'approval_required', risk: 'medium',
+    });
+    expect((await s.runtime.runAction('mcp.official.add-tasks', {})).ok).toBe(true);
+    expect(s.registry.getAction('mcp.official.delete-object')).toBeUndefined();
+  });
+
+  it('preserves structured output alongside content and redacts secrets in both', async () => {
+    const s = ingestSetup();
+    const content = [{ type: 'text', text: 'Task SECRET-TOKEN-92' }];
+    await ingestMcpServer(s.registry, s.store, s.secretBox, {
+      name: 'official',
+      sessionToken: 'SECRET-TOKEN-92',
+      defaultMutating: false,
+      client: {
+        async listTools() { return { tools: [{ name: 'find-tasks' }] }; },
+        async callTool() { return { content, structuredContent: { results: [{ id: '42', content: 'SECRET-TOKEN-92' }] } }; },
+      },
+    });
+    const out = await s.runtime.runAction('mcp.official.find-tasks', {});
+    expect(out).toMatchObject({ ok: true, result: {
+      server: 'official', tool: 'find-tasks', isError: false,
+      structuredContent: { results: [{ id: '42' }] }, content: [{ type: 'text' }],
+    } });
+    expect(JSON.stringify(out)).not.toContain('SECRET-TOKEN-92');
+    expect(JSON.stringify(s.runs)).not.toContain('SECRET-TOKEN-92');
+  });
+
+  it('surfaces remote tool errors as failed outcomes and audit events, with redacted diagnostics', async () => {
+    const s = ingestSetup();
+    await ingestMcpServer(s.registry, s.store, s.secretBox, {
+      name: 'official', sessionToken: 'SECRET-TOKEN-92', defaultMutating: false,
+      client: {
+        async listTools() { return { tools: [{ name: 'find-tasks' }] }; },
+        async callTool() { return { isError: true, content: [{ type: 'text', text: 'Unauthorized SECRET-TOKEN-92' }] }; },
+      },
+    });
+    const out = await s.runtime.runAction('mcp.official.find-tasks', {});
+    expect(out).toMatchObject({ ok: false, reason: 'error', code: 'provider_error' });
+    expect(JSON.stringify(out)).toContain('Unauthorized');
+    expect(JSON.stringify(out)).not.toContain('SECRET-TOKEN-92');
+    expect(s.runs.filter((event) => event.phase === 'finish')).toMatchObject([{ status: 'error', errorCode: 'provider_error' }]);
+    expect(JSON.stringify(s.runs)).not.toContain('SECRET-TOKEN-92');
+  });
+
+  it.each([true, false])('marks transport loss indeterminate only for mutations (mutating=%s)', async (mutating) => {
+    const s = ingestSetup();
+    let calls = 0;
+    await ingestMcpServer(s.registry, s.store, s.secretBox, {
+      name: 'official', defaultMutating: mutating,
+      client: {
+        async listTools() { return { tools: [{ name: 'operation' }] }; },
+        async callTool() { calls++; throw new Error('Connection closed before the response arrived'); },
+      },
+    });
+    s.setApproval(() => 'allow');
+    const result = await s.runtime.runAction('mcp.official.operation', {});
+    expect(result).toMatchObject({ ok: false, reason: 'error', code: 'provider_unavailable' });
+    expect(result).toEqual(expect.objectContaining(mutating ? { indeterminate: true } : {}));
+    if (!mutating) expect(result).not.toHaveProperty('indeterminate');
+    expect(calls).toBe(1);
+    expect(s.runs.find((event) => event.phase === 'finish')?.status).toBe(mutating ? 'unknown' : 'error');
+  });
 });
 
 describe('jsonSchemaToZodObject (§12)', () => {

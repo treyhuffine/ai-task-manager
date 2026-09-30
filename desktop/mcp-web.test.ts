@@ -24,7 +24,8 @@ vi.mock('@/lib/connectors/runtime', () => ({
       redirectUrl: options?.redirectUri ?? `${mocks.redirectOrigin}/api/connectors/mcp-oauth/${entry.id}`,
       clientName: 'Ri web regression',
       load: async () => (await store.getOAuthState(entry.id) ?? {}) as McpOAuthState,
-      save: (state) => store.setOAuthState(entry.id, state as Record<string, unknown>),
+      compareAndSave: (revision, state) => store.compareAndSetOAuthState(entry.id, revision,
+        state as Record<string, unknown>) as Promise<McpOAuthState | null>,
       onRedirect,
       interactive: options?.interactive,
       callbackChannel: options?.callbackChannel,
@@ -48,7 +49,10 @@ beforeEach(async () => {
   store = mcpServerStore({ dir, secretBox: { seal: async (value) => value, open: async <T,>(value: unknown) => value as T },
     lock: { withLock: async (_name, fn) => fn() } });
   mocks.store.mockReturnValue(store);
-  mocks.rebuild.mockResolvedValue({});
+  mocks.rebuild.mockImplementation(async () => {
+    for (const entry of store.list()) await store.setHealth(entry.id, { lastStatus: 'ok', lastCheckedAt: new Date().toISOString() });
+    return { getToolkits: () => store.list().map((entry) => ({ id: entry.providerId ?? `mcp_${entry.slug}` })) };
+  });
   provider = await mockMcp();
 });
 afterEach(() => {
@@ -91,7 +95,7 @@ it('keeps web MCP OAuth working through persisted state and PKCE, rejecting fore
   expect(saved?.tokens).toMatchObject({ access_token: provider.token });
   expect(saved?.authorizationState).toBeUndefined();
   expect(saved?.codeVerifier).toBeUndefined();
-  expect(mocks.invalidate).toHaveBeenCalledOnce();
+  expect(mocks.invalidate).toHaveBeenCalledTimes(2); // Start stops cached sessions, completion reloads tools.
   expect(resultUrl(await finish(callback)).searchParams.get('error')).toBe('authorization_failed');
   expect(provider.exchanges).toBe(1);
 });

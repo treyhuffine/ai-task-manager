@@ -1,0 +1,366 @@
+[
+  {
+    "slug": "granola",
+    "name": "Granola",
+    "priority": "P1",
+    "bucket": "Communication/calendar",
+    "auth": "OAuth",
+    "client_access": "Custom clients documented",
+    "rationale": "Turn meeting decisions into tasks with source context.",
+    "blocker": "Workspace, plan and admin limits apply.",
+    "next_step": "Validate consent, note search, transcript access and links to source meetings.",
+    "source_urls": [
+      "https://docs.granola.ai/help-center/sharing/integrations/mcp"
+    ],
+    "recommended_endpoint": null,
+    "effort": "S-M",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "clickup",
+    "name": "ClickUp",
+    "priority": "P1",
+    "bucket": "Tasks/projects",
+    "auth": "OAuth 2.1 / PKCE",
+    "client_access": "Custom clients documented",
+    "rationale": "Extend task assignment, project work and completion to another core task system.",
+    "blocker": "Beta call quotas; delete tools absent. Native task picker requires an adapter.",
+    "next_step": "Validate custom-client registration, task create/update/assign/move/complete and task picker mapping.",
+    "source_urls": [
+      "https://developer.clickup.com/docs/connect-an-ai-assistant-to-clickups-mcp-server"
+    ],
+    "recommended_endpoint": null,
+    "effort": "S-M",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "trello",
+    "name": "Trello",
+    "priority": "P1",
+    "bucket": "Tasks/projects",
+    "auth": "OAuth",
+    "client_access": "Custom clients documented",
+    "rationale": "Boards, lists and cards match the task organization users requested.",
+    "blocker": "One workspace per authorization; comments, attachments and membership operations not all present.",
+    "next_step": "Validate moving cards across lists, ownership and task links. Implement task picker adapter.",
+    "source_urls": [
+      "https://github.com/atlassian/trello-mcp-server"
+    ],
+    "recommended_endpoint": null,
+    "effort": "S-M",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "sentry",
+    "name": "Sentry",
+    "priority": "P1",
+    "bucket": "Developer tools/operations",
+    "auth": "OAuth",
+    "client_access": "Any compatible HTTP MCP client documented",
+    "rationale": "Turn production issues into actionable investigation and fix tasks.",
+    "blocker": "Account permissions and project scope still apply.",
+    "next_step": "Validate organization/project scope, issue search, error context and outbound issue links.",
+    "source_urls": [
+      "https://mcp.sentry.dev/"
+    ],
+    "recommended_endpoint": null,
+    "effort": "S-M",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "context7",
+    "name": "Context7",
+    "priority": "P1",
+    "bucket": "Developer tools/operations",
+    "auth": "OAuth at /mcp/oauth; API key alternatives",
+    "client_access": "Custom OAuth clients documented",
+    "rationale": "Ground agent execution in current library documentation.",
+    "blocker": "OAuth endpoint differs from the endpoint in Claude directory.",
+    "next_step": "Use documented OAuth URL; validate library resolution and documentation retrieval.",
+    "source_urls": [
+      "https://context7.com/docs/howto/oauth"
+    ],
+    "recommended_endpoint": "https://mcp.context7.com/mcp/oauth",
+    "effort": "S",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "zapier",
+    "name": "Zapier",
+    "priority": "P1",
+    "bucket": "Automation/platform",
+    "auth": "OAuth / user-configured server",
+    "client_access": "Custom clients documented",
+    "rationale": "One integration opens user-selected actions across many services.",
+    "blocker": "Extra Zapier setup and usage charges; tool set varies by user.",
+    "next_step": "Test Other-client flow, curated actions, refresh, tool discovery changes and approvals.",
+    "source_urls": [
+      "https://docs.zapier.com/mcp/quickstart",
+      "https://help.zapier.com/hc/en-us/articles/48308034391821-What-is-Zapier-MCP"
+    ],
+    "recommended_endpoint": null,
+    "effort": "M",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "github-supplemental",
+    "name": "GitHub",
+    "priority": "P1",
+    "bucket": "Developer tools/operations",
+    "auth": "Registered OAuth app or bearer PAT",
+    "client_access": "Generic clients documented",
+    "rationale": "Connect tasks to issues, pull requests and repository execution. Not in this Claude directory snapshot.",
+    "blocker": "Needs registered-client OAuth or named bearer onboarding. Verify overlap with existing repository integration.",
+    "next_step": "Register our client or offer encrypted scoped PAT, validate issue/PR operations and tool permissions.",
+    "source_urls": [
+      "https://github.com/github/github-mcp-server"
+    ],
+    "recommended_endpoint": "https://api.githubcopilot.com/mcp/",
+    "effort": "M",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "tavily",
+    "name": "Tavily",
+    "priority": "P1",
+    "bucket": "Data/analytics",
+    "auth": "OAuth or bearer API key",
+    "client_access": "Generic OAuth clients documented",
+    "rationale": "Provide portable web research and page extraction across harnesses.",
+    "blocker": "Usage tied to user account; choose one web provider initially.",
+    "next_step": "Compare with Exa and Firecrawl on representative research tasks; validate OAuth and citations.",
+    "source_urls": [
+      "https://github.com/tavily-ai/tavily-mcp"
+    ],
+    "recommended_endpoint": null,
+    "effort": "S-M",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "exa",
+    "name": "Exa",
+    "priority": "P2",
+    "bucket": "Data/analytics",
+    "auth": "Keyless starter path; account options need verification",
+    "client_access": "Unauthenticated generic client path documented",
+    "rationale": "Alternative web search and content research provider.",
+    "blocker": "Named connector currently requires OAuth; starter rate limits differ from an account-backed integration.",
+    "next_step": "Add explicit no-auth catalog mode if chosen; test limits, retrieval and attribution.",
+    "source_urls": [
+      "https://exa.ai/mcp"
+    ],
+    "recommended_endpoint": null,
+    "effort": "S-M",
+    "change": "Evaluate web provider alternative",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "firecrawl",
+    "name": "Firecrawl",
+    "priority": "P2",
+    "bucket": "Data/analytics",
+    "auth": "OAuth, bearer API key or limited keyless",
+    "client_access": "Multiple hosted access modes documented",
+    "rationale": "Alternative focused on web scraping and extraction for research tasks.",
+    "blocker": "Directory publishes search-specific endpoint; full OAuth path is different. Usage limits apply.",
+    "next_step": "Evaluate full OAuth endpoint and scrape/search parity before selecting research provider.",
+    "source_urls": [
+      "https://www.firecrawl.dev/blog/best-mcp-servers-for-developers"
+    ],
+    "recommended_endpoint": "https://mcp.firecrawl.dev/v2/mcp-oauth",
+    "effort": "S-M",
+    "change": "Evaluate web provider alternative",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "fireflies",
+    "name": "Fireflies",
+    "priority": "P2",
+    "bucket": "Communication/calendar",
+    "auth": "OAuth",
+    "client_access": "Custom clients documented",
+    "rationale": "Alternative meeting transcript and action-item source.",
+    "blocker": "Plan, transcript permissions and overlap with Granola need evaluation.",
+    "next_step": "Validate custom consent, meeting search, transcript access and source links.",
+    "source_urls": [
+      "https://guide.fireflies.ai/articles/3039542843-learn-about-fireflies-mcp-server-connect-your-ai-tool"
+    ],
+    "recommended_endpoint": null,
+    "effort": "S-M",
+    "change": "Add meeting provider on demand",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "intercom",
+    "name": "Intercom",
+    "priority": "P2",
+    "bucket": "Sales/marketing/support",
+    "auth": "OAuth or bearer token",
+    "client_access": "Generic client templates documented",
+    "rationale": "Convert customer conversations and support work into tasks.",
+    "blocker": "US and EU endpoints differ; Australian workspaces unsupported in current docs.",
+    "next_step": "Support region choice, validate OAuth eligibility, conversations, contacts and ticket operations.",
+    "source_urls": [
+      "https://developers.intercom.com/docs/guides/mcp"
+    ],
+    "recommended_endpoint": null,
+    "effort": "M",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "make",
+    "name": "Make",
+    "priority": "P2",
+    "bucket": "Automation/platform",
+    "auth": "OAuth or MCP token",
+    "client_access": "Custom clients documented",
+    "rationale": "Run user-authored workflows and connect otherwise unsupported services.",
+    "blocker": "Scenario setup and scope choice required. Management tools can be broad.",
+    "next_step": "Prefer scenario-run scopes; verify organization selection and selected workflow behavior.",
+    "source_urls": [
+      "https://help.make.com/make-mcp-server"
+    ],
+    "recommended_endpoint": null,
+    "effort": "M",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "n8n",
+    "name": "n8n",
+    "priority": "P2",
+    "bucket": "Automation/platform",
+    "auth": "Instance OAuth or bearer API key",
+    "client_access": "Per-instance clients documented",
+    "rationale": "Support local-first and self-hosted automation without hand-building every service.",
+    "blocker": "Tenant-specific URL, instance admin enablement and allowed callback configuration required.",
+    "next_step": "Add validated tenant URL setup; test /mcp-server/http and explicit workflow permissions.",
+    "source_urls": [
+      "https://docs.n8n.io/connect/connect-to-n8n-mcp-server"
+    ],
+    "recommended_endpoint": null,
+    "effort": "M-L",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "supabase",
+    "name": "Supabase",
+    "priority": "P2",
+    "bucket": "Developer tools/operations",
+    "auth": "OAuth with public DCR; PAT alternative",
+    "client_access": "Custom clients documented",
+    "rationale": "Give execution agents project schema and database context.",
+    "blocker": "Project scoping and write-capable database tools require explicit permissions.",
+    "next_step": "Start project-scoped/read-only and verify separation of user accounts before enabling writes.",
+    "source_urls": [
+      "https://supabase.com/docs/guides/ai-tools/mcp"
+    ],
+    "recommended_endpoint": null,
+    "effort": "S-M",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "miro",
+    "name": "Miro",
+    "priority": "P2",
+    "bucket": "Design/media",
+    "auth": "OAuth 2.1 with DCR",
+    "client_access": "Custom clients documented",
+    "rationale": "Turn planning boards into task context and update diagrams.",
+    "blocker": "Documentation conflicts on plan eligibility; session replacement behavior needs checking.",
+    "next_step": "Confirm eligible plans and multi-client sessions, then test reading and updating a board.",
+    "source_urls": [
+      "https://developers.miro.com/docs/miro-mcp",
+      "https://developers.miro.com/docs/miro-mcp-server-frequently-asked-questions",
+      "https://developers.miro.com/docs/miro-mcp-server-faq-and-troubleshooting"
+    ],
+    "recommended_endpoint": null,
+    "effort": "M",
+    "change": "Add hosted MCP",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "figma",
+    "name": "Figma",
+    "priority": "P2",
+    "bucket": "Design/media",
+    "auth": "OAuth with approved-client catalog",
+    "client_access": "Client approval required",
+    "rationale": "Design context is valuable for agents implementing product tasks.",
+    "blocker": "Our client needs admission to Figma MCP Catalog.",
+    "next_step": "Apply for client access, then validate scope, design reads and canvas writes.",
+    "source_urls": [
+      "https://developers.figma.com/docs/figma-mcp-server/"
+    ],
+    "recommended_endpoint": null,
+    "effort": "M + external wait",
+    "change": "Request access, then add",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "vercel",
+    "name": "Vercel",
+    "priority": "P2",
+    "bucket": "Developer tools/operations",
+    "auth": "OAuth with approved client",
+    "client_access": "Client approval required",
+    "rationale": "Link deployment and runtime context to execution tasks.",
+    "blocker": "Reviewed-client requirement; our app is not automatically covered by a harness vendor approval.",
+    "next_step": "Apply with our redirect URIs; validate team/project access and tool set.",
+    "source_urls": [
+      "https://vercel.com/docs/agent-resources/vercel-mcp",
+      "https://vercel.com/i/mcp-server-oauth-authorization"
+    ],
+    "recommended_endpoint": null,
+    "effort": "M + external wait",
+    "change": "Request access, then add",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "canva",
+    "name": "Canva",
+    "priority": "P2",
+    "bucket": "Design/media",
+    "auth": "Approved client; registered OAuth or CIMD; DCR compatibility",
+    "client_access": "Client approval required",
+    "rationale": "Create visual deliverables directly from tasks.",
+    "blocker": "Developer Portal self-serve registration not yet available in reviewed docs; waitlist required.",
+    "next_step": "Join client-access waitlist; implement supported registered OAuth/CIMD path when available.",
+    "source_urls": [
+      "https://www.canva.dev/docs/apps/mcp/access/"
+    ],
+    "recommended_endpoint": null,
+    "effort": "M + external wait",
+    "change": "Request access, then add",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  },
+  {
+    "slug": "monday",
+    "name": "monday.com",
+    "priority": "P2",
+    "bucket": "Tasks/projects",
+    "auth": "Approved app registration then DCR",
+    "client_access": "Public distribution review required",
+    "rationale": "Broaden task/project support for team users.",
+    "blocker": "Public integration must be reviewed; private token testing does not authorize public rollout.",
+    "next_step": "Apply for public client registration and map board/item semantics to task adapters.",
+    "source_urls": [
+      "https://developer.monday.com/api-reference/re/docs/mcp-dynamic-client-registration"
+    ],
+    "recommended_endpoint": null,
+    "effort": "M + external wait",
+    "change": "Request access, then add",
+    "evidence_level": "Vendor documentation reviewed; not live-tested"
+  }
+]

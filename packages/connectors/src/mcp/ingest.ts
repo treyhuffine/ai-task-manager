@@ -6,9 +6,9 @@
  * safety.
  *
  * Two safety properties this enforces (§12):
- *   - **Namespacing & provenance:** action ids are `mcp.<server>.<tool>`; every result
- *     is tagged with its origin server. No collision with / impersonation of native
- *     connectors.
+ *   - **Namespacing & provenance:** external action ids are `mcp.<server>.<tool>`;
+ *     only a trusted host can select a built-in identity. Every result is tagged
+ *     with its origin server.
  *   - **Default-conservative:** ingested tools are `mutating: true, risk: 'high'` until a
  *     host says otherwise → they hit the approval gate by default.
  *
@@ -18,22 +18,38 @@
  * no injection-scanning claim.
  */
 import { action, defineProvider, defineToolkit } from '../core/authoring';
+import { z } from 'zod';
+import { canonicalStringify } from '../core/digest';
 import { jsonSchemaToZodObject } from './json-schema';
 import { bearer } from '../auth/direct';
 import { newId } from '../core/ids';
+import { ConnectorError, NeedsReauthError } from '../core/errors';
 import type { Registry } from '../core/registry';
-import type { Connection, ConnectionStore, RiskLevel, SecretBox } from '../core/types';
+import type { Action, Connection, ConnectionMetadata, ConnectionStore, Credentials, RiskLevel, SecretBox } from '../core/types';
 
 export interface McpToolDef {
   name: string;
+  title?: string;
   description?: string;
   inputSchema?: unknown;
+  outputSchema?: unknown;
+  annotations?: {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
 }
 
 /** The minimal MCP client surface ingestion needs (a test double or a real client). */
 export interface McpClientLike {
   listTools(): Promise<{ tools: McpToolDef[] }>;
-  callTool(params: { name: string; arguments?: Record<string, unknown> }): Promise<{ content: unknown; isError?: boolean }>;
+  callTool(params: { name: string; arguments?: Record<string, unknown> }): Promise<{
+    content: unknown;
+    structuredContent?: unknown;
+    isError?: boolean;
+  }>;
 }
 
 export interface IngestMcpOptions {
@@ -41,7 +57,27 @@ export interface IngestMcpOptions {
   name: string;
   client: McpClientLike;
   ownerId?: string;
-  /** Default risk for every ingested tool until reclassified (default `'high'`). */
+  /**
+   * Trusted host predicate for the authority/configuration this client captured.
+   * Checked before every action so a cached runtime cannot outlive disabled tools,
+   * credential replacement, or server reconfiguration in another process. Never
+   * derive this from remote metadata. The host should compare its saved snapshot.
+   */
+  isCurrentTransport?: () => boolean;
+  /**
+   * Host-controlled identity for an official provider backed by MCP. Never derive
+   * this from an external server's metadata. Omitting it keeps the MCP namespace.
+   * The toolkit uses providerId, actions use `<providerId>.<remote tool name>`, and
+   * accountId defaults to `<providerId>:default`.
+   */
+  identity?: { providerId: string; displayName: string; accountId?: string; authConfigId?: string; label?: string };
+  /**
+   * Trust read-only/destructive annotations from an official provider. Off for
+   * arbitrary external servers: their self-reported annotations cannot bypass
+   * approval. Explicit per-tool overrides take precedence.
+   */
+  trustToolAnnotations?: boolean;
+  /** Default mutation risk, overriding trusted annotations when specified (otherwise `'high'`, or `'medium'` for a trusted non-destructive tool). */
   defaultRisk?: RiskLevel;
   /** Default mutating flag (default `true` → approval-gated). */
   defaultMutating?: boolean;
@@ -55,17 +91,18 @@ export interface IngestMcpOptions {
   /**
    * Stable connection id. Pass a deterministic id (e.g. derived from the server
    * slug) so re-ingesting the same server overwrites one row instead of creating a
-   * duplicate each boot — the ConnectionStore upserts by `connection.id`. Defaults
-   * to a fresh id.
+   * duplicate each boot. Existing identity and connection metadata are retained,
+   * with explicit identity.accountId taking precedence. Defaults to a fresh id.
    */
   connectionId?: string;
   /**
    * Per-tool reclassification (§12). Keyed by the remote tool name:
    *   - `enabled: false` → the tool is NOT ingested (hidden from the agent).
    *   - `mutating: false` → the tool reads-through the approval gate (for a trusted read tool).
-   * Tools absent from the map keep the defaults (`defaultMutating`/`defaultRisk`).
+   *   - `risk` overrides either the default or trusted annotation classification.
+   * Tools absent from the map use trusted annotations, if enabled, then defaults.
    */
-  toolOverrides?: Record<string, { enabled?: boolean; mutating?: boolean }>;
+  toolOverrides?: Record<string, { enabled?: boolean; mutating?: boolean; risk?: RiskLevel }>;
 }
 
 export interface IngestMcpResult {
@@ -75,7 +112,7 @@ export interface IngestMcpResult {
   /** Number of tools actually ingested (after `enabled:false` overrides). */
   toolCount: number;
   /** Every tool the server advertised (incl. disabled), for the host to persist + render toggles. */
-  tools: { name: string; description?: string }[];
+  tools: McpToolDef[];
 }
 
 export async function ingestMcpServer(
@@ -84,67 +121,172 @@ export async function ingestMcpServer(
   secretBox: SecretBox,
   opts: IngestMcpOptions,
 ): Promise<IngestMcpResult> {
-  const safe = opts.name.replace(/[^a-zA-Z0-9_]/g, '_');
-  const providerId = `mcp_${safe}`;
-  const risk: RiskLevel = opts.defaultRisk ?? 'high';
-  const mutating = opts.defaultMutating ?? true;
+  return (await ingestMcpServers(registry, store, secretBox, [opts]))[0]!;
+}
 
-  const { tools } = await opts.client.listTools();
-  const overrides = opts.toolOverrides ?? {};
-
-  const actions = tools
-    .filter((t) => overrides[t.name]?.enabled !== false) // a disabled tool is not ingested
-    .map((t) => {
-      const toolMutating = overrides[t.name]?.mutating ?? mutating;
-      return action({
-        id: `mcp.${safe}.${t.name}`,
-        description: t.description
-          ? `${t.description} (via MCP server "${opts.name}")`
-          : `External MCP tool "${t.name}" from "${opts.name}".`,
-        // Preserve the tool's real input schema (converted JSON Schema → Zod) so the model gets
-        // typed args; an absent/exotic schema falls back to a permissive passthrough object. The
-        // remote server is still the authoritative validator.
-        input: jsonSchemaToZodObject(t.inputSchema),
-        mutating: toolMutating,
-        risk: toolMutating ? risk : 'low', // a tool the user trusts (non-mutating) reads through the gate
-        async execute(_ctx, input) {
-          const res = await opts.client.callTool({ name: t.name, arguments: input as Record<string, unknown> });
-          // Provenance-tagged. The runtime redacts our secrets from the audit preview;
-          // the approval gate is the prompt-injection defense, not a scanner.
-          return { server: opts.name, tool: t.name, isError: res.isError ?? false, content: res.content };
-        },
-      });
+/**
+ * Register one canonical provider/toolkit backed by several account transports.
+ * Discovery is the union of enabled tools. Approval uses the most conservative
+ * classification across accounts, so a read can require approval when another
+ * account exposes the same name as a mutation. Account validation is always exact.
+ * The host must hold its lifecycle locks while publishing the prepared group.
+ */
+export async function ingestMcpServers(
+  registry: Registry,
+  store: ConnectionStore,
+  secretBox: SecretBox,
+  accounts: readonly IngestMcpOptions[],
+): Promise<IngestMcpResult[]> {
+  if (!accounts.length) return [];
+  const identityOf = (opts: IngestMcpOptions) => {
+    const safe = opts.name.replace(/[^a-zA-Z0-9_]/g, '_');
+    return {
+      providerId: opts.identity?.providerId ?? `mcp_${safe}`,
+      displayName: opts.identity?.displayName ?? `MCP: ${opts.name}`,
+      actionPrefix: opts.identity?.providerId ?? `mcp.${safe}`,
+    };
+  };
+  const { providerId, displayName, actionPrefix } = identityOf(accounts[0]!);
+  const ids = new Set<string>();
+  type PreparedTool = { tool: McpToolDef; input: z.ZodObject<z.ZodRawShape>; mutating: boolean; risk: RiskLevel };
+  const prepared: {
+    opts: IngestMcpOptions; connection: Connection; tools: McpToolDef[];
+    enabled: Map<string, PreparedTool>; sessionToken: string;
+  }[] = [];
+  for (const opts of accounts) {
+    const identity = identityOf(opts);
+    if (identity.providerId !== providerId || identity.actionPrefix !== actionPrefix || identity.displayName !== displayName) {
+      throw new ConnectorError('conflict', 'MCP account groups must share one provider and toolkit identity.');
+    }
+    const connectionId = opts.connectionId ?? newId();
+    if (ids.has(connectionId)) throw new ConnectorError('conflict', 'An MCP account group contains a duplicate connection id.');
+    ids.add(connectionId);
+    const previous = opts.connectionId ? (await store.get(opts.connectionId))?.connection : undefined;
+    if (previous && (previous.providerId !== providerId || (opts.ownerId !== undefined && previous.ownerId !== opts.ownerId))) {
+      throw new ConnectorError('conflict', 'The MCP connection id belongs to a different provider or owner.');
+    }
+    const now = new Date().toISOString();
+    const connection: Connection = {
+      ...previous, id: connectionId, ownerId: opts.ownerId ?? previous?.ownerId ?? 'local', providerId,
+      accountId: opts.identity?.accountId ?? previous?.accountId ?? (opts.identity ? `${providerId}:default` : opts.name),
+      ...(opts.identity?.authConfigId ? { authConfigId: opts.identity.authConfigId } : {}),
+      label: opts.identity?.label ?? previous?.label ?? opts.identity?.displayName ?? opts.name,
+      scopes: previous?.scopes ?? [], status: 'active', createdAt: previous?.createdAt ?? now, updatedAt: now,
+    };
+    const tools = structuredClone((await opts.client.listTools()).tools);
+    const enabled = new Map<string, PreparedTool>();
+    const names = new Set<string>();
+    for (const tool of tools) {
+      if (names.has(tool.name)) throw new ConnectorError('provider_error', `MCP server "${opts.name}" advertised duplicate tool "${tool.name}".`);
+      names.add(tool.name);
+      const override = opts.toolOverrides?.[tool.name];
+      if (override?.enabled === false) continue;
+      const annotations = opts.trustToolAnnotations ? tool.annotations : undefined;
+      const mutating = override?.mutating ?? (annotations?.readOnlyHint === true ? false : opts.defaultMutating ?? true);
+      const risk = override?.risk ?? (mutating
+        ? opts.defaultRisk ?? (annotations?.destructiveHint === false ? 'medium' : 'high') : 'low');
+      enabled.set(tool.name, { tool, input: jsonSchemaToZodObject(tool.inputSchema), mutating, risk });
+    }
+    prepared.push({ opts, connection, tools, enabled, sessionToken: opts.sessionToken ?? 'mcp-session' });
+  }
+  const byConnection = new Map(prepared.map(account => [account.connection.id, account]));
+  const sameAccount = (expected: Connection, current: ConnectionMetadata) => expected.id === current.id
+    && expected.providerId === current.providerId && expected.ownerId === current.ownerId && expected.accountId === current.accountId;
+  const selectedTool = (connection: ConnectionMetadata, name: string, input: unknown) => {
+    const account = byConnection.get(connection.id);
+    if (!account || !sameAccount(account.connection, connection)) {
+      throw new ConnectorError('connection_not_found', 'connection is not authenticated by this transport');
+    }
+    const selected = account.enabled.get(name);
+    if (!selected) throw new ConnectorError('denied', `MCP tool "${name}" is not available for the selected account.`);
+    const parsed = selected.input.safeParse(input);
+    if (!parsed.success) throw new ConnectorError('invalid_input', parsed.error.issues.map(issue => `${issue.path.join('.') || 'input'}: ${issue.message}`).join('; '));
+    return { account, selected, input: parsed.data };
+  };
+  const toolNames = [...new Set(prepared.flatMap(account => [...account.enabled.keys()]))];
+  const riskOrder: Record<RiskLevel, number> = { low: 0, medium: 1, high: 2 };
+  const actions: Action[] = toolNames.map(name => {
+    const variants = prepared.flatMap(account => {
+      const selected = account.enabled.get(name);
+      return selected ? [{ ...selected, account }] : [];
     });
-
-  const provider = defineProvider({ id: providerId, displayName: `MCP: ${opts.name}`, auth: bearer() });
-  registry.addBundle({
-    provider,
-    toolkits: [defineToolkit({ id: providerId, providerId, displayName: `MCP: ${opts.name}`, actions })],
+    const mutating = variants.some(variant => variant.mutating);
+    const risk = variants.reduce<RiskLevel>((maximum, variant) => riskOrder[variant.risk] > riskOrder[maximum] ? variant.risk : maximum, 'low');
+    const first = variants[0]!;
+    const description = first.tool.description
+      ? `${first.tool.description} (via MCP provider "${displayName}")`
+      : `External MCP tool "${name}" from "${displayName}".`;
+    const result = action({
+      id: `${actionPrefix}.${name}`, description,
+      input: unionInput(variants.map(variant => ({ schema: variant.tool.inputSchema, input: variant.input }))),
+      mutating, risk,
+      async execute(ctx, input) {
+        const selected = selectedTool(ctx.connection, name, input);
+        const { account } = selected;
+        if (account.opts.isCurrentTransport?.() === false) throw new NeedsReauthError(ctx.connection.id);
+        let res: Awaited<ReturnType<McpClientLike['callTool']>>;
+        try {
+          res = await account.opts.client.callTool({ name, arguments: selected.input });
+        } catch (error) {
+          if (error instanceof ConnectorError || error instanceof NeedsReauthError) throw error;
+          // Only the selected account's mutation can have crossed the wire.
+          throw new ConnectorError('provider_unavailable', error instanceof Error ? error.message : String(error), {
+            indeterminate: selected.selected.mutating, cause: error,
+          });
+        }
+        if (res.isError) {
+          const detail = remoteErrorMessage(res.content);
+          throw new ConnectorError('provider_error', `MCP tool "${name}" from "${account.opts.name}" failed${detail ? `: ${detail}` : '.'}`);
+        }
+        return { server: account.opts.name, tool: name, isError: false, content: res.content,
+          ...(res.structuredContent !== undefined ? { structuredContent: res.structuredContent } : {}) };
+      },
+    });
+    return { ...result, validateForConnection: (connection, input) => { selectedTool(connection, name, input); } };
   });
-
-  // A connection so `runAction` resolves it (1 connection → use it) and the gates run.
-  // For a no-auth / static-token server the credential is vestigial; for an OAuth MCP
-  // server the host can later swap the strategy and drive beginAuth/completeAuth.
-  const ownerId = opts.ownerId ?? 'local';
-  const now = new Date().toISOString();
-  const connection: Connection = {
-    id: opts.connectionId ?? newId(),
-    ownerId,
-    providerId,
-    accountId: opts.name,
-    label: opts.name,
-    scopes: [],
-    status: 'active',
-    createdAt: now,
-    updatedAt: now,
+  const bindingFor = (connection: Connection) => {
+    const account = byConnection.get(connection.id);
+    if (!account || !sameAccount(account.connection, connection) || account.connection.authConfigId !== connection.authConfigId) return undefined;
+    return { isCurrentCredential: (credential: Credentials) => credential.type === 'bearer'
+      && credential.token === account.sessionToken && (account.opts.isCurrentTransport?.() ?? true) };
   };
-  await store.save(connection, await secretBox.seal({ type: 'bearer', token: opts.sessionToken ?? 'mcp-session' }));
+  const single = prepared.length === 1 ? prepared[0]! : undefined;
+  const provider = defineProvider({
+    id: providerId, displayName, auth: bearer(),
+    externalAuth: { forConnection: bindingFor,
+      ...(single ? { connectionId: single.connection.id, ...bindingFor(single.connection)! } : {}),
+    },
+  });
+  registry.addBundle({ provider, toolkits: [defineToolkit({ id: providerId, providerId, displayName, actions })] });
+  for (const account of prepared) {
+    // Retain identity/client pins but replace only the host transport credential.
+    await store.save(account.connection, await secretBox.seal({ type: 'bearer', token: account.sessionToken }));
+  }
+  return prepared.map(account => ({ providerId, toolkitId: providerId, connectionId: account.connection.id,
+    toolCount: account.enabled.size, tools: account.tools }));
+}
 
-  return {
-    providerId,
-    toolkitId: providerId,
-    connectionId: connection.id,
-    toolCount: actions.length,
-    tools: tools.map((t) => ({ name: t.name, description: t.description })),
-  };
+/** A projection object wide enough for every account, followed by exact account validation. */
+function unionInput(variants: { schema: unknown; input: z.ZodObject<z.ZodRawShape> }[]): z.ZodObject<z.ZodRawShape> {
+  if (variants.every(variant => canonicalStringify(variant.schema) === canonicalStringify(variants[0]!.schema))) return variants[0]!.input;
+  const keys = new Set(variants.flatMap(variant => Object.keys(variant.input.shape)));
+  const shape: z.ZodRawShape = {};
+  for (const key of keys) {
+    const alternatives = variants.map(variant => variant.input.shape[key] ?? z.unknown());
+    shape[key] = z.union(alternatives as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]).optional();
+  }
+  return z.object(shape).passthrough();
+}
+
+/** MCP tool failures commonly put their actionable diagnostic in text blocks. */
+function remoteErrorMessage(content: unknown): string {
+  if (!Array.isArray(content)) return '';
+  return content
+    .flatMap((block: unknown) => {
+      if (!block || typeof block !== 'object') return [];
+      const candidate = block as { type?: unknown; text?: unknown };
+      return candidate.type === 'text' && typeof candidate.text === 'string' ? [candidate.text] : [];
+    })
+    .join('\n')
+    .slice(0, 8_000);
 }

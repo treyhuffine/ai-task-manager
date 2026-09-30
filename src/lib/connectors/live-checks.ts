@@ -15,20 +15,6 @@ export interface LiveCheck {
   input: Record<string, unknown>;
 }
 
-export const LIVE_CHECKS: Record<string, LiveCheck[]> = {
-  twitter: [
-    { id: 'me', label: 'Authenticated user (GET /2/users/me)', actionId: 'twitter.get_users_me', input: {} },
-    {
-      id: 'lookup',
-      label: 'Lookup @TwitterDev',
-      actionId: 'twitter.get_users_by_username',
-      input: { username: 'TwitterDev', 'user.fields': ['description', 'public_metrics'] },
-    },
-    {
-      id: 'search',
-      label: 'Recent search ("hello")',
-      actionId: 'twitter.search_posts_recent',
-      input: { query: 'hello', max_results: 10 },
-    },
-  ],
-};
+// Hosted providers are tested through discovered connection health. Add a
+// deterministic read probe here only after its tool input contract is verified.
+export const LIVE_CHECKS: Record<string, LiveCheck[]> = {};

@@ -18,7 +18,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { uuidv7 } from 'uuidv7';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { snapshotMcpCapabilities, diffMcpCapabilities, type McpCapabilityTool, type McpCapabilitySnapshot, type McpCapabilityChanges } from './mcp-capabilities';
 
 export type McpServerAuth =
   | { kind: 'none' }
@@ -41,6 +42,13 @@ export interface McpToolOverride {
 
 export interface McpServerEntry {
   id: string;
+  /** Set only by the host's built-in connector flow, never by a custom server request. */
+  providerId?: string;
+  /** Preserve the existing connector identity when replacing a native provider. */
+  connectionId?: string;
+  accountId?: string;
+  /** Immutable registered OAuth app binding, selected through the trusted built-in flow. */
+  authConfigId?: string;
   /** Immutable; sanitized [A-Za-z0-9_]; drives `mcp_<slug>` + `mcp.<slug>.<tool>`. */
   slug: string;
   /** Editable UI label; never touches ids. */
@@ -48,10 +56,14 @@ export interface McpServerEntry {
   url: string;
   enabled: boolean;
   auth: McpServerAuth;
+  /** Changes when a static credential changes or OAuth credentials are invalidated. */
+  credentialRevision?: string;
   /** Per-tool reclassification, keyed by remote tool name. */
   toolOverrides?: Record<string, McpToolOverride>;
   /** Last-known advertised tools, for rendering per-tool toggles without reconnecting. */
   tools?: McpToolInfo[];
+  capabilityRevision?: string;
+  capabilityChanges?: McpCapabilityChanges;
   createdAt: string;
   updatedAt: string;
   // Best-effort health, refreshed on add + each boot ingest.
@@ -59,9 +71,15 @@ export interface McpServerEntry {
   lastError?: string;
   lastToolCount?: number;
   lastCheckedAt?: string;
+  /** Hash identifying the last successfully completed interactive authorization. */
+  lastAuthorizationId?: string;
 }
 
 export interface McpServerCreate {
+  providerId?: string;
+  connectionId?: string;
+  accountId?: string;
+  authConfigId?: string;
   slug: string;
   displayName: string;
   url: string;
@@ -102,11 +120,12 @@ interface StoredRow {
   entry: McpServerEntry;
   sealed?: unknown; // sealed { secret: string } (static bearer/header auth)
   sealedOAuth?: unknown; // sealed OAuth state (client registration + tokens + PKCE verifier)
+  capabilities?: { current: McpCapabilitySnapshot; reviewed: McpCapabilitySnapshot };
 }
 
 export class McpStoreError extends Error {
   constructor(
-    public code: 'slug_taken' | 'not_found' | 'invalid',
+    public code: 'slug_taken' | 'not_found' | 'invalid' | 'conflict',
     message: string,
   ) {
     super(message);
@@ -122,14 +141,20 @@ export interface McpServerStore {
   update(id: string, patch: McpServerPatch): Promise<McpServerEntry | null>;
   remove(id: string): Promise<boolean>;
   setHealth(id: string, health: McpServerHealth): Promise<void>;
+  recordCapabilities(id: string, tools: readonly McpCapabilityTool[]): Promise<McpServerEntry | null>;
+  acknowledgeCapabilities(id: string, revision: string): Promise<McpServerEntry | null>;
   /** The unsealed auth secret for a server, or null (no secret / no entry). */
   openSecret(id: string): Promise<string | null>;
   /** Read the sealed OAuth state (client registration + tokens + PKCE verifier), or null. */
   getOAuthState(id: string): Promise<Record<string, unknown> | null>;
   /** Replace the sealed OAuth state for a server (no-op if the server is gone). */
   setOAuthState(id: string, state: Record<string, unknown>): Promise<void>;
+  /** Replace only the OAuth revision that the caller observed, under the shared file lock. */
+  compareAndSetOAuthState(id: string, expectedRevision: string | undefined, state: Record<string, unknown>): Promise<Record<string, unknown> | null>;
   /** Atomically consume one unexpired browser authorization state. */
   consumeOAuthState(id: string, state: string, now?: number): Promise<boolean>;
+  /** Publish completion only for the exact consumed consent that is still current. */
+  completeAuthorization(id: string, authorizationId: string): Promise<boolean>;
 }
 
 /** Sanitize a free-text name into a valid, stable slug. */
@@ -190,11 +215,16 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         const now = new Date().toISOString();
         const entry: McpServerEntry = {
           id: uuidv7(),
+          ...(input.providerId ? { providerId: input.providerId } : {}),
+          ...(input.connectionId ? { connectionId: input.connectionId } : {}),
+          ...(input.accountId ? { accountId: input.accountId } : {}),
+          ...(input.authConfigId ? { authConfigId: input.authConfigId } : {}),
           slug: input.slug,
           displayName: input.displayName || input.slug,
           url: input.url,
           enabled: input.enabled ?? true,
           auth: input.auth,
+          ...(secret ? { credentialRevision: uuidv7() } : {}),
           ...(input.tools ? { tools: input.tools } : {}),
           createdAt: now,
           updatedAt: now,
@@ -219,6 +249,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         if (patch.toolOverrides !== undefined) row.entry.toolOverrides = patch.toolOverrides;
         if (patch.secret !== undefined) {
           row.sealed = patch.secret === null ? undefined : await sealSecret(patch.secret);
+          row.entry.credentialRevision = uuidv7();
         }
         row.entry.updatedAt = new Date().toISOString();
         writeAll(rows);
@@ -248,6 +279,41 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         if (health.tools !== undefined) row.entry.tools = health.tools;
         writeAll(rows);
       });
+    },
+
+    async recordCapabilities(id, tools) {
+      const current = snapshotMcpCapabilities(tools);
+      return deps.lock.withLock('mcp-servers', async () => {
+        const rows = readAll();
+        const row = rows.find(candidate => candidate.entry.id === id);
+        if (!row) return null;
+        if (row.capabilities?.current.revision === current.revision) return row.entry;
+        const reviewed = row.capabilities?.reviewed ?? current;
+        row.capabilities = { current, reviewed };
+        row.entry.capabilityRevision = current.revision;
+        row.entry.capabilityChanges = diffMcpCapabilities(reviewed, current);
+        row.entry.tools = current.tools.map(({ name, description }) => ({ name, ...(description !== undefined ? { description } : {}) }));
+        row.entry.updatedAt = new Date().toISOString();
+        writeAll(rows);
+        return row.entry;
+      });
+    },
+
+    async acknowledgeCapabilities(id, revision) {
+      return deps.lock.withLock('mcp-servers', async () => {
+        const rows = readAll();
+        const row = rows.find(candidate => candidate.entry.id === id);
+        if (!row) return null;
+        if (!row.capabilities || row.capabilities.current.revision !== revision) {
+          throw new McpStoreError('conflict', 'The tools changed again. Review the latest changes before marking them reviewed.');
+        }
+        row.capabilities.reviewed = row.capabilities.current;
+        row.entry.capabilityChanges = undefined;
+        row.entry.updatedAt = new Date().toISOString();
+        writeAll(rows);
+        return row.entry;
+      });
+
     },
 
     async openSecret(id) {
@@ -283,7 +349,22 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return false;
         delete saved.authorizationState;
         delete saved.authorizationExpiresAt;
+        saved.consumedAuthorizationId = createHash('sha256').update(state).digest('hex');
+        saved.revision = uuidv7();
         row.sealedOAuth = await deps.secretBox.seal(saved);
+        writeAll(rows);
+        return true;
+      });
+    },
+
+    async completeAuthorization(id, authorizationId) {
+      return deps.lock.withLock('mcp-servers', async () => {
+        const rows = readAll();
+        const row = rows.find(candidate => candidate.entry.id === id);
+        if (!row?.entry.enabled || row.entry.auth.kind !== 'oauth' || row.entry.lastStatus !== 'ok' || !row.sealedOAuth) return false;
+        const saved = await deps.secretBox.open<Record<string, unknown>>(row.sealedOAuth);
+        if (!authorizationId || saved.consumedAuthorizationId !== authorizationId || saved.authorizationState || !saved.tokens) return false;
+        row.entry.lastAuthorizationId = authorizationId;
         writeAll(rows);
         return true;
       });
@@ -294,9 +375,25 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         const rows = readAll();
         const row = rows.find((r) => r.entry.id === id);
         if (!row) return;
-        row.sealedOAuth = await deps.secretBox.seal(state);
+        row.sealedOAuth = await deps.secretBox.seal({ ...state, revision: uuidv7() });
         row.entry.updatedAt = new Date().toISOString();
         writeAll(rows);
+      });
+    },
+
+    async compareAndSetOAuthState(id, expectedRevision, state) {
+      return deps.lock.withLock('mcp-servers', async () => {
+        const rows = readAll();
+        const row = rows.find((r) => r.entry.id === id);
+        if (!row || row.entry.auth.kind !== 'oauth') return null;
+        const current = row.sealedOAuth ? await deps.secretBox.open<Record<string, unknown>>(row.sealedOAuth) : {};
+        if (current.revision !== expectedRevision) return null;
+        const next: Record<string, unknown> = { ...state, revision: uuidv7() };
+        if (current.tokens && !next.tokens) row.entry.credentialRevision = uuidv7();
+        row.sealedOAuth = await deps.secretBox.seal(next);
+        row.entry.updatedAt = new Date().toISOString();
+        writeAll(rows);
+        return next;
       });
     },
   };

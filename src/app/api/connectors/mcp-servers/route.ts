@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
   }
   const slug = toSlug(name);
   if (!slug) return NextResponse.json({ error: 'Use letters or numbers in the name.' }, { status: 400 });
+  if (slug.startsWith('builtin_')) return NextResponse.json({ error: 'That name is reserved for a built-in connector.' }, { status: 400 });
 
   const urlCheck = validateMcpUrl(body.url ?? '');
   if (!urlCheck.ok) return NextResponse.json({ error: urlCheck.error }, { status: 400 });

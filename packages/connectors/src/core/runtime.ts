@@ -215,6 +215,33 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
     return p;
   }
 
+  function requireRuntimeAuth(provider: Provider): void {
+    if (provider.externalAuth) {
+      throw new ConnectorError('invalid_input', `Connect "${provider.id}" through its host-managed sign-in flow.`);
+    }
+  }
+
+  function requireTransportBinding(provider: Provider, connection: Connection) {
+    const auth = provider.externalAuth;
+    if (!auth) return undefined;
+    const binding = 'forConnection' in auth ? auth.forConnection(connection)
+      : auth.connectionId === connection.id ? auth : undefined;
+    if (!binding) {
+      throw new ConnectorError('connection_not_found', 'connection is not authenticated by this transport');
+    }
+    return binding;
+  }
+
+  function hostAuthorization(provider: Provider, scopes: string[], connection?: Connection): string {
+    if (!opts.authorizationRequired) {
+      throw new ConnectorError('provider_not_configured', `Reconnect "${provider.id}" through its host-managed sign-in flow.`);
+    }
+    return opts.authorizationRequired({
+      providerId: provider.id, scopes,
+      ...(connection ? { existingConnectionId: connection.id, authConfigId: connection.authConfigId } : {}),
+    });
+  }
+
   function isFresh(creds: Extract<Credentials, { type: 'oauth2' }>): boolean {
     return creds.expiresAt == null || clock.now() < creds.expiresAt - skewMs;
   }
@@ -281,8 +308,20 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
   async function getValidCredentials(connectionId: string, force = false): Promise<Credentials> {
     const stored = await store.get(connectionId);
     if (!stored) throw new ConnectorError('connection_not_found', `connection "${connectionId}" not found`);
+    const currentProvider = requireProvider(stored.connection.providerId);
+    const transportBinding = requireTransportBinding(currentProvider, stored.connection);
     const creds = await secretBox.open<Credentials>(stored.sealed);
     registerSecrets(creds);
+    if (currentProvider.externalAuth) {
+      // Native OAuth tokens left over from before ingestion cannot stand in for
+      // host transport consent. The host owns refresh and reconnect, even when
+      // the historical native auth config still exists for account pins.
+      if (creds.type !== currentProvider.auth.kind || stored.connection.status === 'needs_reauth'
+        || !transportBinding!.isCurrentCredential(creds)) {
+        throw new NeedsReauthError(connectionId);
+      }
+      return creds;
+    }
     if (creds.type !== 'oauth2') return creds; // direct strategies never expire
     if (!force && isFresh(creds)) return creds; // proactive window
 
@@ -420,6 +459,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
   // ── Public: beginAuth / completeAuth ──────────────────────────────────────
   async function beginAuth(providerId: string, options: BeginAuthOptions): Promise<BeginAuthResult> {
     const provider = requireProvider(providerId);
+    requireRuntimeAuth(provider);
     const ownerId = options.ownerId ?? defaultOwnerId;
 
     // add_scopes / reconnect: bind to the EXISTING connection's minting client (secret-free),
@@ -508,6 +548,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
     }
 
     const provider = requireProvider(req.providerId);
+    requireRuntimeAuth(provider);
     const flow = provider.auth.oauth;
     if (!flow) throw new ConnectorError('internal_error', `provider "${provider.id}" has no oauth flow`);
 
@@ -646,6 +687,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
   // ── connectDirect: non-OAuth credential connect (§ direct strategies) ──────
   async function connectDirect(providerId: string, opts: ConnectDirectOptions): Promise<Connection> {
     const provider = requireProvider(providerId);
+    requireRuntimeAuth(provider);
     if (provider.auth.kind !== opts.credential.type) {
       throw new ConnectorError(
         'invalid_input',
@@ -912,6 +954,11 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
         );
       }
       if (resolution.kind === 'none') {
+        if (provider.externalAuth) {
+          const authorizationUrl = hostAuthorization(provider, action.scopes ?? []);
+          finish('auth_required');
+          return { ok: false, reason: 'auth_required', providerId: provider.id, authorizationUrl };
+        }
         // No connection yet → drive §4a connect with the scopes the ACTION needs (not config
         // defaults), so both config selection and the URL track the attempted action (§6).
         const ctx: ResolutionContext = {
@@ -958,14 +1005,19 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
         return { ok: false, reason: 'needs_account', providerId: provider.id, choices: resolution.choices };
       }
       const connection = resolution.connection;
+      requireTransportBinding(provider, connection);
       const meta = connectionMetadata(connection);
+      action.validateForConnection?.(meta, cleanInput);
 
       // Resolve the connection's minting config once (secret-free): used for the consent/reconnect
       // URL (its clientId), the allowedScopes bound, and a per-instance base URL (§6).
-      const connConfig = await authConfigs!.getConfigForConnection(provider.id, connection.authConfigId);
+      // An external transport may preserve a native OAuth authConfigId for
+      // identity and saved pins. That config cannot authenticate the MCP client,
+      // set its destination, or drive its consent/refresh lifecycle.
+      const connConfig = provider.externalAuth ? null : await authConfigs!.getConfigForConnection(provider.id, connection.authConfigId);
       if (connConfig) ensureConfigValid(connConfig, provider);
       // Per-connection base (Salesforce instance_url) > per-config base > provider default.
-      const baseUrl = connection.baseUrl ?? connConfig?.baseUrl ?? provider.baseUrl;
+      const baseUrl = provider.externalAuth ? undefined : connection.baseUrl ?? connConfig?.baseUrl ?? provider.baseUrl;
 
       // 4. Scope check (action-level, least privilege) → needs_consent (§7). Honors the
       //    provider's scope hierarchy, so a broader granted scope satisfies a narrower one.
@@ -978,6 +1030,11 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       const missing = required.filter((s) => !scopeHeld(provider, connection.scopes, s));
       if (missing.length > 0) {
         const requestScopes = uniqueScopes(connection.scopes, missing);
+        if (provider.externalAuth) {
+          const authorizationUrl = hostAuthorization(provider, requestScopes, connection);
+          finish('needs_consent', { connectionId: connection.id });
+          return { ok: false, reason: 'needs_consent', providerId: provider.id, connectionId: connection.id, missingScopes: missing, authorizationUrl };
+        }
         // Bound by the minting client's allowedScopes — don't mint a doomed/over-asking URL (§6).
         if (connConfig && !scopeCovers(provider, connConfig.allowedScopes, requestScopes)) {
           finish('error', { connectionId: connection.id, status: 'error', errorCode: 'scope_not_allowed' });
@@ -1030,6 +1087,11 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
 
       // Build a bound re-auth (add_scopes) URL for the minting client — the reconnect path (§6).
       const reauth = async (): Promise<ActionOutcome<O>> => {
+        if (provider.externalAuth) {
+          const authorizationUrl = hostAuthorization(provider, uniqueScopes(connection.scopes, provider.identityScopes), connection);
+          finish('auth_required', { connectionId: connection.id });
+          return { ok: false, reason: 'auth_required', providerId: provider.id, authorizationUrl };
+        }
         if (!connConfig) {
           finish('auth_required', { connectionId: connection.id });
           // No client to rebuild the URL with — surface provider_not_configured instead of a dead URL.
@@ -1053,12 +1115,18 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       try {
         await getValidCredentials(connection.id);
       } catch (e) {
-        if (e instanceof NeedsReauthError) return reauth();
+        if (e instanceof NeedsReauthError) return await reauth();
         throw e;
       }
 
       // 7. Build the authed context (honoring a per-instance base URL).
-      const http = createAuthedHttp({
+      const rejectTransportAccess = async (): Promise<never> => {
+        throw new ConnectorError('invalid_input', `The host-managed transport for "${provider.id}" does not expose native HTTP credentials.`);
+      };
+      const http = provider.externalAuth ? {
+        request: rejectTransportAccess, get: rejectTransportAccess, post: rejectTransportAccess,
+        put: rejectTransportAccess, patch: rejectTransportAccess, delete: rejectTransportAccess,
+      } : createAuthedHttp({
         ...(baseUrl !== undefined ? { baseUrl } : {}),
         strategy: provider.auth,
         connectionId: connection.id,
@@ -1070,7 +1138,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       const ctx = {
         connection: meta,
         http,
-        getToken: async () => provider.auth.tokenOf(await getValidCredentials(connection.id)),
+        getToken: provider.externalAuth ? rejectTransportAccess : async () => provider.auth.tokenOf(await getValidCredentials(connection.id)),
         config: connection.config ?? {},
         clock,
         log: logger,
@@ -1081,7 +1149,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       try {
         result = (await action.execute(ctx, cleanInput)) as O;
       } catch (e) {
-        if (e instanceof NeedsReauthError) return reauth();
+        if (e instanceof NeedsReauthError) return await reauth();
         if (e instanceof ConnectorError) {
           const status: ActionRunStatus = e.indeterminate ? 'unknown' : 'error';
           finish(status, { connectionId: connection.id, status, errorCode: e.code, error: redactor.redact(e.message) });
@@ -1144,7 +1212,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       try {
         const provider = requireProvider(stored.connection.providerId);
         const flow = provider.auth.oauth;
-        if (provider.revokeUrl && flow?.revoke) {
+        if (!provider.externalAuth && provider.revokeUrl && flow?.revoke) {
           const creds = await secretBox.open<Credentials>(stored.sealed);
           registerSecrets(creds);
           // Revoke with the MINTING client (its stamped config), same binding rule as refresh (§6).
@@ -1190,6 +1258,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
     }
     const connection = stored.connection;
     const provider = requireProvider(connection.providerId);
+    requireTransportBinding(provider, connection);
 
     // 1. Force a refresh (no-op for direct creds). Revocation → needs_reauth; transient → error
     //    (never tear down a healthy connection on a flaky probe).
@@ -1197,11 +1266,17 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
     try {
       creds = await getValidCredentials(connectionId, true);
     } catch (e) {
-      if (e instanceof NeedsReauthError) return { connectionId, ok: false, status: 'needs_reauth', verified: true, checkedAt };
+      if (e instanceof NeedsReauthError) return { connectionId, ok: false, status: 'needs_reauth', verified: !provider.externalAuth, checkedAt };
       const message = e instanceof Error ? e.message : String(e);
       return { connectionId, ok: false, status: 'error', verified: false, error: redactor.redact(message), checkedAt };
     }
     const isOAuth = creds.type === 'oauth2';
+
+    // A sealed transport token only proves local presence. It must not heal a
+    // host-managed connection or consult a historical native OAuth config/probe.
+    if (provider.externalAuth) {
+      return { connectionId, ok: true, status: 'active', verified: false, checkedAt };
+    }
 
     // 2. Authoritative healthCheck, else best-effort identify, else just the refresh signal.
     const heal = async (): Promise<void> => {

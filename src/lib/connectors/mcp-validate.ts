@@ -34,7 +34,7 @@ export function validateMcpUrl(raw: string): UrlCheck {
     return { ok: false, error: 'That is not a valid URL.' };
   }
   const host = u.hostname.toLowerCase();
-  const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0';
+  const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
   if (u.protocol === 'https:') return { ok: true, url: u.toString() };
   if (u.protocol === 'http:' && isLoopback) return { ok: true, url: u.toString() };
   return { ok: false, error: 'Use an https:// URL (http:// is allowed only for localhost).' };

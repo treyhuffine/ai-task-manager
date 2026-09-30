@@ -5,7 +5,6 @@ import {
   dueBand,
   dueLabel,
   jiraPriority,
-  linearPriority,
   parseDue,
   sortTasks,
   todoistPriority,
@@ -129,13 +128,6 @@ describe('priority normalization', () => {
     expect(todoistPriority(4)).toBe(1);
     expect(todoistPriority(0)).toBeNull();
     expect(todoistPriority('4')).toBeNull();
-  });
-
-  it('maps Linear 1..4 downward — its scale is inverted', () => {
-    expect(linearPriority(1)).toBe(1);
-    expect(linearPriority(4)).toBe(0);
-    // 0 means "no priority set" in Linear, which is not the same as lowest.
-    expect(linearPriority(0)).toBeNull();
   });
 
   it('maps Jira names, and scores renamed schemes as unknown', () => {

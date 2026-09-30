@@ -11,7 +11,8 @@ import {
   listOverrides,
 } from './write-policy';
 
-// Real action inventory (provider.method, mutating, risk) from @connectors/engine providers.
+// Current native actions and documented hosted tool names, with explicit policy
+// inputs. Runtime discovery determines the actual tool annotations and risk.
 const AUTO_BY_DEFAULT = [
   ['gmail.create_draft', 'medium'],
   ['gmail.modify_labels', 'medium'],
@@ -19,25 +20,20 @@ const AUTO_BY_DEFAULT = [
   ['google_calendar.update_event', 'medium'],
   ['google_docs.append_text', 'medium'],
   ['google_sheets.append_values', 'medium'],
-  ['notion.create_page', 'medium'],
-  ['notion.append_blocks', 'medium'],
-  ['jira.create_issue', 'medium'],
-  ['jira.add_comment', 'low'],
-  ['asana.create_task', 'low'],
-  ['todoist.complete_task', 'low'],
-  ['airtable.create_record', 'medium'],
+  ['asana.create_tasks', 'medium'],
+  ['todoist.add-tasks', 'medium'],
 ] as const;
 
 const ASK_OUTWARD = [
-  ['slack.post_message', 'medium'],
   ['discord.post_message', 'medium'],
   ['telegram.send_message', 'low'],
   ['telegram.send_photo', 'low'],
   ['whatsapp.send_message', 'low'],
   ['whatsapp.send_template', 'low'],
-  ['resend.send_email', 'medium'],
   ['mailgun.send_message', 'medium'],
-  ['twitter.upload_media', 'medium'],
+  ['mcp.mail.send-email', 'medium'],
+  ['mcp.chat.post-message', 'medium'],
+  ['mcp.files.upload-file', 'medium'],
 ] as const;
 
 const ASK_HIGH = [
@@ -45,10 +41,13 @@ const ASK_HIGH = [
   ['outlook_mail.send_mail', 'high'],
   ['google_drive.delete_file', 'high'],
   ['google_calendar.delete_event', 'high'],
-  ['airtable.delete_record', 'high'],
-  ['stripe.create_customer', 'high'],
-  ['calendly.cancel_event', 'high'],
-  ['zoom.delete_meeting', 'high'],
+  ['atlassian.createJiraIssue', 'high'],
+  ['atlassian.addCommentToJiraIssue', 'high'],
+  ['stripe.stripe_api_write', 'high'],
+  // Slack's documented upload tool uses its hosted provider's high write floor.
+  ['slack.slack_complete_file_upload', 'high'],
+  ['todoist.update-tasks', 'high'],
+  ['todoist.complete-tasks', 'high'],
 ] as const;
 
 describe('defaultApprovalMode', () => {
@@ -108,8 +107,8 @@ describe('overrides', () => {
     expect(getActionOverride('gmail.create_draft')).toBe('ask');
     expect(resolveApprovalMode({ actionId: 'gmail.create_draft', risk: 'medium', mutating: true })).toBe('ask');
     // trust a normally-gated outward action
-    setActionOverride('slack.post_message', 'auto');
-    expect(resolveApprovalMode({ actionId: 'slack.post_message', risk: 'medium', mutating: true })).toBe('auto');
+    setActionOverride('slack.slack_complete_file_upload', 'auto');
+    expect(resolveApprovalMode({ actionId: 'slack.slack_complete_file_upload', risk: 'high', mutating: true })).toBe('auto');
     expect(fs.existsSync(path.join(process.env.RI_CONFIG_DIR!, 'connectors', 'write-policy.json'))).toBe(true);
   });
 
@@ -121,5 +120,16 @@ describe('overrides', () => {
     expect(getActionOverride('gmail.send_email')).toBeUndefined();
     expect(resolveApprovalMode({ actionId: 'gmail.send_email', risk: 'high', mutating: true })).toBe('ask');
     expect(listOverrides()).toEqual({});
+  });
+
+  it('keeps each canonical action preference independent and clears it without a replacement mapping', () => {
+    freshConfigDir();
+    setActionOverride('todoist.add-tasks', 'ask');
+    expect(getActionOverride('todoist.update-tasks')).toBeUndefined();
+    expect(listOverrides()).toEqual({ 'todoist.add-tasks': 'ask' });
+    setActionOverride('todoist.add-tasks', null);
+    expect(getActionOverride('todoist.add-tasks')).toBeUndefined();
+    expect(listOverrides()).toEqual({});
+    expect(resolveApprovalMode({ actionId: 'todoist.add-tasks', risk: 'medium', mutating: true })).toBe('auto');
   });
 });

@@ -1,0 +1,16 @@
+{
+  "captured_at_utc": "2026-09-28T23:40:58.641800+00:00",
+  "directory_url": "https://claude.com/marketplace/connectors-plugins",
+  "sitemap_url": "https://claude.com/sitemap.xml",
+  "source_html_sha256": "0f074f4c89df5f5cf98c9d41945895fa2cfb08604a828bef85c6e0d5feec5cf8",
+  "source_sitemap_sha256": "b9718f504099a1c0fe27eec307d71b1f690abf61ce901a21bed7a938c40e4fe2",
+  "connector_count": 861,
+  "sitemap_connector_count": 861,
+  "types": {
+    "remote": 729,
+    "local": 132
+  },
+  "published_endpoints": 686,
+  "separate_plugin_count_excluded": 340,
+  "evidence_scope": "Full public connector directory metadata, reconciled to sitemap. No live account authorization or tool execution."
+}

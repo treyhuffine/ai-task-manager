@@ -28,7 +28,7 @@ export type LaunchSourceKind =
   | 'branch'
   | 'task'
   | 'note'
-  /** A task read live from a connected provider (Todoist, Linear). */
+  /** A task read live from a connected provider. */
   | 'connector'
   | 'chat'
   | 'external';
@@ -67,6 +67,11 @@ export interface LaunchSourceItem {
   providerLabel?: string | null;
   /** Toolkit id of that connector ("todoist") — drives its brand mark. */
   toolkitId?: string | null;
+  /** Preserve the selected account when an external task becomes context. */
+  connectionId?: string | null;
+  accountId?: string | null;
+  accountLabel?: string | null;
+  sourceUrl?: string | null;
   /** ISO due date, from any source. Drives ordering and the due badge. */
   due?: string | null;
 }
@@ -109,6 +114,20 @@ function contextHeadingPrefix(item: LaunchSourceItem): string {
     return item.providerLabel ? `${item.providerLabel} task` : 'External task';
   }
   return 'Task';
+}
+
+function taskContextBody(item: LaunchSourceItem): string {
+  const body = (item.body ?? '').trim();
+  if (item.kind !== 'connector') return body;
+  // Account IDs are routing metadata, not an inferred default. Keep them in
+  // the prompt so a subsequent tool call can address the selected account.
+  const provenance = [
+    item.accountLabel ? `Account: ${item.accountLabel}` : null,
+    item.connectionId ? `Connection ID: ${item.connectionId}` : null,
+    item.accountId ? `Account ID: ${item.accountId}` : null,
+    item.sourceUrl ? `Source: ${item.sourceUrl}` : null,
+  ].filter(Boolean).join('\n');
+  return [body, provenance].filter(Boolean).join('\n\n');
 }
 
 /**
@@ -189,7 +208,7 @@ export function chipsForItem(item: LaunchSourceItem): LaunchChip[] {
             // task: …") so the agent can tell an external system's task from
             // one that lives in this app and is safe to edit directly.
             heading: `${contextHeadingPrefix(item)}: ${item.title}`,
-            body: (item.body ?? '').trim(),
+            body: taskContextBody(item),
           },
         },
       ];

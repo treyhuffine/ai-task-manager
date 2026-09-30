@@ -15,10 +15,14 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { ConnectorLogo } from '@/components/connectors/connector-logo';
 import { connectorMeta } from '@/components/connectors/connector-meta';
+import { HostedEndpointFields } from '@/components/connectors/hosted-endpoint-fields';
+import { connectorEndpointReady, type HostedEndpointSelection } from '@/lib/client/connector-endpoint';
 import { ByoPanel } from './byo-panel';
+import { HostedProviderDetail } from './hosted-provider-detail';
 import { BackLink, Chip, DetailHeader, GroupHeading } from './parts';
 import {
   connectionIdentity,
+  isRegisteredMcp,
   prettyField,
   SECRETY,
   type ActionInfo,
@@ -26,6 +30,7 @@ import {
   type AuthConfigSummary,
   type ByoForm,
   type Connection,
+  type HostedConnectIntent,
   type ProviderStatus,
   type TestResult,
   type ToolkitInfo,
@@ -46,6 +51,12 @@ export interface ProviderDetailProps {
   testResults: Record<string, TestResult>;
   /** Paste-a-key field values for this provider. */
   creds: Record<string, string>;
+  endpointSelection?: HostedEndpointSelection;
+  onEndpointChange?: (selection: HostedEndpointSelection) => void;
+  onCancelSetup?: (serverId?: string) => void;
+  onReviewCapabilities?: (serverId: string, revision: string) => void;
+  usedAuthConfigIds?: string[];
+  connectDisabled?: boolean;
   /** Toolkit ids checked under "Services to grant". */
   selectedServices: string[];
   advancedOpen: boolean;
@@ -54,8 +65,8 @@ export interface ProviderDetailProps {
   byoConfigs: AuthConfigSummary[];
   byoForm: ByoForm;
   onBack: () => void;
-  onConnectOAuth: (authConfigId?: string) => void;
-  onConnectDirect: () => void;
+  onConnectOAuth: (authConfigId?: string, intent?: HostedConnectIntent) => void;
+  onConnectDirect: (intent?: HostedConnectIntent) => void;
   onCredChange: (field: string, value: string) => void;
   onToggleService: (toolkitId: string) => void;
   onTest: (connectionId: string) => void;
@@ -70,10 +81,19 @@ export interface ProviderDetailProps {
 }
 
 export function ProviderDetail(props: ProviderDetailProps) {
+  if (props.provider.method === 'mcp' && props.provider.mcp?.accounts) return <HostedProviderDetail {...props} />;
+  return <SingleProviderDetail {...props} />;
+}
+
+function SingleProviderDetail(props: ProviderDetailProps) {
   const { provider: p, connections: conns, toolkits, busy } = props;
   const meta = connectorMeta(p.id);
   const connected = conns.length > 0;
-  const healthy = conns.every((c) => c.status === 'active');
+  const hosted = p.method === 'mcp';
+  const registered = isRegisteredMcp(p);
+  const authKind = p.mcp?.authKind ?? 'oauth';
+  const needsReconnect = hosted && (p.mcp?.requiresAuth || conns.some((c) => c.status === 'needs_reauth' || c.status === 'expired' || c.status === 'revoked'));
+  const healthy = conns.every((c) => c.status === 'active') && !needsReconnect && (!p.mcp?.status || p.mcp.status === 'ok');
   const toolCount = toolkits.reduce((n, t) => n + t.actions.length, 0);
   const canConnect = !p.orphan;
 
@@ -85,7 +105,7 @@ export function ProviderDetail(props: ProviderDetailProps) {
     setSeenCount(conns.length);
     setAddOpen(false);
   }
-  const showConnect = canConnect && (!connected || addOpen);
+  const showConnect = canConnect && (!connected || addOpen || needsReconnect);
 
   return (
     <div className="space-y-6">
@@ -121,6 +141,7 @@ export function ProviderDetail(props: ProviderDetailProps) {
             count={conns.length}
             action={
               canConnect &&
+              !hosted &&
               !addOpen && (
                 <Button variant="outline" size="xs" onClick={() => setAddOpen(true)} disabled={busy} className="text-xs">
                   <Plus size={12} /> Add account
@@ -140,27 +161,48 @@ export function ProviderDetail(props: ProviderDetailProps) {
                 result={props.testResults[c.id]}
                 onTest={() => props.onTest(c.id)}
                 onDisconnect={() => props.onDisconnect(c.id)}
+                onReconnect={hosted && canConnect && !needsReconnect ? authKind === 'oauth' ? () => props.onConnectOAuth() : () => setAddOpen(true) : undefined}
+                needsReconnect={Boolean(needsReconnect)}
+                reconnectLabel={authKind === 'oauth' ? 'Sign-in needed' : authKind === 'bearer' ? 'Token needed' : 'Reconnect needed'}
               />
             ))}
           </div>
         </section>
       )}
 
+      {hosted && p.mcp?.error && !needsReconnect && (
+        <p role="status" className="rounded-xl border border-border bg-card/20 p-3 text-xs text-muted-foreground">
+          {p.displayName} could not be reached. {p.mcp.error}
+        </p>
+      )}
+
+      {hosted && p.mcp?.endpointConfig && !showConnect && (
+        <HostedEndpointFields setup={p.mcp.endpointConfig} value={props.endpointSelection} disabled={busy} onChange={props.onEndpointChange} />
+      )}
+
+      {registered && p.mcp?.authConfigId && <p className="text-xs text-muted-foreground">
+        OAuth app: {props.byoConfigs.find(config => config.id === p.mcp?.authConfigId)?.label ?? p.mcp.authConfigId}. Disconnect to change this app.
+      </p>}
+
       {showConnect && (
         <section className="space-y-2">
           <GroupHeading
             action={
-              connected && (
+              connected && addOpen && (
                 <Button variant="ghost" size="xs" onClick={() => setAddOpen(false)} className="text-xs">
                   Cancel
                 </Button>
               )
             }
           >
-            {connected ? 'Add another account' : 'Connect'}
+            {connected ? hosted ? 'Reconnect' : 'Add another account' : 'Connect'}
           </GroupHeading>
-          <div className="rounded-xl border border-border bg-card/20 p-4">
+          <div className="space-y-4 rounded-xl border border-border bg-card/20 p-4">
+            {hosted && p.mcp?.endpointConfig && <HostedEndpointFields setup={p.mcp.endpointConfig} value={props.endpointSelection} disabled={busy} onChange={props.onEndpointChange} />}
             <ConnectPanel {...props} />
+            {!connected && (p.mcp?.endpointConfig?.locked || registered) && p.mcp?.serverId && props.onCancelSetup && (
+              <Button variant="ghost" size="xs" onClick={() => props.onCancelSetup?.()} disabled={busy}>Cancel setup</Button>
+            )}
           </div>
         </section>
       )}
@@ -169,7 +211,7 @@ export function ProviderDetail(props: ProviderDetailProps) {
         <ToolList toolkits={toolkits} writePolicy={props.writePolicy} onSetApproval={props.onSetApproval} />
       )}
 
-      {p.method === 'oauth2' && p.configured && canConnect && (
+      {(p.method === 'oauth2' || registered) && p.configured && canConnect && (
         <section className="rounded-xl border border-border/70">
           <button
             type="button"
@@ -179,7 +221,7 @@ export function ProviderDetail(props: ProviderDetailProps) {
           >
             <KeyRound size={14} className="shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1">
-              <span className="block text-xs font-medium text-foreground">Use your own OAuth app</span>
+              <span className="block text-xs font-medium text-foreground">{registered ? 'OAuth apps' : 'Use your own OAuth app'}</span>
               <span className="block text-[11px] text-muted-foreground">
                 Advanced. Connect through an app you registered with {p.displayName}.
               </span>
@@ -203,12 +245,25 @@ export function ProviderDetail(props: ProviderDetailProps) {
 // ── Connect ─────────────────────────────────────────────────
 
 /** The one connect flow that fits this provider: OAuth sign-in, own-app setup, or paste-a-key. */
-function ConnectPanel(props: ProviderDetailProps) {
+export function ConnectPanel(props: ProviderDetailProps) {
   const { provider: p, toolkits, busy } = props;
+  const meta = connectorMeta(p.id);
   const again = props.connections.length > 0;
+  const hosted = p.method === 'mcp';
+  const authKind = p.mcp?.authKind ?? 'oauth';
+  const endpointReady = connectorEndpointReady(p.mcp?.endpointConfig, props.endpointSelection);
+
+  if (hosted && authKind === 'none') {
+    return <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">{p.displayName} does not require an account or a token.</p>
+      <Button size="sm" onClick={() => props.onConnectDirect()} disabled={busy || !endpointReady || props.connectDisabled} className="text-xs font-semibold">
+        <Plus size={14} /> {again ? 'Reconnect' : `Connect ${p.displayName}`}
+      </Button>
+    </div>;
+  }
 
   // OAuth with no bundled client: registering your own app IS the connect flow.
-  if (p.method === 'oauth2' && !p.configured) {
+  if ((p.method === 'oauth2' || isRegisteredMcp(p)) && !p.configured) {
     return (
       <div className="space-y-3">
         <p className="text-xs leading-normal text-foreground/90">
@@ -220,11 +275,20 @@ function ConnectPanel(props: ProviderDetailProps) {
     );
   }
 
-  if (p.method === 'oauth2') {
-    const multi = toolkits.length > 1;
+  if (p.method === 'oauth2' || (hosted && authKind === 'oauth')) {
+    const multi = !hosted && toolkits.length > 1;
     const selected = props.selectedServices;
     return (
       <div className="space-y-4">
+        {hosted && (meta.setup?.length || meta.docsUrl) && <div className="space-y-2 text-xs text-muted-foreground">
+          {meta.setup && <ol className="list-decimal space-y-1 pl-4">{meta.setup.map(step => <li key={step}>{step}</li>)}</ol>}
+          {meta.docsUrl && <a href={meta.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">Setup guide <ExternalLink size={11} /></a>}
+        </div>}
+        {hosted && again && (
+          <p className="text-xs leading-normal text-foreground/90">
+            Sign in to reconnect {p.displayName} and restore access to its tools. Your agent selections stay in place.
+          </p>
+        )}
         {multi && (
           <div className="space-y-2">
             <p className="text-[11px] font-medium text-foreground">Services to grant</p>
@@ -249,10 +313,10 @@ function ConnectPanel(props: ProviderDetailProps) {
           <Button
             size="sm"
             onClick={() => props.onConnectOAuth()}
-            disabled={busy || (multi && selected.length === 0)}
+            disabled={busy || !endpointReady || props.connectDisabled || (multi && selected.length === 0)}
             className="text-xs font-semibold"
           >
-            <ExternalLink size={13} /> {again ? 'Sign in to another account' : `Connect ${p.displayName}`}
+            <ExternalLink size={13} /> {again ? hosted ? 'Sign in to reconnect' : 'Sign in to another account' : `Connect ${p.displayName}`}
           </Button>
           <span className="text-[11px] text-muted-foreground">
             Opens {p.displayName} to approve access, then brings you back here.
@@ -263,13 +327,14 @@ function ConnectPanel(props: ProviderDetailProps) {
   }
 
   // Paste-a-key providers (API key or custom credentials).
-  const meta = connectorMeta(p.id);
-  const fields = p.credentialFields ?? ['apiKey'];
+  const fields = hosted ? ['token'] : p.credentialFields ?? ['apiKey'];
+  const fieldLabel = (field: string) => hosted && field === 'token' ? p.mcp?.credentialLabel ?? 'Connection token' : prettyField(field);
   const filled = fields.every((f) => (props.creds[f] ?? '').trim().length > 0);
-  const hasHelp = (meta.setup?.length ?? 0) > 0 || !!meta.docsUrl;
+  const docsUrl = p.mcp?.helpUrl ?? meta.docsUrl;
+  const hasHelp = (meta.setup?.length ?? 0) > 0 || !!docsUrl;
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (filled && !busy) props.onConnectDirect();
+    if (filled && !busy && endpointReady && !props.connectDisabled) props.onConnectDirect();
   };
 
   return (
@@ -283,14 +348,14 @@ function ConnectPanel(props: ProviderDetailProps) {
               ))}
             </ol>
           )}
-          {meta.docsUrl && (
+          {docsUrl && (
             <a
-              href={meta.docsUrl}
+              href={docsUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
             >
-              Get your {p.displayName} {p.method === 'api_key' ? 'API key' : 'credentials'}
+              Get your {p.displayName} {hosted ? 'token' : p.method === 'api_key' ? 'API key' : 'credentials'}
               <ExternalLink size={11} />
             </a>
           )}
@@ -303,7 +368,7 @@ function ConnectPanel(props: ProviderDetailProps) {
               htmlFor={`cred-${p.id}-${f}`}
               className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
             >
-              {prettyField(f)}
+              {fieldLabel(f)}
             </label>
             <Input
               id={`cred-${p.id}-${f}`}
@@ -311,24 +376,23 @@ function ConnectPanel(props: ProviderDetailProps) {
               autoComplete="off"
               value={props.creds[f] ?? ''}
               onChange={(e) => props.onCredChange(f, e.target.value)}
-              placeholder={prettyField(f)}
+              placeholder={fieldLabel(f)}
               className="h-8 rounded-lg font-mono text-xs"
             />
           </div>
         ))}
       </div>
       <p className="text-[11px] leading-normal text-muted-foreground">
-        Stored sealed in your home (<code className="rounded bg-muted px-1">.config/connectors</code>), never in the
-        repo and never shown to the model.
+        Your credentials are stored encrypted and never shown to agents.
       </p>
-      <Button type="submit" size="sm" disabled={busy || !filled} className="text-xs font-semibold">
-        <Plus size={14} /> Connect {p.displayName}
+      <Button type="submit" size="sm" disabled={busy || !filled || !endpointReady || props.connectDisabled} className="text-xs font-semibold">
+        <Plus size={14} /> {hosted && again ? 'Update token' : `Connect ${p.displayName}`}
       </Button>
     </form>
   );
 }
 
-function Byo(props: ProviderDetailProps) {
+export function Byo(props: ProviderDetailProps) {
   return (
     <ByoPanel
       provider={props.provider}
@@ -343,6 +407,8 @@ function Byo(props: ProviderDetailProps) {
       onConnect={(id) => props.onConnectOAuth(id)}
       onSetDefault={props.onByoSetDefault}
       onDelete={props.onByoDelete}
+      connectDisabled={props.connectDisabled || !connectorEndpointReady(props.provider.mcp?.endpointConfig, props.endpointSelection)}
+      usedAuthConfigIds={props.usedAuthConfigIds}
     />
   );
 }
@@ -356,6 +422,9 @@ function AccountRow({
   result,
   onTest,
   onDisconnect,
+  onReconnect,
+  needsReconnect,
+  reconnectLabel,
 }: {
   connection: Connection;
   busy: boolean;
@@ -363,6 +432,9 @@ function AccountRow({
   result?: TestResult;
   onTest: () => void;
   onDisconnect: () => void;
+  onReconnect?: () => void;
+  needsReconnect: boolean;
+  reconnectLabel: string;
 }) {
   const scopes = c.scopes.length;
   return (
@@ -372,7 +444,7 @@ function AccountRow({
       <div className="min-w-0 flex-1 basis-48">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium text-foreground">{connectionIdentity(c)}</span>
-          <Chip tone={c.status === 'active' ? 'ok' : 'warn'}>{c.status}</Chip>
+          <Chip tone={c.status === 'active' && !needsReconnect ? 'ok' : 'warn'}>{needsReconnect ? reconnectLabel : c.status}</Chip>
         </div>
         {(scopes > 0 || result) && (
           <p className="truncate text-[11px] text-muted-foreground">
@@ -387,6 +459,11 @@ function AccountRow({
         )}
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1">
+        {onReconnect && (
+          <Button variant="ghost" size="xs" onClick={onReconnect} disabled={busy} className="text-xs">
+            <ExternalLink size={12} /> Reconnect
+          </Button>
+        )}
         <Button variant="ghost" size="xs" onClick={onTest} disabled={busy || testing} className="text-xs">
           {testing ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
           Test
@@ -412,7 +489,7 @@ function AccountRow({
  * carry an "Ask first" switch: on pauses each call for approval, off lets it run
  * on the standing intent of having connected.
  */
-function ToolList({
+export function ToolList({
   toolkits,
   writePolicy,
   onSetApproval,
@@ -458,8 +535,8 @@ function ToolList({
         What agents can do
       </GroupHeading>
       <p className="text-[11px] leading-normal text-muted-foreground">
-        Reads always run. Reversible writes run on their own once connected. Sends, posts, and deletes wait for your
-        approval. Switch <span className="font-medium text-foreground/80">Ask first</span> on or off for any write.
+        Review available tools and choose which writes need your approval. Switch{' '}
+        <span className="font-medium text-foreground/80">Ask first</span> on or off for any write.
       </p>
       <div className="overflow-hidden rounded-xl border border-border bg-card/20">
         {groups.map(({ toolkit: t, actions }) => (

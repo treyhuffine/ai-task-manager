@@ -1,0 +1,59 @@
+# Third-wave hosted provider evidence
+
+Reviewed September 28, 2026. This pass targets useful new connectors with official remote servers that accept independent MCP clients. Historical native tool compatibility is not a requirement. No vendor client was registered, no account was authorized, and no account data or MCP tool was accessed during this research.
+
+The selected additions are Fastmail, Fathom, Otter, Read AI, Miro, Craft, Mem, Reclaim, Wrike and TickTick. Nine use browser OAuth. Wrike uses its documented permanent-token option because its public metadata does not advertise dynamic client registration. Intercom is not selected in this batch.
+
+## Selected endpoints and eligibility
+
+| Connector | Exact endpoint and auth | Scope, plan and setup conditions | Primary evidence |
+| --- | --- | --- | --- |
+| Fastmail | `https://api.fastmail.com/mcp`, default OAuth | Any client supporting external MCP servers is eligible. Browser consent separates read, write and send permissions for mail, contacts and calendars. Attachments are not available through MCP. Use high default mutation risk because the server can send mail and change calendars. No fixed plan eligibility claim is made. | [Setup and permissions](https://www.fastmail.help/hc/en-us/articles/15869557281295-Connecting-AI-tools-via-Fastmail-s-MCP-server) |
+| Fathom | `https://api.fathom.ai/mcp`, default OAuth | Vendor explicitly supports other MCP-compatible tools. Access is limited to meetings already visible to the user. Current integration and pricing pages advertise availability on every plan. Meeting summaries, transcripts and action items provide useful task context. | [Generic-client guide](https://help.fathom.video/en/articles/11497793), [plan availability](https://www.fathom.ai/integrations/claude) |
+| Otter | `https://mcp.otter.ai/mcp`, default OAuth | Official setup includes third-party tools and custom JSON configuration. Profile and conversation read scopes. Conversations must already be available to the user. Plan documentation conflicts, so setup copy says access follows the account's plan rather than promising a particular tier. | [Custom clients and permissions](https://help.otter.ai/hc/en-us/articles/35287607569687-Otter-MCP-Server), [current pricing](https://otter.ai/pricing), [older Enterprise statement](https://help.otter.ai/hc/en-us/articles/35234602608919-Advanced-Otter-AI-Chat-Modes) |
+| Read AI | `https://api.read.ai/mcp`, default OAuth | Other MCP-compatible clients explicitly supported. Open beta available on all plans. Accounts in a workspace require Downloads enabled under Reports & Sharing. OAuth is browser-based, access tokens last 10 minutes, and refresh tokens rotate with a short grace period. Vendor reports occasional SAML return-flow issues. | [MCP endpoint and clients](https://support.read.ai/hc/en-us/articles/49381158409491-MCP-Server), [prerequisites and auth limitations](https://support.read.ai/hc/en-us/articles/49379985941523-Read-AI-API-and-MCP-Overview) |
+| Miro | `https://mcp.miro.com/`, OAuth with `client_secret_post` | Any remote OAuth-capable MCP client is eligible. All Miro plans are supported. Consent selects one team and existing board permissions apply. Enterprise admins must enable MCP and may allowlist clients, including custom clients. Standard mutation policy is sufficient for documented board operations. | [Official overview](https://developers.miro.com/docs/miro-mcp), [generic clients](https://developers.miro.com/docs/miro-mcp-server-frequently-asked-questions), [team and admin setup](https://help.miro.com/hc/en-us/articles/31625301583890-How-to-enable-Miro-s-MCP-Server-user-guide) |
+| Craft | `https://mcp.craft.do/my/mcp`, default OAuth | Published custom-client configuration uses this fixed URL, with browser consent selecting one Craft space. Reading and updating documents are documented. Some guide pages discuss the AI client's paid tier, which must not be mistaken for a Craft plan requirement. No fixed Craft tier claim is made. | [Generic client guide](https://www.craft.do/es/imagine/guide/mcp), [custom OpenCode setup](https://www.craft.do/imagine/guide/mcp/opencode_mcp), [space consent](https://www.craft.do/imagine/guide/mcp/chatgpt) |
+| Mem | `https://mcp.mem.ai/mcp`, default OAuth | Vendor publishes manual custom-connector and independent CLI setup. Content read/write grants cover notes and collections in the authorized account. Usage quotas apply. No fixed plan eligibility claim is made. | [MCP overview](https://docs.mem.ai/mcp/overview), [setup](https://docs.mem.ai/mcp/setup) |
+| Reclaim | `https://mcp.reclaim.ai/`, OAuth with `client_secret_post` | Vendor invites any MCP-compatible client. This setup applies to Reclaim 2.0. Users still on 1.0 must obtain the upgrade. Documented MCP changes enter Preview Mode for review in Reclaim. Use high mutation risk because the scheduling surface can affect other people. | [Reclaim 2.0 FAQ and MCP setup](https://help.reclaim.ai/en/articles/15280604-reclaim-2-0-faq) |
+| Wrike | `https://mcp.wrike.com/v2`, bearer permanent access token | Generic client guide explicitly offers PAT when DCR is unavailable. Token represents its generating user and inherits that user's Wrike permissions. Create it under Apps & Integrations > API > an app > Permanent access token, then save the app. Remote v2 uses Streamable HTTP. | [Generic-client setup](https://developers.wrike.com/docs/setup-other-mcp-clients-with-wrike-mcp), [PAT setup](https://developers.wrike.com/docs/mcp-legacy-authentication-pat), [server overview](https://developers.wrike.com/docs/wrike-mcp-server-overview) |
+| TickTick | `https://mcp.ticktick.com/`, OAuth with authorization-code-only registration | Official setup supports custom clients including Cursor, VS Code and TRAE, plus independent CLI configuration. Streamable HTTP required. Tasks, lists, sections, assignment, movement, habits and focus records documented. No particular TickTick plan is required in the setup guide, and no universal quota promise is made. | [Official setup and capabilities](https://help.ticktick.com/articles/7438129581631995904) |
+
+The reviewed setup guides prescribe these fixed hosted URLs, not a user-selected regional variant. This does not make a data-residency claim. Miro's documentation directs residency questions to the customer's account team.
+
+## Public SDK discovery
+
+The [GET-only discovery script](discover-third-wave.mjs) uses the installed SDK's `discoverOAuthServerInfo`. It rejects non-GET requests and saves endpoint status, request URLs, metadata and capture timestamps in [third-wave-discovery.json](third-wave-discovery.json). Public metadata was successfully discovered for all 11 candidates. A 401 or 405 from an unauthenticated endpoint is expected and does not establish a connection failure.
+
+Capture SHA-256: `90aa71c6d4b5dfcfa2664e6daade6801896226a50696a57c60496f308ae7bf45`. The separately fetched public TickTick article HTML has SHA-256 `d3919b5d2c2d8d99abe651d741449c3c940c806d8068c08964096e79c6ee7131`. Its embedded article reports modification at `2026-09-26T16:14:40.739Z`.
+
+All selected OAuth providers advertise S256 and authorization-code grants. TickTick advertises only authorization code, while the other eight also advertise refresh grants. Defaults remain public `none` token authentication unless noted. Scope entries below come from protected-resource metadata, not the authorization server's potentially broader API scope catalog.
+
+| Connector | Registration endpoint | Resource scopes | Catalog declaration |
+| --- | --- | --- | --- |
+| Fastmail | `https://api.fastmail.com/oauth/register` | `https://www.fastmail.com/dev/mcp offline_access` | Default OAuth. Token endpoint is `/oauth/refresh`, including code exchange. |
+| Fathom | `https://api.fathom.ai/mcp/oauth/register` | `mcp` | Default OAuth. Authorization endpoint is on `fathom.video`. |
+| Otter | `https://otter.ai/oauth/register` | `profile:read conversations:read` | Default OAuth. Protected resource is the parent `https://mcp.otter.ai/`. |
+| Read AI | `https://api.read.ai/oauth/register` | `openid profile email offline_access offline mcp:execute meeting:read` | Default OAuth. Authorization issuer is `https://authn.read.ai/`. |
+| Miro | `https://mcp.miro.com/register` | `boards:read boards:write openid email` | OAuth `tokenEndpointAuthMethod: 'client_secret_post'`. |
+| Craft | `https://mcp.craft.do/my/auth/register` | No resource scope list published | Default OAuth. Issuer has the `/my/auth` path, discovered by the SDK. |
+| Mem | `https://api.mem.ai/oauth2/register` | `content.read content.write` | Default OAuth. Do not add broader profile scopes just because the authorization server advertises them. |
+| Reclaim | `https://api.app.reclaim.ai/oauth2/register` | `read write mcp` | OAuth `tokenEndpointAuthMethod: 'client_secret_post'`. |
+| Wrike | Not published | `wsReadWrite` | Bearer PAT. Do not begin DCR or infer a registration URL. |
+| TickTick | `https://api.ticktick.com/oauth/register` | `tasks:write tasks:read` | OAuth `grantTypes: ['authorization_code']`. Public `none` is supported. |
+
+## Caveats resolved or recorded
+
+**Otter plan conflict.** The live pricing page places MCP under Basic, with higher tiers inheriting Basic. The Advanced AI Chat Modes help article still says Enterprise. The MCP setup article imposes no particular plan and explicitly documents third-party clients. Adding the connector with neutral account-access copy is supported by these sources. The implementation does not promise universal eligibility or enforce an inferred plan gate.
+
+**Wrike OAuth.** The current generic-client guide says clients requiring DCR should use a permanent token. Its general overview explains that custom interactive OAuth needs an administrator-created app. The older help-center statement that static tokens are unavailable conflicts with the current developer instructions. We follow the specific current PAT guide for this individual local-first connection. A future turnkey OAuth option would require registered-app support or vendor DCR, not guessing an endpoint.
+
+**Intercom region.** Public OAuth discovery works at `https://mcp.intercom.com/mcp`, but the search-index version of the vendor MCP guide says US-only, while the earlier audit recorded distinct US/EU service URLs and no Australia support. This pass leaves Intercom out, retaining the region-selection blocker instead of silently selecting a US account endpoint. [Official MCP guide](https://developers.intercom.com/docs/guides/mcp)
+
+**TickTick eligibility resolved.** The web text reader returned an empty article, but a direct public GET exposed the official article in the page's `__NEXT_DATA__`. The September 26 update documents custom clients with OAuth and an optional bearer token. Metadata advertises authorization-code grants only, so registration follows that declaration using the existing ClickUp exception. The prose mentions automatic refresh, which does not justify requesting an unadvertised registration grant. [Official article](https://help.ticktick.com/articles/7438129581631995904)
+
+## Verification boundary
+
+Miro and Reclaim have been added to the existing offline confidential-registration SDK test matrix alongside Make and Supabase. Fixtures read the selected catalog profile and cover registration, encrypted client-secret storage, PKCE, callback exchange and refresh. They verify secrets stay out of consent URLs and public metadata. TickTick joins the ClickUp SDK fixture that rejects unsupported refresh-grant registration. These synthetic tests verify our protocol implementation against captured metadata, not vendor acceptance of a live user connection.
+
+Live sign-in, actual account entitlement and authenticated tool behavior remain unverified. No additional platform auth feature is needed for the selected ten providers.

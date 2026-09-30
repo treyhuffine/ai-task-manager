@@ -1,5 +1,5 @@
 /**
- * OAuth provider-specific escape hatches: `scopeSeparator` (Slack wants comma-delimited scopes on
+ * OAuth provider-specific escape hatches: `scopeSeparator` (some APIs want comma-delimited scopes on
  * the authorize URL) and `mapTokenResponse` (remap a non-standard token-endpoint shape — nested or
  * renamed access_token / scope). Both keep per-provider OAuth quirks in config, not a subclass.
  */
@@ -11,16 +11,19 @@ import { createRedactor } from '../core/redactor';
 import { defineProvider, defineToolkit, httpAction } from '../core/authoring';
 import { oauth2 } from '../auth/oauth2';
 import { staticAuthConfigs } from '../auth-configs';
-import { registerSlack } from '../providers/slack';
 import { inMemoryStore, plaintextSecretBox, fakeHttp } from '../testing';
 
 const RU = 'http://127.0.0.1/cb';
 
 describe('oauth2 scopeSeparator', () => {
-  it('Slack builds the authorize URL with COMMA-separated scopes', async () => {
+  it('uses a configured comma scope separator in the authorize URL', async () => {
     const http = fakeHttp(async () => ({ json: {} }));
     const registry = createRegistry();
-    registerSlack(registry, { fetch: http.fetch });
+    const provider = defineProvider({
+      id: 'comma', displayName: 'Comma', baseUrl: 'https://comma.test',
+      auth: oauth2({ authorizationUrl: 'https://comma.test/auth', tokenUrl: 'https://comma.test/token', scopeSeparator: ',', fetch: http.fetch }),
+    });
+    registry.addBundle({ provider, toolkits: [] });
     const store = inMemoryStore();
     const runtime = createConnectorRuntime({
       registry,
@@ -28,12 +31,12 @@ describe('oauth2 scopeSeparator', () => {
       authRequests: store,
       secretBox: plaintextSecretBox(),
       authConfigs: staticAuthConfigs([
-        { id: 'slack', providerId: 'slack', scheme: 'oauth2', scope: 'global', oauth: { clientId: 'c', redirectUri: RU }, clientSecret: 's', status: 'active' },
+        { id: 'comma', providerId: 'comma', scheme: 'oauth2', scope: 'global', oauth: { clientId: 'c', redirectUri: RU }, clientSecret: 's', status: 'active' },
       ]),
       redactor: createRedactor(),
       fetch: http.fetch,
     });
-    const begin = await runtime.beginAuth('slack', { scopes: ['chat:write', 'channels:read'] });
+    const begin = await runtime.beginAuth('comma', { scopes: ['chat:write', 'channels:read'] });
     const scope = new URL(begin.authorizationUrl).searchParams.get('scope');
     expect(scope).toBe('chat:write,channels:read'); // comma, not space
   });

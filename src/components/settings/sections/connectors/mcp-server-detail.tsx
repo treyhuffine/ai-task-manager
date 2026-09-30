@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { BackLink, Chip, DetailHeader, GroupHeading, McpLogo, type Tone } from './parts';
 import type { McpForm, McpServerEntry, McpToolOverride } from './types';
+import { CapabilityReview } from './capability-review';
 
 const AUTH_LABEL: Record<McpServerEntry['auth']['kind'], string> = {
   none: 'No auth',
@@ -39,6 +40,7 @@ export function McpServerDetail({
   onToggleEnabled,
   onRemove,
   onToolOverride,
+  onReviewCapabilities,
 }: {
   server: McpServerEntry;
   busy: boolean;
@@ -48,6 +50,7 @@ export function McpServerDetail({
   onToggleEnabled: () => void;
   onRemove: () => void;
   onToolOverride: (toolName: string, patch: McpToolOverride) => void;
+  onReviewCapabilities?: (revision: string) => void;
 }) {
   const status = mcpTone(s);
   const tools = s.tools ?? [];
@@ -88,6 +91,7 @@ export function McpServerDetail({
             {s.lastError}
           </p>
         )}
+        {s.lastCheckedAt && <p className="text-[11px] text-muted-foreground">Last checked <time dateTime={s.lastCheckedAt} suppressHydrationWarning>{new Date(s.lastCheckedAt).toLocaleString()}</time></p>}
         <div className="flex flex-wrap items-center gap-1.5">
           {needsSignIn && (
             <Button size="xs" onClick={onAuthorize} disabled={busy} className="text-xs font-semibold">
@@ -108,6 +112,8 @@ export function McpServerDetail({
           </Button>
         </div>
       </div>
+
+      <CapabilityReview changes={s.capabilityChanges} busy={busy} onReview={onReviewCapabilities} />
 
       {tools.length > 0 && (
         <section className="space-y-2">

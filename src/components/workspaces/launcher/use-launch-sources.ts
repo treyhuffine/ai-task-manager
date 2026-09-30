@@ -16,6 +16,7 @@ import type { LaunchSourceItem, LaunchSourceKind } from '@/lib/executions/launch
 import type { ExternalAgentDiscovery } from '@/lib/import/types';
 import type { ConnectorTaskResult } from '@/lib/connectors/task-sources';
 import { BASE_FETCH_LIMIT } from './launch-paging';
+import { connectorTaskGroups, connectorProviderScopes } from './launch-connector-sources';
 
 /** Shared with the settings Imports panel so the two never double-scan. */
 const DISCOVERY_KEY = ['imports', 'external-agents'] as const;
@@ -343,57 +344,11 @@ export function useLaunchSources({
       })),
     });
 
-    // One group per connected provider, not one lumped "Connected tools".
-    // Separate groups are what let a specific provider be reachable at all:
-    // merged, Todoist sat below every local task and fell under the fold.
-    const connectorItems = connectorTasks.data?.items ?? [];
-    const connectorFailures = connectorTasks.data?.failures ?? [];
-    const connectorSources = connectorTasks.data?.sources ?? [];
-    const failureFor = new Map(connectorFailures.map((f) => [f.toolkitId, f.error]));
-
-    if (connectorSources.length === 0 && connectorTasks.isLoading) {
-      groups.push({
-        id: 'connector:loading',
-        kind: 'connector',
-        label: 'Connected tools',
-        isLoading: true,
-        isFetching: true,
-        error: null,
-        items: [],
-      });
-    }
-
-    for (const source of connectorSources) {
-      const rows = connectorItems.filter((t) => t.toolkitId === source.toolkitId);
-      const failure = failureFor.get(source.toolkitId) ?? null;
-      // A connected provider keeps its group even when it matches nothing, so
-      // its scope chip always has somewhere to land.
-      groups.push({
-        id: `connector:${source.toolkitId}`,
-        kind: 'connector',
-        label: source.providerLabel,
-        toolkitId: source.toolkitId,
-        isLoading: connectorTasks.isLoading,
-        isFetching: connectorTasks.isFetching,
-        // Reported per provider by the server, which measures it before the
-        // query filter runs — `rows.length` here is post-filter and would read
-        // "that's all of them" on any narrow search.
-        truncated: source.truncated,
-        error: errorMessage(connectorTasks.error) ?? failure,
-        // Already ranked server-side (before truncation, so the most urgent
-        // survive the per-provider limit) — preserved as-is here.
-        items: rows.map((t) => ({
-          kind: 'connector' as const,
-          key: t.key,
-          title: t.title,
-          subtitle: t.subtitle,
-          body: t.body,
-          providerLabel: t.providerLabel,
-          toolkitId: t.toolkitId,
-          due: t.due,
-        })),
-      });
-    }
+    groups.push(...connectorTaskGroups(connectorTasks.data, {
+      isLoading: connectorTasks.isLoading,
+      isFetching: connectorTasks.isFetching,
+      error: errorMessage(connectorTasks.error),
+    }));
 
     {
       const searching = trimmed.length >= 2;
@@ -532,7 +487,7 @@ export function useLaunchSources({
         .filter((g) => g.isLoading || g.error || g.items.length > 0 || g.keepWhenEmpty)
         // Stable, so connectors keep their discovered order within their rank.
         .sort((a, b) => rank(a.kind) - rank(b.kind)),
-      connectorSources,
+      connectorSources: connectorProviderScopes(connectorTasks.data),
       supportedSources: connectorTasks.data?.supported ?? [],
     };
   }, [
@@ -540,7 +495,7 @@ export function useLaunchSources({
     trimmed,
     workspaceCwd,
     includeArchivedChats,
-    taskLimit, chatLimit, connectorLimit,
+    taskLimit, chatLimit,
     prs.data, prs.isLoading, prs.isFetching, prs.error,
     issues.data, issues.isLoading, issues.isFetching, issues.error,
     branches.data, branches.isLoading, branches.isFetching, branches.error,

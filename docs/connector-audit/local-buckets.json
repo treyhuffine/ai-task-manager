@@ -1,0 +1,550 @@
+{
+  "10x-genomics-cloud": {
+    "bucket": "Health/science",
+    "inferred": true,
+    "rationale": "The Genomics title identifies the scientific domain despite a minimal description."
+  },
+  "ableton-knowledge": {
+    "bucket": "Design/media",
+    "inferred": true
+  },
+  "affinity-106b90": {
+    "bucket": "Design/media",
+    "inferred": true,
+    "rationale": "The local listing describes creative work and automating repetitive craft tasks, unlike the separate remote Affinity listing."
+  },
+  "airbnb-search-listings": {
+    "bucket": "Commerce/travel/local",
+    "inferred": true
+  },
+  "airfield-directory": {
+    "bucket": "Commerce/travel/local",
+    "inferred": true,
+    "rationale": "The source describes airfield reports, fees, and aviation data for general aviation pilots. This is the sole remote entry with no official category."
+  },
+  "airmail": {
+    "bucket": "Communication/calendar",
+    "inferred": true
+  },
+  "android-mcp": {
+    "bucket": "Automation/platform",
+    "inferred": true
+  },
+  "apify": {
+    "bucket": "Data/analytics",
+    "inferred": true
+  },
+  "autodesk-fusion": {
+    "bucket": "Design/media",
+    "inferred": true
+  },
+  "automox": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "avanquest-pdf-api-extension": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "aws-api-mcp-server": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "azure-mcp-server": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "azure-mcp-server-76eac1": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "azure-mcp-server-7eab26": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "b12-website-generator": {
+    "bucket": "Design/media",
+    "inferred": true
+  },
+  "backlog": {
+    "bucket": "Tasks/projects",
+    "inferred": true,
+    "rationale": "Inferred from the Backlog product title. The source description only says MCP Server."
+  },
+  "baremetrics": {
+    "bucket": "Data/analytics",
+    "inferred": true
+  },
+  "black-duck-security-scanner": {
+    "bucket": "Legal/security/compliance",
+    "inferred": true
+  },
+  "blender": {
+    "bucket": "Design/media",
+    "inferred": true
+  },
+  "blockchainquery": {
+    "bucket": "Finance/accounting",
+    "inferred": true,
+    "rationale": "The source describes balances, transactions, tokens, staking, and other blockchain financial data."
+  },
+  "blueconic": {
+    "bucket": "Sales/marketing/support",
+    "inferred": true
+  },
+  "brave-applescript": {
+    "bucket": "Automation/platform",
+    "inferred": true
+  },
+  "busycal": {
+    "bucket": "Communication/calendar",
+    "inferred": true
+  },
+  "celayix": {
+    "bucket": "Tasks/projects",
+    "inferred": true,
+    "rationale": "The source describes workforce shifts, qualifications, time off, and customer/site work scheduling."
+  },
+  "ckan-mcp-server": {
+    "bucket": "Data/analytics",
+    "inferred": true
+  },
+  "clickup-2f35af": {
+    "bucket": "Tasks/projects",
+    "inferred": true
+  },
+  "cloudglue": {
+    "bucket": "Design/media",
+    "inferred": true
+  },
+  "cloudinary-asset-management": {
+    "bucket": "Design/media",
+    "inferred": true,
+    "rationale": "The source title explicitly identifies creative asset management."
+  },
+  "commerce-layer-metrics": {
+    "bucket": "Data/analytics",
+    "inferred": true,
+    "rationale": "Metrics in the title indicates analytics for commerce."
+  },
+  "control-chrome": {
+    "bucket": "Automation/platform",
+    "inferred": true
+  },
+  "control-your-mac": {
+    "bucket": "Automation/platform",
+    "inferred": true
+  },
+  "conviso-mcp-server": {
+    "bucket": "Legal/security/compliance",
+    "inferred": true
+  },
+  "coupler-io-578a0a": {
+    "bucket": "Data/analytics",
+    "inferred": true
+  },
+  "cucumber-studio-mcp": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "dash": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "defense-com-threat-analysis": {
+    "bucket": "Legal/security/compliance",
+    "inferred": true
+  },
+  "denodo-mcp-connector": {
+    "bucket": "Data/analytics",
+    "inferred": true
+  },
+  "desktop-commander": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "docling-mcp": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "drafts": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "droplinked": {
+    "bucket": "Commerce/travel/local",
+    "inferred": true
+  },
+  "dynatrace-mcp-server": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "enrichr-mcp-server": {
+    "bucket": "Health/science",
+    "inferred": true
+  },
+  "fantastical": {
+    "bucket": "Communication/calendar",
+    "inferred": true
+  },
+  "filesystem": {
+    "bucket": "Automation/platform",
+    "inferred": true
+  },
+  "finance-toolkit": {
+    "bucket": "Finance/accounting",
+    "inferred": true
+  },
+  "firefox-control": {
+    "bucket": "Automation/platform",
+    "inferred": true
+  },
+  "flitiq-fmcsa-carrier-intelligence": {
+    "bucket": "Commerce/travel/local",
+    "inferred": true
+  },
+  "goplus-agentguard": {
+    "bucket": "Legal/security/compliance",
+    "inferred": true
+  },
+  "grafana-mcp-server": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "growthbook": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "harness-mcp-server": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "ipgeolocation-io-mcp-server": {
+    "bucket": "Data/analytics",
+    "inferred": true
+  },
+  "jaz-accounting": {
+    "bucket": "Finance/accounting",
+    "inferred": true,
+    "rationale": "The Accounting title and money-management description indicate accounting."
+  },
+  "kapture-browser-automation": {
+    "bucket": "Automation/platform",
+    "inferred": true
+  },
+  "karp-inspector-lite": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "kiteworks-mcp-server": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true,
+    "rationale": "The described tools operate on files, folders, and search. Security is a property of the service rather than the listed workflow."
+  },
+  "kubernetes-mcp-server": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "la-growth-machine": {
+    "bucket": "Sales/marketing/support",
+    "inferred": true
+  },
+  "lens-studio": {
+    "bucket": "Design/media",
+    "inferred": true
+  },
+  "lindo-ai": {
+    "bucket": "Design/media",
+    "inferred": true
+  },
+  "litmus-mcp": {
+    "bucket": "Automation/platform",
+    "inferred": true,
+    "rationale": "The source describes access to industrial edge devices."
+  },
+  "local-falcon-7832b1": {
+    "bucket": "Sales/marketing/support",
+    "inferred": true
+  },
+  "lumin-82219f": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "lyrenth": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "macos-mcp": {
+    "bucket": "Automation/platform",
+    "inferred": true
+  },
+  "mailtrap": {
+    "bucket": "Communication/calendar",
+    "inferred": true
+  },
+  "mcp-instana-server": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "mcp-memory": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "meetgeek": {
+    "bucket": "Communication/calendar",
+    "inferred": true
+  },
+  "metabase-unofficial-community": {
+    "bucket": "Data/analytics",
+    "inferred": true
+  },
+  "microsoft-clarity": {
+    "bucket": "Data/analytics",
+    "inferred": true,
+    "rationale": "Inferred as analytics from the Microsoft Clarity product title. The source description only names the integration."
+  },
+  "miggo": {
+    "bucket": "Legal/security/compliance",
+    "inferred": true
+  },
+  "minutes-conversation-memory": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "noteplan": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true,
+    "rationale": "The title identifies a notes and planning app. Its source description only names the NotePlan macOS integration."
+  },
+  "nutrient-dws": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "nutrient-pdf-editor": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "oilpriceapi-oil-gas-commodity-prices": {
+    "bucket": "Finance/accounting",
+    "inferred": true
+  },
+  "openreplay": {
+    "bucket": "Data/analytics",
+    "inferred": true
+  },
+  "openstaad-mcp-server": {
+    "bucket": "Design/media",
+    "inferred": true,
+    "rationale": "Inferred as engineering design tooling from the STAAD.Pro and OpenSTAAD product names in the source description."
+  },
+  "panos-mcp": {
+    "bucket": "Legal/security/compliance",
+    "inferred": true
+  },
+  "pasteapp": {
+    "bucket": "Automation/platform",
+    "inferred": true
+  },
+  "pathmode": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "pdf-tools": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "pdf-viewer-5f8ba9": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "perseus-vault-persistent-memory-for-claude": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "pophive-public-health-data": {
+    "bucket": "Health/science",
+    "inferred": true
+  },
+  "porkbun": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "powerpoint-by-anthropic": {
+    "bucket": "Design/media",
+    "inferred": true
+  },
+  "qase-test-management": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "quinbook": {
+    "bucket": "Commerce/travel/local",
+    "inferred": true
+  },
+  "rapid7-bulk-export": {
+    "bucket": "Legal/security/compliance",
+    "inferred": true
+  },
+  "ravendb": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "react-aria": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "react-spectrum-s2": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "read-and-send-imessages": {
+    "bucket": "Communication/calendar",
+    "inferred": true
+  },
+  "read-and-write-apple-notes": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "redacta": {
+    "bucket": "Legal/security/compliance",
+    "inferred": true
+  },
+  "reddit-mcp-buddy": {
+    "bucket": "Communication/calendar",
+    "inferred": true
+  },
+  "replicant-mcp": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "resolume-arena-mcp-server": {
+    "bucket": "Design/media",
+    "inferred": true
+  },
+  "resolume-wire-mcp-server": {
+    "bucket": "Design/media",
+    "inferred": true
+  },
+  "revolut-x": {
+    "bucket": "Finance/accounting",
+    "inferred": true
+  },
+  "rt-request-tracker": {
+    "bucket": "Sales/marketing/support",
+    "inferred": true
+  },
+  "saga-project-tracker-for-ai-agents": {
+    "bucket": "Tasks/projects",
+    "inferred": true
+  },
+  "sap-cap-mcp-server": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "sap-fiori-mcp-server": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "sap-mdk-mcp-server": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "sapui5-mcp-server": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "scholar-sidekick": {
+    "bucket": "Health/science",
+    "inferred": true,
+    "rationale": "The source describes scholarly identifiers, citations, retraction checks, and research export formats."
+  },
+  "shadcn-ui": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "signwell": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true,
+    "rationale": "The source describes document and template signature workflows."
+  },
+  "sketch": {
+    "bucket": "Design/media",
+    "inferred": true
+  },
+  "smartbear-mcp": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "snyk-security": {
+    "bucket": "Legal/security/compliance",
+    "inferred": true
+  },
+  "socket": {
+    "bucket": "Legal/security/compliance",
+    "inferred": true
+  },
+  "spark": {
+    "bucket": "Communication/calendar",
+    "inferred": true
+  },
+  "stackql-mcp-server": {
+    "bucket": "Developer tools/operations",
+    "inferred": true
+  },
+  "stats-compass": {
+    "bucket": "Data/analytics",
+    "inferred": true
+  },
+  "tableau": {
+    "bucket": "Data/analytics",
+    "inferred": true
+  },
+  "things-applescript": {
+    "bucket": "Tasks/projects",
+    "inferred": true
+  },
+  "tomba-mcp-server": {
+    "bucket": "Sales/marketing/support",
+    "inferred": true
+  },
+  "tooluniverse": {
+    "bucket": "Health/science",
+    "inferred": true
+  },
+  "ultipa": {
+    "bucket": "Data/analytics",
+    "inferred": true
+  },
+  "vendr-software-pricing-tools": {
+    "bucket": "Commerce/travel/local",
+    "inferred": true
+  },
+  "vibe-prospecting": {
+    "bucket": "Sales/marketing/support",
+    "inferred": true
+  },
+  "vybit-notifications": {
+    "bucket": "Communication/calendar",
+    "inferred": true
+  },
+  "website-auditor": {
+    "bucket": "Sales/marketing/support",
+    "inferred": true
+  },
+  "windows-mcp": {
+    "bucket": "Automation/platform",
+    "inferred": true
+  },
+  "word-by-anthropic": {
+    "bucket": "Notes/documents/knowledge",
+    "inferred": true
+  },
+  "zoho-analytics": {
+    "bucket": "Data/analytics",
+    "inferred": true
+  },
+  "zscaler-mcp-server": {
+    "bucket": "Legal/security/compliance",
+    "inferred": true
+  }
+}

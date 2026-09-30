@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isConnectorError } from '@connectors/engine';
 import { getConnectorAdmin, getConnectorOwnerId } from '@/lib/connectors/runtime';
 import { withCompression } from '@/lib/api/compression';
+import { getHostedMcpProvider } from '@connectors/engine/providers';
+import { usesRegisteredOAuth } from '@/lib/connectors/hosted-oauth-config';
+import { getRegisteredMcpRedirectUrl, invalidateConnectorRuntime } from '@/lib/connectors/runtime';
 
 /**
  * Manage BYO ("use your own OAuth app") auth configs for a provider. These persist in the home
@@ -46,6 +49,12 @@ export async function POST(request: NextRequest) {
   };
   if (!body.providerId) return NextResponse.json({ error: 'providerId required' }, { status: 400 });
   try {
+    const hosted = getHostedMcpProvider(body.providerId);
+    if (usesRegisteredOAuth(hosted)) {
+      if (!body.oauth?.clientId?.trim() || !body.clientSecret?.trim()) throw new Error('Client ID and client secret are required.');
+      if (body.oauth.redirectUri !== getRegisteredMcpRedirectUrl(body.providerId)) throw new Error('Use the callback address shown in connector setup.');
+      if (body.baseUrl || body.defaultScopes?.length || body.allowedScopes?.length) throw new Error('This connector uses its official address and provider consent scopes.');
+    }
     const summary = await (await getConnectorAdmin()).addConfig({
       providerId: body.providerId,
       scheme: body.scheme ?? 'oauth2',
@@ -58,6 +67,7 @@ export async function POST(request: NextRequest) {
       ...(body.allowedScopes ? { allowedScopes: body.allowedScopes } : {}),
       ...(body.baseUrl ? { baseUrl: body.baseUrl } : {}),
     });
+    invalidateConnectorRuntime();
     return NextResponse.json({ config: summary });
   } catch (e) {
     return errorResponse(e);
@@ -69,6 +79,7 @@ export async function DELETE(request: NextRequest) {
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   try {
     await (await getConnectorAdmin()).removeConfig(id);
+    invalidateConnectorRuntime();
     return NextResponse.json({ ok: true });
   } catch (e) {
     return errorResponse(e);

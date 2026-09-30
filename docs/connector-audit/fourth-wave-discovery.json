@@ -1,0 +1,122 @@
+{
+  "checked_at": "2026-09-29T01:53:53.555Z",
+  "method": "GET-only MCP SDK OAuth discovery, no account authorization or registration",
+  "records": [
+    {
+      "id": "intercom_eu",
+      "endpoint": "https://mcp.eu.intercom.com/mcp",
+      "checked_at": "2026-09-29T01:53:52.441Z",
+      "requests": [
+        {
+          "url": "https://mcp.eu.intercom.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.eu.intercom.com/mcp"
+        },
+        {
+          "url": "https://mcp.eu.intercom.com/.well-known/oauth-protected-resource/mcp",
+          "status": 404,
+          "final_url": "https://mcp.eu.intercom.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://mcp.eu.intercom.com/.well-known/oauth-protected-resource",
+          "status": 404,
+          "final_url": "https://mcp.eu.intercom.com/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://mcp.eu.intercom.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.eu.intercom.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer realm=\"OAuth\", error=\"invalid_token\", error_description=\"Missing or invalid access token\"",
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.eu.intercom.com/",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.eu.intercom.com",
+          "authorization_endpoint": "https://mcp.eu.intercom.com/authorize",
+          "token_endpoint": "https://mcp.eu.intercom.com/token",
+          "registration_endpoint": "https://mcp.eu.intercom.com/register",
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+          ],
+          "revocation_endpoint": "https://mcp.eu.intercom.com/token",
+          "code_challenge_methods_supported": [
+            "S256"
+          ]
+        }
+      },
+      "sha256": "2ee477bdea4d05fdd1ed8f38317449bb17e87adb6fceb5f13f8a77f9e1d5ad36"
+    },
+    {
+      "id": "intercom_us",
+      "endpoint": "https://mcp.intercom.com/mcp",
+      "checked_at": "2026-09-29T01:53:52.423Z",
+      "requests": [
+        {
+          "url": "https://mcp.intercom.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.intercom.com/mcp"
+        },
+        {
+          "url": "https://mcp.intercom.com/.well-known/oauth-protected-resource/mcp",
+          "status": 404,
+          "final_url": "https://mcp.intercom.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://mcp.intercom.com/.well-known/oauth-protected-resource",
+          "status": 404,
+          "final_url": "https://mcp.intercom.com/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://mcp.intercom.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.intercom.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer realm=\"OAuth\", error=\"invalid_token\", error_description=\"Missing or invalid access token\"",
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.intercom.com/",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.intercom.com",
+          "authorization_endpoint": "https://mcp.intercom.com/authorize",
+          "token_endpoint": "https://mcp.intercom.com/token",
+          "registration_endpoint": "https://mcp.intercom.com/register",
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+          ],
+          "revocation_endpoint": "https://mcp.intercom.com/token",
+          "code_challenge_methods_supported": [
+            "S256"
+          ]
+        }
+      },
+      "sha256": "ac49505c9087996b2415aa7eacdf6d8ea7be0f8d0f9d16f944756981e253e23e"
+    }
+  ]
+}

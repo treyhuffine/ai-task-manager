@@ -1,5 +1,5 @@
 /**
- * Contrived smoke test — drives EVERY action of EVERY first-party provider through the real
+ * Contrived smoke test — drives every statically registered native action through the real
  * runtime against a mock HTTP backend. Proves internal correctness across the whole library
  * (every input schema is valid, every request builds, every output mapper survives plausible
  * data, the trust spine holds) without a single real credential. It does NOT prove we matched
@@ -87,8 +87,16 @@ const INPUT_OVERRIDES: Record<string, Record<string, unknown>> = {
   'gmail.send_email': { to: 'a@b.com', subject: 'x', body: 'x' },
   'gmail.create_draft': { to: 'a@b.com', subject: 'x', body: 'x' },
   'outlook_mail.send_mail': { to: ['a@b.com'], subject: 'x', content: 'x' },
-  // upload_media decodes `media` as base64 (a bare 'x' decodes to 0 bytes); give it real bytes.
-  'twitter.upload_media': { media: Buffer.from('hello').toString('base64'), media_type: 'image/png' },
+  'quickbooks.query': { query: 'SELECT * FROM Customer STARTPOSITION 1 MAXRESULTS 20' },
+  'quickbooks.list_invoices': {},
+  'quickbooks.list_customers': {},
+  'quickbooks.get_profit_and_loss': {},
+  'quickbooks.get_balance_sheet': {},
+  'quickbooks.get_cash_flow': {},
+  'quickbooks.get_trial_balance': {},
+  'quickbooks.get_general_ledger': {},
+  'quickbooks.get_aged_receivables': {},
+  'quickbooks.get_aged_payables': {},
 };
 
 // ── mock backend: a permissive "kitchen-sink" JSON response (plain object → redaction-safe) ──
@@ -140,41 +148,23 @@ function baseSink(): Record<string, unknown> {
   };
 }
 
-/** GraphQL (Linear) needs nested data shapes its mappers walk without optional chaining. */
-function linearData(): Record<string, unknown> {
-  return {
-    data: {
-      issues: { nodes: [] },
-      teams: { nodes: [] },
-      projects: { nodes: [] },
-      viewer: { id: '1', name: 'x', email: 'a@b.com' },
-      issueCreate: { issue: { id: '1', identifier: 'X-1', url: 'https://x' } },
-      issueUpdate: { issue: { id: '1', identifier: 'X-1' } },
-      commentCreate: { comment: { id: '1' } },
-    },
-  };
-}
-
 /** Endpoints whose REAL API returns a top-level JSON array (mappers call `.map` on the body). */
 function returnsArray(call: FakeHttpCall): boolean {
   const { url, method } = call;
   if (method !== 'GET') return false;
-  if (url.includes('api.todoist.com') && (/\/tasks(\?|$)/.test(url) || /\/projects(\?|$)/.test(url))) return true;
   if (url.includes('discord.com') && (url.includes('/guilds') || url.includes('/channels') || url.includes('/messages'))) return true;
-  if (url.includes('gitlab.com') && (/\/projects(\?|$)/.test(url) || /\/issues(\?|$)/.test(url) || /\/merge_requests(\?|$)/.test(url))) return true;
   return false;
 }
 
 function responseFor(call: FakeHttpCall): unknown {
   const { url } = call;
-  // X media upload (initialize/finalize) returns the media id under `data` — upload_media reads it.
-  if (url.includes('/2/media/upload')) return { data: { id: 'media-1' } };
-  if (url.includes('api.linear.app/graphql')) return linearData();
-  if (url.includes('api.atlassian.com/oauth/token/accessible-resources')) {
-    return [{ id: 'cloud1', name: 'site', url: 'https://x' }];
+  if (new URL(url).hostname.endsWith('quickbooks.api.intuit.com')) {
+    if (url.includes('/companyinfo/')) return { CompanyInfo: { CompanyName: 'Fixture company' } };
+    if (url.includes('/customer/')) return { Customer: { Id: '1' } };
+    if (url.includes('/invoice/')) return { Invoice: { Id: '1' } };
+    if (url.includes('/reports/')) return { Header: { Currency: 'USD' }, Columns: { Column: [] }, Rows: {} };
+    return { QueryResponse: {} };
   }
-  // Asana wraps everything in { data }; its list mappers read raw.data (array-shaped).
-  if (url.includes('app.asana.com')) return { data: [] };
   if (returnsArray(call)) return [];
   return baseSink();
 }
@@ -222,6 +212,15 @@ function allProviderScopes(provider: Provider, toolkits: Toolkit[]): string[] {
 }
 
 describe('smoke — every action of every provider executes against a mock', () => {
+  it('does not register native adapters for providers served only through hosted MCP', () => {
+    const registry = createRegistry();
+    registerAllProviders(registry);
+    for (const id of ['linear', 'notion', 'calendly', 'resend', 'gitlab', 'stripe', 'airtable', 'jira', 'confluence', 'atlassian', 'slack', 'zoom', 'hubspot', 'asana', 'dropbox', 'box', 'twitter']) {
+      expect(registry.getProvider(id)).toBeUndefined();
+      expect(registry.toolkits().some((toolkit) => toolkit.providerId === id)).toBe(false);
+    }
+  });
+
   it('runs every action of every provider clean', async () => {
     const http = fakeHttp(async (call) => ({ json: responseFor(call) }));
     const registry = createRegistry();
@@ -247,8 +246,6 @@ describe('smoke — every action of every provider executes against a mock', () 
     // instance_url). Smoke seeds connections directly, so we seed that context too — otherwise the
     // actions would route through the provider fallback base and never exercise the real path.
     const SEED_CONTEXT: Record<string, { config?: Record<string, unknown>; baseUrl?: string }> = {
-      jira: { config: { cloudId: 'cloud1' } },
-      confluence: { config: { cloudId: 'cloud1' } },
       quickbooks: { config: { realmId: 'R1' } },
       salesforce: { baseUrl: 'https://smoke.my.salesforce.com' },
     };

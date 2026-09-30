@@ -68,7 +68,7 @@ interface BrowseTab {
  *
  * There is deliberately NO "Connectors" tab. "Connector" is our word — a user
  * has *Todoist* tasks, not connector tasks — and lumping every provider under
- * one tab would bury Todoist under Linear, which is the same burying problem
+ * one tab would bury Todoist under Jira, which is the same burying problem
  * a shared Tasks group already caused. Providers are instead a scope row
  * *inside* Tasks (see SCOPE_ALL), which keeps the tab bar from growing without
  * bound as accounts are added and matches how people actually name things.
@@ -423,7 +423,7 @@ export function LaunchBrowse({
 
         {/* Tasks with nothing connected: name the capability rather than
             leaving it invisible. Someone who has never opened connector
-            settings has no way to learn this list can span Todoist/Linear. */}
+            settings has no way to learn this list can span Todoist and Jira. */}
         {activeTab.id === 'task' && connectorSources.length === 0 && !anyLoading && (
           <button
             type="button"
@@ -462,12 +462,13 @@ export function LaunchBrowse({
               )}
             </div>
 
-            {group.error ? (
+            {group.error && (
               <div className="px-2 pb-1.5 text-[10.5px] text-muted-foreground/70">
                 <span className="text-destructive">{group.error}</span>
-                {group.emptyHint && <span> {group.emptyHint}</span>}
+                {shown.length === 0 && group.emptyHint && <span> {group.emptyHint}</span>}
               </div>
-            ) : group.isLoading && shown.length === 0 ? (
+            )}
+            {group.isLoading && shown.length === 0 ? (
               // A slow source used to render as a bare header, which is
               // indistinguishable from "there's nothing here". Say what's
               // happening instead — the provider-history scan can take a
@@ -475,11 +476,11 @@ export function LaunchBrowse({
               <div className="px-2 pb-1.5 text-[10.5px] italic text-muted-foreground/60">
                 Searching…
               </div>
-            ) : shown.length === 0 ? (
+            ) : shown.length === 0 ? (!group.error && (
               <div className="px-2 pb-1.5 text-[10.5px] italic text-muted-foreground/60">
                 {group.emptyHint ?? 'Nothing here.'}
               </div>
-            ) : (
+            )) : (
               shown.map((item) => {
                 rowIndex++;
                 const active = rowIndex === cursor;

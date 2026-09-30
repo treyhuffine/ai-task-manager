@@ -1,0 +1,688 @@
+{
+  "checked_at": "2026-09-29T05:05:02.042Z",
+  "method": "GET-only MCP SDK OAuth discovery. No client registration, authorization or account reads.",
+  "records": [
+    {
+      "id": "fibery",
+      "endpoint": "https://mcp.fibery.io/mcp",
+      "checked_at": "2026-09-29T05:05:00.914Z",
+      "requests": [
+        {
+          "url": "https://mcp.fibery.io/mcp",
+          "status": 405,
+          "final_url": "https://mcp.fibery.io/mcp"
+        },
+        {
+          "url": "https://mcp.fibery.io/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.fibery.io/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://mcp.fibery.io/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.fibery.io/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 405,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.fibery.io/",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.fibery.io/",
+          "authorization_endpoint": "https://mcp.fibery.io/authorize",
+          "token_endpoint": "https://mcp.fibery.io/token",
+          "registration_endpoint": "https://mcp.fibery.io/register",
+          "scopes_supported": [
+            "openid",
+            "offline"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_post",
+            "none"
+          ],
+          "service_documentation": "https://the.fibery.io/@public/User_Guide/Guide/Fibery-MCP-Server-401",
+          "code_challenge_methods_supported": [
+            "S256"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.fibery.io/mcp",
+          "authorization_servers": [
+            "https://mcp.fibery.io/"
+          ],
+          "scopes_supported": [
+            "openid",
+            "offline"
+          ],
+          "resource_name": "Fibery MCP",
+          "resource_documentation": "https://the.fibery.io/@public/User_Guide/Guide/Fibery-MCP-Server-401"
+        }
+      }
+    },
+    {
+      "id": "smartsheet-us",
+      "endpoint": "https://mcp.smartsheet.com",
+      "checked_at": "2026-09-29T05:05:00.937Z",
+      "requests": [
+        {
+          "url": "https://mcp.smartsheet.com",
+          "status": 401,
+          "final_url": "https://mcp.smartsheet.com/"
+        },
+        {
+          "url": "https://mcp.smartsheet.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "final_url": "https://mcp.smartsheet.com/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://mcp.smartsheet.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.smartsheet.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.smartsheet.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.smartsheet.com",
+          "authorization_endpoint": "https://app.smartsheet.com/b/authorize",
+          "token_endpoint": "https://api.smartsheet.com/2.0/token",
+          "scopes_supported": [
+            "READ_SHEETS",
+            "CREATE_SHEETS",
+            "WRITE_SHEETS",
+            "DELETE_SHEETS",
+            "ADMIN_SHEETS",
+            "ADMIN_WORKSPACES",
+            "ADMIN_USERS",
+            "READ_SIGHTS",
+            "CREATE_SIGHTS",
+            "SHARE_SHEETS",
+            "SHARE_SIGHTS"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "service_documentation": "https://developers.smartsheet.com/api/smartsheet/openapi/tokens/tokens-getorrefresh"
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.smartsheet.com",
+          "authorization_servers": [
+            "https://mcp.smartsheet.com"
+          ],
+          "scopes_supported": [
+            "READ_SHEETS",
+            "CREATE_SHEETS",
+            "WRITE_SHEETS",
+            "DELETE_SHEETS",
+            "ADMIN_SHEETS",
+            "ADMIN_WORKSPACES",
+            "ADMIN_USERS",
+            "READ_SIGHTS",
+            "CREATE_SIGHTS",
+            "SHARE_SHEETS",
+            "SHARE_SIGHTS"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "Smartsheet MCP Server"
+        }
+      }
+    },
+    {
+      "id": "smartsheet-eu",
+      "endpoint": "https://mcp.smartsheet.eu",
+      "checked_at": "2026-09-29T05:05:00.937Z",
+      "requests": [
+        {
+          "url": "https://mcp.smartsheet.eu",
+          "status": 401,
+          "final_url": "https://mcp.smartsheet.eu/"
+        },
+        {
+          "url": "https://mcp.smartsheet.eu/.well-known/oauth-protected-resource",
+          "status": 200,
+          "final_url": "https://mcp.smartsheet.eu/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://mcp.smartsheet.eu/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.smartsheet.eu/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.smartsheet.eu",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.smartsheet.eu",
+          "authorization_endpoint": "https://app.smartsheet.eu/b/authorize",
+          "token_endpoint": "https://api.smartsheet.eu/2.0/token",
+          "scopes_supported": [
+            "READ_SHEETS",
+            "CREATE_SHEETS",
+            "WRITE_SHEETS",
+            "DELETE_SHEETS",
+            "ADMIN_SHEETS",
+            "ADMIN_WORKSPACES",
+            "ADMIN_USERS",
+            "READ_SIGHTS",
+            "CREATE_SIGHTS",
+            "SHARE_SHEETS",
+            "SHARE_SIGHTS"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "service_documentation": "https://developers.smartsheet.com/api/smartsheet/openapi/tokens/tokens-getorrefresh"
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.smartsheet.eu",
+          "authorization_servers": [
+            "https://mcp.smartsheet.eu"
+          ],
+          "scopes_supported": [
+            "READ_SHEETS",
+            "CREATE_SHEETS",
+            "WRITE_SHEETS",
+            "DELETE_SHEETS",
+            "ADMIN_SHEETS",
+            "ADMIN_WORKSPACES",
+            "ADMIN_USERS",
+            "READ_SIGHTS",
+            "CREATE_SIGHTS",
+            "SHARE_SHEETS",
+            "SHARE_SIGHTS"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "Smartsheet MCP Server"
+        }
+      }
+    },
+    {
+      "id": "smartsheet-au",
+      "endpoint": "https://mcp.smartsheet.au",
+      "checked_at": "2026-09-29T05:05:00.938Z",
+      "requests": [
+        {
+          "url": "https://mcp.smartsheet.au",
+          "status": 401,
+          "final_url": "https://mcp.smartsheet.au/"
+        },
+        {
+          "url": "https://mcp.smartsheet.au/.well-known/oauth-protected-resource",
+          "status": 200,
+          "final_url": "https://mcp.smartsheet.au/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://mcp.smartsheet.au/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.smartsheet.au/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.smartsheet.au",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.smartsheet.au",
+          "authorization_endpoint": "https://app.smartsheet.au/b/authorize",
+          "token_endpoint": "https://api.smartsheet.au/2.0/token",
+          "scopes_supported": [
+            "READ_SHEETS",
+            "CREATE_SHEETS",
+            "WRITE_SHEETS",
+            "DELETE_SHEETS",
+            "ADMIN_SHEETS",
+            "ADMIN_WORKSPACES",
+            "ADMIN_USERS",
+            "READ_SIGHTS",
+            "CREATE_SIGHTS",
+            "SHARE_SHEETS",
+            "SHARE_SIGHTS"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "service_documentation": "https://developers.smartsheet.com/api/smartsheet/openapi/tokens/tokens-getorrefresh"
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.smartsheet.au",
+          "authorization_servers": [
+            "https://mcp.smartsheet.au"
+          ],
+          "scopes_supported": [
+            "READ_SHEETS",
+            "CREATE_SHEETS",
+            "WRITE_SHEETS",
+            "DELETE_SHEETS",
+            "ADMIN_SHEETS",
+            "ADMIN_WORKSPACES",
+            "ADMIN_USERS",
+            "READ_SIGHTS",
+            "CREATE_SIGHTS",
+            "SHARE_SHEETS",
+            "SHARE_SIGHTS"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "Smartsheet MCP Server"
+        }
+      }
+    },
+    {
+      "id": "monday",
+      "endpoint": "https://mcp.monday.com/mcp",
+      "checked_at": "2026-09-29T05:05:00.938Z",
+      "requests": [
+        {
+          "url": "https://mcp.monday.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.monday.com/mcp"
+        },
+        {
+          "url": "https://mcp.monday.com/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.monday.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://auth.monday.com/.well-known/oauth-authorization-server/mcp",
+          "status": 200,
+          "final_url": "https://auth.monday.com/.well-known/oauth-authorization-server/mcp"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer resource_metadata=\"https://mcp.monday.com/.well-known/oauth-protected-resource/mcp\"",
+      "discovery": {
+        "authorizationServerUrl": "https://auth.monday.com/mcp",
+        "authorizationServerMetadata": {
+          "issuer": "https://auth.monday.com/mcp",
+          "authorization_endpoint": "https://auth.monday.com/oauth2/authorize",
+          "token_endpoint": "https://auth.monday.com/oauth_ms/oauth/token",
+          "registration_endpoint": "https://auth.monday.com/oauth_ms/oauth/register",
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "client_credentials"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_post",
+            "client_secret_basic"
+          ],
+          "revocation_endpoint": "https://auth.monday.com/oauth_ms/oauth/revoke",
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "token_migration_endpoint": "https://auth.monday.com/oauth_ms/oauth/migrate",
+          "authorization_response_iss_parameter_supported": true
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.monday.com/mcp",
+          "authorization_servers": [
+            "https://auth.monday.com/mcp"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      }
+    },
+    {
+      "id": "shopify",
+      "endpoint": "https://setup.shopify.com/mcp",
+      "checked_at": "2026-09-29T05:05:00.939Z",
+      "requests": [
+        {
+          "url": "https://setup.shopify.com/mcp",
+          "status": 405,
+          "final_url": "https://setup.shopify.com/mcp"
+        },
+        {
+          "url": "https://setup.shopify.com/.well-known/oauth-protected-resource/mcp",
+          "status": 404,
+          "final_url": "https://setup.shopify.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://setup.shopify.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "final_url": "https://setup.shopify.com/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://setup.shopify.com/.well-known/oauth-authorization-server/auth",
+          "status": 200,
+          "final_url": "https://setup.shopify.com/.well-known/oauth-authorization-server/auth"
+        }
+      ],
+      "endpoint_status": 405,
+      "www_authenticate": null,
+      "discovery": {
+        "authorizationServerUrl": "https://setup.shopify.com/auth",
+        "authorizationServerMetadata": {
+          "issuer": "https://setup.shopify.com/auth",
+          "authorization_endpoint": "https://setup.shopify.com/oauth/authorize",
+          "token_endpoint": "https://setup.shopify.com/oauth/token",
+          "scopes_supported": [
+            "read_all_orders",
+            "read_analytics",
+            "read_apps",
+            "read_companies",
+            "read_legal_policies",
+            "read_reports",
+            "write_checkout_branding_settings",
+            "write_checkouts",
+            "write_collective.access",
+            "write_content",
+            "write_customers",
+            "write_digital_products_product",
+            "write_discounts",
+            "write_draft_orders",
+            "write_files",
+            "write_fulfillments",
+            "write_inventory",
+            "write_locales",
+            "write_locations",
+            "write_marketing_events",
+            "write_markets",
+            "write_merchant_managed_fulfillment_orders",
+            "write_metaobject_definitions",
+            "write_metaobjects",
+            "write_online_store_navigation",
+            "write_order_edits",
+            "write_orders",
+            "write_price_rules",
+            "write_products",
+            "write_publications",
+            "write_returns",
+            "write_shipping",
+            "write_themes",
+            "write_translations",
+            "write_validations"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "none"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://setup.shopify.com/mcp",
+          "authorization_servers": [
+            "https://setup.shopify.com/auth"
+          ],
+          "scopes_supported": [
+            "read_all_orders",
+            "read_analytics",
+            "read_apps",
+            "read_companies",
+            "read_legal_policies",
+            "read_reports",
+            "write_checkout_branding_settings",
+            "write_checkouts",
+            "write_collective.access",
+            "write_content",
+            "write_customers",
+            "write_digital_products_product",
+            "write_discounts",
+            "write_draft_orders",
+            "write_files",
+            "write_fulfillments",
+            "write_inventory",
+            "write_locales",
+            "write_locations",
+            "write_marketing_events",
+            "write_markets",
+            "write_merchant_managed_fulfillment_orders",
+            "write_metaobject_definitions",
+            "write_metaobjects",
+            "write_online_store_navigation",
+            "write_order_edits",
+            "write_orders",
+            "write_price_rules",
+            "write_products",
+            "write_publications",
+            "write_returns",
+            "write_shipping",
+            "write_themes",
+            "write_translations",
+            "write_validations"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      }
+    },
+    {
+      "id": "webflow",
+      "endpoint": "https://mcp.webflow.com/mcp",
+      "checked_at": "2026-09-29T05:05:00.939Z",
+      "requests": [
+        {
+          "url": "https://mcp.webflow.com/mcp",
+          "status": 401,
+          "final_url": "https://mcp.webflow.com/mcp"
+        },
+        {
+          "url": "https://mcp.webflow.com/.well-known/oauth-protected-resource/mcp",
+          "status": 200,
+          "final_url": "https://mcp.webflow.com/.well-known/oauth-protected-resource/mcp"
+        },
+        {
+          "url": "https://mcp.webflow.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://mcp.webflow.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer realm=\"OAuth\", resource_metadata=\"https://mcp.webflow.com/.well-known/oauth-protected-resource/mcp\", error=\"invalid_token\", error_description=\"Missing or invalid access token\"",
+      "discovery": {
+        "authorizationServerUrl": "https://mcp.webflow.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://mcp.webflow.com",
+          "authorization_endpoint": "https://mcp.webflow.com/oauth/authorize",
+          "token_endpoint": "https://mcp.webflow.com/oauth/token",
+          "registration_endpoint": "https://mcp.webflow.com/oauth/register",
+          "response_types_supported": [
+            "code"
+          ],
+          "response_modes_supported": [
+            "query"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+          ],
+          "revocation_endpoint": "https://mcp.webflow.com/oauth/token",
+          "code_challenge_methods_supported": [
+            "plain",
+            "S256"
+          ],
+          "client_id_metadata_document_supported": false
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.webflow.com/mcp",
+          "authorization_servers": [
+            "https://mcp.webflow.com"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      }
+    },
+    {
+      "id": "wordpress",
+      "endpoint": "https://public-api.wordpress.com/wpcom/v2/mcp/v1",
+      "checked_at": "2026-09-29T05:05:00.939Z",
+      "requests": [
+        {
+          "url": "https://public-api.wordpress.com/wpcom/v2/mcp/v1",
+          "status": 401,
+          "final_url": "https://public-api.wordpress.com/wpcom/v2/mcp/v1"
+        },
+        {
+          "url": "https://public-api.wordpress.com/.well-known/oauth-protected-resource?resource=wpcom/v2/mcp/v1",
+          "status": 200,
+          "final_url": "https://public-api.wordpress.com/.well-known/oauth-protected-resource?resource=wpcom/v2/mcp/v1"
+        },
+        {
+          "url": "https://public-api.wordpress.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://public-api.wordpress.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 401,
+      "www_authenticate": "Bearer resource_metadata=\"https://public-api.wordpress.com/.well-known/oauth-protected-resource?resource=wpcom/v2/mcp/v1\"",
+      "discovery": {
+        "authorizationServerUrl": "https://public-api.wordpress.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://public-api.wordpress.com",
+          "authorization_endpoint": "https://public-api.wordpress.com/oauth2-1/authorize",
+          "token_endpoint": "https://public-api.wordpress.com/oauth2-1/token",
+          "registration_endpoint": "https://public-api.wordpress.com/oauth2-1/register",
+          "scopes_supported": [
+            "global",
+            "auth",
+            "openid",
+            "profile",
+            "email",
+            "users",
+            "sites",
+            "posts",
+            "comments",
+            "taxonomy",
+            "follow",
+            "sharing",
+            "freshly-pressed",
+            "notifications",
+            "insights",
+            "read",
+            "stats",
+            "media",
+            "menus",
+            "batch",
+            "videos"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "client_credentials"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+          ],
+          "revocation_endpoint": "https://public-api.wordpress.com/oauth2-1/revoke",
+          "revocation_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+          ],
+          "introspection_endpoint": "https://public-api.wordpress.com/oauth2-1/token-info",
+          "introspection_endpoint_auth_methods_supported": [
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "resource_indicators_supported": true,
+          "registration_endpoint_auth_methods_supported": [
+            "none"
+          ],
+          "userinfo_endpoint": "https://public-api.wordpress.com/oauth2-1/userinfo",
+          "jwks_uri": "https://public-api.wordpress.com/.well-known/jwks.json",
+          "subject_types_supported": [
+            "public"
+          ],
+          "id_token_signing_alg_values_supported": [
+            "RS256"
+          ],
+          "claims_supported": [
+            "sub",
+            "iss",
+            "aud",
+            "exp",
+            "iat",
+            "auth_time",
+            "nonce",
+            "name",
+            "preferred_username",
+            "picture",
+            "email",
+            "email_verified",
+            "updated_at"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://public-api.wordpress.com/wpcom/v2/mcp/v1",
+          "authorization_servers": [
+            "https://public-api.wordpress.com"
+          ],
+          "scopes_supported": [
+            "global",
+            "auth",
+            "openid",
+            "profile",
+            "email",
+            "users",
+            "sites",
+            "posts",
+            "comments",
+            "taxonomy",
+            "follow",
+            "sharing",
+            "freshly-pressed",
+            "notifications",
+            "insights",
+            "read",
+            "stats",
+            "media",
+            "menus",
+            "batch",
+            "videos"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_documentation": "https://developer.wordpress.com/docs/api/",
+          "resource_owner_documentation": "https://developer.wordpress.com/docs/api/oauth2/",
+          "resource_owner_registration_endpoint": "https://developer.wordpress.com/apps/new/",
+          "introspection_endpoint": "https://public-api.wordpress.com/oauth2-1/token-info"
+        }
+      }
+    }
+  ]
+}
