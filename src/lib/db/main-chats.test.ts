@@ -87,6 +87,44 @@ describe("an agent's main chat stays out of work surfaces", () => {
   });
 });
 
+describe('listAgentMainChats (the rail)', () => {
+  it("returns each active agent's current main chat, the same one currentMainChat picks", async () => {
+    const { q, ws, other, agentChat, otherAgentChat } = await seed();
+    const newer = q.createChatSession({ type: 'orchestration', workspaceId: ws.id, harness: 'claude', status: 'active' });
+    q.updateChatSession(agentChat.id, { lastActivityAt: past(10) });
+    q.updateChatSession(newer.id, { lastActivityAt: past(1) });
+    const { currentMainChat } = await import('@/lib/sessions/main-chat');
+
+    const byAgent = new Map(q.listAgentMainChats().map((c) => [c.workspaceId, c.id]));
+    expect(byAgent).toEqual(new Map([[ws.id, newer.id], [other.id, otherAgentChat.id]]));
+    expect(byAgent.get(ws.id)).toBe(currentMainChat(ws.id)?.id);
+  });
+
+  it('carries what the rail needs to tell a new reply apart', async () => {
+    const { q, ws, agentChat } = await seed();
+    q.updateChatSession(agentChat.id, { lastOutcomeEventAt: past(1), lastViewedAt: past(10) });
+    const [chat] = q.listAgentMainChats().filter((c) => c.workspaceId === ws.id);
+    expect(chat).toEqual({
+      id: agentChat.id,
+      workspaceId: ws.id,
+      lastOutcomeEventAt: expect.any(String),
+      unreadMarkerAt: null,
+      lastViewedAt: expect.any(String),
+    });
+    expect(chat.lastOutcomeEventAt! > chat.lastViewedAt!).toBe(true);
+  });
+
+  it("leaves out the app's chat, executions, scheduled fires, archived chats and archived agents", async () => {
+    const { q, ws, other, agentChat, appChat, execution, fired } = await seed();
+    q.archiveChatSession(agentChat.id);
+    q.archiveWorkspace(other.id);
+    const ids = q.listAgentMainChats().map((c) => c.id);
+    expect(ids).toEqual([]);
+    for (const id of [appChat.id, execution.id, fired.id]) expect(ids).not.toContain(id);
+    expect(q.listAgentMainChats().some((c) => c.workspaceId === ws.id)).toBe(false);
+  });
+});
+
 describe('listWorkspaceExecutionTasks', () => {
   it("lists the open tasks the agent's active executions work, each with its executions", async () => {
     const { q, ws, other, execution } = await seed();

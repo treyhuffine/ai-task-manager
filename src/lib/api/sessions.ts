@@ -4,6 +4,7 @@ import { fetchDiffStatsBatched } from './diff-stats-batch';
 import type {
   ChatSessionRecord, ChatSessionWithExecution,
   PermissionMode, EffortLevel, Attachment,
+  AgentMainChatState,
 } from '@/db/types';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import type { HarnessId } from '@/lib/harness/registry';
@@ -301,6 +302,8 @@ export interface RailResponse {
   pendingSessionIds: string[];
   runningSessionIds: string[];
   backgroundSessionIds: string[];
+  /** Each active agent's current main chat. */
+  mainChats: AgentMainChatState[];
 }
 
 export interface HistoryResponse {

@@ -26,6 +26,7 @@ import { calendarDaysUntil, toDateOnly } from '@/lib/dates';
 import { todayLocalDate } from '@/lib/deck/date';
 import { syncEntity, syncDeletion, MutationContext, syncBatch } from '@/lib/export/mirror';
 import type {
+  AgentMainChatState,
   TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskAttentionSignals, DeadlineTask,
   NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter,
   AreaRecord, CreateAreaInput, UpdateAreaInput, AreaFilter,
@@ -7596,6 +7597,41 @@ export function listMainChats(
     .where(and(...conditions))
     .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`);
   return filter.limit ? query.limit(filter.limit).all() : query.all();
+}
+
+/**
+ * Every active agent's current main chat in one query, for the rail. Same
+ * definition as `currentMainChat(workspaceId)`: the most recently active
+ * main chat of an active agent.
+ */
+export function listAgentMainChats(): AgentMainChatState[] {
+  const db = getDb();
+  const rows = db
+    .select({
+      id: chatSessions.id,
+      workspaceId: chatSessions.workspaceId,
+      lastOutcomeEventAt: chatSessions.lastOutcomeEventAt,
+      unreadMarkerAt: chatSessions.unreadMarkerAt,
+      lastViewedAt: chatSessions.lastViewedAt,
+    })
+    .from(chatSessions)
+    .innerJoin(workspaces, eq(workspaces.id, chatSessions.workspaceId))
+    .where(
+      and(
+        eq(chatSessions.type, 'orchestration'),
+        isNull(chatSessions.createdByRunId),
+        isNull(chatSessions.executionId),
+        eq(chatSessions.status, 'active'),
+        eq(workspaces.status, 'active'),
+      ),
+    )
+    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
+    .all();
+  const current = new Map<string, AgentMainChatState>();
+  for (const row of rows) {
+    if (row.workspaceId && !current.has(row.workspaceId)) current.set(row.workspaceId, { ...row, workspaceId: row.workspaceId });
+  }
+  return [...current.values()];
 }
 
 export function getChatSession(id: string): ChatSessionRecord | undefined {

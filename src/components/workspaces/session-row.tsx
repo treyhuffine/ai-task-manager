@@ -41,6 +41,13 @@ interface SessionRowProps {
    * execution is recognizable in its natural home under its workspace.
    */
   hidePinMarker?: boolean;
+  /**
+   * `compact` is the agents-first rail's thread row (docs/rail-agents-first.md):
+   * one line, label then a right-aligned cluster (pin, where it runs, diff
+   * stats, time) that gives way to the kebab on hover. `regular` is the
+   * two-line row everywhere else.
+   */
+  density?: 'regular' | 'compact';
 }
 
 /**
@@ -68,6 +75,7 @@ export function SessionRow({
   onOpenWorkspaceSettings,
   onOpenLauncher,
   hidePinMarker,
+  density = 'regular',
 }: SessionRowProps) {
   const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds } = useDashboard();
   const { data: diffStats } = useDiffStats(
@@ -151,7 +159,8 @@ export function SessionRow({
         }
       }}
       className={cn(
-        'relative w-full group flex items-start gap-2 pl-5 pr-1.5 py-1 rounded-md transition-colors text-left cursor-pointer',
+        'relative w-full group flex gap-2 pr-1.5 rounded-md transition-colors text-left cursor-pointer',
+        density === 'compact' ? 'items-center pl-2 py-[3px]' : 'items-start pl-5 py-1',
         selectable
           ? selected
             ? 'bg-primary/10 text-foreground'
@@ -205,42 +214,77 @@ export function SessionRow({
           />
         )}
       </span>
-      <div className="flex-1 min-w-0">
-        <span
-          title={label}
-          className={cn(
-            'block text-[11px] truncate',
-            labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
-            isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
-          )}
-        >
-          {label}
-        </span>
-        {/* Metadata line, ordered static → async left to right: the
-            timestamp anchors it, the workspace tag (needs-review only)
-            is known at render, and the diff stats append last so their
-            arrival lands in empty space and displaces nothing. */}
-        <div className="flex items-center gap-1.5 mt-0.5 text-[9px] leading-none">
-          {isPinned && !hidePinMarker && (
-            <Pin
-              size={9}
-              className="text-muted-foreground/50 fill-current flex-shrink-0 -rotate-45"
-              aria-label="Pinned"
-            />
-          )}
-          <span className="text-muted-foreground/60 flex-shrink-0">
-            {formatCompactRelative(timestamp)}
+      {density === 'compact' ? (
+        <>
+          <span
+            title={label}
+            className={cn(
+              'flex-1 min-w-0 truncate text-[11px]',
+              labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
+              isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
+            )}
+          >
+            {label}
           </span>
-          {showWorkspaceLabel && (
-            <span className="text-muted-foreground/50 truncate">· {showWorkspaceLabel}</span>
-          )}
-          {/* Work away from the home says where (P3.1). The home's own stays quiet. */}
-          {session.location && !session.location.isHome && (
-            <span className="text-muted-foreground/60 truncate" title={`Runs on ${session.location.name}`}>· {session.location.name}</span>
-          )}
-          <DiffStatsPair stats={diffStats} className="flex-shrink-0" />
+          {/* Static tokens first, the async diff stats just before the time,
+              so their arrival shortens the label a little and moves nothing
+              else. The kebab takes this slot on hover. */}
+          <span
+            className={cn(
+              'flex flex-shrink-0 items-center gap-1.5 text-[9px] leading-none transition-opacity',
+              !selectable && 'group-hover:opacity-0',
+            )}
+          >
+            {isPinned && !hidePinMarker && (
+              <Pin size={9} className="text-muted-foreground/50 fill-current -rotate-45" aria-label="Pinned" />
+            )}
+            {session.location && !session.location.isHome && (
+              <span className="max-w-[5rem] truncate text-muted-foreground/60" title={`Runs on ${session.location.name}`}>
+                {session.location.name}
+              </span>
+            )}
+            <DiffStatsPair stats={diffStats} />
+            <span className="text-muted-foreground/60 tabular-nums">{formatCompactRelative(timestamp)}</span>
+          </span>
+        </>
+      ) : (
+        <div className="flex-1 min-w-0">
+          <span
+            title={label}
+            className={cn(
+              'block text-[11px] truncate',
+              labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
+              isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
+            )}
+          >
+            {label}
+          </span>
+          {/* Metadata line, ordered static → async left to right: the
+              timestamp anchors it, the workspace tag (needs-review only)
+              is known at render, and the diff stats append last so their
+              arrival lands in empty space and displaces nothing. */}
+          <div className="flex items-center gap-1.5 mt-0.5 text-[9px] leading-none">
+            {isPinned && !hidePinMarker && (
+              <Pin
+                size={9}
+                className="text-muted-foreground/50 fill-current flex-shrink-0 -rotate-45"
+                aria-label="Pinned"
+              />
+            )}
+            <span className="text-muted-foreground/60 flex-shrink-0">
+              {formatCompactRelative(timestamp)}
+            </span>
+            {showWorkspaceLabel && (
+              <span className="text-muted-foreground/50 truncate">· {showWorkspaceLabel}</span>
+            )}
+            {/* Work away from the home says where (P3.1). The home's own stays quiet. */}
+            {session.location && !session.location.isHome && (
+              <span className="text-muted-foreground/60 truncate" title={`Runs on ${session.location.name}`}>· {session.location.name}</span>
+            )}
+            <DiffStatsPair stats={diffStats} className="flex-shrink-0" />
+          </div>
         </div>
-      </div>
+      )}
       {/* The metadata cluster is left-anchored, so the row's right
           half is dead space — the kebab fades in there without hiding
           or displacing anything. Hidden in selection mode: the row's

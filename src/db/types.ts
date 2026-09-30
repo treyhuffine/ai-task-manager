@@ -215,6 +215,15 @@ export interface WorkspaceWithCounts extends WorkspaceRecord {
   activeSessionCount: number;
 }
 
+/**
+ * An agent's current main chat, as the rail shows it: enough to tell
+ * whether the agent has replied since you last looked. Live states
+ * (thinking, waiting on you) come from the runtime sets, keyed by `id`.
+ */
+export type AgentMainChatState = Pick<ChatSessionRecord, 'id' | 'lastOutcomeEventAt' | 'unreadMarkerAt' | 'lastViewedAt'> & {
+  workspaceId: string;
+};
+
 // ─── Reference folders ────────────────────────────────────────
 
 export type ReferenceFolderRecord = InferSelectModel<typeof referenceFolders>;
