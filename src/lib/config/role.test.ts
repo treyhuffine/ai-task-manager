@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConnectedInstallationError, getInstallationRole, RoleConflictError } from './role';
 
 /**
- * A folder is a home (it holds a database), a connected computer (it holds
- * only a connection record), or fresh. A connected computer never gets a
+ * A folder is a home (it holds a database), a connected device (it holds
+ * only a connection record), or fresh. A connected device never gets a
  * database of its own, whoever asks (docs/homes-spec.md §3.1).
  */
 
@@ -67,7 +67,7 @@ describe('getInstallationRole', () => {
   });
 });
 
-describe('getDb on a connected computer', () => {
+describe('getDb on a connected device', () => {
   it('refuses, and creates nothing', async () => {
     connect();
     const { getDb } = await import('@/lib/db');

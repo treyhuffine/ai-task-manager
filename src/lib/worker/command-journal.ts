@@ -10,7 +10,7 @@
  * journal is never applied again.
  *
  * It also keeps what outlives a single command: the placements the home said
- * this computer no longer holds (`released`), which fence every older command
+ * this device no longer holds (`released`), which fence every older command
  * for them, and which delivered sends' turns have ended (`turn_ended`), so a
  * turn a restart cut off is reported rather than left running at home.
  *
@@ -59,7 +59,7 @@ export function commandJournalPath(homeId: string): string {
 export class CommandJournal {
   private readonly file: string;
   private readonly entries = new Map<string, JournaledCommand>();
-  /** Per execution, the newest generation the home said this computer no longer holds. */
+  /** Per execution, the newest generation the home said this device no longer holds. */
   private readonly releasedThrough = new Map<string, number>();
   private readonly endedTurns = new Set<string>();
 
@@ -217,7 +217,7 @@ export class CommandJournal {
   /**
    * The placement generation a chat's events belong to: that of the newest
    * command for it, which is what started or last drove its session here.
-   * Null for a chat without an execution, or one this computer has no
+   * Null for a chat without an execution, or one this device has no
    * command for.
    */
   chatGeneration(chatSessionId: string): number | null {
@@ -266,7 +266,7 @@ export class CommandJournal {
     return undefined;
   }
 
-  /** The newest placement generation of an execution this computer has received a command for. */
+  /** The newest placement generation of an execution this device has received a command for. */
   highestGeneration(executionId: string): number | null {
     let newest: number | null = null;
     for (const { command } of this.entries.values()) {
@@ -277,7 +277,7 @@ export class CommandJournal {
   }
 
   /**
-   * The placements this computer holds, as its commands show them: each
+   * The placements this device holds, as its commands show them: each
    * execution at the newest generation seen, with the chats it ran. The
    * heartbeat reports them, and the home answers with any that moved.
    */
@@ -296,7 +296,7 @@ export class CommandJournal {
     return [...byExecution].map(([executionId, p]) => ({ executionId, generation: p.generation, chatSessionIds: [...p.chats] }));
   }
 
-  /** The worktree this computer prepared for an execution, from its newest prepare that made one. */
+  /** The worktree this device prepared for an execution, from its newest prepare that made one. */
   preparedWorktree(executionId: string): string | null {
     let found: { seq: number; path: string } | null = null;
     for (const entry of this.entries.values()) {

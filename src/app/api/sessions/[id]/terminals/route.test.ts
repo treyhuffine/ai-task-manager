@@ -31,8 +31,8 @@ vi.mock('@/lib/db/queries', () => ({
   getActiveTransfer: () => null,
   getWorkspace: (id: string) => (getWorkspace as unknown as (id: string) => unknown)(id),
   chatPlacement: () => chatPlacement(),
-  getHome: () => ({ hostComputerId: 'mini' }),
-  getComputer: (id: string) => ({ id, name: id === 'mini' ? 'Mac Mini' : 'MacBook' }),
+  getHome: () => ({ hostDeviceId: 'mini' }),
+  getDevice: (id: string) => ({ id, name: id === 'mini' ? 'Mac Mini' : 'MacBook' }),
   touchSessionActivity: () => {},
 }));
 vi.mock('@/lib/workers/hub', () => ({
@@ -138,21 +138,21 @@ describe('POST /api/sessions/:id/terminals — cwd resolution', () => {
     });
     getWorkspace.mockReturnValue({ id: 'ws1', cwd: sourceCheckout, isGit: true });
     const res = await call();
-    expect(await res.json()).toMatchObject({ id: 't1', computerName: 'Mac Mini', isHome: true });
+    expect(await res.json()).toMatchObject({ id: 't1', deviceName: 'Mac Mini', isHome: true });
   });
 
-  it('an execution on another computer never gets a shell here, even with its folder on this disk (P3.5)', async () => {
+  it('an execution on another device never gets a shell here, even with its folder on this disk (P3.5)', async () => {
     // The laptop's path, which this disk happens to have too.
     getChatSessionWithExecution.mockReturnValue({
       id: 's1', executionId: 'e1', worktreePath: worktreeDir, workspaceId: 'ws2',
     });
     getWorkspace.mockReturnValue({ id: 'ws2', cwd: sourceCheckout, isGit: false });
-    chatPlacement.mockReturnValue({ computerId: 'laptop', isHome: false, executionId: 'e1', generation: 3, worktreePath: worktreeDir });
+    chatPlacement.mockReturnValue({ deviceId: 'laptop', isHome: false, executionId: 'e1', generation: 3, worktreePath: worktreeDir });
     requestWorker.mockResolvedValue({ status: 201, body: { id: 'r1', cwd: '/Users/trey/code/ri', shell: '/bin/zsh' } });
 
     const res = await call();
     expect(res.status).toBe(201);
-    expect(await res.json()).toMatchObject({ id: 'r1', computerName: 'MacBook', isHome: false });
+    expect(await res.json()).toMatchObject({ id: 'r1', deviceName: 'MacBook', isHome: false });
     expect(createTerminal).not.toHaveBeenCalled();
     expect(requestWorker).toHaveBeenCalledWith('laptop', 'terminal', {
       op: 'create', scope: { kind: 'execution', executionId: 'e1', generation: 3 }, cols: 80, rows: 24,

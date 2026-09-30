@@ -55,7 +55,7 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const target = { homeUrl: 'http://home', homeId: 'home-1', homeName: 'Home', computerName: 'Laptop', workerKey: 'k' };
+const target = { homeUrl: 'http://home', homeId: 'home-1', homeName: 'Home', deviceName: 'Laptop', workerKey: 'k' };
 
 function command(kind: WorkerCommand['kind'], payload: unknown, generation = 1, seq = 1): WorkerCommand {
   return {
@@ -128,7 +128,7 @@ describe('a send with attached files', () => {
   const file = { fileName: '01a0d926-176a-7692-b128-cd01e081f348.png', originalName: 'photo.png', mimeType: 'image/png', size: 3, sha256: 'x' };
   const withFile = () => command('send', { spec, message: `look at [[file:${file.fileName}]]`, turnId: 't', runId: null, attachments: [file] });
 
-  it("fetches them before anything goes in, and the harness gets this computer's path", async () => {
+  it("fetches them before anything goes in, and the harness gets this device's path", async () => {
     process.env.RI_WORK_DIR = path.join(dir, 'work');
     const { handlers, ctx } = await setup();
     const c = withFile();
@@ -176,7 +176,7 @@ describe('the setup script', () => {
 describe('prepare', () => {
   it('reuses the worktree it noted before a restart, rather than making a second', async () => {
     const { journal, handlers, ctx } = await setup();
-    // The agent's folder on this computer, as the home sent it.
+    // The agent's folder on this device, as the home sent it.
     const source = path.join(dir, 'source');
     fs.mkdirSync(source);
     (await import('./agent-folder')).setAgentFolders('home-1', [{ agentId: 'ws', sourcePath: source }]);

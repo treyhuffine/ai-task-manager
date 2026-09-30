@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * An execution's terminals, on the computer it runs on, in its working folder
+ * An execution's terminals, on the device it runs on, in its working folder
  * (`src/lib/terminal/place.ts`). Owned by the execution, so every chat on it
  * shares them.
  */

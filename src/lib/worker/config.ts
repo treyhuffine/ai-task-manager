@@ -1,6 +1,6 @@
 /**
- * This computer's worker enrollment (docs/homes-build.md, P2.2): the worker
- * key its home issued, and which home and computer it's for. Kept in
+ * This device's worker enrollment (docs/homes-build.md, P2.2): the worker
+ * key its home issued, and which home and device it's for. Kept in
  * `<configDir>/worker.json`, 0600, machine-local and never backed up. The
  * home's address comes from the connection record beside it.
  */
@@ -14,8 +14,8 @@ export const WORKER_CONFIG_VERSION = 1;
 export interface WorkerConfig {
   version: number;
   homeId: string;
-  computerId: string;
-  computerName: string;
+  deviceId: string;
+  deviceName: string;
   workerKey: string;
   enrolledAt: string;
 }
@@ -23,11 +23,14 @@ export interface WorkerConfig {
 export function readWorkerConfig(): WorkerConfig | null {
   const file = getWorkerConfigPath();
   if (!fs.existsSync(file)) return null;
-  const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<WorkerConfig>;
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<WorkerConfig> & { computerId?: string; computerName?: string };
+  // Written as `computerId` and `computerName` before devices were named devices (2026-09-29).
+  parsed.deviceId ??= parsed.computerId;
+  parsed.deviceName ??= parsed.computerName;
   if (
     parsed.version !== WORKER_CONFIG_VERSION ||
     typeof parsed.homeId !== 'string' ||
-    typeof parsed.computerId !== 'string' ||
+    typeof parsed.deviceId !== 'string' ||
     typeof parsed.workerKey !== 'string'
   ) {
     throw new Error(`${file} is not a worker enrollment this version of Ri can read. Enroll again with \`ri worker enroll\`.`);
@@ -35,8 +38,8 @@ export function readWorkerConfig(): WorkerConfig | null {
   return {
     version: WORKER_CONFIG_VERSION,
     homeId: parsed.homeId,
-    computerId: parsed.computerId,
-    computerName: parsed.computerName ?? 'this computer',
+    deviceId: parsed.deviceId,
+    deviceName: parsed.deviceName ?? 'this device',
     workerKey: parsed.workerKey,
     enrolledAt: parsed.enrolledAt ?? '',
   };

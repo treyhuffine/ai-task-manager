@@ -2,7 +2,7 @@
  * GitHub for an execution's branch: its pull request, merging it, and
  * auto-merge (P4.5). `gh` runs in a clone of the repository, so the home
  * runs these in the agent's folder there, and for an agent that lives only
- * on another computer that computer's worker runs them in its folder
+ * on another device that device's worker runs them in its folder
  * (`request: github`). Same answers either way, as `{ status, body }`. No
  * database: a worker runs this too.
  */

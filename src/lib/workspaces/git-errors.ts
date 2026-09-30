@@ -1,6 +1,6 @@
 /**
  * Telling Git failures apart, the same way wherever the Git ran: here, or
- * on the computer an execution runs on (P4.5).
+ * on the device an execution runs on (P4.5).
  */
 
 function readStderr(err: unknown): string {

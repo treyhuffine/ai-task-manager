@@ -1,5 +1,5 @@
 /**
- * Independent d0c788f review probes. No server or real computer involved.
+ * Independent d0c788f review probes. No server or real device involved.
  *
  * P3 re-check, findings 2 and 5. Adapted to the fix: a terminal screen now
  * brings its own position (`{ after }`), which the page stream moves only

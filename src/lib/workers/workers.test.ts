@@ -16,7 +16,7 @@ let home: TestHome;
 let server: HomeServer;
 let homeId: string;
 let laptopKey: string;
-let laptopComputerId: string;
+let laptopDeviceId: string;
 let browserKey: string;
 const running: AbortController[] = [];
 
@@ -31,10 +31,10 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
-  const laptop = q.createApiKey({ name: 'MacBook CLI', deviceType: 'computer' });
+  const laptop = q.pairDevice({ name: 'MacBook', kind: 'computer' });
   laptopKey = laptop.token.plaintext;
-  laptopComputerId = q.registerComputerForApiKey({ apiKeyId: laptop.key.id, name: 'MacBook', platform: 'darwin' }).computer.id;
-  browserKey = q.createApiKey({ name: 'MacBook browser', deviceType: 'computer' }).token.plaintext;
+  laptopDeviceId = q.registerDeviceForApiKey({ apiKeyId: laptop.key.id, name: 'MacBook', platform: 'darwin' }).device.id;
+  browserKey = q.pairDevice({ name: 'MacBook browser', kind: 'computer' }).token.plaintext;
   server = await startHomeServer();
 });
 
@@ -85,7 +85,7 @@ async function enrolledTarget(): Promise<WorkerTarget & { workerKeyId: string }>
     homeUrl: server.url,
     homeId,
     homeName: 'My Ri',
-    computerName: 'MacBook',
+    deviceName: 'MacBook',
     workerKey,
     workerKeyId: q.findApiKeyByHash(hashToken(workerKey))!.id,
   };
@@ -117,18 +117,18 @@ async function until(check: () => boolean | Promise<boolean>, what: string): Pro
 }
 
 describe('enrolling', () => {
-  it('makes a connected computer a worker with a new key of its own', async () => {
+  it('makes a connected device a worker with a new key of its own', async () => {
     const target = await enrolledTarget();
     const q = await import('@/lib/db/queries');
     const { hashToken } = await import('@/lib/auth/tokens');
     expect(q.isWorkerApiKey(target.workerKeyId)).toBe(true);
     // The key it asked with is untouched: still a viewing key.
     expect(q.isWorkerApiKey(q.findApiKeyByHash(hashToken(laptopKey))!.id)).toBe(false);
-    expect(q.getWorkerEnrollment(target.workerKeyId)?.computer.id).toBe(laptopComputerId);
+    expect(q.getWorkerDevice(target.workerKeyId)?.id).toBe(laptopDeviceId);
 
     const { sendHeartbeat } = await import('@/lib/worker/run');
     await sendHeartbeat(target, 'test', 'awake', describeFake);
-    expect(q.getComputer(laptopComputerId)).toMatchObject({
+    expect(q.getDevice(laptopDeviceId)).toMatchObject({
       workerProtocol: WORKER_PROTOCOL,
       workerVersion: 'test',
       reportedState: 'awake',
@@ -143,16 +143,16 @@ describe('enrolling', () => {
 
     const expiring = (await call('/api/workers/grants', { bearer: laptopKey, body: {} })).json!.code as string;
     const { getDb } = await import('@/lib/db');
-    const { computerGrants } = await import('@/lib/db/schema');
-    getDb().update(computerGrants).set({ expiresAt: new Date(Date.now() - 1000).toISOString() }).run();
+    const { deviceGrants } = await import('@/lib/db/schema');
+    getDb().update(deviceGrants).set({ expiresAt: new Date(Date.now() - 1000).toISOString() }).run();
     expect(await enroll({ code: expiring })).toMatchObject({ status: 410, json: { error: 'expired' } });
     expect(await enroll({ code: 'rg_made_up' })).toMatchObject({ status: 400, json: { error: 'invalid' } });
   });
 
-  it("refuses to enroll the home's own computer", async () => {
+  it("refuses to enroll the home's own device", async () => {
     const identity = await import('@/lib/home/identity');
-    const host = identity.ensureHomeIdentity().computer.id;
-    const res = await call('/api/workers/grants', { bearer: laptopKey, body: { computerId: host } });
+    const host = identity.ensureHomeIdentity().device.id;
+    const res = await call('/api/workers/grants', { bearer: laptopKey, body: { deviceId: host } });
     expect(res).toMatchObject({ status: 400, json: { error: 'not_allowed' } });
   });
 
@@ -168,7 +168,7 @@ describe('enrolling', () => {
     expect(res.json!.message).toMatch(/Update Ri on MacBook/);
   });
 
-  it('keeps one worker per computer: enrolling again retires the earlier key', async () => {
+  it('keeps one worker per device: enrolling again retires the earlier key', async () => {
     const first = await enrolledTarget();
     await enrolledTarget();
     const { sendHeartbeat } = await import('@/lib/worker/run');
@@ -179,7 +179,7 @@ describe('enrolling', () => {
 describe('the boundary between viewing and worker keys', () => {
   it('lets a worker key reach only the worker routes', async () => {
     const target = await enrolledTarget();
-    expect(await call('/api/computers', { bearer: target.workerKey })).toMatchObject({ status: 403, json: { error: 'worker_key' } });
+    expect(await call('/api/devices', { bearer: target.workerKey })).toMatchObject({ status: 403, json: { error: 'worker_key' } });
     expect(await call('/api/devices/associate', { bearer: target.workerKey, body: { code: 'x' } })).toMatchObject({ status: 403 });
   });
 
@@ -187,7 +187,7 @@ describe('the boundary between viewing and worker keys', () => {
     await enrolledTarget();
     const res = await call('/api/workers/me/heartbeat', {
       bearer: laptopKey,
-      headers: { 'x-ri-api-key-scope': 'worker', 'x-ri-worker-computer-id': laptopComputerId, 'x-ri-worker-protocol': String(WORKER_PROTOCOL) },
+      headers: { 'x-ri-api-key-scope': 'worker', 'x-ri-worker-device-id': laptopDeviceId, 'x-ri-worker-protocol': String(WORKER_PROTOCOL) },
       body: { protocol: WORKER_PROTOCOL, version: 'x', harnesses: [], state: 'awake' },
     });
     expect(res).toMatchObject({ status: 403, json: { error: 'not_a_worker' } });
@@ -202,17 +202,17 @@ describe('the connection', () => {
     // The home registers the stream before the worker reads its hello, so
     // wait on the worker's side.
     await until(() => statuses.some((s) => s.state === 'connected'), 'the worker to connect');
-    const { isComputerConnected } = await import('@/lib/workers/hub');
-    expect(isComputerConnected(laptopComputerId)).toBe(true);
+    const { isDeviceConnected } = await import('@/lib/workers/hub');
+    expect(isDeviceConnected(laptopDeviceId)).toBe(true);
 
-    const fresh = await call(`/api/computers/${laptopComputerId}/harnesses?fresh=1`, { bearer: laptopKey });
+    const fresh = await call(`/api/devices/${laptopDeviceId}/harnesses?fresh=1`, { bearer: laptopKey });
     expect(fresh).toMatchObject({ status: 200, json: { source: 'worker', harnesses: FAKE_HARNESSES } });
 
     // The first heartbeat goes out as the stream opens, without waiting on it.
     const q = await import('@/lib/db/queries');
-    await until(() => q.getComputer(laptopComputerId)?.workerProtocol === WORKER_PROTOCOL, 'the first heartbeat');
-    const list = await call('/api/computers', { bearer: laptopKey });
-    const laptop = (list.json as unknown as Array<{ id: string; worker: unknown }>).find((c) => c.id === laptopComputerId);
+    await until(() => q.getDevice(laptopDeviceId)?.workerProtocol === WORKER_PROTOCOL, 'the first heartbeat');
+    const list = await call('/api/devices', { bearer: laptopKey });
+    const laptop = (list.json as unknown as Array<{ id: string; worker: unknown }>).find((c) => c.id === laptopDeviceId);
     expect(laptop?.worker).toMatchObject({ enrolled: true, connected: true, protocol: WORKER_PROTOCOL, reportedState: 'awake' });
   });
 
@@ -220,24 +220,24 @@ describe('the connection', () => {
     const target = await enrolledTarget();
     void start(target);
     const hub = await import('@/lib/workers/hub');
-    await until(() => hub.isComputerConnected(laptopComputerId), 'the worker to connect');
-    await expect(hub.requestWorker(laptopComputerId, 'no_such_request' as never)).rejects.toMatchObject({ unsupported: true });
+    await until(() => hub.isDeviceConnected(laptopDeviceId), 'the worker to connect');
+    await expect(hub.requestWorker(laptopDeviceId, 'no_such_request' as never)).rejects.toMatchObject({ unsupported: true });
   });
 
-  it('only lets the computer that was asked answer', async () => {
+  it('only lets the device that was asked answer', async () => {
     const target = await enrolledTarget();
     const hub = await import('@/lib/workers/hub');
-    // Another worker, for another computer, answering this one's request.
+    // Another worker, for another device, answering this one's request.
     const q = await import('@/lib/db/queries');
-    const other = q.createApiKey({ name: 'Other CLI', deviceType: 'computer' });
-    q.registerComputerForApiKey({ apiKeyId: other.key.id, name: 'Other', platform: 'darwin' });
+    const other = q.pairDevice({ name: 'Other', kind: 'computer' });
+    q.registerDeviceForApiKey({ apiKeyId: other.key.id, name: 'Other', platform: 'darwin' });
     const otherCode = (await call('/api/workers/grants', { bearer: other.token.plaintext, body: {} })).json!.code as string;
     const otherKey = (await enroll({ code: otherCode })).json!.workerKey as string;
 
     const sent: { id: string }[] = [];
     const unregister = hub.registerConnection({
       id: 'test',
-      computerId: laptopComputerId,
+      deviceId: laptopDeviceId,
       openedAt: Date.now(),
       send: (e) => {
         if (e.type === 'request') sent.push({ id: e.id });
@@ -245,7 +245,7 @@ describe('the connection', () => {
       wake: () => {},
       close: () => {},
     });
-    const pending = hub.requestWorker(laptopComputerId, 'describe_harnesses', null, 2_000);
+    const pending = hub.requestWorker(laptopDeviceId, 'describe_harnesses', null, 2_000);
     const wrong = await call(`/api/workers/me/requests/${sent[0]!.id}/result`, {
       bearer: otherKey,
       headers: { 'x-ri-worker-protocol': String(WORKER_PROTOCOL) },
@@ -267,8 +267,8 @@ describe('the connection', () => {
     const statuses: WorkerStatus[] = [];
     void start(target, statuses);
     const hub = await import('@/lib/workers/hub');
-    await until(() => hub.isComputerConnected(laptopComputerId), 'the worker to connect');
-    hub._dropWorkerStreams(laptopComputerId);
+    await until(() => hub.isDeviceConnected(laptopDeviceId), 'the worker to connect');
+    hub._dropWorkerStreams(laptopDeviceId);
     await until(() => statuses.filter((s) => s.state === 'connected').length === 2, 'the worker to reconnect');
     expect(statuses.some((s) => s.state === 'disconnected')).toBe(true);
   });
@@ -285,10 +285,10 @@ describe('the connection', () => {
     const target = await enrolledTarget();
     const exit = start(target);
     const hub = await import('@/lib/workers/hub');
-    await until(() => hub.isComputerConnected(laptopComputerId), 'the worker to connect');
-    expect((await call(`/api/devices/${target.workerKeyId}`, { method: 'DELETE', bearer: laptopKey })).status).toBe(204);
+    await until(() => hub.isDeviceConnected(laptopDeviceId), 'the worker to connect');
+    expect((await call(`/api/devices/${laptopDeviceId}/keys/${target.workerKeyId}`, { method: 'DELETE', bearer: laptopKey })).status).toBe(204);
     await expect(exit).resolves.toMatchObject({ reason: 'revoked' });
-    expect(hub.isComputerConnected(laptopComputerId)).toBe(false);
+    expect(hub.isDeviceConnected(laptopDeviceId)).toBe(false);
   });
 
   it('stops when the address answers for a different home', async () => {
@@ -296,19 +296,19 @@ describe('the connection', () => {
     await expect(start({ ...target, homeId: 'another-home' })).resolves.toMatchObject({ reason: 'wrong_home' });
   });
 
-  it('turns itself off from its own computer', async () => {
+  it('turns itself off from its own device', async () => {
     const target = await enrolledTarget();
     const res = await call('/api/workers/me', { method: 'DELETE', bearer: target.workerKey, headers: { 'x-ri-worker-protocol': String(WORKER_PROTOCOL) } });
     expect(res.status).toBe(204);
     const { sendHeartbeat } = await import('@/lib/worker/run');
     await expect(sendHeartbeat(target, 'test', 'awake', describeFake)).rejects.toMatchObject({ reason: 'revoked' });
     // Still connected as a viewer.
-    expect((await call('/api/computers', { bearer: laptopKey })).status).toBe(200);
+    expect((await call('/api/devices', { bearer: laptopKey })).status).toBe(200);
   });
 });
 
 describe('This Mac', () => {
-  it("links the computer's browser, once, with identity only", async () => {
+  it("links the device's browser, once, with identity only", async () => {
     const target = await enrolledTarget();
     const issued = await call('/api/workers/me/associations', {
       method: 'POST',
@@ -318,13 +318,18 @@ describe('This Mac', () => {
     expect(issued.status).toBe(201);
     const code = issued.json!.code as string;
 
-    const linked = await call('/api/devices/associate', { bearer: browserKey, body: { code } });
-    expect(linked).toMatchObject({ status: 200, json: { computer: { id: laptopComputerId, name: 'MacBook' } } });
     const q = await import('@/lib/db/queries');
     const { hashToken } = await import('@/lib/auth/tokens');
+    const pairedAs = q.findApiKeyByHash(hashToken(browserKey))!.deviceId!;
+    const linked = await call('/api/devices/associate', { bearer: browserKey, body: { code } });
+    expect(linked).toMatchObject({ status: 200, json: { device: { id: laptopDeviceId, name: 'MacBook' } } });
+    // The browser's key joins the MacBook, and the device it was paired as goes: one MacBook.
     const browser = q.findApiKeyByHash(hashToken(browserKey))!;
-    expect(browser.computerId).toBe(laptopComputerId);
+    expect(browser.deviceId).toBe(laptopDeviceId);
+    expect(q.getDevice(pairedAs)?.status).toBe('revoked');
     expect(q.isWorkerApiKey(browser.id)).toBe(false);
+    const listed = await call('/api/devices', { bearer: browserKey });
+    expect((listed.json as unknown as Array<{ id: string; isThisDevice: boolean }>).find((d) => d.isThisDevice)?.id).toBe(laptopDeviceId);
     expect(await call('/api/devices/associate', { bearer: browserKey, body: { code } })).toMatchObject({ status: 410 });
   });
 });

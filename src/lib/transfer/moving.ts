@@ -2,7 +2,7 @@
  * The one boundary between moving work and everything else that touches it
  * (docs/homes-spec.md §8.2, P4.5, and the P4 review's fourth finding).
  *
- * While work moves to another computer, its source is being stopped and
+ * While work moves to another device, its source is being stopped and
  * saved and the destination doesn't have it yet. Every operation on an
  * execution passes through here in the same tick as it starts: a send to its
  * harness, a Git or file change, archiving, a new terminal. While a move is
@@ -18,14 +18,14 @@
  * enough: this holds for as long as the operation runs.
  */
 
-import { getActiveTransfer, getChatSession, getComputer } from '@/lib/db/queries';
+import { getActiveTransfer, getChatSession, getDevice } from '@/lib/db/queries';
 
-/** The computer the execution is moving to, while its source still has it. */
+/** The device the execution is moving to, while its source still has it. */
 export function movingTo(executionId: string | null | undefined): string | null {
   if (!executionId) return null;
   const moving = getActiveTransfer(executionId);
   if (!moving || moving.toGeneration !== null) return null;
-  return getComputer(moving.toComputerId)?.name ?? 'another computer';
+  return getDevice(moving.toDeviceId)?.name ?? 'another device';
 }
 
 export function movingMessage(to: string): string {

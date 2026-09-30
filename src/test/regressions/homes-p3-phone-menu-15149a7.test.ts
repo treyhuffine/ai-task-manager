@@ -1,7 +1,7 @@
 /**
  * Actual mobile agents view and sheet in Chromium at phone width; data hooks only are fixtures.
  * Adapted at the simplification pass: the fixture hooks gain the setup ones
- * the sheet now uses (a computer the agent isn't on offers to set it up).
+ * the sheet now uses (a device the agent isn't on offers to set it up).
  */
 import http from 'node:http';
 import { createRequire } from 'node:module';
@@ -9,7 +9,7 @@ import type { AddressInfo } from 'node:net';
 import { chromium } from 'playwright-core';
 import { expect, it } from 'vitest';
 
-it('returns focus and pointer input after selecting or dismissing the agent computer sheet', async () => {
+it('returns focus and pointer input after selecting or dismissing the agent device sheet', async () => {
   const require = createRequire(import.meta.url);
   const {build} = createRequire(require.resolve('tsx/package.json'))('esbuild');
   const fixture = `
@@ -24,9 +24,9 @@ it('returns focus and pointer input after selecting or dismissing the agent comp
     export const useDashboard=()=>({streamingSessionIds:new Set(),pendingInputSessionIds:new Set(),setActiveView:()=>{},setMobileTab:()=>{},openAgent:(id,tab)=>record('open',tab)});
     export const useAgentViewMode=()=>({opensView:true});
     export const WorkspaceCreateModal=()=>null;
-    export const startExecution=(_qc,input)=>{record('start',input.computerId??'default');return {sessionId:'chat',done:Promise.resolve()};};
-    export const useRunOn=()=>({data:{defaultId:'home',choices:[{computerId:'home',name:'Review home',isHome:true,ready:true,connected:true},{computerId:'worker',name:'Review worker',isHome:false,ready:true,connected:true}]}});
-    export const useSetDefaultComputer=()=>({isPending:false,mutate:(id)=>record('default',id)});
+    export const startExecution=(_qc,input)=>{record('start',input.deviceId??'default');return {sessionId:'chat',done:Promise.resolve()};};
+    export const useRunOn=()=>({data:{defaultId:'home',choices:[{deviceId:'home',name:'Review home',isHome:true,ready:true,connected:true},{deviceId:'worker',name:'Review worker',isHome:false,ready:true,connected:true}]}});
+    export const useSetDefaultDevice=()=>({isPending:false,mutate:(id)=>record('default',id)});
     export const useSetupPlan=()=>({data:null,isLoading:false,error:null});
     export const useSetUpAgent=()=>({isPending:false,mutate:()=>{}});
   `;

@@ -1,11 +1,11 @@
 /**
- * Terminal history from a connected computer (docs/homes-build.md, P2.9):
- * the home's half. It lists a computer's sessions through its worker,
+ * Terminal history from a connected device (docs/homes-build.md, P2.9):
+ * the home's half. It lists a device's sessions through its worker,
  * imports the ones a person chooses, read-only, into the agent set up in
- * that folder there, and keeps each fresh from that computer while it's
+ * that folder there, and keeps each fresh from that device while it's
  * connected.
  *
- * The native files never leave their computer. The worker lists sessions
+ * The native files never leave their device. The worker lists sessions
  * without their content (`list_history`), and reads a chosen one a window
  * at a time from where the home left off (`read_history`), checking the
  * home's copy is still a prefix of it. The windows are committed through the
@@ -20,15 +20,15 @@ import { getDb } from '@/lib/db';
 import { chatSessions, executionPlacements, executions, externalSessionImports } from '@/lib/db/schema';
 import {
   chatPlacement,
-  getComputer,
+  getDevice,
   getExternalSessionImportBySource,
   getExternalSessionImportForChat,
   getWorkspace,
-  listAgentSetups,
+  listWorkspaceSetups,
 } from '@/lib/db/queries';
 import { explicitHarnessSelection } from '@/lib/harness/options';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
-import { WorkerUnavailableError, isComputerConnected, requestWorker } from '@/lib/workers/hub';
+import { WorkerUnavailableError, isDeviceConnected, requestWorker } from '@/lib/workers/hub';
 import {
   cleanupFailedInitialImport,
   createHistoryWindowWriter,
@@ -60,23 +60,23 @@ import type {
 const MAX_SELECTION = 1_000;
 /** Each read's size. The worker caps it too. */
 const WINDOW_BYTES = 4 * 1024 * 1024;
-/** Listing every harness's history on a computer, or reading a window, can take a while. */
+/** Listing every harness's history on a device, or reading a window, can take a while. */
 const REQUEST_TIMEOUT_MS = 60_000;
 
-function lockKey(computerId: string, source: ExternalAgentSource, externalSessionId: string): string {
-  return `${computerId}:${syncLockKey(source, externalSessionId)}`;
+function lockKey(deviceId: string, source: ExternalAgentSource, externalSessionId: string): string {
+  return `${deviceId}:${syncLockKey(source, externalSessionId)}`;
 }
 
-function listOn(computerId: string): Promise<HistoryListing> {
-  return requestWorker(computerId, 'list_history', null, REQUEST_TIMEOUT_MS) as Promise<HistoryListing>;
+function listOn(deviceId: string): Promise<HistoryListing> {
+  return requestWorker(deviceId, 'list_history', null, REQUEST_TIMEOUT_MS) as Promise<HistoryListing>;
 }
 
 /**
- * The chats Ri runs on that computer, by session key: executions placed
+ * The chats Ri runs on that device, by session key: executions placed
  * there whose harness session is one of these. Selecting one opens it,
  * rather than importing a second copy.
  */
-function riSessionsOn(computerId: string, listed: ListedHistorySession[]): Map<string, string> {
+function riSessionsOn(deviceId: string, listed: ListedHistorySession[]): Map<string, string> {
   const ids = [...new Set(listed.map((s) => s.externalSessionId))];
   const own = new Map<string, string>();
   if (ids.length === 0) return own;
@@ -88,16 +88,16 @@ function riSessionsOn(computerId: string, listed: ListedHistorySession[]): Map<s
   for (const row of rows) {
     if (row.surfaceKind === 'imported_agent' || !row.externalSessionId) continue;
     if (!EXTERNAL_AGENT_SOURCES.includes(row.harness as ExternalAgentSource)) continue;
-    if (chatPlacement(row.id)?.computerId !== computerId) continue;
+    if (chatPlacement(row.id)?.deviceId !== deviceId) continue;
     own.set(sessionKey(row.harness as ExternalAgentSource, row.externalSessionId), row.id);
   }
   return own;
 }
 
-/** The agents set up on that computer, by their folder there. */
-function agentsByFolder(computerId: string): Map<string, { id: string; name: string }> {
+/** The agents set up on that device, by their folder there. */
+function agentsByFolder(deviceId: string): Map<string, { id: string; name: string }> {
   const agents = new Map<string, { id: string; name: string }>();
-  for (const setup of listAgentSetups({ computerId })) {
+  for (const setup of listWorkspaceSetups({ deviceId })) {
     const workspace = getWorkspace(setup.workspaceId);
     if (!workspace || workspace.status !== 'active') continue;
     agents.set(path.normalize(setup.sourcePath), { id: workspace.id, name: workspace.name });
@@ -105,8 +105,8 @@ function agentsByFolder(computerId: string): Map<string, { id: string; name: str
   return agents;
 }
 
-function importsOn(computerId: string): Map<string, ExternalSessionImportRecord> {
-  const rows = getDb().select().from(externalSessionImports).where(eq(externalSessionImports.computerId, computerId)).all();
+function importsOn(deviceId: string): Map<string, ExternalSessionImportRecord> {
+  const rows = getDb().select().from(externalSessionImports).where(eq(externalSessionImports.deviceId, deviceId)).all();
   return new Map(rows.map((row) => [sessionKey(row.providerType as ExternalAgentSource, row.externalSessionId), row]));
 }
 
@@ -117,14 +117,14 @@ function statusOf(listed: ListedHistorySession, ledger: ExternalSessionImportRec
   return ledger.sourceUpdatedAt && listed.updatedAt <= ledger.sourceUpdatedAt ? 'current' : 'changed';
 }
 
-/** A computer's sessions, grouped by folder, with what Ri already has of each. */
-export async function discoverRemoteSessions(computerId: string): Promise<ExternalAgentDiscovery> {
-  const computer = getComputer(computerId);
-  if (!computer) throw new Error('That computer is not part of this home.');
-  const listing = await listOn(computerId);
-  const ledgers = importsOn(computerId);
-  const own = riSessionsOn(computerId, listing.sessions);
-  const agents = agentsByFolder(computerId);
+/** A device's sessions, grouped by folder, with what Ri already has of each. */
+export async function discoverRemoteSessions(deviceId: string): Promise<ExternalAgentDiscovery> {
+  const device = getDevice(deviceId);
+  if (!device) throw new Error('That device is not part of this home.');
+  const listing = await listOn(deviceId);
+  const ledgers = importsOn(deviceId);
+  const own = riSessionsOn(deviceId, listing.sessions);
+  const agents = agentsByFolder(deviceId);
 
   const byFolder = new Map<string, ExternalAgentSessionCandidate[]>();
   for (const listed of listing.sessions) {
@@ -134,9 +134,9 @@ export async function discoverRemoteSessions(computerId: string): Promise<Extern
     const note = ours
       ? 'Ri runs this session there.'
       : !listed.readable
-        ? `${providerLabel(listed.source)} history on another computer can't be imported yet.`
+        ? `${providerLabel(listed.source)} history on another device can't be imported yet.`
         : !agent
-          ? `Set this folder up as an agent on ${computer.name} to import its sessions.`
+          ? `Set this folder up as an agent on ${device.name} to import its sessions.`
           : undefined;
     const candidate: ExternalAgentSessionCandidate = {
       key: listed.key,
@@ -177,17 +177,17 @@ export async function discoverRemoteSessions(computerId: string): Promise<Extern
     projects,
     sources: { claude: summary('claude'), codex: summary('codex'), opencode: summary('opencode') },
     scannedAt: new Date().toISOString(),
-    computer: { id: computer.id, name: computer.name },
+    device: { id: device.id, name: device.name },
   };
 }
 
 /**
  * The imported chat, in the agent set up in that folder there, placed on
- * that computer: its execution's folder is there, so the home never looks
+ * that device: its execution's folder is there, so the home never looks
  * for it on its own disk. Read-only: nothing of it runs from here.
  */
 function createRemoteImportSkeleton(
-  computerId: string,
+  deviceId: string,
   listed: ListedHistorySession,
   agent: { id: string },
 ): { ledger: ExternalSessionImportRecord; chatSessionId: string; executionId: string } {
@@ -203,7 +203,7 @@ function createRemoteImportSkeleton(
       branchName: listed.branchName,
       status: 'active',
       archivedAt: null,
-      // The home's own path column stays the home's: the folder is on that computer.
+      // The home's own path column stays the home's: the folder is on that device.
       worktreePath: null,
       createdAt: listed.startedAt,
       updatedAt: listed.updatedAt,
@@ -211,7 +211,7 @@ function createRemoteImportSkeleton(
     tx.insert(executionPlacements).values({
       id: uuidv7(),
       executionId,
-      computerId,
+      deviceId,
       generation: 1,
       worktreePath: listed.cwd,
       startReason: 'adopted',
@@ -244,9 +244,9 @@ function createRemoteImportSkeleton(
       chatSessionId,
       providerType: listed.source,
       externalSessionId: listed.externalSessionId,
-      computerId,
+      deviceId,
       sourceKind: 'file',
-      // Never a path on another computer.
+      // Never a path on another device.
       sourcePath: null,
       sourceSize: null,
       sourceModifiedAtNs: null,
@@ -262,14 +262,14 @@ function createRemoteImportSkeleton(
 }
 
 /**
- * Read the rest of a session from its computer, a window at a time, each
+ * Read the rest of a session from its device, a window at a time, each
  * committed as it arrives: from where this import left off, or from the
- * beginning when the computer's transcript no longer starts with what the
+ * beginning when the device's transcript no longer starts with what the
  * home has. Returns the events added. Throws when a read fails, with the
  * windows already committed kept.
  */
-async function readFromComputer(
-  computerId: string,
+async function readFromDevice(
+  deviceId: string,
   ledger: ExternalSessionImportRecord,
   updatedAt: string | null,
   progress: { committed: boolean },
@@ -280,7 +280,7 @@ async function readFromComputer(
   for (;;) {
     const fromOffset = current.syncOffset;
     const window = (await requestWorker(
-      computerId,
+      deviceId,
       'read_history',
       {
         key,
@@ -311,17 +311,17 @@ async function readFromComputer(
   }
 }
 
-/** Import the chosen sessions from a connected computer, or sync the ones already imported. */
-export async function importRemoteSessions(computerId: string, sessionKeys: string[]): Promise<ExternalAgentImportResult> {
+/** Import the chosen sessions from a connected device, or sync the ones already imported. */
+export async function importRemoteSessions(deviceId: string, sessionKeys: string[]): Promise<ExternalAgentImportResult> {
   const keys = [...new Set(sessionKeys)];
   if (keys.length > MAX_SELECTION) throw new Error(`Select at most ${MAX_SELECTION} chats per import.`);
-  const computer = getComputer(computerId);
-  if (!computer) throw new Error('That computer is not part of this home.');
+  const device = getDevice(deviceId);
+  if (!device) throw new Error('That device is not part of this home.');
   const result = emptyImportResult();
-  const listing = await listOn(computerId);
+  const listing = await listOn(deviceId);
   const listedByKey = new Map(listing.sessions.map((s) => [s.key, s]));
-  const own = riSessionsOn(computerId, listing.sessions);
-  const agents = agentsByFolder(computerId);
+  const own = riSessionsOn(deviceId, listing.sessions);
+  const agents = agentsByFolder(deviceId);
 
   for (const key of keys) {
     const parsed = parseSessionKey(key);
@@ -329,7 +329,7 @@ export async function importRemoteSessions(computerId: string, sessionKeys: stri
       result.failures.push({ key, error: 'Not a session key.' });
       continue;
     }
-    await withSourceSyncLock(lockKey(computerId, parsed.source, parsed.externalSessionId), async () => {
+    await withSourceSyncLock(lockKey(deviceId, parsed.source, parsed.externalSessionId), async () => {
       const ours = own.get(key);
       if (ours) {
         result.skippedSessions += 1;
@@ -337,10 +337,10 @@ export async function importRemoteSessions(computerId: string, sessionKeys: stri
         return;
       }
       const listed = listedByKey.get(key) ?? null;
-      const existing = getExternalSessionImportBySource(parsed.source, parsed.externalSessionId, computerId);
+      const existing = getExternalSessionImportBySource(parsed.source, parsed.externalSessionId, deviceId);
       if (existing) {
         try {
-          result.syncedEvents += await readFromComputer(computerId, existing, listed?.updatedAt ?? null, { committed: false });
+          result.syncedEvents += await readFromDevice(deviceId, existing, listed?.updatedAt ?? null, { committed: false });
           result.syncedSessions += 1;
           result.sessions.push({ key, chatSessionId: existing.chatSessionId });
         } catch (err) {
@@ -350,7 +350,7 @@ export async function importRemoteSessions(computerId: string, sessionKeys: stri
         return;
       }
       if (!listed) {
-        result.failures.push({ key, error: `That session is no longer on ${computer.name}.` });
+        result.failures.push({ key, error: `That session is no longer on ${device.name}.` });
         return;
       }
       const agent = agents.get(path.normalize(listed.cwd));
@@ -358,15 +358,15 @@ export async function importRemoteSessions(computerId: string, sessionKeys: stri
         result.failures.push({
           key,
           error: !listed.readable
-            ? `${providerLabel(listed.source)} history on another computer can't be imported yet.`
-            : `Set ${listed.cwd} up as an agent on ${computer.name} to import its sessions.`,
+            ? `${providerLabel(listed.source)} history on another device can't be imported yet.`
+            : `Set ${listed.cwd} up as an agent on ${device.name} to import its sessions.`,
         });
         return;
       }
-      const skeleton = createRemoteImportSkeleton(computerId, listed, agent);
+      const skeleton = createRemoteImportSkeleton(deviceId, listed, agent);
       const progress = { committed: false };
       try {
-        result.importedEvents += await readFromComputer(computerId, skeleton.ledger, listed.updatedAt, progress);
+        result.importedEvents += await readFromDevice(deviceId, skeleton.ledger, listed.updatedAt, progress);
         result.importedSessions += 1;
         result.sessions.push({ key, chatSessionId: skeleton.chatSessionId });
       } catch (err) {
@@ -382,21 +382,21 @@ export async function importRemoteSessions(computerId: string, sessionKeys: stri
 }
 
 /**
- * Bring an imported chat up to date from its computer: what's new since the
- * last sync. A computer that isn't connected leaves the chat as it is, with
+ * Bring an imported chat up to date from its device: what's new since the
+ * last sync. A device that isn't connected leaves the chat as it is, with
  * when it was last synced (`offline`).
  */
 export async function syncRemoteImport(chatSessionId: string): Promise<ImportedSessionSyncResult> {
   const ledger = getExternalSessionImportForChat(chatSessionId);
-  if (!ledger?.computerId) return { replayed: 0, skipped: 'not_imported' };
-  const computerId = ledger.computerId;
-  if (!isComputerConnected(computerId)) return { replayed: 0, skipped: 'offline' };
+  if (!ledger?.deviceId) return { replayed: 0, skipped: 'not_imported' };
+  const deviceId = ledger.deviceId;
+  if (!isDeviceConnected(deviceId)) return { replayed: 0, skipped: 'offline' };
   const source = ledger.providerType as ExternalAgentSource;
-  return withSourceSyncLock(lockKey(computerId, source, ledger.externalSessionId), async () => {
+  return withSourceSyncLock(lockKey(deviceId, source, ledger.externalSessionId), async () => {
     const current = getExternalSessionImportForChat(chatSessionId);
     if (!current) return { replayed: 0, skipped: 'not_imported' };
     try {
-      const replayed = await readFromComputer(computerId, current, null, { committed: false });
+      const replayed = await readFromDevice(deviceId, current, null, { committed: false });
       return replayed > 0 ? { replayed } : { replayed, skipped: 'current' };
     } catch (err) {
       if (err instanceof WorkerUnavailableError) return { replayed: 0, skipped: 'offline' };
@@ -410,17 +410,17 @@ export async function syncRemoteImport(chatSessionId: string): Promise<ImportedS
 const RECONNECT_SYNC_AFTER_MS = 60_000;
 
 /**
- * A computer that connects brings its imported sessions up to date, one at a
+ * A device that connects brings its imported sessions up to date, one at a
  * time in the background: what was worked on in its terminals while it was
  * away. One synced in the last minute is left alone, so a flaky connection
  * doesn't read the same history over and over.
  */
-export async function syncRemoteImportsOn(computerId: string, now = Date.now()): Promise<number> {
+export async function syncRemoteImportsOn(deviceId: string, now = Date.now()): Promise<number> {
   const rows = getDb()
     .select({ chatSessionId: externalSessionImports.chatSessionId, lastSyncedAt: externalSessionImports.lastSyncedAt })
     .from(externalSessionImports)
     .innerJoin(chatSessions, eq(externalSessionImports.chatSessionId, chatSessions.id))
-    .where(and(eq(externalSessionImports.computerId, computerId), eq(chatSessions.status, 'active')))
+    .where(and(eq(externalSessionImports.deviceId, deviceId), eq(chatSessions.status, 'active')))
     .all();
   let replayed = 0;
   for (const row of rows) {

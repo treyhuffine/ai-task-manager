@@ -19,14 +19,14 @@ it('does not leave a timed-out scheduled send executable on reconnect', async ()
   const identity = await import('@/lib/home/identity');
   identity.resetHomeIdentityCache(); identity.ensureHomeIdentity();
   const q = await import('@/lib/db/queries');
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'Laptop', createdByApiKeyId: null });
-  const laptop = q.redeemEnrollGrant({ secret: grant.secret, name: 'Laptop' }).computer.id;
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'Laptop', createdByApiKeyId: null });
+  const laptop = q.redeemEnrollGrant({ secret: grant.secret, name: 'Laptop' }).device.id;
   q.recordWorkerHeartbeat(laptop, { protocol: WORKER_PROTOCOL, version: 'test', state: 'awake', harnesses: [
     { harness: 'claude', binary: { status: 'supported', version: '9.9.9' }, capabilities: { sessions: { supported: true } } } as WorkerHarnessReport,
   ] });
   const ws = q.createWorkspace({ name: 'Timed sweep', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
   const created = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Sleeping laptop' });
-  q.createPlacement({ executionId: created.execution.id, computerId: laptop, startReason: 'created', worktreePath: home.root });
+  q.createPlacement({ executionId: created.execution.id, deviceId: laptop, startReason: 'created', worktreePath: home.root });
   const trigger = q.createTrigger({ name: 'Short timed sweep', workspaceId: ws.id, owningExecutionId: created.execution.id,
     targetKind: 'workspace', harness: 'claude', prompt: 'Sweep', kind: 'cron', cronExpression: '0 * * * *', timeoutSeconds: 1,
   });

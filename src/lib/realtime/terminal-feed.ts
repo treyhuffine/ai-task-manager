@@ -1,8 +1,8 @@
 /**
  * A terminal's output as part of the page stream (P3 review). It reads the
  * terminal's own stream, where the terminal is (`terminalStreamAt`: a shell
- * here, or relayed from the computer it runs on), and passes its frames on.
- * When that stream ends without the shell ending (its computer dropped, or
+ * here, or relayed from the device it runs on), and passes its frames on.
+ * When that stream ends without the shell ending (its device dropped, or
  * the relay fell out of step), it opens it again from the last offset it
  * passed on, after the delay the stream asked for. So the page's one
  * connection never has to reconnect for one terminal.

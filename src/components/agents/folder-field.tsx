@@ -1,9 +1,9 @@
 'use client';
 
 /**
- * A folder on one of the person's computers: typed, or chosen with Browse,
- * which lists that computer's folders from wherever this screen is
- * (docs/homes-spec.md §4.2). A computer that isn't running Ri can't be
+ * A folder on one of the person's devices: typed, or chosen with Browse,
+ * which lists that device's folders from wherever this screen is
+ * (docs/homes-spec.md §4.2). A device that isn't running Ri can't be
  * browsed, and a typed path is checked there when it's back.
  */
 
@@ -16,14 +16,14 @@ import { FolderPickerDialog } from '@/components/workspaces/folder-picker-dialog
 export function FolderField({
   value,
   onChange,
-  computer,
+  device,
   browsable,
   placeholder,
   autoFocus,
 }: {
   value: string;
   onChange: (folder: string) => void;
-  computer: { id: string; name: string };
+  device: { id: string; name: string };
   browsable: boolean;
   placeholder?: string;
   autoFocus?: boolean;
@@ -51,7 +51,7 @@ export function FolderField({
             setPicking(true);
           }}
           disabled={!browsable}
-          title={browsable ? `Browse ${computer.name}` : `${computer.name} isn't running Ri right now. Type the path instead.`}
+          title={browsable ? `Browse ${device.name}` : `${device.name} isn't running Ri right now. Type the path instead.`}
           className="h-8 shrink-0 gap-1.5 text-[12px]"
         >
           <FolderOpen size={13} />
@@ -61,7 +61,7 @@ export function FolderField({
       <FolderPickerDialog
         open={picking}
         onOpenChange={setPicking}
-        computer={computer}
+        device={device}
         initialPath={value.trim() || undefined}
         onChoose={onChange}
       />

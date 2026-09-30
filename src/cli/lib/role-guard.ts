@@ -8,11 +8,11 @@
  *   which asks whether to start a home or connect to one. A fresh root whose
  *   home was retired says so instead, and still runs `home`, to show or undo
  *   the retirement.
- * - On a connected computer the data lives in the home. Commands in
+ * - On a connected device the data lives in the home. Commands in
  *   `ROUTED_WHEN_CONNECTED` handle that themselves by calling the home.
  *   Everything else is refused with where the home is.
  *
- * `getDb()` refuses to create a database on a connected computer as well,
+ * `getDb()` refuses to create a database on a connected device as well,
  * so a command missing from this list still can't write locally.
  */
 
@@ -40,9 +40,9 @@ const DATA_COMMANDS = new Set([
 ]);
 
 /**
- * Data commands that reach the home over its API when this computer is
+ * Data commands that reach the home over its API when this device is
  * connected (src/cli/lib/dispatch.ts). `browser` stays refused: it drives a
- * browser on the machine it runs on, and a connected computer's own browser
+ * browser on the machine it runs on, and a connected device's own browser
  * is not the home's.
  */
 export const ROUTED_WHEN_CONNECTED = new Set(['agent', 'trigger', 'runs', 'run', 'spend', 'setup']);
@@ -71,12 +71,12 @@ export function refusalFor(commandName: string, subcommand?: string): string | n
     // A folder whose home was retired: say so, and let `home` show it or undo it.
     const retired = retiredHomes()[0];
     if (retired) return commandName === 'home' ? null : describeRetired(retired.retired, retired.dir);
-    return `Ri isn't set up on this computer yet. Run \`${APP_SHORT_ID}\` to start using Ri here or connect to your existing Ri.`;
+    return `Ri isn't set up on this device yet. Run \`${APP_SHORT_ID}\` to start using Ri here or connect to your existing Ri.`;
   }
   if (ROUTED_WHEN_CONNECTED.has(commandName)) return null;
   const connection = readConnection();
   const where = connection ? `${connection.homeName} at ${connection.homeUrl}` : 'your home';
-  return `This computer is connected to ${where}, where your data lives. \`${APP_SHORT_ID} ${commandName}\` runs on the home itself.`;
+  return `This device is connected to ${where}, where your data lives. \`${APP_SHORT_ID} ${commandName}\` runs on the home itself.`;
 }
 
 export function installRoleGuard(program: Command): void {

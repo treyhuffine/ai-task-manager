@@ -31,7 +31,7 @@ import {
   setExecutionPreviewUrls,
   placementOf,
   getHome,
-  getComputer,
+  getDevice,
 } from '@/lib/db/queries';
 import type { ExecutionRecord, WorkspaceRecord, PreviewTargetRecord, PreviewUrl } from '@/db/types';
 import { getSupervisor, type PreviewStatus, type PreviewProcessRecord } from './supervisor';
@@ -87,12 +87,12 @@ export interface PreviewState {
   /** Tail of the setup script's output when `setupStatus === 'failed'`. */
   setupError: string | null;
   /**
-   * The execution runs on another computer (P3.5). Its app runs there, not
+   * The execution runs on another device (P3.5). Its app runs there, not
    * here: nothing is started at home for it, and a local address there is
    * never offered to another device. A URL pasted for it (the person's own
    * tunnel) is still used for a viewer elsewhere.
    */
-  elsewhere: { computerName: string; folder: string | null } | null;
+  elsewhere: { deviceName: string; folder: string | null } | null;
 }
 
 /**
@@ -113,19 +113,19 @@ interface WorktreeContext {
   workspace: WorkspaceRecord;
   cwd: string;
   worktreeName: string;
-  /** Set when the execution runs on another computer: see `PreviewState.elsewhere`. */
+  /** Set when the execution runs on another device: see `PreviewState.elsewhere`. */
   elsewhere: PreviewState['elsewhere'];
 }
 
 /**
  * Where the execution runs, when that isn't here. Its folder is on that
- * computer, and `execution.worktreePath` is null for it, so the fallback
+ * device, and `execution.worktreePath` is null for it, so the fallback
  * below would otherwise have previewed the agent's checkout at home.
  */
 function elsewhereOf(executionId: string): PreviewState['elsewhere'] {
   const placement = placementOf(executionId);
-  if (!placement?.placementId || placement.computerId === getHome()?.hostComputerId) return null;
-  return { computerName: getComputer(placement.computerId)?.name ?? 'another computer', folder: placement.worktreePath };
+  if (!placement?.placementId || placement.deviceId === getHome()?.hostDeviceId) return null;
+  return { deviceName: getDevice(placement.deviceId)?.name ?? 'another device', folder: placement.worktreePath };
 }
 
 /** Resolve the execution + workspace + on-disk cwd, or throw a clean error. */
@@ -145,7 +145,7 @@ function loadContext(executionId: string): WorktreeContext {
 }
 
 /**
- * The state of an execution that runs on another computer: never started
+ * The state of an execution that runs on another device: never started
  * here, with a pasted URL as its only address (P3.5).
  */
 function elsewhereState(ctx: WorktreeContext, service: string | null, remoteUrl: string | null): PreviewState {
@@ -361,8 +361,8 @@ export async function resolvePreview(
   const ctx = loadContext(executionId);
 
   const service = opts.service ?? null;
-  // Work on another computer is never started here. A viewer elsewhere gets
-  // the URL pasted for it, used as given: no port of this computer's goes in.
+  // Work on another device is never started here. A viewer elsewhere gets
+  // the URL pasted for it, used as given: no port of this device's goes in.
   if (ctx.elsewhere) return elsewhereState(ctx, service, remote ? pastedUrl(ctx.execution, service) : null);
   const target = await getOrCreateTarget(ctx, service);
   touchPreviewTarget(target.id);
@@ -572,7 +572,7 @@ export async function restoreWorkspacePreviews(workspaceId: string): Promise<
     try {
       const elsewhere = elsewhereOf(t.executionId);
       if (elsewhere) {
-        results.push({ executionId: t.executionId, service: t.service, ok: false, error: `It runs on ${elsewhere.computerName}.` });
+        results.push({ executionId: t.executionId, service: t.service, ok: false, error: `It runs on ${elsewhere.deviceName}.` });
         continue;
       }
       const state = await resolvePreview(t.executionId, { service: t.service, remote });

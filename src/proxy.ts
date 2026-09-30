@@ -1,16 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { hashToken } from '@/lib/auth/tokens';
-import { findApiKeyByHash, getWorkerEnrollment, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
+import { findApiKeyByHash, getWorkerDevice, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
 import { isHomeActive } from '@/lib/home/identity';
 import {
   API_KEY_ID_HEADER,
   API_KEY_SCOPE_HEADER,
-  API_KEY_TYPE_HEADER,
   CALLER_LOCATION_HEADER,
   FORWARDED_KEY_HEADERS,
   SESSION_CHAT_HEADER,
-  WORKER_COMPUTER_HEADER,
+  WORKER_DEVICE_HEADER,
 } from '@/lib/auth/request-key';
 import { isSessionToken, sessionMayReach, verifySessionToken } from '@/lib/auth/session-token';
 import { isHostKeyHash } from '@/lib/auth/host-key';
@@ -92,7 +91,7 @@ export function proxy(request: NextRequest) {
     return nextWithoutKeyHeaders(request);
   }
 
-  // A root whose data came from another computer serves nothing until it is
+  // A root whose data came from another device serves nothing until it is
   // claimed, so two copies never act as one home (docs/homes-spec.md §10.3).
   // Checked before the routes that carry their own credentials (webhooks,
   // OAuth callbacks), since those can start work too.
@@ -100,7 +99,7 @@ export function proxy(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'home_not_active',
-        message: 'This copy of your home is not active on this computer. Run `ri home claim` here if it should be.',
+        message: 'This copy of your home is not active on this device. Run `ri home claim` here if it should be.',
       },
       { status: 503 },
     );
@@ -128,7 +127,7 @@ export function proxy(request: NextRequest) {
   }
 
 
-  // Redeeming an enroll grant is how a computer gets its first worker key, so
+  // Redeeming an enroll grant is how a device gets its first worker key, so
   // the grant in the body is the credential: short-lived, single-use, and
   // issued by an owner (docs/homes-build.md, P2.2).
   if (request.nextUrl.pathname === '/api/workers/enroll') {
@@ -142,7 +141,7 @@ export function proxy(request: NextRequest) {
   const token = extractToken(request);
   if (!token) return unauthorized();
 
-  // A session on a connected computer speaks with a token of its own, which
+  // A session on a connected device speaks with a token of its own, which
   // reaches only that session's servers, in its own scope, as that session
   // (docs/homes-build.md, P2.7). It's never looked up as a key.
   if (isSessionToken(token)) {
@@ -154,10 +153,9 @@ export function proxy(request: NextRequest) {
     const headers = new Headers(request.headers);
     for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
     headers.set(API_KEY_ID_HEADER, session.workerApiKeyId);
-    headers.set(API_KEY_TYPE_HEADER, 'computer');
     headers.set(CALLER_LOCATION_HEADER, 'elsewhere');
     headers.set(API_KEY_SCOPE_HEADER, 'session');
-    headers.set(WORKER_COMPUTER_HEADER, session.computerId);
+    headers.set(WORKER_DEVICE_HEADER, session.deviceId);
     headers.set(SESSION_CHAT_HEADER, session.chat.id);
     return NextResponse.next({ request: { headers } });
   }
@@ -191,7 +189,7 @@ export function proxy(request: NextRequest) {
   if (!workerKey && workerRoute) {
     return forbidden('not_a_worker', 'Only an enrolled worker can reach this route.');
   }
-  const worker = workerKey ? getWorkerEnrollment(key.id) : null;
+  const worker = workerKey ? getWorkerDevice(key.id) : null;
   if (workerKey && !worker) return unauthorized();
 
   // Tell handlers which key this is. Set after removing any the caller sent,
@@ -199,9 +197,8 @@ export function proxy(request: NextRequest) {
   const headers = new Headers(request.headers);
   for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
   headers.set(API_KEY_ID_HEADER, key.id);
-  headers.set(API_KEY_TYPE_HEADER, key.deviceType);
   headers.set(CALLER_LOCATION_HEADER, isHostKeyHash(tokenHash) ? 'home' : 'elsewhere');
   headers.set(API_KEY_SCOPE_HEADER, workerKey ? 'worker' : 'viewer');
-  if (worker) headers.set(WORKER_COMPUTER_HEADER, worker.computer.id);
+  if (worker) headers.set(WORKER_DEVICE_HEADER, worker.id);
   return NextResponse.next({ request: { headers } });
 }

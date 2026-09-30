@@ -20,7 +20,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { getAgentSetup, getFolderLink, getHome, getWorkspace, listReferenceFoldersForWorkspace } from '@/lib/db/queries';
+import { getWorkspaceSetup, getFolderLink, getHome, getWorkspace, listReferenceFoldersForWorkspace } from '@/lib/db/queries';
 import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
 import type {
   ReferenceFolderRecord,
@@ -109,19 +109,19 @@ async function probeGitStateUncached(
 }
 
 /**
- * Where a linked folder is on a computer, the home's by default, as the
+ * Where a linked folder is on a device, the home's by default, as the
  * home records it (docs/homes-spec.md §4.1): its place there, or, for
  * another agent, that agent's project folder there. Null when it has none
  * there, or goes without it. No filesystem or git access, so callers that
  * only need the path (the `@` picker, the settings list) don't pay for a
  * probe.
  */
-export function referenceFolderPath(ref: ReferenceFolderRecord, computerId?: string | null): string | null {
-  const host = getHome()?.hostComputerId ?? null;
-  const on = computerId ?? host;
+export function referenceFolderPath(ref: ReferenceFolderRecord, deviceId?: string | null): string | null {
+  const host = getHome()?.hostDeviceId ?? null;
+  const on = deviceId ?? host;
   const atHome = !on || on === host;
   if (ref.targetWorkspaceId) {
-    const setup = on ? getAgentSetup(ref.targetWorkspaceId, on) : null;
+    const setup = on ? getWorkspaceSetup(ref.targetWorkspaceId, on) : null;
     if (setup) return path.resolve(setup.sourcePath);
     if (!atHome) return null;
     // Archived target workspaces still resolve. Archiving a workspace is a

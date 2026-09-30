@@ -8,9 +8,9 @@
  * confirm the alias we guessed, done. Description is optional and the global
  * toggle is off by default, so the common path is two clicks.
  *
- * A folder has a place on each computer. Adding one places it on the computer
+ * A folder has a place on each device. Adding one places it on the device
  * it's added from, and editing changes only what it is. Its place on each
- * computer is changed from the agent's Folders, one computer at a time.
+ * device is changed from the agent's Folders, one device at a time.
  */
 
 import { useMemo, useState } from 'react';
@@ -58,9 +58,9 @@ interface ReferenceFolderDialogProps {
   editing?: LinkedFolderDefinition | null;
   /** Aliases already taken in this view, used for the shadow/conflict warning. */
   existing: Array<{ id: string; alias: string; global: boolean }>;
-  /** The computer a new folder is placed on, and browsed. */
-  computer?: { id: string; name: string };
-  /** Whether that computer's folders can be browsed now. */
+  /** The device a new folder is placed on, and browsed. */
+  device?: { id: string; name: string };
+  /** Whether that device's folders can be browsed now. */
   browsable?: boolean;
   /** Offered beside Save when editing: removes it, after asking. */
   onRemove?: () => void;
@@ -97,7 +97,7 @@ function ReferenceFolderForm({
   saving,
   error,
   onSubmit,
-  computer,
+  device,
   browsable = true,
   onRemove,
 }: ReferenceFolderDialogProps) {
@@ -128,7 +128,7 @@ function ReferenceFolderForm({
 
   const normalizedAlias = alias.trim().toLowerCase();
   const aliasValid = /^[a-z0-9][a-z0-9._-]*$/.test(normalizedAlias);
-  // Editing changes what it is. Where it is, is chosen per computer.
+  // Editing changes what it is. Where it is, is chosen per device.
   const hasTarget = mode === 'folder' ? !!editing || path.trim().length > 0 : targetWorkspaceId.length > 0;
   const canSubmit = aliasValid && hasTarget && !saving;
 
@@ -183,7 +183,7 @@ function ReferenceFolderForm({
 
         {mode === 'folder' ? (
           editing ? null : (
-            <Field label={computer ? `Where it is on ${computer.name}` : 'Folder'}>
+            <Field label={device ? `Where it is on ${device.name}` : 'Folder'}>
               <div className="flex gap-2">
                 <input
                   value={path}
@@ -196,7 +196,7 @@ function ReferenceFolderForm({
                   type="button"
                   onClick={() => setPickerOpen(true)}
                   disabled={!browsable}
-                  title={browsable ? undefined : `${computer?.name ?? 'That computer'} isn't running Ri right now. Type the path instead.`}
+                  title={browsable ? undefined : `${device?.name ?? 'That device'} isn't running Ri right now. Type the path instead.`}
                   className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
                 >
                   <FolderOpen size={13} />
@@ -206,7 +206,7 @@ function ReferenceFolderForm({
               <FieldHint>
                 Anything with a path works: a sibling repo, a docs folder, even an installed
                 dependency under <code className="font-mono">node_modules</code>.
-                {computer && ' Your other computers each choose their own place for it.'}
+                {device && ' Your other devices each choose their own place for it.'}
               </FieldHint>
             </Field>
           )
@@ -225,7 +225,7 @@ function ReferenceFolderForm({
               ))}
             </select>
             <FieldHint>
-              Its own folder on each computer, so it follows that agent wherever it&apos;s set
+              Its own folder on each device, so it follows that agent wherever it&apos;s set
               up. This agent reads whatever is checked out there, not any in-progress worktree.
             </FieldHint>
           </Field>
@@ -273,7 +273,7 @@ function ReferenceFolderForm({
             For every agent
             <span className="block text-muted-foreground/60">
               Use for something shared, like a design system several apps consume. Every agent
-              on a computer uses the same place for it.
+              on a device uses the same place for it.
             </span>
           </span>
           <Switch checked={global} onCheckedChange={setGlobal} className="mt-0.5" />
@@ -340,7 +340,7 @@ function ReferenceFolderForm({
       <FolderPickerDialog
         open={pickerOpen}
         onOpenChange={setPickerOpen}
-        computer={computer}
+        device={device}
         initialPath={path || undefined}
         onChoose={(chosen) => {
           setPath(chosen);

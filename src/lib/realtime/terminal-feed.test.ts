@@ -39,10 +39,10 @@ async function setup() {
 }
 
 describe('a terminal in the page stream', () => {
-  it("opens a remote terminal again once its computer answers, and ends at the shell's exit", async () => {
+  it("opens a remote terminal again once its device answers, and ends at the shell's exit", async () => {
     const { q, created } = await setup();
-    const laptop = q.createComputer({ name: 'Laptop', platform: 'darwin', hostname: 'laptop' });
-    q.createPlacement({ executionId: created.execution.id, computerId: laptop.id, startReason: 'created', worktreePath: '/laptop/work' });
+    const laptop = q.createDevice({ name: 'Laptop', platform: 'darwin', hostname: 'laptop' , kind: 'computer' });
+    q.createPlacement({ executionId: created.execution.id, deviceId: laptop.id, startReason: 'created', worktreePath: '/laptop/work' });
     const { WorkerUnavailableError } = await import('@/lib/workers/hub');
     requestWorker
       .mockRejectedValueOnce(new WorkerUnavailableError('laptop'))

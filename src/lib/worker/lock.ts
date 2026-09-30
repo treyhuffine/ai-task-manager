@@ -25,7 +25,7 @@ interface LockHolder extends ProcessIdentity {
 
 export class WorkerLockedError extends Error {
   constructor(readonly holderPid: number) {
-    super(`Another worker is already running for this computer (process ${holderPid}). Stop it first.`);
+    super(`Another worker is already running for this device (process ${holderPid}). Stop it first.`);
     this.name = 'WorkerLockedError';
   }
 }

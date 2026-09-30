@@ -1,6 +1,6 @@
 /**
- * A connected computer's record of its home (docs/homes-spec.md §3.1): the
- * home's stable id and name, the address it answers on, and this computer's
+ * A connected device's record of its home (docs/homes-spec.md §3.1): the
+ * home's stable id and name, the address it answers on, and this device's
  * credential for it. Machine-local, 0600 in a 0700 directory, and never in a
  * backup. The address can change without changing the home: the id is what
  * a reconnect checks.
@@ -18,13 +18,13 @@ export interface ConnectionConfig {
   homeName: string;
   /** Where the home answers, e.g. `https://ri-trey.beamd.run`. No trailing slash. */
   homeUrl: string;
-  /** The name of the computer the home runs on, for "Cannot reach your Ri on Mac Mini". */
+  /** The name of the device the home runs on, for "Cannot reach your Ri on Mac Mini". */
   homeHostName: string | null;
-  /** This computer's key for the home. Never printed. */
+  /** This device's key for the home. Never printed. */
   credential: string;
   connectedAt: string;
-  /** This computer's id at the home, once it has registered (for setups). */
-  computerId?: string | null;
+  /** This device's id at the home, once it has registered (for setups). */
+  deviceId?: string | null;
 }
 
 export class ConnectionConfigError extends Error {
@@ -44,15 +44,17 @@ export function normalizeHomeUrl(raw: string): string {
 export function readConnection(): ConnectionConfig | null {
   const file = getConnectionPath();
   if (!fs.existsSync(file)) return null;
-  let parsed: Partial<ConnectionConfig>;
+  let parsed: Partial<ConnectionConfig> & { computerId?: string | null };
   try {
     parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch {
-    throw new ConnectionConfigError(`${file} is not valid JSON. Connect this computer again.`);
+    throw new ConnectionConfigError(`${file} is not valid JSON. Connect this device again.`);
   }
+  // Written as `computerId` before devices were named devices (2026-09-29).
+  parsed.deviceId ??= parsed.computerId;
   for (const key of ['homeId', 'homeUrl', 'credential'] as const) {
     if (typeof parsed[key] !== 'string' || !parsed[key]) {
-      throw new ConnectionConfigError(`${file} is missing ${key}. Connect this computer again.`);
+      throw new ConnectionConfigError(`${file} is missing ${key}. Connect this device again.`);
     }
   }
   return {
@@ -63,7 +65,7 @@ export function readConnection(): ConnectionConfig | null {
     homeHostName: parsed.homeHostName ?? null,
     credential: parsed.credential!,
     connectedAt: parsed.connectedAt ?? new Date().toISOString(),
-    computerId: parsed.computerId ?? null,
+    deviceId: parsed.deviceId ?? null,
   };
 }
 
@@ -79,32 +81,33 @@ export function writeConnection(config: Omit<ConnectionConfig, 'version'>): Conn
 }
 
 /**
- * The computer id each home gave this computer, kept apart from the
+ * The device id each home gave this device, kept apart from the
  * connection so it outlives `ri disconnect` and a new pairing key: the same
- * machine stays the same computer of that home.
+ * machine stays the same device of that home.
  */
 function knownHomesPath(): string {
   return path.join(path.dirname(getConnectionPath()), 'known-homes.json');
 }
 
-export function rememberedComputerId(homeId: string): string | null {
+export function rememberedDeviceId(homeId: string): string | null {
   try {
-    const known = JSON.parse(fs.readFileSync(knownHomesPath(), 'utf8')) as Record<string, { computerId?: string }>;
-    return known[homeId]?.computerId ?? null;
+    const known = JSON.parse(fs.readFileSync(knownHomesPath(), 'utf8')) as Record<string, { deviceId?: string; computerId?: string }>;
+    // Written as `computerId` before devices were named devices (2026-09-29).
+    return known[homeId]?.deviceId ?? known[homeId]?.computerId ?? null;
   } catch {
     return null;
   }
 }
 
-export function rememberComputerId(homeId: string, computerId: string): void {
+export function rememberDeviceId(homeId: string, deviceId: string): void {
   const file = knownHomesPath();
-  let known: Record<string, { computerId: string }> = {};
+  let known: Record<string, { deviceId: string }> = {};
   try {
     known = JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch {
     /* first home */
   }
-  known[homeId] = { computerId };
+  known[homeId] = { deviceId };
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(known, null, 2) + '\n', { mode: 0o600 });

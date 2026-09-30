@@ -1,7 +1,7 @@
 /**
  * Archive an agent and stop what it runs (docs/homes-build.md, P0.4 gap 2):
  * the app route and the `archive_workspace` action do the same thing. Each
- * of its chats has its harness closed (on a connected computer, a stop its
+ * of its chats has its harness closed (on a connected device, a stop its
  * worker acts on when it receives it), and its terminals are killed.
  * Nothing on disk is touched, and its sessions stay readable. `actor` is who
  * archived it, for those stops.

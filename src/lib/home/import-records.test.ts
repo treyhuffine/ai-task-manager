@@ -106,7 +106,7 @@ afterEach(async () => {
   await mini.cleanup();
 });
 
-const options = () => ({ sourceRoot: laptopRoot, computerName: 'MacBook' });
+const options = () => ({ sourceRoot: laptopRoot, deviceName: 'MacBook' });
 
 describe('the plan', () => {
   it('names what comes over, what joins what, and what stays behind, without writing anything', async () => {
@@ -114,7 +114,7 @@ describe('the plan', () => {
     const before = fs.readFileSync(path.join(laptopRoot, 'data.db'));
     const plan = planHomeImport(options());
     expect(plan.problems).toEqual([]);
-    expect(plan.computer).toEqual({ name: 'MacBook', id: null, created: true });
+    expect(plan.device).toEqual({ name: 'MacBook', id: null, created: true });
     expect(plan.agents.map((a) => [a.name, a.action, a.destId])).toEqual(
       expect.arrayContaining([
         ['ai-task-manager', 'matched', ids.riOnMini],
@@ -155,13 +155,29 @@ describe('a home that has not started on this version yet', () => {
   });
 });
 
+describe('a home that has not started on this version yet', () => {
+  it("records its agents' folders here first, as its first start would, so an agent both homes have keeps its folder here", async () => {
+    const { getRawDb } = await import('@/lib/db');
+    // The Mini before its first start on this version: its agents' folders are only `workspaces.cwd`.
+    getRawDb().exec('DELETE FROM workspace_setups');
+    const { applyHomeImport } = await import('./import-records');
+    const result = applyHomeImport(options());
+    const q = await import('@/lib/db/queries');
+    const host = q.getHome()!.hostDeviceId;
+    expect(q.getWorkspaceSetup(ids.riOnMini, host)).toMatchObject({ sourcePath: mini.root });
+    expect(q.getWorkspaceSetup(ids.riOnMini, result.device.id!)).toMatchObject({ sourcePath: '/Users/trey/dynamism/ai-task-manager' });
+    // And the boot move at the next start adds nothing.
+    expect(q.moveFolderRecords()).toMatchObject({ setups: 0 });
+  });
+});
+
 describe('importing', () => {
   it('brings the chats and their work, placed on the MacBook where they ran', async () => {
     const { applyHomeImport } = await import('./import-records');
     const result = applyHomeImport(options());
     const q = await import('@/lib/db/queries');
-    const macbook = q.listComputers().find((c) => c.name === 'MacBook')!;
-    expect(result.computer).toEqual({ name: 'MacBook', id: macbook.id, created: true });
+    const macbook = q.listDevices().find((c) => c.name === 'MacBook')!;
+    expect(result.device).toEqual({ name: 'MacBook', id: macbook.id, created: true });
 
     // The same chat, in the Mini's own agent of that name, read.
     const chat = q.getChatSession(ids.fixLogin)!;
@@ -172,13 +188,13 @@ describe('importing', () => {
     // Its work lives on the MacBook: no folder of the home's own, the MacBook's in its placement.
     expect(q.getExecution(ids.fixLoginExecution)).toMatchObject({ workspaceId: ids.riOnMini, worktreePath: null });
     expect(q.getOpenPlacement(ids.fixLoginExecution)).toMatchObject({
-      computerId: macbook.id,
+      deviceId: macbook.id,
       generation: 1,
       worktreePath: '/Users/trey/.work/worktrees/ai-task-manager/fix-login',
       startReason: 'adopted',
     });
-    expect(q.chatPlacement(ids.fixLogin)).toMatchObject({ computerId: macbook.id, isHome: false });
-    expect(q.listNativeSessions(ids.fixLogin)).toEqual([expect.objectContaining({ computerId: macbook.id, nativeSessionId: 'native-fix-login' })]);
+    expect(q.chatPlacement(ids.fixLogin)).toMatchObject({ deviceId: macbook.id, isHome: false });
+    expect(q.listNativeSessions(ids.fixLogin)).toEqual([expect.objectContaining({ deviceId: macbook.id, nativeSessionId: 'native-fix-login' })]);
 
     // Its messages in order, searchable, and its attachment beside the Mini's.
     const events = q.listChatEvents(ids.fixLogin);
@@ -191,25 +207,25 @@ describe('importing', () => {
     expect(q.listPreviewTargetsForExecution(ids.fixLoginExecution)).toHaveLength(1);
 
     // An agent the Mini lacks comes over, living on the MacBook only.
-    expect(q.getWorkspace(ids.bounce)).toMatchObject({ name: 'bounce', cwd: '/Users/trey/studio/bounce', defaultComputerId: macbook.id });
-    expect(q.listAgentSetups({ workspaceId: ids.bounce }).map((s) => [s.computerId, s.sourcePath])).toEqual([[macbook.id, '/Users/trey/studio/bounce']]);
+    expect(q.getWorkspace(ids.bounce)).toMatchObject({ name: 'bounce', cwd: '/Users/trey/studio/bounce', defaultDeviceId: macbook.id });
+    expect(q.listWorkspaceSetups({ workspaceId: ids.bounce }).map((s) => [s.deviceId, s.sourcePath])).toEqual([[macbook.id, '/Users/trey/studio/bounce']]);
     const { runOnFor } = await import('@/lib/setups/run-on');
-    expect(runOnFor(ids.bounce)!.livesOn).toMatchObject({ computerId: macbook.id, isHome: false, folder: '/Users/trey/studio/bounce' });
+    expect(runOnFor(ids.bounce)!.livesOn).toMatchObject({ deviceId: macbook.id, isHome: false, folder: '/Users/trey/studio/bounce' });
     // Its area is the Mini's area of that name.
     const miniWork = q.listAreas().find((a) => a.name === 'work')!;
     expect(q.getWorkspace(ids.bounce)!.areaId).toBe(miniWork.id);
     // And the Mini's own agent gains its folder on the MacBook, keeping its folder at home.
-    expect(q.getAgentSetup(ids.riOnMini, macbook.id)).toMatchObject({ sourcePath: '/Users/trey/dynamism/ai-task-manager' });
+    expect(q.getWorkspaceSetup(ids.riOnMini, macbook.id)).toMatchObject({ sourcePath: '/Users/trey/dynamism/ai-task-manager' });
     expect(q.getWorkspace(ids.riOnMini)!.cwd).toBe(mini.root);
 
     // Main chats: the Mini's stay current. Bounce's, which has none here, stays active.
-    expect(q.getChatSession(ids.riMainOnLaptop)).toMatchObject({ status: 'archived', computerId: macbook.id });
+    expect(q.getChatSession(ids.riMainOnLaptop)).toMatchObject({ status: 'archived', deviceId: macbook.id });
     expect(q.getChatSession(ids.appMainOnLaptop)).toMatchObject({ status: 'archived' });
     expect(q.getChatSession(ids.bounceMain)).toMatchObject({ status: 'active', workspaceId: ids.bounce });
     expect(q.listMainChats(ids.riOnMini, { status: 'active' }).map((c) => c.id)).toEqual([ids.riMainOnMini]);
 
     // A terminal import is read from the MacBook from now on, never from a path on it.
-    expect(q.getExternalSessionImportForChat(ids.imported)).toMatchObject({ computerId: macbook.id, sourcePath: null, syncOffset: 120, sourceContentSha256: 'abc' });
+    expect(q.getExternalSessionImportForChat(ids.imported)).toMatchObject({ deviceId: macbook.id, sourcePath: null, syncOffset: 120, sourceContentSha256: 'abc' });
 
     // What stayed behind.
     expect(q.getChatSession(ids.scheduled)).toBeUndefined();
@@ -230,11 +246,11 @@ describe('importing', () => {
     const again = planHomeImport(options());
     expect(again.chats).toMatchObject({ import: 0, alreadyHere: 5 });
     expect(again.executions).toMatchObject({ import: 0, alreadyHere: 1 });
-    expect(again.computer).toMatchObject({ name: 'MacBook', created: false });
+    expect(again.device).toMatchObject({ name: 'MacBook', created: false });
     applyHomeImport(options());
     expect(q.getChatSession(ids.fixLogin)!.label).toBe('Renamed on the Mini');
     expect(q.listChatEvents(ids.fixLogin)).toHaveLength(2);
-    expect(q.listComputers().filter((c) => c.name === 'MacBook')).toHaveLength(1);
+    expect(q.listDevices().filter((c) => c.name === 'MacBook')).toHaveLength(1);
   });
 
   it('leaves nothing behind when the rows fail, attachments included', async () => {
@@ -250,15 +266,15 @@ describe('importing', () => {
     expect(fs.existsSync(path.join(mini.root, '.archive', 'imports'))).toBe(false);
   });
 
-  it("refuses to import as the home's own computer, and a home into itself", async () => {
+  it("refuses to import as the home's own device, and a home into itself", async () => {
     const { applyHomeImport, planHomeImport, HomeImportError } = await import('./import-records');
     const q = await import('@/lib/db/queries');
-    const host = q.getComputer(q.getHome()!.hostComputerId)!;
-    expect(planHomeImport({ sourceRoot: laptopRoot, computerName: host.name }).problems).toEqual([
-      `${host.name} is this home's own computer. Name the computer the other home ran on.`,
+    const host = q.getDevice(q.getHome()!.hostDeviceId)!;
+    expect(planHomeImport({ sourceRoot: laptopRoot, deviceName: host.name }).problems).toEqual([
+      `${host.name} is this home's own device. Name the device the other home ran on.`,
     ]);
-    expect(() => applyHomeImport({ sourceRoot: laptopRoot, computerName: host.name })).toThrow(HomeImportError);
-    expect(() => planHomeImport({ sourceRoot: mini.root, computerName: 'MacBook' })).toThrow('A home can not import itself.');
+    expect(() => applyHomeImport({ sourceRoot: laptopRoot, deviceName: host.name })).toThrow(HomeImportError);
+    expect(() => planHomeImport({ sourceRoot: mini.root, deviceName: 'MacBook' })).toThrow('A home can not import itself.');
   });
 
   it("asks, rather than join active work to an agent that's archived here, and can bring it over as its own", async () => {

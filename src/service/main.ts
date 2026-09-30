@@ -252,13 +252,13 @@ async function start() {
   // Keep the private recovery/status surface alive without a crash loop.
   try { await updater.recover(); }
   catch (error) { status.phase = 'failed'; status.error = error instanceof Error ? error.message : 'Recovery required'; return; }
-  // What this computer is for, before anything opens a database: a computer
+  // What this device is for, before anything opens a database: a device
   // connected to a home elsewhere, or whose home was retired, never starts
   // one here. Its window goes to the home instead.
   const role = resolveServiceRole();
   status.role = role.role;
   status.home = 'home' in role ? role.home : null;
-  if (!servesHome(role)) { status.phase = 'failed'; status.error = describeServiceRole(role) ?? 'This computer does not run a home'; return; }
+  if (!servesHome(role)) { status.phase = 'failed'; status.error = describeServiceRole(role) ?? 'This device does not run a home'; return; }
   const installed = installedRuntime();
   if (installed) { repo = installed.repo; node = installed.node; process.env.RI_RUNTIME_REPO = repo; process.env.NEXT_DIST_DIR = '.next-desktop'; process.chdir(repo); }
   let saved: { version: number; port: number; privatePort?: number };

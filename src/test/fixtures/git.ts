@@ -1,12 +1,12 @@
 /**
  * Git fixtures: bare remotes and clones at different paths on different
- * "computers", for setup, review, continuation and ownership tests.
+ * "devices", for setup, review, continuation and ownership tests.
  *
  * `createGitFixture()` makes an isolated base with named bare remotes. Clone
  * one anywhere, commit, push and fetch through plain git. Every repository
  * gets a local identity, so tests don't depend on the machine's git config.
  *
- * `createTwoComputerLayout()` builds the two layouts from docs/homes-spec.md
+ * `createTwoDeviceLayout()` builds the two layouts from docs/homes-spec.md
  * §4.1: the same app and agentex repositories cloned to different folders
  * on a MacBook and a Mac Mini.
  */
@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createTestComputer, type TestComputer } from './home';
+import { createTestDevice, type TestDevice } from './home';
 
 const GIT_ENV = {
   ...process.env,
@@ -84,48 +84,48 @@ export function createGitFixture(): GitFixture {
   };
 }
 
-export interface ComputerLayout {
-  computer: TestComputer;
-  /** The app's source folder on this computer. */
+export interface DeviceLayout {
+  device: TestDevice;
+  /** The app's source folder on this device. */
   app: string;
-  /** The agentex checkout on this computer. */
+  /** The agentex checkout on this device. */
   agentex: string;
   /** How the app's folder reaches agentex, relative to the app folder. */
   agentexRelative: string;
 }
 
-export interface TwoComputerLayout {
+export interface TwoDeviceLayout {
   git: GitFixture;
   appRemote: string;
   agentexRemote: string;
-  macbook: ComputerLayout;
-  mini: ComputerLayout;
+  macbook: DeviceLayout;
+  mini: DeviceLayout;
   cleanup(): void;
 }
 
 /**
- * The spec's example: one Ri agent whose folders differ by computer.
+ * The spec's example: one Ri agent whose folders differ by device.
  *
- * | Computer | App folder       | Agentex             |
+ * | Device | App folder       | Agentex             |
  * | MacBook  | ~/dynamism/ri    | ~/dynamism/agentex  |
  * | Mac Mini | ~/ai-task-manager | ~/code/agentex     |
  *
  * `monorepoSubdir` puts the agent in a subfolder of the app repository, so
  * tests can check that a worktree keeps the repository's layout.
  */
-export function createTwoComputerLayout(opts: { monorepoSubdir?: string } = {}): TwoComputerLayout {
+export function createTwoDeviceLayout(opts: { monorepoSubdir?: string } = {}): TwoDeviceLayout {
   const g = createGitFixture();
   const appFiles: Record<string, string> = { 'package.json': '{"name":"app"}\n' };
   if (opts.monorepoSubdir) appFiles[path.join(opts.monorepoSubdir, 'package.json')] = '{"name":"sub"}\n';
   const appRemote = g.remote('app', appFiles);
   const agentexRemote = g.remote('agentex', { 'package.json': '{"name":"agentex"}\n' });
 
-  const place = (name: string, appRel: string, agentexRel: string): ComputerLayout => {
-    const computer = createTestComputer(name);
-    const appRepo = g.clone(appRemote, path.join(computer.userDir, appRel));
-    const agentex = g.clone(agentexRemote, path.join(computer.userDir, agentexRel));
+  const place = (name: string, appRel: string, agentexRel: string): DeviceLayout => {
+    const device = createTestDevice(name);
+    const appRepo = g.clone(appRemote, path.join(device.userDir, appRel));
+    const agentex = g.clone(agentexRemote, path.join(device.userDir, agentexRel));
     const app = opts.monorepoSubdir ? path.join(appRepo, opts.monorepoSubdir) : appRepo;
-    return { computer, app, agentex, agentexRelative: path.relative(app, agentex) };
+    return { device, app, agentex, agentexRelative: path.relative(app, agentex) };
   };
 
   const macbook = place('macbook', 'dynamism/ri', 'dynamism/agentex');
@@ -137,8 +137,8 @@ export function createTwoComputerLayout(opts: { monorepoSubdir?: string } = {}):
     macbook,
     mini,
     cleanup() {
-      macbook.computer.cleanup();
-      mini.computer.cleanup();
+      macbook.device.cleanup();
+      mini.device.cleanup();
       g.cleanup();
     },
   };

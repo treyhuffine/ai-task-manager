@@ -1,7 +1,7 @@
 /**
- * Moving work names the computer (docs/homes-model.md): any of the person's
- * computers, from any screen. It's refused only for a real reason, said in
- * words: the agent isn't there yet, or that computer isn't running Ri.
+ * Moving work names the device (docs/homes-model.md): any of the person's
+ * devices, from any screen. It's refused only for a real reason, said in
+ * words: the agent isn't there yet, or that device isn't running Ri.
  */
 
 import { NextRequest } from 'next/server';
@@ -22,8 +22,8 @@ beforeEach(async () => {
   const q = await import('@/lib/db/queries');
   agentId = q.createWorkspace({ name: 'Ri', cwd: home.root, isGit: true, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false }).id;
   sessionId = q.createExecutionWithChat({ workspaceId: agentId, harness: 'claude', label: 'Work' }).session.id;
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'Laptop', createdByApiKeyId: null });
-  laptopId = q.redeemEnrollGrant({ secret: grant.secret, name: 'Laptop' }).computer.id;
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'Laptop', createdByApiKeyId: null });
+  laptopId = q.redeemEnrollGrant({ secret: grant.secret, name: 'Laptop' }).device.id;
 });
 
 afterEach(async () => {
@@ -32,20 +32,20 @@ afterEach(async () => {
   await home.cleanup();
 });
 
-async function move(toComputerId: string) {
+async function move(toDeviceId: string) {
   const { POST } = await import('./route');
   const response = await POST(
-    new NextRequest(`http://home/api/sessions/${sessionId}/transfer`, { method: 'POST', body: JSON.stringify({ toComputerId }) }),
+    new NextRequest(`http://home/api/sessions/${sessionId}/transfer`, { method: 'POST', body: JSON.stringify({ toDeviceId }) }),
     { params: Promise.resolve({ id: sessionId }) },
   );
   return { status: response.status, body: (await response.json()) as { error?: string; message?: string } };
 }
 
-it('says the agent is not on that computer yet, rather than refusing a computer the page is not on', async () => {
+it('says the agent is not on that device yet, rather than refusing a device the page is not on', async () => {
   expect(await move(laptopId)).toEqual({ status: 409, body: { error: 'destination_not_ready', message: "Ri isn't on Laptop yet." } });
 });
 
-it('says that computer is not running Ri right now', async () => {
+it('says that device is not running Ri right now', async () => {
   const q = await import('@/lib/db/queries');
   await setUpAgentOn(agentId, laptopId, '/Users/me/ri');
   expect(await move(laptopId)).toEqual({

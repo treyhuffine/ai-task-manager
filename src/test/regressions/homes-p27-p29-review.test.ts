@@ -11,7 +11,7 @@ import type { FileCandidate, HistoryWindow } from '@/lib/import/history-source';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 let home: TestHome;
-let computerId: string;
+let deviceId: string;
 let keyId: string;
 let agentId: string;
 let chatId: string;
@@ -26,16 +26,16 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'Review laptop', createdByApiKeyId: null });
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'Review laptop', createdByApiKeyId: null });
   const enrolled = q.redeemEnrollGrant({ secret: grant.secret, name: 'Review laptop' });
-  computerId = enrolled.computer.id;
+  deviceId = enrolled.device.id;
   keyId = enrolled.key.id;
   agentId = q.createWorkspace({ name: 'Review', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true }).id;
   const created = q.createExecutionWithChat({ workspaceId: agentId, harness: 'claude', label: 'Review execution' });
   chatId = created.session.id;
   executionId = created.execution.id;
-  q.createPlacement({ executionId, computerId, startReason: 'created', worktreePath: home.root });
-  token = (await import('@/lib/auth/session-token')).mintSessionToken({ chatSessionId: chatId, computerId, generation: 1 })!;
+  q.createPlacement({ executionId, deviceId, startReason: 'created', worktreePath: home.root });
+  token = (await import('@/lib/auth/session-token')).mintSessionToken({ chatSessionId: chatId, deviceId, generation: 1 })!;
 });
 
 afterEach(async () => {
@@ -57,18 +57,18 @@ const request = (url: string, bearer = token, method = 'POST') => new NextReques
 describe('P2.7 session authority', () => {
   // Adapted when the home's records became the only place an agent's folders
   // are kept (docs/homes-spec.md §4.1): the linked folder is where the home
-  // records it on that computer, and the flags and the manifest agree on it.
-  it('wires the linked folder the home records for that computer in the harness flags and the manifest alike', async () => {
+  // records it on that device, and the flags and the manifest agree on it.
+  it('wires the linked folder the home records for that device in the harness flags and the manifest alike', async () => {
     const q = await import('@/lib/db/queries');
     const newRef = path.join(home.root, 'new-reference');
     fs.mkdirSync(newRef);
     q.createReferenceFolder({ workspaceId: agentId, alias: 'docs', path: path.join(home.root, 'on-the-home') });
-    await setUpAgentOn(agentId, computerId, home.root, { links: { docs: newRef } });
+    await setUpAgentOn(agentId, deviceId, home.root, { links: { docs: newRef } });
     const { buildSessionSpec } = await import('@/lib/executor/session-spec');
     const spec = await buildSessionSpec({ chatSessionId: chatId, harness: 'claude', cwd: home.root,
       sessionType: 'execution', workspaceId: agentId, executionId, surfaceKind: null, surfaceRef: null,
       existingExternalSessionId: null, permissionMode: 'ask', prePlanMode: null, model: 'fake-model', modelVariant: null, effort: null,
-    }, { computerId, isHome: false, generation: 1 });
+    }, { deviceId, isHome: false, generation: 1 });
     // The spec carries what the home records, and wires no path. The runner
     // checks and wires them where the session starts.
     expect(spec.agentFolders?.references[0]?.path).toBe(newRef);
@@ -94,20 +94,20 @@ describe('P2.7 session authority', () => {
     }
   });
 
-  it("wires an agent main chat's linked folders elsewhere from the home's records for that computer, not the home's own", async () => {
+  it("wires an agent main chat's linked folders elsewhere from the home's records for that device, not the home's own", async () => {
     const q = await import('@/lib/db/queries');
     const oldRef = path.join(home.root, 'on-the-home');
     const newRef = path.join(home.root, 'new-reference');
     fs.mkdirSync(oldRef);
     fs.mkdirSync(newRef);
     q.createReferenceFolder({ workspaceId: agentId, alias: 'docs', path: oldRef });
-    await setUpAgentOn(agentId, computerId, home.root, { links: { docs: newRef } });
+    await setUpAgentOn(agentId, deviceId, home.root, { links: { docs: newRef } });
     const mainChat = q.createChatSession({ type: 'orchestration', workspaceId: agentId, harness: 'claude', status: 'active' });
     const { buildSessionSpec } = await import('@/lib/executor/session-spec');
     const spec = await buildSessionSpec({ chatSessionId: mainChat.id, harness: 'claude', cwd: home.root,
       sessionType: 'orchestration', workspaceId: agentId, surfaceKind: null, surfaceRef: null,
       existingExternalSessionId: null, permissionMode: 'ask', prePlanMode: null, model: 'fake-model', modelVariant: null, effort: null,
-    }, { computerId, isHome: false, generation: null });
+    }, { deviceId, isHome: false, generation: null });
     expect(spec.instructions ?? '').not.toContain(oldRef);
     expect(spec.extraArgs).not.toContain(oldRef);
     const fake = (await import('@/test/fixtures/fake-harness')).installFakeHarness('claude');
@@ -137,15 +137,15 @@ describe('P2.7 session authority', () => {
     expect(proxy(request(`/api/connectors/mcp?ws=${agentId}`)).status).toBe(401);
   });
 
-  it('does not revive a revoked enrollment token when that computer enrolls again', async () => {
+  it('does not revive a revoked enrollment token when that device enrolls again', async () => {
     const q = await import('@/lib/db/queries');
     const { proxy } = await import('@/proxy');
-    (await import('@/lib/workers/retire')).retireWorker(keyId, computerId, 'review revocation');
+    (await import('@/lib/workers/retire')).retireWorker(keyId, deviceId, 'review revocation');
     expect(proxy(request(`/api/connectors/mcp?ws=${agentId}`)).status).toBe(401);
-    const grant = q.createComputerGrant({ kind: 'enroll', computerId, computerName: null, createdByApiKeyId: null });
+    const grant = q.createDeviceGrant({ kind: 'enroll', deviceId, deviceName: null, createdByApiKeyId: null });
     const fresh = (await import('@/lib/workers/enroll')).enrollWorker({ secret: grant.secret, name: 'Review laptop' });
     expect(fresh.key.id).not.toBe(keyId);
-    expect(q.getWorkerEnrollment(keyId)).toBeNull();
+    expect(q.getWorkerDevice(keyId)).toBeNull();
     expect(proxy(request(`/api/connectors/mcp?ws=${agentId}`)).status).toBe(401);
   });
 
@@ -171,14 +171,14 @@ describe('P2.7 session authority', () => {
       const parsed = new URL(`http://127.0.0.1${url}`).searchParams;
       expect(parsed.get('ws') ?? parsed.get('profile')).toMatch(new RegExp(agentId));
     }
-    for (const bad of [token + '.extra', token.slice(0, -1), token + '=', token.replace(`.${computerId}.`, '.forged.'), 'ri_session_...']) {
+    for (const bad of [token + '.extra', token.slice(0, -1), token + '=', token.replace(`.${deviceId}.`, '.forged.'), 'ri_session_...']) {
       expect(proxy(request(`/api/connectors/mcp?ws=${agentId}`, bad)).status).toBe(401);
     }
   });
 });
 
 describe('found in the live check', () => {
-  it("doesn't reap a connected computer's execution as a stuck setup when the home restarts", async () => {
+  it("doesn't reap a connected device's execution as a stuck setup when the home restarts", async () => {
     const q = await import('@/lib/db/queries');
     const { getDb } = await import('@/lib/db');
     const { executions } = await import('@/lib/db/schema');
@@ -192,18 +192,18 @@ describe('found in the live check', () => {
     expect(q.listStuckBootstrapExecutions().map((e) => e.id)).toEqual([own.id]);
   });
 
-  it("retries a connected computer's setup there, never by building a worktree on the home", async () => {
+  it("retries a connected device's setup there, never by building a worktree on the home", async () => {
     const q = await import('@/lib/db/queries');
     const { retryProvisionWorktree, retrySetupScript } = await import('@/lib/sessions/dispatch');
     const ws = q.getWorkspace(agentId)!;
     const created = q.createExecutionWithChat({ workspaceId: agentId, harness: 'claude', label: 'not prepared yet' });
-    const placement = q.createPlacement({ executionId: created.execution.id, computerId, startReason: 'created' });
+    const placement = q.createPlacement({ executionId: created.execution.id, deviceId, startReason: 'created' });
     const payload = { workspace: ws, chatSessionId: created.session.id, label: 'not prepared yet', baseBranch: null, prNumber: null, live: false };
-    q.queueWorkerCommand({ computerId, kind: 'prepare', payload, actor: { source: 'system' }, executionId: created.execution.id, chatSessionId: created.session.id, generation: placement.generation });
-    q.recordExecutionSetupError(created.execution.id, 'The computer could not prepare this execution.');
+    q.queueWorkerCommand({ deviceId, kind: 'prepare', payload, actor: { source: 'system' }, executionId: created.execution.id, chatSessionId: created.session.id, generation: placement.generation });
+    q.recordExecutionSetupError(created.execution.id, 'The device could not prepare this execution.');
 
     await retryProvisionWorktree(created.session.id);
-    const prepares = q.listWorkerCommands(computerId).filter((c) => c.kind === 'prepare' && c.executionId === created.execution.id);
+    const prepares = q.listWorkerCommands(deviceId).filter((c) => c.kind === 'prepare' && c.executionId === created.execution.id);
     expect(prepares).toHaveLength(2);
     expect(prepares[1]!.payload).toMatchObject({ chatSessionId: created.session.id, live: false });
     expect(q.getExecution(created.execution.id)).toMatchObject({ worktreePath: null, setupError: null });
@@ -211,17 +211,17 @@ describe('found in the live check', () => {
     // Prepared there already (beforeEach's execution): a failure recorded
     // against it is cleared, with nothing sent.
     q.recordExecutionSetupError(executionId, 'Setup did not complete in time. Retry to start over.');
-    const before = q.listWorkerCommands(computerId).length;
+    const before = q.listWorkerCommands(deviceId).length;
     await retryProvisionWorktree(chatId);
     expect(q.getExecution(executionId)?.setupError).toBeNull();
-    expect(q.listWorkerCommands(computerId)).toHaveLength(before);
+    expect(q.listWorkerCommands(deviceId)).toHaveLength(before);
 
     // Its setup script is run there again, and there's none to run when it never had one.
     expect(retrySetupScript(executionId)).toBe(false);
     const script = { script: 'setup', workspaceId: agentId, command: 'pnpm install', worktreePath: home.root, branchName: 'ri/demo' };
-    q.queueWorkerCommand({ computerId, kind: 'run_script', payload: script, actor: { source: 'system' }, executionId, chatSessionId: chatId, generation: 1 });
+    q.queueWorkerCommand({ deviceId, kind: 'run_script', payload: script, actor: { source: 'system' }, executionId, chatSessionId: chatId, generation: 1 });
     expect(retrySetupScript(executionId)).toBe(true);
-    const scripts = q.listWorkerCommands(computerId).filter((c) => c.kind === 'run_script');
+    const scripts = q.listWorkerCommands(deviceId).filter((c) => c.kind === 'run_script');
     expect(scripts).toHaveLength(2);
     expect(scripts[1]!.payload).toEqual(script);
   });
@@ -244,8 +244,8 @@ describe('P2.8 retirement and process ownership', () => {
   it('does not restore live state from a heartbeat that finishes reading after revocation', async () => {
     const q = await import('@/lib/db/queries');
     const headers = new Headers({
-      'x-ri-api-key-id': keyId, 'x-ri-api-key-type': 'computer',
-      'x-ri-api-key-scope': 'worker', 'x-ri-worker-computer-id': computerId,
+      'x-ri-api-key-id': keyId,
+      'x-ri-api-key-scope': 'worker', 'x-ri-worker-device-id': deviceId,
       'x-ri-worker-protocol': String(WORKER_PROTOCOL),
     });
     // The route's trusted headers are exactly those the real proxy supplies.
@@ -253,8 +253,8 @@ describe('P2.8 retirement and process ownership', () => {
     let release!: (body: unknown) => void;
     const json = new Promise((resolve) => { release = resolve; });
     const pending = POST({ headers, json: () => json } as unknown as NextRequest);
-    (await import('@/lib/workers/retire')).retireWorker(keyId, computerId, 'review revocation');
-    expect(q.getWorkerEnrollment(keyId)).toBeNull();
+    (await import('@/lib/workers/retire')).retireWorker(keyId, deviceId, 'review revocation');
+    expect(q.getWorkerDevice(keyId)).toBeNull();
     release({ protocol: WORKER_PROTOCOL, version: 'review', harnesses: [], state: 'awake', live: {
       running: [chatId], pending: [], backgroundTasks: {}, generations: { [chatId]: 1 },
     } });
@@ -317,8 +317,8 @@ describe('P2.9 selected transcript reads', () => {
     const Database = (await import('better-sqlite3')).default;
     const { createDatabaseAt, migrationTags } = await import('@/test/fixtures/migrations');
     const { runMigrations } = await import('@/lib/db/migrate');
-    const file = path.join(home.root, 'pre-0007.db');
-    createDatabaseAt(file, migrationTags()[6]!);
+    const file = path.join(home.root, 'pre-homes.db');
+    createDatabaseAt(file, migrationTags()[1]!);
     const sqlite = new Database(file);
     try {
       sqlite.exec("INSERT INTO chat_sessions (id,type,status,permission_mode,harness) VALUES ('old-chat','execution','active','ask','claude')");
@@ -327,11 +327,12 @@ describe('P2.9 selected transcript reads', () => {
       const before = sqlite.prepare('SELECT rowid,* FROM external_session_imports').all();
       const events = sqlite.prepare('SELECT rowid,* FROM chat_events').all();
       const fts = sqlite.prepare("SELECT name,sql FROM sqlite_master WHERE name LIKE '%fts%' ORDER BY name").all();
-      // 0007 and every migration since.
-      expect(runMigrations(sqlite, path.resolve('drizzle')).applied).toBe(migrationTags().length - 7);
+      // The homes migration and every one since.
+      expect(runMigrations(sqlite, path.resolve('drizzle')).applied).toBe(migrationTags().length - 2);
       const rows = sqlite.prepare('SELECT rowid,* FROM external_session_imports').all() as Array<Record<string, unknown>>;
-      expect(rows.map(({ computer_id: computer, ...row }) => { expect(computer).toBeNull(); return row; })).toEqual(before);
-      expect(sqlite.prepare('SELECT rowid,* FROM chat_events').all()).toEqual(events);
+      expect(rows.map(({ device_id: device, ...row }) => { expect(device).toBeNull(); return row; })).toEqual(before);
+      // The homes migration also adds `part_revision`, empty on old events.
+      expect(sqlite.prepare('SELECT rowid,* FROM chat_events').all()).toEqual(events.map((e) => ({ ...(e as object), part_revision: null })));
       expect(sqlite.prepare("SELECT name,sql FROM sqlite_master WHERE name LIKE '%fts%' ORDER BY name").all()).toEqual(fts);
       expect(sqlite.pragma('foreign_key_check')).toEqual([]);
       expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
@@ -366,7 +367,7 @@ describe('P2.9 selected transcript reads', () => {
     const { externalSessionImports } = await import('@/lib/db/schema');
     const q = await import('@/lib/db/queries');
     const ledger = getDb().insert(externalSessionImports).values({ id: 'review-ledger', chatSessionId: chatId,
-      providerType: 'claude', externalSessionId: nativeId, computerId, sourceKind: 'file', syncOffset: 0, status: 'importing',
+      providerType: 'claude', externalSessionId: nativeId, deviceId, sourceKind: 'file', syncOffset: 0, status: 'importing',
     }).returning().get();
     const { createHistoryWindowWriter } = await import('@/lib/import/external-agents');
     function commit(window: HistoryWindow) {
@@ -450,7 +451,7 @@ describe('P2.9 selected transcript reads', () => {
     expect(JSON.stringify(listing)).not.toContain('fake-claude-home');
     expect(JSON.stringify(listing)).not.toContain('old second');
     for (const key of [source.sessionKey('claude', '../../private.txt'), candidate.key.replace('claude:', 'codex:')]) {
-      await expect(worker.readHistory({ key, fromOffset: 0, expect: null, maxBytes: 65536 })).rejects.toThrow('no longer on this computer');
+      await expect(worker.readHistory({ key, fromOffset: 0, expect: null, maxBytes: 65536 })).rejects.toThrow('no longer on this device');
     }
   });
 });

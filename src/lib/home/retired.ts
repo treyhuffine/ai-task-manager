@@ -14,7 +14,7 @@ export interface RetiredHome {
   version: 1;
   homeId: string | null;
   homeName: string;
-  /** The computer it ran on, as it knew itself. */
+  /** The device it ran on, as it knew itself. */
   host: string | null;
   retiredAt: string;
   /** Where its work lives now, as the person said: a name or an address. */
@@ -47,7 +47,7 @@ export function describeRetired(retired: RetiredHome, dir: string): string {
   const where = retired.successor ? ` Its work now lives in ${retired.successor}.` : '';
   return (
     `${retired.homeName}, the home in this folder, was retired on ${retired.retiredAt.slice(0, 10)}.${where} ` +
-    `Its data is kept in ${dir}. Connect this computer to your home with \`ri connect\`, ` +
+    `Its data is kept in ${dir}. Connect this device to your home with \`ri connect\`, ` +
     'or bring this one back with `ri home retire --undo`.'
   );
 }

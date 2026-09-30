@@ -1,5 +1,5 @@
 /**
- * The local runner: harness sessions on this computer (docs/homes-build.md,
+ * The local runner: harness sessions on this device (docs/homes-build.md,
  * "P2.1 The runner split").
  *
  * Owns every live `AgentSession` handle and the live state around it
@@ -12,7 +12,7 @@
  * It never reads the database. The home decides what a session needs and
  * sends it as the spec, and a mode the agent changes itself (leaving plan
  * mode) is tracked here from the spec's pre-plan mode. The same code serves
- * the home's own computer in its server process and a connected computer's
+ * the home's own device in its server process and a connected device's
  * worker.
  *
  * Process restart empties the state. The next send passes the chat's native
@@ -544,12 +544,12 @@ function startSessionOnce(spec: SessionSpec): Promise<AgentSession> {
   return starting;
 }
 
-/** A reference folder as this computer resolved it, for the prompt block and the flags. */
+/** A reference folder as this device resolved it, for the prompt block and the flags. */
 function asReferenceFolder(ref: EnvironmentReference) {
   return { alias: ref.alias, absolutePath: ref.path!, description: ref.description, git: null };
 }
 
-/** Spawn the harness for a spec. The home decided what it needs; this adds what only this computer knows. */
+/** Spawn the harness for a spec. The home decided what it needs; this adds what only this device knows. */
 async function startSession(spec: SessionSpec): Promise<AgentSession> {
   const providerType = harnessDefinition(spec.harness).agentexProviderId;
   const provider = getProvider(providerType);
@@ -588,7 +588,7 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
   let instructions = spec.instructions;
   let firstTurnPreamble = spec.firstTurnPreamble;
   // A session elsewhere: the agent's folders as the home records them on
-  // this computer, checked here and now, once, and the reference folders
+  // this device, checked here and now, once, and the reference folders
   // wired from that (docs/homes-spec.md §4.1). One that isn't there isn't
   // wired. The environment below shows the same paths.
   const agentFolders = spec.agentFolders ? resolveAgentFolders(spec.agentFolders) : null;

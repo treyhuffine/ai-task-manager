@@ -2,10 +2,10 @@
  * Bring a retired home's chats into this one (src/lib/home/import-records.ts,
  * docs/homes-spec.md §10.2, P5.1). Reads the source, writes only this root.
  *
- *   pnpm iso <dest-root> -- pnpm tsx scripts/import-home.ts <source> --computer <name> [--map <sourceAgentId>=<destAgentId>]... [--apply]
+ *   pnpm iso <dest-root> -- pnpm tsx scripts/import-home.ts <source> --device <name> [--map <sourceAgentId>=<destAgentId>]... [--apply]
  *
- * <source> is a data root or a `home-backup.ts backup` of one. --computer is
- * the computer that home ran on (its chats and their work belong to it here).
+ * <source> is a data root or a `home-backup.ts backup` of one. --device is
+ * the device that home ran on (its chats and their work belong to it here).
  * Without --apply it only says what it would do. The destination home must be
  * stopped: this refuses while anything else has its database open.
  */
@@ -23,18 +23,18 @@ function expandHome(p: string): string {
 }
 
 function usage(): never {
-  console.error('usage: pnpm iso <dest-root> -- pnpm tsx scripts/import-home.ts <source> --computer <name> [--map <sourceAgentId>=<destAgentId>]... [--apply]');
+  console.error('usage: pnpm iso <dest-root> -- pnpm tsx scripts/import-home.ts <source> --device <name> [--map <sourceAgentId>=<destAgentId>]... [--apply]');
   process.exit(2);
 }
 
 let source: string | undefined;
-let computerName: string | undefined;
+let deviceName: string | undefined;
 let apply = false;
 const agentMap: Record<string, string> = {};
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const arg = argv[i]!;
-  if (arg === '--computer') computerName = argv[++i] ?? usage();
+  if (arg === '--device') deviceName = argv[++i] ?? usage();
   else if (arg === '--apply') apply = true;
   else if (arg === '--map') {
     const [from, to] = (argv[++i] ?? '').split('=');
@@ -43,7 +43,7 @@ for (let i = 0; i < argv.length; i++) {
   } else if (!source) source = expandHome(arg);
   else usage();
 }
-if (!source || !computerName) usage();
+if (!source || !deviceName) usage();
 
 // Nothing else may have this database open: a running home would write
 // beside the import.
@@ -55,7 +55,7 @@ try {
 }
 
 try {
-  const options = { sourceRoot: source, computerName, agentMap };
+  const options = { sourceRoot: source, deviceName, agentMap };
   if (!apply) {
     const plan = planHomeImport(options);
     console.log(describeHomeImport(plan));

@@ -140,7 +140,7 @@ async function startForegroundCommand(opts: StartOptions) {
   }
 
   // What this folder is decides what `ri` does (docs/homes-spec.md §3.1). A
-  // connected computer keeps no data: it opens the home, and never starts a
+  // connected device keeps no data: it opens the home, and never starts a
   // server or a database here.
   let role: InstallationRole;
   try {
@@ -167,7 +167,7 @@ async function startForegroundCommand(opts: StartOptions) {
         process.exitCode = 1;
         return;
       }
-      const go = await confirm({ message: `Connect this computer to your ${APP_NAME} now?` });
+      const go = await confirm({ message: `Connect this device to your ${APP_NAME} now?` });
       if (isCancel(go) || go !== true) {
         outro('Nothing changed');
         return;
@@ -177,10 +177,10 @@ async function startForegroundCommand(opts: StartOptions) {
     }
     if (process.stdin.isTTY) {
       const choice = await select({
-        message: `Set up ${APP_NAME} on this computer`,
+        message: `Set up ${APP_NAME} on this device`,
         options: [
-          { value: 'start', label: `Start using ${APP_NAME} here`, hint: 'your tasks, notes and agents live on this computer' },
-          { value: 'connect', label: `Connect to your existing ${APP_NAME}`, hint: 'use the one you already have, from this computer' },
+          { value: 'start', label: `Start using ${APP_NAME} here`, hint: 'your tasks, notes and agents live on this device' },
+          { value: 'connect', label: `Connect to your existing ${APP_NAME}`, hint: 'use the one you already have, from this device' },
         ],
       });
       if (isCancel(choice)) {
@@ -191,9 +191,9 @@ async function startForegroundCommand(opts: StartOptions) {
         if (!(await runConnect(undefined, { open: opts.open }))) process.exitCode = 1;
         return;
       }
-      log.info(pc.dim('You can move your home to an always-on computer later.'));
+      log.info(pc.dim('You can move your home to an always-on device later.'));
     } else {
-      log.info(`Starting a new home here. If you already use ${APP_NAME} on another computer, run \`${APP_SHORT_ID} connect\` instead.`);
+      log.info(`Starting a new home here. If you already use ${APP_NAME} on another device, run \`${APP_SHORT_ID} connect\` instead.`);
     }
   }
 
@@ -238,11 +238,11 @@ async function startForegroundCommand(opts: StartOptions) {
   // Auth first — used by both the health probe and the eventual app session.
   s.start('Bootstrapping auth');
   const info = ensureLocalToken();
-  // A root whose data came from another computer doesn't act as the home
+  // A root whose data came from another device doesn't act as the home
   // until someone claims it (docs/homes-spec.md §10.3).
   try {
     const identity = ensureHomeIdentity();
-    if (identity.created) log.success(`Created your home on ${identity.computer.name}`);
+    if (identity.created) log.success(`Created your home on ${identity.device.name}`);
   } catch (err) {
     s.stop('Not starting');
     // A retired home in this folder: say what happened, never open a new one.

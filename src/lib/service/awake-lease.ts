@@ -70,7 +70,7 @@ export async function startAwakeLease(platform: NodeJS.Platform): Promise<AwakeL
   try {
     const deadline = Date.now() + 2500;
     while (Date.now() < deadline) {
-      if (ended || error || failure) throw new Error('The operating system could not keep this computer awake.');
+      if (ended || error || failure) throw new Error('The operating system could not keep this device awake.');
       if (platform === 'linux' && output.includes('RI_AWAKE_READY\n')) return { alive: () => !ended && live(child), stop };
       if (platform === 'darwin' && child.pid) {
         // A successful spawn is not evidence that IOKit granted an assertion.

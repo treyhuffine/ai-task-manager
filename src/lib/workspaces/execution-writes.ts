@@ -2,7 +2,7 @@
  * Changing an execution's files from the viewer (docs/homes-build.md, P3.5):
  * save, create, rename, delete, make a folder, resolve a conflict, and bring
  * work in progress over from the agent's folder. Filesystem and git only, no
- * database, so the computer an execution runs on makes these changes in the
+ * database, so the device an execution runs on makes these changes in the
  * worktree it prepared, with the same answers the home's routes give for its
  * own. Only these defined operations, each inside the execution's folder:
  * never an arbitrary path (spec §5).
@@ -45,7 +45,7 @@ export async function writeExecution(location: ExecutionLocation, write: Executi
 
 /**
  * One defined change inside a folder, with the same answers everywhere:
- * the home's routes for its own folders, and a connected computer's worker
+ * the home's routes for its own folders, and a connected device's worker
  * for the ones there. Paths stay inside the folder (write-file.ts).
  */
 export async function writeFolder(folder: FolderRef, write: FolderWrite): Promise<ReadAnswer> {

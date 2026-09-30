@@ -55,7 +55,7 @@ async function handlePOST(
     }
 
     // In a clone of its repository: the agent's folder here, or on the
-    // computer the agent lives on (P4.5).
+    // device the agent lives on (P4.5).
     return await githubOnOwner(id, {
       op: 'auto_merge',
       prNumber: session.prNumber,

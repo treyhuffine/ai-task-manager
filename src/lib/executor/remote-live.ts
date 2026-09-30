@@ -1,5 +1,5 @@
 /**
- * The home's mirror of what's live on connected computers
+ * The home's mirror of what's live on connected devices
  * (docs/homes-build.md, P2.1 "Live state" and P2.4): which chats are
  * running there, their pending prompts, background tasks and command
  * inventory. Kept from the signals each worker reports, and replaced by the
@@ -15,7 +15,7 @@ import type { PendingInput } from '@/lib/runner/pending';
 import type { RunnerSignal } from '@/lib/runner/types';
 
 export interface RemoteChatState {
-  computerId: string;
+  deviceId: string;
   running: boolean;
   pending: PendingInput[];
   backgroundTaskIds: string[];
@@ -34,18 +34,18 @@ const globalRef = globalThis as unknown as { [MIRROR_KEY]?: Map<string, RemoteCh
 if (!globalRef[MIRROR_KEY]) globalRef[MIRROR_KEY] = new Map();
 const mirror = globalRef[MIRROR_KEY]!;
 
-function chatState(chatSessionId: string, computerId: string): RemoteChatState {
+function chatState(chatSessionId: string, deviceId: string): RemoteChatState {
   let state = mirror.get(chatSessionId);
-  if (!state || state.computerId !== computerId) {
-    state = { computerId, running: false, pending: [], backgroundTaskIds: [], inventory: null };
+  if (!state || state.deviceId !== deviceId) {
+    state = { deviceId, running: false, pending: [], backgroundTaskIds: [], inventory: null };
     mirror.set(chatSessionId, state);
   }
   return state;
 }
 
 /** Fold one signal a worker reported for one of its chats. */
-export function mirrorSignal(computerId: string, chatSessionId: string, signal: RunnerSignal): void {
-  const state = chatState(chatSessionId, computerId);
+export function mirrorSignal(deviceId: string, chatSessionId: string, signal: RunnerSignal): void {
+  const state = chatState(chatSessionId, deviceId);
   switch (signal.type) {
     case 'running':
       state.running = signal.running;
@@ -70,15 +70,15 @@ export function mirrorSignal(computerId: string, chatSessionId: string, signal: 
   }
 }
 
-/** Replace everything the mirror holds for a computer with its heartbeat's snapshot. */
-export function replaceComputerMirror(computerId: string, snapshot: WorkerLiveSnapshot): void {
+/** Replace everything the mirror holds for a device with its heartbeat's snapshot. */
+export function replaceDeviceMirror(deviceId: string, snapshot: WorkerLiveSnapshot): void {
   const touched = new Set<string>([
     ...snapshot.running,
     ...snapshot.pending.map((p) => p.sessionId),
     ...Object.keys(snapshot.backgroundTasks),
   ]);
   for (const [chatSessionId, state] of mirror) {
-    if (state.computerId !== computerId) continue;
+    if (state.deviceId !== deviceId) continue;
     if (!touched.has(chatSessionId)) {
       state.running = false;
       state.pending = [];
@@ -86,16 +86,16 @@ export function replaceComputerMirror(computerId: string, snapshot: WorkerLiveSn
     }
   }
   for (const chatSessionId of touched) {
-    const state = chatState(chatSessionId, computerId);
+    const state = chatState(chatSessionId, deviceId);
     state.running = snapshot.running.includes(chatSessionId);
     state.pending = snapshot.pending.filter((p) => p.sessionId === chatSessionId);
     state.backgroundTaskIds = snapshot.backgroundTasks[chatSessionId] ?? [];
   }
 }
 
-/** Forget what a computer had live: it said it's stopping, or it no longer runs agents (P2.8). */
-export function clearComputerMirror(computerId: string): void {
-  replaceComputerMirror(computerId, { running: [], pending: [], backgroundTasks: {} });
+/** Forget what a device had live: it said it's stopping, or it no longer runs agents (P2.8). */
+export function clearDeviceMirror(deviceId: string): void {
+  replaceDeviceMirror(deviceId, { running: [], pending: [], backgroundTasks: {} });
 }
 
 export function remoteChat(chatSessionId: string): RemoteChatState | null {

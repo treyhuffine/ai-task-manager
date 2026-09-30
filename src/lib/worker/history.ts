@@ -1,5 +1,5 @@
 /**
- * The home's history requests, answered from this computer's own native
+ * The home's history requests, answered from this device's own native
  * files (docs/homes-build.md, P2.9). `list_history` gives what a person
  * needs to choose a session and nothing of its content. `read_history`
  * gives one window of a session the home names, which it asks for only
@@ -51,7 +51,7 @@ export async function listHistory(): Promise<HistoryListing> {
 export async function readHistory(request: ReadHistoryRequest): Promise<HistoryWindow> {
   let candidate = listing && Date.now() - listing.at < LISTING_FRESH_MS ? listing.byKey.get(request.key) : undefined;
   if (!candidate) candidate = (await discover()).byKey.get(request.key);
-  if (!candidate) throw new Error('That session is no longer on this computer.');
+  if (!candidate) throw new Error('That session is no longer on this device.');
   if (candidate.kind !== 'file') {
     throw new Error("This harness serves its history from a running process, which can't be read from here yet.");
   }

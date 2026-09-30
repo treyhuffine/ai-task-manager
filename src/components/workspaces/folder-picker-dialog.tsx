@@ -27,18 +27,18 @@ interface FolderPickerDialogProps {
   /** Called with the chosen folder path when the user clicks Choose. */
   onChoose: (path: string) => void;
   /**
-   * Browse one of the person's computers rather than this server's disk
-   * (docs/homes-spec.md §4.2): the home's own, or another computer's through
+   * Browse one of the person's devices rather than this server's disk
+   * (docs/homes-spec.md §4.2): the home's own, or another device's through
    * its worker. Folders only, hidden ones left out, Git projects marked.
    */
-  computer?: { id: string; name: string };
+  device?: { id: string; name: string };
 }
 
 type Listing = Omit<FsBrowseResponse, 'entries'> & { entries: Array<FsBrowseEntry & { git?: boolean }>; truncated?: boolean };
 
-/** A computer's folders, in the picker's shape. `~` is where it starts: its home folder. */
-async function browseComputer(computerId: string, at: string): Promise<Listing> {
-  const listing = await workspacesApi.computerFolders(computerId, at === '~' ? null : at);
+/** A device's folders, in the picker's shape. `~` is where it starts: its home folder. */
+async function browseDevice(deviceId: string, at: string): Promise<Listing> {
+  const listing = await workspacesApi.deviceFolders(deviceId, at === '~' ? null : at);
   return {
     path: listing.path,
     parent: listing.parent,
@@ -66,9 +66,9 @@ export function FolderPickerDialog({
   onOpenChange,
   initialPath,
   onChoose,
-  computer,
+  device,
 }: FolderPickerDialogProps) {
-  const computerId = computer?.id ?? null;
+  const deviceId = device?.id ?? null;
   const [cwd, setCwd] = useState(initialPath?.trim() || '~');
   const [browse, setBrowse] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(false);
@@ -101,7 +101,7 @@ export function FolderPickerDialog({
     const reqId = ++reqIdRef.current;
     setLoading(true);
     setError(null);
-    (computerId ? browseComputer(computerId, cwd) : fsApi.browse(cwd, { showHidden, includeFiles: true }))
+    (deviceId ? browseDevice(deviceId, cwd) : fsApi.browse(cwd, { showHidden, includeFiles: true }))
       .then((res) => {
         if (reqId !== reqIdRef.current) return;
         setBrowse(res);
@@ -122,7 +122,7 @@ export function FolderPickerDialog({
         if (reqId !== reqIdRef.current) return;
         setLoading(false);
       });
-  }, [open, cwd, showHidden, computerId]);
+  }, [open, cwd, showHidden, deviceId]);
 
   // Breadcrumb segments, derived from the resolved path the server gave us.
   // We split on the home boundary so the leading segment is "~" rather than
@@ -271,7 +271,7 @@ export function FolderPickerDialog({
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
               <span className="text-xs font-semibold tracking-wide text-foreground">
-                {computer ? `Choose a folder on ${computer.name}` : 'Choose a folder'}
+                {device ? `Choose a folder on ${device.name}` : 'Choose a folder'}
               </span>
               <DialogPrimitive.Close asChild>
                 <button className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
@@ -462,7 +462,7 @@ export function FolderPickerDialog({
 
             {/* Footer */}
             <div className="flex items-center gap-2 px-3 py-2.5 border-t border-border">
-              {!computer && (
+              {!device && (
                 <>
                   <button
                     type="button"

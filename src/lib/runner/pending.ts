@@ -1,7 +1,7 @@
 /**
  * Pending-input store — the seam between agentex's `onUserInputRequest`
  * callback and the UI. It lives with the runner, because the harness waits
- * on the runner's computer (docs/homes-build.md, "P2.1 The runner split").
+ * on the runner's device (docs/homes-build.md, "P2.1 The runner split").
  * Changes are reported to the runner's sink as `pending_changed`, and the
  * home publishes them. It imports nothing heavy, so the rail's status
  * snapshot can read it without compiling the agent engine.

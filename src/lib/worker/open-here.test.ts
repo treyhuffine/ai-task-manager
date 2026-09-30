@@ -1,6 +1,6 @@
 /**
- * Opening a folder in an app on a worker's computer (P3.5): only a folder
- * this computer holds, only inside it (symlinks included), only a known
+ * Opening a folder in an app on a worker's device (P3.5): only a folder
+ * this device holds, only inside it (symlinks included), only a known
  * app, and nothing for a placement that moved on. The opener is stubbed:
  * nothing launches.
  */

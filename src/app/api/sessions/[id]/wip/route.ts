@@ -34,7 +34,7 @@ async function handleGET(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    // An execution on a connected computer: its worker answers.
+    // An execution on a connected device: its worker answers.
     const remote = await readOnOwner(id, { kind: 'wip' });
     if (remote) return remote;
     if (!session.worktreePath || !session.workspaceId) {
@@ -79,7 +79,7 @@ async function handlePOST(
       );
     }
 
-    // Elsewhere, the agent's folder and the worktree are both on that computer.
+    // Elsewhere, the agent's folder and the worktree are both on that device.
     const owner = await writeOnOwner(id, { kind: 'bring_wip', action: body.action });
     if (owner) return owner;
 

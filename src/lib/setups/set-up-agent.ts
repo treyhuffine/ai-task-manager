@@ -1,10 +1,10 @@
 /**
- * The home's side of setting an agent up on a computer from the app
- * (docs/homes-model.md): what the computer needs to know, which only the
+ * The home's side of setting an agent up on a device from the app
+ * (docs/homes-model.md): what the device needs to know, which only the
  * home has, running it there, and recording what it put in place (docs/
  * homes-spec.md §4.1: the home's records are the only place an agent's
- * folders are kept). The home's own computer runs it in-process, a connected
- * computer through its worker.
+ * folders are kept). The home's own device runs it in-process, a connected
+ * device through its worker.
  *
  * What a copy comes from: the Git remote of the agent's folder on the home.
  * Where its linked folders go: where another agent there already has them,
@@ -15,18 +15,18 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import {
-  getAgentSetup,
-  getComputer,
+  getWorkspaceSetup,
+  getDevice,
   getFolderLink,
   getHome,
   getWorkspace,
-  listAgentSetups,
+  listWorkspaceSetups,
   listReferenceFoldersForWorkspace,
   setAgentFolder,
   setFolderLink,
 } from '@/lib/db/queries';
 import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
-import { announceFolders, checkComputerFolders } from './folders';
+import { announceFolders, checkDeviceFolders } from './folders';
 import {
   applySetupHere,
   planSetupHere,
@@ -44,7 +44,7 @@ const APPLY_TIMEOUT_MS = 11 * 60_000;
 
 export interface SetupAgentInput {
   how: 'copy' | 'existing';
-  /** A folder on that computer. Null: the default place, for a copy. */
+  /** A folder on that device. Null: the default place, for a copy. */
   folder?: string | null;
   /** Folders for linked folders that couldn't be found, or null to go without. */
   answers?: Record<string, string | null>;
@@ -53,7 +53,7 @@ export interface SetupAgentInput {
 /** What setting it up there would do, for the dialog to say before it does it. */
 export interface SetupAgentPlan extends SetupPlanHere {
   agentName: string;
-  computerName: string;
+  deviceName: string;
   /** Where a copy comes from. Null: only a folder already there can be used. */
   remote: string | null;
   /** The linked folders it uses, and whether setting up brings each along. */
@@ -73,13 +73,13 @@ export interface SetupOutcome {
 
 export class SetupUnavailableError extends Error {}
 
-export async function planSetup(workspaceId: string, computerId: string): Promise<SetupAgentPlan> {
-  const request = await requestFor(workspaceId, computerId, 'plan', { how: 'copy' });
-  const here = (await runOn(computerId, request, 15_000)) as SetupPlanHere;
+export async function planSetup(workspaceId: string, deviceId: string): Promise<SetupAgentPlan> {
+  const request = await requestFor(workspaceId, deviceId, 'plan', { how: 'copy' });
+  const here = (await runOn(deviceId, request, 15_000)) as SetupPlanHere;
   return {
     ...here,
     agentName: request.agentName,
-    computerName: getComputer(computerId)?.name ?? 'That computer',
+    deviceName: getDevice(deviceId)?.name ?? 'That device',
     remote: request.remote,
     references: request.references.map((r) => ({
       alias: r.alias,
@@ -90,30 +90,30 @@ export async function planSetup(workspaceId: string, computerId: string): Promis
 }
 
 /**
- * Put the agent's folders in place on that computer, and record them: its
+ * Put the agent's folders in place on that device, and record them: its
  * project folder, and where each linked folder is. A linked folder every
  * agent uses that already has a place there keeps it, unless the person
- * chose another (their answer). Then that computer is told and checks them.
+ * chose another (their answer). Then that device is told and checks them.
  */
 export async function applySetup(
   workspaceId: string,
-  computerId: string,
+  deviceId: string,
   input: SetupAgentInput,
 ): Promise<Omit<SetupOutcome, 'runOn'>> {
-  const request = await requestFor(workspaceId, computerId, 'apply', input);
-  const result = (await runOn(computerId, request, APPLY_TIMEOUT_MS)) as SetupResultHere;
-  setAgentFolder(workspaceId, computerId, result.folder);
+  const request = await requestFor(workspaceId, deviceId, 'apply', input);
+  const result = (await runOn(deviceId, request, APPLY_TIMEOUT_MS)) as SetupResultHere;
+  setAgentFolder(workspaceId, deviceId, result.folder);
   for (const ref of listReferenceFoldersForWorkspace(workspaceId)) {
     if (ref.targetWorkspaceId || !(ref.alias in result.links)) continue;
     const place = result.links[ref.alias]!;
     const answered = input.answers?.[ref.alias] !== undefined;
-    const current = getFolderLink(computerId, ref.id);
+    const current = getFolderLink(deviceId, ref.id);
     if (current && !answered) continue;
-    setFolderLink(computerId, ref.id, place);
+    setFolderLink(deviceId, ref.id, place);
   }
-  announceFolders(computerId);
-  await checkComputerFolders(computerId);
-  const setup = getAgentSetup(workspaceId, computerId)!;
+  announceFolders(deviceId);
+  await checkDeviceFolders(deviceId);
+  const setup = getWorkspaceSetup(workspaceId, deviceId)!;
   const descriptions = new Map(request.references.map((r) => [r.alias, r.description]));
   return {
     folder: setup.sourcePath,
@@ -126,14 +126,14 @@ export async function applySetup(
   };
 }
 
-async function runOn(computerId: string, request: SetupAgentRequest, timeoutMs: number): Promise<unknown> {
-  if (computerId === getHome()?.hostComputerId) {
+async function runOn(deviceId: string, request: SetupAgentRequest, timeoutMs: number): Promise<unknown> {
+  if (deviceId === getHome()?.hostDeviceId) {
     return request.op === 'plan' ? planSetupHere(request) : applySetupHere(request);
   }
-  const name = getComputer(computerId)?.name ?? 'That computer';
+  const name = getDevice(deviceId)?.name ?? 'That device';
   let answer: { status: number; body: unknown };
   try {
-    answer = (await requestWorker(computerId, 'setup_agent', request, timeoutMs)) as { status: number; body: unknown };
+    answer = (await requestWorker(deviceId, 'setup_agent', request, timeoutMs)) as { status: number; body: unknown };
   } catch (err) {
     if (err instanceof WorkerUnavailableError) {
       throw new SetupUnavailableError(`${name} isn't running Ri right now. Start it there, then try again.`);
@@ -152,23 +152,23 @@ async function runOn(computerId: string, request: SetupAgentRequest, timeoutMs: 
 
 async function requestFor(
   workspaceId: string,
-  computerId: string,
+  deviceId: string,
   op: 'plan' | 'apply',
   input: SetupAgentInput,
 ): Promise<SetupAgentRequest> {
   const ws = getWorkspace(workspaceId);
   if (!ws) throw new SetupError('That agent no longer exists.');
-  const computer = getComputer(computerId);
-  if (!computer || computer.status !== 'active') throw new SetupError('That computer is no longer connected to this home.');
-  const host = getHome()?.hostComputerId ?? null;
+  const device = getDevice(deviceId);
+  if (!device || device.status !== 'active') throw new SetupError('That device is no longer connected to this home.');
+  const host = getHome()?.hostDeviceId ?? null;
   // The agent's folder on the home, which a copy and its linked folders follow.
-  const homeSetup = host && host !== computerId ? getAgentSetup(ws.id, host) : null;
-  const homeFolder = homeSetup?.sourcePath ?? (ws.isGit && computerId !== host ? ws.cwd : null);
+  const homeSetup = host && host !== deviceId ? getWorkspaceSetup(ws.id, host) : null;
+  const homeFolder = homeSetup?.sourcePath ?? (ws.isGit && deviceId !== host ? ws.cwd : null);
   const remote = homeFolder ? await remoteUrl(homeFolder, ws.remoteName || 'origin') : null;
-  // Where that computer already has a linked folder, for its other agents:
-  // one copy of a shared library per computer, not one beside each agent.
+  // Where that device already has a linked folder, for its other agents:
+  // one copy of a shared library per device, not one beside each agent.
   const known = new Map<string, string>();
-  for (const setup of listAgentSetups({ computerId })) {
+  for (const setup of listWorkspaceSetups({ deviceId })) {
     if (setup.workspaceId === ws.id) continue;
     for (const r of setup.references) if (r.path && r.form === 'path' && !known.has(r.alias)) known.set(r.alias, r.path);
   }
@@ -179,7 +179,7 @@ async function requestFor(
       description: ref.description ?? null,
       relativePath: null,
       remote: null,
-      knownPath: getFolderLink(computerId, ref.id)?.path ?? known.get(ref.alias) ?? null,
+      knownPath: getFolderLink(deviceId, ref.id)?.path ?? known.get(ref.alias) ?? null,
       agentId: ref.targetWorkspaceId ?? null,
       omitted: false,
     };
@@ -203,7 +203,7 @@ async function requestFor(
     how: input.how,
     folder: input.folder ?? null,
     references,
-    existingFolder: getAgentSetup(ws.id, computerId)?.sourcePath ?? null,
+    existingFolder: getWorkspaceSetup(ws.id, deviceId)?.sourcePath ?? null,
     answers: input.answers,
   };
 }

@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     const entries = await mapWithConcurrency(ids, WORKTREE_CONCURRENCY, async (id) => {
       try {
-        // An execution on a connected computer: its worker measures it. One
+        // An execution on a connected device: its worker measures it. One
         // that isn't connected has no stats to show right now.
         const remote = await readAnswerOnOwner(id, { kind: 'diff_stats' });
         if (remote) return [id, remote.status === 200 ? (remote.body as Awaited<ReturnType<typeof readWorktreeDiffStats>>) : null] as const;

@@ -1,15 +1,15 @@
 /**
- * What the home knows about running a chat on a given computer
+ * What the home knows about running a chat on a given device
  * (docs/homes-build.md, P2.4): a harness's capabilities there, and the
- * folder the chat runs in there. For the home's own computer both come from
- * here. For a connected computer, the capabilities come from its worker's
+ * folder the chat runs in there. For the home's own device both come from
+ * here. For a connected device, the capabilities come from its worker's
  * last heartbeat and the folder from its placement or its setup report: the
- * home never looks for a connected computer's paths on its own disk.
+ * home never looks for a connected device's paths on its own disk.
  */
 
 import type { ChatSessionWithExecution } from '@/db/types';
 import type { ChatPlacement } from '@/lib/db/queries';
-import { getAgentSetup, getComputer } from '@/lib/db/queries';
+import { getWorkspaceSetup, getDevice } from '@/lib/db/queries';
 import { setupProblem, setupUsable } from '@/lib/setups/run-on';
 import { getHarnessRuntime } from '@/lib/harness/runtime';
 import type { HarnessId } from '@/lib/harness/registry';
@@ -26,7 +26,7 @@ export interface HarnessCapabilities {
 }
 
 export async function harnessCapabilitiesOn(
-  placement: Pick<ChatPlacement, 'computerId' | 'isHome'>,
+  placement: Pick<ChatPlacement, 'deviceId' | 'isHome'>,
   harness: HarnessId,
   cwd?: string,
 ): Promise<HarnessCapabilities> {
@@ -43,9 +43,9 @@ export async function harnessCapabilitiesOn(
       reasoningEffort: c.reasoningEffort.supported,
     };
   }
-  const computer = getComputer(placement.computerId);
-  const name = computer?.name ?? 'that computer';
-  const report = computer?.harnesses?.find((h) => h.harness === harness);
+  const device = getDevice(placement.deviceId);
+  const name = device?.name ?? 'that device';
+  const report = device?.harnesses?.find((h) => h.harness === harness);
   const supported = (key: string) => report?.capabilities[key]?.supported === true;
   if (!report || report.binary.status !== 'supported') {
     return {
@@ -72,22 +72,22 @@ export async function harnessCapabilitiesOn(
 }
 
 /**
- * The folder a chat runs in on a connected computer: its execution's
+ * The folder a chat runs in on a connected device: its execution's
  * worktree there (or, while that's being prepared, the promise of it), or
- * for an agent's main chat, the agent's folder as that computer reported it.
+ * for an agent's main chat, the agent's folder as that device reported it.
  * A problem names what's missing.
  */
 export function workingFolderOn(
   placement: ChatPlacement,
   session: Pick<ChatSessionWithExecution, 'type' | 'workspaceId' | 'executionId'>,
 ): { cwd: string } | { preparing: string } | { problem: string } {
-  const name = getComputer(placement.computerId)?.name ?? 'that computer';
+  const name = getDevice(placement.deviceId)?.name ?? 'that device';
   if (placement.executionId) {
     // Not prepared yet: the worktree it's preparing there, once it has.
     return placement.worktreePath ? { cwd: placement.worktreePath } : { preparing: placement.executionId };
   }
   if (session.type === 'orchestration' && session.workspaceId) {
-    const setup = getAgentSetup(session.workspaceId, placement.computerId);
+    const setup = getWorkspaceSetup(session.workspaceId, placement.deviceId);
     if (setup && setupUsable(setup.status)) return { cwd: setup.sourcePath };
     return {
       problem: setup ? setupProblem(`This agent's folder on ${name}`, setup) : `This agent isn't on ${name} yet. Set it up there first.`,

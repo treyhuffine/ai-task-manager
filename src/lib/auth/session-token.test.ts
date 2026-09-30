@@ -1,7 +1,7 @@
 /**
  * Session tokens (docs/homes-build.md, P2.7): what a session on a connected
- * computer uses to reach the home's servers. Accepted only while the session
- * is placed there at that generation and the computer's worker is enrolled,
+ * device uses to reach the home's servers. Accepted only while the session
+ * is placed there at that generation and the device's worker is enrolled,
  * and only for that session's own servers, in its own scope.
  */
 
@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 
 let home: TestHome;
-let computerId: string;
+let deviceId: string;
 let workerKeyId: string;
 let agentId: string;
 let executionChat: string;
@@ -23,18 +23,18 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   identity.ensureHomeIdentity();
   const q = await import('@/lib/db/queries');
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'Laptop', createdByApiKeyId: null });
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'Laptop', createdByApiKeyId: null });
   const enrolled = q.redeemEnrollGrant({ secret: grant.secret, name: 'Laptop' });
-  computerId = enrolled.computer.id;
+  deviceId = enrolled.device.id;
   workerKeyId = enrolled.key.id;
   const ws = q.createWorkspace({ name: 'Demo', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true });
   agentId = ws.id;
   const created = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'On the laptop' });
   executionChat = created.session.id;
   executionId = created.execution.id;
-  q.createPlacement({ executionId, computerId, startReason: 'created' });
+  q.createPlacement({ executionId, deviceId, startReason: 'created' });
   const { mintSessionToken } = await import('./session-token');
-  token = mintSessionToken({ chatSessionId: executionChat, computerId, generation: 1 })!;
+  token = mintSessionToken({ chatSessionId: executionChat, deviceId, generation: 1 })!;
 });
 
 afterEach(async () => {
@@ -46,17 +46,17 @@ afterEach(async () => {
 describe('a session token', () => {
   it('names its session while it is placed there, and nothing once it has moved', async () => {
     const { verifySessionToken } = await import('./session-token');
-    expect(verifySessionToken(token)).toMatchObject({ chat: { id: executionChat }, computerId, workerApiKeyId: workerKeyId });
+    expect(verifySessionToken(token)).toMatchObject({ chat: { id: executionChat }, deviceId, workerApiKeyId: workerKeyId });
     const [head, signature] = [token.slice(0, token.lastIndexOf('.')), token.slice(token.lastIndexOf('.') + 1)];
     expect(verifySessionToken(`${head}.${signature.slice(1)}x`)).toBeNull();
-    expect(verifySessionToken(token.replace(`.${computerId}.`, '.another-computer.'))).toBeNull();
+    expect(verifySessionToken(token.replace(`.${deviceId}.`, '.another-device.'))).toBeNull();
 
     const q = await import('@/lib/db/queries');
-    q.createPlacement({ executionId, computerId, startReason: 'continued' });
+    q.createPlacement({ executionId, deviceId, startReason: 'continued' });
     expect(verifySessionToken(token)).toBeNull();
   });
 
-  it('ends when the computer stops running agents for the home', async () => {
+  it('ends when the device stops running agents for the home', async () => {
     const { verifySessionToken } = await import('./session-token');
     const q = await import('@/lib/db/queries');
     q.revokeApiKey(workerKeyId, 'Stopped local execution');
@@ -98,7 +98,7 @@ describe('the proxy, given a session token', () => {
     expect(forwarded(res, 'x-ri-api-key-scope')).toBe('session');
     expect(forwarded(res, 'x-ri-session-chat-id')).toBe(executionChat);
     expect(forwarded(res, 'x-ri-caller-location')).toBe('elsewhere');
-    expect(forwarded(res, 'x-ri-worker-computer-id')).toBe(computerId);
+    expect(forwarded(res, 'x-ri-worker-device-id')).toBe(deviceId);
     expect(forwarded(res, 'x-ri-api-key-id')).toBe(workerKeyId);
   });
 
@@ -108,7 +108,7 @@ describe('the proxy, given a session token', () => {
     expect(proxy(request('/api/connectors/mcp?ws=another-agent', token)).status).toBe(403);
     expect(proxy(request('/api/workers/me', token)).status).toBe(403);
     const q = await import('@/lib/db/queries');
-    q.createPlacement({ executionId, computerId, startReason: 'continued' });
+    q.createPlacement({ executionId, deviceId, startReason: 'continued' });
     expect(proxy(request(`/api/connectors/mcp?ws=${agentId}`, token)).status).toBe(401);
   });
 });

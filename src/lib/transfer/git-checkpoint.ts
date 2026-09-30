@@ -1,5 +1,5 @@
 /**
- * The Git side of moving work between computers (docs/homes-spec.md §8,
+ * The Git side of moving work between devices (docs/homes-spec.md §8,
  * P4.1 and P4.2). Git owns code versions and their transfer: the source
  * commits what's tracked, plus untracked files the person chose, and pushes
  * without force. The destination fetches and checks the exact commit, not
@@ -343,7 +343,7 @@ export async function publishedCommit(repo: string, branch: string, remote?: str
 }
 
 /**
- * Fetch a published checkpoint into this computer's clone and check it's the
+ * Fetch a published checkpoint into this device's clone and check it's the
  * exact commit. A branch that only has the same name isn't enough.
  */
 export async function fetchCheckpoint(repo: string, checkpoint: { remote: string; branch: string; sha: string }): Promise<void> {
@@ -372,7 +372,7 @@ async function checkedOut(repo: string): Promise<Map<string, string>> {
 }
 
 /**
- * A worktree for the checkpoint, on its branch, in this computer's clone.
+ * A worktree for the checkpoint, on its branch, in this device's clone.
  * The branch here is made at the checkpoint, or moved forward to it when
  * it's behind. One with commits the checkpoint doesn't have, or checked out
  * somewhere else, stops the step: nothing is reset or taken over.
@@ -386,7 +386,7 @@ export async function worktreeAtCheckpoint(args: {
   const { remote, branch, sha } = checkpoint;
   await fetchCheckpoint(repo, checkpoint);
 
-  // The worktree this computer had for the work when it ran it before, or
+  // The worktree this device had for the work when it ran it before, or
   // the one a retry already made: reused on the branch, moved forward to the
   // checkpoint when it's behind and clean. Uncommitted changes there, or
   // commits the checkpoint doesn't have, stop the step with nothing touched.
@@ -434,14 +434,14 @@ export async function worktreeAtCheckpoint(args: {
   const inUse = (await checkedOut(repo)).get(branch);
   if (existing.ok && existing.stdout) {
     if (inUse) {
-      throw new CheckpointError('branch_in_use', `${branch} is checked out in ${inUse} on this computer. Close that worktree or switch its branch, then continue again.`);
+      throw new CheckpointError('branch_in_use', `${branch} is checked out in ${inUse} on this device. Close that worktree or switch its branch, then continue again.`);
     }
     if (existing.stdout !== sha) {
       const behind = await git(repo, ['merge-base', '--is-ancestor', existing.stdout, sha], { allowFail: true });
       if (!behind.ok) {
         throw new CheckpointError(
           'divergent_branch',
-          `${branch} here has commits that aren't in the checkpoint. Nothing was changed: merge or rename it on this computer, then continue again.`,
+          `${branch} here has commits that aren't in the checkpoint. Nothing was changed: merge or rename it on this device, then continue again.`,
         );
       }
       // Behind the checkpoint: moving it forward loses nothing.
@@ -459,7 +459,7 @@ export async function worktreeAtCheckpoint(args: {
   return { path: args.path, branch, sha };
 }
 
-/** Where this computer keeps its review checkout of an execution: its own folder, never one the home names. */
+/** Where this device keeps its review checkout of an execution: its own folder, never one the home names. */
 export function reviewPathFor(workDir: string, workspaceSlug: string, executionId: string): string {
   return path.join(workDir, 'reviews', `${workspaceSlug}-${executionId.slice(-8)}`);
 }

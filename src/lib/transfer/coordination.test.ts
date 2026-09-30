@@ -1,7 +1,7 @@
 /**
  * The boundary between moving work and everything else, and what survives a
  * restart (P4 review fixes). A home with one execution in a real Git
- * worktree, a second computer that isn't connected, and the fake harness.
+ * worktree, a second device that isn't connected, and the fake harness.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -26,7 +26,7 @@ beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-coordination-' });
   const identity = await import('@/lib/home/identity');
   identity.resetHomeIdentityCache();
-  hostId = identity.ensureHomeIdentity().home.hostComputerId;
+  hostId = identity.ensureHomeIdentity().home.hostDeviceId;
   const repo = path.join(home.root, 'repo');
   git(home.root, 'init', '-q', '-b', 'main', repo);
   fs.writeFileSync(path.join(repo, 'README.md'), 'base\n');
@@ -35,8 +35,8 @@ beforeEach(async () => {
   worktree = path.join(home.root, 'worktree');
   git(repo, 'worktree', 'add', '-q', '-b', 'work', worktree, 'main');
   const q = await import('@/lib/db/queries');
-  const key = q.createApiKey({ name: 'Laptop', deviceType: 'computer' });
-  otherId = q.registerComputerForApiKey({ apiKeyId: key.key.id, name: 'Laptop', platform: 'darwin' }).computer.id;
+  const key = q.pairDevice({ name: 'Laptop', kind: 'computer' });
+  otherId = q.registerDeviceForApiKey({ apiKeyId: key.key.id, name: 'Laptop', platform: 'darwin' }).device.id;
   const workspaceId = q.createWorkspace({ name: 'Demo', cwd: repo, isGit: true, baseBranch: 'main', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false }).id;
   const created = q.createExecutionWithChat({ workspaceId, harness: 'claude', label: 'Work' });
   executionId = created.execution.id;
@@ -61,7 +61,7 @@ async function saved(content: string) {
 
 async function moveRecord() {
   const q = await import('@/lib/db/queries');
-  return q.createTransfer({ executionId, fromComputerId: hostId, toComputerId: otherId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
+  return q.createTransfer({ executionId, fromDeviceId: hostId, toDeviceId: otherId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
 }
 
 async function until(check: () => boolean, what: string, ms = 10_000) {
@@ -78,7 +78,7 @@ describe('the boundary around the source', () => {
     const release = moving.admitChange(executionId, 'pushing');
     expect(moving.busyWith(executionId)).toBe('pushing');
     const { startTransfer } = await import('./continue');
-    expect(() => startTransfer({ chatSessionId: chatId, toComputerId: otherId, includeUntracked: [], requestedByApiKeyId: null })).toThrow(
+    expect(() => startTransfer({ chatSessionId: chatId, toDeviceId: otherId, includeUntracked: [], requestedByApiKeyId: null })).toThrow(
       "It's pushing right now. Continue once that's done.",
     );
     release();
@@ -150,7 +150,7 @@ describe('settling a move that stopped', () => {
     const first = await saved('first');
     await executor.dispatch(chatId, first.content!, { sourceEventId: first.id });
     // A helper with no saved message is refused rather than sent.
-    await expect(executor.dispatch(chatId, 'from a commit helper')).rejects.toThrow('Its move to another computer stopped.');
+    await expect(executor.dispatch(chatId, 'from a commit helper')).rejects.toThrow('Its move to another device stopped.');
     expect(fake.sessions).toHaveLength(0);
     expect(q.getTransfer(transfer.id)!.heldEventIds).toEqual([first.id]);
 
@@ -190,7 +190,7 @@ describe('settling a move that stopped', () => {
     const a = await saved('held');
     q.holdForTransfer(executionId, a.id);
     q.updateTransfer(stopped.id, { state: 'failed', failedStage: 'saving', error: 'push rejected' });
-    const again = q.createTransfer({ executionId, fromComputerId: hostId, toComputerId: otherId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
+    const again = q.createTransfer({ executionId, fromDeviceId: hostId, toDeviceId: otherId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
     expect(again.heldEventIds).toEqual([a.id]);
     expect(q.getTransfer(stopped.id)).toMatchObject({ state: 'cancelled', heldEventIds: [] });
     const { resumeOnSource } = await import('./continue');
@@ -223,7 +223,7 @@ describe('delivering what a move held, in order (P4 re-check)', () => {
     const b = await saved('sent meanwhile');
     await (await import('@/lib/executor/adapter')).dispatch(chatId, b.content!, { sourceEventId: b.id });
     expect(q.getTransfer(transfer.id)!.heldEventIds).toEqual([a.id, b.id]);
-    expect(() => startTransfer({ chatSessionId: chatId, toComputerId: otherId, includeUntracked: [], requestedByApiKeyId: null })).toThrow(
+    expect(() => startTransfer({ chatSessionId: chatId, toDeviceId: otherId, includeUntracked: [], requestedByApiKeyId: null })).toThrow(
       'Messages it held are still going out. Continue once they have.',
     );
     release();
@@ -301,12 +301,12 @@ describe('a delivery that finds the message already on its way (P4 final re-chec
 });
 
 describe('when the home restarts', () => {
-  it('stops an interrupted move and withdraws the commands no computer took yet', async () => {
+  it('stops an interrupted move and withdraws the commands no device took yet', async () => {
     const q = await import('@/lib/db/queries');
     const transfer = await moveRecord();
     q.updateTransfer(transfer.id, { stage: 'setting_up' });
     const prepare = q.queueWorkerCommand({
-      computerId: otherId,
+      deviceId: otherId,
       kind: 'prepare',
       payload: { transfer: { id: transfer.id } },
       actor: { source: 'human' },
@@ -314,13 +314,13 @@ describe('when the home restarts', () => {
       chatSessionId: chatId,
       generation: 2,
     });
-    const unrelated = q.queueWorkerCommand({ computerId: otherId, kind: 'interrupt', payload: {}, actor: { source: 'human' }, executionId, chatSessionId: chatId, generation: 1 });
+    const unrelated = q.queueWorkerCommand({ deviceId: otherId, kind: 'interrupt', payload: {}, actor: { source: 'human' }, executionId, chatSessionId: chatId, generation: 1 });
     const { recoverInterruptedTransfers } = await import('./continue');
     expect(recoverInterruptedTransfers()).toEqual({ stopped: 1, delivering: 0 });
     expect(q.getTransfer(transfer.id)).toMatchObject({
       state: 'failed',
       failedStage: 'setting_up',
-      error: 'Ri restarted while it was moving. Nothing was lost: Try again, or resume on Mac Mini.'.replace('Mac Mini', q.getComputer(hostId)!.name),
+      error: 'Ri restarted while it was moving. Nothing was lost: Try again, or resume on Mac Mini.'.replace('Mac Mini', q.getDevice(hostId)!.name),
     });
     expect(q.getWorkerCommand(prepare.id)!.state).toBe('cancelled');
     expect(q.getWorkerCommand(unrelated.id)!.state).toBe('queued');

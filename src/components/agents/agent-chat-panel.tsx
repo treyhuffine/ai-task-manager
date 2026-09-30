@@ -5,7 +5,7 @@ import { HarnessChat } from '@/components/chat/harness-chat';
 import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
 import { agentMainChatIntro } from '@/components/chat/main-chat-intro';
 import { useMainChat, useNewMainChat } from '@/hooks/use-main-chat';
-import { useComputer } from '@/hooks/use-computers';
+import { useDevice } from '@/hooks/use-devices';
 import type { WorkspaceRecord } from '@/db/types';
 
 /**
@@ -17,12 +17,12 @@ import type { WorkspaceRecord } from '@/db/types';
 export function AgentChatPanel({ workspace }: { workspace: WorkspaceRecord }) {
   const newChat = useNewMainChat(workspace.id);
   const archived = workspace.status === 'archived';
-  // Pinned to the computer the agent lives on when that isn't the home
-  // (P3.4). Its history stays here while that computer is away, and a
+  // Pinned to the device the agent lives on when that isn't the home
+  // (P3.4). Its history stays here while that device is away, and a
   // message waits for it.
   const { data: current } = useMainChat(workspace.id);
-  const computer = useComputer(current?.session.computerId);
-  const elsewhere = computer && !computer.isHome ? computer : null;
+  const device = useDevice(current?.session.deviceId);
+  const elsewhere = device && !device.isHome ? device : null;
 
   return (
     <div className="flex flex-col h-full min-h-0">

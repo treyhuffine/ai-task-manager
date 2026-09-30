@@ -2,7 +2,7 @@ import type { ChatSessionWithExecution } from '@/db/types';
 
 /**
  * The folder an execution works in, wherever it runs (P3.1): its worktree at
- * home, or the folder its computer prepared. Null while it's still being set
+ * home, or the folder its device prepared. Null while it's still being set
  * up. `worktreePath` alone is only ever a folder on the home, so an execution
  * on a laptop read as setting up forever.
  */
@@ -12,22 +12,22 @@ export function preparedFolder(session: Pick<ChatSessionWithExecution, 'worktree
 }
 
 /**
- * The computer to show on an execution, or null to show none. The standard
+ * The device to show on an execution, or null to show none. The standard
  * case goes unsaid: work on the home is unlabeled, and only work away from it
- * names its computer (`away`, the default). `always` names the home too, once
- * there are other computers to tell it apart from. See
- * `lib/client/computer-label-mode.ts`.
+ * names its device (`away`, the default). `always` names the home too, once
+ * there are other devices to tell it apart from. See
+ * `lib/client/device-label-mode.ts`.
  */
 export function locationLabel(
   session: Pick<ChatSessionWithExecution, 'location'>,
-  severalComputers: boolean,
+  severalDevices: boolean,
   mode: 'away' | 'always' = 'away',
 ): string | null {
   const location = session.location;
   if (!location) return null;
   if (!location.isHome) return location.name;
-  return mode === 'always' && severalComputers ? location.name : null;
+  return mode === 'always' && severalDevices ? location.name : null;
 }
 
-/** How a computer starts running Ri, until the companion app does it at login (P5.4). */
+/** How a device starts running Ri, until the companion app does it at login (P5.4). */
 export const START_RI = 'ri worker run';

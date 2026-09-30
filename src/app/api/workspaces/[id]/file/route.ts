@@ -4,7 +4,7 @@ import { withCompression } from '@/lib/api/compression';
 import { agentFolderResponse, agentFolderWrite } from '../_folder';
 
 /**
- * One file in the agent's own folder, on the computer the agent lives on
+ * One file in the agent's own folder, on the device the agent lives on
  * (P3.5), the same surface as `/api/sessions/:id/file`:
  *
  * GET `?path=` (optional `?base=1` for the diff "old" side).

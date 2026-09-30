@@ -30,7 +30,7 @@ interface OpenWorktreeButtonProps {
   /** Absolute path of the worktree to open. Component is a no-op when null. */
   path: string | null;
   /**
-   * Whose folder it is, which says which computer it's on (P3.5). Without
+   * Whose folder it is, which says which device it's on (P3.5). Without
    * one the folder is taken to be the home's.
    */
   source?: FolderSource | null;
@@ -126,7 +126,7 @@ export function OpenWorktreeButton({ path, source = null }: OpenWorktreeButtonPr
   const [primaryTarget, setPrimaryTarget] = useState<OpenTarget>('finder');
   // Where the files are and whether this browser can open them (P3.5): the
   // home's own browser for files at home, a browser linked to another
-  // computer for files there. Anywhere else it's Copy path.
+  // device for files there. Anywhere else it's Copy path.
   const { opener, filesOn } = useOpener(source, path);
   const isRemote = !opener;
   // Shared editor preference (settings + file-viewer use the same). The

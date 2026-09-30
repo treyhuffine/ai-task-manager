@@ -78,9 +78,9 @@ export function useFolderBaseFile(source: FolderSource | null, path: string | nu
 }
 
 /**
- * Absolute path of the folder, on the computer it's on (P3.5): the
+ * Absolute path of the folder, on the device it's on (P3.5): the
  * execution's worktree wherever it runs, or the agent's folder on the
- * computer it lives on.
+ * device it lives on.
  */
 export function useFolderRoot(source: FolderSource | null): string | null {
   const { data: session } = useSession(source?.kind === 'session' ? source.sessionId : null);

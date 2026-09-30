@@ -5,7 +5,7 @@
  * that aren't HTTP method handlers or segment configs.
  *
  * At home it reads and writes the folder here. For an agent that lives on
- * another computer it asks that computer, which uses the agent's folder there
+ * another device it asks that device, which uses the agent's folder there
  * as the home recorded it: never a folder at home, and never a path the
  * caller names.
  *
@@ -16,18 +16,18 @@
  * archived agent is read-only (409), like its terminal and main chat.
  */
 
-import { getComputer, getWorkspace } from '@/lib/db/queries';
-import { agentComputerFor } from '@/lib/setups/run-on';
+import { getDevice, getWorkspace } from '@/lib/db/queries';
+import { agentDeviceFor } from '@/lib/setups/run-on';
 import { isExistingDir } from '@/lib/terminal/owner';
 import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
 import type { ReadAgentFolderRequest, WriteAgentFolderRequest } from '@/lib/workers/protocol';
 import { readAgentFolder, type AgentFolderRead } from '@/lib/workspaces/agent-folder-reads';
 import { writeFolder, type FolderWrite } from '@/lib/workspaces/execution-writes';
 
-async function onItsComputer(computerId: string, kind: 'read_agent_folder' | 'write_agent_folder', request: unknown): Promise<Response> {
-  const name = getComputer(computerId)?.name ?? 'Its computer';
+async function onItsDevice(deviceId: string, kind: 'read_agent_folder' | 'write_agent_folder', request: unknown): Promise<Response> {
+  const name = getDevice(deviceId)?.name ?? 'Its device';
   try {
-    const answer = (await requestWorker(computerId, kind, request)) as { status: number; body: unknown };
+    const answer = (await requestWorker(deviceId, kind, request)) as { status: number; body: unknown };
     return Response.json(answer.body, { status: answer.status });
   } catch (err) {
     if (err instanceof WorkerUnavailableError) {
@@ -43,10 +43,10 @@ async function onItsComputer(computerId: string, kind: 'read_agent_folder' | 'wr
 export async function agentFolderResponse(id: string, read: AgentFolderRead): Promise<Response> {
   const ws = getWorkspace(id);
   if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
-  const computerId = agentComputerFor(id);
-  if (computerId) {
+  const deviceId = agentDeviceFor(id);
+  if (deviceId) {
     const request: ReadAgentFolderRequest = { agentId: id, filesToCopy: ws.filesToCopy ?? [], read };
-    return onItsComputer(computerId, 'read_agent_folder', request);
+    return onItsDevice(deviceId, 'read_agent_folder', request);
   }
   if (!isExistingDir(ws.cwd)) {
     return Response.json({ error: `The agent's folder does not exist: ${ws.cwd}` }, { status: 409 });
@@ -55,17 +55,17 @@ export async function agentFolderResponse(id: string, read: AgentFolderRead): Pr
   return Response.json(answer.body, { status: answer.status });
 }
 
-/** A person's change to the agent's own folder, on the computer it lives on. */
+/** A person's change to the agent's own folder, on the device it lives on. */
 export async function agentFolderWrite(id: string, write: FolderWrite): Promise<Response> {
   const ws = getWorkspace(id);
   if (!ws) return Response.json({ error: 'Workspace not found' }, { status: 404 });
   if (ws.status === 'archived') {
     return Response.json({ error: 'This agent is archived, so its files are read-only' }, { status: 409 });
   }
-  const computerId = agentComputerFor(id);
-  if (computerId) {
+  const deviceId = agentDeviceFor(id);
+  if (deviceId) {
     const request: WriteAgentFolderRequest = { agentId: id, isGit: ws.isGit, write };
-    return onItsComputer(computerId, 'write_agent_folder', request);
+    return onItsDevice(deviceId, 'write_agent_folder', request);
   }
   if (!isExistingDir(ws.cwd)) {
     return Response.json({ error: `The agent's folder does not exist: ${ws.cwd}` }, { status: 409 });

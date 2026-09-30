@@ -2,8 +2,8 @@
  * An execution's resolved environment (docs/homes-spec.md §4.3,
  * docs/homes-build.md P2.7): where it works, from which folder, on which
  * branch, with which connected folders and tools. The home says what's
- * expected: the agent's folders on this computer, from its records, the only
- * place they're kept (docs/homes-spec.md §4.1). The computer running the
+ * expected: the agent's folders on this device, from its records, the only
+ * place they're kept (docs/homes-spec.md §4.1). The device running the
  * session checks what only it can, when the session starts: whether each
  * folder is there, the mode, and the checked-out commit.
  *
@@ -31,7 +31,7 @@ export interface EnvironmentReference {
 export interface ExecutionEnvironment {
   homeId: string;
   homeName: string;
-  computerName: string;
+  deviceName: string;
   agent: { id: string; name: string };
   executionId: string;
   isGit: boolean;
@@ -47,7 +47,7 @@ export interface ExecutionEnvironment {
   permissionMode: string;
 }
 
-/** An agent's folder and references on a computer, as the home records them. */
+/** An agent's folder and references on a device, as the home records them. */
 export interface ExpectedAgentFolders {
   homeId: string;
   agentId: string;
@@ -73,7 +73,7 @@ function isDirectory(p: string): boolean {
 
 /**
  * The agent's folder and linked folders as the home records them on this
- * computer, each checked here and now: one that isn't there is `missing`,
+ * device, each checked here and now: one that isn't there is `missing`,
  * and never wired. Nothing here reads anything but the folders themselves.
  */
 export function resolveAgentFolders(expected: ExpectedAgentFolders): Pick<ExpectedAgentFolders, 'sourceFolder' | 'references'> {
@@ -123,10 +123,10 @@ const MODE = {
 
 const REFERENCE_STATE = {
   ready: '',
-  omitted: 'left out on this computer',
-  unconfigured: "not set up on this computer",
+  omitted: 'left out on this device',
+  unconfigured: "not set up on this device",
   missing: "set up, but the folder isn't there",
-  unavailable: 'unavailable, because this computer has no single setup for the agent (none, or more than one)',
+  unavailable: 'unavailable, because this device has no single setup for the agent (none, or more than one)',
 } as const;
 
 const short = (sha: string | null) => (sha ? sha.slice(0, 12) : null);
@@ -136,7 +136,7 @@ export function renderEnvironment(env: ResolvedEnvironment, file: string): strin
   const lines = [
     '## Your environment',
     '',
-    `You're running on ${env.computerName}, for ${env.homeName}, as the "${env.agent.name}" agent. This is how it was when this session started. The same, as JSON: \`${file}\``,
+    `You're running on ${env.deviceName}, for ${env.homeName}, as the "${env.agent.name}" agent. This is how it was when this session started. The same, as JSON: \`${file}\``,
     '',
     `- Working folder: \`${env.cwd}\`, ${MODE[env.mode]}.`,
   ];

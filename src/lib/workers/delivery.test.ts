@@ -1,6 +1,6 @@
 /**
- * Where a message sent to a computer elsewhere stands (P3.2): waiting while
- * its computer is away, on its way, delivered, withdrawn, and never "working"
+ * Where a message sent to a device elsewhere stands (P3.2): waiting while
+ * its device is away, on its way, delivered, withdrawn, and never "working"
  * while it only waits in the queue.
  */
 
@@ -25,13 +25,13 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   identity.ensureHomeIdentity();
   const q = await import('@/lib/db/queries');
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'MacBook', createdByApiKeyId: null });
-  laptopId = q.redeemEnrollGrant({ secret: grant.secret, name: 'MacBook' }).computer.id;
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'MacBook', createdByApiKeyId: null });
+  laptopId = q.redeemEnrollGrant({ secret: grant.secret, name: 'MacBook' }).device.id;
   q.recordWorkerHeartbeat(laptopId, { protocol: WORKER_PROTOCOL, version: 'test', harnesses: HARNESSES, state: 'awake' });
   const ws = q.createWorkspace({ name: 'Ri', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
   const created = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'On the laptop' });
   chatId = created.session.id;
-  q.createPlacement({ executionId: created.execution.id, computerId: laptopId, startReason: 'created', worktreePath: '/Users/trey/code/ri' });
+  q.createPlacement({ executionId: created.execution.id, deviceId: laptopId, startReason: 'created', worktreePath: '/Users/trey/code/ri' });
   heard = [];
   const bus = await import('@/lib/realtime/bus');
   unsubscribe = bus.subscribe(bus.sessionChannel(chatId), (m) => {
@@ -65,12 +65,12 @@ async function sendMessage(content: string) {
   return { eventId: message.id, outcome };
 }
 
-describe('a message to a computer elsewhere', () => {
-  it('waits while its computer is away, and the chat is not working while it waits', async () => {
+describe('a message to a device elsewhere', () => {
+  it('waits while its device is away, and the chat is not working while it waits', async () => {
     const executor = await import('@/lib/executor/adapter');
     const { deliveriesForChat } = await import('./delivery');
     const { eventId } = await sendMessage('Hello from the phone');
-    expect(deliveriesForChat(chatId)[eventId]).toMatchObject({ state: 'waiting', computerName: 'MacBook', connected: false, cancellable: true });
+    expect(deliveriesForChat(chatId)[eventId]).toMatchObject({ state: 'waiting', deviceName: 'MacBook', connected: false, cancellable: true });
     expect(heard.at(-1)).toMatchObject({ eventId, delivery: { state: 'waiting' } });
     expect(executor.isRunning(chatId)).toBe(false);
   });

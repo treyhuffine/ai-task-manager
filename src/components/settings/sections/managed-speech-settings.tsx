@@ -25,12 +25,12 @@ export function ManagedSpeechSettings() {
     catch (cause) { toast.error(cause instanceof Error ? cause.message : 'Local speech could not be changed'); }
     finally { setPending(false); }
   }
-  if (error) return <p className="text-xs text-muted-foreground">Local speech installation is managed by the owner of this computer.</p>;
+  if (error) return <p className="text-xs text-muted-foreground">Local speech installation is managed by the owner of this device.</p>;
   if (!data) return <p className="text-xs text-muted-foreground">Checking local speech…</p>;
   const installing = data.phase === 'downloading' || data.phase === 'verifying';
   const busy = pending || data.phase === 'transcribing' || data.phase === 'starting';
   return <section className="space-y-3 rounded-lg border border-border p-3" aria-label="Managed local speech">
-    <div><p className="text-sm font-medium">Optional local speech</p><p className="text-xs text-muted-foreground">Parakeet transcribes on the computer running Ri. Phone recordings travel to this computer. Audio stays out of cloud transcription unless you explicitly choose a cloud provider or enable fallback.</p></div>
+    <div><p className="text-sm font-medium">Optional local speech</p><p className="text-xs text-muted-foreground">Parakeet transcribes on the device running Ri. Phone recordings travel to this device. Audio stays out of cloud transcription unless you explicitly choose a cloud provider or enable fallback.</p></div>
     <p role="status" className="text-xs">{labels[data.phase]}{data.error ? `: ${data.error}` : ''}</p>
     {!data.helperAvailable && <p className="text-xs text-muted-foreground">This build does not include the local speech helper. You can configure an external Parakeet service in Runtime setup.</p>}
     {installing && <div className="space-y-1"><progress className="h-2 w-full" value={data.downloadedBytes} max={data.totalBytes} aria-label="Model download progress" /><p className="text-xs text-muted-foreground">{(data.downloadedBytes / 1024 ** 2).toFixed(0)} / {(data.totalBytes / 1024 ** 2).toFixed(0)} MiB</p></div>}

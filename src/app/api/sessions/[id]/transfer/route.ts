@@ -1,7 +1,7 @@
 /**
- * Moving work between computers (docs/homes-spec.md §8.2, P4.2): the
+ * Moving work between devices (docs/homes-spec.md §8.2, P4.2): the
  * execution's latest move, and starting one. The destination is any of the
- * person's computers that can take it, named from any screen: "Move to
+ * person's devices that can take it, named from any screen: "Move to
  * MacBook" (docs/homes-model.md). Whether it can is `startTransfer`'s to say:
  * set up there, connected, and able to run the agent's harness.
  */
@@ -22,16 +22,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = (await request.json().catch(() => null)) as { toComputerId?: unknown; includeUntracked?: unknown } | null;
-  if (!body || typeof body.toComputerId !== 'string') {
-    return Response.json({ error: 'invalid_params', message: 'Body must include toComputerId.' }, { status: 400 });
+  const body = (await request.json().catch(() => null)) as { toDeviceId?: unknown; includeUntracked?: unknown } | null;
+  if (!body || typeof body.toDeviceId !== 'string') {
+    return Response.json({ error: 'invalid_params', message: 'Body must include toDeviceId.' }, { status: 400 });
   }
   const includeUntracked = Array.isArray(body.includeUntracked) ? body.includeUntracked.filter((f): f is string => typeof f === 'string') : [];
   const key = getRequestKey(request.headers);
   try {
     const transfer = startTransfer({
       chatSessionId: id,
-      toComputerId: body.toComputerId,
+      toDeviceId: body.toDeviceId,
       includeUntracked,
       requestedByApiKeyId: key?.apiKeyId ?? null,
       actor: actorFromRequest(request.headers),

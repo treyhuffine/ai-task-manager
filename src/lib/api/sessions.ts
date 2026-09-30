@@ -13,7 +13,7 @@ import type { TransferView } from '@/lib/transfer/view';
 import type { WorkingState } from '@/lib/transfer/git-checkpoint';
 import { clientIsHost, type OpenTarget } from './fs';
 
-/** A review checkout on the viewer's computer (P4.1). */
+/** A review checkout on the viewer's device (P4.1). */
 export interface ReviewState {
   viewer: { id: string; name: string } | null;
   review: {
@@ -21,7 +21,7 @@ export interface ReviewState {
     sha: string;
     branch: string;
     dirty: boolean;
-    source: { computerId: string; name: string } | null;
+    source: { deviceId: string; name: string } | null;
     updatedAt: string;
   } | null;
 }
@@ -543,17 +543,17 @@ export const sessionsApi = {
     return api.post<AutoMergeResponse>(`/sessions/${id}/auto-merge`, body);
   },
 
-  /** Where each message sent to a computer elsewhere stands, by chat event id (P3.2). */
+  /** Where each message sent to a device elsewhere stands, by chat event id (P3.2). */
   deliveries(id: string, opts: { signal?: AbortSignal } = {}): Promise<Record<string, MessageDelivery>> {
     return api.get<Record<string, MessageDelivery>>(`/sessions/${id}/deliveries`, { signal: opts.signal });
   },
 
-  /** Withdraw a message still waiting in its computer's queue. */
+  /** Withdraw a message still waiting in its device's queue. */
   cancelDelivery(id: string, eventId: string): Promise<MessageDelivery> {
     return api.post<MessageDelivery>(`/sessions/${id}/deliveries/${eventId}/cancel`);
   },
 
-  /** The execution's latest move between computers (P4.2). */
+  /** The execution's latest move between devices (P4.2). */
   transfer(id: string, opts: { signal?: AbortSignal } = {}): Promise<{ transfer: TransferView | null }> {
     return api.get<{ transfer: TransferView | null }>(`/sessions/${id}/transfer`, { signal: opts.signal });
   },
@@ -561,7 +561,7 @@ export const sessionsApi = {
   workingState(id: string, opts: { signal?: AbortSignal } = {}): Promise<WorkingState | null> {
     return api.get<WorkingState | null>(`/sessions/${id}/transfer/working-state`, { signal: opts.signal });
   },
-  startTransfer(id: string, body: { toComputerId: string; includeUntracked: string[] }): Promise<{ transfer: TransferView }> {
+  startTransfer(id: string, body: { toDeviceId: string; includeUntracked: string[] }): Promise<{ transfer: TransferView }> {
     return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer`, body);
   },
   resumeTransfer(id: string): Promise<{ transfer: TransferView }> {
@@ -575,16 +575,16 @@ export const sessionsApi = {
     return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer/deliver`);
   },
 
-  /** Open code here (P4.1): this computer's review checkout of the execution, if any. */
-  review(id: string, opts: { signal?: AbortSignal; computerId?: string } = {}): Promise<ReviewState> {
-    const on = opts.computerId ? `?computer=${encodeURIComponent(opts.computerId)}` : '';
+  /** Open code here (P4.1): this device's review checkout of the execution, if any. */
+  review(id: string, opts: { signal?: AbortSignal; deviceId?: string } = {}): Promise<ReviewState> {
+    const on = opts.deviceId ? `?device=${encodeURIComponent(opts.deviceId)}` : '';
     return api.get<ReviewState>(`/sessions/${id}/review${on}`, { signal: opts.signal, headers: hostHeaders() });
   },
   /** Make or refresh it: refreshed only while it has no edits. */
   openCodeHere(id: string): Promise<ReviewState & { created: boolean; refreshed: boolean; inTheWay?: string[] }> {
     return api.post<ReviewState & { created: boolean; refreshed: boolean; inTheWay?: string[] }>(`/sessions/${id}/review`, {}, { headers: hostHeaders() });
   },
-  /** Open it in an app on this computer, through its worker. */
+  /** Open it in an app on this device, through its worker. */
   openReview(id: string, target: OpenTarget): Promise<{ ok: boolean; reason?: string; message?: string }> {
     return api.post(`/sessions/${id}/review/open`, { op: 'open', path: null, target });
   },

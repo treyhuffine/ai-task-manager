@@ -481,15 +481,15 @@ describe('the P0.4 gaps closed with P2.4', () => {
     const q = await import('@/lib/db/queries');
     const identity = await import('@/lib/home/identity');
     identity.resetHomeIdentityCache();
-    const hostId = identity.ensureHomeIdentity().home.hostComputerId;
-    const laptop = q.createComputer({ name: 'Laptop', platform: 'darwin', hostname: 'laptop' });
+    const hostId = identity.ensureHomeIdentity().home.hostDeviceId;
+    const laptop = q.createDevice({ name: 'Laptop', platform: 'darwin', hostname: 'laptop' , kind: 'computer' });
     const ws = q.createWorkspace({ name: 'Moving', cwd: home.root, isGit: true, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
     const { execution, session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'work' });
-    q.createTransfer({ executionId: execution.id, fromComputerId: hostId, toComputerId: laptop.id, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
+    q.createTransfer({ executionId: execution.id, fromDeviceId: hostId, toDeviceId: laptop.id, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
     const { dispatch } = await import('./adapter');
 
     // A helper with no saved message to hold (a commit or PR prompt) is refused.
-    await expect(dispatch(session.id, 'from a commit helper')).rejects.toThrow(/moving to another computer/);
+    await expect(dispatch(session.id, 'from a commit helper')).rejects.toThrow(/moving to another device/);
     // A saved message is held for wherever the work arrives.
     const saved = q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'from the composer', createdAt: new Date().toISOString() })!;
     let queued = false;
@@ -500,7 +500,7 @@ describe('the P0.4 gaps closed with P2.4', () => {
     expect(q.listRuns({}).filter((r) => r.chatSessionId === session.id)).toHaveLength(0);
   });
 
-  it('refuses to send into an import nobody took over, from any path, here or on a computer elsewhere', async () => {
+  it('refuses to send into an import nobody took over, from any path, here or on a device elsewhere', async () => {
     home = await createTestHome({ prefix: 'ri-runner-split-' });
     fake = installFakeHarness('claude');
     const q = await import('@/lib/db/queries');
@@ -514,11 +514,11 @@ describe('the P0.4 gaps closed with P2.4', () => {
 
     // The case found in use: an import from a laptop that's asleep. The send
     // would have waited in its queue, then started a blank session there.
-    const key = q.createApiKey({ name: 'Laptop CLI', deviceType: 'computer' });
-    const laptop = q.registerComputerForApiKey({ apiKeyId: key.key.id, name: 'Laptop', platform: 'darwin' }).computer;
+    const key = q.pairDevice({ name: 'Laptop', kind: 'computer' });
+    const laptop = q.registerDeviceForApiKey({ apiKeyId: key.key.id, name: 'Laptop', platform: 'darwin' }).device;
     const there = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'from the laptop' });
     q.updateChatSession(there.session.id, { surfaceKind: 'imported_agent' });
-    q.createPlacement({ executionId: there.execution.id, computerId: laptop.id, startReason: 'adopted', worktreePath: '/elsewhere/demo' });
+    q.createPlacement({ executionId: there.execution.id, deviceId: laptop.id, startReason: 'adopted', worktreePath: '/elsewhere/demo' });
     await expect(dispatch(there.session.id, 'Hello')).rejects.toThrow(/can only be read here/);
     expect(q.listWorkerCommands(laptop.id)).toHaveLength(0);
 

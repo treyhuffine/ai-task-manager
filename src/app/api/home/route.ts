@@ -1,7 +1,7 @@
 /**
- * GET /api/home: which home this is, and the computer it runs on.
+ * GET /api/home: which home this is, and the device it runs on.
  *
- * A computer connecting to a home reads this after pairing to learn the
+ * A device connecting to a home reads this after pairing to learn the
  * home's stable id, which it keeps alongside the address (docs/homes-spec.md
  * §3.1). The id is what survives an address change. The proxy only lets
  * requests through to an active home, so this always describes one.
@@ -13,12 +13,12 @@ export const runtime = 'nodejs';
 
 export function GET() {
   try {
-    const { home, computer } = ensureHomeIdentity();
+    const { home, device } = ensureHomeIdentity();
     return Response.json({
       id: home.id,
       kind: home.kind,
       name: home.name,
-      host: { id: computer.id, name: computer.name, platform: computer.platform },
+      host: { id: device.id, name: device.name, platform: device.platform },
     });
   } catch (err) {
     console.error('[GET /api/home]', err);

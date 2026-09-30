@@ -1,25 +1,25 @@
 /**
- * An execution's files, read and changed by the computer it runs on
- * (docs/homes-build.md, P2.4 and P3.5). The home asks that computer's
+ * An execution's files, read and changed by the device it runs on
+ * (docs/homes-build.md, P2.4 and P3.5). The home asks that device's
  * worker, which reads or changes the worktree it prepared: the home never
- * looks for another computer's folder on its own disk, where the same path
- * could name a different folder. A computer that isn't connected is said to
+ * looks for another device's folder on its own disk, where the same path
+ * could name a different folder. A device that isn't connected is said to
  * be, plainly, and a change it may or may not have made is said to be
  * unconfirmed rather than retried.
  */
 
 import { existsSync } from 'node:fs';
-import { chatPlacement, getChatSessionWithExecution, getComputer, getWorkspace } from '@/lib/db/queries';
+import { chatPlacement, getChatSessionWithExecution, getDevice, getWorkspace } from '@/lib/db/queries';
 import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
 import type { ReadExecutionRequest, WriteExecutionRequest } from '@/lib/workers/protocol';
 import type { ExecutionRead, ReadAnswer } from '@/lib/workspaces/execution-reads';
 import type { ExecutionWrite } from '@/lib/workspaces/execution-writes';
 
-/** The read answered by the execution's computer, or null when it runs here and the route answers itself. */
+/** The read answered by the execution's device, or null when it runs here and the route answers itself. */
 export async function readOnOwner(chatSessionId: string, read: ExecutionRead): Promise<Response | null> {
   const placement = chatPlacement(chatSessionId);
   if (!placement || placement.isHome || !placement.executionId) return null;
-  const answer = await askOwner(placement.computerId, placement.executionId, chatSessionId, read);
+  const answer = await askOwner(placement.deviceId, placement.executionId, chatSessionId, read);
   return Response.json(answer.body, { status: answer.status });
 }
 
@@ -27,10 +27,10 @@ export async function readOnOwner(chatSessionId: string, read: ExecutionRead): P
 export async function readAnswerOnOwner(chatSessionId: string, read: ExecutionRead): Promise<ReadAnswer | null> {
   const placement = chatPlacement(chatSessionId);
   if (!placement || placement.isHome || !placement.executionId) return null;
-  return askOwner(placement.computerId, placement.executionId, chatSessionId, read);
+  return askOwner(placement.deviceId, placement.executionId, chatSessionId, read);
 }
 
-async function askOwner(computerId: string, executionId: string, chatSessionId: string, read: ExecutionRead): Promise<ReadAnswer> {
+async function askOwner(deviceId: string, executionId: string, chatSessionId: string, read: ExecutionRead): Promise<ReadAnswer> {
   const session = getChatSessionWithExecution(chatSessionId);
   const ws = session?.workspaceId ? getWorkspace(session.workspaceId) : null;
   if (!session || !ws) return { status: 404, body: { error: 'Session not found' } };
@@ -40,9 +40,9 @@ async function askOwner(computerId: string, executionId: string, chatSessionId: 
     baseSha: session.baseSha,
     read,
   };
-  const name = getComputer(computerId)?.name ?? 'Its computer';
+  const name = getDevice(deviceId)?.name ?? 'Its device';
   try {
-    return (await requestWorker(computerId, 'read_execution', request)) as ReadAnswer;
+    return (await requestWorker(deviceId, 'read_execution', request)) as ReadAnswer;
   } catch (err) {
     if (err instanceof WorkerUnavailableError) {
       return { status: 409, body: { error: 'unavailable', message: `${name} is not connected right now.` } };
@@ -54,8 +54,8 @@ async function askOwner(computerId: string, executionId: string, chatSessionId: 
 }
 
 /**
- * The change made by the execution's computer, or null when it runs here and
- * the route makes it itself. Refused while that computer is away: a file
+ * The change made by the execution's device, or null when it runs here and
+ * the route makes it itself. Refused while that device is away: a file
  * edit is live work, not something to queue for later.
  */
 export async function writeOnOwner(chatSessionId: string, write: ExecutionWrite): Promise<Response | null> {
@@ -64,7 +64,7 @@ export async function writeOnOwner(chatSessionId: string, write: ExecutionWrite)
   const session = getChatSessionWithExecution(chatSessionId);
   const ws = session?.workspaceId ? getWorkspace(session.workspaceId) : null;
   if (!session || !ws) return Response.json({ error: 'Session not found' }, { status: 404 });
-  const name = getComputer(placement.computerId)?.name ?? 'Its computer';
+  const name = getDevice(placement.deviceId)?.name ?? 'Its device';
   const request: WriteExecutionRequest = {
     executionId: placement.executionId,
     generation: placement.generation ?? 0,
@@ -73,7 +73,7 @@ export async function writeOnOwner(chatSessionId: string, write: ExecutionWrite)
     write,
   };
   try {
-    const answer = (await requestWorker(placement.computerId, 'write_execution', request)) as ReadAnswer;
+    const answer = (await requestWorker(placement.deviceId, 'write_execution', request)) as ReadAnswer;
     return Response.json(answer.body, { status: answer.status });
   } catch (err) {
     if (err instanceof WorkerUnavailableError) {
@@ -115,7 +115,7 @@ export async function executionDiff(chatSessionId: string): Promise<{ ok: true; 
   return { ok: true, diff: await handle.git.diff('base') };
 }
 
-/** The execution's folder wherever it runs (P4.5): the worktree here, or the one its computer prepared. */
+/** The execution's folder wherever it runs (P4.5): the worktree here, or the one its device prepared. */
 export function executionFolder(chatSessionId: string): string | null {
   const placement = chatPlacement(chatSessionId);
   if (placement && !placement.isHome) return placement.worktreePath;

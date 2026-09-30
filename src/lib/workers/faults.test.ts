@@ -1,7 +1,7 @@
 /**
  * Faults, end to end (docs/homes-build.md, P2.8): the home in this process
  * behind its real proxy and routes, the worker in a process of its own. The
- * home goes away mid-turn and comes back, a computer's local execution is
+ * home goes away mid-turn and comes back, a device's local execution is
  * turned off with work under way, and a prompt outlives the worker that
  * raised it, once stopped and once crashed. The rest of the fault matrix is
  * covered where its mechanism lives (see the build notes).
@@ -20,7 +20,7 @@ let home: TestHome;
 let server: HomeServer;
 let worker: WorkerProcess | null = null;
 let laptopRoot: string;
-let computerId: string;
+let deviceId: string;
 let chatId: string;
 let homeId: string;
 let workerKey: string;
@@ -34,9 +34,9 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
-  const laptop = q.createApiKey({ name: 'Laptop CLI', deviceType: 'computer' });
+  const laptop = q.pairDevice({ name: 'Laptop', kind: 'computer' });
   ownerKey = laptop.token.plaintext;
-  computerId = q.registerComputerForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).computer.id;
+  deviceId = q.registerDeviceForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).device.id;
   server = await startHomeServer();
 
   const grant = await fetch(`${server.url}/api/workers/grants`, {
@@ -49,14 +49,14 @@ beforeEach(async () => {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ code: grant.code, name: 'laptop', protocol: WORKER_PROTOCOL, version: 'test' }),
   }).then((r) => r.json() as Promise<{ workerKey: string }>));
-  workerKeyId = q.getWorkerEnrollmentForComputer(computerId)!.apiKeyId;
+  workerKeyId = q.getWorkerKeyId(deviceId)!;
 
   const worktree = path.join(laptopRoot, 'worktrees', 'demo-1');
   fs.mkdirSync(worktree, { recursive: true });
   const ws = q.createWorkspace({ name: 'Demo', cwd: path.join(home.root, 'demo'), isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
   const created = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Remote work' });
   chatId = created.session.id;
-  q.createPlacement({ executionId: created.execution.id, computerId, startReason: 'created', worktreePath: worktree });
+  q.createPlacement({ executionId: created.execution.id, deviceId, startReason: 'created', worktreePath: worktree });
   worker = await startWorker();
 }, 60_000);
 
@@ -73,9 +73,9 @@ afterEach(async () => {
 
 async function startWorker(): Promise<WorkerProcess> {
   const q = await import('@/lib/db/queries');
-  const before = q.getComputer(computerId)?.lastSeenAt ?? '';
+  const before = q.getDevice(deviceId)?.lastSeenAt ?? '';
   const started = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
-  await until(() => (q.getComputer(computerId)?.lastSeenAt ?? '') > before && (q.getComputer(computerId)?.harnesses?.length ?? 0) > 0, 'a heartbeat');
+  await until(() => (q.getDevice(deviceId)?.lastSeenAt ?? '') > before && (q.getDevice(deviceId)?.harnesses?.length ?? 0) > 0, 'a heartbeat');
   return started;
 }
 
@@ -92,8 +92,8 @@ async function until(check: () => boolean | Promise<boolean>, what: string, ms =
 async function crash(): Promise<void> {
   await worker!.kill();
   worker = null;
-  const { isComputerConnected } = await import('@/lib/workers/hub');
-  await until(() => !isComputerConnected(computerId), 'the home to see the laptop gone');
+  const { isDeviceConnected } = await import('@/lib/workers/hub');
+  await until(() => !isDeviceConnected(deviceId), 'the home to see the laptop gone');
 }
 
 async function send(content: string) {
@@ -137,19 +137,19 @@ describe('turning off local execution', () => {
     const waiting = await send('after the crash');
     await until(() => waiting.sendOf()?.state === 'queued', 'the saved message');
 
-    const res = await fetch(`${server.url}/api/devices/${workerKeyId}`, {
+    const res = await fetch(`${server.url}/api/devices/${deviceId}/keys/${workerKeyId}`, {
       method: 'DELETE',
       headers: { authorization: `Bearer ${ownerKey}` },
     });
     expect(res.status).toBe(204);
 
     expect(await running.outcome).toBe('Local execution on Laptop was turned off.');
-    expect(await waiting.outcome).toBe('Local execution on this computer was turned off before this reached it.');
+    expect(await waiting.outcome).toBe('Local execution on this device was turned off before this reached it.');
     expect(waiting.sendOf()).toMatchObject({ state: 'cancelled' });
     const runs = q.listRuns({}).filter((r) => r.chatSessionId === chatId);
     expect(runs.map((r) => [r.status, r.errorCode]).sort()).toEqual([
-      ['failed', 'computer_turned_off'],
       ['failed', 'delivery_cancelled'],
+      ['failed', 'device_turned_off'],
     ]);
   }, 60_000);
 });
@@ -168,7 +168,7 @@ describe('a prompt that outlives its worker', () => {
     worker = null;
     await until(() => live.listForSession(chatId).length === 0, 'the prompt to leave');
     expect(answerPendingInput(chatId, requestId, { allow: true, updatedInput: {} }, { source: 'human' })).toEqual({ ok: false });
-    expect(q.listWorkerCommands(computerId).some((c) => c.kind === 'answer_pending_input')).toBe(false);
+    expect(q.listWorkerCommands(deviceId).some((c) => c.kind === 'answer_pending_input')).toBe(false);
   }, 60_000);
 
   it("is answered stale when the worker crashed, and the turn it blocked is reported cut off", async () => {
@@ -184,7 +184,7 @@ describe('a prompt that outlives its worker', () => {
     await crash();
     expect(live.listForSession(chatId)).toHaveLength(1);
     expect(answerPendingInput(chatId, requestId, { allow: true, updatedInput: {} }, { source: 'human' }).ok).toBe(true);
-    const answer = () => q.listWorkerCommands(computerId).find((c) => c.kind === 'answer_pending_input');
+    const answer = () => q.listWorkerCommands(deviceId).find((c) => c.kind === 'answer_pending_input');
     expect(answer()).toMatchObject({ state: 'queued' });
 
     worker = await startWorker();

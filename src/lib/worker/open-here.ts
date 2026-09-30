@@ -1,7 +1,7 @@
 /**
  * Opening a folder here in an app, for the home (P3.5, spec §3.3): an
- * execution's worktree this computer prepared, for the placement it holds,
- * or an agent's folder from this computer's setup files. The path is
+ * execution's worktree this device prepared, for the placement it holds,
+ * or an agent's folder from this device's setup files. The path is
  * resolved inside that folder, symlinks included, and only a known app
  * opens it. Never a command, and never a path the home names.
  */
@@ -33,20 +33,20 @@ export async function openHere(request: OpenHereRequest, options: OpenHereOption
 
   let folder: string | null;
   if (request.folder.kind === 'review') {
-    // This computer's own review checkout of the execution (P4.1).
+    // This device's own review checkout of the execution (P4.1).
     folder = reviewPathFor(getWorkDir(), request.folder.workspaceSlug, request.folder.executionId);
-    if (!fs.existsSync(folder)) return { status: 409, body: { error: 'not_reviewed', message: "There's no review checkout of it on this computer." } };
+    if (!fs.existsSync(folder)) return { status: 409, body: { error: 'not_reviewed', message: "There's no review checkout of it on this device." } };
   } else if (request.folder.kind === 'agent') {
     folder = options.agentFolder(request.folder.agentId);
-    if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this computer." } };
+    if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this device." } };
   } else {
     const { executionId, generation } = request.folder;
     const newest = options.journal.highestGeneration(executionId);
     if (options.journal.released(executionId, generation) || (newest !== null && generation < newest)) {
-      return { status: 409, body: { error: 'moved', message: 'This execution no longer runs on this computer.' } };
+      return { status: 409, body: { error: 'moved', message: 'This execution no longer runs on this device.' } };
     }
     folder = options.journal.preparedWorktree(executionId);
-    if (!folder) return { status: 409, body: { error: 'not_prepared', message: "This execution isn't set up on this computer yet." } };
+    if (!folder) return { status: 409, body: { error: 'not_prepared', message: "This execution isn't set up on this device yet." } };
   }
 
   const inside = resolveInside(folder, request.path);

@@ -25,11 +25,11 @@ export function ContinueDialog({
   sessionId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  to: { computerId: string; name: string };
+  to: { deviceId: string; name: string };
   from: string;
 }) {
   const { data: state, isLoading, error } = useWorkingState(sessionId, open);
-  const { data: there } = useReviewOn(sessionId, to.computerId, open);
+  const { data: there } = useReviewOn(sessionId, to.deviceId, open);
   const review = there?.review ?? null;
   const start = useStartTransfer(sessionId);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
@@ -43,7 +43,7 @@ export function ContinueDialog({
 
   const go = () =>
     start.mutate(
-      { toComputerId: to.computerId, includeUntracked: [...chosen] },
+      { toDeviceId: to.deviceId, includeUntracked: [...chosen] },
       { onSuccess: () => onOpenChange(false) },
     );
 

@@ -1,5 +1,5 @@
 /**
- * Work that exists only on this computer, before retiring its home
+ * Work that exists only on this device, before retiring its home
  * (docs/homes-spec.md §10.2, P5.1: "verify ... unpublished work"): for each
  * execution's worktree here, whether it has uncommitted changes or commits
  * no remote has. Importing a home moves no folders, so this work stays where
@@ -21,7 +21,7 @@ export interface WorktreeState {
   agent: string;
   status: string;
   path: string;
-  /** The folder isn't on this computer (anymore). */
+  /** The folder isn't on this device (anymore). */
   missing: boolean;
   branch: string | null;
   /** Files changed or new, not committed. */

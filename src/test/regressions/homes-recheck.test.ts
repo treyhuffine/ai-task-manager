@@ -39,8 +39,8 @@ function workspace(name: string, cwd: string) {
 }
 /** An agent's linked folders on the home, as the records resolve them. */
 function refs(agentId: string): Record<string, string | null> {
-  const host = ensureHomeIdentity().computer.id;
-  return Object.fromEntries(q.getAgentSetup(agentId, host)!.references.map((r) => [r.alias, r.form === 'omitted' ? null : r.path]));
+  const host = ensureHomeIdentity().device.id;
+  return Object.fromEntries(q.getWorkspaceSetup(agentId, host)!.references.map((r) => [r.alias, r.form === 'omitted' ? null : r.path]));
 }
 
 describe('setup failure and authority checks beyond the original probes', () => {
@@ -63,7 +63,7 @@ describe('setup failure and authority checks beyond the original probes', () => 
     const ws = workspace('App', source);
     const ref = q.createReferenceFolder({ alias: 'docs', path: folder('docs') });
     await setHomeFolder(ws.id, source);
-    q.setFolderLink(ensureHomeIdentity().computer.id, ref.id, null);
+    q.setFolderLink(ensureHomeIdentity().device.id, ref.id, null);
     q.updateReferenceFolder(ref.id, { description: 'Updated description' });
     expect(refs(ws.id).docs).toBeNull();
   });
@@ -93,7 +93,7 @@ describe('setup failure and authority checks beyond the original probes', () => 
     }), { params: Promise.resolve({ id: ws.id }) });
     expect(response.status).toBe(400);
     expect(q.getWorkspace(ws.id)!.cwd).toBe(source);
-    expect(q.listAgentSetups({ workspaceId: ws.id })).toEqual([expect.objectContaining({ sourcePath: source })]);
+    expect(q.listWorkspaceSetups({ workspaceId: ws.id })).toEqual([expect.objectContaining({ sourcePath: source })]);
   });
 
 });

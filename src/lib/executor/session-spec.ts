@@ -2,7 +2,7 @@
  * Build a `SessionSpec`: everything the home decides about a chat's harness
  * session before a runner starts it (docs/homes-build.md, "P2.1 The runner
  * split"). This is the database half of what `ensureHarnessSession` did.
- * The runner adds what only its computer knows.
+ * The runner adds what only its device knows.
  *
  * Orchestration sessions run in the app data root and act through the typed
  * action surface. Execution sessions fail closed on MCP and get their
@@ -15,8 +15,8 @@ import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
 import type { EffortLevel, PermissionMode, WorkspaceRecord } from '@/db/types';
 import type { ResolvedReferenceFolder } from '@/db/types';
 import {
-  getAgentSetup,
-  getComputer,
+  getWorkspaceSetup,
+  getDevice,
   getExecution,
   getHome,
   getUserState,
@@ -46,14 +46,14 @@ import type { SessionSpec } from '@/lib/runner/types';
 import { prepareAgentMainChatSpawn, skillDirsWriteIntoCwd } from './agent-main-chat';
 import { planSessionInstructions } from './session-instructions';
 import { renderAgentInstructionsPrompt } from './prompts/agent-instructions';
-import { harnessCapabilitiesOn } from './computers';
+import { harnessCapabilitiesOn } from './devices';
 import { pendingHandoff } from '@/lib/transfer/continue';
 import { handoffPreamble } from '@/lib/transfer/handoff';
 
-/** Where the session will run. The home's own computer unless a placement says otherwise. */
-export type SpecTarget = Pick<ChatPlacement, 'computerId' | 'isHome'> & { generation?: number | null };
+/** Where the session will run. The home's own device unless a placement says otherwise. */
+export type SpecTarget = Pick<ChatPlacement, 'deviceId' | 'isHome'> & { generation?: number | null };
 
-const HOME: SpecTarget = { computerId: '', isHome: true };
+const HOME: SpecTarget = { deviceId: '', isHome: true };
 
 /**
  * The home's servers as a session elsewhere reaches them (P2.7): addressed
@@ -74,14 +74,14 @@ function reachedFromElsewhere(servers: McpServerConfig[], token: string): McpSer
 }
 
 /**
- * An agent's linked folders on a computer, as the home records them
+ * An agent's linked folders on a device, as the home records them
  * (docs/homes-spec.md §4.1): the ones with a place there. The runner checks
- * each is there when the session starts, so one the computer hasn't checked
+ * each is there when the session starts, so one the device hasn't checked
  * yet still goes.
  */
-function referencesOn(workspaceId: string | null, computerId: string): ResolvedReferenceFolder[] {
+function referencesOn(workspaceId: string | null, deviceId: string): ResolvedReferenceFolder[] {
   if (!workspaceId) return [];
-  const recorded = getAgentSetup(workspaceId, computerId)?.references ?? [];
+  const recorded = getWorkspaceSetup(workspaceId, deviceId)?.references ?? [];
   const byAlias = new Map(recorded.map((r) => [r.alias, r]));
   return listReferenceFoldersForWorkspace(workspaceId).flatMap((folder) => {
     const here = byAlias.get(folder.alias);
@@ -97,7 +97,7 @@ function referencesOn(workspaceId: string | null, computerId: string): ResolvedR
  */
 function expectedAgentFolders(workspace: WorkspaceRecord, target: SpecTarget, usable: ResolvedReferenceFolder[]): ExpectedAgentFolders {
   const byAlias = new Map(usable.map((r) => [r.alias, r]));
-  const setup = getAgentSetup(workspace.id, target.computerId);
+  const setup = getWorkspaceSetup(workspace.id, target.deviceId);
   const recorded = new Map((setup?.references ?? []).map((r) => [r.alias, r]));
   return {
     homeId: getHome()?.id ?? '',
@@ -120,8 +120,8 @@ function expectedAgentFolders(workspace: WorkspaceRecord, target: SpecTarget, us
  * An execution's environment as the home expects it (P2.7, spec §4.3): the
  * agent, where it runs, its branch and base, its connected folders with
  * their descriptions, and its tools. Paths are the home's best knowledge
- * (its own, or the computer's last report). The runner replaces them with
- * what its computer's setup files say when the session starts.
+ * (its own, or the device's last report). The runner replaces them with
+ * what its device's setup files say when the session starts.
  */
 function expectedEnvironment(input: {
   workspace: WorkspaceRecord;
@@ -133,14 +133,14 @@ function expectedEnvironment(input: {
 }): ExecutionEnvironment {
   const { workspace, args, target } = input;
   const homeRow = getHome();
-  const computer = getComputer(target.isHome ? homeRow?.hostComputerId ?? '' : target.computerId);
+  const device = getDevice(target.isHome ? homeRow?.hostDeviceId ?? '' : target.deviceId);
   const execution = getExecution(input.executionId);
   const folders = expectedAgentFolders(workspace, target, input.usable);
   const urls = input.servers.map((s) => (s.type === 'http' ? s.url ?? '' : ''));
   return {
     homeId: homeRow?.id ?? '',
     homeName: homeRow?.name ?? APP_NAME,
-    computerName: computer?.name ?? 'this computer',
+    deviceName: device?.name ?? 'this device',
     agent: { id: workspace.id, name: workspace.name },
     executionId: input.executionId,
     isGit: workspace.isGit,
@@ -191,7 +191,7 @@ function applyProviderConfig(spec: SessionSpec, config: Partial<ProviderConfig>)
 
 export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarget = HOME): Promise<SessionSpec> {
   const providerType = harnessDefinition(args.harness).agentexProviderId;
-  // The capabilities of the harness on the computer that will run it: probed
+  // The capabilities of the harness on the device that will run it: probed
   // here for the home's own, from its worker's report for a connected one.
   const caps = await harnessCapabilitiesOn(target, args.harness, target.isHome ? args.cwd : undefined);
   // The orchestrator, connector and browser servers are built for this home's
@@ -201,7 +201,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     if (spec.mcpServers.length === 0) return;
     const token = mintSessionToken({
       chatSessionId: args.chatSessionId,
-      computerId: target.computerId,
+      deviceId: target.deviceId,
       generation: target.generation ?? null,
     });
     spec.mcpServers = token ? reachedFromElsewhere(spec.mcpServers, token) : [];
@@ -246,7 +246,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
       freshSession: !args.existingExternalSessionId,
       ...(target.isHome ? {} : { elsewhere: { folder: args.cwd } }),
     });
-    if (!target.isHome) spec.agentFolders = expectedAgentFolders(agentMainChat, target, referencesOn(agentMainChat.id, target.computerId));
+    if (!target.isHome) spec.agentFolders = expectedAgentFolders(agentMainChat, target, referencesOn(agentMainChat.id, target.deviceId));
     applyProviderConfig(spec, spawn.config);
     if (!target.isHome) reachFromElsewhere();
     spec.extraArgs.push(...spawn.extraArgs);
@@ -355,14 +355,14 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     // `listUsableReferenceFolders` — pointing an agent at a path that isn't
     // there is worse than saying nothing.
     //
-    // Elsewhere, the paths here are only the computer's last report. The
+    // Elsewhere, the paths here are only the device's last report. The
     // runner there wires them instead, from where they resolve when the
     // session starts (`agentFolders`), so nothing here names a stale path.
     let refs: ResolvedReferenceFolder[] = [];
     try {
       refs = target.isHome
         ? await listUsableReferenceFolders(args.workspaceId ?? null, { consumerCwd: workspace?.cwd ?? null })
-        : referencesOn(args.workspaceId ?? null, target.computerId);
+        : referencesOn(args.workspaceId ?? null, target.deviceId);
       if (!target.isHome) {
         if (workspace) spec.agentFolders = expectedAgentFolders(workspace, target, refs);
       } else {
@@ -401,7 +401,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     if (plan.text) spec.instructions = plan.text;
     if (workspace && args.executionId) {
       spec.environment = expectedEnvironment({ workspace, executionId: args.executionId, args, target, usable: refs, servers: spec.mcpServers });
-      // Continued from another computer (P4.3): the fresh session there starts
+      // Continued from another device (P4.3): the fresh session there starts
       // from the handoff, on its first message.
       const handoff = pendingHandoff(args.executionId, args.existingExternalSessionId);
       if (handoff) spec.firstTurnPreamble = [spec.firstTurnPreamble, handoffPreamble(handoff)].filter(Boolean).join('\n\n');

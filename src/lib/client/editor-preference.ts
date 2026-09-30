@@ -150,7 +150,7 @@ export function useOpenInPreferredEditor(opener?: Opener | null): {
 
   const openInEditor = useCallback(
     (absPath: string, opts?: OpenInEditorOptions): Promise<OpenInResult> => {
-      // On another computer, through its worker (P3.5): a known app only.
+      // On another device, through its worker (P3.5): a known app only.
       // A custom command is this home's, and never runs elsewhere.
       if (opener?.via === 'worker') {
         if (choice === 'custom') {

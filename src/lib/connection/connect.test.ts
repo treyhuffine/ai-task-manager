@@ -23,7 +23,7 @@ describe('parsePairingLink', () => {
 });
 
 describe('assertSecureAddress', () => {
-  it('accepts HTTPS anywhere and HTTP only on this computer', () => {
+  it('accepts HTTPS anywhere and HTTP only on this device', () => {
     expect(() => assertSecureAddress('https://ri.example.com')).not.toThrow();
     expect(() => assertSecureAddress('http://127.0.0.1:4224')).not.toThrow();
     expect(() => assertSecureAddress('http://localhost:4224')).not.toThrow();
@@ -62,7 +62,7 @@ describe('connectToHome', () => {
     res.end(JSON.stringify(body));
   };
 
-  it("saves the home's id, name and computer once the home accepts the key", async () => {
+  it("saves the home's id, name and device once the home accepts the key", async () => {
     let auth: string | undefined;
     handler = (req, res) => {
       auth = req.headers.authorization;
@@ -85,7 +85,7 @@ describe('connectToHome', () => {
   });
 
   it('follows the home to a new address, keeping its key and identity, only when it is the same home', async () => {
-    const current = { version: 1, homeId: 'home-1', homeName: 'My Ri', homeUrl: 'https://old.example', homeHostName: 'MacBook', credential: 'ri_live_k', connectedAt: 'then', computerId: 'me' };
+    const current = { version: 1, homeId: 'home-1', homeName: 'My Ri', homeUrl: 'https://old.example', homeHostName: 'MacBook', credential: 'ri_live_k', connectedAt: 'then', deviceId: 'me' };
     let auth: string | undefined;
     handler = (req, res) => {
       auth = req.headers.authorization;
@@ -93,20 +93,20 @@ describe('connectToHome', () => {
     };
     const moved = await changeHomeAddress(current, `${url}/some/page`);
     expect(auth).toBe('Bearer ri_live_k');
-    expect(moved).toMatchObject({ homeUrl: url, homeId: 'home-1', credential: 'ri_live_k', computerId: 'me', homeHostName: 'Mac Mini', connectedAt: 'then' });
-    expect(readConnection()).toMatchObject({ homeUrl: url, computerId: 'me' });
+    expect(moved).toMatchObject({ homeUrl: url, homeId: 'home-1', credential: 'ri_live_k', deviceId: 'me', homeHostName: 'Mac Mini', connectedAt: 'then' });
+    expect(readConnection()).toMatchObject({ homeUrl: url, deviceId: 'me' });
 
     handler = reply(200, { id: 'home-2', kind: 'personal', name: 'Other Ri', host: { id: 'd', name: 'Else', platform: 'darwin' } });
     await expect(changeHomeAddress(moved, url)).rejects.toThrow(
       'is a different home (Other Ri), not My Ri. Nothing was changed.',
     );
     handler = reply(401, { error: 'unauthorized' });
-    await expect(changeHomeAddress(moved, url)).rejects.toThrow(/didn't accept this computer's key/);
+    await expect(changeHomeAddress(moved, url)).rejects.toThrow(/didn't accept this device's key/);
     await expect(changeHomeAddress(moved, 'not a url')).rejects.toThrow(/isn't an address/);
     expect(readConnection()).toMatchObject({ homeUrl: url, homeId: 'home-1' });
   });
 
-  it('refuses a plain HTTP address that is not this computer before sending the key', async () => {
+  it('refuses a plain HTTP address that is not this device before sending the key', async () => {
     let called = false;
     handler = (req, res) => {
       called = true;

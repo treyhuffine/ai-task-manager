@@ -106,7 +106,7 @@ const WORKSPACE_CONFIG = 'agentex.workspace.json';
  * .env.local), the source folder's list with the worktree's overriding it
  * field by field, as agentex reads it. agentex refuses a link whose file
  * isn't there ("no silent broken symlinks"), and that failed every worktree
- * on a computer without the file, a fresh copy of the project for one. So
+ * on a device without the file, a fresh copy of the project for one. So
  * Ri applies it: what's there is brought in, what isn't is skipped and named,
  * and a local file never fails the worktree. Returns what to tell the person.
  */
@@ -130,7 +130,7 @@ async function bringLocalFiles(
   const missing = link.filter((rel) => !existsSync(path.join(source, rel)));
   const notes: string[] = [];
   if (missing.length > 0) {
-    notes.push(`${agentName}'s folder on this computer has no ${missing.join(', ')}, so this worktree has ${missing.length === 1 ? 'none' : 'none of them'}.`);
+    notes.push(`${agentName}'s folder on this device has no ${missing.join(', ')}, so this worktree has ${missing.length === 1 ? 'none' : 'none of them'}.`);
   }
   try {
     if (copy.length > 0) await handle.copyFromSource(copy);
@@ -434,7 +434,7 @@ export async function createWorktreeForSession(args: {
         path: worktreePath,
         branch,
         // The repository's local files are brought in below, without
-        // failing the worktree over one this computer doesn't have.
+        // failing the worktree over one this device doesn't have.
         applyFromSource: false,
       });
       if (handle.kind !== 'git') {
@@ -522,7 +522,7 @@ export async function resumeWorktreeForSession(args: {
       branch,
       reuseBranch: true,
       // The repository's local files are brought in below, as for a new
-      // worktree: never failing it over one this computer doesn't have.
+      // worktree: never failing it over one this device doesn't have.
       applyFromSource: false,
     });
     if (handle.kind !== 'git') return null;
@@ -722,7 +722,7 @@ async function openSourceCheckout(
  * Fetch `base` and merge (or rebase) it into `handle`: both pull buttons,
  * Live (the workspace's own checkout) and a worktree session's. The work is
  * `pullBaseInto` (branch-sync.ts), which runs in the handle's own repository
- * so the same pull works on whichever computer has the worktree.
+ * so the same pull works on whichever device has the worktree.
  *
  * Not agentex's `pullLatestBase`, which only takes a bare branch on
  * `origin`, while a worktree is rooted at `origin/main`. A PR head

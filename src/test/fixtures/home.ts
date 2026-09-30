@@ -1,15 +1,15 @@
 /**
- * Isolated homes and computer roots for tests.
+ * Isolated homes and device roots for tests.
  *
  * `createTestHome()` points every path helper at a fresh temp root, writes a
  * config with a known host token, and opens the database through the app, so
  * migrations, FTS and seed rows are real. `cleanup()` closes the database,
  * restores the environment, and deletes the root.
  *
- * `createTestComputer()` makes a second root that stands in for another
- * computer: its own config, work dir and folders, with no database and
+ * `createTestDevice()` makes a second root that stands in for another
+ * device: its own config, work dir and folders, with no database and
  * without touching the process environment. Code under test that acts for a
- * specific computer takes these paths explicitly.
+ * specific device takes these paths explicitly.
  */
 
 import fs from 'node:fs';
@@ -77,18 +77,18 @@ export async function createTestHome(opts: TestHomeOptions = {}): Promise<TestHo
   };
 }
 
-export interface TestComputer {
+export interface TestDevice {
   name: string;
   root: string;
   configDir: string;
   workDir: string;
-  /** Stands in for this computer's home directory, where its projects live. */
+  /** Stands in for this device's home directory, where its projects live. */
   userDir: string;
   cleanup(): void;
 }
 
-export function createTestComputer(name: string): TestComputer {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), `ri-test-computer-${name}-`));
+export function createTestDevice(name: string): TestDevice {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `ri-test-device-${name}-`));
   const configDir = path.join(root, 'ri', '.config');
   const workDir = path.join(root, 'ri', '.work');
   const userDir = path.join(root, 'home');

@@ -1,8 +1,8 @@
 /**
- * Link this browser to the computer whose worker opened it
+ * Link this browser to the device whose worker opened it
  * (docs/homes-build.md, P2.2, "This Mac"). The browser's own viewing key
  * redeems the association code from its URL. It records identity only: the
- * key can say it's on that computer, and gains no worker authority.
+ * key can say it's on that device, and gains no worker authority.
  */
 
 import type { NextRequest } from 'next/server';
@@ -20,8 +20,8 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'invalid_params', message: parsed.error.issues[0]?.message }, { status: 400 });
   }
   try {
-    const computer = redeemAssociateGrant({ secret: parsed.data.code, apiKeyId: key.apiKeyId });
-    return Response.json({ computer: { id: computer.id, name: computer.name } });
+    const device = redeemAssociateGrant({ secret: parsed.data.code, apiKeyId: key.apiKeyId });
+    return Response.json({ device: { id: device.id, name: device.name } });
   } catch (err) {
     if (err instanceof GrantError) {
       const status = err.code === 'expired' || err.code === 'used' ? 410 : 400;

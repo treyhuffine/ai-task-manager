@@ -1,16 +1,16 @@
 /**
  * A worker's heartbeat, every 20 seconds (docs/homes-build.md, P2.2 and
  * P2.4): what it runs, which harnesses it has, and that it's awake. The home
- * keeps the last report on the computer and when it arrived. Availability is
+ * keeps the last report on the device and when it arrived. Availability is
  * derived from that: asleep only when reported, unavailable when it's stale.
  *
  * It also carries what's live there, which replaces the home's mirror for
- * that computer, and the placements it holds. The home answers with any it
+ * that device, and the placements it holds. The home answers with any it
  * no longer holds (the execution moved, or the placement ended), and the
  * worker fences them and stops their sessions before anything else.
  *
- * Only chats this computer runs, at the generation it runs them, reach the
- * mirror: a worker can't show another computer's chat as running or give it
+ * Only chats this device runs, at the generation it runs them, reach the
+ * mirror: a worker can't show another device's chat as running or give it
  * prompts, and a late heartbeat from before a move can't bring back the old
  * placement's state (P2 review fixes). Nor can one still in flight when the
  * worker is turned off: the enrollment is checked after the last await, in
@@ -20,10 +20,10 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { chatPlacement, getOpenPlacement, recordWorkerHeartbeat, transferReservation } from '@/lib/db/queries';
-import { clearComputerMirror, replaceComputerMirror, type WorkerLiveSnapshot } from '@/lib/executor/remote-live';
+import { clearDeviceMirror, replaceDeviceMirror, type WorkerLiveSnapshot } from '@/lib/executor/remote-live';
 import type { WorkerHeartbeatReply } from '@/lib/workers/protocol';
 import { readWorkerBody, requireWorker } from '@/lib/workers/route-auth';
-import { publishComputerUpdated } from '@/lib/realtime/bus';
+import { publishDeviceUpdated } from '@/lib/realtime/bus';
 
 const harness = z
   .object({
@@ -52,8 +52,8 @@ const body = z.object({
     .optional(),
 });
 
-/** The part of a snapshot about chats this computer runs, at the generation it runs them. */
-function ownLive(computerId: string, live: z.infer<typeof body>['live'] & object): WorkerLiveSnapshot {
+/** The part of a snapshot about chats this device runs, at the generation it runs them. */
+function ownLive(deviceId: string, live: z.infer<typeof body>['live'] & object): WorkerLiveSnapshot {
   const owned = new Map<string, boolean>();
   const ours = (chatSessionId: string) => {
     let known = owned.get(chatSessionId);
@@ -62,7 +62,7 @@ function ownLive(computerId: string, live: z.infer<typeof body>['live'] & object
       known =
         !!placement &&
         !placement.isHome &&
-        placement.computerId === computerId &&
+        placement.deviceId === deviceId &&
         (placement.executionId === null || live.generations?.[chatSessionId] === placement.generation);
       owned.set(chatSessionId, known);
     }
@@ -86,28 +86,28 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'invalid_params', message: parsed.error.issues[0]?.message }, { status: 400 });
   }
   const { live, placements, ...report } = parsed.data;
-  const computer = recordWorkerHeartbeat(worker.computer.id, report);
-  if (!computer) return Response.json({ error: 'unauthorized' }, { status: 401 });
+  const device = recordWorkerHeartbeat(worker.device.id, report);
+  if (!device) return Response.json({ error: 'unauthorized' }, { status: 401 });
   // Awake, asleep or stopping: what its work says about it changes (P3.2).
-  if (worker.computer.reportedState !== report.state) publishComputerUpdated(computer.id);
-  if (live) replaceComputerMirror(computer.id, ownLive(computer.id, live));
+  if (worker.device.reportedState !== report.state) publishDeviceUpdated(device.id);
+  if (live) replaceDeviceMirror(device.id, ownLive(device.id, live));
   // A worker that's stopping closes its sessions, and their prompts with
   // them. One that just goes quiet keeps its mirror: unknown is not stopped.
-  else if (report.state === 'stopped') clearComputerMirror(computer.id);
+  else if (report.state === 'stopped') clearDeviceMirror(device.id);
   const release: WorkerHeartbeatReply['release'] = [];
   for (const held of placements ?? []) {
     // A transfer preparing the work here holds its next generation for it (P4.2).
     const reserved = transferReservation(held.executionId);
-    if (reserved?.computerId === computer.id && reserved.generation === held.generation) continue;
+    if (reserved?.deviceId === device.id && reserved.generation === held.generation) continue;
     const open = getOpenPlacement(held.executionId);
-    if (!open || open.computerId !== computer.id || open.generation !== held.generation) {
+    if (!open || open.deviceId !== device.id || open.generation !== held.generation) {
       release.push({ executionId: held.executionId, generation: held.generation, chatSessionIds: held.chatSessionIds });
     }
   }
-  const reply: WorkerHeartbeatReply & { computer: { id: string; name: string } } = {
+  const reply: WorkerHeartbeatReply & { device: { id: string; name: string } } = {
     ok: true,
     release,
-    computer: { id: computer.id, name: computer.name },
+    device: { id: device.id, name: device.name },
   };
   return Response.json(reply);
 }

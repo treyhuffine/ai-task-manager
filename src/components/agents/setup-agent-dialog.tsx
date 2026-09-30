@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Set an agent up on one of your computers, from the app
+ * Set an agent up on one of your devices, from the app
  * (docs/homes-model.md). The standard case asks nothing: its project is
  * copied down from Git into Ri's projects folder there, and the folders it
  * uses come along. Choosing another place, or a folder that's already there,
@@ -25,7 +25,7 @@ type Missing = { alias: string; description: string | null };
 interface SetupAgentDialogProps {
   workspaceId: string;
   agentName: string;
-  computer: { id: string; name: string };
+  device: { id: string; name: string };
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called once it's ready there: to go on with whatever it was set up for. */
@@ -47,12 +47,12 @@ export function SetupAgentDialog(props: SetupAgentDialogProps) {
 function SetupAgentBody({
   workspaceId,
   agentName,
-  computer,
+  device,
   onOpenChange,
   onReady,
   onBusy,
 }: SetupAgentDialogProps & { onBusy: (busy: boolean) => void }) {
-  const plan = useSetupPlan(workspaceId, computer.id, true);
+  const plan = useSetupPlan(workspaceId, device.id, true);
   const setUp = useSetUpAgent(workspaceId);
   const [chosen, setHow] = useState<'copy' | 'existing'>('copy');
   const [changing, setChanging] = useState(false);
@@ -67,7 +67,7 @@ function SetupAgentBody({
 
   const done = (outcome: { status: string; problem: string | null; missing: Missing[]; folder: string }) => {
     if (outcome.status === 'ready') {
-      toast.success(`${agentName} is ready on ${computer.name}`);
+      toast.success(`${agentName} is ready on ${device.name}`);
       onOpenChange(false);
       onReady?.();
       return;
@@ -77,7 +77,7 @@ function SetupAgentBody({
       setProblem(null);
       return;
     }
-    setProblem(outcome.problem ?? `${agentName} isn't ready on ${computer.name} yet.`);
+    setProblem(outcome.problem ?? `${agentName} isn't ready on ${device.name} yet.`);
   };
   const fail = (err: unknown) => setProblem(apiErrorText(err));
 
@@ -94,19 +94,19 @@ function SetupAgentBody({
       const sent = Object.fromEntries(Object.entries(given).map(([alias, v]) => [alias, v === SKIP ? null : v]));
       onBusy(true);
       setUp.mutate(
-        { computerId: computer.id, how: 'existing', folder: followUp.folder, answers: sent },
+        { deviceId: device.id, how: 'existing', folder: followUp.folder, answers: sent },
         { onSuccess: done, onError: fail, onSettled: () => onBusy(false) },
       );
       return;
     }
     if (how === 'existing' && !existing.trim()) {
-      setProblem(`Type where it is on ${computer.name}.`);
+      setProblem(`Type where it is on ${device.name}.`);
       return;
     }
     onBusy(true);
     setUp.mutate(
       {
-        computerId: computer.id,
+        deviceId: device.id,
         how,
         folder: how === 'existing' ? existing.trim() : changing && copyTo.trim() ? copyTo.trim() : null,
       },
@@ -122,18 +122,18 @@ function SetupAgentBody({
     <>
       <DialogHeader>
         <DialogTitle>
-          Set up {agentName} on {computer.name}
+          Set up {agentName} on {device.name}
         </DialogTitle>
         <DialogDescription>
           {followUp
-            ? `${agentName} is on ${computer.name}. It also uses these, which weren't found there.`
-            : `${agentName} needs its project on ${computer.name} to run there. You do this once.`}
+            ? `${agentName} is on ${device.name}. It also uses these, which weren't found there.`
+            : `${agentName} needs its project on ${device.name} to run there. You do this once.`}
         </DialogDescription>
       </DialogHeader>
 
       {plan.isLoading && (
         <p className="flex items-center gap-2 text-[13px] text-muted-foreground">
-          <Loader2 size={14} className="animate-spin" /> Checking {computer.name}…
+          <Loader2 size={14} className="animate-spin" /> Checking {device.name}…
         </p>
       )}
       {plan.error && !followUp && <p className="text-[13px] text-destructive">{apiErrorText(plan.error)}</p>}
@@ -165,14 +165,14 @@ function SetupAgentBody({
               )}
             </Choice>
           )}
-          <Choice selected={how === 'existing'} onSelect={() => setHow('existing')} title={`Use a folder that's already on ${computer.name}`}>
+          <Choice selected={how === 'existing'} onSelect={() => setHow('existing')} title={`Use a folder that's already on ${device.name}`}>
             {how === 'existing' && (
               <div className="mt-1.5">
                 <FolderField
                   autoFocus={!data.remote}
                   value={existing}
                   onChange={setExisting}
-                  computer={computer}
+                  device={device}
                   browsable
                   placeholder={`~/code/${agentName.toLowerCase()}`}
                 />
@@ -203,9 +203,9 @@ function SetupAgentBody({
                     <FolderField
                       value={answers[m.alias] ?? ''}
                       onChange={(v) => setAnswers((a) => ({ ...a, [m.alias]: v }))}
-                      computer={computer}
+                      device={device}
                       browsable
-                      placeholder={`Where ${m.alias} is on ${computer.name}`}
+                      placeholder={`Where ${m.alias} is on ${device.name}`}
                     />
                   </div>
                   <Button type="button" variant="ghost" size="sm" onClick={() => setAnswers((a) => ({ ...a, [m.alias]: SKIP }))}>
@@ -221,7 +221,7 @@ function SetupAgentBody({
       {pending && (
         <p className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
           <Loader2 size={13} className="animate-spin" />
-          {how === 'copy' && !followUp ? `Copying to ${computer.name}. This can take a minute.` : `Setting it up on ${computer.name}…`}
+          {how === 'copy' && !followUp ? `Copying to ${device.name}. This can take a minute.` : `Setting it up on ${device.name}…`}
         </p>
       )}
       {problem && <p className="text-[12.5px] text-destructive">{problem}</p>}

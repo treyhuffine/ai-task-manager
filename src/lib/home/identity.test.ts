@@ -15,7 +15,7 @@ import {
 
 /**
  * A home keeps one stable id, and a root only acts as the home on the
- * computer its data names as host (docs/homes-spec.md §2.2, §10.3).
+ * device its data names as host (docs/homes-spec.md §2.2, §10.3).
  */
 
 let home: TestHome;
@@ -33,15 +33,15 @@ afterEach(async () => {
 const machineFile = () => path.join(home.configDir, 'machine.json');
 
 describe('first boot', () => {
-  it('makes the home and this computer, and records the ids on the machine first', async () => {
+  it('makes the home and this device, and records the ids on the machine first', async () => {
     const status = resolveHomeIdentity({ name: 'Trey' });
     expect(status.state).toBe('active');
     if (status.state !== 'active') return;
     expect(status.created).toBe(true);
-    expect(status.home).toMatchObject({ kind: 'personal', name: 'Trey', hostComputerId: status.computer.id });
-    expect(status.computer).toMatchObject({ status: 'active', platform: process.platform });
-    expect(status.computer.name.length).toBeGreaterThan(0);
-    expect(readMachineIdentity()).toMatchObject({ homeId: status.home.id, computerId: status.computer.id });
+    expect(status.home).toMatchObject({ kind: 'personal', name: 'Trey', hostDeviceId: status.device.id });
+    expect(status.device).toMatchObject({ status: 'active', platform: process.platform });
+    expect(status.device.name.length).toBeGreaterThan(0);
+    expect(readMachineIdentity()).toMatchObject({ homeId: status.home.id, deviceId: status.device.id });
     expect(fs.statSync(machineFile()).mode & 0o777).toBe(0o600);
   });
 
@@ -54,10 +54,10 @@ describe('first boot', () => {
   });
 
   it('reuses ids a crashed boot already wrote to the machine', () => {
-    writeMachineIdentity({ homeId: 'home-from-crash', computerId: 'computer-from-crash', createdAt: '2026-09-24' });
+    writeMachineIdentity({ homeId: 'home-from-crash', deviceId: 'device-from-crash', createdAt: '2026-09-24' });
     const status = resolveHomeIdentity();
     expect(status.home.id).toBe('home-from-crash');
-    expect(status.home.hostComputerId).toBe('computer-from-crash');
+    expect(status.home.hostDeviceId).toBe('device-from-crash');
   });
 });
 
@@ -74,19 +74,19 @@ describe('a root whose data came from elsewhere', () => {
 
   it('is not the home when this machine belongs to another home', () => {
     const made = resolveHomeIdentity();
-    writeMachineIdentity({ homeId: 'someone-else', computerId: made.home.hostComputerId, createdAt: 'x' });
+    writeMachineIdentity({ homeId: 'someone-else', deviceId: made.home.hostDeviceId, createdAt: 'x' });
     expect(resolveHomeIdentity()).toMatchObject({ state: 'needs_claim', reason: 'other_home' });
   });
 
-  it('is not the home when another computer hosts it', () => {
+  it('is not the home when another device hosts it', () => {
     const made = resolveHomeIdentity();
-    writeMachineIdentity({ homeId: made.home.id, computerId: 'the-laptop', createdAt: 'x' });
+    writeMachineIdentity({ homeId: made.home.id, deviceId: 'the-laptop', createdAt: 'x' });
     expect(resolveHomeIdentity()).toMatchObject({ state: 'needs_claim', reason: 'other_host' });
   });
 });
 
 describe('a whole-folder copy, machine.json included', () => {
-  it('needs claiming in another folder on this computer', async () => {
+  it('needs claiming in another folder on this device', async () => {
     resolveHomeIdentity();
     const { resetDb } = await import('@/lib/db');
     resetDb();
@@ -99,9 +99,9 @@ describe('a whole-folder copy, machine.json included', () => {
       process.env.RI_CONFIG_DIR = path.join(copy, '.config');
       resetHomeIdentityCache();
       expect(resolveHomeIdentity()).toMatchObject({ state: 'needs_claim', reason: 'moved_or_copied' });
-      // Claiming it here keeps the same computer: the hardware didn't change.
-      const before = resolveHomeIdentity().home.hostComputerId;
-      expect(claimHome().computer.id).toBe(before);
+      // Claiming it here keeps the same device: the hardware didn't change.
+      const before = resolveHomeIdentity().home.hostDeviceId;
+      expect(claimHome().device.id).toBe(before);
     } finally {
       resetDb();
       resetHomeIdentityCache();
@@ -112,7 +112,7 @@ describe('a whole-folder copy, machine.json included', () => {
     }
   });
 
-  it('needs claiming on another computer, which becomes a new computer of the home', async () => {
+  it('needs claiming on another device, which becomes a new device of the home', async () => {
     const made = resolveHomeIdentity();
     const { _setMachineFingerprintForTests } = await import('./machine-fingerprint');
     _setMachineFingerprintForTests('another-mac');
@@ -120,7 +120,7 @@ describe('a whole-folder copy, machine.json included', () => {
       resetHomeIdentityCache();
       expect(resolveHomeIdentity()).toMatchObject({ state: 'needs_claim', reason: 'other_machine' });
       const claimed = claimHome();
-      expect(claimed.computer.id).not.toBe(made.home.hostComputerId);
+      expect(claimed.device.id).not.toBe(made.home.hostDeviceId);
       expect(readMachineIdentity()).toMatchObject({ machine: 'another-mac' });
     } finally {
       _setMachineFingerprintForTests(undefined);
@@ -131,7 +131,7 @@ describe('a whole-folder copy, machine.json included', () => {
     const made = resolveHomeIdentity();
     fs.writeFileSync(
       machineFile(),
-      JSON.stringify({ version: 1, homeId: made.home.id, computerId: made.home.hostComputerId, createdAt: 'x' }),
+      JSON.stringify({ version: 1, homeId: made.home.id, deviceId: made.home.hostDeviceId, createdAt: 'x' }),
     );
     resetHomeIdentityCache();
     expect(resolveHomeIdentity().state).toBe('active');
@@ -144,36 +144,36 @@ describe('a whole-folder copy, machine.json included', () => {
 describe('claimHome', () => {
   it('makes this machine the host of a restored home, keeping the home id', async () => {
     const made = resolveHomeIdentity();
-    const originalHost = made.home.hostComputerId;
+    const originalHost = made.home.hostDeviceId;
     fs.rmSync(machineFile());
     resetHomeIdentityCache();
 
     const claimed = claimHome();
     expect(claimed.home.id).toBe(made.home.id);
-    expect(claimed.computer.id).not.toBe(originalHost);
-    expect(readMachineIdentity()).toMatchObject({ homeId: made.home.id, computerId: claimed.computer.id });
+    expect(claimed.device.id).not.toBe(originalHost);
+    expect(readMachineIdentity()).toMatchObject({ homeId: made.home.id, deviceId: claimed.device.id });
     expect(isHomeActive()).toBe(true);
 
-    // The original host stays a computer of the home, ready to reconnect as a worker.
-    const { getComputer } = await import('@/lib/db/queries');
-    expect(getComputer(originalHost)?.status).toBe('active');
+    // The original host stays a device of the home, ready to reconnect as a worker.
+    const { getDevice } = await import('@/lib/db/queries');
+    expect(getDevice(originalHost)?.status).toBe('active');
   });
 
-  it("reuses this machine's computer row when the home already knows it", async () => {
+  it("reuses this machine's device row when the home already knows it", async () => {
     const made = resolveHomeIdentity();
-    const { createComputer, setHomeHost } = await import('@/lib/db/queries');
-    const laptop = createComputer({ name: 'MacBook' });
+    const { createDevice, setHomeHost } = await import('@/lib/db/queries');
+    const laptop = createDevice({ name: 'MacBook' , kind: 'computer' });
     setHomeHost(laptop.id);
     resetHomeIdentityCache();
     expect(resolveHomeIdentity()).toMatchObject({ state: 'needs_claim', reason: 'other_host' });
 
     const claimed = claimHome();
-    expect(claimed.computer.id).toBe(made.home.hostComputerId);
+    expect(claimed.device.id).toBe(made.home.hostDeviceId);
   });
 
   it('does nothing to a home that is already active here', () => {
     const made = resolveHomeIdentity();
     const claimed = claimHome();
-    expect(claimed.computer.id).toBe(made.home.hostComputerId);
+    expect(claimed.device.id).toBe(made.home.hostDeviceId);
   });
 });

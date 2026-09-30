@@ -25,14 +25,14 @@ it('does not fail before queue admission and then enqueue a scheduled send anywa
   const identity = await import('@/lib/home/identity');
   identity.resetHomeIdentityCache(); identity.ensureHomeIdentity();
   const q = await import('@/lib/db/queries');
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'Review worker', createdByApiKeyId: null });
-  const worker = q.redeemEnrollGrant({ secret: grant.secret, name: 'Review worker' }).computer.id;
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'Review worker', createdByApiKeyId: null });
+  const worker = q.redeemEnrollGrant({ secret: grant.secret, name: 'Review worker' }).device.id;
   q.recordWorkerHeartbeat(worker, { protocol: WORKER_PROTOCOL, version: 'test', state: 'awake', harnesses: [
     { harness: 'claude', binary: { status: 'supported', version: '9.9.9' }, capabilities: { sessions: { supported: true } } } as WorkerHarnessReport,
   ] });
   const workspace = q.createWorkspace({ name: 'Scheduled review', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
   const created = q.createExecutionWithChat({ workspaceId: workspace.id, harness: 'claude', label: 'Review' });
-  q.createPlacement({ executionId: created.execution.id, computerId: worker, startReason: 'created', worktreePath: home.root });
+  q.createPlacement({ executionId: created.execution.id, deviceId: worker, startReason: 'created', worktreePath: home.root });
   const trigger = q.createTrigger({ name: 'Timed review', workspaceId: workspace.id, owningExecutionId: created.execution.id, targetKind: 'workspace', harness: 'claude', prompt: 'Sweep', kind: 'cron', cronExpression: '0 * * * *', timeoutSeconds: 1 });
   fake = installFakeHarness('claude');
   const models = await import('@/lib/harness/model-discovery');

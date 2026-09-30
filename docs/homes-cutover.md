@@ -10,12 +10,12 @@ What it does:
 
 Code and data, separately:
 
-- **Code** is the homes build, on main once Trey merges it. Both computers run it.
+- **Code** is the homes build, on main. Both computers run it.
 - **Data** moves once: the Mini's database is upgraded in place, and the laptop's chats are copied into it. Folders, worktrees and native transcripts never move.
 
 ## Before the day
 
-1. **Merge the homes build into main** (Trey's go-ahead), and push.
+1. **The homes build is on main.** Nothing to do: it was merged on 2026-09-29.
 2. **Room on the Mini's disk:** at least 8 GB free, for the backup (about 6 GB). `df -h ~` shows it.
 3. **The laptop's unpublished work** is known: `pnpm tsx scripts/unpublished-work.ts ~/ri` on the MacBook (it only reads). None of it moves, and continuing its execution finds it.
 4. **Pick a quiet moment:** executions finished or fine to pause. Anything mid-turn stops when Ri stops.
@@ -41,9 +41,9 @@ All in the live checkout (`~/ai-task-manager`), with production stopped for the 
    ```
    L=~/ri-backups/laptop-final-<time>
    pnpm tsx scripts/home-backup.ts verify "$L"
-   pnpm tsx scripts/import-home.ts "$L" --computer MacBook --map 019f9547-81be-70e0-8bfb-c04c1dc5792a=019e4cdd-3c13-7646-9320-46c1de0e0cf7
+   pnpm tsx scripts/import-home.ts "$L" --device MacBook --map 019f9547-81be-70e0-8bfb-c04c1dc5792a=019e4cdd-3c13-7646-9320-46c1de0e0cf7
    ```
-   That only says what it would do (the database is brought up to the homes build and gets its identity, as a first start would). Check it: about 245 chats, the laptop's `insiderfinance` joining `insiderfinance-app`, 5 agents new here, no problems. Then the same command with `--apply`.
+   That only says what it would do (the database is brought up to the homes build, gets its identity, and records its agents' folders on the Mini, as a first start would). Check it: about 245 chats, the laptop's `insiderfinance` joining `insiderfinance-app`, 5 agents new here, no problems. Then the same command with `--apply`.
 5. **Start Ri:** `pnpm cli:dev start`. Then check: it opens, `pnpm cli:dev home show` says it runs on the Mac Mini, and an imported laptop chat reads as it did.
 
 ## On the MacBook
@@ -60,18 +60,19 @@ All in the live checkout (`~/ai-task-manager`), with production stopped for the 
    ```
    pnpm cli:dev home retire --to "My Ri on the Mac Mini"
    ```
-3. **Connect it and run work.** On the Mini: `pnpm cli:dev worker grant --computer MacBook` prints a code. On the MacBook:
+3. **Connect it and run work.** On the Mini, open Settings, Devices. The import made a device named MacBook: use its link button (New pairing link) and copy the link. On the MacBook:
    ```
-   pnpm cli:dev connect '<pairing link from the Mini's Settings, Devices>'
-   pnpm cli:dev worker enroll --code <code>
+   pnpm cli:dev connect '<that link>'
+   pnpm cli:dev worker enroll
    pnpm cli:dev worker run
    ```
-   Enrolling as `MacBook` makes it the computer the imported chats were placed on. Its folders are checked when it connects: an agent's Setup tab, under Folders, shows them found.
+   The link signs the MacBook in as the device the imported chats were placed on, so enrolling makes that device run agents. Settings, Devices then shows one MacBook, marked Runs agents. Its folders are checked when it connects: an agent's Setup tab, under Folders, shows them found.
 4. **The dev setup** from the build (the worker in `~/ri-homes-connected`) can stop: `pnpm iso ~/ri-homes-connected -- pnpm -s cli:dev worker disable`.
 
 ## Checks when it's done
 
 - The Mini's Ri shows the laptop's chats under their agents, read, and labeled MacBook.
+- Settings, Devices lists the Mac Mini (Home), the MacBook (Runs agents) and the phone, each once.
 - Continuing one runs on the MacBook, in its folder there, and the agent remembers the conversation (its native session is on the MacBook).
 - `pnpm cli:dev start` in the MacBook's `~/ri` says its home was retired, and starts nothing.
 

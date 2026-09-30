@@ -1355,8 +1355,8 @@ const get_workspace_action = defineAction({
   name: 'get_workspace',
   description:
     'Fetch a single workspace by id (the user calls it an agent), including its `purpose` and standing ' +
-    '`instructions`, and `runOn`: the computers it can run on (each with whether it can take work now, ' +
-    'and why not) and `defaultId`, where a new execution runs when start_execution names no computer.',
+    '`instructions`, and `runOn`: the devices it can run on (each with whether it can take work now, ' +
+    'and why not) and `defaultId`, where a new execution runs when start_execution names no device.',
   params: { id: z.string().min(1) },
   cli: { positional: ['id'] },
   handler: (_ctx, { id }) => {
@@ -1429,7 +1429,7 @@ const update_workspace_action = defineAction({
   description:
     'Edit a workspace (the user calls it an agent): name, emoji, area, `purpose` (a sentence, 500 characters ' +
     'max), standing `instructions` (delivered to every execution it starts, 20,000 characters max), ' +
-    'connector access, the agent browser, and `defaultComputerId`, the computer its new executions run on ' +
+    'connector access, the agent browser, and `defaultDeviceId`, the device its new executions run on ' +
     '(one it is set up on, see get_workspace runOn, or null to go back to the automatic choice). ' +
     'Pass null to clear purpose or instructions. Its folder, ' +
     'scripts and files-to-copy are not editable here: they run commands or move files on the machine, so ' +
@@ -1471,12 +1471,12 @@ const update_workspace_action = defineAction({
       .optional()
       .describe('The full list of services this agent may use. Services left out lose access.'),
     browserEnabled: z.boolean().optional(),
-    defaultComputerId: z.string().nullable().optional(),
+    defaultDeviceId: z.string().nullable().optional(),
   },
   mutating: true,
   cli: { positional: ['id'] },
   handler: async (ctx, input) => {
-    const { id, connectorScopes, defaultComputerId, ...fields } = input;
+    const { id, connectorScopes, defaultDeviceId, ...fields } = input;
     if (!getWorkspace(id)) throw new ActionError('not_found', `Workspace not found: ${id}`);
     // Granting connector access or the browser widens what this agent's
     // executions can reach. Over MCP the caller is a harness session that
@@ -1494,8 +1494,8 @@ const update_workspace_action = defineAction({
       if (Object.keys(fields).length > 0) {
         await serverFetch(`/workspaces/${id}`, { method: 'PATCH', body: JSON.stringify(fields) });
       }
-      if (defaultComputerId !== undefined) {
-        await serverFetch(`/workspaces/${id}/run-on`, { method: 'PUT', body: JSON.stringify({ defaultComputerId }) });
+      if (defaultDeviceId !== undefined) {
+        await serverFetch(`/workspaces/${id}/run-on`, { method: 'PUT', body: JSON.stringify({ defaultDeviceId }) });
       }
       if (connectorScopes !== undefined) {
         // Fold the legacy single `account` into `accounts`. The route resolves identifiers (email,
@@ -1562,7 +1562,7 @@ function rethrowReferenceFolderError(err: unknown): never {
  */
 /**
  * A folder path in an action's input is resolved on the home's disk. From
- * another computer that path names a folder on that computer instead, so
+ * another device that path names a folder on that device instead, so
  * the result would describe the wrong folder, or none. Refuse, and say
  * where the work belongs (docs/homes-spec.md §4.1). Callers that don't say
  * where they are count as elsewhere.
@@ -1572,8 +1572,8 @@ function assertCallerOnHome(ctx: ActionContext, what: string): void {
   if (ctx.caller?.location === 'home') return;
   throw new ActionError(
     'unsupported',
-    `${what} runs against folders on the home computer, and this call came from another computer.`,
-    "Run it on the home, or set up the agent's folder on this computer from the app.",
+    `${what} runs against folders on the home device, and this call came from another device.`,
+    "Run it on the home, or set up the agent's folder on this device from the app.",
   );
 }
 
@@ -1961,7 +1961,7 @@ const send_session_message_action = defineAction({
 
 // ── Memory (docs/homes-build.md, P2.7) ──────────────────────
 // MEMORY.md stays at the home, with no copy anywhere else. A session that
-// can't read the home's files, on a connected computer, reads it here and
+// can't read the home's files, on a connected device, reads it here and
 // sends findings to the home's main chat, which keeps the file.
 
 const read_memory_action = defineAction({
@@ -1982,7 +1982,7 @@ const submit_memory_finding_action = defineAction({
   description:
     "Send something worth remembering to this home's main chat, which keeps MEMORY.md and decides " +
     'whether to record it. Labeled with the chat that found it. For a session that cannot edit ' +
-    "the home's files, on a connected computer, say. The main chat edits MEMORY.md itself.",
+    "the home's files, on a connected device, say. The main chat edits MEMORY.md itself.",
   params: { finding: z.string().min(1).max(4000) },
   mutating: true,
   cli: { positional: ['finding'] },
@@ -2674,11 +2674,11 @@ const start_execution_action = defineAction({
     permissionMode: z.enum(PERMISSION_MODES).optional(),
     taskId: z.string().min(1).optional(),
     label: z.string().min(1).optional(),
-    computerId: z
+    deviceId: z
       .string()
       .min(1)
       .optional()
-      .describe("The computer to run on (see get_workspace runOn). Omitted: the agent's default computer. One that can't take it is refused with the reason, never replaced."),
+      .describe("The device to run on (see get_workspace runOn). Omitted: the agent's default device. One that can't take it is refused with the reason, never replaced."),
   },
   mutating: true,
   cli: { positional: ['workspaceId'] },
@@ -2709,7 +2709,7 @@ const start_execution_action = defineAction({
               ...(input.model ? { model: input.model } : {}),
               ...(input.effort ? { effort: input.effort } : {}),
               ...(input.taskId ? { taskId: input.taskId } : {}),
-              ...(input.computerId ? { computerId: input.computerId } : {}),
+              ...(input.deviceId ? { deviceId: input.deviceId } : {}),
             }),
           });
     } catch (err) {
@@ -2782,7 +2782,7 @@ const archive_execution_action = defineAction({
       });
     } catch (err) {
       if (err instanceof ServerResponseError && err.status === 409 && err.json()?.code === 'moving') {
-        throw new ActionError('conflict', String(err.json()?.message ?? 'It is moving to another computer.'), 'Archive it once it has arrived.');
+        throw new ActionError('conflict', String(err.json()?.message ?? 'It is moving to another device.'), 'Archive it once it has arrived.');
       }
       if (err instanceof ServerResponseError && err.status === 409 && err.json()?.code === 'dirty_worktree') {
         const detail = err.json()?.message;
@@ -2816,92 +2816,92 @@ const list_notification_channels_action = defineAction({
   },
 });
 
-// ─── Computers and agent setups (docs/homes-spec.md §4.2) ─────
+// ─── Devices and agent setups (docs/homes-spec.md §4.2) ─────
 
 /**
- * The computer making this call: the home's own for the local CLI and the
- * home's sessions, otherwise the computer registered with the caller's key.
+ * The device making this call: the home's own for the local CLI and the
+ * home's sessions, otherwise the device registered with the caller's key.
  */
-async function callerComputer(ctx: ActionContext) {
+async function callerDevice(ctx: ActionContext) {
   if (ctx.remote === false || ctx.caller?.location === 'home') {
     const { ensureHomeIdentity } = await import('@/lib/home/identity');
-    return ensureHomeIdentity().computer;
+    return ensureHomeIdentity().device;
   }
-  const { getComputerForApiKey } = await import('@/lib/db/queries');
-  const computer = ctx.caller?.apiKeyId ? getComputerForApiKey(ctx.caller.apiKeyId) : null;
-  if (!computer) {
+  const { getDeviceForApiKey } = await import('@/lib/db/queries');
+  const device = ctx.caller?.apiKeyId ? getDeviceForApiKey(ctx.caller.apiKeyId) : null;
+  if (!device) {
     throw new ActionError(
       'conflict',
-      'This computer is not registered with your home yet.',
+      'This device is not registered with your home yet.',
       'Run `ri setup` on it, which registers it first.',
     );
   }
-  if (computer.status !== 'active') throw new ActionError('conflict', `${computer.name} was removed from your home.`);
-  return computer;
+  if (device.status !== 'active') throw new ActionError('conflict', `${device.name} was removed from your home.`);
+  return device;
 }
 
-const register_computer_action = defineAction({
-  name: 'register_computer',
+const register_device_action = defineAction({
+  name: 'register_device',
   description:
-    "Register the calling computer with this home, or refresh its details. A connected computer does this once, so its agent setups can be reported. It doesn't let the home run work on that computer. Its key's own access is unchanged.",
+    "Report the calling computer's details (platform, hostname) to this home, on its key's device. With deviceId, the id this home gave this computer before, the key joins that device, so a computer paired again stays one device. It doesn't let the home run agents there, and the key's own access is unchanged.",
   params: {
     name: z.string().min(1).max(120),
     platform: z.string().max(40).nullable().optional(),
     hostname: z.string().max(255).nullable().optional(),
-    computerId: z
+    deviceId: z
       .string()
       .nullable()
       .optional()
-      .describe('The id this home gave this computer before, so a new key keeps the same computer'),
+      .describe('The id this home gave this computer before, so a new key joins the same device'),
   },
   mutating: true,
   handler: async (ctx, input) => {
     if (ctx.remote === false || ctx.caller?.location === 'home') {
       const { ensureHomeIdentity } = await import('@/lib/home/identity');
-      return { computer: ensureHomeIdentity().computer, created: false };
+      return { device: ensureHomeIdentity().device, created: false };
     }
-    if (!ctx.caller?.apiKeyId) throw new ActionError('unsupported', 'Registering a computer needs a key to register it under.');
-    const { registerComputerForApiKey } = await import('@/lib/db/queries');
-    return registerComputerForApiKey({ apiKeyId: ctx.caller.apiKeyId, ...input });
+    if (!ctx.caller?.apiKeyId) throw new ActionError('unsupported', 'Registering a device needs a key to register it under.');
+    const { registerDeviceForApiKey } = await import('@/lib/db/queries');
+    return registerDeviceForApiKey({ apiKeyId: ctx.caller.apiKeyId, ...input });
   },
 });
 
-const rename_computer_action = defineAction({
-  name: 'rename_computer',
+const rename_device_action = defineAction({
+  name: 'rename_device',
   description:
-    'Rename a computer of this home, e.g. "MacBook" or "Mac Mini". Without computerId, renames the calling computer. Names are for people: they never identify a computer.',
+    'Rename a device of this home, e.g. "MacBook" or "Mac Mini". Without deviceId, renames the calling device. Names are for people: they never identify a device.',
   params: {
-    computerId: z.string().optional(),
+    deviceId: z.string().optional(),
     name: z.string().trim().min(1).max(120),
   },
   mutating: true,
-  handler: async (ctx, { computerId, name }) => {
-    const { getComputer, updateComputer } = await import('@/lib/db/queries');
-    const target = computerId ? getComputer(computerId) : await callerComputer(ctx);
-    if (!target) throw new ActionError('not_found', `No computer ${computerId}.`);
-    return updateComputer(target.id, { name });
+  handler: async (ctx, { deviceId, name }) => {
+    const { getDevice, updateDevice } = await import('@/lib/db/queries');
+    const target = deviceId ? getDevice(deviceId) : await callerDevice(ctx);
+    if (!target) throw new ActionError('not_found', `No device ${deviceId}.`);
+    return updateDevice(target.id, { name });
   },
 });
 
-const list_computers_action = defineAction({
-  name: 'list_computers',
+const list_devices_action = defineAction({
+  name: 'list_devices',
   description:
-    "This home's computers: the home's own, and each connected computer with whether it's enrolled to run agents, connected right now, and what its worker last reported.",
+    "This home's devices, each once: the home's own, computers that run agents (connected right now or not, and what each worker last reported), and the phones and browsers paired to it, with the keys each signs in with.",
   params: {},
-  handler: async () => serverFetch<unknown[]>('/computers'),
+  handler: async () => serverFetch<unknown[]>('/devices'),
 });
 
-const describe_computer_harnesses_action = defineAction({
-  name: 'describe_computer_harnesses',
+const describe_device_harnesses_action = defineAction({
+  name: 'describe_device_harnesses',
   description:
-    "The harnesses a computer can run: installed, version, and capabilities. By default its worker's last report; with fresh=true the home asks the worker now, which needs it connected.",
+    "The harnesses a device can run: installed, version, and capabilities. By default its worker's last report; with fresh=true the home asks the worker now, which needs it connected.",
   params: {
-    computerId: z.string().min(1),
+    deviceId: z.string().min(1),
     fresh: z.boolean().optional(),
   },
-  cli: { positional: ['computerId'] },
-  handler: async (_ctx, { computerId, fresh }) =>
-    serverFetch<unknown>(`/computers/${encodeURIComponent(computerId)}/harnesses${fresh ? '?fresh=1' : ''}`),
+  cli: { positional: ['deviceId'] },
+  handler: async (_ctx, { deviceId, fresh }) =>
+    serverFetch<unknown>(`/devices/${encodeURIComponent(deviceId)}/harnesses${fresh ? '?fresh=1' : ''}`),
 });
 
 /** An agent by id, or by name when exactly one agent has it. */
@@ -2925,102 +2925,102 @@ async function folderChange<T>(change: () => Promise<T>): Promise<T> {
   }
 }
 
-/** The computer named, or the calling one. */
-async function computerFor(ctx: ActionContext, computerId: string | undefined) {
-  if (!computerId) return callerComputer(ctx);
-  const { getComputer } = await import('@/lib/db/queries');
-  const computer = getComputer(computerId);
-  if (!computer || computer.status !== 'active') throw new ActionError('not_found', `No computer ${computerId}.`);
-  return computer;
+/** The device named, or the calling one. */
+async function deviceFor(ctx: ActionContext, deviceId: string | undefined) {
+  if (!deviceId) return callerDevice(ctx);
+  const { getDevice } = await import('@/lib/db/queries');
+  const device = getDevice(deviceId);
+  if (!device || device.status !== 'active') throw new ActionError('not_found', `No device ${deviceId}.`);
+  return device;
 }
 
-const set_agent_folder_action = defineAction({
-  name: 'set_agent_folder',
+const set_workspace_folder_action = defineAction({
+  name: 'set_workspace_folder',
   description:
-    "Record an agent's project folder on a computer, the calling one unless computerId says another. The home's records are the only place an agent's folders are kept. That computer checks the folder is there.",
+    "Record an agent's project folder on a device, the calling one unless deviceId says another. The home's records are the only place an agent's folders are kept. That device checks the folder is there.",
   params: {
     agent: z.string().min(1).describe('The agent, by id or name'),
-    folder: z.string().min(1).describe('An absolute path on that computer'),
-    computerId: z.string().optional(),
+    folder: z.string().min(1).describe('An absolute path on that device'),
+    deviceId: z.string().optional(),
   },
   cli: { positional: ['agent', 'folder'] },
   mutating: true,
-  handler: async (ctx, { agent, folder, computerId }) => {
-    const computer = await computerFor(ctx, computerId);
+  handler: async (ctx, { agent, folder, deviceId }) => {
+    const device = await deviceFor(ctx, deviceId);
     const ws = await agentByIdOrName(agent);
-    const { chooseAgentFolder } = await import('@/lib/setups/folders');
-    const { getAgentSetup } = await import('@/lib/db/queries');
-    await folderChange(() => chooseAgentFolder(ws.id, computer.id, folder));
-    return getAgentSetup(ws.id, computer.id);
+    const { chooseWorkspaceFolder } = await import('@/lib/setups/folders');
+    const { getWorkspaceSetup } = await import('@/lib/db/queries');
+    await folderChange(() => chooseWorkspaceFolder(ws.id, device.id, folder));
+    return getWorkspaceSetup(ws.id, device.id);
   },
 });
 
 const set_linked_folder_action = defineAction({
   name: 'set_linked_folder',
   description:
-    "Record where one of an agent's linked folders is on a computer, the calling one unless computerId says another, or folder=null to go without it there. A linked folder every agent uses has one place per computer, so this sets it for all of them there. That computer checks the folder is there.",
+    "Record where one of an agent's linked folders is on a device, the calling one unless deviceId says another, or folder=null to go without it there. A linked folder every agent uses has one place per device, so this sets it for all of them there. That device checks the folder is there.",
   params: {
     agent: z.string().min(1).describe('The agent, by id or name, whose linked folder this is'),
     alias: z.string().min(1),
-    folder: z.string().min(1).nullable().describe('An absolute path on that computer, or null to go without it'),
-    computerId: z.string().optional(),
+    folder: z.string().min(1).nullable().describe('An absolute path on that device, or null to go without it'),
+    deviceId: z.string().optional(),
   },
   mutating: true,
-  handler: async (ctx, { agent, alias, folder, computerId }) => {
-    const computer = await computerFor(ctx, computerId);
+  handler: async (ctx, { agent, alias, folder, deviceId }) => {
+    const device = await deviceFor(ctx, deviceId);
     const ws = await agentByIdOrName(agent);
-    const { listReferenceFoldersForWorkspace, getAgentSetup } = await import('@/lib/db/queries');
+    const { listReferenceFoldersForWorkspace, getWorkspaceSetup } = await import('@/lib/db/queries');
     const ref = listReferenceFoldersForWorkspace(ws.id).find((r) => r.alias === alias.toLowerCase());
     if (!ref) throw new ActionError('not_found', `${ws.name} has no linked folder "${alias}".`);
     if (ref.targetWorkspaceId) {
-      throw new ActionError('invalid_params', `"${alias}" is another agent: it's that agent's own folder on each computer.`);
+      throw new ActionError('invalid_params', `"${alias}" is another agent: it's that agent's own folder on each device.`);
     }
     const { chooseLinkedFolder } = await import('@/lib/setups/folders');
-    await folderChange(() => chooseLinkedFolder(ref.id, computer.id, folder));
-    return getAgentSetup(ws.id, computer.id);
+    await folderChange(() => chooseLinkedFolder(ref.id, device.id, folder));
+    return getWorkspaceSetup(ws.id, device.id);
   },
 });
 
-const remove_agent_setup_action = defineAction({
-  name: 'remove_agent_setup',
+const remove_workspace_setup_action = defineAction({
+  name: 'remove_workspace_setup',
   description:
-    "Take an agent off a computer, the calling one unless computerId says another: its project folder and its own linked folders there are forgotten. Nothing on that computer is deleted.",
+    "Take an agent off a device, the calling one unless deviceId says another: its project folder and its own linked folders there are forgotten. Nothing on that device is deleted.",
   params: {
     agent: z.string().min(1).describe('The agent, by id or name'),
-    computerId: z.string().optional(),
+    deviceId: z.string().optional(),
   },
   cli: { positional: ['agent'] },
   mutating: true,
-  handler: async (ctx, { agent, computerId }) => {
-    const computer = await computerFor(ctx, computerId);
+  handler: async (ctx, { agent, deviceId }) => {
+    const device = await deviceFor(ctx, deviceId);
     const ws = await agentByIdOrName(agent);
-    const { removeFromComputer } = await import('@/lib/setups/folders');
-    return { removed: await folderChange(() => removeFromComputer(ws.id, computer.id)) };
+    const { removeFromDevice } = await import('@/lib/setups/folders');
+    return { removed: await folderChange(() => removeFromDevice(ws.id, device.id)) };
   },
 });
 
-const list_computer_folders_action = defineAction({
-  name: 'list_computer_folders',
+const list_device_folders_action = defineAction({
+  name: 'list_device_folders',
   description:
-    "A folder's folders on one of this home's computers, for choosing a project or linked folder there: within the person's home folder, hidden ones left out, Git projects marked. Without path, the home folder. A computer elsewhere must be connected.",
+    "A folder's folders on one of this home's devices, for choosing a project or linked folder there: within the person's home folder, hidden ones left out, Git projects marked. Without path, the home folder. A device elsewhere must be connected.",
   params: {
-    computerId: z.string().min(1),
+    deviceId: z.string().min(1),
     path: z.string().optional(),
   },
-  handler: async (_ctx, { computerId, path: at }) =>
-    serverFetch<unknown>(`/computers/${encodeURIComponent(computerId)}/folders${at ? `?path=${encodeURIComponent(at)}` : ''}`),
+  handler: async (_ctx, { deviceId, path: at }) =>
+    serverFetch<unknown>(`/devices/${encodeURIComponent(deviceId)}/folders${at ? `?path=${encodeURIComponent(at)}` : ''}`),
 });
 
-const list_agent_setups_action = defineAction({
-  name: 'list_agent_setups',
+const list_workspace_setups_action = defineAction({
+  name: 'list_workspace_setups',
   description:
-    "Where each agent is set up: one row per agent per computer, with the agent's name, its folder there, each linked folder's place there, and whether the setup is ready.",
+    "Where each agent is set up: one row per agent per device, with the agent's name, its folder there, each linked folder's place there, and whether the setup is ready.",
   params: {
     workspaceId: z.string().optional(),
   },
   handler: async (_ctx, { workspaceId }) => {
-    const { listAgentSetups, getWorkspace } = await import('@/lib/db/queries');
-    return listAgentSetups(workspaceId ? { workspaceId } : {}).map((s) => ({ ...s, agentName: getWorkspace(s.workspaceId)?.name ?? null }));
+    const { listWorkspaceSetups, getWorkspace } = await import('@/lib/db/queries');
+    return listWorkspaceSetups(workspaceId ? { workspaceId } : {}).map((s) => ({ ...s, workspaceName: getWorkspace(s.workspaceId)?.name ?? null }));
   },
 });
 
@@ -3038,15 +3038,15 @@ const list_skills_action = defineAction({
 });
 
 export const actions = [
-  register_computer_action,
-  rename_computer_action,
-  list_computers_action,
-  describe_computer_harnesses_action,
-  set_agent_folder_action,
+  register_device_action,
+  rename_device_action,
+  list_devices_action,
+  describe_device_harnesses_action,
+  set_workspace_folder_action,
   set_linked_folder_action,
-  remove_agent_setup_action,
-  list_computer_folders_action,
-  list_agent_setups_action,
+  remove_workspace_setup_action,
+  list_device_folders_action,
+  list_workspace_setups_action,
   describe_paths,
   describe_schema,
   list_tasks_action,

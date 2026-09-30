@@ -20,7 +20,7 @@ function s(id: string, iso: string): RailSession {
     scratchPad: null,
     workspaceId: 'ws-1',
     executionId: null,
-    computerId: null,
+    deviceId: null,
     createdByRunId: null,
     execution: null,
     worktreePath: null,

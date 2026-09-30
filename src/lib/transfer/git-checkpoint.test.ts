@@ -1,6 +1,6 @@
 /**
  * The Git side of moving work (P4.1, P4.2), against real repositories: a
- * bare remote and two clones standing in for two computers. What's tracked
+ * bare remote and two clones standing in for two devices. What's tracked
  * and what was chosen is committed and pushed without force, secrets stay
  * behind, and the other side builds its worktree only at the exact commit,
  * refusing a divergent or busy branch without touching it.
@@ -138,7 +138,7 @@ describe('the destination', () => {
   });
 });
 
-describe('moving back to a computer that ran it before', () => {
+describe('moving back to a device that ran it before', () => {
   it('reuses its old worktree, moved forward, and stops at uncommitted changes there', async () => {
     write(worktree, 'A.md', 'a\n');
     const first = await saveCheckpoint({ worktree, message: 'first', includeUntracked: ['A.md'] });

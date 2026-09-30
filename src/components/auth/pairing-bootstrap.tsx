@@ -2,8 +2,9 @@
 
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ASSOCIATE_FRAGMENT_KEY, PAIRING_TOKEN_FRAGMENT_KEY, THIS_COMPUTER_STORAGE_KEY } from '@/constants/app';
+import { ASSOCIATE_FRAGMENT_KEY, PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
 import {
   AUTH_TOKEN_STORAGE_KEY,
   getAuthToken,
@@ -11,26 +12,27 @@ import {
 } from '@/lib/api/client';
 
 /**
- * Redeem `#associate=<code>`: a worker on this computer opened this page to
- * say which computer the browser is on (docs/homes-build.md, P2.2, "This
- * Mac"). The browser's own key redeems it. Identity only.
+ * Redeem `#associate=<code>`: a worker on this device opened this page to
+ * say which device the browser is on (docs/homes-build.md, P2.2, "This
+ * Mac"). The browser's own key redeems it, and moves to that device, so the
+ * home knows where this browser is from then on. Identity only.
  */
-async function associateThisBrowser(code: string, token: string): Promise<void> {
+async function associateThisBrowser(code: string, token: string, queryClient: QueryClient): Promise<void> {
   try {
     const res = await fetch('/api/devices/associate', {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify({ code }),
     });
-    const body = (await res.json().catch(() => null)) as { computer?: { id: string; name: string }; message?: string } | null;
-    if (!res.ok || !body?.computer) {
-      toast.error(body?.message ?? 'This browser could not be linked to its computer.');
+    const body = (await res.json().catch(() => null)) as { device?: { id: string; name: string }; message?: string } | null;
+    if (!res.ok || !body?.device) {
+      toast.error(body?.message ?? 'This browser could not be linked to its device.');
       return;
     }
-    window.localStorage.setItem(THIS_COMPUTER_STORAGE_KEY, JSON.stringify(body.computer));
-    toast.success(`This browser is on ${body.computer.name}`);
+    void queryClient.invalidateQueries({ queryKey: ['devices'] });
+    toast.success(`This browser is on ${body.device.name}`);
   } catch {
-    toast.error('This browser could not be linked to its computer.');
+    toast.error('This browser could not be linked to its device.');
   }
 }
 
@@ -42,6 +44,7 @@ async function associateThisBrowser(code: string, token: string): Promise<void> 
 export function PairingBootstrap() {
   const router = useRouter();
   const pathname = usePathname();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -55,7 +58,7 @@ export function PairingBootstrap() {
       const associate = params.get(ASSOCIATE_FRAGMENT_KEY);
       const paired = getAuthToken();
       if (associate && paired) {
-        void associateThisBrowser(associate, paired);
+        void associateThisBrowser(associate, paired, queryClient);
         const clean = window.location.pathname + window.location.search;
         window.history.replaceState(null, '', clean);
         return;
@@ -92,7 +95,7 @@ export function PairingBootstrap() {
         headers: { authorization: `Bearer ${existing}` },
       }).catch(() => {});
     }
-  }, [pathname, router]);
+  }, [pathname, router, queryClient]);
 
   // A worker's association link can arrive in a page that's already open,
   // where only the fragment changes and nothing reloads.
@@ -103,12 +106,12 @@ export function PairingBootstrap() {
       const code = new URLSearchParams(hash).get(ASSOCIATE_FRAGMENT_KEY);
       const paired = getAuthToken();
       if (!code || !paired) return;
-      void associateThisBrowser(code, paired);
+      void associateThisBrowser(code, paired, queryClient);
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
+  }, [queryClient]);
 
   // Keep multi-tab state in sync: if another tab clears the token, redirect.
   useEffect(() => {

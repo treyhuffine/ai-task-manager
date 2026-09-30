@@ -1,10 +1,10 @@
 /**
  * `<app> status`: what this folder is and where its home is, in any role.
  *
- * - On a home: the home, the computer it runs on, and whether this copy is
+ * - On a home: the home, the device it runs on, and whether this copy is
  *   the active one.
- * - On a connected computer: which home, its address, and whether it answers
- *   for this computer right now.
+ * - On a connected device: which home, its address, and whether it answers
+ *   for this device right now.
  * - On a fresh root: that nothing is set up yet.
  */
 
@@ -20,7 +20,7 @@ import { describeNeedsClaim, resolveHomeIdentity } from '@/lib/home/identity';
 export function registerStatusCommand(program: Command) {
   program
     .command('status')
-    .description('Show what this folder is: a home, a computer connected to one, or not set up')
+    .description('Show what this folder is: a home, a device connected to one, or not set up')
     .action(async () => {
       console.log(`${pc.dim('folder')}  ${getAppRoot()}`);
       let role;
@@ -42,7 +42,7 @@ export function registerStatusCommand(program: Command) {
         console.log(`${pc.dim('role')}    home`);
         console.log(`${pc.dim('home')}    ${status.home.name} ${pc.dim(status.home.id)}`);
         if (status.state === 'active') {
-          console.log(`${pc.dim('runs on')} ${status.computer.name}`);
+          console.log(`${pc.dim('runs on')} ${status.device.name}`);
         } else {
           console.log(pc.yellow(`${pc.dim('state')}   not active here. ${describeNeedsClaim(status.reason)}`));
         }

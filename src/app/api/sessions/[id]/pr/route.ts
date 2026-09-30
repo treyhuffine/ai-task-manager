@@ -32,10 +32,10 @@ async function handleGET(
     const { id } = await params;
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    // A branch is all a PR needs. Its worktree may be on another computer.
+    // A branch is all a PR needs. Its worktree may be on another device.
     if (!session.workspaceId || !session.branchName) return Response.json({ pr: null });
     // Where a clone of its repository is: the agent's folder here, or on
-    // the computer the agent lives on (P4.5).
+    // the device the agent lives on (P4.5).
     return await githubOnOwner(id, { op: 'pr', prNumber: session.prNumber, branchName: session.branchName });
   } catch (err) {
     console.error('[GET /api/sessions/:id/pr]', err);

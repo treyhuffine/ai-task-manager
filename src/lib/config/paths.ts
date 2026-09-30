@@ -129,7 +129,7 @@ export function getConfigPath(): string {
 
 /**
  * This machine's identity for the home in this root: which home and which
- * computer row it is (src/lib/home/identity.ts). Machine-local: backups never
+ * device row it is (src/lib/home/identity.ts). Machine-local: backups never
  * carry it, so a restored copy can't take itself for the original host.
  */
 export function getMachineIdentityPath(): string {
@@ -137,8 +137,8 @@ export function getMachineIdentityPath(): string {
 }
 
 /**
- * On a computer connected to a home elsewhere: which home, its address, and
- * this computer's credential for it (src/lib/connection/config.ts). Its
+ * On a device connected to a home elsewhere: which home, its address, and
+ * this device's credential for it (src/lib/connection/config.ts). Its
  * presence without a database makes this root a connected installation,
  * which never opens a database of its own (src/lib/config/role.ts).
  */
@@ -147,8 +147,8 @@ export function getConnectionPath(): string {
 }
 
 /**
- * On a computer enrolled as a worker: its worker key for the home, and the
- * home and computer it was issued for (src/lib/worker/config.ts). A
+ * On a device enrolled as a worker: its worker key for the home, and the
+ * home and device it was issued for (src/lib/worker/config.ts). A
  * credential for this machine alone, so backups never carry it.
  */
 export function getWorkerConfigPath(): string {

@@ -1,7 +1,7 @@
 /**
  * A fingerprint of the machine this process runs on, for telling "this
- * home's data on the computer it was set up on" from "a copy of it on
- * another computer" (docs/homes-spec.md §10.3). Migration Assistant, a disk
+ * home's data on the device it was set up on" from "a copy of it on
+ * another device" (docs/homes-spec.md §10.3). Migration Assistant, a disk
  * clone, or an rsync of the whole folder carry `machine.json` along, and
  * without this a copy on a new Mac would start as the home too.
  *

@@ -142,10 +142,10 @@ export function LiveModeNotice() {
  */
 /**
  * Where the execution runs (docs/homes-spec.md §3.3, P3.1). Quiet by design:
- * with one computer it's just that computer's name, and with a choice it's a
+ * with one device it's just that device's name, and with a choice it's a
  * chip that opens the choices. Picking one affects this execution only.
  * "Make this the default" is its own explicit item, never a side effect of
- * picking. A computer that can't take the work says why and can't be
+ * picking. A device that can't take the work says why and can't be
  * picked, and nothing is ever swapped in for it. One the agent isn't on yet
  * offers to set it up there, then is picked (docs/homes-model.md).
  */
@@ -161,14 +161,14 @@ export function RunOnControl({
   agent: { id: string; name: string };
   runOn: RunOn;
   value: string | null;
-  onChange: (computerId: string) => void;
-  onMakeDefault: (computerId: string) => void;
+  onChange: (deviceId: string) => void;
+  onMakeDefault: (deviceId: string) => void;
   savingDefault?: boolean;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [settingUp, setSettingUp] = useState<{ id: string; name: string } | null>(null);
-  const selected = runOn.choices.find((c) => c.computerId === value) ?? null;
+  const selected = runOn.choices.find((c) => c.deviceId === value) ?? null;
   if (runOn.choices.length === 0 || !selected) return null;
 
   if (runOn.choices.length === 1) {
@@ -198,7 +198,7 @@ export function RunOnControl({
         <LauncherPopoverContent align="start" className="w-[280px] p-1">
           <div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">Run on</div>
           {runOn.choices.map((choice) => {
-            const isSelected = choice.computerId === value;
+            const isSelected = choice.deviceId === value;
             const canSetUp = choice.needsSetup && choice.connected;
             const hint = choice.needsSetup
               ? canSetUp
@@ -211,13 +211,13 @@ export function RunOnControl({
                   : null;
             return (
               <button
-                key={choice.computerId}
+                key={choice.deviceId}
                 type="button"
                 disabled={!choice.ready && !canSetUp}
                 onClick={() => {
                   setOpen(false);
-                  if (canSetUp) setSettingUp({ id: choice.computerId, name: choice.name });
-                  else onChange(choice.computerId);
+                  if (canSetUp) setSettingUp({ id: choice.deviceId, name: choice.name });
+                  else onChange(choice.deviceId);
                 }}
                 className={cn(
                   'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed',
@@ -228,7 +228,7 @@ export function RunOnControl({
                 <span className="min-w-0 flex-1">
                   <span className={cn('flex items-center gap-1.5 text-[12px]', choice.ready ? 'text-foreground' : 'text-muted-foreground')}>
                     <span className="truncate">{choice.name}</span>
-                    {choice.computerId === runOn.defaultId && (
+                    {choice.deviceId === runOn.defaultId && (
                       <span className="text-[10px] text-muted-foreground/70">default</span>
                     )}
                   </span>
@@ -246,7 +246,7 @@ export function RunOnControl({
             <button
               type="button"
               disabled={savingDefault}
-              onClick={() => onMakeDefault(selected.computerId)}
+              onClick={() => onMakeDefault(selected.deviceId)}
               className="mt-1 flex w-full items-center gap-2 rounded-md border-t border-border/70 px-2 py-1.5 text-left text-[11.5px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
             >
               {savingDefault ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} className="opacity-0" />}
@@ -259,7 +259,7 @@ export function RunOnControl({
         <SetupAgentDialog
           workspaceId={agent.id}
           agentName={agent.name}
-          computer={settingUp}
+          device={settingUp}
           open={!!settingUp}
           onOpenChange={(next) => !next && setSettingUp(null)}
           onReady={() => {

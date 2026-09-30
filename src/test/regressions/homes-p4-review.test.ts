@@ -47,7 +47,7 @@ beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-p4-review-' });
   const identity = await import('@/lib/home/identity');
   identity.resetHomeIdentityCache();
-  hostId = identity.ensureHomeIdentity().home.hostComputerId;
+  hostId = identity.ensureHomeIdentity().home.hostDeviceId;
   remote = path.join(home.root, 'remote.git');
   git(home.root, 'init', '-q', '--bare', '-b', 'main', remote);
   repo = clone('source repo');
@@ -60,8 +60,8 @@ beforeEach(async () => {
   worktree = path.join(home.root, 'source worktree');
   git(repo, 'worktree', 'add', '-q', '-b', branch, worktree, 'main');
   const q = await import('@/lib/db/queries');
-  const key = q.createApiKey({ name: 'Review companion', deviceType: 'computer' });
-  otherId = q.registerComputerForApiKey({ apiKeyId: key.key.id, name: 'Review companion', platform: 'darwin' }).computer.id;
+  const key = q.pairDevice({ name: 'Review companion', kind: 'computer' });
+  otherId = q.registerDeviceForApiKey({ apiKeyId: key.key.id, name: 'Review companion', platform: 'darwin' }).device.id;
   workspaceId = q.createWorkspace({ name: 'Review', cwd: repo, isGit: true, baseBranch: 'main', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false }).id;
   const created = q.createExecutionWithChat({ workspaceId, harness: 'claude', label: 'Review' });
   executionId = created.execution.id;
@@ -83,7 +83,7 @@ afterEach(async () => {
 
 async function moving() {
   const q = await import('@/lib/db/queries');
-  return q.createTransfer({ executionId, fromComputerId: hostId, toComputerId: otherId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
+  return q.createTransfer({ executionId, fromDeviceId: hostId, toDeviceId: otherId, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
 }
 async function savedMessage(content: string) {
   return (await import('@/lib/db/queries')).insertChatEvent({ sessionId: chatId, role: 'user', source: 'user', content, createdAt: new Date().toISOString() })!;
@@ -243,7 +243,7 @@ describe('transfer lifecycle boundaries', () => {
     const pending = archiveExecutionSession({ sessionId: chatId });
     await reached;
     const { startTransfer } = await import('@/lib/transfer/continue');
-    expect(() => startTransfer({ chatSessionId: chatId, toComputerId: otherId, includeUntracked: [], requestedByApiKeyId: null })).toThrow(
+    expect(() => startTransfer({ chatSessionId: chatId, toDeviceId: otherId, includeUntracked: [], requestedByApiKeyId: null })).toThrow(
       "It's being archived right now. Continue once that's done.",
     );
     release();

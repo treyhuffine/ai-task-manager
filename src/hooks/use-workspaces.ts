@@ -75,7 +75,7 @@ export function useRunOn(workspaceId: string | null) {
   });
 }
 
-/** The agent's folders on each of the person's computers (docs/homes-spec.md §4.1). */
+/** The agent's folders on each of the person's devices (docs/homes-spec.md §4.1). */
 export function useAgentFolders(workspaceId: string | null) {
   return useQuery({
     queryKey: [...WORKSPACES_KEY, workspaceId, 'folders'],
@@ -95,12 +95,12 @@ export function useChangeAgentFolders(workspaceId: string) {
   };
   return {
     project: useMutation({
-      mutationFn: (v: { computerId: string; folder: string }) => workspacesApi.setProjectFolder(workspaceId, v.computerId, v.folder),
+      mutationFn: (v: { deviceId: string; folder: string }) => workspacesApi.setProjectFolder(workspaceId, v.deviceId, v.folder),
       onSuccess: settle,
     }),
     linked: useMutation({
-      mutationFn: (v: { computerId: string; referenceFolderId: string; folder: string | null }) =>
-        workspacesApi.setLinkedFolder(workspaceId, v.computerId, v.referenceFolderId, v.folder),
+      mutationFn: (v: { deviceId: string; referenceFolderId: string; folder: string | null }) =>
+        workspacesApi.setLinkedFolder(workspaceId, v.deviceId, v.referenceFolderId, v.folder),
       onSuccess: settle,
     }),
     add: useMutation({
@@ -108,35 +108,35 @@ export function useChangeAgentFolders(workspaceId: string) {
       onSuccess: settle,
     }),
     remove: useMutation({
-      mutationFn: (computerId: string) => workspacesApi.removeFromComputer(workspaceId, computerId),
+      mutationFn: (deviceId: string) => workspacesApi.removeFromDevice(workspaceId, deviceId),
       onSuccess: settle,
     }),
   };
 }
 
-/** A folder's folders on a computer, for choosing one. */
-export function useComputerFolders(computerId: string | null, at: string | null, enabled: boolean) {
+/** A folder's folders on a device, for choosing one. */
+export function useDeviceFolders(deviceId: string | null, at: string | null, enabled: boolean) {
   return useQuery({
-    queryKey: ['computers', computerId, 'folders', at],
-    queryFn: ({ signal }) => workspacesApi.computerFolders(computerId!, at, { signal }),
-    enabled: enabled && !!computerId,
+    queryKey: ['devices', deviceId, 'folders', at],
+    queryFn: ({ signal }) => workspacesApi.deviceFolders(deviceId!, at, { signal }),
+    enabled: enabled && !!deviceId,
     staleTime: 5_000,
     retry: false,
   });
 }
 
-/** What setting the agent up on that computer would do, asked of that computer when the dialog opens. */
-export function useSetupPlan(workspaceId: string | null, computerId: string | null, enabled: boolean) {
+/** What setting the agent up on that device would do, asked of that device when the dialog opens. */
+export function useSetupPlan(workspaceId: string | null, deviceId: string | null, enabled: boolean) {
   return useQuery({
-    queryKey: [...WORKSPACES_KEY, workspaceId, 'setup-plan', computerId],
-    queryFn: ({ signal }) => workspacesApi.setupPlan(workspaceId!, computerId!, { signal }),
-    enabled: enabled && !!workspaceId && !!computerId,
+    queryKey: [...WORKSPACES_KEY, workspaceId, 'setup-plan', deviceId],
+    queryFn: ({ signal }) => workspacesApi.setupPlan(workspaceId!, deviceId!, { signal }),
+    enabled: enabled && !!workspaceId && !!deviceId,
     staleTime: 0,
     retry: false,
   });
 }
 
-/** Set the agent up on a computer from the app. Where it can run follows at once. */
+/** Set the agent up on a device from the app. Where it can run follows at once. */
 export function useSetUpAgent(workspaceId: string | null) {
   const qc = useQueryClient();
   return useMutation({
@@ -149,10 +149,10 @@ export function useSetUpAgent(workspaceId: string | null) {
 }
 
 /** "Make this the default" for an agent's new executions (P3.1). */
-export function useSetDefaultComputer(workspaceId: string | null) {
+export function useSetDefaultDevice(workspaceId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (computerId: string | null) => workspacesApi.setDefaultComputer(workspaceId!, computerId),
+    mutationFn: (deviceId: string | null) => workspacesApi.setDefaultDevice(workspaceId!, deviceId),
     onSuccess: (runOn) => qc.setQueryData([...WORKSPACES_KEY, workspaceId, 'run-on'], runOn),
   });
 }

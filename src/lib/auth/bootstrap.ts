@@ -2,7 +2,7 @@
  * Idempotent local-host bootstrap.
  *
  * On first run (or after a reset):
- *   1. Create an api_keys row for the host machine (deviceType = 'host').
+ *   1. Create an api_keys row for the host machine, on the home's device.
  *   2. Persist the plaintext token to ~/<APP_SHORT_ID>/config.json so
  *      `pnpm auth:pair` can reprint the URL on demand.
  *
@@ -14,7 +14,7 @@ import os from 'node:os';
 import { PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
 import { readAuthConfig, writeAuthConfig } from '@/lib/auth/config-file';
 import { hashToken } from '@/lib/auth/tokens';
-import { createApiKey, findApiKeyByHash } from '@/lib/db/queries';
+import { createApiKey, findApiKeyByHash, getHome } from '@/lib/db/queries';
 import { getRunningPort, setRunningPort } from '@/lib/auth/port';
 import { PUBLIC_BASE_URL_ENV, readLiveServerRuntime } from '@/lib/server-runtime/record';
 
@@ -164,10 +164,13 @@ export function ensureLocalToken(): LocalTokenInfo {
     }
   }
 
+  // The home's own device, once it has one. At first start it doesn't yet,
+  // and the home's identity gives the key its device (`giveHostItsKeys`).
   const { token } = createApiKey({
     name: `${os.hostname()} (host)`,
-    deviceType: 'host',
     description: 'Auto-generated local host token',
+    deviceId: getHome()?.hostDeviceId ?? null,
+    role: 'sign_in',
   });
 
   writeAuthConfig({ localToken: token.plaintext });

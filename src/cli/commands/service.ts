@@ -36,7 +36,7 @@ export function registerServiceCommand(program: Command) {
     await stopService();
     console.info('Ri service stopped. Your data was retained.');
   });
-  service.command('awake [mode]').description('Keep this computer awake on external power: on, off, or status')
+  service.command('awake [mode]').description('Keep this device awake on external power: on, off, or status')
     .action(async (mode = 'status') => {
       if (!['on', 'off', 'status'].includes(mode)) throw new Error('Choose on, off, or status.');
       const running = await serviceStatus();

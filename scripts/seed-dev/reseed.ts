@@ -28,7 +28,8 @@ process.env[APP_ROOT_ENV] = devRoot;
 
 async function main() {
   const { readAuthConfig, writeAuthConfig } = await import('../../src/lib/auth/config-file');
-  const { apiKeys } = await import('../../src/lib/db/schema');
+  const { apiKeys, devices } = await import('../../src/lib/db/schema');
+  const { hashToken } = await import('../../src/lib/auth/tokens');
 
   // ── Snapshot ──────────────────────────────────────────────────────────
   const savedConfig = fs.existsSync(devRoot) ? readAuthConfig() : null;
@@ -61,11 +62,22 @@ async function main() {
 
   // Open the fresh DB (creates schema), then restore api_keys rows so the
   // preserved local token's hash matches an existing row — ensureLocalToken
-  // will then no-op instead of rotating.
+  // will then no-op instead of rotating. Each paired key gets a device of its
+  // own again, as the homes migration gives keys from before devices. The
+  // home's own key waits for the home's identity, which gives it the home's
+  // device. A worker key went with its device, and isn't kept.
   const { getDb } = await import('../../src/lib/db');
   const db = getDb();
-  if (savedApiKeys.length > 0) {
-    db.insert(apiKeys).values(savedApiKeys).run();
+  const hostHash = savedConfig?.localToken ? hashToken(savedConfig.localToken) : null;
+  for (const key of savedApiKeys) {
+    if (key.role === 'worker') continue;
+    const own = key.hash !== hostHash;
+    if (own) {
+      db.insert(devices)
+        .values({ id: key.id, name: key.name, kind: 'other', status: key.revokedAt ? 'revoked' : 'active', revokedAt: key.revokedAt, createdAt: key.createdAt, updatedAt: key.updatedAt })
+        .run();
+    }
+    db.insert(apiKeys).values({ ...key, deviceId: own ? key.id : null }).run();
   }
 
   const { ensureLocalToken } = await import('../../src/lib/auth/bootstrap');

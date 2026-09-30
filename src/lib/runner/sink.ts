@@ -1,6 +1,6 @@
 /**
  * The runner's one sink, installed by whoever hosts the runner: the home's
- * sink in the home's server, a worker's journal on a connected computer.
+ * sink in the home's server, a worker's journal on a connected device.
  * Kept on `globalThis`, like the rest of the runner's state, so Next.js
  * module re-evaluation doesn't lose it.
  */

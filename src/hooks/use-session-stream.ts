@@ -173,14 +173,14 @@ export function useSessionStream(sessionId: string | null): void {
       queryClient.setQueryData<boolean>(reconcilingKey, data.status === 'started');
     };
 
-    // Where a message sent to a computer elsewhere stands (P3.2).
+    // Where a message sent to a device elsewhere stands (P3.2).
     const handleDelivery = (frame: unknown) => {
       const data = frame as { eventId: string; delivery: MessageDelivery };
       noteDeliveryUpdate(sessionId, data.eventId);
       queryClient.setQueryData<Record<string, MessageDelivery>>(deliveriesKey, (prev) => ({ ...(prev ?? {}), [data.eventId]: data.delivery }));
     };
 
-    // Where a move between computers stands (P4.2). When ownership changes,
+    // Where a move between devices stands (P4.2). When ownership changes,
     // where the execution runs, its folder and its messages all change too.
     const transferKey = ['session', sessionId, 'transfer'] as const;
     const handleTransfer = (frame: unknown) => {

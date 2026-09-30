@@ -678,6 +678,13 @@ export interface CalendarBlock {
 
 // ─── API Keys ─────────────────────────────────────────────────
 
+// What a key is for (docs/homes-build.md, "Devices"). `sign_in`: a browser,
+// the phone app or a CLI signs in with it and acts as the owner. `worker`:
+// the key a device's worker runs agents with, issued by enrolling it. It
+// reaches only the worker routes, and a device runs agents while it has an
+// active one. Callers always say which: there is no default.
+export const API_KEY_ROLES = ['sign_in', 'worker'] as const;
+
 export const apiKeys = sqliteTable(
   'api_keys',
   {
@@ -685,9 +692,6 @@ export const apiKeys = sqliteTable(
     ...timestamps,
     name: text().notNull(),
     description: text(),
-    deviceType: text({
-      enum: ['host', 'computer', 'phone', 'tablet', 'service', 'other'],
-    }).notNull(),
     prefix: text().notNull(),
     suffix: text().notNull(),
     hash: text().notNull().unique(),
@@ -698,36 +702,49 @@ export const apiKeys = sqliteTable(
     lastUsedUserAgent: text(),
     revokedAt: text(),
     revokedReason: text(),
-    // The computer this key belongs to, when a computer registered with it
-    // (docs/homes-spec.md §5.1). Links identity only: a viewing key never
-    // gains the authority to run work by being linked.
-    computerId: text().references((): AnySQLiteColumn => computers.id, { onDelete: 'set null' }),
+    // The device this key belongs to (docs/homes-spec.md §5.1). Every key
+    // has one: pairing makes the device together with its first key. Null
+    // only for the home's own key, between its creation at first start and
+    // the home's identity, which gives it the home's device. Identity only:
+    // a key never gains the authority to run work from its device.
+    deviceId: text().references((): AnySQLiteColumn => devices.id, { onDelete: 'set null' }),
+    role: text({ enum: API_KEY_ROLES }).notNull(),
   },
   (table) => [
     index('idx_api_keys_hash').on(table.hash),
-    index('idx_api_keys_computer').on(table.computerId),
+    index('idx_api_keys_device').on(table.deviceId),
     index('idx_api_keys_prefix').on(table.prefix),
     index('idx_api_keys_revoked').on(table.revokedAt),
+    // One worker per device: enrolling again revokes the earlier key first.
+    uniqueIndex('uniq_api_keys_device_worker')
+      .on(table.deviceId)
+      .where(sql`${table.role} = 'worker' AND ${table.revokedAt} IS NULL`),
   ],
 );
 
-// ─── Home and computers ───────────────────────────────────────
+// ─── Home and devices ───────────────────────────────────────
 // docs/homes-spec.md §2.2 and §5.1. `home` is this home's identity: one row,
 // made at boot by `ensureHomeIdentity` (src/lib/home/identity.ts). Its id
-// never changes when the home's address or machine does. `computers` holds
-// each machine enrolled to do work for this home, the home's own machine
-// included. Which row a machine is lives in its `<config>/machine.json`,
-// which backups never carry, so a restored copy can't take itself for the
-// original host.
+// never changes when the home's address or machine does. `devices` holds
+// everything that reaches this home: the home's own machine, the computers
+// that run its agents, and the phones and browsers paired to it. Each api
+// key belongs to one. A device runs agents when it's the home, or while
+// it has an active worker key (`api_keys.role`). Which row a machine is
+// lives in its `<config>/machine.json`, which backups never carry, so a
+// restored copy can't take itself for the original host.
 
-export const computers = sqliteTable(
-  'computers',
+export const DEVICE_KINDS = ['computer', 'phone', 'tablet', 'service', 'other'] as const;
+
+export const devices = sqliteTable(
+  'devices',
   {
     id: text().primaryKey(),
     ...timestamps,
     // What people call it, e.g. "Mac Mini". Editable. A hostname, address or
-    // tunnel URL never identifies a computer (spec §3.3).
+    // tunnel URL never identifies a device (spec §3.3).
     name: text().notNull(),
+    // What it is, as the person said when pairing it. A label: it grants nothing.
+    kind: text({ enum: DEVICE_KINDS }).notNull(),
     // Reported facts, for display and diagnostics only.
     platform: text(),
     hostname: text(),
@@ -735,49 +752,49 @@ export const computers = sqliteTable(
     revokedAt: text(),
     lastSeenAt: text(),
     // What its worker last reported (docs/homes-build.md, P2.2). Null until a
-    // worker reports, and for the home's own computer, whose runner is in
+    // worker reports, and for the home's own device, whose runner is in
     // process.
     workerProtocol: integer(),
     workerVersion: text(),
     harnesses: text({ mode: 'json' }).$type<WorkerHarnessReport[]>(),
     reportedState: text({ enum: ['awake', 'asleep', 'stopped'] }),
-    // The highest contiguous position of this computer's worker journal the
+    // The highest contiguous position of this device's worker journal the
     // home has stored (P2.3). Events at or below it are replays.
     ackedEventSeq: integer().notNull().default(0),
   },
-  (table) => [index('idx_computers_status').on(table.status)],
+  (table) => [index('idx_devices_status').on(table.status)],
 );
 
-// ─── Computer grants and worker enrollments ─────────────────────
+// ─── Device grants ────────────────────────────────────────────
 // A grant is a short-lived, single-use secret the home issues to an owner
-// (docs/homes-build.md, P2.2). Redeeming an `enroll` grant makes a computer
-// a worker: the home issues a new worker key and records its enrollment.
-// Redeeming an `associate` grant links a browser's viewing key to the
-// computer whose worker asked for it. Only the secret's hash is stored.
-export const computerGrants = sqliteTable(
-  'computer_grants',
+// (docs/homes-build.md, P2.2). Redeeming an `enroll` grant makes a device
+// run agents: the home issues it a new worker key. Redeeming an `associate`
+// grant moves a browser's viewing key to the device whose worker asked for
+// it. Only the secret's hash is stored.
+export const deviceGrants = sqliteTable(
+  'device_grants',
   {
     id: text().primaryKey(),
     ...timestamps,
     kind: text({ enum: ['enroll', 'associate'] }).notNull(),
     hash: text().notNull().unique(),
-    // The computer the grant is for. An enroll grant may name none, and then
-    // redeeming it makes a new computer.
-    computerId: text().references(() => computers.id, { onDelete: 'cascade' }),
-    // A name for the computer an enroll grant will make.
-    computerName: text(),
+    // The device the grant is for. An enroll grant may name none, and then
+    // redeeming it makes a new device.
+    deviceId: text().references(() => devices.id, { onDelete: 'cascade' }),
+    // A name for the device an enroll grant will make.
+    deviceName: text(),
     createdByApiKeyId: text().references(() => apiKeys.id, { onDelete: 'set null' }),
     expiresAt: text().notNull(),
     redeemedAt: text(),
     redeemedByApiKeyId: text().references(() => apiKeys.id, { onDelete: 'set null' }),
   },
-  (table) => [index('idx_computer_grants_computer').on(table.computerId)],
+  (table) => [index('idx_device_grants_device').on(table.deviceId)],
 );
 
 // ─── Worker commands ──────────────────────────────────────────
-// What the home asked a computer to do (docs/homes-build.md, P2 protocol and
+// What the home asked a device to do (docs/homes-build.md, P2 protocol and
 // P2.3). Written in the same transaction as what it acts on, before it's
-// streamed. `seq` is the computer's stream order, set when the command is
+// streamed. `seq` is the device's stream order, set when the command is
 // first streamed, so a command cancelled while queued leaves no gap.
 export const WORKER_COMMAND_KINDS = [
   'prepare',
@@ -806,9 +823,9 @@ export const workerCommands = sqliteTable(
   {
     id: text().primaryKey(),
     ...timestamps,
-    computerId: text()
+    deviceId: text()
       .notNull()
-      .references(() => computers.id, { onDelete: 'cascade' }),
+      .references(() => devices.id, { onDelete: 'cascade' }),
     seq: integer(),
     executionId: text(),
     chatSessionId: text(),
@@ -832,10 +849,10 @@ export const workerCommands = sqliteTable(
     uniqueIndex('uniq_worker_commands_source_event')
       .on(table.sourceEventId)
       .where(sql`${table.sourceEventId} IS NOT NULL`),
-    uniqueIndex('uniq_worker_commands_computer_seq')
-      .on(table.computerId, table.seq)
+    uniqueIndex('uniq_worker_commands_device_seq')
+      .on(table.deviceId, table.seq)
       .where(sql`${table.seq} IS NOT NULL`),
-    index('idx_worker_commands_computer_state').on(table.computerId, table.state),
+    index('idx_worker_commands_device_state').on(table.deviceId, table.state),
     index('idx_worker_commands_chat').on(table.chatSessionId),
   ],
 );
@@ -844,7 +861,7 @@ export const workerCommands = sqliteTable(
 // Where an execution runs (docs/homes-build.md, P0.3 Placement, and P2.4).
 // One open placement per execution: the owner, whose generation every
 // execution-scoped command carries. An execution with no row runs on the
-// home's own computer at generation 1, which is every execution made before
+// home's own device at generation 1, which is every execution made before
 // this build. A continuation ends one placement and opens the next (P4).
 export const executionPlacements = sqliteTable(
   'execution_placements',
@@ -854,11 +871,11 @@ export const executionPlacements = sqliteTable(
     executionId: text()
       .notNull()
       .references((): AnySQLiteColumn => executions.id, { onDelete: 'cascade' }),
-    computerId: text()
+    deviceId: text()
       .notNull()
-      .references(() => computers.id),
+      .references(() => devices.id),
     generation: integer().notNull(),
-    // On that computer. Set when its worktree is prepared.
+    // On that device. Set when its worktree is prepared.
     worktreePath: text(),
     // The commit the placement started from, for a continuation.
     checkpointSha: text(),
@@ -871,13 +888,13 @@ export const executionPlacements = sqliteTable(
     uniqueIndex('uniq_execution_placements_open')
       .on(table.executionId)
       .where(sql`${table.endedAt} IS NULL`),
-    index('idx_execution_placements_computer').on(table.computerId),
+    index('idx_execution_placements_device').on(table.deviceId),
   ],
 );
 
 // ─── Transfers ─────────────────────────────────────────────────
 // Continue here (docs/homes-spec.md §8.2, P4.2): moving an execution to
-// another computer. The row is the transfer's record and its lock: one
+// another device. The row is the transfer's record and its lock: one
 // active transfer per execution, and messages sent meanwhile are held on it
 // (`held_event_ids`) and delivered once where the work ends up. Kept after it
 // finishes, whichever way.
@@ -892,12 +909,12 @@ export const executionTransfers = sqliteTable(
     executionId: text()
       .notNull()
       .references((): AnySQLiteColumn => executions.id, { onDelete: 'cascade' }),
-    fromComputerId: text()
+    fromDeviceId: text()
       .notNull()
-      .references(() => computers.id),
-    toComputerId: text()
+      .references(() => devices.id),
+    toDeviceId: text()
       .notNull()
-      .references(() => computers.id),
+      .references(() => devices.id),
     // The placement it moves from. The destination's is set when ownership
     // changes, and never before.
     fromGeneration: integer().notNull(),
@@ -934,7 +951,7 @@ export const executionTransfers = sqliteTable(
 // ─── Native sessions ──────────────────────────────────────────
 // The harness sessions behind a chat, over time (§5.1, P4.3).
 // `chat_sessions.external_session_id` is the current binding; this keeps
-// the earlier ones, with the computer and placement each ran under, when a
+// the earlier ones, with the device and placement each ran under, when a
 // continuation starts a fresh session somewhere else.
 export const nativeSessions = sqliteTable(
   'native_sessions',
@@ -944,7 +961,7 @@ export const nativeSessions = sqliteTable(
     chatSessionId: text()
       .notNull()
       .references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'cascade' }),
-    computerId: text().references(() => computers.id, { onDelete: 'set null' }),
+    deviceId: text().references(() => devices.id, { onDelete: 'set null' }),
     placementId: text().references(() => executionPlacements.id, { onDelete: 'set null' }),
     harness: text().notNull(),
     nativeSessionId: text().notNull(),
@@ -962,8 +979,8 @@ export const nativeSessions = sqliteTable(
 
 // ─── Review checkouts ─────────────────────────────────────────
 // Open code here (§8.1, P4.1): a published commit of an execution checked
-// out on another computer for review, in a folder of its own. The folder
-// and whatever the person edits in it belong to that computer. This is the
+// out on another device for review, in a folder of its own. The folder
+// and whatever the person edits in it belong to that device. This is the
 // home's record of it, for the label ("abc1234 from MacBook") and Refresh.
 export const reviewCheckouts = sqliteTable(
   'review_checkouts',
@@ -973,36 +990,18 @@ export const reviewCheckouts = sqliteTable(
     executionId: text()
       .notNull()
       .references((): AnySQLiteColumn => executions.id, { onDelete: 'cascade' }),
-    computerId: text()
+    deviceId: text()
       .notNull()
-      .references(() => computers.id, { onDelete: 'cascade' }),
-    // The computer the reviewed work runs on, when it was opened.
-    sourceComputerId: text().references(() => computers.id, { onDelete: 'set null' }),
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    // The device the reviewed work runs on, when it was opened.
+    sourceDeviceId: text().references(() => devices.id, { onDelete: 'set null' }),
     path: text().notNull(),
     branch: text().notNull(),
     commitSha: text().notNull(),
     // Last seen with local edits: refresh leaves it as it is.
     dirty: integer({ mode: 'boolean' }).notNull(),
   },
-  (table) => [uniqueIndex('uniq_review_checkouts_execution_computer').on(table.executionId, table.computerId)],
-);
-
-// One row per worker key. Its existence is what makes a key a worker key: a
-// viewing key never gets one, since only redeeming an enroll grant creates a
-// worker key, and it creates a new one.
-export const workerEnrollments = sqliteTable(
-  'worker_enrollments',
-  {
-    apiKeyId: text()
-      .primaryKey()
-      .references(() => apiKeys.id, { onDelete: 'cascade' }),
-    ...timestamps,
-    computerId: text()
-      .notNull()
-      .references(() => computers.id, { onDelete: 'cascade' }),
-    grantId: text().references(() => computerGrants.id, { onDelete: 'set null' }),
-  },
-  (table) => [index('idx_worker_enrollments_computer').on(table.computerId)],
+  (table) => [uniqueIndex('uniq_review_checkouts_execution_device').on(table.executionId, table.deviceId)],
 );
 
 export const home = sqliteTable('home', {
@@ -1011,61 +1010,56 @@ export const home = sqliteTable('home', {
   // A fact set at creation: a personal home, or a team space.
   kind: text({ enum: ['personal', 'team'] }).notNull(),
   name: text().notNull(),
-  // The computer whose in-process runner serves this home. It changes only
+  // The device whose in-process runner serves this home. It changes only
   // when the home moves to another machine.
-  hostComputerId: text()
+  hostDeviceId: text()
     .notNull()
-    .references(() => computers.id),
+    .references(() => devices.id),
 });
 
-// ─── Agent setups ─────────────────────────────────────────────
-// What each computer last reported about an agent's folder on it
-// (docs/homes-spec.md §4.2). The authority is the `.ri.local.json` in that
-// folder on that computer. This is the home's observed index, for display
-// and to check a setup before sending work there. The home never edits a
-// computer's paths through it.
+// ─── Workspace setups ─────────────────────────────────────────
+// An agent's folder on each device it runs on (docs/homes-spec.md §4.1,
+// §4.2): where the person chose it is, and what the device found when it
+// last checked. The home's records are the only place it's kept, and the
+// device checks it before it prepares work there. (The UI calls a
+// workspace an agent.)
 
-export const agentSetups = sqliteTable(
-  'agent_setups',
+export const workspaceSetups = sqliteTable(
+  'workspace_setups',
   {
     id: text().primaryKey(),
     ...timestamps,
     workspaceId: text()
       .notNull()
       .references((): AnySQLiteColumn => workspaces.id, { onDelete: 'cascade' }),
-    computerId: text()
+    deviceId: text()
       .notNull()
-      .references(() => computers.id, { onDelete: 'cascade' }),
-    // The agent's project folder on that computer. The home's records are the
-    // only place it's kept (docs/homes-spec.md §4.1): the computer checks it.
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    // The agent's project folder on that device. The home's records are the
+    // only place it's kept (docs/homes-spec.md §4.1): the device checks it.
     sourcePath: text().notNull(),
-    // Whether the computer found it when it last checked. Null until it has.
+    // Whether the device found it when it last checked. Null until it has.
     found: integer({ mode: 'boolean' }),
-    // Retired with setup files (P1.4): their revision. Kept to the next baseline squash.
-    configRevision: text(),
-    // Its linked folders on that computer, as the home resolves them from
-    // `reference_folders` and `folder_links` with the computer's last check.
-    // Derived: written only by `recomputeAgentSetups`, never edited.
+    // Its linked folders on that device, as the home resolves them from
+    // `reference_folders` and `folder_links` with the device's last check.
+    // Derived: written only by `recomputeWorkspaceSetups`, never edited.
     references: text({ mode: 'json' }).$type<SetupReferenceReport[]>().notNull().default([]),
-    // `ready` once the computer found the project folder and every linked
+    // `ready` once the device found the project folder and every linked
     // folder is chosen and found, `unchecked` until it has looked (work can
-    // start: it checks again before it prepares). The file-era values
-    // (missing_file, invalid_config, wrong_home, duplicate) are no longer written.
-    status: text({
-      enum: ['ready', 'unchecked', 'missing_folder', 'missing_file', 'invalid_config', 'wrong_home', 'missing_reference', 'duplicate'],
-    }).notNull(),
+    // start: it checks again before it prepares).
+    status: text({ enum: ['ready', 'unchecked', 'missing_folder', 'missing_reference'] }).notNull(),
     problem: text(),
-    // When the computer last checked it, or when it was last changed.
+    // When the device last checked it, or when it was last changed.
     reportedAt: text().notNull(),
   },
   (table) => [
-    uniqueIndex('uniq_agent_setups_agent_computer').on(table.workspaceId, table.computerId),
-    index('idx_agent_setups_computer').on(table.computerId),
+    uniqueIndex('uniq_workspace_setups_workspace_device').on(table.workspaceId, table.deviceId),
+    index('idx_workspace_setups_device').on(table.deviceId),
   ],
 );
 
 /**
- * One harness as a worker found it on its computer: the view the harness
+ * One harness as a worker found it on its device: the view the harness
  * runtime gives (src/lib/harness/runtime.ts `HarnessRuntimeView`), as JSON.
  */
 export interface WorkerHarnessReport {
@@ -1074,7 +1068,7 @@ export interface WorkerHarnessReport {
   capabilities: Record<string, { supported: boolean; status?: string; reason?: string | null }>;
 }
 
-/** One linked folder of an agent on a computer, as the home resolves it (`recomputeAgentSetups`). */
+/** One linked folder of an agent on a device, as the home resolves it (`recomputeWorkspaceSetups`). */
 export interface SetupReferenceReport {
   alias: string;
   value?: string | { agentId: string } | null;
@@ -1142,12 +1136,12 @@ export const workspaces = sqliteTable(
     // and to every execution it starts. Null means none. Capped in the query
     // layer.
     instructions: text(),
-    // The computer this agent's new executions run on, as the person chose
+    // The device this agent's new executions run on, as the person chose
     // with "Make this the default" (docs/homes-spec.md §3.3, P3.1). Null means
     // never chosen: resolved at read time to the home when its setup is
-    // usable, otherwise the first computer set up for the agent. A one-off
+    // usable, otherwise the first device set up for the agent. A one-off
     // "Run on" choice never changes it.
-    defaultComputerId: text().references((): AnySQLiteColumn => computers.id, { onDelete: 'set null' }),
+    defaultDeviceId: text().references((): AnySQLiteColumn => devices.id, { onDelete: 'set null' }),
     position: integer().notNull().default(0),
     collapsed: integer({ mode: 'boolean' }).notNull(),
     // When true, the Live-session explainer modal is skipped for this workspace
@@ -1195,9 +1189,10 @@ export const referenceFolders = sqliteTable(
     // What the user types after `@`. Lowercase `[a-z0-9][a-z0-9._-]*`, so the
     // mention parser never has to disambiguate an alias from a path.
     alias: text().notNull(),
-    // Retired in 0011: the home's path for a folder, which moved to
-    // `folder_links` with every other computer's. Read only by the boot step
-    // that moves it (`moveFolderRecords`). Kept to the next baseline squash.
+    // Retired by the homes build: the home's path for a folder, which moved
+    // to `folder_links` with every other device's. Read only by the boot
+    // step that moves it (`moveFolderRecords`). Kept to the next baseline
+    // squash.
     path: text(),
     // Workspace target. Resolved to that workspace's `cwd` at read time so the
     // reference survives the folder moving. Mutually exclusive with `path`.
@@ -1230,9 +1225,9 @@ export const referenceFolders = sqliteTable(
 );
 
 /**
- * Where a linked folder is on one computer (docs/homes-spec.md §4.1): the
+ * Where a linked folder is on one device (docs/homes-spec.md §4.1): the
  * home's record, the only one kept. A linked folder for every agent has one
- * place per computer, shared by every agent there. A linked folder that's
+ * place per device, shared by every agent there. A linked folder that's
  * another agent has no links: it's that agent's project folder there.
  */
 export const folderLinks = sqliteTable(
@@ -1240,20 +1235,20 @@ export const folderLinks = sqliteTable(
   {
     id: text().primaryKey(),
     ...timestamps,
-    computerId: text()
+    deviceId: text()
       .notNull()
-      .references(() => computers.id, { onDelete: 'cascade' }),
+      .references(() => devices.id, { onDelete: 'cascade' }),
     referenceFolderId: text()
       .notNull()
       .references(() => referenceFolders.id, { onDelete: 'cascade' }),
-    // Where it is on that computer. Null: that computer goes without it.
+    // Where it is on that device. Null: that device goes without it.
     path: text(),
-    // Whether the computer found it when it last checked. Null until it has.
+    // Whether the device found it when it last checked. Null until it has.
     found: integer({ mode: 'boolean' }),
     checkedAt: text(),
   },
   (table) => [
-    uniqueIndex('uniq_folder_links_computer_reference').on(table.computerId, table.referenceFolderId),
+    uniqueIndex('uniq_folder_links_device_reference').on(table.deviceId, table.referenceFolderId),
     index('idx_folder_links_reference').on(table.referenceFolderId),
   ],
 );
@@ -1541,12 +1536,12 @@ export const chatSessions = sqliteTable(
     // execution is ever hard-deleted (workspace deletion cascade), the chat
     // survives as an orphaned-but-readable transcript.
     executionId: text().references((): AnySQLiteColumn => executions.id, { onDelete: 'set null' }),
-    // The computer a chat without an execution runs on (docs/homes-build.md,
-    // P0.3 Placement). Null is the home's own computer, which is right for the
+    // The device a chat without an execution runs on (docs/homes-build.md,
+    // P0.3 Placement). Null is the home's own device, which is right for the
     // app's main chat, content chats and scheduled orchestrator fires. An
-    // agent main chat fixed to a connected computer has it set. Execution
+    // agent main chat fixed to a connected device has it set. Execution
     // chats run where their execution's placement says.
-    computerId: text().references((): AnySQLiteColumn => computers.id, { onDelete: 'set null' }),
+    deviceId: text().references((): AnySQLiteColumn => devices.id, { onDelete: 'set null' }),
 
     // Provenance: the run that created this chat. NULL for chats the user
     // opened directly without a run kicking them off (manual chat send from
@@ -1688,9 +1683,9 @@ export const externalSessionImports = sqliteTable(
       .references(() => chatSessions.id, { onDelete: 'cascade' }),
     providerType: text().notNull(),
     externalSessionId: text().notNull(),
-    // The computer whose native files these are (docs/homes-build.md, P2.9).
-    // Null: the home's own. A session's identity is (computer, provider, id).
-    computerId: text().references((): AnySQLiteColumn => computers.id),
+    // The device whose native files these are (docs/homes-build.md, P2.9).
+    // Null: the home's own. A session's identity is (device, provider, id).
+    deviceId: text().references((): AnySQLiteColumn => devices.id),
     sourceKind: text({ enum: ['file', 'service'] }).notNull(),
     sourcePath: text(),
     sourceSize: integer(),
@@ -1709,14 +1704,14 @@ export const externalSessionImports = sqliteTable(
   },
   (table) => [
     // One import per native session: per provider on the home's own
-    // computer, and per computer and provider on a connected one. Two partial
+    // device, and per device and provider on a connected one. Two partial
     // indexes, since SQLite treats every NULL as distinct.
     uniqueIndex('external_session_imports_source_uq')
       .on(table.providerType, table.externalSessionId)
-      .where(sql`${table.computerId} IS NULL`),
+      .where(sql`${table.deviceId} IS NULL`),
     uniqueIndex('external_session_imports_remote_source_uq')
-      .on(table.computerId, table.providerType, table.externalSessionId)
-      .where(sql`${table.computerId} IS NOT NULL`),
+      .on(table.deviceId, table.providerType, table.externalSessionId)
+      .where(sql`${table.deviceId} IS NOT NULL`),
     index('external_session_imports_status_idx').on(table.status),
   ],
 );

@@ -5,7 +5,7 @@
  * through the home sink, which applies each event or signal in its own
  * transaction, and a worker's journaled events arrive at
  * `POST /api/workers/me/events`, where each is applied in a transaction that
- * also advances the computer's journal position. Everything is idempotent by
+ * also advances the device's journal position. Everything is idempotent by
  * key, so a replay changes nothing:
  *
  * - a chat event inserts by id, and nothing happens on conflict;
@@ -67,7 +67,7 @@ export function applyChatEvent(row: CreateChatEventInput, opts: { cumulative: bo
 }
 
 /**
- * Apply one signal. `from` names the connected computer that reported it,
+ * Apply one signal. `from` names the connected device that reported it,
  * whose live state the home mirrors; absent for the home's own runner, whose
  * state the facade reads directly.
  */
@@ -75,9 +75,9 @@ export function applyRunnerSignal(
   chatSessionId: string,
   signal: RunnerSignal,
   after: AfterCommit,
-  from: { computerId: string } | null = null,
+  from: { deviceId: string } | null = null,
 ): void {
-  if (from) after.tasks.push(() => mirrorSignal(from.computerId, chatSessionId, signal));
+  if (from) after.tasks.push(() => mirrorSignal(from.deviceId, chatSessionId, signal));
   switch (signal.type) {
     case 'running':
       after.tasks.push(() => publishRuntime(chatSessionId, signal.running));
@@ -102,7 +102,7 @@ export function applyRunnerSignal(
             chatSessionId,
             harness: session.harness,
             nativeSessionId: signal.nativeSessionId,
-            computerId: from?.computerId ?? getHome()?.hostComputerId ?? null,
+            deviceId: from?.deviceId ?? getHome()?.hostDeviceId ?? null,
             placementId: open?.id ?? null,
           });
         });
@@ -129,33 +129,33 @@ export function applyRunnerSignal(
 
 /**
  * Store a batch of a worker's journaled events, in order, one transaction
- * each, advancing the computer's journal position with it. A position at or
+ * each, advancing the device's journal position with it. A position at or
  * below the stored one is a replay and is skipped. A gap stops the batch, and
  * the worker resends from the position returned.
  *
- * An event for a chat that doesn't run on this computer is not applied, and
+ * An event for a chat that doesn't run on this device is not applied, and
  * its position still advances: the worker can't make it applicable by
  * resending it, and holding the journal on it would stop everything after.
  */
 export function applyWorkerEvents(
-  computerId: string,
+  deviceId: string,
   events: WorkerEvent[],
 ): { acked: number; refused: number[] } {
   const refused: number[] = [];
-  let acked = getAckedEventSeq(computerId);
+  let acked = getAckedEventSeq(deviceId);
   for (const event of [...events].sort((a, b) => a.position - b.position)) {
     if (event.position <= acked) continue;
     if (event.position !== acked + 1) break;
     const outcome = inTransaction((after) => {
       // Read the position again inside the transaction: another request for
-      // the same computer may have applied this event already.
-      const current = getAckedEventSeq(computerId);
+      // the same device may have applied this event already.
+      const current = getAckedEventSeq(deviceId);
       if (event.position <= current) return { position: current, refused: false };
       if (event.position !== current + 1) return { position: current, refused: false };
-      const standing = eventStanding(computerId, event);
+      const standing = eventStanding(deviceId, event);
       const allowed = standing !== 'refused';
-      if (allowed) applyWorkerEvent(computerId, event, after, standing === 'history');
-      setAckedEventSeq(computerId, event.position);
+      if (allowed) applyWorkerEvent(deviceId, event, after, standing === 'history');
+      setAckedEventSeq(deviceId, event.position);
       return { position: event.position, refused: !allowed };
     });
     if (outcome.refused) refused.push(event.position);
@@ -163,62 +163,62 @@ export function applyWorkerEvents(
     acked = outcome.position;
   }
   if (refused.length > 0) {
-    console.warn(`[workers] ${computerId} sent events for chats that don't run on it, at positions ${refused.join(', ')}`);
+    console.warn(`[workers] ${deviceId} sent events for chats that don't run on it, at positions ${refused.join(', ')}`);
   }
   return { acked, refused };
 }
 
 /**
- * Whether a computer may report this event, and how it counts (P2 protocol,
+ * Whether a device may report this event, and how it counts (P2 protocol,
  * Fencing and Events): `current` from the chat's placement now, `history`
- * from a placement this computer held before, which is stored because it
+ * from a placement this device held before, which is stored because it
  * happened but changes no live state, or `refused`.
  */
-function eventStanding(computerId: string, event: WorkerEvent): 'current' | 'history' | 'refused' {
+function eventStanding(deviceId: string, event: WorkerEvent): 'current' | 'history' | 'refused' {
   if (!getChatSession(event.chatSessionId)) return 'refused';
   const placement = chatPlacement(event.chatSessionId);
   if (!placement) return 'refused';
-  if (placement.executionId === null) return placement.computerId === computerId && !placement.isHome ? 'current' : 'refused';
+  if (placement.executionId === null) return placement.deviceId === deviceId && !placement.isHome ? 'current' : 'refused';
   // The worker stamps the generation that ran it. Without one, there's no
   // telling which placement it belongs to, and the one here now isn't a
   // guess worth making (P2 review fixes).
   const generation = event.generation;
   if (generation === null) return 'refused';
-  if (placement.computerId === computerId && placement.generation === generation) return 'current';
-  return heldPlacement(placement.executionId, computerId, generation) ? 'history' : 'refused';
+  if (placement.deviceId === deviceId && placement.generation === generation) return 'current';
+  return heldPlacement(placement.executionId, deviceId, generation) ? 'history' : 'refused';
 }
 
 /**
  * The run a worker's event belongs to, when it's the run of one of this
- * computer's sends for that chat. Anything else a worker names about runs or
+ * device's sends for that chat. Anything else a worker names about runs or
  * turns is ignored: its chat being its own doesn't make another chat's run
  * or turn its to finish.
  */
-function ownRun(computerId: string, chatSessionId: string, runId: string | null | undefined): string | null {
+function ownRun(deviceId: string, chatSessionId: string, runId: string | null | undefined): string | null {
   if (!runId) return null;
-  return sendForRun(computerId, chatSessionId, runId) ? runId : null;
+  return sendForRun(deviceId, chatSessionId, runId) ? runId : null;
 }
 
-function applyWorkerEvent(computerId: string, event: WorkerEvent, after: AfterCommit, historyOnly: boolean): void {
+function applyWorkerEvent(deviceId: string, event: WorkerEvent, after: AfterCommit, historyOnly: boolean): void {
   if (event.kind === 'chat_event') {
-    // Files a computer names never become chips here: their bytes would be
-    // on that computer only (P2.5, "Attachments and artifacts"). A result's
+    // Files a device names never become chips here: their bytes would be
+    // on that device only (P2.5, "Attachments and artifacts"). A result's
     // cost goes to the run the worker says it came from, when that run is
     // one of its sends, and never to whatever run is active here now: an
     // old placement's result must not charge the new one's run.
     applyChatEvent(
       { ...event.chatEvent, attachments: undefined, id: event.eventId, sessionId: event.chatSessionId },
-      { cumulative: event.cumulative, runId: ownRun(computerId, event.chatSessionId, event.runId) },
+      { cumulative: event.cumulative, runId: ownRun(deviceId, event.chatSessionId, event.runId) },
     );
     return;
   }
   const { signal } = event;
   if (signal.type === 'turn_result') {
-    // Bound to the send that started the turn: this computer's, for this
+    // Bound to the send that started the turn: this device's, for this
     // chat, from the placement that ran it. Its run is the send's.
-    const send = sendForTurn(computerId, event.chatSessionId, signal.turnId);
+    const send = sendForTurn(deviceId, event.chatSessionId, signal.turnId);
     if (!send || (send.executionId !== null && send.generation !== event.generation)) {
-      console.warn(`[workers] ${computerId} reported a turn it wasn't sent, for ${event.chatSessionId}. Ignored.`);
+      console.warn(`[workers] ${deviceId} reported a turn it wasn't sent, for ${event.chatSessionId}. Ignored.`);
       return;
     }
     const runId = (send.payload as { runId?: string | null } | null)?.runId ?? null;
@@ -229,11 +229,11 @@ function applyWorkerEvent(computerId: string, event: WorkerEvent, after: AfterCo
       after.tasks.push(() => settleTurn(signal.turnId, signal.ok ? null : signal.error ?? 'The turn failed'));
       return;
     }
-    applyRunnerSignal(event.chatSessionId, { ...signal, runId }, after, { computerId });
+    applyRunnerSignal(event.chatSessionId, { ...signal, runId }, after, { deviceId });
     return;
   }
   if (historyOnly) return;
-  applyRunnerSignal(event.chatSessionId, signal, after, { computerId });
+  applyRunnerSignal(event.chatSessionId, signal, after, { deviceId });
 }
 
 function turnOutcome(signal: Extract<RunnerSignal, { type: 'turn_result' }>) {

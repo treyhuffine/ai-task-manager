@@ -1,5 +1,5 @@
 /**
- * Starting an execution on a connected computer (docs/homes-build.md, P2.4),
+ * Starting an execution on a connected device (docs/homes-build.md, P2.4),
  * end to end: the home places it there, the worker prepares a worktree from
  * its own copy of the agent's repository, found through its own setup files,
  * runs the agent's setup script as a separate command, and carries out a
@@ -21,7 +21,7 @@ let home: TestHome;
 let server: HomeServer;
 let worker: WorkerProcess | null = null;
 let laptopRoot: string;
-let computerId: string;
+let deviceId: string;
 let workspaceId: string;
 let repo: string;
 
@@ -35,8 +35,8 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   const homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
-  const laptop = q.createApiKey({ name: 'Laptop CLI', deviceType: 'computer' });
-  computerId = q.registerComputerForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).computer.id;
+  const laptop = q.pairDevice({ name: 'Laptop', kind: 'computer' });
+  deviceId = q.registerDeviceForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).device.id;
   server = await startHomeServer();
 
   // The agent, known to the home.
@@ -68,7 +68,7 @@ beforeEach(async () => {
   q.createReferenceFolder({ workspaceId: ws.id, alias: 'secrets', path: path.join(home.root, 'secrets-on-the-mini') });
   fs.mkdirSync(path.join(laptopRoot, 'projects', 'docs'), { recursive: true });
   // As the home records them: the worker is sent its folders when it connects.
-  await setUpAgentOn(ws.id, computerId, repo, { links: { docs: path.join(laptopRoot, 'projects', 'docs'), secrets: null } });
+  await setUpAgentOn(ws.id, deviceId, repo, { links: { docs: path.join(laptopRoot, 'projects', 'docs'), secrets: null } });
 
   const grant = await fetch(`${server.url}/api/workers/grants`, {
     method: 'POST',
@@ -81,7 +81,7 @@ beforeEach(async () => {
     body: JSON.stringify({ code: grant.code, name: 'laptop', protocol: WORKER_PROTOCOL, version: 'test' }),
   }).then((r) => r.json() as Promise<{ workerKey: string }>);
   worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
-  await until(() => (q.getComputer(computerId)?.harnesses?.length ?? 0) > 0, "the laptop's harness report");
+  await until(() => (q.getDevice(deviceId)?.harnesses?.length ?? 0) > 0, "the laptop's harness report");
 }, 60_000);
 
 afterEach(async () => {
@@ -107,7 +107,7 @@ async function until(check: () => boolean | Promise<boolean>, what: string, ms =
   throw new Error(`Timed out waiting for ${what}.\n${worker?.output() ?? ''}`);
 }
 
-describe('starting an execution on a connected computer', () => {
+describe('starting an execution on a connected device', () => {
   it('prepares it there from its own repository, and runs a message sent before that finished', async () => {
     const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
     const { ensureWorktreeReady } = await import('@/lib/runs/dispatch');
@@ -115,10 +115,10 @@ describe('starting an execution on a connected computer', () => {
     const q = await import('@/lib/db/queries');
 
     const person = { source: 'human' as const, sessionId: null, apiKeyId: 'phone-key' };
-    const session = await dispatchExecutionSession({ workspaceId, computerId, label: 'Fix the readme', actor: person });
-    expect(q.getOpenPlacement(session.executionId!)).toMatchObject({ computerId, generation: 1, worktreePath: null });
+    const session = await dispatchExecutionSession({ workspaceId, deviceId, label: 'Fix the readme', actor: person });
+    expect(q.getOpenPlacement(session.executionId!)).toMatchObject({ deviceId, generation: 1, worktreePath: null });
     // The prepare carries who started it (P2.6).
-    expect(q.listWorkerCommands(computerId).find((c) => c.kind === 'prepare')).toMatchObject({ actor: person });
+    expect(q.listWorkerCommands(deviceId).find((c) => c.kind === 'prepare')).toMatchObject({ actor: person });
 
     // What the messages route does, at once, with the worktree not made yet.
     expect(await ensureWorktreeReady(session.id, q.getExecution(session.executionId!)!)).toEqual({ ok: true });
@@ -140,8 +140,8 @@ describe('starting an execution on a connected computer', () => {
     expect(fs.readFileSync(path.join(placement.worktreePath!, 'SETUP_RAN'), 'utf8')).toBe('set up on the laptop\n');
     // The setup script is queued when the prepare is acknowledged, which can
     // be before or after the send: both run after the prepare, in order.
-    await until(() => q.listWorkerCommands(computerId).every((c) => c.state === 'delivered'), 'every acknowledgement');
-    const kinds = q.listWorkerCommands(computerId).map((c) => c.kind);
+    await until(() => q.listWorkerCommands(deviceId).every((c) => c.state === 'delivered'), 'every acknowledgement');
+    const kinds = q.listWorkerCommands(deviceId).map((c) => c.kind);
     expect(kinds[0]).toBe('prepare');
     expect([...kinds].sort()).toEqual(['prepare', 'run_script', 'send']);
   }, 90_000);
@@ -150,7 +150,7 @@ describe('starting an execution on a connected computer', () => {
     const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
     const q = await import('@/lib/db/queries');
     const { NextRequest } = await import('next/server');
-    const session = await dispatchExecutionSession({ workspaceId, computerId, label: 'Look around' });
+    const session = await dispatchExecutionSession({ workspaceId, deviceId, label: 'Look around' });
     await until(() => !!q.getOpenPlacement(session.executionId!)?.worktreePath, 'the worktree');
     const worktree = q.getOpenPlacement(session.executionId!)!.worktreePath!;
     fs.writeFileSync(path.join(worktree, 'NOTES.md'), 'written on the laptop\n');
@@ -186,7 +186,7 @@ describe('starting an execution on a connected computer', () => {
     const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
     const q = await import('@/lib/db/queries');
     const { NextRequest } = await import('next/server');
-    const session = await dispatchExecutionSession({ workspaceId, computerId, label: 'Edit there' });
+    const session = await dispatchExecutionSession({ workspaceId, deviceId, label: 'Edit there' });
     await until(() => !!q.getOpenPlacement(session.executionId!)?.worktreePath, 'the worktree');
     const worktree = q.getOpenPlacement(session.executionId!)!.worktreePath!;
     const ctx = { params: Promise.resolve({ id: session.id }) };
@@ -229,7 +229,7 @@ describe('starting an execution on a connected computer', () => {
     // A change from an earlier placement is refused there.
     const { requestWorker } = await import('@/lib/workers/hub');
     const ws = q.getWorkspace(workspaceId)!;
-    expect(await requestWorker(computerId, 'write_execution', {
+    expect(await requestWorker(deviceId, 'write_execution', {
       executionId: session.executionId, generation: 0, baseSha: null,
       workspace: { id: ws.id, isGit: true, baseBranch: 'main', filesToCopy: [] },
       write: { kind: 'write', path: 'NOTES.md', content: 'stale' },
@@ -255,7 +255,7 @@ describe('starting an execution on a connected computer', () => {
     const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
     const { dispatch } = await import('@/lib/executor/adapter');
     const q = await import('@/lib/db/queries');
-    const session = await dispatchExecutionSession({ workspaceId, computerId, label: 'Where am I' });
+    const session = await dispatchExecutionSession({ workspaceId, deviceId, label: 'Where am I' });
     const message = q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'INSTRUCTIONS', createdAt: new Date().toISOString() })!;
     await dispatch(session.id, 'INSTRUCTIONS', { sourceEventId: message.id });
     const instructions = q.listChatEvents(session.id).find((e) => e.source === 'agent')!.content!;
@@ -264,7 +264,7 @@ describe('starting an execution on a connected computer', () => {
     const file = path.join(laptopRoot, '.work', 'session-instructions', `${session.id}.environment.json`);
     const environment = JSON.parse(fs.readFileSync(file, 'utf8'));
     expect(environment).toMatchObject({
-      computerName: 'Laptop',
+      deviceName: 'Laptop',
       agent: { id: workspaceId, name: 'Demo' },
       cwd: worktree,
       sourceFolder: repo,
@@ -278,7 +278,7 @@ describe('starting an execution on a connected computer', () => {
     });
     expect(instructions).toContain('## Your environment');
     expect(instructions).toContain(`\`${file}\``);
-    expect(instructions).toContain('- secrets: left out on this computer');
+    expect(instructions).toContain('- secrets: left out on this device');
     // Nothing of the home's paths, and nothing of Ri's written into the
     // repository: only what the agent's own setup put there (its copied
     // file, and its setup script's output).
@@ -287,24 +287,24 @@ describe('starting an execution on a connected computer', () => {
     expect(git(worktree, 'status', '--porcelain').split('\n').sort()).toEqual(['?? .env.local', '?? SETUP_RAN']);
   }, 90_000);
 
-  it("refuses a computer the agent isn't set up on, saying so", async () => {
+  it("refuses a device the agent isn't set up on, saying so", async () => {
     const q = await import('@/lib/db/queries');
-    const other = q.createApiKey({ name: 'Other CLI', deviceType: 'computer' });
-    const otherComputer = q.registerComputerForApiKey({ apiKeyId: other.key.id, name: 'Other', platform: 'darwin' }).computer;
-    const { dispatchExecutionSession, ComputerUnavailableForDispatch } = await import('@/lib/sessions/dispatch');
-    await expect(dispatchExecutionSession({ workspaceId, computerId: otherComputer.id })).rejects.toBeInstanceOf(
-      ComputerUnavailableForDispatch,
+    const other = q.pairDevice({ name: 'Other', kind: 'computer' });
+    const otherDevice = q.registerDeviceForApiKey({ apiKeyId: other.key.id, name: 'Other', platform: 'darwin' }).device;
+    const { dispatchExecutionSession, DeviceUnavailableForDispatch } = await import('@/lib/sessions/dispatch');
+    await expect(dispatchExecutionSession({ workspaceId, deviceId: otherDevice.id })).rejects.toBeInstanceOf(
+      DeviceUnavailableForDispatch,
     );
-    await expect(dispatchExecutionSession({ workspaceId, computerId: otherComputer.id })).rejects.toThrow(/isn't set up to run agents/);
+    await expect(dispatchExecutionSession({ workspaceId, deviceId: otherDevice.id })).rejects.toThrow(/isn't set up to run agents/);
   });
 
   it('says its folder there is gone when it went while the laptop was connected, before placing anything there', async () => {
     const q = await import('@/lib/db/queries');
-    expect(q.getAgentSetup(workspaceId, computerId)).toMatchObject({ status: 'ready', found: true });
+    expect(q.getWorkspaceSetup(workspaceId, deviceId)).toMatchObject({ status: 'ready', found: true });
     fs.renameSync(repo, `${repo}-moved`);
     const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
-    await expect(dispatchExecutionSession({ workspaceId, computerId })).rejects.toThrow(`Demo's folder on Laptop, ${repo}, isn't there.`);
-    expect(q.getAgentSetup(workspaceId, computerId)).toMatchObject({ status: 'missing_folder', found: false });
+    await expect(dispatchExecutionSession({ workspaceId, deviceId })).rejects.toThrow(`Demo's folder on Laptop, ${repo}, isn't there.`);
+    expect(q.getWorkspaceSetup(workspaceId, deviceId)).toMatchObject({ status: 'missing_folder', found: false });
     expect(q.listWorkspaceExecutions(workspaceId)).toHaveLength(0);
   });
 });

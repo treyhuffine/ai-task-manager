@@ -1,5 +1,5 @@
 /**
- * Files the person attached, from the home to the computer a message went
+ * Files the person attached, from the home to the device a message went
  * to (docs/homes-build.md, "Attachments and artifacts", P2.5): the worker
  * attachment route's rules, and the worker's fetch, check and store, against
  * the home's real proxy and routes.
@@ -18,7 +18,7 @@ import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 let home: TestHome;
 let server: HomeServer;
 let homeId: string;
-let laptop: { computerId: string; target: WorkerTarget };
+let laptop: { deviceId: string; target: WorkerTarget };
 let executionId: string;
 let chatId: string;
 let laptopDir: string;
@@ -30,7 +30,7 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   homeId = identity.ensureHomeIdentity().home.id;
   server = await startHomeServer();
-  laptop = await enrollComputer('Laptop');
+  laptop = await enrollDevice('Laptop');
 
   const q = await import('@/lib/db/queries');
   const ws = q.createWorkspace({
@@ -45,7 +45,7 @@ beforeEach(async () => {
   const created = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Remote work' });
   executionId = created.execution.id;
   chatId = created.session.id;
-  q.createPlacement({ executionId, computerId: laptop.computerId, startReason: 'created', worktreePath: '/laptop/demo' });
+  q.createPlacement({ executionId, deviceId: laptop.deviceId, startReason: 'created', worktreePath: '/laptop/demo' });
 });
 
 afterEach(async () => {
@@ -57,10 +57,10 @@ afterEach(async () => {
   fs.rmSync(laptopDir, { recursive: true, force: true });
 });
 
-async function enrollComputer(name: string): Promise<{ computerId: string; target: WorkerTarget; cliKey: string }> {
+async function enrollDevice(name: string): Promise<{ deviceId: string; target: WorkerTarget; cliKey: string }> {
   const q = await import('@/lib/db/queries');
-  const cli = q.createApiKey({ name: `${name} CLI`, deviceType: 'computer' });
-  const computerId = q.registerComputerForApiKey({ apiKeyId: cli.key.id, name, platform: 'darwin' }).computer.id;
+  const cli = q.pairDevice({ name, kind: 'computer' });
+  const deviceId = q.registerDeviceForApiKey({ apiKeyId: cli.key.id, name, platform: 'darwin' }).device.id;
   const grant = await fetch(`${server.url}/api/workers/grants`, {
     method: 'POST',
     headers: { authorization: `Bearer ${cli.token.plaintext}`, 'content-type': 'application/json' },
@@ -72,9 +72,9 @@ async function enrollComputer(name: string): Promise<{ computerId: string; targe
     body: JSON.stringify({ code: grant.code, name, protocol: WORKER_PROTOCOL, version: 'test' }),
   }).then((r) => r.json() as Promise<{ workerKey: string }>);
   return {
-    computerId,
+    deviceId,
     cliKey: cli.token.plaintext,
-    target: { homeUrl: server.url, homeId, homeName: 'My Ri', computerName: name, workerKey },
+    target: { homeUrl: server.url, homeId, homeName: 'My Ri', deviceName: name, workerKey },
   };
 }
 
@@ -90,7 +90,7 @@ async function sentWith(files: Attachment[]) {
   const message = `read ${files.map((f) => `[[file:${f.fileName}]]`).join(' ')}`;
   const attachments = await describeInputFiles(message, files);
   const command = q.queueWorkerCommand({
-    computerId: laptop.computerId,
+    deviceId: laptop.deviceId,
     kind: 'send',
     payload: { spec: { chatSessionId: chatId }, message, turnId: 't', runId: null, attachments },
     actor: { source: 'human' },
@@ -98,7 +98,7 @@ async function sentWith(files: Attachment[]) {
     executionId,
     generation: 1,
   });
-  q.takeCommandsForStream(laptop.computerId, 0);
+  q.takeCommandsForStream(laptop.deviceId, 0);
   return { commandId: command.id, attachments };
 }
 
@@ -111,7 +111,7 @@ async function get(key: string, fileName: string, commandId: string | null) {
 }
 
 describe('the worker attachment route', () => {
-  it('serves a file only for the send that carries it, to the computer it went to, while that send waits', async () => {
+  it('serves a file only for the send that carries it, to the device it went to, while that send waits', async () => {
     const q = await import('@/lib/db/queries');
     const notes = await attach('shopping list');
     const other = await attach('not for the laptop', 'other.txt');
@@ -123,13 +123,13 @@ describe('the worker attachment route', () => {
     expect(await get(key, 'notes..txt', commandId)).toMatchObject({ status: 400, body: { error: 'invalid_params' } });
     expect(await get(key, other.fileName, commandId)).toMatchObject({ status: 404, body: { error: 'not_found' } });
 
-    // Another enrolled computer, or a key that isn't a worker's.
-    const desktop = await enrollComputer('Desktop');
+    // Another enrolled device, or a key that isn't a worker's.
+    const desktop = await enrollDevice('Desktop');
     expect(await get(desktop.target.workerKey, notes.fileName, commandId)).toMatchObject({ status: 404 });
     expect((await get(desktop.cliKey, notes.fileName, commandId)).status).toBe(403);
 
     // Once delivered, the send no longer needs it.
-    q.ackWorkerCommand(laptop.computerId, commandId, { state: 'delivered' });
+    q.ackWorkerCommand(laptop.deviceId, commandId, { state: 'delivered' });
     expect(await get(key, notes.fileName, commandId)).toMatchObject({ status: 409, body: { error: 'not_waiting' } });
   });
 
@@ -137,7 +137,7 @@ describe('the worker attachment route', () => {
     const q = await import('@/lib/db/queries');
     const notes = await attach('shopping list');
     const { commandId } = await sentWith([notes]);
-    q.createPlacement({ executionId, computerId: laptop.computerId, startReason: 'continued', worktreePath: '/laptop/demo' });
+    q.createPlacement({ executionId, deviceId: laptop.deviceId, startReason: 'continued', worktreePath: '/laptop/demo' });
     expect(await get(laptop.target.workerKey, notes.fileName, commandId)).toMatchObject({ status: 409, body: { error: 'stale' } });
   });
 });
@@ -204,13 +204,13 @@ describe("the worker's copy", () => {
   });
 });
 
-describe('files a computer names', () => {
-  it('never become chips at home, since their bytes are on that computer only', async () => {
+describe('files a device names', () => {
+  it('never become chips at home, since their bytes are on that device only', async () => {
     const { applyWorkerEvents } = await import('@/lib/executor/apply');
     const q = await import('@/lib/db/queries');
     const notes = await attach('made on the laptop');
     const chatEvent = { role: 'assistant', source: 'agent', content: 'here it is', attachments: [notes] };
-    applyWorkerEvents(laptop.computerId, [
+    applyWorkerEvents(laptop.deviceId, [
       {
         position: 1,
         eventId: 'laptop-event-1',

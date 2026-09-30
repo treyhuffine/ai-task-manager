@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { RunOnError, runOnFor, setDefaultComputer } from '@/lib/setups/run-on';
+import { RunOnError, runOnFor, setDefaultDevice } from '@/lib/setups/run-on';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,16 +14,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   return NextResponse.json(runOn);
 }
 
-/** "Make this the default": save the agent's default computer, or clear it with null. */
+/** "Make this the default": save the agent's default device, or clear it with null. */
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = (await request.json().catch(() => ({}))) as { defaultComputerId?: unknown };
-  const computerId = body.defaultComputerId;
-  if (computerId !== null && typeof computerId !== 'string') {
-    return NextResponse.json({ error: 'defaultComputerId must be a computer id, or null' }, { status: 400 });
+  const body = (await request.json().catch(() => ({}))) as { defaultDeviceId?: unknown };
+  const deviceId = body.defaultDeviceId;
+  if (deviceId !== null && typeof deviceId !== 'string') {
+    return NextResponse.json({ error: 'defaultDeviceId must be a device id, or null' }, { status: 400 });
   }
   try {
-    return NextResponse.json(setDefaultComputer(id, computerId));
+    return NextResponse.json(setDefaultDevice(id, deviceId));
   } catch (err) {
     if (err instanceof RunOnError) return NextResponse.json({ error: err.message }, { status: 400 });
     throw err;

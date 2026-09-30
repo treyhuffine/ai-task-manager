@@ -3,12 +3,12 @@
 /**
  * Where an execution runs, and moving it (docs/homes-model.md, spec §3.4):
  * Move to MacBook, Move to Mac Mini, one for each of the person's other
- * computers, named from any screen. The page never has to know which
- * computer it's on. Each says why when it can't happen yet, and one where the
+ * devices, named from any screen. The page never has to know which
+ * device it's on. Each says why when it can't happen yet, and one where the
  * agent isn't yet sets it up there first, then moves.
  *
- * Opening a read-only copy on this computer (Open code here, P4.1) is parked
- * off the menu: moving is the one way to bring work to a computer.
+ * Opening a read-only copy on this device (Open code here, P4.1) is parked
+ * off the menu: moving is the one way to bring work to a device.
  */
 
 import { useState } from 'react';
@@ -21,8 +21,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useComputers } from '@/hooks/use-computers';
-import { useThisComputer } from '@/hooks/use-opener';
+import { useDevices } from '@/hooks/use-devices';
+import { useThisDevice } from '@/hooks/use-devices';
 import { useRunOn } from '@/hooks/use-workspaces';
 import { useTransfer } from '@/hooks/use-execution';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
@@ -31,32 +31,32 @@ import { START_RI } from '@/lib/executions/location';
 import { ContinueDialog } from './continue-dialog';
 
 export interface Move {
-  /** The computer it would move to. */
+  /** The device it would move to. */
   key: string;
   label: string;
-  to: { computerId: string; name: string };
+  to: { deviceId: string; name: string };
   /** Why it can't move there now. */
   problem: string | null;
-  /** The agent isn't on that computer yet: setting it up comes first. */
+  /** The agent isn't on that device yet: setting it up comes first. */
   needsSetup: boolean;
 }
 
-/** The moves on offer for an execution: to each of the person's other computers that can run its agent. */
+/** The moves on offer for an execution: to each of the person's other devices that can run its agent. */
 export function useMoves(session: ChatSessionWithExecution, workspace: WorkspaceRecord | null | undefined) {
-  const { data: computers } = useComputers();
-  const thisComputer = useThisComputer();
+  const { data: devices } = useDevices();
+  const thisDevice = useThisDevice();
   const { data: runOn } = useRunOn(workspace?.id ?? null);
   const { data: transfer } = useTransfer(session.id);
 
   const owner = session.location;
-  const ownerAway = !!owner && !owner.isHome && computers?.find((c) => c.id === owner.computerId)?.worker?.connected === false;
+  const ownerAway = !!owner && !owner.isHome && devices?.find((c) => c.id === owner.deviceId)?.worker?.connected === false;
 
   const moves: Move[] = [];
   if (owner && workspace && session.status !== 'archived') {
     for (const choice of runOn?.choices ?? []) {
-      if (choice.computerId === owner.computerId) continue;
+      if (choice.deviceId === owner.deviceId) continue;
       const problem = !workspace.isGit
-        ? "Work that isn't in a Git repository runs on its own computer, and doesn't move through Ri yet."
+        ? "Work that isn't in a Git repository runs on its own device, and doesn't move through Ri yet."
         : transfer?.state === 'active'
           ? `It's already moving to ${transfer.to.name}.`
           : !choice.connected
@@ -67,15 +67,15 @@ export function useMoves(session: ChatSessionWithExecution, workspace: Workspace
                 ? `${owner.name} isn't running Ri right now, so its work can't be saved and moved. Wait for it.`
                 : null;
       moves.push({
-        key: choice.computerId,
+        key: choice.deviceId,
         label: `Move to ${choice.name}`,
-        to: { computerId: choice.computerId, name: choice.name },
+        to: { deviceId: choice.deviceId, name: choice.name },
         problem,
         needsSetup: choice.needsSetup,
       });
     }
-    // The computer this screen is on first, when it's known. Nothing depends on it.
-    moves.sort((a, b) => Number(b.key === thisComputer?.id) - Number(a.key === thisComputer?.id));
+    // The device this screen is on first, when it's known. Nothing depends on it.
+    moves.sort((a, b) => Number(b.key === thisDevice?.id) - Number(a.key === thisDevice?.id));
   }
   return { owner, moves };
 }
@@ -92,7 +92,7 @@ function useMoveFlow(session: ChatSessionWithExecution, workspace: WorkspaceReco
         <SetupAgentDialog
           workspaceId={workspace.id}
           agentName={workspace.name}
-          computer={{ id: settingUp.to.computerId, name: settingUp.to.name }}
+          device={{ id: settingUp.to.deviceId, name: settingUp.to.name }}
           open={!!settingUp}
           onOpenChange={(open) => !open && setSettingUp(null)}
           onReady={() => {
@@ -146,7 +146,7 @@ export function LocationMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" title={`Runs on ${name}. Move it to another computer.`} className="rounded hover:bg-muted/80">
+          <button type="button" title={`Runs on ${name}. Move it to another device.`} className="rounded hover:bg-muted/80">
             {chip}
           </button>
         </DropdownMenuTrigger>
@@ -179,8 +179,8 @@ export function LocationMenu({
 
 /**
  * The same moves in the execution's … menu, for work on the home, which
- * shows no computer chip (the standard case goes unsaid). Nothing when
- * there's no other computer to move it to.
+ * shows no device chip (the standard case goes unsaid). Nothing when
+ * there's no other device to move it to.
  */
 export function MoveActions({
   session,

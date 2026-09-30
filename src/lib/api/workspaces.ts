@@ -13,7 +13,7 @@ import type {
   EffortLevel,
 } from '@/db/types';
 
-export type AgentFolders = { computers: AgentFoldersOn[] };
+export type AgentFolders = { devices: AgentFoldersOn[] };
 
 export const workspacesApi = {
   list(filter?: { status?: WorkspaceStatus }, opts: { signal?: AbortSignal } = {}): Promise<WorkspaceWithCounts[]> {
@@ -74,8 +74,8 @@ export const workspacesApi = {
       /** "Start with agent": the task this workstream is associated with. Server
        *  records the association and atomically Starts the task (Consider/Todo -> In progress). */
       taskId?: string | null;
-      /** Run on this computer. Omitted: the agent's default (P3.1). */
-      computerId?: string | null;
+      /** Run on this device. Omitted: the agent's default (P3.1). */
+      deviceId?: string | null;
     } = {},
   ): Promise<ChatSessionWithExecution> {
     return api.post<ChatSessionWithExecution>(`/workspaces/${id}/sessions`, {
@@ -89,7 +89,7 @@ export const workspacesApi = {
       modelVariant: options.modelVariant ?? null,
       effort: options.effort ?? null,
       taskId: options.taskId ?? null,
-      computerId: options.computerId ?? undefined,
+      deviceId: options.deviceId ?? undefined,
     });
   },
 
@@ -99,48 +99,48 @@ export const workspacesApi = {
   },
 
   /** "Make this the default", or null to go back to the automatic choice. */
-  setDefaultComputer(id: string, computerId: string | null): Promise<RunOn> {
-    return api.put<RunOn>(`/workspaces/${id}/run-on`, { defaultComputerId: computerId });
+  setDefaultDevice(id: string, deviceId: string | null): Promise<RunOn> {
+    return api.put<RunOn>(`/workspaces/${id}/run-on`, { defaultDeviceId: deviceId });
   },
 
-  /** What setting the agent up on that computer would do (docs/homes-model.md). */
-  setupPlan(id: string, computerId: string, opts: { signal?: AbortSignal } = {}): Promise<SetupAgentPlan> {
-    return api.get<SetupAgentPlan>(`/workspaces/${id}/setups`, { query: { computerId }, signal: opts.signal });
+  /** What setting the agent up on that device would do (docs/homes-model.md). */
+  setupPlan(id: string, deviceId: string, opts: { signal?: AbortSignal } = {}): Promise<SetupAgentPlan> {
+    return api.get<SetupAgentPlan>(`/workspaces/${id}/setups`, { query: { deviceId }, signal: opts.signal });
   },
 
-  /** Set the agent up on that computer: its project copied down, or a folder already there. */
-  setUp(id: string, body: SetupAgentInput & { computerId: string }): Promise<SetupOutcome> {
+  /** Set the agent up on that device: its project copied down, or a folder already there. */
+  setUp(id: string, body: SetupAgentInput & { deviceId: string }): Promise<SetupOutcome> {
     return api.post<SetupOutcome>(`/workspaces/${id}/setups`, body);
   },
 
-  /** The agent's folders on each of the person's computers (docs/homes-spec.md §4.1). */
+  /** The agent's folders on each of the person's devices (docs/homes-spec.md §4.1). */
   folders(id: string, opts: { signal?: AbortSignal } = {}): Promise<AgentFolders> {
     return api.get<AgentFolders>(`/workspaces/${id}/folders`, { signal: opts.signal });
   },
 
-  /** The agent's project folder on a computer. */
-  setProjectFolder(id: string, computerId: string, folder: string): Promise<AgentFolders> {
-    return api.put<AgentFolders>(`/workspaces/${id}/folders/${computerId}`, { folder });
+  /** The agent's project folder on a device. */
+  setProjectFolder(id: string, deviceId: string, folder: string): Promise<AgentFolders> {
+    return api.put<AgentFolders>(`/workspaces/${id}/folders/${deviceId}`, { folder });
   },
 
-  /** Where a linked folder is on a computer, or null to go without it there. */
-  setLinkedFolder(id: string, computerId: string, referenceFolderId: string, folder: string | null): Promise<AgentFolders> {
-    return api.put<AgentFolders>(`/workspaces/${id}/folders/${computerId}/linked/${referenceFolderId}`, { folder });
+  /** Where a linked folder is on a device, or null to go without it there. */
+  setLinkedFolder(id: string, deviceId: string, referenceFolderId: string, folder: string | null): Promise<AgentFolders> {
+    return api.put<AgentFolders>(`/workspaces/${id}/folders/${deviceId}/linked/${referenceFolderId}`, { folder });
   },
 
-  /** A new linked folder, placed on the computer it's added from. */
-  addLinkedFolder(id: string, body: { alias: string; description: string | null; forEveryAgent: boolean; computerId: string; folder: string }): Promise<AgentFolders> {
+  /** A new linked folder, placed on the device it's added from. */
+  addLinkedFolder(id: string, body: { alias: string; description: string | null; forEveryAgent: boolean; deviceId: string; folder: string }): Promise<AgentFolders> {
     return api.post<AgentFolders>(`/workspaces/${id}/folders`, body);
   },
 
-  /** Take the agent off a computer. Nothing there is deleted. */
-  removeFromComputer(id: string, computerId: string): Promise<AgentFolders> {
-    return api.delete<AgentFolders>(`/workspaces/${id}/folders/${computerId}`);
+  /** Take the agent off a device. Nothing there is deleted. */
+  removeFromDevice(id: string, deviceId: string): Promise<AgentFolders> {
+    return api.delete<AgentFolders>(`/workspaces/${id}/folders/${deviceId}`);
   },
 
-  /** A folder's folders on a computer, for choosing one. */
-  computerFolders(computerId: string, at: string | null, opts: { signal?: AbortSignal } = {}): Promise<FolderListing> {
-    return api.get<FolderListing>(`/computers/${computerId}/folders`, { query: at ? { path: at } : undefined, signal: opts.signal });
+  /** A folder's folders on a device, for choosing one. */
+  deviceFolders(deviceId: string, at: string | null, opts: { signal?: AbortSignal } = {}): Promise<FolderListing> {
+    return api.get<FolderListing>(`/devices/${deviceId}/folders`, { query: at ? { path: at } : undefined, signal: opts.signal });
   },
 
   listPRs(id: string): Promise<PRSummary[]> {

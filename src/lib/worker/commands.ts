@@ -1,5 +1,5 @@
 /**
- * Carrying out the home's commands on this computer (docs/homes-build.md,
+ * Carrying out the home's commands on this device (docs/homes-build.md,
  * P2 protocol "Command receipt and recovery", and P2.3).
  *
  * A command is journaled `received` before anything acts on it, and a
@@ -89,7 +89,7 @@ export class CommandProcessor {
   }
 
   private enqueue(command: WorkerCommand, run: () => Promise<void>): void {
-    const key = command.target.executionId ?? command.target.chatSessionId ?? '_computer';
+    const key = command.target.executionId ?? command.target.chatSessionId ?? '_device';
     const previous = this.chains.get(key) ?? Promise.resolve();
     const next = previous.then(run).catch((err: unknown) => {
       console.error(`[worker] command ${command.id} (${command.kind}) failed unexpectedly:`, err);
@@ -108,7 +108,7 @@ export class CommandProcessor {
     const handler = this.options.handlers[command.kind];
     let ack: WorkerCommandAckBody;
     if (!handler) {
-      ack = { state: 'failed', error: `This computer doesn't handle "${command.kind}" commands yet. Update Ri here.` };
+      ack = { state: 'failed', error: `This device doesn't handle "${command.kind}" commands yet. Update Ri here.` };
     } else {
       try {
         ack = await handler.run(command, this.context(command));
@@ -126,7 +126,7 @@ export class CommandProcessor {
     const handler = this.options.handlers[command.kind];
     let ack: WorkerCommandAckBody;
     if (!handler) {
-      ack = { state: 'failed', error: `This computer doesn't handle "${command.kind}" commands yet. Update Ri here.` };
+      ack = { state: 'failed', error: `This device doesn't handle "${command.kind}" commands yet. Update Ri here.` };
     } else {
       try {
         ack = await handler.recover(command, entry.stage === 'started' ? 'started' : 'received', this.context(command));

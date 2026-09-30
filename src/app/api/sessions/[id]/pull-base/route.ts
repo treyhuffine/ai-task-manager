@@ -24,7 +24,7 @@ async function handlePOST(
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
     const ws = session.workspaceId ? getWorkspace(session.workspaceId) : null;
-    // On the computer it runs on (P4.5), in order with its other work there.
+    // On the device it runs on (P4.5), in order with its other work there.
     if (session.workspaceId) {
       const there = await gitOnOwner(
         id,

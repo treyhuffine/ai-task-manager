@@ -1,5 +1,5 @@
 /**
- * Setting an agent up on this computer from the app (docs/homes-model.md,
+ * Setting an agent up on this device from the app (docs/homes-model.md,
  * spec §3.4: "offer Use existing folder and Clone repository"): the project
  * copied down from its Git remote, or a folder already here, and the linked
  * folders it uses found in the same place beside it as on the home, or where
@@ -7,7 +7,7 @@
  *
  * This only puts folders in place and says where they are. The home records
  * them (docs/homes-spec.md §4.1): nothing about the agent is written here.
- * Runs where the folders are: on a connected computer through its worker
+ * Runs where the folders are: on a connected device through its worker
  * (`setup_agent`), on the home in-process. No database.
  */
 
@@ -37,11 +37,11 @@ export interface SetupRequestReference {
   relativePath: string | null;
   /** Its Git remote on the home, to copy it from when it isn't here. */
   remote: string | null;
-  /** Where it already is on this computer, for another agent that uses it: used as it is. */
+  /** Where it already is on this device, for another agent that uses it: used as it is. */
   knownPath: string | null;
   /** It's another agent: its own project folder, set up on its own. */
   agentId: string | null;
-  /** The home goes without it, so this computer does too. */
+  /** The home goes without it, so this device does too. */
   omitted: boolean;
 }
 
@@ -81,7 +81,7 @@ export interface SetupResultHere {
   copied: string[];
 }
 
-/** Where a copy of an agent goes by default: Ri's own projects folder on this computer. */
+/** Where a copy of an agent goes by default: Ri's own projects folder on this device. */
 export function defaultProjectFolder(agentSlug: string): string {
   return path.join(getAppRoot(), 'projects', agentSlug);
 }
@@ -96,7 +96,7 @@ export function planSetupHere(request: SetupAgentRequest): SetupPlanHere {
 /**
  * Put the agent's folders in place here and say where they are. Anything
  * this copied down is removed again if a later step fails, so a failure
- * leaves the computer as it was.
+ * leaves the device as it was.
  */
 export async function applySetupHere(request: SetupAgentRequest): Promise<SetupResultHere> {
   const created: string[] = [];
@@ -198,7 +198,7 @@ export function sameRemote(a: string, b: string): boolean {
   return norm(a) === norm(b);
 }
 
-/** A folder as the person typed it, on this computer: `~` is their home folder. */
+/** A folder as the person typed it, on this device: `~` is their home folder. */
 export function localPath(typed: string): string {
   const t = typed.trim();
   if (t === '~') return os.homedir();

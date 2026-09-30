@@ -1,5 +1,5 @@
 /**
- * The home computer's own folder for an agent (docs/homes-spec.md §4.1): what
+ * The home device's own folder for an agent (docs/homes-spec.md §4.1): what
  * creating an agent, or changing its folder, records for the home. The
  * home's records are the only place it's kept, with `workspaces.cwd` kept
  * equal for the rest of the app.
@@ -10,7 +10,7 @@ import path from 'node:path';
 import { setAgentFolder } from '@/lib/db/queries';
 import { ensureHomeIdentity } from '@/lib/home/identity';
 import { SetupError } from './set-up-here';
-import { checkComputerFolders } from './folders';
+import { checkDeviceFolders } from './folders';
 
 export { SetupError };
 
@@ -34,7 +34,7 @@ export function assertHomeFolderUsable(folder: string): string {
 export async function setHomeFolder(workspaceId: string, folder: string, opts: { finish?: () => unknown } = {}): Promise<void> {
   const dir = assertHomeFolderUsable(folder);
   await opts.finish?.();
-  const host = ensureHomeIdentity().computer.id;
+  const host = ensureHomeIdentity().device.id;
   setAgentFolder(workspaceId, host, dir);
-  await checkComputerFolders(host);
+  await checkDeviceFolders(host);
 }

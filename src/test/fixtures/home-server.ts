@@ -2,7 +2,7 @@
  * A real HTTP server in front of a test home: each request goes through the
  * real proxy (`src/proxy.ts`) and then the real route handler, and the
  * response streams back, event streams included. Tests of a connected
- * computer use it to talk to the home over actual HTTP, the way a worker or
+ * device use it to talk to the home over actual HTTP, the way a worker or
  * CLI does, with no Next.js server.
  *
  * Only the routes listed here are served. Add a route when a test needs it.
@@ -64,11 +64,21 @@ const ROUTES: RouteEntry[] = [
   },
   { pattern: /^\/api\/devices\/associate$/, load: () => import('@/app/api/devices/associate/route') as Promise<RouteModule> },
   { pattern: /^\/api\/devices\/([^/]+)$/, params: ['id'], load: () => import('@/app/api/devices/[id]/route') as Promise<RouteModule> },
-  { pattern: /^\/api\/computers$/, load: () => import('@/app/api/computers/route') as Promise<RouteModule> },
   {
-    pattern: /^\/api\/computers\/([^/]+)\/harnesses$/,
+    pattern: /^\/api\/devices\/([^/]+)\/keys$/,
     params: ['id'],
-    load: () => import('@/app/api/computers/[id]/harnesses/route') as Promise<RouteModule>,
+    load: () => import('@/app/api/devices/[id]/keys/route') as Promise<RouteModule>,
+  },
+  {
+    pattern: /^\/api\/devices\/([^/]+)\/keys\/([^/]+)$/,
+    params: ['id', 'keyId'],
+    load: () => import('@/app/api/devices/[id]/keys/[keyId]/route') as Promise<RouteModule>,
+  },
+  { pattern: /^\/api\/devices$/, load: () => import('@/app/api/devices/route') as Promise<RouteModule> },
+  {
+    pattern: /^\/api\/devices\/([^/]+)\/harnesses$/,
+    params: ['id'],
+    load: () => import('@/app/api/devices/[id]/harnesses/route') as Promise<RouteModule>,
   },
 ];
 

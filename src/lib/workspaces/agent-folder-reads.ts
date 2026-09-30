@@ -1,7 +1,7 @@
 /**
  * Reading an agent's own folder for the agent view's Files tab
  * (docs/agents-view-spec.md Phase 5): its tree and one file. Filesystem and
- * git only, so the computer the agent lives on answers these for its folder
+ * git only, so the device the agent lives on answers these for its folder
  * there (P3.5), with the same shapes the home gives for its own.
  *
  * For a git agent this is the source checkout, opened with its current

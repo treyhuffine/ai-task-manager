@@ -17,7 +17,7 @@ let trigger: TriggerRecord;
 beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-clock-boundaries-' });
   const identity = await import('@/lib/home/identity');
-  identity.resetHomeIdentityCache(); hostId = identity.ensureHomeIdentity().home.hostComputerId;
+  identity.resetHomeIdentityCache(); hostId = identity.ensureHomeIdentity().home.hostDeviceId;
   q = await import('@/lib/db/queries');
   const repo = path.join(home.root, 'repo');
   const worktree = path.join(home.root, 'execution');
@@ -72,8 +72,8 @@ it('does not send locally after the clock expired while a harness session was st
 }, 20_000);
 
 it('keeps a scheduled fire pending while its message is held by a move', async () => {
-  const destination = q.createComputer({ name: 'Review destination', platform: 'darwin', hostname: 'fixture-only' });
-  const transfer = q.createTransfer({ executionId, fromComputerId: hostId, toComputerId: destination.id, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
+  const destination = q.createDevice({ name: 'Review destination', platform: 'darwin', hostname: 'fixture-only' , kind: 'computer' });
+  const transfer = q.createTransfer({ executionId, fromDeviceId: hostId, toDeviceId: destination.id, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
   vi.useFakeTimers();
   const { run } = await fire();
   await vi.advanceTimersByTimeAsync(100);
@@ -83,8 +83,8 @@ it('keeps a scheduled fire pending while its message is held by a move', async (
 }, 20_000);
 
 it('keeps the scheduled timeout when a move releases its held message', async () => {
-  const destination = q.createComputer({ name: 'Review destination', platform: 'darwin', hostname: 'fixture-only' });
-  const transfer = q.createTransfer({ executionId, fromComputerId: hostId, toComputerId: destination.id, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
+  const destination = q.createDevice({ name: 'Review destination', platform: 'darwin', hostname: 'fixture-only' , kind: 'computer' });
+  const transfer = q.createTransfer({ executionId, fromDeviceId: hostId, toDeviceId: destination.id, fromGeneration: 1, includeUntracked: [], requestedByApiKeyId: null });
   let began!: () => void;
   const reached = new Promise<void>((resolve) => { began = resolve; });
   let interrupted = false;

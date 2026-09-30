@@ -23,7 +23,7 @@ export interface ExternalAgentSessionCandidate {
   /** Present after import. Used by the explicit refresh endpoint. */
   chatSessionId?: string;
   /**
-   * From a connected computer (P2.9): whether it can be imported, and when
+   * From a connected device (P2.9): whether it can be imported, and when
    * it can't, why and what to do.
    */
   importable?: boolean;
@@ -36,7 +36,7 @@ export interface ExternalAgentProjectCandidate {
   cwd: string;
   pathExists: boolean;
   sessions: ExternalAgentSessionCandidate[];
-  /** From a connected computer: the agent set up in this folder there, which its sessions import into. */
+  /** From a connected device: the agent set up in this folder there, which its sessions import into. */
   agent?: { id: string; name: string } | null;
 }
 
@@ -50,14 +50,14 @@ export interface ExternalAgentDiscovery {
   projects: ExternalAgentProjectCandidate[];
   sources: Record<ExternalAgentSource, ExternalAgentSourceSummary>;
   scannedAt: string;
-  /** The connected computer listed, when it isn't the home's own (P2.9). */
-  computer?: { id: string; name: string };
+  /** The connected device listed, when it isn't the home's own (P2.9). */
+  device?: { id: string; name: string };
 }
 
 export interface ExternalAgentImportRequest {
   sessionKeys: string[];
-  /** Import from this connected computer. Absent: the home's own. */
-  computerId?: string | null;
+  /** Import from this connected device. Absent: the home's own. */
+  deviceId?: string | null;
 }
 
 export interface ExternalAgentRefreshRequest {

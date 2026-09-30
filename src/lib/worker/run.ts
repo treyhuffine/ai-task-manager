@@ -13,10 +13,10 @@
  * after a restart, the commands a crash interrupted are recovered only once
  * the first stream is open (the key is good, the protocol and the home are
  * right) and a heartbeat has confirmed which placements are still this
- * computer's. A turn the restart cut off is reported as failed, never sent
+ * device's. A turn the restart cut off is reported as failed, never sent
  * again (docs/homes-build.md, P2 review fixes).
  *
- * Runs on the connected computer, so it never touches a database.
+ * Runs on the connected device, so it never touches a database.
  */
 
 import { uuidv7 } from 'uuidv7';
@@ -68,11 +68,11 @@ export interface WorkerRunOptions {
   onStatus?: (status: WorkerStatus) => void;
   /** Makes the handler for the home's reads, given this worker's command journal. Tried before the built-in ones. */
   requests?: (journal: CommandJournal) => RequestHandler;
-  /** What this computer can run. Defaults to probing its harness runtimes. */
+  /** What this device can run. Defaults to probing its harness runtimes. */
   describe?: () => Promise<WorkerHarnessReport[]>;
   /** How each kind of command runs and recovers here, given this worker's command journal. */
   handlers?: CommandHandlers | ((journal: CommandJournal, extras: WorkerHandlerExtras) => CommandHandlers);
-  /** The journals, when a test supplies its own. Otherwise this computer's, under its work folder. */
+  /** The journals, when a test supplies its own. Otherwise this device's, under its work folder. */
   journals?: { commands: CommandJournal; events: EventJournal };
   /** Where this worker records the processes it starts. Defaults to its work directory. */
   processRecordFile?: string;
@@ -98,7 +98,7 @@ export interface WorkerHandlerExtras {
 
 export class UnsupportedRequestError extends Error {
   constructor(kind: string) {
-    super(`This computer doesn't know the request "${kind}". Update Ri here.`);
+    super(`This device doesn't know the request "${kind}". Update Ri here.`);
     this.name = 'UnsupportedRequestError';
   }
 }
@@ -111,7 +111,7 @@ export function defaultRequestHandler(
     switch (kind) {
       case 'describe_harnesses':
         return describe();
-      // Terminal history on this computer, for the home to import (P2.9).
+      // Terminal history on this device, for the home to import (P2.9).
       case 'list_history':
         return (await import('./history')).listHistory();
       case 'read_history':
@@ -139,7 +139,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** What this computer's runner has live, for the home's mirror. */
+/** What this device's runner has live, for the home's mirror. */
 export function liveSnapshot(): WorkerLive {
   return {
     running: [...runnerState.runningSessions],
@@ -149,7 +149,7 @@ export function liveSnapshot(): WorkerLive {
 }
 
 /**
- * What a worker does as it stops, however it stops: close this computer's
+ * What a worker does as it stops, however it stops: close this device's
  * harness sessions, so nothing it started outlives it (each chat resumes
  * from its native session on its next message), and, when it's stopping of
  * its own accord, tell the home, which clears what it showed as live there.
@@ -242,10 +242,10 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
   let current: AbortController | null = null;
 
   // The journals: commands received and their outcomes, and everything this
-  // computer's runner reports, both on disk before the home hears of them.
+  // device's runner reports, both on disk before the home hears of them.
   const commandJournal = options.journals?.commands ?? new CommandJournal(target.homeId);
   const eventJournal = options.journals?.events ?? new EventJournal(target.homeId);
-  // In-app terminals here (P3.5): shells in the worktrees this computer
+  // In-app terminals here (P3.5): shells in the worktrees this device
   // prepared and the agent folders set up here, their output posted home.
   const terminals = new WorkerTerminals({
     journal: commandJournal,
@@ -314,7 +314,7 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
   // Heartbeats run on their own clock, connected or not: a missed one while
   // reconnecting is just a gap in last contact. Each carries what's live, with
   // each chat's generation, and the placements held. A placement the home no
-  // longer gives this computer is fenced in the journal, so nothing older for
+  // longer gives this device is fenced in the journal, so nothing older for
   // it runs even after a restart, and then its sessions stop.
   const heartbeat = async () => {
     void recordProcesses();
@@ -357,7 +357,7 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
           turnId: turn.turnId,
           runId: turn.runId,
           ok: false,
-          error: `The turn stopped when Ri's worker on ${target.computerName} restarted.`,
+          error: `The turn stopped when Ri's worker on ${target.deviceName} restarted.`,
         },
       });
       commandJournal.turnEnded(turn.turnId);
@@ -394,7 +394,7 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
             if (event.homeId !== target.homeId) {
               stop({
                 reason: 'wrong_home',
-                message: `${target.homeUrl} now answers for a different Ri. Connect this computer again.`,
+                message: `${target.homeUrl} now answers for a different Ri. Connect this device again.`,
               });
               break;
             }
@@ -412,7 +412,7 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
             void poster.kick();
             void processor.resendAcks();
           } else if (event.type === 'folders') {
-            // This computer's folders, as its home records them: the only
+            // This device's folders, as its home records them: the only
             // copy it has, in memory (docs/homes-spec.md §4.1).
             setAgentFolders(target.homeId, event.setups);
           } else if (event.type === 'command') {

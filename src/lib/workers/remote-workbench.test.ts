@@ -1,5 +1,5 @@
 /**
- * The workbench of work on a connected computer (docs/homes-build.md, P3.5,
+ * The workbench of work on a connected device (docs/homes-build.md, P3.5,
  * spec §5.6), end to end through the home's own routes, with the worker in
  * its own process running real shells. Terminals: an execution's in the
  * worktree the laptop prepared, an agent's in its folder there, output
@@ -23,7 +23,7 @@ let home: TestHome;
 let server: HomeServer;
 let worker: WorkerProcess | null = null;
 let laptopRoot: string;
-let computerId: string;
+let deviceId: string;
 let workspaceId: string;
 let repo: string;
 
@@ -37,8 +37,8 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   const homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
-  const laptop = q.createApiKey({ name: 'Laptop CLI', deviceType: 'computer' });
-  computerId = q.registerComputerForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).computer.id;
+  const laptop = q.pairDevice({ name: 'Laptop', kind: 'computer' });
+  deviceId = q.registerDeviceForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).device.id;
   server = await startHomeServer();
 
   // The agent lives on the laptop: its folder at home doesn't exist.
@@ -61,7 +61,7 @@ beforeEach(async () => {
   git(repo, 'add', '.');
   git(repo, 'commit', '-q', '-m', 'first');
   // As the home records it: the worker is sent its folders when it connects.
-  await setUpAgentOn(workspaceId, computerId, repo);
+  await setUpAgentOn(workspaceId, deviceId, repo);
 
   const grant = await fetch(`${server.url}/api/workers/grants`, {
     method: 'POST',
@@ -74,7 +74,7 @@ beforeEach(async () => {
     body: JSON.stringify({ code: grant.code, name: 'laptop', protocol: WORKER_PROTOCOL, version: 'test' }),
   }).then((r) => r.json() as Promise<{ workerKey: string }>);
   worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
-  await until(() => (q.getComputer(computerId)?.harnesses?.length ?? 0) > 0, "the laptop's harness report");
+  await until(() => (q.getDevice(deviceId)?.harnesses?.length ?? 0) > 0, "the laptop's harness report");
 }, 60_000);
 
 afterEach(async () => {
@@ -154,19 +154,19 @@ function reader(res: Response) {
   };
 }
 
-describe('a terminal on a connected computer', () => {
+describe('a terminal on a connected device', () => {
   it("runs in the laptop's worktree, streams there and back, and resumes after a reconnect", async () => {
     const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
     const q = await import('@/lib/db/queries');
-    const session = await dispatchExecutionSession({ workspaceId, computerId, label: 'Shell there' });
+    const session = await dispatchExecutionSession({ workspaceId, deviceId, label: 'Shell there' });
     await until(() => !!q.getOpenPlacement(session.executionId!)?.worktreePath, 'the worktree');
     const worktree = q.getOpenPlacement(session.executionId!)!.worktreePath!;
 
     const created = await json(route('sessions', session.id, '', 'POST', { cols: 100, rows: 30 }));
     expect(created.status).toBe(201);
-    expect(created.body).toMatchObject({ cwd: worktree, cols: 100, rows: 30, computerName: 'Laptop', isHome: false });
+    expect(created.body).toMatchObject({ cwd: worktree, cols: 100, rows: 30, deviceName: 'Laptop', isHome: false });
     const terminalId = created.body.id as string;
-    expect((await json(route('sessions', session.id, '', 'GET'))).body).toEqual([expect.objectContaining({ id: terminalId, computerName: 'Laptop' })]);
+    expect((await json(route('sessions', session.id, '', 'GET'))).body).toEqual([expect.objectContaining({ id: terminalId, deviceName: 'Laptop' })]);
 
     const first = reader(await route('sessions', session.id, `${terminalId}/stream`, 'GET'));
     await until(() => first.events.some((e) => e.event === 'ready'), 'the stream to be ready');
@@ -191,7 +191,7 @@ describe('a terminal on a connected computer', () => {
 
     // Only for the placement the laptop holds.
     const { requestWorker } = await import('@/lib/workers/hub');
-    expect(await requestWorker(computerId, 'terminal', {
+    expect(await requestWorker(deviceId, 'terminal', {
       op: 'input', scope: { kind: 'execution', executionId: session.executionId, generation: 0 }, terminalId, data: 'echo stale\r',
     })).toMatchObject({ status: 409, body: { error: 'moved' } });
 
@@ -201,7 +201,7 @@ describe('a terminal on a connected computer', () => {
 
   it("opens the agent's own terminal in its folder on the laptop", async () => {
     const created = await json(route('workspaces', workspaceId, '', 'POST', { cols: 80, rows: 24 }));
-    expect(created).toMatchObject({ status: 201, body: { cwd: repo, computerName: 'Laptop', isHome: false } });
+    expect(created).toMatchObject({ status: 201, body: { cwd: repo, deviceName: 'Laptop', isHome: false } });
     const terminalId = created.body.id as string;
     const out = reader(await route('workspaces', workspaceId, `${terminalId}/stream`, 'GET'));
     await route('workspaces', workspaceId, `${terminalId}/input`, 'POST', { data: 'git rev-parse --abbrev-ref HEAD\r' });
@@ -214,7 +214,7 @@ describe('a terminal on a connected computer', () => {
   it('says the laptop went away, refuses input rather than keeping it, and starts nothing at home', async () => {
     const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
     const q = await import('@/lib/db/queries');
-    const session = await dispatchExecutionSession({ workspaceId, computerId, label: 'Shell there' });
+    const session = await dispatchExecutionSession({ workspaceId, deviceId, label: 'Shell there' });
     await until(() => !!q.getOpenPlacement(session.executionId!)?.worktreePath, 'the worktree');
     const terminalId = (await json(route('sessions', session.id, '', 'POST', { cols: 80, rows: 24 }))).body.id as string;
     const out = reader(await route('sessions', session.id, `${terminalId}/stream`, 'GET'));
@@ -241,10 +241,10 @@ describe('a terminal on a connected computer', () => {
   }, 90_000);
 });
 
-describe('an agent that lives on a connected computer', () => {
+describe('an agent that lives on a connected device', () => {
   it("shows its folder there, reads its files from there, and says when it's away", async () => {
     const { runOnFor } = await import('@/lib/setups/run-on');
-    expect(runOnFor(workspaceId)!.livesOn).toEqual({ computerId, name: 'Laptop', isHome: false, folder: repo });
+    expect(runOnFor(workspaceId)!.livesOn).toEqual({ deviceId, name: 'Laptop', isHome: false, folder: repo });
 
     const { NextRequest } = await import('next/server');
     const get = async (sub: string) => {

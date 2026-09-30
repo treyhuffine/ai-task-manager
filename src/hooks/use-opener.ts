@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useSyncExternalStore } from 'react';
-import { THIS_COMPUTER_STORAGE_KEY } from '@/constants/app';
+import { useMemo } from 'react';
 import { useClientLocation } from '@/hooks/use-client-location';
+import { useThisDevice } from '@/hooks/use-devices';
 import { useSession } from '@/hooks/use-execution';
 import { useRunOn } from '@/hooks/use-workspaces';
 import { fsApi, type InstalledAppsResponse, type OpenInClientOptions, type OpenInResult, type OpenTarget } from '@/lib/api/fs';
@@ -11,17 +11,17 @@ import { folderApiBase, type FolderSource } from '@/lib/folders/source';
 
 /**
  * How this browser opens a folder's files in an app (P3.5, spec §3.3). An
- * app opens files on the computer they're on, for the person at that
- * computer:
+ * app opens files on the device they're on, for the person at that
+ * device:
  *
- *   - files at home, in a browser on the home's computer: the home opens
+ *   - files at home, in a browser on the home's device: the home opens
  *     them, as before (`/api/fs/open`)
- *   - files on another computer, in a browser linked to that computer
- *     ("This Mac", P2.2): that computer's worker opens them
+ *   - files on another device, in a browser linked to that device
+ *     ("This Mac", P2.2): that device's worker opens them
  *   - anywhere else: nothing opens, and `filesOn` says where they are
  */
 export interface Opener {
-  /** `here` is the home opening its own files. `worker` is another computer's worker. */
+  /** `here` is the home opening its own files. `worker` is another device's worker. */
   via: 'here' | 'worker';
   /** Cache key for the apps installed where things open. */
   appsKey: readonly unknown[];
@@ -32,41 +32,8 @@ export interface Opener {
 
 export interface OpenerState {
   opener: Opener | null;
-  /** The computer the files are on, when this browser can't open them. */
+  /** The device the files are on, when this browser can't open them. */
   filesOn: string | null;
-}
-
-interface ThisComputer {
-  id: string;
-  name: string;
-}
-
-function readThisComputer(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.localStorage.getItem(THIS_COMPUTER_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function subscribeStorage(onChange: () => void): () => void {
-  window.addEventListener('storage', onChange);
-  return () => window.removeEventListener('storage', onChange);
-}
-
-/** The computer this browser was linked to, if any. The home checks it again on every open. */
-export function useThisComputer(): ThisComputer | null {
-  const raw = useSyncExternalStore(subscribeStorage, readThisComputer, () => null);
-  return useMemo(() => {
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw) as Partial<ThisComputer>;
-      return parsed.id && parsed.name ? { id: parsed.id, name: parsed.name } : null;
-    } catch {
-      return null;
-    }
-  }, [raw]);
 }
 
 const HOME_OPENER: Opener = {
@@ -88,33 +55,33 @@ function relativeTo(root: string, absPath: string): string | null {
  */
 export function useOpener(source: FolderSource | null, root: string | null): OpenerState {
   const client = useClientLocation();
-  const thisComputer = useThisComputer();
+  const thisDevice = useThisDevice();
   const { data: session } = useSession(source?.kind === 'session' ? source.sessionId : null);
   const { data: runOn } = useRunOn(source?.kind === 'workspace' ? source.workspaceId : null);
 
   return useMemo<OpenerState>(() => {
     const where = !source
-      ? { known: true, isHome: true, computerId: null as string | null, name: null as string | null }
+      ? { known: true, isHome: true, deviceId: null as string | null, name: null as string | null }
       : source.kind === 'session'
         ? session
           ? {
               known: true,
               isHome: session.location?.isHome ?? true,
-              computerId: session.location?.computerId ?? null,
+              deviceId: session.location?.deviceId ?? null,
               name: session.location?.name ?? null,
             }
-          : { known: false, isHome: true, computerId: null, name: null }
+          : { known: false, isHome: true, deviceId: null, name: null }
         : runOn
           ? {
               known: true,
               isHome: runOn.livesOn?.isHome ?? true,
-              computerId: runOn.livesOn?.computerId ?? null,
+              deviceId: runOn.livesOn?.deviceId ?? null,
               name: runOn.livesOn?.name ?? null,
             }
-          : { known: false, isHome: true, computerId: null, name: null };
+          : { known: false, isHome: true, deviceId: null, name: null };
     if (!where.known) return { opener: null, filesOn: null };
     if (where.isHome) return client.kind === 'host' ? { opener: HOME_OPENER, filesOn: null } : { opener: null, filesOn: where.name };
-    if (!source || !where.computerId || thisComputer?.id !== where.computerId || !root) {
+    if (!source || !where.deviceId || thisDevice?.id !== where.deviceId || !root) {
       return { opener: null, filesOn: where.name };
     }
     const base = folderApiBase(source);
@@ -122,7 +89,7 @@ export function useOpener(source: FolderSource | null, root: string | null): Ope
       filesOn: null,
       opener: {
         via: 'worker',
-        appsKey: ['computers', where.computerId, 'installed-apps'],
+        appsKey: ['devices', where.deviceId, 'installed-apps'],
         apps: () => openApi.apps(base),
         open: (absPath, target, opts = {}) => {
           const { projectDir: _ignored, ...rest } = opts;
@@ -131,5 +98,5 @@ export function useOpener(source: FolderSource | null, root: string | null): Ope
         },
       },
     };
-  }, [client.kind, root, runOn, session, source, thisComputer]);
+  }, [client.kind, root, runOn, session, source, thisDevice]);
 }

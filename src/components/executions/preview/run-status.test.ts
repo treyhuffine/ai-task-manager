@@ -30,8 +30,8 @@ describe('deriveRunStatus', () => {
     expect(deriveRunStatus(null, '   ')).toBe('not-configured');
   });
 
-  it('work on another computer runs there, set up here or not, and is never started from here (P3.5)', () => {
-    const away = { elsewhere: { computerName: 'MacBook', folder: '/Users/trey/code/ri' } };
+  it('work on another device runs there, set up here or not, and is never started from here (P3.5)', () => {
+    const away = { elsewhere: { deviceName: 'MacBook', folder: '/Users/trey/code/ri' } };
     expect(deriveRunStatus(state(away), 'pnpm dev')).toBe('elsewhere');
     expect(deriveRunStatus(state(away), null)).toBe('elsewhere');
     expect(runIsActive('elsewhere')).toBe(false);

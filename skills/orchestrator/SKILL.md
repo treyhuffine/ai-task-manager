@@ -28,7 +28,7 @@ You have two equivalent surfaces. Prefer MCP tools when the user's Claude Code h
 - Deck: `get_deck`, `update_deck`, `regenerate_deck`
 - Search: `search`
 - User state: `get_user_state`, `update_user_state`
-- Memory, from a session that can't read the home's files (on a connected computer): `read_memory`, `submit_memory_finding` (sends it to the home's main chat, which keeps MEMORY.md)
+- Memory, from a session that can't read the home's files (on a connected device): `read_memory`, `submit_memory_finding` (sends it to the home's main chat, which keeps MEMORY.md)
 - Execution oversight: `list_executions`, `get_session_messages`, `send_session_message`, `get_pending_input`, `answer_pending_input`, `start_execution`, `archive_execution`
 - Workspaces (the user calls a workspace an "agent"): `list_workspaces`, `get_workspace`, `create_workspace`, `update_workspace`, `archive_workspace`, `list_workspace_sessions`
 - Triggers / runs: `list_triggers`, `get_trigger`, `create_trigger`, `update_trigger`, `delete_trigger`, `run_trigger`, `list_runs`, `get_run`, `cancel_run`, `reset_trigger_failures`
@@ -100,8 +100,8 @@ is refused.
 Start new work with `start_execution` (workspace, a complete first prompt, and
 a fresh `requestId` per piece of work: retrying with the same one returns the
 same execution rather than starting a second). It runs on the agent's default
-computer unless you pass `computerId`: `get_workspace` shows its `runOn`
-choices, and `update_workspace` sets `defaultComputerId` when the user asks.
+device unless you pass `deviceId`: `get_workspace` shows its `runOn`
+choices, and `update_workspace` sets `defaultDeviceId` when the user asks.
 Close out finished work with
 `archive_execution`. It refuses when the worktree holds uncommitted or unpushed
 work and says so. Only pass `force` when the user has said that work can go.

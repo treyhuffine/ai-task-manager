@@ -3,11 +3,11 @@ export type ExecutionHeaderStatusKind =
   | 'setup-failed'
   | 'setting-up'
   | 'pending'
-  /** A message is saved at the home, waiting for its computer (P3.2). */
+  /** A message is saved at the home, waiting for its device (P3.2). */
   | 'waiting'
-  /** Its computer lost contact in the middle of a turn: unknown, not stopped. */
+  /** Its device lost contact in the middle of a turn: unknown, not stopped. */
   | 'disconnected'
-  /** Its computer said it's asleep. */
+  /** Its device said it's asleep. */
   | 'asleep'
   | 'working'
   | 'background'
@@ -25,7 +25,7 @@ interface DeriveExecutionHeaderStatusInput {
   lastOutcomeEventAt: string | null;
   lastViewedAt: string | null;
   /**
-   * For an execution on another computer: whether its worker is connected,
+   * For an execution on another device: whether its worker is connected,
    * whether it said it's asleep, and whether a message is waiting for it.
    */
   elsewhere?: { connected: boolean; asleep: boolean; waiting: boolean } | null;
@@ -42,7 +42,7 @@ export function deriveExecutionHeaderStatus({
   lastViewedAt,
   elsewhere = null,
 }: DeriveExecutionHeaderStatusInput): ExecutionHeaderStatusKind {
-  // Away from its computer, a turn under way is only known to have been
+  // Away from its device, a turn under way is only known to have been
   // under way when contact was lost, and a message only waits.
   const away = !!elsewhere && !elsewhere.connected;
   const needsResponse =
@@ -103,10 +103,10 @@ export function describeChatStatus(
   kind: ExecutionHeaderStatusKind,
   lastOutcomeEventAt: string | null,
   formatAgo: (iso: string | null) => string,
-  /** The computer an execution elsewhere runs on, for the states that name it. */
+  /** The device an execution elsewhere runs on, for the states that name it. */
   where: { name: string; lastSeenAt: string | null } | null = null,
 ): ChatStatusDescription {
-  const name = where?.name ?? 'Its computer';
+  const name = where?.name ?? 'Its device';
   const heard = where?.lastSeenAt ? formatAgo(where.lastSeenAt) : '';
   const lastHeard = !heard ? undefined : heard === 'now' ? 'last heard from just now' : /^\d/.test(heard) ? `last heard from ${heard} ago` : `last heard from ${heard}`;
   const ago = lastOutcomeEventAt ? formatAgo(lastOutcomeEventAt) : '';

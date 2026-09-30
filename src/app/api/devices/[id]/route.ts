@@ -1,89 +1,53 @@
+/**
+ * One device: PATCH renames it or says what it is, DELETE removes it. Removing
+ * one stops every key it has, and its worker's work is settled
+ * (`retireWorker`, P2.8). The device the home runs on can't be removed.
+ */
+
 import type { NextRequest } from 'next/server';
-import { getWorkerEnrollment, isWorkerApiKey, listApiKeys, revokeApiKey, updateApiKey } from '@/lib/db/queries';
+import { z } from 'zod';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { getDevice, getHome, getWorkerKeyId, removeDevice, updateDevice } from '@/lib/db/queries';
+import { DEVICE_KINDS } from '@/lib/db/schema';
+import { listDeviceViews } from '@/lib/devices/views';
+import { publishDeviceUpdated } from '@/lib/realtime/bus';
 import { retireWorker } from '@/lib/workers/retire';
-import type { DeviceType, UpdateApiKeyInput } from '@/db/types';
 
-// `host` is reserved for the home's own key, which `ensureLocalToken` mints.
-// A device can't give itself that label.
-const ALLOWED_DEVICE_TYPES: readonly DeviceType[] = [
-  'computer',
-  'phone',
-  'tablet',
-  'service',
-  'other',
-];
+type Params = { params: Promise<{ id: string }> };
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    const body = (await request.json()) as {
-      name?: string;
-      description?: string | null;
-      deviceType?: DeviceType;
-    };
+const patchBody = z
+  .object({
+    name: z.string().trim().min(1, 'Name cannot be empty.').max(80).optional(),
+    kind: z.enum(DEVICE_KINDS).optional(),
+  })
+  .refine((b) => b.name !== undefined || b.kind !== undefined, 'Nothing to change.');
 
-    const patch: UpdateApiKeyInput = {};
-    if (body.name !== undefined) {
-      const trimmed = body.name.trim();
-      if (!trimmed) {
-        return Response.json({ error: 'name cannot be empty' }, { status: 400 });
-      }
-      patch.name = trimmed;
-    }
-    if (body.description !== undefined) {
-      patch.description = body.description;
-    }
-    if (body.deviceType !== undefined) {
-      if (!ALLOWED_DEVICE_TYPES.includes(body.deviceType)) {
-        return Response.json(
-          { error: body.deviceType === 'host' ? "deviceType 'host' is reserved for the home's own key" : 'invalid deviceType' },
-          { status: 400 },
-        );
-      }
-      const current = listApiKeys({ includeRevoked: true }).find((k) => k.id === id);
-      if (current?.deviceType === 'host') {
-        return Response.json({ error: "The home's own key keeps its type" }, { status: 400 });
-      }
-      patch.deviceType = body.deviceType;
-    }
-
-    if (Object.keys(patch).length === 0) {
-      return Response.json({ error: 'no fields to update' }, { status: 400 });
-    }
-
-    const row = updateApiKey(id, patch);
-    if (!row) {
-      return Response.json({ error: 'Device not found' }, { status: 404 });
-    }
-    return Response.json(row);
-  } catch (err) {
-    console.error('[PATCH /api/devices/:id]', err);
-    return Response.json({ error: String(err) }, { status: 400 });
+export async function PATCH(request: NextRequest, { params }: Params) {
+  const { id } = await params;
+  const parsed = patchBody.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
+    return Response.json({ error: 'invalid_params', message: parsed.error.issues[0]?.message }, { status: 400 });
   }
+  const current = getDevice(id);
+  if (!current || current.status !== 'active') return Response.json({ error: 'not_found', message: 'No such device.' }, { status: 404 });
+  updateDevice(id, parsed.data);
+  publishDeviceUpdated(id);
+  const views = await listDeviceViews({ callerKeyId: getRequestKey(request.headers)?.apiKeyId ?? null });
+  return Response.json(views.find((d) => d.id === id));
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    const reason = request.nextUrl.searchParams.get('reason') ?? undefined;
-    // A worker key is retired: its stream closes now, rather than at its
-    // next ping, and its work at home is settled (P2.8).
-    const worker = isWorkerApiKey(id) ? getWorkerEnrollment(id) : null;
-    const row = worker
-      ? retireWorker(id, worker.computer.id, reason ?? 'Local execution turned off by the owner')
-      : revokeApiKey(id, reason);
-    if (!row) {
-      return Response.json({ error: 'Device not found' }, { status: 404 });
-    }
-    return new Response(null, { status: 204 });
-  } catch (err) {
-    console.error('[DELETE /api/devices/:id]', err);
-    return Response.json({ error: String(err) }, { status: 500 });
+export async function DELETE(request: NextRequest, { params }: Params) {
+  const { id } = await params;
+  const device = getDevice(id);
+  if (!device || device.status !== 'active') return Response.json({ error: 'not_found', message: 'No such device.' }, { status: 404 });
+  if (getHome()?.hostDeviceId === id) {
+    return Response.json({ error: 'home_device', message: `${device.name} is where this home runs. It can't be removed.` }, { status: 409 });
   }
+  const reason = request.nextUrl.searchParams.get('reason') ?? `${device.name} was removed by the owner`;
+  // Its worker first, so its work is settled and its stream closes now.
+  const workerKeyId = getWorkerKeyId(id);
+  if (workerKeyId) retireWorker(workerKeyId, id, reason);
+  removeDevice(id, reason);
+  publishDeviceUpdated(id);
+  return new Response(null, { status: 204 });
 }

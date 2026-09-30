@@ -1,5 +1,5 @@
 /**
- * Work that exists only on this computer, before retiring its home
+ * Work that exists only on this device, before retiring its home
  * (src/lib/home/unpublished-work.ts, P5.1). Read-only.
  *
  *   pnpm tsx scripts/unpublished-work.ts <root> [--json <out-file>]

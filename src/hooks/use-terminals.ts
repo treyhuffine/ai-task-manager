@@ -23,13 +23,13 @@ function keyFor(scope: readonly string[] | null, source: FolderSource | null) {
 }
 
 /**
- * The folder's computer isn't connected (P3.5): its shells are there, out of
+ * The folder's device isn't connected (P3.5): its shells are there, out of
  * reach until it's back. Says why, for the panel to show instead of a shell.
  */
 export function terminalsUnavailable(err: unknown): string | null {
   if (!(err instanceof ApiError) || err.status !== 409) return null;
   const body = err.body as { error?: string; message?: string } | null;
-  return body?.error === 'unavailable' ? (body.message ?? 'Its computer is not connected.') : null;
+  return body?.error === 'unavailable' ? (body.message ?? 'Its device is not connected.') : null;
 }
 
 export function useTerminals(source: FolderSource | null) {
@@ -39,7 +39,7 @@ export function useTerminals(source: FolderSource | null) {
     queryFn: ({ signal }) => terminalsApi.list(folderApiBase(source!), signal),
     enabled: !!source && !!scope,
     staleTime: 30_000,
-    // An away computer is said at once, and checked on until it's back.
+    // An away device is said at once, and checked on until it's back.
     retry: (count, err) => !terminalsUnavailable(err) && count < 2,
     refetchInterval: (query) => (terminalsUnavailable(query.state.error) ? 5_000 : false),
   });

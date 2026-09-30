@@ -42,9 +42,9 @@ import {
   unarchiveExecution,
   ensureHarnessSettings,
   getHome,
-  getComputer,
-  listEnrolledComputerIds,
-  getAgentSetup,
+  getDevice,
+  listEnrolledDeviceIds,
+  getWorkspaceSetup,
   createPlacement,
   queueWorkerCommand,
   clearExecutionSetupError,
@@ -67,9 +67,9 @@ import { terminalOwnerId } from '@/lib/terminal/owner';
 import { invalidateHarnessSession, close as closeHarnessSession } from '@/lib/executor/adapter';
 import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord, WorkerCommandActor } from '@/db/types';
 import type { PreparePayload } from '@/lib/worker/handlers';
-import { isComputerConnected, wakeComputer } from '@/lib/workers/hub';
+import { isDeviceConnected, wakeDevice } from '@/lib/workers/hub';
 import { runOnFor, setupProblem, setupUsable } from '@/lib/setups/run-on';
-import { checkComputerFolders } from '@/lib/setups/folders';
+import { checkDeviceFolders } from '@/lib/setups/folders';
 import { requireHarnessId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 import { admitChange } from '@/lib/transfer/moving';
@@ -99,13 +99,13 @@ async function snapshotLiveBranchAndSha(cwd: string): Promise<{ branch: string |
 export interface DispatchExecutionSessionArgs {
   workspaceId: string;
   /**
-   * The computer to run on (docs/homes-spec.md §3.3, "Run on"). Omitted: the
-   * agent's default computer (`runOnFor`, P3.1). A connected computer
+   * The device to run on (docs/homes-spec.md §3.3, "Run on"). Omitted: the
+   * agent's default device (`runOnFor`, P3.1). A connected device
    * prepares the execution in its own copy of the agent's folder. One that
    * can't take it is refused with the reason, never swapped for another.
    */
-  computerId?: string | null;
-  /** Who is starting it, from the caller's credentials, for the command a connected computer gets (P2.6). */
+  deviceId?: string | null;
+  /** Who is starting it, from the caller's credentials, for the command a connected device gets (P2.6). */
   actor?: WorkerCommandActor;
   /**
    * The task this execution is doing, when launched via "Start with agent".
@@ -161,11 +161,11 @@ export class WorkspaceNotFoundForDispatch extends Error {
   }
 }
 
-/** The chosen computer can't take this execution now. Never silently replaced (spec §3.3). */
-export class ComputerUnavailableForDispatch extends Error {
+/** The chosen device can't take this execution now. Never silently replaced (spec §3.3). */
+export class DeviceUnavailableForDispatch extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'ComputerUnavailableForDispatch';
+    this.name = 'DeviceUnavailableForDispatch';
   }
 }
 
@@ -241,25 +241,25 @@ export async function dispatchExecutionSession(
   const prNumber = normalizePrNumber(args.prNumber);
   const liveMode = !!args.liveMode && ws.isGit;
 
-  // Where it runs: the computer the start names, or else the agent's default
-  // (P3.1). A connected computer must be enrolled and have this agent set up,
-  // or the person hears why, rather than getting another computer.
-  const host = getHome()?.hostComputerId ?? null;
-  const target = args.computerId || runOnFor(ws.id)?.defaultId || host;
+  // Where it runs: the device the start names, or else the agent's default
+  // (P3.1). A connected device must be enrolled and have this agent set up,
+  // or the person hears why, rather than getting another device.
+  const host = getHome()?.hostDeviceId ?? null;
+  const target = args.deviceId || runOnFor(ws.id)?.defaultId || host;
   const elsewhere = target && target !== host ? target : null;
   if (elsewhere) {
-    const computer = getComputer(elsewhere);
-    if (!computer || computer.status !== 'active') throw new ComputerUnavailableForDispatch('That computer is no longer connected to this home.');
-    if (!listEnrolledComputerIds().has(elsewhere)) {
-      throw new ComputerUnavailableForDispatch(`${computer.name} isn't set up to run agents. Run \`ri worker enroll\` there first.`);
+    const device = getDevice(elsewhere);
+    if (!device || device.status !== 'active') throw new DeviceUnavailableForDispatch('That device is no longer connected to this home.');
+    if (!listEnrolledDeviceIds().has(elsewhere)) {
+      throw new DeviceUnavailableForDispatch(`${device.name} isn't set up to run agents. Run \`ri worker enroll\` there first.`);
     }
-    // Its folders there, as that computer finds them now: one gone since it
+    // Its folders there, as that device finds them now: one gone since it
     // connected says so here, rather than failing the work there.
-    await checkComputerFolders(elsewhere, { timeoutMs: 5_000 });
-    const setup = getAgentSetup(ws.id, elsewhere);
+    await checkDeviceFolders(elsewhere, { timeoutMs: 5_000 });
+    const setup = getWorkspaceSetup(ws.id, elsewhere);
     if (!setup || !setupUsable(setup.status)) {
-      throw new ComputerUnavailableForDispatch(
-        setup ? setupProblem(`${ws.name}'s folder on ${computer.name}`, setup) : `${ws.name} isn't on ${computer.name} yet. Set it up there first.`,
+      throw new DeviceUnavailableForDispatch(
+        setup ? setupProblem(`${ws.name}'s folder on ${device.name}`, setup) : `${ws.name} isn't on ${device.name} yet. Set it up there first.`,
       );
     }
   }
@@ -327,9 +327,9 @@ export async function dispatchExecutionSession(
   }
 
   if (elsewhere) {
-    // The execution is placed on that computer from the start, and its worker
+    // The execution is placed on that device from the start, and its worker
     // prepares it there. The first message waits for that (ensureWorktreeReady).
-    const placement = createPlacement({ executionId: execution.id, computerId: elsewhere, startReason: 'created' });
+    const placement = createPlacement({ executionId: execution.id, deviceId: elsewhere, startReason: 'created' });
     const prepare: PreparePayload = {
       workspace: ws,
       chatSessionId: sessionId,
@@ -339,7 +339,7 @@ export async function dispatchExecutionSession(
       live: liveMode,
     };
     queueWorkerCommand({
-      computerId: elsewhere,
+      deviceId: elsewhere,
       kind: 'prepare',
       payload: prepare,
       actor: args.actor ?? { source: 'system' },
@@ -347,7 +347,7 @@ export async function dispatchExecutionSession(
       chatSessionId: sessionId,
       generation: placement.generation,
     });
-    wakeComputer(elsewhere);
+    wakeDevice(elsewhere);
   } else if (ws.isGit && !liveMode) {
     // Fire-and-forget. The promise resolves into the void; we record
     // setupError on the execution when it fails so the UI can surface a
@@ -590,14 +590,14 @@ export function retrySetupScript(executionId: string): boolean {
   return true;
 }
 
-/** An execution's open placement when it's on a connected computer, not the home's. */
+/** An execution's open placement when it's on a connected device, not the home's. */
 function getPlacementElsewhere(executionId: string) {
   const open = getOpenPlacement(executionId);
-  return open && open.computerId !== getHome()?.hostComputerId ? open : null;
+  return open && open.deviceId !== getHome()?.hostDeviceId ? open : null;
 }
 
 /**
- * Retry a setup step of an execution placed on a connected computer (P2.4):
+ * Retry a setup step of an execution placed on a connected device (P2.4):
  * the command it was given, sent to its worker again. Never the home's own
  * provisioning, which built a worktree on the home for work that runs
  * elsewhere, nor a no-op for a script that only exists there (found in the
@@ -613,12 +613,12 @@ function retryElsewhere(executionId: string, kind: 'prepare' | 'run_script'): bo
     clearExecutionSetupError(executionId);
     return true;
   }
-  const previous = listWorkerCommands(placement.computerId)
+  const previous = listWorkerCommands(placement.deviceId)
     .filter((c) => c.executionId === executionId && c.kind === kind)
     .at(-1);
   if (!previous) {
     if (kind === 'run_script') return false;
-    recordExecutionSetupError(executionId, "There's no setup to retry on that computer. Start a new execution there.");
+    recordExecutionSetupError(executionId, "There's no setup to retry on that device. Start a new execution there.");
     return true;
   }
   // The agent as it is now, if its settings changed since.
@@ -627,7 +627,7 @@ function retryElsewhere(executionId: string, kind: 'prepare' | 'run_script'): bo
   if (kind === 'prepare') markExecutionSetupStarted(executionId);
   else setExecutionSetupScript(executionId, 'running', null);
   queueWorkerCommand({
-    computerId: placement.computerId,
+    deviceId: placement.deviceId,
     kind,
     payload,
     actor: { source: 'system' },
@@ -635,7 +635,7 @@ function retryElsewhere(executionId: string, kind: 'prepare' | 'run_script'): bo
     chatSessionId: previous.chatSessionId,
     generation: placement.generation,
   });
-  wakeComputer(placement.computerId);
+  wakeDevice(placement.deviceId);
   return true;
 }
 
@@ -686,9 +686,9 @@ async function archiveAdmitted(
   session: ChatSessionWithExecution,
 ): Promise<ChatSessionWithExecution | null> {
 
-  // On another computer (P4.5): stop it there (its sessions and terminals),
+  // On another device (P4.5): stop it there (its sessions and terminals),
   // then remove its worktree there, refused when it has work that isn't
-  // committed, as here. A computer that's away does both when it's back,
+  // committed, as here. A device that's away does both when it's back,
   // and a worktree it finds dirty then is left as it is.
   const elsewhere = session.executionId ? getPlacementElsewhere(session.executionId) : null;
   if (elsewhere && session.executionId && session.workspaceId) {
@@ -742,7 +742,7 @@ async function archiveAdmitted(
   return getChatSessionWithExecution(args.sessionId);
 }
 
-/** A worktree with work that isn't committed, on another computer (P4.5): archiving it would lose that. */
+/** A worktree with work that isn't committed, on another device (P4.5): archiving it would lose that. */
 export class RemoteDirtyWorktreeError extends Error {
   constructor(message: string) {
     super(message);
@@ -758,15 +758,15 @@ async function archiveOnOwner(
   const executionId = session.executionId!;
   const ws = getWorkspace(session.workspaceId!);
   const chats = listChatSessions({ executionId }).map((s) => s.id);
-  const base = { computerId: placement.computerId, actor: { source: 'human' as const }, executionId, chatSessionId: session.id, generation: placement.generation };
+  const base = { deviceId: placement.deviceId, actor: { source: 'human' as const }, executionId, chatSessionId: session.id, generation: placement.generation };
   const quiesce = queueWorkerCommand({ ...base, kind: 'quiesce', payload: { chatSessionIds: chats, transferId: '' } });
   const remove = queueWorkerCommand({
     ...base,
     kind: 'git',
     payload: { op: 'archive_worktree', force, teardownCommand: ws?.teardownCommand ?? null, workspaceId: session.workspaceId! },
   });
-  wakeComputer(placement.computerId);
-  if (!isComputerConnected(placement.computerId)) return;
+  wakeDevice(placement.deviceId);
+  if (!isDeviceConnected(placement.deviceId)) return;
   const { awaitWorkerCommand, CommandFailedError } = await import('@/lib/workers/await-command');
   try {
     await awaitWorkerCommand(quiesce.id, 60_000, 'Stopping it');
@@ -776,7 +776,7 @@ async function archiveOnOwner(
       throw new RemoteDirtyWorktreeError(err.message);
     }
     // Anything else leaves the worktree where it is. The record is archived all the same.
-    console.warn(`[archive] ${executionId} on ${getComputer(placement.computerId)?.name}:`, err instanceof Error ? err.message : err);
+    console.warn(`[archive] ${executionId} on ${getDevice(placement.deviceId)?.name}:`, err instanceof Error ? err.message : err);
   }
 }
 
@@ -832,19 +832,19 @@ export async function continueExecutionSession(
   // workspace cwd so this is normally moot; the explicit test covers rows
   // imported before that was true.
   //
-  // And so do executions placed on a connected computer: their worktree is
+  // And so do executions placed on a connected device: their worktree is
   // there, and only its worker prepares one. Rebuilding it on the home would
   // put work that runs elsewhere in a folder here (P2.7 to P2.9 re-check).
-  // Routing a continuation to its computer is P4.5.
-  // An execution on another computer comes back there (P4.5): reopened, its
-  // computer rebuilds its worktree on its own branch, as the home would.
+  // Routing a continuation to its device is P4.5.
+  // An execution on another device comes back there (P4.5): reopened, its
+  // device rebuilds its worktree on its own branch, as the home would.
   const elsewhere = getPlacementElsewhere(session.executionId);
   if (elsewhere && ws?.isGit && session.surfaceKind !== 'imported_agent' && session.status === 'archived' && session.branchName) {
     unarchiveExecution(session.executionId);
     clearPlacementWorktree(elsewhere.id);
     markExecutionSetupStarted(session.executionId);
     queueWorkerCommand({
-      computerId: elsewhere.computerId,
+      deviceId: elsewhere.deviceId,
       kind: 'prepare',
       payload: {
         workspace: ws,
@@ -860,7 +860,7 @@ export async function continueExecutionSession(
       chatSessionId: session.id,
       generation: elsewhere.generation,
     });
-    wakeComputer(elsewhere.computerId);
+    wakeDevice(elsewhere.deviceId);
     return getChatSessionWithExecution(args.sessionId);
   }
   if (!ws || !ws.isGit || session.surfaceKind === 'imported_agent' || elsewhere) {

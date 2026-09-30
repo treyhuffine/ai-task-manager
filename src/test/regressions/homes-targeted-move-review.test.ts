@@ -62,12 +62,12 @@ describe('targeted move failure probes', () => {
     const other = workspace('Other', folder('other'));
     const docs = q.createReferenceFolder({ alias: 'docs', path: folder('default-docs') });
     await setHomeFolder(ws.id, source);
-    const host = ensureHomeIdentity().computer.id;
+    const host = ensureHomeIdentity().device.id;
     q.setFolderLink(host, docs.id, null);
     const response = await patch(ws.id, { cwd: dest, slug: other.slug });
     expect(response.status).toBe(400);
     expect(q.getWorkspace(ws.id)!.cwd).toBe(source);
-    expect(q.getAgentSetup(ws.id, host)).toMatchObject({ sourcePath: source });
+    expect(q.getWorkspaceSetup(ws.id, host)).toMatchObject({ sourcePath: source });
     expect(q.getFolderLink(host, docs.id)?.path).toBeNull();
   });
 
@@ -78,6 +78,6 @@ describe('targeted move failure probes', () => {
     await setHomeFolder(ws.id, source);
     const response = await patch(ws.id, { cwd: dest, purpose: 123 });
     expect(response.status).toBe(400);
-    expect(q.listAgentSetups({ workspaceId: ws.id })).toEqual([expect.objectContaining({ sourcePath: source })]);
+    expect(q.listWorkspaceSetups({ workspaceId: ws.id })).toEqual([expect.objectContaining({ sourcePath: source })]);
   });
 });

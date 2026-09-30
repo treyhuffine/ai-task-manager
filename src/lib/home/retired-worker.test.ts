@@ -104,9 +104,9 @@ it("runs the laptop's work through its worker once its home is retired, in the w
 
   // 1. The laptop's chats come into the Mini's home, placed on the laptop.
   const { applyHomeImport } = await import('./import-records');
-  const imported = applyHomeImport({ sourceRoot: laptop.root, computerName: 'Laptop' });
-  const laptopId = imported.computer.id!;
-  expect(q.getOpenPlacement(ids.execution)).toMatchObject({ computerId: laptopId, worktreePath: worktree });
+  const imported = applyHomeImport({ sourceRoot: laptop.root, deviceName: 'Laptop' });
+  const laptopId = imported.device.id!;
+  expect(q.getOpenPlacement(ids.execution)).toMatchObject({ deviceId: laptopId, worktreePath: worktree });
 
   // 2. The laptop's home retires. Its worktree stays.
   const { retireHome } = await import('./retire');
@@ -114,15 +114,15 @@ it("runs the laptop's work through its worker once its home is retired, in the w
   expect(fs.readFileSync(path.join(worktree, 'unpushed.ts'), 'utf8')).toBe('work in progress\n');
 
   // 3. The same folder enrolls as the Laptop the chats were placed on, and runs its worker.
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: laptopId, computerName: null, createdByApiKeyId: null });
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: laptopId, deviceName: null, createdByApiKeyId: null });
   const enrolled = await fetch(`${server.url}/api/workers/enroll`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ code: grant.secret, name: 'laptop', protocol: WORKER_PROTOCOL, version: 'test' }),
-  }).then((r) => r.json() as Promise<{ workerKey: string; computerId: string }>);
-  expect(enrolled.computerId).toBe(laptopId);
+  }).then((r) => r.json() as Promise<{ workerKey: string; deviceId: string }>);
+  expect(enrolled.deviceId).toBe(laptopId);
   worker = await startWorkerProcess({ homeUrl: server.url, homeId: q.getHome()!.id, workerKey: enrolled.workerKey, root: laptop.root });
-  await until(() => q.getAgentSetup(ids.agent, laptopId)?.found === true, "the laptop checking its folder");
+  await until(() => q.getWorkspaceSetup(ids.agent, laptopId)?.found === true, "the laptop checking its folder");
 
   // 4. A message from the Mini runs there, in the laptop's worktree.
   const { dispatch } = await import('@/lib/executor/adapter');
@@ -131,7 +131,7 @@ it("runs the laptop's work through its worker once its home is retired, in the w
   await until(() => q.listChatEvents(ids.chat).some((e) => e.source === 'agent' && (e.content ?? '').includes(worktree)), 'the reply from the laptop');
   expect(q.listWorkerCommands(laptopId).some((c) => c.kind === 'send')).toBe(true);
   // Nothing moved: still the laptop's work, in the same folder, and the chat's history is whole.
-  expect(q.getOpenPlacement(ids.execution)).toMatchObject({ computerId: laptopId, generation: 1, worktreePath: worktree });
+  expect(q.getOpenPlacement(ids.execution)).toMatchObject({ deviceId: laptopId, generation: 1, worktreePath: worktree });
   expect(q.listChatEvents(ids.chat)[0]!.content).toBe('Started on the laptop');
   // And the laptop's folder never grew a home of its own again.
   expect(fs.existsSync(laptop.dbPath)).toBe(false);

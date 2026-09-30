@@ -1,1 +1,0 @@
-ALTER TABLE `workspaces` ADD `default_computer_id` text REFERENCES computers(id) ON DELETE set null;

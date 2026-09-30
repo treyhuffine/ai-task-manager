@@ -13,9 +13,9 @@
  *   the same agent: its chats join it. One it doesn't have is created, with
  *   the same id.
  * - **Where they ran.** Every imported chat and its work are placed on the
- *   computer the old home ran on (an execution placement, `adopted`), and
+ *   device the old home ran on (an execution placement, `adopted`), and
  *   each agent's folder there is recorded (§4.1). The work's folders and the
- *   native transcripts stay on that computer, so continuing one runs there,
+ *   native transcripts stay on that device, so continuing one runs there,
  *   and this home never looks for them on its own disk.
  *
  * Ids are kept, so a chat is the same chat in both homes, and nothing already
@@ -40,7 +40,7 @@ import type Database from 'better-sqlite3';
 import { uuidv7 } from 'uuidv7';
 import { getAppRoot, getAttachmentsDir } from '@/lib/config/paths';
 import { getDb, getRawDb } from '@/lib/db';
-import { createComputer, getAgentSetup, getHome, listComputers, setAgentFolder } from '@/lib/db/queries';
+import { createDevice, getWorkspaceSetup, getHome, listDevices, moveFolderRecords, setAgentFolder } from '@/lib/db/queries';
 import { ensureHomeIdentity, HomeIdentityError } from './identity';
 import { withSourceDatabase } from './source-db';
 
@@ -49,8 +49,8 @@ export class HomeImportError extends Error {}
 export interface HomeImportOptions {
   /** The home being brought in: a data root, or a backup of one. */
   sourceRoot: string;
-  /** The computer that home ran on. Its chats and their work belong to it here. */
-  computerName: string;
+  /** The device that home ran on. Its chats and their work belong to it here. */
+  deviceName: string;
   /**
    * Source agent id to this home's agent id, where matching by name is wrong,
    * or to `new` to bring it over as its own agent.
@@ -61,7 +61,7 @@ export interface HomeImportOptions {
 export interface AgentImport {
   sourceId: string;
   name: string;
-  /** Its folder on that computer. */
+  /** Its folder on that device. */
   folder: string | null;
   status: string;
   /** `same`: this home has it by id. `matched`: by name. `created`: it comes over. */
@@ -73,7 +73,7 @@ export interface AgentImport {
 
 export interface HomeImportPlan {
   sourceRoot: string;
-  computer: { name: string; id: string | null; created: boolean };
+  device: { name: string; id: string | null; created: boolean };
   agents: AgentImport[];
   chats: {
     import: number;
@@ -88,7 +88,7 @@ export interface HomeImportPlan {
   ledgers: number;
   previews: number;
   attachments: { copy: number; alreadyHere: number; missing: string[] };
-  /** Agents whose folder on that computer is already recorded here, and differs. */
+  /** Agents whose folder on that device is already recorded here, and differs. */
   foldersKept: Array<{ agent: string; recorded: string; theirs: string }>;
   /** Anything that stops the import. */
   problems: string[];
@@ -125,11 +125,15 @@ function run(options: HomeImportOptions, apply: boolean): HomeImportPlan | HomeI
   const sourceDb = path.join(sourceRoot, 'data.db');
   if (!fs.existsSync(sourceDb)) throw new HomeImportError(`${sourceRoot} has no data.db. Give a data root, or a backup of one.`);
   if (sourceRoot === destRoot) throw new HomeImportError('A home can not import itself.');
-  const computerName = options.computerName.trim();
-  if (!computerName) throw new HomeImportError('Name the computer that home ran on.');
+  const deviceName = options.deviceName.trim();
+  if (!deviceName) throw new HomeImportError('Name the device that home ran on.');
 
   // This home as its first start would leave it: up to date, with its
-  // identity. A copy that needs claiming says so rather than being imported into.
+  // identity, and its agents' folders here in its records (the boot move).
+  // The move skips an agent that has a folder anywhere, so it must come
+  // before the laptop's folders do, or an agent both homes have would never
+  // get its folder here. A copy that needs claiming says so rather than
+  // being imported into.
   getDb();
   const dest = getRawDb();
   try {
@@ -138,10 +142,11 @@ function run(options: HomeImportOptions, apply: boolean): HomeImportPlan | HomeI
     if (err instanceof HomeIdentityError) throw new HomeImportError(err.message);
     throw err;
   }
+  moveFolderRecords();
   const home = getHome()!;
 
   return withSourceDatabase(sourceDb, (src) => {
-    const plan = buildPlan(src, dest, { ...options, sourceRoot, computerName }, home.hostComputerId);
+    const plan = buildPlan(src, dest, { ...options, sourceRoot, deviceName }, home.hostDeviceId);
     if (!apply) return plan.summary;
     if (plan.summary.problems.length > 0) throw new HomeImportError(`Nothing was imported: ${plan.summary.problems.join(' ')}`);
     return applyPlan(src, dest, plan, sourceRoot);
@@ -152,7 +157,7 @@ function run(options: HomeImportOptions, apply: boolean): HomeImportPlan | HomeI
 
 interface BuiltPlan {
   summary: HomeImportPlan;
-  computerId: string | null;
+  deviceId: string | null;
   /** Source agent id to this home's. */
   agentIds: Map<string, string>;
   createdAgents: Row[];
@@ -162,7 +167,7 @@ interface BuiltPlan {
   ledgerIds: string[];
   previewIds: string[];
   attachmentFiles: Array<{ name: string; from: string }>;
-  /** Folders on that computer to record: this home's agent id to its folder there. */
+  /** Folders on that device to record: this home's agent id to its folder there. */
   folders: Map<string, string>;
   columns: Record<CopiedTable, string[]>;
   areaIds: Map<string, string | null>;
@@ -173,8 +178,8 @@ interface BuiltPlan {
 function buildPlan(
   src: Database.Database,
   dest: Database.Database,
-  options: HomeImportOptions & { sourceRoot: string; computerName: string },
-  hostComputerId: string,
+  options: HomeImportOptions & { sourceRoot: string; deviceName: string },
+  hostDeviceId: string,
 ): BuiltPlan {
   const problems: string[] = [];
 
@@ -198,10 +203,10 @@ function buildPlan(
     for (const c of missing) problems.push(`This home needs ${table}.${text(c.name)}, which the source doesn't have.`);
   }
 
-  // The computer the source ran on.
-  const computer = listComputers().find((c) => nameKey(c.name) === nameKey(options.computerName)) ?? null;
-  if (computer?.id === hostComputerId) {
-    problems.push(`${computer.name} is this home's own computer. Name the computer the other home ran on.`);
+  // The device the source ran on.
+  const device = listDevices().find((c) => nameKey(c.name) === nameKey(options.deviceName)) ?? null;
+  if (device?.id === hostDeviceId) {
+    problems.push(`${device.name} is this home's own device. Name the device the other home ran on.`);
   }
 
   // Agents: the same by id, else by name among this home's, else created.
@@ -385,12 +390,12 @@ function buildPlan(
     else missing.push(name);
   }
 
-  // Each agent's folder on that computer, from the source's own record of it.
+  // Each agent's folder on that device, from the source's own record of it.
   const folders = new Map<string, string>();
   const foldersKept: HomeImportPlan['foldersKept'] = [];
   for (const a of agents) {
     if (!a.folder || folders.has(a.destId)) continue;
-    const recorded = computer ? getAgentSetup(a.destId, computer.id) : null;
+    const recorded = device ? getWorkspaceSetup(a.destId, device.id) : null;
     if (recorded) {
       if (recorded.sourcePath !== path.resolve(a.folder)) foldersKept.push({ agent: a.destName, recorded: recorded.sourcePath, theirs: a.folder });
       continue;
@@ -406,7 +411,7 @@ function buildPlan(
   return {
     summary: {
       sourceRoot: options.sourceRoot,
-      computer: { name: computer?.name ?? options.computerName, id: computer?.id ?? null, created: !computer },
+      device: { name: device?.name ?? options.deviceName, id: device?.id ?? null, created: !device },
       agents,
       chats: { import: chatIds.length, alreadyHere, scheduled, emptyDetached, mainChatsArchived: archivedMainChats.size },
       executions: { import: executionIds.length, alreadyHere: executionsHere },
@@ -417,7 +422,7 @@ function buildPlan(
       foldersKept,
       problems,
     },
-    computerId: computer?.id ?? null,
+    deviceId: device?.id ?? null,
     agentIds,
     createdAgents,
     chatIds,
@@ -439,9 +444,9 @@ function applyPlan(src: Database.Database, dest: Database.Database, plan: BuiltP
   const importId = uuidv7();
   const now = new Date().toISOString();
 
-  // The computer first: its own record, outside the transaction, since
+  // The device first: its own record, outside the transaction, since
   // enrolling it later finds it by name.
-  const computerId = plan.computerId ?? createComputer({ name: plan.summary.computer.name, platform: null, hostname: null }).id;
+  const deviceId = plan.deviceId ?? createDevice({ name: plan.summary.device.name, kind: 'computer', platform: null, hostname: null }).id;
 
   // Attachments before the rows that name them, removed again if the rows fail.
   const attachmentsDir = getAttachmentsDir();
@@ -486,17 +491,17 @@ function applyPlan(src: Database.Database, dest: Database.Database, plan: BuiltP
           }),
         );
         // New work in it runs where it lives.
-        if (hasColumn('workspaces', 'default_computer_id')) {
-          dest.prepare('UPDATE workspaces SET default_computer_id = ? WHERE id = ?').run(computerId, text(a.id));
+        if (hasColumn('workspaces', 'default_device_id')) {
+          dest.prepare('UPDATE workspaces SET default_device_id = ? WHERE id = ?').run(deviceId, text(a.id));
         }
       }
 
-      // The work, placed on that computer. The home's own path column stays
+      // The work, placed on that device. The home's own path column stays
       // empty: the folder is there, not here.
       const insertExecution = insert('executions');
       const insertPlacement = dest.prepare(
-        `INSERT INTO execution_placements (id, created_at, updated_at, execution_id, computer_id, generation, worktree_path, checkpoint_sha, start_reason, ended_at, end_reason)
-         VALUES (@id, @now, @now, @executionId, @computerId, 1, @worktreePath, NULL, 'adopted', NULL, NULL)`,
+        `INSERT INTO execution_placements (id, created_at, updated_at, execution_id, device_id, generation, worktree_path, checkpoint_sha, start_reason, ended_at, end_reason)
+         VALUES (@id, @now, @now, @executionId, @deviceId, 1, @worktreePath, NULL, 'adopted', NULL, NULL)`,
       );
       const placementOf = new Map<string, string>();
       const executionRow = src.prepare('SELECT * FROM executions WHERE id = ?');
@@ -511,17 +516,17 @@ function applyPlan(src: Database.Database, dest: Database.Database, plan: BuiltP
           }),
         );
         const placementId = uuidv7();
-        insertPlacement.run({ id: placementId, now, executionId: id, computerId, worktreePath: text(e.worktree_path) || null });
+        insertPlacement.run({ id: placementId, now, executionId: id, deviceId, worktreePath: text(e.worktree_path) || null });
         placementOf.set(id, placementId);
       }
 
       // The chats: in their agent here, read, main chats archived where this
       // home has its own, and every chat that isn't part of work pinned to
-      // that computer, where its native session is.
+      // that device, where its native session is.
       const insertChat = insert('chat_sessions');
       const insertNative = dest.prepare(
-        `INSERT INTO native_sessions (id, created_at, updated_at, chat_session_id, computer_id, placement_id, harness, native_session_id, started_at, ended_at, end_reason)
-         VALUES (@id, @now, @now, @chatSessionId, @computerId, @placementId, @harness, @nativeSessionId, @startedAt, NULL, NULL)`,
+        `INSERT INTO native_sessions (id, created_at, updated_at, chat_session_id, device_id, placement_id, harness, native_session_id, started_at, ended_at, end_reason)
+         VALUES (@id, @now, @now, @chatSessionId, @deviceId, @placementId, @harness, @nativeSessionId, @startedAt, NULL, NULL)`,
       );
       const chatRow = src.prepare('SELECT * FROM chat_sessions WHERE id = ?');
       for (const id of plan.chatIds) {
@@ -537,8 +542,8 @@ function applyPlan(src: Database.Database, dest: Database.Database, plan: BuiltP
             ...(plan.columns.chat_sessions.includes('unread_marker_at') ? { unread_marker_at: null } : {}),
           }),
         );
-        if (!executionId && hasColumn('chat_sessions', 'computer_id')) {
-          dest.prepare('UPDATE chat_sessions SET computer_id = ? WHERE id = ?').run(computerId, id);
+        if (!executionId && hasColumn('chat_sessions', 'device_id')) {
+          dest.prepare('UPDATE chat_sessions SET device_id = ? WHERE id = ?').run(deviceId, id);
         }
         const native = text(c.external_session_id);
         if (native) {
@@ -546,7 +551,7 @@ function applyPlan(src: Database.Database, dest: Database.Database, plan: BuiltP
             id: uuidv7(),
             now,
             chatSessionId: id,
-            computerId,
+            deviceId,
             placementId: executionId ? (placementOf.get(executionId) ?? null) : null,
             harness: text(c.harness),
             nativeSessionId: native,
@@ -569,7 +574,7 @@ function applyPlan(src: Database.Database, dest: Database.Database, plan: BuiltP
         }
       }
 
-      // Terminal-history ledgers, read from that computer from now on, never
+      // Terminal-history ledgers, read from that device from now on, never
       // from a path on it.
       if (plan.ledgerIds.length > 0) {
         const insertLedger = insert('external_session_imports');
@@ -577,8 +582,8 @@ function applyPlan(src: Database.Database, dest: Database.Database, plan: BuiltP
         for (const id of plan.ledgerIds) {
           const l = ledgerRow.get(id) as Row;
           insertLedger.run(pick('external_session_imports', l, { source_path: null }));
-          if (hasColumn('external_session_imports', 'computer_id')) {
-            dest.prepare('UPDATE external_session_imports SET computer_id = ? WHERE id = ?').run(computerId, id);
+          if (hasColumn('external_session_imports', 'device_id')) {
+            dest.prepare('UPDATE external_session_imports SET device_id = ? WHERE id = ?').run(deviceId, id);
           }
         }
       }
@@ -588,9 +593,9 @@ function applyPlan(src: Database.Database, dest: Database.Database, plan: BuiltP
         for (const id of plan.previewIds) insertPreview.run(pick('preview_targets', previewRow.get(id) as Row));
       }
 
-      // Each agent's folder on that computer (§4.1), in the same transaction,
+      // Each agent's folder on that device (§4.1), in the same transaction,
       // so an agent that lives only there never gets a folder here at boot.
-      for (const [agentId, folder] of plan.folders) setAgentFolder(agentId, computerId, folder);
+      for (const [agentId, folder] of plan.folders) setAgentFolder(agentId, deviceId, folder);
 
       const broken = dest.prepare('PRAGMA foreign_key_check').all() as Row[];
       if (broken.length > 0) {
@@ -603,7 +608,7 @@ function applyPlan(src: Database.Database, dest: Database.Database, plan: BuiltP
   }
 
   // What came from where.
-  const summary: HomeImportPlan = { ...plan.summary, computer: { ...plan.summary.computer, id: computerId } };
+  const summary: HomeImportPlan = { ...plan.summary, device: { ...plan.summary.device, id: deviceId } };
   const manifestDir = path.join(getAppRoot(), '.archive', 'imports');
   fs.mkdirSync(manifestDir, { recursive: true });
   const manifestPath = path.join(manifestDir, `${now.replace(/[:.]/g, '-')}-${importId}.json`);
@@ -646,7 +651,7 @@ function attachmentNamesIn(value: unknown): string[] {
 export function describeHomeImport(plan: HomeImportPlan, opts: { applied?: boolean } = {}): string {
   const lines: string[] = [];
   const verb = opts.applied ? 'Imported' : 'Would import';
-  lines.push(`${verb} from ${plan.sourceRoot}, as work on ${plan.computer.name}${plan.computer.created ? ' (a new computer record here)' : ''}:`);
+  lines.push(`${verb} from ${plan.sourceRoot}, as work on ${plan.device.name}${plan.device.created ? ' (a new device record here)' : ''}:`);
   lines.push(`  ${plan.chats.import} chats (${plan.chats.mainChatsArchived} main chats archived, since this home has its own), ${plan.executions.import} executions, ${plan.events} messages`);
   lines.push(`  ${plan.attachments.copy} attachments${plan.ledgers ? `, ${plan.ledgers} terminal-history ledgers` : ''}${plan.previews ? `, ${plan.previews} previews` : ''}`);
   lines.push(`Left out: ${plan.chats.scheduled} chats a schedule started, ${plan.chats.emptyDetached} empty chats on tasks or notes this home doesn't have.`);
@@ -656,9 +661,9 @@ export function describeHomeImport(plan: HomeImportPlan, opts: { applied?: boole
   lines.push('Agents:');
   for (const a of plan.agents) {
     const how = a.action === 'created' ? 'new here' : a.action === 'same' ? 'the same agent' : `joins ${a.destName} (${a.destId})`;
-    lines.push(`  ${a.name} [${a.status}] ${a.sourceId}: ${how}, ${a.chats} chats${a.folder ? `, at ${a.folder} on ${plan.computer.name}` : ''}`);
+    lines.push(`  ${a.name} [${a.status}] ${a.sourceId}: ${how}, ${a.chats} chats${a.folder ? `, at ${a.folder} on ${plan.device.name}` : ''}`);
   }
-  for (const f of plan.foldersKept) lines.push(`  ${f.agent} keeps its folder on ${plan.computer.name}, ${f.recorded} (the other home had ${f.theirs}).`);
+  for (const f of plan.foldersKept) lines.push(`  ${f.agent} keeps its folder on ${plan.device.name}, ${f.recorded} (the other home had ${f.theirs}).`);
   if (plan.attachments.missing.length) lines.push(`Attachments named but not in the source (the chats keep their names): ${plan.attachments.missing.join(', ')}`);
   if (plan.problems.length) lines.push(`Problems, so nothing can be imported:\n  ${plan.problems.join('\n  ')}`);
   return lines.join('\n');

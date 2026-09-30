@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * A move between computers, in one place (docs/homes-spec.md §8.2, P4.2 to
+ * A move between devices, in one place (docs/homes-spec.md §8.2, P4.2 to
  * P4.4): Preparing, Saving work, Setting up MacBook, Continuing. When it
  * stops, where and why, and the ways on: before the destination took the
  * work, Try again or Resume on the source. After, Finish there. Messages
@@ -144,7 +144,7 @@ function Stopped({ sessionId, transfer }: { sessionId: string; transfer: Transfe
               type="button"
               className={cn(button, 'bg-primary text-primary-foreground border-primary hover:opacity-90 hover:bg-primary')}
               disabled={busy}
-              onClick={() => retry.mutate({ toComputerId: transfer.to.computerId, includeUntracked: transfer.includeUntracked })}
+              onClick={() => retry.mutate({ toDeviceId: transfer.to.deviceId, includeUntracked: transfer.includeUntracked })}
             >
               Try again
             </button>

@@ -1,5 +1,5 @@
 /**
- * A worker's terminals (P3.5): shells only where this computer may open
+ * A worker's terminals (P3.5): shells only where this device may open
  * them, only for the placement it holds, output posted in batches that carry
  * their offsets, a dropped batch left to the home's resync rather than
  * queued, and the shells stopped when the placement moves on.

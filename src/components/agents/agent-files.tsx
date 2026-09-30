@@ -25,7 +25,7 @@ const NOOP_STORAGE: LayoutStorage = { getItem: () => null, setItem: () => {} };
 export function AgentFiles({ workspace }: { workspace: WorkspaceRecord }) {
   const archived = workspace.status === 'archived';
   const source = useMemo(() => workspaceFolder(workspace.id, { readOnly: archived }), [workspace.id, archived]);
-  // Its folder on the computer it lives on (P3.5), which the tree reads
+  // Its folder on the device it lives on (P3.5), which the tree reads
   // there. Null until that's known, which the tree shows as loading.
   const { data: runOn } = useRunOn(workspace.id);
   const folder = runOn ? (runOn.livesOn?.folder ?? null) : null;

@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * The agent's own terminals, on the computer it lives on, in its folder there
+ * The agent's own terminals, on the device it lives on, in its folder there
  * (the source checkout for a git agent). Owned by the workspace, separate from
  * every execution's shells. Same shapes as `/api/sessions/:id/terminals`.
  */

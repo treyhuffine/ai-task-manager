@@ -12,7 +12,7 @@ import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 let home: TestHome;
 let homeId: string;
-let computerId: string;
+let deviceId: string;
 let keyId: string;
 let agentId: string;
 let chatId: string;
@@ -26,15 +26,15 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
-  const grant = q.createComputerGrant({ kind: 'enroll', computerId: null, computerName: 'Review laptop', createdByApiKeyId: null });
+  const grant = q.createDeviceGrant({ kind: 'enroll', deviceId: null, deviceName: 'Review laptop', createdByApiKeyId: null });
   const enrolled = q.redeemEnrollGrant({ secret: grant.secret, name: 'Review laptop' });
-  computerId = enrolled.computer.id;
+  deviceId = enrolled.device.id;
   keyId = enrolled.key.id;
   agentId = q.createWorkspace({ name: 'Review', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true }).id;
   const created = q.createExecutionWithChat({ workspaceId: agentId, harness: 'claude', label: 'Review execution' });
   chatId = created.session.id;
   executionId = created.execution.id;
-  q.createPlacement({ executionId, computerId, startReason: 'created', worktreePath: home.root });
+  q.createPlacement({ executionId, deviceId, startReason: 'created', worktreePath: home.root });
 });
 
 afterEach(async () => {
@@ -51,8 +51,8 @@ afterEach(async () => {
 });
 
 const headers = () => new Headers({
-  'x-ri-api-key-id': keyId, 'x-ri-api-key-type': 'computer',
-  'x-ri-api-key-scope': 'worker', 'x-ri-worker-computer-id': computerId,
+  'x-ri-api-key-id': keyId,
+  'x-ri-api-key-scope': 'worker', 'x-ri-worker-device-id': deviceId,
   'x-ri-worker-protocol': String(WORKER_PROTOCOL),
 });
 
@@ -66,12 +66,12 @@ describe('authority at asynchronous boundaries', () => {
     const pending = POST({ headers: headers(), json: () => json } as unknown as NextRequest);
     // The real helper awaits json.catch(...), then the route awaits the helper.
     // Schedule another completed request in the gap between those continuations.
-    void json.then(() => queueMicrotask(() => retireWorker(keyId, computerId, 'concurrent retirement')));
+    void json.then(() => queueMicrotask(() => retireWorker(keyId, deviceId, 'concurrent retirement')));
     release({ protocol: WORKER_PROTOCOL, version: 'review', harnesses: [], state: 'awake', live: {
       running: [chatId], pending: [], backgroundTasks: {}, generations: { [chatId]: 1 },
     } });
     const response = await pending;
-    expect(q.getWorkerEnrollment(keyId)).toBeNull();
+    expect(q.getWorkerDevice(keyId)).toBeNull();
     expect.soft(response.status).toBe(401);
     expect((await import('@/lib/executor/remote-live')).listRemoteRunning()).not.toContain(chatId);
   });
@@ -79,12 +79,12 @@ describe('authority at asynchronous boundaries', () => {
   it('mints nothing without an enrollment and never verifies the old token after reenrollment', async () => {
     const q = await import('@/lib/db/queries');
     const tokens = await import('@/lib/auth/session-token');
-    const input = { chatSessionId: chatId, computerId, generation: 1 };
+    const input = { chatSessionId: chatId, deviceId, generation: 1 };
     const old = tokens.mintSessionToken(input)!;
     expect(tokens.verifySessionToken(old)).not.toBeNull();
-    (await import('@/lib/workers/retire')).retireWorker(keyId, computerId, 'off');
+    (await import('@/lib/workers/retire')).retireWorker(keyId, deviceId, 'off');
     expect(tokens.mintSessionToken(input)).toBeNull();
-    const grant = q.createComputerGrant({ kind: 'enroll', computerId, computerName: null, createdByApiKeyId: null });
+    const grant = q.createDeviceGrant({ kind: 'enroll', deviceId, deviceName: null, createdByApiKeyId: null });
     (await import('@/lib/workers/enroll')).enrollWorker({ secret: grant.secret, name: 'New enrollment' });
     expect(tokens.verifySessionToken(old)).toBeNull();
     const fresh = tokens.mintSessionToken(input)!;
@@ -95,7 +95,7 @@ describe('authority at asynchronous boundaries', () => {
   it('implements the documented same-placement archive and restore token policy', async () => {
     const q = await import('@/lib/db/queries');
     const tokens = await import('@/lib/auth/session-token');
-    const input = { chatSessionId: chatId, computerId, generation: 1 };
+    const input = { chatSessionId: chatId, deviceId, generation: 1 };
     const token = tokens.mintSessionToken(input)!;
     q.archiveExecution(executionId);
     expect(tokens.verifySessionToken(token)).toBeNull();
@@ -107,15 +107,15 @@ describe('authority at asynchronous boundaries', () => {
 
 // Adapted when the home's records became the only place an agent's folders
 // are kept (docs/homes-spec.md §4.1): the linked folders come from the
-// home's records for that computer, and the runner wires what's there when
+// home's records for that device, and the runner wires what's there when
 // the session starts. The "duplicate setup files" case has no equivalent.
-describe("the home's records for that computer wire remote linked folders", () => {
+describe("the home's records for that device wire remote linked folders", () => {
   it.each(['cursor', 'opencode'] as const)('delivers current references in the first message of a fresh %s main chat', async (harness) => {
     const q = await import('@/lib/db/queries');
     const current = path.join(home.root, 'current-reference');
     fs.mkdirSync(current);
     q.createReferenceFolder({ workspaceId: agentId, alias: 'docs' });
-    await setUpAgentOn(agentId, computerId, home.root, { links: { docs: current } });
+    await setUpAgentOn(agentId, deviceId, home.root, { links: { docs: current } });
     const main = q.createChatSession({ type: 'orchestration', workspaceId: agentId, harness, status: 'active' });
     const fake = (await import('@/test/fixtures/fake-harness')).installFakeHarness(harness);
     const runner = await import('@/lib/runner/local-runner');
@@ -125,7 +125,7 @@ describe("the home's records for that computer wire remote linked folders", () =
         chatSessionId: main.id, harness, cwd: home.root, sessionType: 'orchestration', workspaceId: agentId,
         surfaceKind: null, surfaceRef: null, existingExternalSessionId: null, permissionMode: 'ask', prePlanMode: null,
         model: 'fake-model', modelVariant: null, effort: null,
-      }, { computerId, isHome: false, generation: null });
+      }, { deviceId, isHome: false, generation: null });
       await runner.send({ chatSessionId: main.id, message: 'hello', turnId: 'fresh-main', runId: null, spec });
       expect(fake.latest().messages[0]).toContain(current);
       expect(fake.latest().messages[0]).toContain('hello');
@@ -159,14 +159,14 @@ describe("the home's records for that computer wire remote linked folders", () =
     const cached = path.join(home.root, 'no-longer-there');
     fs.mkdirSync(cached);
     q.createReferenceFolder({ workspaceId: agentId, alias: 'docs' });
-    await setUpAgentOn(agentId, computerId, home.root, { links: { docs: cached } });
+    await setUpAgentOn(agentId, deviceId, home.root, { links: { docs: cached } });
     const { buildSessionSpec } = await import('@/lib/executor/session-spec');
     const spec = await buildSessionSpec({ chatSessionId: chatId, harness: 'claude', cwd: home.root,
       sessionType: 'execution', workspaceId: agentId, executionId, surfaceKind: null, surfaceRef: null,
       existingExternalSessionId: null, permissionMode: 'ask', prePlanMode: null, model: 'fake-model', modelVariant: null, effort: null,
-    }, { computerId, isHome: false, generation: 1 });
+    }, { deviceId, isHome: false, generation: 1 });
     expect(spec.agentFolders?.references[0]?.path).toBe(cached);
-    // Gone by the time the session starts on that computer.
+    // Gone by the time the session starts on that device.
     fs.rmSync(cached, { recursive: true, force: true });
     const fake = (await import('@/test/fixtures/fake-harness')).installFakeHarness('claude');
     const runner = await import('@/lib/runner/local-runner');

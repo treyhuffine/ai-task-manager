@@ -1,9 +1,9 @@
 /**
- * A message's attached files, placed for the computer its chat runs on
+ * A message's attached files, placed for the device its chat runs on
  * (docs/homes-build.md, P2.5). At home, each file's marker becomes its path
- * in the attachments directory. For a chat on a connected computer the
+ * in the attachments directory. For a chat on a connected device the
  * markers stay, and the files go beside the message with their size and
- * sha256, for that computer's worker to fetch, check, and place itself.
+ * sha256, for that device's worker to fetch, check, and place itself.
  */
 
 import { createHash } from 'node:crypto';

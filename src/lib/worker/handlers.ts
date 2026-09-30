@@ -1,11 +1,11 @@
 /**
- * How this computer's worker carries out execution commands
+ * How this device's worker carries out execution commands
  * (docs/homes-build.md, P2 protocol and P2.4): send, interrupt, stop a task,
  * stop, and answer a prompt, each through the local runner, with the
  * placement fence and the recovery rule from "Command receipt and recovery".
  *
  * Fencing: every execution command carries the placement generation the home
- * had when it queued it. A generation older than the newest this computer
+ * had when it queued it. A generation older than the newest this device
  * has seen for that execution is `stale`, and nothing happens.
  */
 
@@ -154,7 +154,7 @@ function stale(command: WorkerCommand): WorkerCommandAckBody {
 }
 
 /**
- * Whether this command's placement is no longer this computer's: a newer
+ * Whether this command's placement is no longer this device's: a newer
  * one has reached it, or the home released this one (a heartbeat's reply,
  * journaled).
  */
@@ -179,7 +179,7 @@ function failure(err: unknown): WorkerCommandAckBody {
 /**
  * Look for a sent message in Claude's transcript for the session: a user line
  * whose text is exactly the message. Other harnesses, or a session this
- * computer can't name, are `unknown`.
+ * device can't name, are `unknown`.
  */
 export async function findInClaudeHistory(spec: SessionSpec, message: string): Promise<'found' | 'missing' | 'unknown'> {
   if (harnessDefinition(spec.harness).agentexProviderId !== 'claude' || !spec.nativeSessionId) return 'unknown';
@@ -222,8 +222,8 @@ export async function findInClaudeHistory(spec: SessionSpec, message: string): P
 
 /**
  * Answer the home's reads and changes of executions placed here: only an
- * execution this computer prepared, in the worktree it prepared for it. A
- * change also has to be for the placement this computer still holds: once
+ * execution this device prepared, in the worktree it prepared for it. A
+ * change also has to be for the placement this device still holds: once
  * the home has moved the execution on, its files here are left alone.
  */
 export function executionRequests(options: { journal: CommandJournal; homeId: string }): RequestHandler {
@@ -241,7 +241,7 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
       filesToCopy: request.workspace.filesToCopy,
     };
   };
-  const notPrepared = { status: 404, body: { error: "This execution wasn't prepared on this computer." } };
+  const notPrepared = { status: 404, body: { error: "This execution wasn't prepared on this device." } };
   return async (kind, payload) => {
     if (kind === 'read_execution') {
       const request = payload as ReadExecutionRequest;
@@ -253,7 +253,7 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
       const { executionId, generation } = request;
       const newest = journal.highestGeneration(executionId);
       if (journal.released(executionId, generation) || (newest !== null && generation < newest)) {
-        return { status: 409, body: { error: 'moved', message: 'This execution no longer runs on this computer.' } };
+        return { status: 409, body: { error: 'moved', message: 'This execution no longer runs on this device.' } };
       }
       const location = locate(request);
       return location ? writeExecution(location, request.write) : notPrepared;
@@ -261,7 +261,7 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
     if (kind === 'github') {
       const { workspaceId, request } = payload as { workspaceId: string; request: GithubRequest };
       const folder = agentFolderHere(homeId, workspaceId);
-      if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this computer." } };
+      if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this device." } };
       return runGithub(folder, request);
     }
     if (kind === 'review_checkout') {
@@ -280,13 +280,13 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
     if (kind === 'read_agent_folder') {
       const request = payload as ReadAgentFolderRequest;
       const folder = agentFolderHere(homeId, request.agentId);
-      if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this computer." } };
+      if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this device." } };
       return readAgentFolder(folder, request.filesToCopy, request.read);
     }
     if (kind === 'write_agent_folder') {
       const request = payload as WriteAgentFolderRequest;
       const folder = agentFolderHere(homeId, request.agentId);
-      if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this computer." } };
+      if (!folder) return { status: 409, body: { error: 'not_set_up', message: "This agent isn't set up on this device." } };
       if (!checkFoldersHere([folder])[0]!.exists) {
         return { status: 409, body: { error: `The agent's folder does not exist: ${folder}` } };
       }
@@ -306,10 +306,10 @@ export function executionRequests(options: { journal: CommandJournal; homeId: st
     if (kind === 'setup_agent') {
       // Setting an agent up here from the app: its project copied down, or a
       // folder already here, the same setup `ri setup attach` makes. Only for
-      // this computer's own home.
+      // this device's own home.
       const request = payload as SetupAgentRequest;
       if (request.homeId !== homeId) {
-        return { status: 409, body: { error: 'wrong_home', message: 'This computer runs agents for a different Ri.' } };
+        return { status: 409, body: { error: 'wrong_home', message: 'This device runs agents for a different Ri.' } };
       }
       try {
         if (request.op === 'plan') return { status: 200, body: planSetupHere(request) };
@@ -345,7 +345,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
   };
 
   const filesDir = (command: WorkerCommand, ctx: CommandContext) => inputFilesDir(ctx.target.homeId, chatOf(command));
-  /** The text as this computer's harness gets it: this computer's path where each sent file's marker was. */
+  /** The text as this device's harness gets it: this device's path where each sent file's marker was. */
   const placedMessage = (command: WorkerCommand, ctx: CommandContext) => {
     const payload = command.payload as SendPayload;
     return placeInputFiles(payload.message, filesDir(command, ctx), payload.attachments ?? []);
@@ -359,7 +359,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       // is the worktree that prepare made, which ran first.
       if (!payload.spec.cwd && payload.spec.preparedWorktreeOf) {
         const prepared = journal.preparedWorktree(payload.spec.preparedWorktreeOf);
-        if (!prepared) return { state: 'failed', error: "This execution wasn't prepared on this computer." };
+        if (!prepared) return { state: 'failed', error: "This execution wasn't prepared on this device." };
         payload.spec = { ...payload.spec, cwd: prepared };
       }
       // Its files first, so the message never names one that isn't here.
@@ -413,7 +413,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       const { requestId, response } = command.payload as { requestId: string; response: UserInputResponse };
       ctx.markStarted();
       // The home refuses an agent approving a permission, and so does this
-      // computer, on the actor the command carries.
+      // device, on the actor the command carries.
       const answered = runner.answerPendingInput(chatOf(command), requestId, response, command.actor);
       if (answered.ok) return { state: 'delivered' };
       if (answered.refused) return { state: 'failed', error: answered.refused };
@@ -428,7 +428,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
 
   /**
    * Prepare an execution here: the worktree, from the agent's folder on this
-   * computer, and the agent's files to copy. The worktree is noted in the
+   * device, and the agent's files to copy. The worktree is noted in the
    * journal as soon as it exists, so recovery after a crash reuses it rather
    * than making a second. The setup script is not part of this: the home
    * sends it as its own `run_script`, which is never repeated.
@@ -441,7 +441,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       if (!source) {
         return {
           state: 'failed',
-          error: `${payload.workspace.name} isn't set up on this computer. Set it up in ${payload.workspace.name}'s Setup, under Folders, or with \`ri setup attach\` here.`,
+          error: `${payload.workspace.name} isn't set up on this device. Set it up in ${payload.workspace.name}'s Setup, under Folders, or with \`ri setup attach\` here.`,
         };
       }
       if (!checkFoldersHere([source])[0]!.exists) {
@@ -457,7 +457,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
         let result: PrepareResult;
         if (payload.transfer) {
           // Continue here: the checkpoint's branch at its exact commit, in the
-          // worktree this computer already had for the execution when it ran
+          // worktree this device already had for the execution when it ran
           // it before, or a new one.
           const earlier = command.target.executionId ? journal.preparedWorktree(command.target.executionId) : null;
           const target =
@@ -538,7 +538,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       if (stage === 'received') return runScript.run(command, ctx);
       return {
         state: 'uncertain',
-        error: "The setup script may not have finished before this computer restarted. Run it again if it's needed.",
+        error: "The setup script may not have finished before this device restarted. Run it again if it's needed.",
       };
     },
   };
@@ -585,7 +585,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       const payload = command.payload as GitPayload;
       const executionId = command.target.executionId;
       const worktree = executionId ? journal.preparedWorktree(executionId) : null;
-      if (!worktree || !fs.existsSync(worktree)) return { state: 'failed', error: "This execution's worktree isn't on this computer." };
+      if (!worktree || !fs.existsSync(worktree)) return { state: 'failed', error: "This execution's worktree isn't on this device." };
       ctx.markStarted();
       try {
         switch (payload.op) {

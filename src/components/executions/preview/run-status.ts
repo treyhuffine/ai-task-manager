@@ -13,7 +13,7 @@ export type RunStatus =
   | 'running'
   | 'running-no-port'
   | 'crashed'
-  /** The execution runs on another computer, and its app with it (P3.5). */
+  /** The execution runs on another device, and its app with it (P3.5). */
   | 'elsewhere';
 
 export function deriveRunStatus(state: PreviewState | null, command: string | null): RunStatus {
@@ -43,7 +43,7 @@ export const RUN_STATUS_LABEL: Record<RunStatus, string> = {
   running: 'Running',
   'running-no-port': 'Running, no port found',
   crashed: 'Failed',
-  elsewhere: 'Runs on another computer',
+  elsewhere: 'Runs on another device',
 };
 
 export type RunTone = 'green' | 'amber' | 'rose' | 'blue' | 'idle';

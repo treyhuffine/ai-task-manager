@@ -1,5 +1,5 @@
 /**
- * An execution's environment, resolved on the computer running it
+ * An execution's environment, resolved on the device running it
  * (docs/homes-build.md, P2.7): the agent's folder and linked folders as the
  * home records them (docs/homes-spec.md §4.1), each checked here, the mode,
  * and the checked-out commit.
@@ -49,7 +49,7 @@ const recorded = () => [
 const expected = (cwd: string, sourceFolder: string | null): ExecutionEnvironment => ({
   homeId: 'home-1',
   homeName: 'My Ri',
-  computerName: 'MacBook',
+  deviceName: 'MacBook',
   agent: { id: 'agent-1', name: 'Demo' },
   executionId: 'exec-1',
   isGit: true,
@@ -102,8 +102,8 @@ describe('the environment', () => {
     expect(text).toContain('`/work/session-instructions/chat-1.environment.json`');
     expect(text).toContain("the agent's folder itself (live mode");
     expect(text).toContain('- docs: `' + path.join(root, 'projects', 'docs') + '`. docs folder');
-    expect(text).toContain('- design: left out on this computer. design folder');
-    expect(text).toContain('- secrets: not set up on this computer');
+    expect(text).toContain('- design: left out on this device. design folder');
+    expect(text).toContain('- secrets: not set up on this device');
     expect(text).toContain('Tools from My Ri: the agent browser.');
     expect(text).not.toMatch(/[—;]/);
   });

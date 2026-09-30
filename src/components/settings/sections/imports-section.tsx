@@ -72,15 +72,15 @@ function selectableSessions(project: ExternalAgentProjectCandidate): ExternalAge
   return project.sessions.filter((session) => session.importable !== false);
 }
 
-/** A computer history can be read from: this one, or a connected computer's worker (P2.9). */
-interface HistoryComputer {
+/** A device history can be read from: this one, or a connected device's worker (P2.9). */
+interface HistoryDevice {
   id: string;
   name: string;
   isHome: boolean;
   worker: { enrolled: boolean; connected: boolean } | null;
 }
 
-const THIS_COMPUTER = 'this-computer';
+const THIS_DEVICE = 'this-device';
 
 export function formatImportResultSummary(result: ExternalAgentImportResult): string {
   const outcomes: string[] = [];
@@ -128,20 +128,20 @@ export function ExternalAgentImportPanel() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [lastResult, setLastResult] = useState<ExternalAgentImportResult | null>(null);
-  // Whose history: this computer's, or a connected computer's (P2.9).
-  const [source, setSource] = useState<string>(THIS_COMPUTER);
-  const computers = useQuery({
-    queryKey: ['computers'],
-    queryFn: () => api.get<HistoryComputer[]>('/computers'),
+  // Whose history: this device's, or a connected device's (P2.9).
+  const [source, setSource] = useState<string>(THIS_DEVICE);
+  const devices = useQuery({
+    queryKey: ['devices'],
+    queryFn: () => api.get<HistoryDevice[]>('/devices'),
     staleTime: 30_000,
   });
-  const elsewhere = (computers.data ?? []).filter((c) => !c.isHome && c.worker?.enrolled);
-  const computerId = source === THIS_COMPUTER ? null : source;
-  const computerName = elsewhere.find((c) => c.id === computerId)?.name ?? null;
+  const elsewhere = (devices.data ?? []).filter((c) => !c.isHome && c.worker?.enrolled);
+  const deviceId = source === THIS_DEVICE ? null : source;
+  const deviceName = elsewhere.find((c) => c.id === deviceId)?.name ?? null;
   const discovery = useQuery({
-    queryKey: [...DISCOVERY_KEY, computerId ?? 'here'],
+    queryKey: [...DISCOVERY_KEY, deviceId ?? 'here'],
     queryFn: () => api.get<ExternalAgentDiscovery>(
-      computerId ? `/imports/agents?computerId=${encodeURIComponent(computerId)}` : '/imports/agents',
+      deviceId ? `/imports/agents?deviceId=${encodeURIComponent(deviceId)}` : '/imports/agents',
       { timeoutMs: 90_000 },
     ),
     staleTime: 30_000,
@@ -150,7 +150,7 @@ export function ExternalAgentImportPanel() {
   const importMutation = useMutation({
     mutationFn: (sessionKeys: string[]) => api.post<ExternalAgentImportResult>(
       '/imports/agents',
-      { sessionKeys, computerId },
+      { sessionKeys, deviceId },
       { timeoutMs: 10 * 60_000 },
     ),
     onMutate: () => setLastResult(null),
@@ -271,11 +271,11 @@ export function ExternalAgentImportPanel() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="text-[12px] font-medium text-foreground">
-            {computerName ? `Projects and chats on ${computerName}` : 'Local projects and chats'}
+            {deviceName ? `Projects and chats on ${deviceName}` : 'Local projects and chats'}
           </h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground/85">
-            {computerName
-              ? `Ri reads a chat from ${computerName} only when you choose it, and never changes it. It arrives read-only in the agent set up in its folder there, and keeps syncing while ${computerName} is connected.`
+            {deviceName
+              ? `Ri reads a chat from ${deviceName} only when you choose it, and never changes it. It arrives read-only in the agent set up in its folder there, and keeps syncing while ${deviceName} is connected.`
               : 'Local agent history is read, never changed. An imported chat arrives as a read-only mirror that keeps syncing as the original session grows, and it runs in the project folder rather than a worktree if you continue it here.'}
           </p>
         </div>
@@ -286,7 +286,7 @@ export function ExternalAgentImportPanel() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={THIS_COMPUTER}>This computer</SelectItem>
+                <SelectItem value={THIS_DEVICE}>This device</SelectItem>
                 {elsewhere.map((c) => (
                   <SelectItem key={c.id} value={c.id} disabled={!c.worker?.connected}>
                     {c.worker?.connected ? c.name : `${c.name} (not connected)`}
@@ -308,15 +308,15 @@ export function ExternalAgentImportPanel() {
         </div>
       ) : discovery.isError ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-          {computerName ? `Could not read the history on ${computerName}.` : 'Could not scan local agent history.'}{' '}
+          {deviceName ? `Could not read the history on ${deviceName}.` : 'Could not scan local agent history.'}{' '}
           {discovery.error instanceof Error ? discovery.error.message : ''}
         </div>
       ) : !hasRows ? (
         <div className="rounded-lg border border-dashed border-border p-6 text-center">
           <MessageSquare className="mx-auto size-5 text-muted-foreground" />
-          <p className="mt-2 text-sm font-medium text-foreground">{computerName ? `No chats found on ${computerName}` : 'No local chats found'}</p>
+          <p className="mt-2 text-sm font-medium text-foreground">{deviceName ? `No chats found on ${deviceName}` : 'No local chats found'}</p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Ri checks Claude Code, Codex, and OpenCode history on {computerName ?? 'this machine'}.
+            Ri checks Claude Code, Codex, and OpenCode history on {deviceName ?? 'this machine'}.
           </p>
         </div>
       ) : (

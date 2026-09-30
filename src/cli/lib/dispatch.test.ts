@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { dispatchAction } from './dispatch';
 
 /**
- * On a connected computer, `ri agent` and the trigger commands run on the
+ * On a connected device, `ri agent` and the trigger commands run on the
  * home, carrying the calling session's credential, and never fall back to
  * local data (docs/homes-spec.md §5.3).
  */
@@ -63,8 +63,8 @@ const envelope = (body: unknown) => (res: http.ServerResponse) => {
   res.end(JSON.stringify(body));
 };
 
-describe('dispatchAction on a connected computer', () => {
-  it('runs the action on the home with this computer key and the session credential', async () => {
+describe('dispatchAction on a connected device', () => {
+  it('runs the action on the home with this device key and the session credential', async () => {
     reply = envelope({ ok: true, action: 'create_task', result: { id: 't1', title: 'Buy milk' } });
     process.env.RI_SESSION_CREDENTIAL = 'chat-1.signature';
     const result = await dispatchAction('create_task', { title: 'Buy milk' });
@@ -77,9 +77,9 @@ describe('dispatchAction on a connected computer', () => {
   });
 
   it("passes the home's refusal through unchanged", async () => {
-    reply = envelope({ ok: false, action: 'create_workspace', error: { code: 'unsupported', message: 'from another computer' } });
+    reply = envelope({ ok: false, action: 'create_workspace', error: { code: 'unsupported', message: 'from another device' } });
     const result = await dispatchAction('create_workspace', { name: 'x', cwd: '/tmp' });
-    expect(result.error).toEqual({ code: 'unsupported', message: 'from another computer' });
+    expect(result.error).toEqual({ code: 'unsupported', message: 'from another device' });
   });
 
   it('fails plainly when the home is unreachable, and writes nothing here', async () => {

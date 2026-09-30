@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Reviewing it here (docs/homes-spec.md §8.1, P4.1): this computer's checkout
+ * Reviewing it here (docs/homes-spec.md §8.1, P4.1): this device's checkout
  * of the execution's published commit, labeled with the commit and where the
  * work runs, so it never reads as the execution itself. Refresh brings the
  * latest published commit while there are no edits. Edits are kept and never
@@ -30,8 +30,8 @@ export function ReviewBar({ session, workspace }: { session: ChatSessionWithExec
   const { owner, moves } = useMoves(session, workspace);
   const [continuing, setContinuing] = useState(false);
   const review = data?.review;
-  if (!review || !data?.viewer || data.viewer.id === owner?.computerId) return null;
-  // Moving it to the computer this review is on.
+  if (!review || !data?.viewer || data.viewer.id === owner?.deviceId) return null;
+  // Moving it to the device this review is on.
   const here = moves.find((m) => m.key === data.viewer!.id && !m.needsSetup) ?? null;
   const ownBranch = `git switch -c ${review.branch}-mine`;
 
@@ -39,7 +39,7 @@ export function ReviewBar({ session, workspace }: { session: ChatSessionWithExec
     <div className="mx-auto w-full max-w-3xl rounded-lg border border-border bg-card px-3 py-1.5 text-[11.5px]">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-foreground/85">
-          Reviewing <span className="font-mono">{review.sha.slice(0, 7)}</span> from {review.source?.name ?? 'its computer'} here
+          Reviewing <span className="font-mono">{review.sha.slice(0, 7)}</span> from {review.source?.name ?? 'its device'} here
         </span>
         {review.dirty && <span className="text-amber-600 dark:text-amber-400">· has your edits, kept apart from the execution</span>}
         <span className="flex-1" />
@@ -105,7 +105,7 @@ export function ReviewBar({ session, workspace }: { session: ChatSessionWithExec
   );
 }
 
-/** Open a review checkout in the person's editor: here when this is the home's browser, else through this computer's worker. */
+/** Open a review checkout in the person's editor: here when this is the home's browser, else through this device's worker. */
 export function useOpenReview(sessionId: string): (path: string) => void {
   const { choice } = useEditorPreference();
   const target: OpenTarget = choice === 'custom' ? 'finder' : choice;

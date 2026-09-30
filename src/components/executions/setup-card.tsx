@@ -57,7 +57,7 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
   const isLive = isGit && !!session.worktreePath && session.worktreePath === workspace.cwd;
   // Wherever it runs: on a laptop the folder is on its placement (P3.1).
   const prepared = preparedFolder(session);
-  // The computer it runs on, when that isn't the home: named where it fails.
+  // The device it runs on, when that isn't the home: named where it fails.
   const elsewhere = session.location && !session.location.isHome ? session.location.name : null;
   const hasError = isGit && !prepared && !!session.setupError;
   // Treat error state as terminal — drop the spinner row so the user
@@ -247,7 +247,7 @@ export function SetupCard({ session, workspace }: SetupCardProps) {
   );
 }
 
-/** `on`: the computer it ran on, for an execution away from the home (P3.2). */
+/** `on`: the device it ran on, for an execution away from the home (P3.2). */
 function SetupScriptErrorRow({ sessionId, error, on }: { sessionId: string; error: string; on: string | null }) {
   const retry = useRetrySetupScript(sessionId);
   return (
@@ -279,7 +279,7 @@ function SetupErrorRow({
   sessionId: string;
   error: string;
   prNumber: number | null;
-  /** The computer it was being prepared on, for an execution away from the home (P3.2). */
+  /** The device it was being prepared on, for an execution away from the home (P3.2). */
   on: string | null;
 }) {
   const retry = useRetrySetup(sessionId);

@@ -32,7 +32,7 @@ export interface PreviewController {
   command: string | null;
   hasSetupCommand: boolean;
   runStatus: RunStatus;
-  /** The execution runs on another computer (P3.5): its app runs there, and Start does nothing here. */
+  /** The execution runs on another device (P3.5): its app runs there, and Start does nothing here. */
   elsewhere: PreviewState['elsewhere'];
   /** The setup script errored. Starting is still allowed. */
   setupFailed: boolean;
@@ -175,7 +175,7 @@ export function usePreviewController(
 
   const elsewhere = state?.elsewhere ?? null;
   const start = useCallback(() => {
-    // Its app runs on its own computer, never here.
+    // Its app runs on its own device, never here.
     if (elsewhere) return;
     beginFastPolling();
     // A new spawn restarts the server's log sequence at 0, so the client

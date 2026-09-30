@@ -1,28 +1,28 @@
 /**
  * Open code here (docs/homes-spec.md §8.1, P4.1): a review checkout of the
- * execution's latest published commit on the viewer's own computer, a
+ * execution's latest published commit on the viewer's own device, a
  * browser linked to it or the home's own browser. The execution keeps
- * running where it is. GET says what this computer has (or, with
- * `?computer=`, what that one has, for Continue there to mention), POST
+ * running where it is. GET says what this device has (or, with
+ * `?device=`, what that one has, for Continue there to mention), POST
  * makes or refreshes it (refreshed only while clean: edits there are kept).
  */
 
 import type { NextRequest } from 'next/server';
-import { getChatSessionWithExecution, getComputer, getComputerForApiKey, getHome, getReviewCheckout, getWorkspace, listAgentSetups, placementOf, saveReviewCheckout } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getDevice, getDeviceForApiKey, getHome, getReviewCheckout, getWorkspace, listWorkspaceSetups, placementOf, saveReviewCheckout } from '@/lib/db/queries';
 import { getRequestKey } from '@/lib/auth/request-key';
 import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
 import type { ReviewCheckoutAnswer, ReviewCheckoutRequest } from '@/lib/workers/protocol';
 import { reviewHere } from '@/lib/transfer/review';
 
-/** The computer this browser is on: the one its key is linked to, or the home's own for its own browser. */
-function viewerComputer(request: Request): { id: string; name: string } | null {
+/** The device this browser is on: the one its key is linked to, or the home's own for its own browser. */
+function viewerDevice(request: Request): { id: string; name: string } | null {
   const key = getRequestKey(request.headers);
-  const linked = key && key.scope === 'viewer' ? getComputerForApiKey(key.apiKeyId) : null;
+  const linked = key && key.scope === 'viewer' ? getDeviceForApiKey(key.apiKeyId) : null;
   if (linked) return { id: linked.id, name: linked.name };
   if (request.headers.get('x-ri-host') === '1') {
-    const host = getHome()?.hostComputerId;
-    const computer = host ? getComputer(host) : null;
-    if (computer) return { id: computer.id, name: computer.name };
+    const host = getHome()?.hostDeviceId;
+    const device = host ? getDevice(host) : null;
+    if (device) return { id: device.id, name: device.name };
   }
   return null;
 }
@@ -43,7 +43,7 @@ function view(record: ReturnType<typeof getReviewCheckout>) {
     sha: record.commitSha,
     branch: record.branch,
     dirty: record.dirty,
-    source: record.sourceComputerId ? { computerId: record.sourceComputerId, name: getComputer(record.sourceComputerId)?.name ?? 'another computer' } : null,
+    source: record.sourceDeviceId ? { deviceId: record.sourceDeviceId, name: getDevice(record.sourceDeviceId)?.name ?? 'another device' } : null,
     updatedAt: record.updatedAt,
   };
 }
@@ -52,8 +52,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const ctx = context(id);
   if (!ctx) return Response.json({ error: 'Session not found' }, { status: 404 });
-  const viewer = viewerComputer(request);
-  const on = new URL(request.url).searchParams.get('computer') ?? viewer?.id ?? null;
+  const viewer = viewerDevice(request);
+  const on = new URL(request.url).searchParams.get('device') ?? viewer?.id ?? null;
   return Response.json({
     viewer,
     review: on ? view(getReviewCheckout(ctx.executionId, on)) : null,
@@ -64,24 +64,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   const ctx = context(id);
   if (!ctx) return Response.json({ error: 'Session not found' }, { status: 404 });
-  const viewer = viewerComputer(request);
-  const sourceName = getComputer(ctx.placement.computerId)?.name ?? 'its computer';
+  const viewer = viewerDevice(request);
+  const sourceName = getDevice(ctx.placement.deviceId)?.name ?? 'its device';
   if (!viewer) {
-    return Response.json({ error: 'not_here', message: 'Open code here from a browser on your computer. A phone follows the work instead.' }, { status: 403 });
+    return Response.json({ error: 'not_here', message: 'Open code here from a browser on a computer that runs agents. A phone follows the work instead.' }, { status: 403 });
   }
-  if (viewer.id === ctx.placement.computerId) {
+  if (viewer.id === ctx.placement.deviceId) {
     return Response.json({ error: 'runs_here', message: `It runs on ${viewer.name} already: open its folder directly.` }, { status: 409 });
   }
   if (!ctx.workspace.isGit) {
-    return Response.json({ error: 'not_git', message: "Work that isn't in a Git repository can't be opened on another computer." }, { status: 409 });
+    return Response.json({ error: 'not_git', message: "Work that isn't in a Git repository can't be opened on another device." }, { status: 409 });
   }
   const branch = ctx.session.branchName;
   if (!branch) return Response.json({ error: 'no_branch', message: `It has no branch yet on ${sourceName}.` }, { status: 409 });
 
-  const host = getHome()?.hostComputerId ?? null;
+  const host = getHome()?.hostDeviceId ?? null;
   let answer: ReviewCheckoutAnswer;
   if (viewer.id === host) {
-    const setup = listAgentSetups({ workspaceId: ctx.workspace.id }).find((s) => s.computerId === host);
+    const setup = listWorkspaceSetups({ workspaceId: ctx.workspace.id }).find((s) => s.deviceId === host);
     answer = await reviewHere({
       repo: setup?.sourcePath ?? ctx.workspace.cwd,
       executionId: ctx.executionId,
@@ -104,8 +104,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!answer.ok) return Response.json({ error: answer.code, message: answer.message }, { status: 409 });
   const record = saveReviewCheckout({
     executionId: ctx.executionId,
-    computerId: viewer.id,
-    sourceComputerId: ctx.placement.computerId,
+    deviceId: viewer.id,
+    sourceDeviceId: ctx.placement.deviceId,
     path: answer.path,
     branch,
     commitSha: answer.sha,

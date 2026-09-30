@@ -9,19 +9,19 @@
  * no longer runs here at its generation is marked stale instead of sent.
  */
 
-import { checkComputerFolders, folderSetupsFor } from '@/lib/setups/folders';
+import { checkDeviceFolders, folderSetupsFor } from '@/lib/setups/folders';
 import type { NextRequest } from 'next/server';
 import { uuidv7 } from 'uuidv7';
 import type { WorkerCommandRecord } from '@/db/types';
-import { getAckedEventSeq, getHome, getWorkerEnrollment, staleQueuedCommands, takeCommandsForStream } from '@/lib/db/queries';
+import { getAckedEventSeq, getHome, getWorkerDevice, staleQueuedCommands, takeCommandsForStream } from '@/lib/db/queries';
 import { inTransaction } from '@/lib/effects/after-commit';
-import { isComputerConnected, registerConnection } from '@/lib/workers/hub';
-import { computerTerminalsGone } from '@/lib/terminal/remote';
+import { isDeviceConnected, registerConnection } from '@/lib/workers/hub';
+import { deviceTerminalsGone } from '@/lib/terminal/remote';
 import { WORKER_PROTOCOL, WORKER_STREAM_PING_MS, type WorkerCommand, type WorkerStreamEvent } from '@/lib/workers/protocol';
 import { requireWorker } from '@/lib/workers/route-auth';
 import { settleUndelivered } from '@/lib/workers/undelivered';
 import { announceDelivery, announceOpenSends } from '@/lib/workers/delivery';
-import { publishComputerUpdated } from '@/lib/realtime/bus';
+import { publishDeviceUpdated } from '@/lib/realtime/bus';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -72,31 +72,31 @@ export async function GET(request: NextRequest) {
       let cursor = after;
       const pump = () => {
         if (closed) return;
-        // Ownership first: a command for a placement this computer no longer
+        // Ownership first: a command for a placement this device no longer
         // holds is never sent, and a send among them finishes its run (P2.6).
         inTransaction((after) => {
-          for (const command of staleQueuedCommands(worker.computer.id)) settleUndelivered(command, after);
+          for (const command of staleQueuedCommands(worker.device.id)) settleUndelivered(command, after);
         });
-        for (const command of takeCommandsForStream(worker.computer.id, cursor)) {
+        for (const command of takeCommandsForStream(worker.device.id, cursor)) {
           send({ type: 'command', command: toWire(command) });
           cursor = Math.max(cursor, command.seq ?? cursor);
-          // A message on its way to this computer (P3.2).
+          // A message on its way to this device (P3.2).
           announceDelivery(command);
         }
       };
       const unregister = registerConnection({
         id: uuidv7(),
-        computerId: worker.computer.id,
+        deviceId: worker.device.id,
         openedAt: Date.now(),
         send,
         wake: pump,
         close,
       });
-      // Every screen showing this computer's work learns it connected (P3.2).
-      publishComputerUpdated(worker.computer.id);
+      // Every screen showing this device's work learns it connected (P3.2).
+      publishDeviceUpdated(worker.device.id);
       const ping = setInterval(() => {
-        if (!getWorkerEnrollment(worker.apiKeyId)) {
-          send({ type: 'revoked', message: `Local execution on ${worker.computer.name} was turned off.` });
+        if (!getWorkerDevice(worker.apiKeyId)) {
+          send({ type: 'revoked', message: `Local execution on ${worker.device.name} was turned off.` });
           close();
           return;
         }
@@ -107,27 +107,27 @@ export async function GET(request: NextRequest) {
         unregister();
         // Messages it hasn't confirmed now wait for it, and its work says it
         // dropped (P3.2).
-        announceOpenSends(worker.computer.id);
-        publishComputerUpdated(worker.computer.id);
+        announceOpenSends(worker.device.id);
+        publishDeviceUpdated(worker.device.id);
         // Its terminals can't be reached now: every viewer says so (P3.5).
-        if (!isComputerConnected(worker.computer.id)) computerTerminalsGone(worker.computer.id, worker.computer.name);
+        if (!isDeviceConnected(worker.device.id)) deviceTerminalsGone(worker.device.id, worker.device.name);
       };
       request.signal.addEventListener('abort', close);
       send({
         type: 'hello',
         homeId,
-        computerId: worker.computer.id,
+        deviceId: worker.device.id,
         protocol: WORKER_PROTOCOL,
-        ackedEventSeq: getAckedEventSeq(worker.computer.id),
+        ackedEventSeq: getAckedEventSeq(worker.device.id),
       });
       // Its folders, as the home records them, before any command that needs
       // them: the worker keeps no copy of its own (docs/homes-spec.md §4.1).
-      send({ type: 'folders', setups: folderSetupsFor(worker.computer.id) });
+      send({ type: 'folders', setups: folderSetupsFor(worker.device.id) });
       pump();
       // And whether they're still there.
-      void checkComputerFolders(worker.computer.id).catch(() => {});
-      // Terminal history imported from this computer catches up (P2.9).
-      void import('@/lib/import/remote').then(({ syncRemoteImportsOn }) => syncRemoteImportsOn(worker.computer.id)).catch(() => {});
+      void checkDeviceFolders(worker.device.id).catch(() => {});
+      // Terminal history imported from this device catches up (P2.9).
+      void import('@/lib/import/remote').then(({ syncRemoteImportsOn }) => syncRemoteImportsOn(worker.device.id)).catch(() => {});
     },
     cancel() {
       cleanup?.();

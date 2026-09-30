@@ -15,8 +15,8 @@ let token: string;
 
 beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-proxy-' });
-  const { createApiKey } = await import('@/lib/db/queries');
-  token = createApiKey({ name: 'Phone', deviceType: 'phone' }).token.plaintext;
+  const { pairDevice } = await import('@/lib/db/queries');
+  token = pairDevice({ name: 'Phone', kind: 'phone' }).token.plaintext;
   const { resetHomeIdentityCache } = await import('@/lib/home/identity');
   resetHomeIdentityCache();
 });
@@ -56,20 +56,20 @@ describe('proxy', () => {
     const { hashToken } = await import('@/lib/auth/tokens');
     const key = findApiKeyByHash(hashToken(token))!;
     const req = new NextRequest('http://127.0.0.1/api/tasks', {
-      headers: { authorization: `Bearer ${token}`, 'x-ri-api-key-id': 'forged', 'x-ri-api-key-type': 'host' },
+      headers: { authorization: `Bearer ${token}`, 'x-ri-api-key-id': 'forged', 'x-ri-caller-location': 'home' },
     });
     const res = proxy(req);
     expect(forwarded(res, 'x-ri-api-key-id')).toBe(key.id);
-    expect(forwarded(res, 'x-ri-api-key-type')).toBe('phone');
+    expect(forwarded(res, 'x-ri-caller-location')).toBe('elsewhere');
   });
 
   it('strips claimed key headers on public routes too', async () => {
     const { proxy } = await import('./proxy');
     const res = proxy(
-      new NextRequest('http://127.0.0.1/api/health', { headers: { 'x-ri-api-key-type': 'host' } }),
+      new NextRequest('http://127.0.0.1/api/health', { headers: { 'x-ri-caller-location': 'home' } }),
     );
     expect(passesThrough(res)).toBe(true);
-    expect(forwarded(res, 'x-ri-api-key-type')).toBeNull();
+    expect(forwarded(res, 'x-ri-caller-location')).toBeNull();
   });
 
   it('answers 503 on a root that is not the active home, apart from health', async () => {

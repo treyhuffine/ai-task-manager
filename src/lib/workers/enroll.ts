@@ -1,5 +1,5 @@
 /**
- * Enrolling a computer's worker (docs/homes-build.md, P2.2), with what that
+ * Enrolling a device's worker (docs/homes-build.md, P2.2), with what that
  * does to the commands its earlier worker left: sent and never
  * acknowledged, they become uncertain, since they may have been acted on.
  * A send among them never produces a turn result, so its run is finished
