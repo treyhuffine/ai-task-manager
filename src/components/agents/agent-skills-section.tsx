@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { useSkills } from '@/hooks/use-skills';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { openSettings } from '@/components/settings/settings-store';
-import { SkillBuilderBox, SkillTile } from '@/components/settings/sections/plugins/skills-catalog';
+import { NewSkillComposer, SkillTile } from '@/components/settings/sections/plugins/skills-catalog';
 import type { WorkspaceRecord } from '@/db/types';
 
 /**
@@ -30,7 +30,7 @@ export function AgentSkillsSection({ workspace }: { workspace: WorkspaceRecord }
           Skills in this project&apos;s folder. Its chats and executions use them, and anyone who pulls the repo gets
           them once they&apos;re committed. It also uses {shared === 1 ? 'your 1 Ri and global skill' : `your ${shared} Ri and global skills`}
           {' '}(see{' '}
-          <button onClick={() => openSettings('plugins')} className="font-medium text-primary hover:underline">
+          <button onClick={() => openSettings('plugins', { anchor: 'skills' })} className="font-medium text-primary hover:underline">
             Plugins
           </button>
           ).
@@ -51,7 +51,7 @@ export function AgentSkillsSection({ workspace }: { workspace: WorkspaceRecord }
             </div>
           )}
           {onThisComputer ? (
-            <SkillBuilderBox location={{ location: 'project', workspaceId: workspace.id }} compact />
+            <NewSkillComposer location={{ location: 'project', workspaceId: workspace.id }} />
           ) : (
             <p className="text-[12px] text-muted-foreground/80">
               This agent&apos;s folder isn&apos;t on this computer, so its skills are managed where it lives.

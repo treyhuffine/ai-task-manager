@@ -26,7 +26,7 @@ import { HeartbeatSection } from './sections/heartbeat-section';
 import { ModelsSection } from './sections/models-section';
 import { VoiceSection } from './sections/voice-section';
 import { BrowserSection } from './sections/browser-section';
-import { ConnectorsSection } from './sections/connectors-section';
+import { PluginsSection } from './sections/plugins-section';
 import { NotificationsSection } from './sections/notifications-section';
 import { DevicesSettingsSection } from './sections/devices-section';
 import { RemotePreviewSection } from './sections/remote-preview-section';
@@ -52,7 +52,7 @@ function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupCheckli
     case 'browser':
       return <BrowserSection />;
     case 'plugins':
-      return <ConnectorsSection />;
+      return <PluginsSection />;
     case 'notifications':
       return <NotificationsSection />;
     case 'imports':

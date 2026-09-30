@@ -1,14 +1,13 @@
 'use client';
 
 /**
- * The skills half of the Plugins page (docs/skills.md): the "Build a skill"
- * box on top, then every skill grouped by where it lives, which is who uses
- * it: Ri's own, the global ones, and each project's. Connectors follow
- * below, in connectors-section.tsx, which hosts this and shares its search.
+ * The Skills tab of Plugins (docs/skills.md): a one-line composer to start a
+ * new skill, then every skill grouped by where it lives, which is who uses
+ * it: Ri's own, the global ones, and each project's.
  */
 
 import { useMemo, useState } from 'react';
-import { AlertCircle, Loader2, Pencil, ScrollText } from 'lucide-react';
+import { AlertCircle, Loader2, Pencil, ScrollText, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { uuidv7 } from 'uuidv7';
 import { apiErrorText } from '@/lib/api/client';
@@ -19,9 +18,9 @@ import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { closeSettings } from '@/components/settings/settings-store';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { ensureSkillChat, skillChatQueryKey } from '@/components/skills/use-skill-chat';
 import { LOCATION_GROUPS, displayPath } from '@/components/skills/location-copy';
-import { cn } from '@/lib/utils';
 import { CatalogTile, Chip, GroupHeading } from '../connectors/parts';
 
 function SkillLogo() {
@@ -33,20 +32,13 @@ function SkillLogo() {
 }
 
 /**
- * Where building a skill starts. Say what it should do and draft it with AI
- * (the text becomes the builder chat's first message), or write it yourself
- * (the text becomes the first description). Either way it opens in the
- * builder. It goes in Ri unless `location` says a project, as it does from
- * an agent's Setup tab.
+ * Where building a skill starts: one line. Say what it should do, then draft
+ * it with AI (Enter: the text becomes the builder chat's first message) or
+ * write it yourself (the text becomes the first description). Either way it
+ * opens in the builder. It goes in Ri unless `location` says a project, as it
+ * does from an agent's Setup tab.
  */
-export function SkillBuilderBox({
-  location,
-  compact = false,
-}: {
-  location?: Pick<CreateSkillBody, 'location' | 'workspaceId'>;
-  /** Without the heading, for places that already say what this is. */
-  compact?: boolean;
-}) {
+export function NewSkillComposer({ location }: { location?: Pick<CreateSkillBody, 'location' | 'workspaceId'> }) {
   const qc = useQueryClient();
   const { openSkill } = useDashboard();
   const [text, setText] = useState('');
@@ -82,51 +74,46 @@ export function SkillBuilderBox({
   };
 
   return (
-    <section className={cn('space-y-3', !compact && 'rounded-2xl border border-border bg-card/30 p-4')}>
-      {!compact && (
-        <div className="flex items-start gap-3">
-          <SkillLogo />
-          <div className="min-w-0 space-y-0.5">
-            <h3 className="text-[13px] font-semibold text-foreground">Build a skill</h3>
-            <p className="text-[11.5px] leading-snug text-muted-foreground">
-              Teach your agents one way of working, like how you review a pull request or triage your inbox. Draft it
-              with AI, write it yourself, or both.
-            </p>
-          </div>
-        </div>
-      )}
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (matchesHotkey(e.nativeEvent, HOTKEYS.submitCapture) && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            void start('ai');
-          }
-        }}
-        rows={2}
-        aria-label="What should the skill do?"
-        placeholder="What should it do? Like: triage my inbox each morning and draft replies to anything urgent"
-        className="field-sizing-content max-h-40 min-h-[3.25rem] w-full resize-none rounded-xl border border-border bg-background px-3 py-2 text-[12.5px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-ring focus:ring-[3px] focus:ring-ring/30"
-      />
+    <div className="space-y-1.5">
+      <div className="flex items-start gap-2 rounded-xl border border-border bg-card/20 py-1 pl-3 pr-1 transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
+        <ScrollText size={14} className="mt-[7px] shrink-0 text-muted-foreground" />
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (matchesHotkey(e.nativeEvent, HOTKEYS.submitCapture) && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void start('ai');
+            }
+          }}
+          rows={1}
+          aria-label="Describe a new skill"
+          placeholder="New skill: what should it do?"
+          className="field-sizing-content max-h-32 min-h-7 flex-1 resize-none bg-transparent py-1 text-[12.5px] leading-5 text-foreground outline-none placeholder:text-muted-foreground/60"
+        />
+        <Button
+          variant="ghost"
+          size="xs"
+          className="shrink-0 text-[11px] text-muted-foreground"
+          disabled={!!busy}
+          onClick={() => void start('hand')}
+          title="Start a blank skill and write it yourself"
+        >
+          {busy === 'hand' ? <Loader2 size={11} className="animate-spin" /> : <Pencil size={11} />}
+          Write it
+        </Button>
+        <Button size="xs" className="shrink-0 text-[11px]" disabled={!!busy || !intent} onClick={() => void start('ai')}>
+          {busy === 'ai' && <Loader2 size={11} className="animate-spin" />}
+          Draft with AI
+        </Button>
+      </div>
       {error && (
         <p className="flex items-start gap-1.5 text-[11px] text-destructive">
           <AlertCircle size={12} className="mt-px shrink-0" />
           {error}
         </p>
       )}
-      <div className="flex items-center justify-end gap-2">
-        <Button variant="ghost" size="sm" className="text-xs" disabled={!!busy} onClick={() => void start('hand')}>
-          {busy === 'hand' ? <Loader2 size={12} className="animate-spin" /> : <Pencil size={12} />}
-          Write it yourself
-        </Button>
-        <Button size="sm" className="text-xs" disabled={!!busy || !intent} onClick={() => void start('ai')}>
-          {busy === 'ai' && <Loader2 size={12} className="animate-spin" />}
-          Draft with AI
-          <kbd className="ml-1 rounded bg-primary-foreground/15 px-1 font-mono text-[9px]">{HOTKEYS.submitCapture.label}</kbd>
-        </Button>
-      </div>
-    </section>
+    </div>
   );
 }
 
@@ -134,27 +121,14 @@ export function SkillBuilderBox({
 export function useSkillsCatalog(q: string) {
   const { data, isLoading } = useSkills();
   return useMemo(() => {
-    // Searching "ski" or "skills" lists them all, the way a category search does for connectors.
-    const kindMatch = q.length >= 3 && 'skills'.startsWith(q);
     const matches = (s: SkillSummary) =>
       !q ||
-      kindMatch ||
       s.name.toLowerCase().includes(q) ||
       (s.description ?? '').toLowerCase().includes(q) ||
       (s.location.kind === 'project' && s.location.projectName.toLowerCase().includes(q));
     const skills = (data?.skills ?? []).filter(matches);
     return { skills, total: skills.length, isLoading };
   }, [data, q, isLoading]);
-}
-
-/** A kind of plugin (Skills, Connectors): one level above the tile groups. */
-export function KindHeading({ title, detail }: { title: string; detail?: string }) {
-  return (
-    <div className="space-y-0.5 border-b border-border/60 pb-1.5">
-      <h2 className="text-[13px] font-semibold text-foreground">{title}</h2>
-      {detail && <p className="text-[11px] text-muted-foreground">{detail}</p>}
-    </div>
-  );
 }
 
 export function SkillTile({ skill, onOpen }: { skill: SkillSummary; onOpen: () => void }) {
@@ -214,15 +188,11 @@ export function SkillsGroup({ skills, searching }: { skills: SkillSummary[]; sea
   const { openSkill } = useDashboard();
   if (skills.length === 0) return null;
   return (
-    <div className="space-y-4">
-      <KindHeading
-        title="Skills"
-        detail={searching ? undefined : 'How your agents do things. Where a skill lives is who uses it.'}
-      />
+    <div className="space-y-5">
       {groupSkills(skills).map((group) => (
         <section key={group.key} className="space-y-2">
           <GroupHeading count={group.skills.length}>{group.title}</GroupHeading>
-          {!searching && <p className="text-[11px] text-muted-foreground">{group.detail}</p>}
+          {!searching && <p className="-mt-1 text-[11px] text-muted-foreground">{group.detail}</p>}
           <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">
             {group.skills.map((skill) => (
               <SkillTile
@@ -237,6 +207,48 @@ export function SkillsGroup({ skills, searching }: { skills: SkillSummary[]; sea
           </div>
         </section>
       ))}
+    </div>
+  );
+}
+
+/**
+ * The Skills tab of Plugins: start a new skill, then every skill grouped by
+ * where it lives. A search box appears once there are enough to need one.
+ */
+export function SkillsTab() {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const { skills, isLoading } = useSkillsCatalog(q);
+  const { data } = useSkills();
+  const all = data?.skills.length ?? 0;
+  return (
+    <div className="@container space-y-5">
+      <NewSkillComposer />
+      {all > 8 && (
+        <div className="relative">
+          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search skills"
+            aria-label="Search skills"
+            className="rounded-4xl pl-9 text-xs"
+          />
+        </div>
+      )}
+      {isLoading ? (
+        <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+          <Loader2 size={14} className="animate-spin" /> Loading skills…
+        </div>
+      ) : all === 0 ? (
+        <p className="py-6 text-center text-[12px] text-muted-foreground">
+          No skills yet. A skill teaches your agents one way of working, like how you review a pull request.
+        </p>
+      ) : skills.length === 0 ? (
+        <p className="py-6 text-center text-[12px] text-muted-foreground">No skills match “{query}”.</p>
+      ) : (
+        <SkillsGroup skills={skills} searching={!!q} />
+      )}
     </div>
   );
 }

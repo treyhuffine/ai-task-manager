@@ -1,11 +1,8 @@
 'use client';
 
 /**
- * The Plugins pane: skills and connectors, everything agents can be extended
- * with. Skills (building one, the home's skills, and skills outside Ri) come
- * first, from ./plugins/skills-catalog.tsx, and share this pane's search.
- * The rest of this file is the connector side: connect external services so
- * agents can act on your behalf. Two levels, like an app store:
+ * The Connectors tab of Plugins (./plugins-section.tsx): connect external
+ * services so agents can act on your behalf. Two levels, like an app store:
  *
  *   - Catalog. Every provider (and remote MCP server) is a tile whose only
  *     affordance is "open". Connected ones group at the top with the account
@@ -34,8 +31,6 @@ import { ConnectorLogo } from '@/components/connectors/connector-logo';
 import { connectorMeta, CATEGORY_ORDER, type ConnectorCategory } from '@/components/connectors/connector-meta';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 import { CatalogTile, GroupHeading, McpLogo } from './connectors/parts';
-import { consumeAnchor, useSettingsStore } from '@/components/settings/settings-store';
-import { KindHeading, SkillBuilderBox, SkillsGroup, useSkillsCatalog } from './plugins/skills-catalog';
 import { ConnectionRequestsSetting } from './connectors/connection-requests-setting';
 import { ProviderDetail } from './connectors/provider-detail';
 import { PreviousConnections } from './connectors/previous-connections';
@@ -574,16 +569,6 @@ export function ConnectorsSection() {
     const total = connected.length + groups.reduce((n, g) => n + g.items.length, 0) + servers.length + previous.length;
     return { connected, groups, servers, previous, total };
   }, [q, catalogProviders, connectionsByProvider, mcpServers, connections]);
-  const skillsCatalog = useSkillsCatalog(q);
-
-  // "Connect apps" in the rail lands here, scrolled past the skills to the connectors.
-  const { anchor } = useSettingsStore();
-  const connectorsRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (anchor !== 'connectors' || isLoading || !connectorsRef.current) return;
-    connectorsRef.current.scrollIntoView({ block: 'start' });
-    consumeAnchor();
-  }, [anchor, isLoading]);
 
   const selectedProvider = view.kind === 'provider' ? catalogProviders.find((p) => p.id === view.id) : undefined;
   const selectedServer = view.kind === 'mcp' ? mcpServers.find((s) => s.id === view.id) : undefined;
@@ -628,7 +613,6 @@ export function ConnectorsSection() {
 
       {onCatalog ? (
         <>
-          <SkillBuilderBox />
           <div className="relative">
             <Search
               size={14}
@@ -637,8 +621,8 @@ export function ConnectorsSection() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search skills and connectors"
-              aria-label="Search skills and connectors"
+              placeholder="Search connectors"
+              aria-label="Search connectors"
               className="rounded-4xl pl-9 pr-9 text-xs"
             />
             {busy && (
@@ -650,25 +634,16 @@ export function ConnectorsSection() {
             )}
           </div>
 
-          {q && catalog.total === 0 && skillsCatalog.total === 0 ? (
+          {q && catalog.total === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/10 p-8 text-center">
               <div className="mb-3 rounded-full bg-muted/60 p-3 text-muted-foreground">
                 <Plug size={22} />
               </div>
-              <h3 className="text-xs font-semibold text-foreground">Nothing matches “{query}”</h3>
+              <h3 className="text-xs font-semibold text-foreground">No connectors match “{query}”</h3>
               <p className="mt-1 text-[11px] text-muted-foreground">Try a different name or category.</p>
             </div>
           ) : (
             <div className="space-y-6">
-              <SkillsGroup skills={skillsCatalog.skills} searching={!!q} />
-              {(!q || catalog.total > 0) && (
-                <div ref={connectorsRef} className="scroll-mt-4">
-                  <KindHeading
-                    title="Connectors"
-                    detail={q ? undefined : 'Your accounts and services, for agents to act in on your behalf.'}
-                  />
-                </div>
-              )}
               {catalog.connected.length > 0 && (
                 <section className="space-y-2">
                   <GroupHeading count={catalog.connected.length}>Connected</GroupHeading>

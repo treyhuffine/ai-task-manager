@@ -110,7 +110,7 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     label: 'Plugins',
     icon: Plug,
     title: 'Plugins',
-    description: 'Skills teach your agents how to do things. Connectors let them act in your accounts.',
+    description: 'Connectors let your agents act in your accounts. Skills teach them how to do things.',
   },
   {
     id: 'imports',

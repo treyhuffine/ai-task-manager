@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 
 // Thin strip at the bottom of the expanded rail: the way into connecting
 // apps (Google, Notion, Linear, ... and remote MCP servers) so agents can act
-// in them. Opens Settings → Plugins scrolled to its connectors. Hidden in
+// in them. Opens Settings → Plugins on its Connectors tab. Hidden in
 // skinny mode along with the rest of the expanded chrome (the icon-only rail
 // has no room).
 //

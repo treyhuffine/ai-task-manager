@@ -67,11 +67,14 @@ actions' parameter.
 
 The Settings section is **Plugins** (`?settings=plugins`; the old
 `?settings=connectors` still opens it, since OAuth returns and links carry
-it). Inside, the two kinds keep the names the rest of the market uses:
-**Skills** (know-how) and **Connectors** (access to your accounts). The
-database keeps "connectors" for the connections it stores, which is what they
-are. The rail's entry is **Connect apps**, which opens Plugins scrolled to its
-connectors.
+it). It has two tabs named for the two kinds, as the rest of the market names
+them: **Connectors** (access to your accounts, the default tab) and
+**Skills** (know-how). The tab labels live in one list in
+`src/components/settings/sections/plugins-section.tsx`, so renaming a kind is
+one line. The database keeps "connectors" for the connections it stores,
+which is what they are. The rail's entry is **Connect apps**, which opens
+Plugins on its Connectors tab. Links about a skill open the Skills tab
+(`openSettings('plugins', { anchor: 'skills' })`).
 
 Why, as of September 2026:
 
@@ -87,14 +90,15 @@ Why, as of September 2026:
 
 ## The builder
 
-Plugins opens with a **Build a skill** box (an agent's Setup tab has the same
-box, for that project). Say what the skill should do, then:
+The Skills tab starts with a one-line composer ("New skill: what should it
+do?"), and an agent's Setup tab has the same one for that project. Say what
+the skill should do, then:
 
 - **Draft with AI** (Enter): creates the skill (in Ri, or in the project),
   named from your words, sends your text as the builder chat's first message,
   and opens the builder. The AI writes a full first draft right away, renames
   it if the first name is awkward, then asks one or two questions.
-- **Write it yourself**: creates it with your text as the first description.
+- **Write it**: creates it with your text as the first description.
 
 The builder view (`?skill=<ref>`, `src/components/skills/`) is the agent
 view's shape: chat on the left (Build and Try it), the skill on the right.

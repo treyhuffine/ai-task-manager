@@ -24,9 +24,8 @@ interface SettingsState {
    */
   autoLand: boolean;
   /**
-   * A place within the section to bring into view once it renders, like the
-   * connectors on the Plugins page for the rail's "Connect apps". The section
-   * clears it with `consumeAnchor` after scrolling.
+   * Where within the section to land, like the Skills tab of Plugins for a
+   * link that's about a skill. Reset whenever the section changes.
    */
   anchor: string | null;
 }
@@ -46,12 +45,6 @@ export function openSettings(section?: SectionId, opts: { anchor?: string } = {}
   emit();
 }
 
-/** Clear the anchor once the section has scrolled to it. */
-export function consumeAnchor(): void {
-  if (state.anchor === null) return;
-  state = { ...state, anchor: null };
-  emit();
-}
 
 export function closeSettings(): void {
   if (!state.open) return;
