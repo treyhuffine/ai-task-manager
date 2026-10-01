@@ -114,7 +114,8 @@ export function FilesToCopySection({
       <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
         Each new session&apos;s worktree gets a fresh copy of these files
         from the source folder. One glob per line. Bare patterns like{' '}
-        <code className="font-mono">.env*</code> match at any depth.
+        <code className="font-mono">.env*</code> match at any depth. Files
+        git tracks are skipped, since the worktree already has them.
       </p>
       <textarea
         value={text}

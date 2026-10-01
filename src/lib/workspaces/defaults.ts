@@ -7,6 +7,7 @@
 /**
  * Gitignored files copied from the source checkout into each worktree so an
  * execution can boot (env files by default). The committed project config is
- * tracked, so git already puts it in the worktree.
+ * tracked, so git already puts it in the worktree, and the copy skips any
+ * matching file git tracks (a committed `.env.example`).
  */
 export const DEFAULT_FILES_TO_COPY = ['.env*'];

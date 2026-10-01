@@ -7,9 +7,10 @@
  * is the bridge: detect the WIP, then either *move* it (git stash + pop) so
  * it lives in the new worktree, or *copy* it so both repos retain it.
  *
- * Files already covered by the workspace's `filesToCopy` patterns are
- * filtered out — `@agentex/workspace`'s `copyFromSource` already handled
- * those at worktree-create time.
+ * Untracked files covered by the workspace's `filesToCopy` patterns are
+ * filtered out: `copyFilesToWorktree` already carries those at
+ * worktree-create time. Tracked files never travel that way, so an edit to
+ * one (a changed `.env.example`) stays WIP like any other.
  */
 
 import { execFile } from 'node:child_process';
@@ -33,9 +34,9 @@ export interface WipDetection {
 }
 
 /**
- * Run `git status --porcelain=v1 -z` in `sourceCwd`, then strip out any
- * paths the workspace's `filesToCopy` patterns already cover. Empty
- * result on a clean tree or a non-git path.
+ * Run `git status --porcelain=v1 -z` in `sourceCwd`, then strip out the
+ * untracked paths the workspace's `filesToCopy` patterns already cover.
+ * Empty result on a clean tree or a non-git path.
  */
 export async function detectSourceWip(
   sourceCwd: string,
@@ -88,10 +89,7 @@ export async function detectSourceWip(
 
   const matchers = expanded.map((p) => picomatch(p, { dot: true }));
   const matches = (file: string) => matchers.some((m) => m(file));
-  return {
-    modified: modified.filter((f) => !matches(f)),
-    untracked: untracked.filter((f) => !matches(f)),
-  };
+  return { modified, untracked: untracked.filter((f) => !matches(f)) };
 }
 
 export interface CopyWipResult {

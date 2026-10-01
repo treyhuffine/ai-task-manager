@@ -1,6 +1,10 @@
+import { execFile } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { promisify } from 'node:util';
 import picomatch from 'picomatch';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * `@agentex/workspace.copyFromSource` matches against the *full* POSIX
@@ -70,12 +74,52 @@ async function* walkFiles(root: string, relPrefix: string): AsyncGenerator<strin
   }
 }
 
+/** Paths per `git ls-files` call, so a broad pattern can't overflow argv. */
+const PATHSPEC_BATCH = 200;
+
+/**
+ * The subset of `rels` that git tracks in the checkout at `dir` (relative to
+ * `dir`, as given). Empty when `dir` isn't inside a git checkout.
+ */
+async function trackedAmong(dir: string, rels: readonly string[]): Promise<Set<string>> {
+  const tracked = new Set<string>();
+  for (let i = 0; i < rels.length; i += PATHSPEC_BATCH) {
+    const pathspecs = rels.slice(i, i + PATHSPEC_BATCH).map((rel) => `:(literal)${rel}`);
+    try {
+      const { stdout } = await execFileAsync('git', ['ls-files', '-z', '--', ...pathspecs], {
+        cwd: dir,
+        maxBuffer: 8 * 1024 * 1024,
+      });
+      for (const file of stdout.split('\0')) if (file) tracked.add(file);
+    } catch {
+      return tracked;
+    }
+  }
+  return tracked;
+}
+
+/**
+ * Drop the files git tracks in any of `checkouts`. Tracked files are git's
+ * to place: a worktree's checkout already holds them at its base commit. A
+ * copy from the source folder would write that folder's version over them,
+ * and it differs whenever the folder is on another branch or behind the
+ * remote the worktree was rooted at, so a `.env.example` nobody touched
+ * showed up changed (or untracked) in every new worktree.
+ */
+async function withoutTracked(rels: readonly string[], checkouts: readonly string[]): Promise<string[]> {
+  if (rels.length === 0) return [];
+  const tracked = await Promise.all(checkouts.map((dir) => trackedAmong(dir, rels)));
+  return rels.filter((rel) => !tracked.some((set) => set.has(rel)));
+}
+
 /**
  * Copy every file in `sourceCwd` matching `patterns` (after expansion) into
- * `destDir`, preserving relative paths. Skips the heavy dirs above, so it's
- * fast and never drags `node_modules/*​/.env.example` junk along. Best-effort
- * per file; returns how many were copied. Runs in the BACKGROUND after the
- * worktree is ready — these files appear lazily, like the setup script's.
+ * `destDir`, preserving relative paths. Only local files travel: anything git
+ * tracks in either checkout is skipped (see `withoutTracked`). Skips the
+ * heavy dirs above, so it's fast and never drags `node_modules/*​/.env.example`
+ * junk along. Best-effort per file; returns how many were copied. Runs in the
+ * BACKGROUND after the worktree is ready — these files appear lazily, like
+ * the setup script's.
  */
 export async function copyFilesToWorktree(
   sourceCwd: string,
@@ -85,9 +129,12 @@ export async function copyFilesToWorktree(
   const expanded = expandFilesToCopyPatterns(patterns);
   if (expanded.length === 0) return 0;
   const matchers = expanded.map((p) => picomatch(p, { dot: true }));
-  let copied = 0;
+  const matched: string[] = [];
   for await (const rel of walkFiles(sourceCwd, '')) {
-    if (!matchers.some((m) => m(rel))) continue;
+    if (matchers.some((m) => m(rel))) matched.push(rel);
+  }
+  let copied = 0;
+  for (const rel of await withoutTracked(matched, [sourceCwd, destDir])) {
     try {
       const to = path.join(destDir, rel);
       await fs.mkdir(path.dirname(to), { recursive: true });
@@ -108,9 +155,10 @@ export interface PreviewFilesToCopyResult {
 
 /**
  * Walk `cwd` and return relative POSIX paths matching any of `patterns`
- * (after expansion). Designed for UI preview — capped at 1000 hits.
+ * (after expansion) that git doesn't track there. Designed for UI preview —
+ * capped at 1000 hits.
  *
- * Result is the same set `copyFromSource` will copy at worktree-create
+ * Result is the same set `copyFilesToWorktree` will copy at worktree-create
  * time, so the user sees exactly what will land in the new workspace.
  */
 export async function previewFilesToCopy(
@@ -122,22 +170,25 @@ export async function previewFilesToCopy(
   if (expanded.length === 0) return { files: [], truncated: false };
 
   const matchers = expanded.map((p) => picomatch(p, { dot: true }));
-  const results = new Set<string>();
+  const results: string[] = [];
   const cap = opts.maxFiles ?? DEFAULT_MAX_FILES;
+  let pending: string[] = [];
   let truncated = false;
 
+  // Matches are checked against git in batches, so tracked ones don't count
+  // toward the cap.
   for await (const rel of walkFiles(cwd, '')) {
-    for (const m of matchers) {
-      if (m(rel)) {
-        results.add(rel);
-        break;
-      }
-    }
-    if (results.size >= cap) {
+    if (!matchers.some((m) => m(rel))) continue;
+    pending.push(rel);
+    if (results.length + pending.length < cap) continue;
+    results.push(...(await withoutTracked(pending, [cwd])));
+    pending = [];
+    if (results.length >= cap) {
       truncated = true;
       break;
     }
   }
+  results.push(...(await withoutTracked(pending, [cwd])));
 
-  return { files: Array.from(results).sort(), truncated };
+  return { files: results.sort(), truncated };
 }
