@@ -530,6 +530,7 @@ export function useNewExecutionChat(id: string) {
       effort?: EffortLevel;
     } | void) =>
       sessionsApi.newChat(id, opts ?? undefined),
+    onError: (error) => toast.error('Could not start a new chat', { description: apiErrorText(error) }),
     onSuccess: (r) => {
       // Seed the new chat's row before the view repoints to it. Worktree
       // reads resolve their cache scope through this entry, so without the

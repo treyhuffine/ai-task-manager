@@ -302,3 +302,75 @@ describe('disabled Antigravity new selections', () => {
     }
   });
 });
+
+
+describe('fresh-chat switches keep permissions', () => {
+  const surfaces = ['execution', 'main', 'content'] as const;
+  type Surface = (typeof surfaces)[number];
+
+  async function seedSwitch(surface: Surface, harness: 'claude' | 'antigravity', mode: 'ask' | 'plan', prePlanMode: 'ask' | 'auto_all' | null) {
+    const q = await import('@/lib/db/queries');
+    const model = harness === 'claude' ? 'opus' : MODEL;
+    let session;
+    if (surface === 'execution') {
+      const ws = q.createWorkspace({ name: 'switch', cwd: home.root, isGit: false, filesToCopy: [], status: 'active' });
+      session = q.createExecutionWithChat({ workspaceId: ws.id, harness, label: null, model, permissionMode: mode }).session;
+    } else {
+      session = q.createChatSession({
+        harness, model, permissionMode: mode, type: surface === 'main' ? 'orchestration' : 'content',
+        ...(surface === 'content' ? { surfaceKind: 'note', surfaceRef: 'switch-note' } : {}),
+      });
+    }
+    q.updateChatSession(session.id, { prePlanMode });
+    q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'Keep this conversation' });
+    const post = async (overrides: { model?: string; effort?: string }) => {
+      const body = { providerId: 'antigravity', model: MODEL, ...overrides };
+      const request = (data: object) => new Request('http://localhost/api/chat', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data),
+      });
+      if (surface === 'execution') {
+        const { POST } = await import('@/app/api/sessions/[id]/new-chat/route');
+        return POST(request(body) as never, { params: Promise.resolve({ id: session.id }) });
+      }
+      if (surface === 'main') {
+        const { POST } = await import('@/app/api/orchestrator-chat/route');
+        return POST(request(body));
+      }
+      const { POST } = await import('@/app/api/document-chat/route');
+      return POST(request({ ...body, entityType: 'note', entityId: 'switch-note' }));
+    };
+    return { q, session, post };
+  }
+
+  it.each(surfaces)('keeps Antigravity plan mode during model and effort changes in %s chats', async (surface) => {
+    const { q, session, post } = await seedSwitch(surface, 'antigravity', 'plan', 'auto_all');
+    const modelResponse = await post({ model: MOCK_AGY_MODELS[0].id });
+    expect(modelResponse.status).toBe(200);
+    const modelChat = (await modelResponse.json()).session;
+    expect(modelChat).toMatchObject({ permissionMode: 'plan', prePlanMode: 'auto_all' });
+    const effortResponse = await post({ effort: 'max' });
+    expect(effortResponse.status).toBe(200);
+    const effortChat = (await effortResponse.json()).session;
+    expect(effortChat).toMatchObject({ permissionMode: 'plan', prePlanMode: 'auto_all', effort: 'max' });
+    expect(effortChat.id).not.toBe(session.id);
+    expect(q.getChatSession(effortChat.id)?.permissionMode).toBe('plan');
+  });
+
+  it.each(surfaces)('refuses Claude ask to Antigravity before changing %s chats', async (surface) => {
+    const { q, session, post } = await seedSwitch(surface, 'claude', 'ask', null);
+    const before = q.listChatSessions({ status: 'active' });
+    const response = await post({ effort: 'high' });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: expect.stringMatching(/ask.*not supported by antigravity/) });
+    expect(q.getChatSession(session.id)).toMatchObject({ status: 'active', permissionMode: 'ask' });
+    expect(q.listChatSessions({ status: 'active' })).toEqual(before);
+  });
+
+  it.each(surfaces)('refuses incompatible pre-plan permissions before changing %s chats', async (surface) => {
+    const { q, session, post } = await seedSwitch(surface, 'claude', 'plan', 'ask');
+    const response = await post({});
+    expect(response.status).toBe(409);
+    expect(q.getChatSession(session.id)).toMatchObject({ status: 'active', permissionMode: 'plan', prePlanMode: 'ask' });
+    expect(q.listChatSessions({ status: 'active' })).toHaveLength(1);
+  });
+});

@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, MessageSquare, MessageSquarePlus, Loader2, RefreshCw } from 'lucide-react'
-import { api, ApiError } from '@/lib/api/client'
+import { api, ApiError, apiErrorText } from '@/lib/api/client'
+import { toast } from 'sonner'
 import { useRuntimeStatus } from '@/hooks/use-execution'
 import { HarnessChatSession } from '@/components/chat/harness-chat'
 import { cn } from '@/lib/utils'
@@ -82,6 +83,7 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
         entityId,
         ...(opts ?? {}),
       }),
+    onError: (error) => toast.error('Could not start a new chat', { description: apiErrorText(error) }),
     onSuccess: (data) => qc.setQueryData(queryKey, data),
   })
 

@@ -1,5 +1,5 @@
-import type { PermissionMode } from '@/db/types';
-import { PERMISSION_MODES } from '@/lib/permissions/modes';
+import type { ChatSessionRecord, PermissionMode } from '@/db/types';
+import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES } from '@/lib/permissions/modes';
 import { harnessDefinition, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
 
 /**
@@ -127,4 +127,19 @@ export function assertSupportedPermissionMode(
   if (!supportedPermissionModes(providerType, planModeSupported).includes(mode)) {
     throw new UnsupportedPermissionModeError(mode, providerType);
   }
+}
+
+
+/** A model or harness switch starts a new chat, not a new permission grant. */
+export function permissionsForNewChat(
+  harness: HarnessId,
+  current?: Pick<ChatSessionRecord, 'permissionMode' | 'prePlanMode'> | null,
+): Pick<ChatSessionRecord, 'permissionMode' | 'prePlanMode'> {
+  const permissions = {
+    permissionMode: current?.permissionMode ?? DEFAULT_PERMISSION_MODE,
+    prePlanMode: current?.prePlanMode ?? null,
+  };
+  assertSupportedPermissionMode(permissions.permissionMode, harness);
+  if (permissions.prePlanMode) assertSupportedPermissionMode(permissions.prePlanMode, harness);
+  return permissions;
 }

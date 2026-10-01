@@ -1,3 +1,4 @@
+import { UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 import { HarnessDisabledError } from '@/lib/harness/registry';
 import { ensureMainChat, parseChatOverride, startNewMainChat } from '@/lib/sessions/main-chat';
 import { withCompression } from '@/lib/api/compression';
@@ -24,7 +25,7 @@ async function handleGET() {
     return Response.json({ session: await ensureMainChat(null) });
   } catch (err) {
     console.error('[GET /api/orchestrator-chat]', err);
-    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError ? 409 : 500 });
+    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError || err instanceof UnsupportedPermissionModeError ? 409 : 500 });
   }
 }
 
@@ -34,6 +35,6 @@ export async function POST(req: Request) {
     return Response.json({ session: await startNewMainChat(null, parseChatOverride(body)) });
   } catch (err) {
     console.error('[POST /api/orchestrator-chat]', err);
-    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError ? 409 : 500 });
+    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError || err instanceof UnsupportedPermissionModeError ? 409 : 500 });
   }
 }

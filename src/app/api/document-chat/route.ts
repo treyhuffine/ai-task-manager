@@ -12,6 +12,7 @@ import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 import { assertHarnessEnabled, DEFAULT_HARNESS, HarnessDisabledError, isKnownHarnessId } from '@/lib/harness/registry';
 import { withCompression } from '@/lib/api/compression';
 import { findSkill } from '@/lib/skills/locations';
+import { permissionsForNewChat, UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 
 /** Optional per-chat provider/model override (the composer's "switch provider"). */
 interface ChatOverride {
@@ -108,7 +109,11 @@ function findCurrent(ref: EntityRef): ChatSessionWithExecution | null {
   );
 }
 
-async function createFocusedSession(ref: EntityRef, override: ChatOverride = {}) {
+async function createFocusedSession(
+  ref: EntityRef,
+  override: ChatOverride = {},
+  permissions?: Pick<ChatSessionWithExecution, 'permissionMode' | 'prePlanMode'>,
+) {
   const userState = getUserState();
   const providerId = override.providerId
     ?? userState?.defaultHarness
@@ -127,6 +132,7 @@ async function createFocusedSession(ref: EntityRef, override: ChatOverride = {})
       ?? harnessSettings.defaultEffort,
   }, { repairInvalidModel: override.model === undefined });
   const session = createChatSession({
+    ...permissions,
     type: 'content',
     harness: selection.providerId,
     // Pins the harness session to this one entity (see harness-surface's
@@ -169,7 +175,7 @@ async function handleGET(req: Request) {
     return Response.json({ session });
   } catch (err) {
     console.error('[GET /api/document-chat]', err);
-    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError ? 409 : 500 });
+    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError || err instanceof UnsupportedPermissionModeError ? 409 : 500 });
   }
 }
 
@@ -196,8 +202,10 @@ export async function POST(req: Request) {
   if (missing) return missing;
   const override = parseOverride(src);
   try {
-    assertHarnessEnabled(override.providerId ?? getUserState()?.defaultHarness ?? DEFAULT_HARNESS);
+    const harness = override.providerId ?? getUserState()?.defaultHarness ?? DEFAULT_HARNESS;
+    assertHarnessEnabled(harness);
     const current = findCurrent(ref);
+    const permissions = permissionsForNewChat(harness, current);
     if (current) {
       // Tear down the cached AgentSession so the archived chat's process
       // doesn't linger; the next dispatch on the new session spawns fresh.
@@ -208,10 +216,10 @@ export async function POST(req: Request) {
       const { deriveRetrospectiveLabel } = await import('@/lib/sessions/derive-label');
       void deriveRetrospectiveLabel(current.id);
     }
-    const session = await createFocusedSession(ref, override);
+    const session = await createFocusedSession(ref, override, permissions);
     return Response.json({ session });
   } catch (err) {
     console.error('[POST /api/document-chat]', err);
-    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError ? 409 : 500 });
+    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError || err instanceof UnsupportedPermissionModeError ? 409 : 500 });
   }
 }

@@ -27,6 +27,7 @@ import type { ProviderId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 import { assertHarnessEnabled, DEFAULT_HARNESS, isKnownHarnessId } from '@/lib/harness/registry';
 import { agentDeviceFor } from '@/lib/setups/run-on';
+import { permissionsForNewChat } from '@/lib/executor/permission-map';
 
 /** `null` is the app's main chat. A workspace id is that agent's main chat. */
 export type MainChatScope = string | null;
@@ -61,7 +62,11 @@ export function currentMainChat(scope: MainChatScope): ChatSessionRecord | null 
   return listMainChats(scope, { status: 'active', limit: 1 })[0] ?? null;
 }
 
-async function createMainChat(scope: MainChatScope, override: ChatOverride): Promise<ChatSessionRecord> {
+async function createMainChat(
+  scope: MainChatScope,
+  override: ChatOverride,
+  permissions?: Pick<ChatSessionRecord, 'permissionMode' | 'prePlanMode'>,
+): Promise<ChatSessionRecord> {
   const userState = getUserState();
   const providerId = override.providerId
     ?? userState?.defaultHarness
@@ -80,6 +85,7 @@ async function createMainChat(scope: MainChatScope, override: ChatOverride): Pro
       ?? harnessSettings.defaultEffort,
   }, { repairInvalidModel: override.model === undefined });
   const session = createChatSession({
+    ...permissions,
     type: 'orchestration',
     workspaceId: scope,
     // An agent's main chat is pinned where the agent lives (P3.4). The app's
@@ -151,10 +157,12 @@ async function retireMainChat(id: string): Promise<void> {
  */
 export async function startNewMainChat(scope: MainChatScope, override: ChatOverride = {}): Promise<ChatSessionRecord> {
   // A disabled explicit choice must fail before retiring the current chat.
-  assertHarnessEnabled(override.providerId ?? getUserState()?.defaultHarness ?? DEFAULT_HARNESS);
+  const harness = override.providerId ?? getUserState()?.defaultHarness ?? DEFAULT_HARNESS;
+  assertHarnessEnabled(harness);
   const current = currentMainChat(scope);
+  const permissions = permissionsForNewChat(harness, current);
   if (current) await retireMainChat(current.id);
-  return createMainChat(scope, override);
+  return createMainChat(scope, override, permissions);
 }
 
 export const MAIN_CHAT_HISTORY_LIMIT = 50;

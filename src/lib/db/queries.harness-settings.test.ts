@@ -241,3 +241,17 @@ describe('defaultTriggerHarness', () => {
     expect(q.getUserState()?.defaultHarness).toBe('claude');
   });
 });
+
+
+it('keeps a saved Antigravity trigger default when rollout disables execution', () => {
+  const previous = process.env.NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED;
+  process.env.NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED = 'false';
+  try {
+    q.updateUserState({ defaultHarness: 'antigravity' });
+    expect(q.defaultTriggerHarness()).toBe('antigravity');
+    expect(q.getUserState()?.defaultHarness).toBe('antigravity');
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED;
+    else process.env.NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED = previous;
+  }
+});

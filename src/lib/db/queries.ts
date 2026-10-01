@@ -63,7 +63,7 @@ import type {
   StreamOutcome, StreamRecordWithOutcomes,
   TriageDisposition, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel,
 } from '@/db/types';
-import { DEFAULT_HARNESS, isHarnessId, type HarnessId } from '@/lib/harness/registry';
+import { DEFAULT_HARNESS, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { linksFromTexts } from '@/lib/entity-refs/derive-links';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
@@ -7039,9 +7039,9 @@ export function reorderWorkspaces(orderedIds: string[]): void {
  */
 export function defaultTriggerHarness(): HarnessId {
   const saved = getUserState()?.defaultHarness;
-  // A saved provider that has since been switched off by its rollout flag
-  // falls back rather than pinning a trigger that can never run.
-  return isHarnessId(saved) ? saved : DEFAULT_HARNESS;
+  // Keep an explicit saved choice even when rollout disables dispatch.
+  // The launch boundary refuses it instead of substituting another harness.
+  return isKnownHarnessId(saved) ? saved : DEFAULT_HARNESS;
 }
 
 /**
@@ -8001,6 +8001,8 @@ export function createExecutionChat(args: {
   model?: string | null;
   modelVariant?: string | null;
   effort?: ChatSessionRecord['effort'];
+  permissionMode?: ChatSessionRecord['permissionMode'];
+  prePlanMode?: ChatSessionRecord['prePlanMode'];
   label?: string | null;
 }): ChatSessionRecord | null {
   const execution = getExecution(args.executionId);
@@ -8010,6 +8012,8 @@ export function createExecutionChat(args: {
     executionId: args.executionId,
     workspaceId: execution.workspaceId,
     harness: args.harness,
+    permissionMode: args.permissionMode,
+    prePlanMode: args.prePlanMode,
     label: args.label ?? null,
     status: 'active',
     ...(args.model !== undefined ? { model: args.model } : {}),

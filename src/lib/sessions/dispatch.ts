@@ -76,7 +76,6 @@ import { requireHarnessId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 import { admitChange } from '@/lib/transfer/moving';
 import { assertSupportedPermissionMode } from '@/lib/executor/permission-map';
-import { getHarnessRuntime } from '@/lib/harness/runtime';
 
 const execFileAsync = promisify(execFile);
 
@@ -227,10 +226,8 @@ export async function dispatchExecutionSession(
     : userState?.defaultHarness ?? DEFAULT_HARNESS;
   if (args.permissionMode !== undefined) {
     assertSupportedPermissionMode(args.permissionMode, providerId);
-    if (args.permissionMode === 'plan') {
-      const runtime = await getHarnessRuntime(providerId, { cwd: ws.cwd });
-      assertSupportedPermissionMode(args.permissionMode, providerId, runtime.capabilities.planMode.supported);
-    }
+    // The actual runner validates live capabilities on the execution device.
+    // The home's binary cannot decide whether a connected device supports plan.
   }
   const harnessSettings = ensureHarnessSettings(providerId);
   const savedTupleMatchesProvider = userState?.defaultHarness === providerId;

@@ -11,6 +11,7 @@ import type { ProviderId } from '@/lib/harness/options';
 import { EFFORT_LEVELS, type EffortLevel } from '@/db/types';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 import { HarnessDisabledError, isKnownHarnessId } from '@/lib/harness/registry';
+import { permissionsForNewChat, UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 
 /**
  * Start a fresh chat against the SAME execution as `:id` — a new conversation
@@ -70,6 +71,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // plain new chat carries its tuple forward. A provider switch starts from
     // the destination model + effort supplied by the picker.
     const providerId = override.providerId ?? current.harness;
+    const permissions = permissionsForNewChat(providerId, current);
     const switchingProvider = providerId !== current.harness;
     const harnessSettings = ensureHarnessSettings(providerId);
     const requestedModel = override.model
@@ -94,6 +96,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const session = createExecutionChat({
+      ...permissions,
       executionId: current.executionId,
       harness: selection.providerId,
       model: selection.model,
@@ -129,6 +132,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return Response.json({ session: full });
   } catch (err) {
     console.error('[POST /api/sessions/:id/new-chat]', err);
-    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError ? 409 : 500 });
+    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError || err instanceof UnsupportedPermissionModeError ? 409 : 500 });
   }
 }
