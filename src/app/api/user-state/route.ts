@@ -1,8 +1,11 @@
+import fs from 'node:fs';
 import { NextRequest } from 'next/server';
 import { getUserState, updateUserState } from '@/lib/db/queries';
 import { withCompression } from '@/lib/api/compression';
 import { isValidInactiveAfterDays, MAX_INACTIVE_AFTER_DAYS } from '@/lib/sessions/inactive';
 import { normalizeOrchestratorName, ORCHESTRATOR_NAME_MAX } from '@/lib/orchestrator/name';
+import { parseOrchestratorLook } from '@/lib/orchestrator/look';
+import { attachmentPath } from '@/lib/attachments/save';
 import { recycleAppMainChats } from '@/lib/executor/adapter';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
@@ -41,6 +44,20 @@ export async function PATCH(request: NextRequest) {
           { status: 400 },
         );
       }
+    }
+    // The look: one emoji, a palette color, an image that was really uploaded.
+    const look = parseOrchestratorLook(body);
+    if ('error' in look) return Response.json({ error: look.error }, { status: 400 });
+    if (look.patch.orchestratorImage && !fs.existsSync(attachmentPath(look.patch.orchestratorImage.fileName))) {
+      return Response.json({ error: 'orchestratorImage names a file that was never uploaded' }, { status: 400 });
+    }
+    Object.assign(body, look.patch);
+    if (
+      'orchestratorIntroducedAt' in body &&
+      body.orchestratorIntroducedAt !== null &&
+      (typeof body.orchestratorIntroducedAt !== 'string' || Number.isNaN(Date.parse(body.orchestratorIntroducedAt)))
+    ) {
+      return Response.json({ error: 'orchestratorIntroducedAt must be a timestamp, or null' }, { status: 400 });
     }
     const before = renaming ? getUserState()?.orchestratorName ?? null : null;
     const row = updateUserState(body);

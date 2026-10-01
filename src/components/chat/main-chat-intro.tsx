@@ -1,5 +1,6 @@
 'use client';
 
+import { createContext, useContext } from 'react';
 import { ArrowUp, PenLine } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
 import { cn } from '@/lib/utils';
@@ -17,6 +18,22 @@ export interface MainChatStarter {
   prompt: string;
   /** Put `prompt` in the composer instead of sending it. */
   draft?: boolean;
+}
+
+/** What an empty main chat can do: send a starter, or put one in the composer. */
+export interface EmptyChatActions {
+  send: (prompt: string) => void;
+  draft: (prompt: string) => void;
+  disabled: boolean;
+}
+
+/** Provided by the chat around a custom empty state (`HarnessChat`'s `emptyState`). */
+export const EmptyChatActionsContext = createContext<EmptyChatActions | null>(null);
+
+export function useEmptyChatActions(): EmptyChatActions {
+  const actions = useContext(EmptyChatActionsContext);
+  if (!actions) throw new Error('useEmptyChatActions must be used inside an empty chat');
+  return actions;
 }
 
 export interface MainChatIntro {

@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import {
-  DEFAULT_ORCHESTRATOR_NAME,
-  normalizeOrchestratorName,
-  ORCHESTRATOR_NAME_MAX,
-} from '@/lib/orchestrator/name';
+  IdentityEditor,
+  draftFromState,
+  sameDraft,
+  useSaveIdentity,
+  type IdentityDraft,
+} from '@/components/orchestrator/identity-editor';
 import { DeckSourcesField } from './deck-sources-field';
 
 function timeAgo(date: Date): string {
@@ -20,9 +22,10 @@ function timeAgo(date: Date): string {
 }
 
 /**
- * Your identity + the free-form context the agents build on. Your name and
- * the assistant's (the orchestrator, `user_state.orchestratorName`) save on
- * blur; the "about you" description debounced-saves to `user_state.description`.
+ * Your identity + the free-form context the agents build on. Your name saves
+ * on blur; the assistant's name and look (the orchestrator) save with their
+ * own button, since trying on looks shouldn't change it; the "about you"
+ * description debounced-saves to `user_state.description`.
  * Both seed every plan and every agent reply, so this pane leads the modal and
  * sells why filling it in is worth the minute.
  */
@@ -30,14 +33,25 @@ export function ProfileSection() {
   const { data: userState } = useUserState();
   const updateUserState = useUpdateUserState();
   const [name, setName] = useState('');
-  // Null while not editing, so the field shows the stored name (including a
-  // rename made from the rail) without an effect copying it in.
-  const [assistantDraft, setAssistantDraft] = useState<string | null>(null);
-  const assistantName = assistantDraft ?? userState?.orchestratorName ?? '';
   const [description, setDescription] = useState('');
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [, setTick] = useState(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Null until the user touches it, so the editor shows what's stored
+  // (including a change made from the rail) without an effect copying it in.
+  const [assistantDraft, setAssistantDraft] = useState<IdentityDraft | null>(null);
+  const storedIdentity = draftFromState(userState);
+  const identity = assistantDraft ?? storedIdentity;
+  const identityDirty = assistantDraft !== null && !sameDraft(assistantDraft, storedIdentity);
+  const { save: saveIdentity, saving: savingIdentity } = useSaveIdentity();
+  const commitIdentity = async () => {
+    if (!assistantDraft) return;
+    if (await saveIdentity(assistantDraft)) {
+      setAssistantDraft(null);
+      setLastSavedAt(new Date());
+    }
+  };
 
   useEffect(() => {
     if (userState) setName(userState.name ?? '');
@@ -63,14 +77,6 @@ export function ProfileSection() {
     if (next === (userState?.name ?? '')) return;
     updateUserState.mutate({ name: next || null }, { onSuccess: () => setLastSavedAt(new Date()) });
   }, [name, userState?.name, updateUserState]);
-
-  // Empty goes back to the default, which the placeholder shows.
-  const commitAssistantName = useCallback(() => {
-    setAssistantDraft(null);
-    const next = normalizeOrchestratorName(assistantName);
-    if (next === normalizeOrchestratorName(userState?.orchestratorName)) return;
-    updateUserState.mutate({ orchestratorName: next }, { onSuccess: () => setLastSavedAt(new Date()) });
-  }, [assistantName, userState?.orchestratorName, updateUserState]);
 
   // Keep "last saved" fresh.
   useEffect(() => {
@@ -112,26 +118,33 @@ export function ProfileSection() {
         />
       </section>
 
-      {/* The assistant's name (the orchestrator) */}
+      {/* The assistant (the orchestrator): its name and look */}
       <section className="space-y-2">
-        <label htmlFor="profile-assistant-name" className="block text-[12px] font-medium text-foreground">
-          What do you call your assistant?
-        </label>
-        <input
-          id="profile-assistant-name"
-          value={assistantName}
-          maxLength={ORCHESTRATOR_NAME_MAX}
-          onChange={(e) => setAssistantDraft(e.target.value)}
-          onBlur={commitAssistantName}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') e.currentTarget.blur();
-          }}
-          placeholder={DEFAULT_ORCHESTRATOR_NAME}
-          className="w-full max-w-sm rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
-        />
+        <h3 className="text-[12px] font-medium text-foreground">Your assistant</h3>
+        <div className="max-w-xl rounded-xl border border-border bg-card/40 p-3">
+          <IdentityEditor draft={identity} onChange={setAssistantDraft} onSubmit={() => void commitIdentity()} />
+          {identityDirty && (
+            <div className="mt-3 flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => setAssistantDraft(null)}
+                className="rounded-md px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              >
+                Reset
+              </button>
+              <button
+                type="button"
+                onClick={() => void commitIdentity()}
+                disabled={savingIdentity}
+                className="rounded-md bg-primary px-3 py-1 text-[12px] font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
+          )}
+        </div>
         <p className="text-[11px] text-muted-foreground/60">
-          The name at the top of the rail and in your main chat, and the one it answers to. Leave it empty
-          for {DEFAULT_ORCHESTRATOR_NAME}.
+          The name and face at the top of the rail and in your main chat. It answers to the name.
         </p>
       </section>
 

@@ -23,6 +23,12 @@ vi.mock('@/lib/db/queries', () => ({
   updateUserState: (input: Record<string, unknown>) => updateUserState(input),
 }));
 
+// An upload exists on disk only under this name.
+const UPLOADED = '01a0f8ec-b320-7fb4-8368-699677275515.svg';
+vi.mock('@/lib/attachments/save', () => ({
+  attachmentPath: (fileName: string) => (fileName === UPLOADED ? __filename : `/nonexistent/${fileName}`),
+}));
+
 const { PATCH } = await import('./route');
 
 function patch(body: unknown) {
@@ -76,5 +82,39 @@ describe('PATCH /api/user-state orchestratorName', () => {
     expect(res.status).toBe(200);
     expect(stored.orchestratorName).toBe('Atlas');
     warn.mockRestore();
+  });
+});
+
+describe('PATCH /api/user-state orchestrator look', () => {
+  const image = { fileName: UPLOADED, originalName: 'art.svg', mimeType: 'image/svg+xml', size: 900, uploadedAt: '2026-10-01T00:00:00.000Z' };
+
+  it('saves an emoji, a palette color and an uploaded image', async () => {
+    const res = await patch({ orchestratorEmoji: '🍞', orchestratorColor: '#F2A93B', orchestratorImage: image });
+    expect(res.status).toBe(200);
+    expect(updateUserState).toHaveBeenCalledWith({ orchestratorEmoji: '🍞', orchestratorColor: '#f2a93b', orchestratorImage: image });
+  });
+
+  it('refuses an image that was never uploaded', async () => {
+    const res = await patch({ orchestratorImage: { ...image, fileName: '01a0f8ec-b320-7fb4-8368-000000000000.png' } });
+    expect(res.status).toBe(400);
+    expect(updateUserState).not.toHaveBeenCalled();
+  });
+
+  it('refuses a color off the palette and a word for an emoji', async () => {
+    expect((await patch({ orchestratorColor: '#000001' })).status).toBe(400);
+    expect((await patch({ orchestratorEmoji: 'bread' })).status).toBe(400);
+    expect(updateUserState).not.toHaveBeenCalled();
+  });
+
+  it('records the first-run conversation as done, and refuses a non-timestamp', async () => {
+    const at = '2026-10-01T12:00:00.000Z';
+    expect((await patch({ orchestratorIntroducedAt: at })).status).toBe(200);
+    expect(updateUserState).toHaveBeenCalledWith({ orchestratorIntroducedAt: at });
+    expect((await patch({ orchestratorIntroducedAt: 'soon' })).status).toBe(400);
+  });
+
+  it('changing the look leaves the main chat running', async () => {
+    await patch({ orchestratorEmoji: '🍞' });
+    expect(recycleAppMainChats).not.toHaveBeenCalled();
   });
 });

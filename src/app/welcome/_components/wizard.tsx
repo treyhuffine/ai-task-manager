@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
 import { api } from '@/lib/api/client';
-import { StepYou } from './step-you';
 import { StepAreas } from './step-areas';
 import { StepHarness } from './step-harness';
 import { StepImport } from './step-import';
@@ -20,8 +19,6 @@ import {
 } from '@/lib/harness/options';
 
 const INITIAL_STATE: WizardState = {
-  name: '',
-  description: '',
   areas: [
     { name: 'Work', emoji: '💼', attachments: [] },
     { name: 'Personal', emoji: '🏡', attachments: [] },
@@ -41,7 +38,7 @@ const STORAGE_KEY = 'ri.welcome.wizard';
 
 export function Wizard() {
   const router = useRouter();
-  const [current, setCurrent] = useState<StepId>('you');
+  const [current, setCurrent] = useState<StepId>(STEPS[0]!.id);
   const [state, setState] = useState<WizardState>(INITIAL_STATE);
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
@@ -83,8 +80,6 @@ export function Wizard() {
 
   const canProceed = (() => {
     switch (current) {
-      case 'you':
-        return state.name.trim().length > 0;
       case 'areas':
         // Areas are optional — the app works with none, and the agent can
         // propose them from usage. Don't force organizational structure on a
@@ -178,11 +173,10 @@ export function Wizard() {
         throw new Error('Failed to save the default agent model');
       }
 
-      // 4. Save user state + mark onboarded
+      // 4. Save user state + mark onboarded. Your name and what you're working
+      // on are asked in the main chat's first conversation, not here.
       try {
         await api.patch('/user-state', {
-          name: state.name.trim(),
-          description: state.description.trim(),
           defaultHarness: state.harness,
           defaultModel: state.model,
           defaultEffort: defaultEffort,
@@ -252,7 +246,6 @@ export function Wizard() {
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto">
-        {current === 'you' && <StepYou state={state} update={update} />}
         {current === 'areas' && <StepAreas state={state} update={update} />}
         {current === 'agent' && <StepHarness state={state} update={update} />}
         {current === 'import' && <StepImport />}

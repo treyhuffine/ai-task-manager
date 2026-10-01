@@ -27,9 +27,13 @@ export interface HarnessAuthState {
   acceptsApiKeyBilling: boolean;
 }
 
+/**
+ * What the wizard sets up: the machinery a chat needs before it can run. The
+ * personal part (your name, what you're working on, the assistant's name and
+ * look, connected apps) is the main chat's first conversation, so nobody is
+ * asked twice (docs/main-chat-onboarding.md).
+ */
 export interface WizardState {
-  name: string;
-  description: string;
   areas: Array<{ name: string; emoji: string | null; attachments: Attachment[] }>;
   harness: HarnessId;
   /** Explicit default model id for the chosen provider. */
@@ -40,14 +44,13 @@ export interface WizardState {
   importSkipped: boolean;
 }
 
-export type StepId = 'you' | 'areas' | 'agent' | 'import' | 'launch';
+export type StepId = 'areas' | 'agent' | 'import' | 'launch';
 
 export type WizardUpdate = (
   patch: Partial<WizardState> | ((s: WizardState) => Partial<WizardState>),
 ) => void;
 
 export const STEPS: Array<{ id: StepId; label: string }> = [
-  { id: 'you', label: 'You' },
   { id: 'agent', label: 'Harness' },
   { id: 'import', label: 'Import' },
   { id: 'areas', label: 'Areas' },

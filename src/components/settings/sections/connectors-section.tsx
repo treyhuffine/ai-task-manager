@@ -30,6 +30,7 @@ import { type HostedEndpointSelection } from '@/lib/client/connector-endpoint';
 import { ConnectorLogo } from '@/components/connectors/connector-logo';
 import { connectorMeta, CATEGORY_ORDER, type ConnectorCategory } from '@/components/connectors/connector-meta';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
+import { useSettingsStore } from '@/components/settings/settings-store';
 import { CatalogTile, GroupHeading, McpLogo } from './connectors/parts';
 import { ConnectionRequestsSetting } from './connectors/connection-requests-setting';
 import { ProviderDetail } from './connectors/provider-detail';
@@ -420,6 +421,19 @@ export function ConnectorsSection() {
     // OAuth details show the bring-your-own apps, so have them ready on arrival.
     if ((p.method === 'oauth2' || isRegisteredMcp(p)) && !p.orphan) loadByo(p.id).catch(() => {});
   };
+
+  // `openSettings('plugins', { anchor: 'connectors:<id>' })` lands on that
+  // provider's page (the main chat's first run links each app here). Once per
+  // anchor, after the catalog has loaded, so Back still reaches the catalog.
+  const { anchor } = useSettingsStore();
+  const openedAnchor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!anchor?.startsWith('connectors:') || anchor === openedAnchor.current || providers.length === 0) return;
+    const provider = providers.find((p) => p.id === anchor.slice('connectors:'.length));
+    openedAnchor.current = anchor;
+    if (provider) openProvider(provider);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the anchor and the catalog, not on every handler identity
+  }, [anchor, providers]);
 
   const connectOAuth = useCallback(
     async (p: ProviderStatus, authConfigId?: string, intent?: HostedConnectIntent) => {

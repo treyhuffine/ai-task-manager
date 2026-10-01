@@ -14,12 +14,13 @@ import { DeckContainer } from '@/components/deck/deck-container';
 import { CalendarPanel } from '@/components/calendar/calendar-panel';
 import { useNeedsYourCall } from '@/hooks/use-stream';
 import { useUserState, useUpdateUserState, useOrchestratorName } from '@/hooks/use-user-state';
-import { OrchestratorMark } from '@/components/shared/orchestrator-mark';
+import { OrchestratorAvatar } from '@/components/shared/orchestrator-mark';
 import { HarnessChat } from '@/components/chat/harness-chat';
 import { appMainChatIntro } from '@/components/chat/main-chat-intro';
 import { useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
 import { resolveOrchestratorMode, type OrchestratorChatMode } from '@/lib/orchestrator/mode';
 import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
+import { MainChatOnboarding } from '@/components/chat/onboarding/main-chat-onboarding';
 
 // ─── Tab definitions ───────────────────────────────────────────
 
@@ -74,7 +75,7 @@ function ChatModeBar({
     <div className="shrink-0 flex items-center justify-end gap-1.5 px-2 py-1 border-b border-border/50">
       {/* Who you're talking to, the same name the rail's home row shows. */}
       <span className="mr-auto flex min-w-0 items-center gap-1.5 pl-0.5">
-        <OrchestratorMark name={name} size="xs" />
+        <OrchestratorAvatar size="xs" />
         <span className="truncate text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
           {name}
         </span>
@@ -116,6 +117,16 @@ function ChatContent({ isMobile }: { isMobile: boolean }) {
   const newChat = useNewOrchestratorChat();
   const mode = resolveOrchestratorMode(userState?.orchestratorMode);
   const name = useOrchestratorName();
+  // The first-run conversation, for a home that hasn't had it. Latched for
+  // this mount, so finishing it (which records `orchestratorIntroducedAt`)
+  // leaves the conversation and its starters up until the chat is used.
+  // Skipping drops it at once.
+  const [onboarding, setOnboarding] = useState(false);
+  const [onboardingDecided, setOnboardingDecided] = useState(false);
+  if (userState && !onboardingDecided) {
+    setOnboardingDecided(true);
+    setOnboarding(!userState.orchestratorIntroducedAt);
+  }
 
   const handleSwitch = (next: OrchestratorChatMode) => {
     if (next === mode) return;
@@ -135,7 +146,12 @@ function ChatContent({ isMobile }: { isMobile: boolean }) {
         newChatPending={newChat.isPending}
       />
       {/* Key on mode so a switch fully remounts against the new session. */}
-      <HarnessChat key={mode} isMobile={isMobile} intro={appMainChatIntro(name)} />
+      <HarnessChat
+        key={mode}
+        isMobile={isMobile}
+        intro={appMainChatIntro(name)}
+        emptyState={onboarding ? <MainChatOnboarding onSkip={() => setOnboarding(false)} /> : undefined}
+      />
     </div>
   );
 }

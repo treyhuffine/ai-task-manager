@@ -2,7 +2,7 @@
 
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useOrchestratorName } from '@/hooks/use-user-state';
-import { OrchestratorMark } from '@/components/shared/orchestrator-mark';
+import { OrchestratorAvatar } from '@/components/shared/orchestrator-mark';
 import { useRailSessions, useWorkspaces } from '@/hooks/use-workspaces';
 import { useInactivity } from '@/hooks/use-inactivity';
 import { ContentPanel } from '@/components/dashboard/content-panel';
@@ -61,7 +61,7 @@ export function TabletLayout() {
               : isDark ? 'bg-secondary hover:bg-secondary/80' : 'bg-muted hover:bg-muted/80',
           )}
         >
-          <OrchestratorMark name={orchestratorName} size="md" />
+          <OrchestratorAvatar size="md" />
         </button>
 
         <div className="w-6 h-px bg-border my-2" />

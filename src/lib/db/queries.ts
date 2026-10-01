@@ -33,6 +33,7 @@ import type {
   StreamRecord, CreateStreamInput, UpdateStreamInput,
   DeckRecord, CreateDeckInput, UpdateDeckInput,
   UpdateUserStateInput,
+  UserStateRecord,
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
   HomeRecord, HomeKind, DeviceRecord, CreateDeviceInput, UpdateDeviceInput,
   DeviceGrantRecord, DeviceGrantKind, DeviceKind, WorkerReportedState, WorkerHarnessReport,
@@ -98,7 +99,7 @@ import {
   type TaskStatus as LifecycleTaskStatus,
 } from '@/lib/tasks/lifecycle';
 import type { LifecycleCommandResult } from '@/lib/db/schema';
-import { camelizeKeys } from '@/lib/case/keys';
+import { camelizeKeys, snakeizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
 import { messagePreview } from '@/lib/utils/message-preview';
 import {
@@ -3959,9 +3960,15 @@ export function revertDeckTo(deckId: string): DeckRecord | null {
 
 // ─── User State ───────────────────────────────────────────────
 
-export function getUserState() {
+export function getUserState(): UserStateRecord | undefined {
   const db = getDb();
-  return db.select().from(userState).where(eq(userState.id, 1)).get();
+  const row = db.select().from(userState).where(eq(userState.id, 1)).get();
+  return row ? hydrateUserState(row) : undefined;
+}
+
+/** The orchestrator's image is a snake_case attachment on disk, camelCase in the app. */
+function hydrateUserState(row: typeof userState.$inferSelect): UserStateRecord {
+  return { ...row, orchestratorImage: row.orchestratorImage ? camelizeKeys(row.orchestratorImage) : null };
 }
 
 /** The user's working-hours window (local HH:MM), with 9–6 defaults. */
@@ -3973,14 +3980,22 @@ export function getWorkdayBounds(): { workdayStart: string; workdayEnd: string }
   };
 }
 
-export function updateUserState(input: UpdateUserStateInput) {
+export function updateUserState(input: UpdateUserStateInput): UserStateRecord | undefined {
   const db = getDb();
-  return db
+  const { orchestratorImage, ...rest } = input;
+  const row = db
     .update(userState)
-    .set({ ...input, updatedAt: new Date().toISOString() })
+    .set({
+      ...rest,
+      ...(orchestratorImage !== undefined
+        ? { orchestratorImage: orchestratorImage ? snakeizeKeys(orchestratorImage) : null }
+        : {}),
+      updatedAt: new Date().toISOString(),
+    })
     .where(eq(userState.id, 1))
     .returning()
     .get();
+  return row ? hydrateUserState(row) : undefined;
 }
 
 // ─── Agent Harness Settings ──────────────────────────────────

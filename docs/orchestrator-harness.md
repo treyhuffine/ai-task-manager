@@ -79,8 +79,10 @@ picked a mode sent its main chat to the missing route and nothing happened.
 
 ## The orchestrator's name
 
-The user names the app's main chat (Settings → Profile, "What do you call
-your assistant?", or the pencil on the rail's home row). It's stored on
+The user names the app's main chat (its first-run conversation,
+`docs/main-chat-onboarding.md`, then Settings → Profile, "Your assistant", or
+the pencil on the rail's home row, all one editor that also sets its look:
+an emoji on a color, a picture, or art made in the app). It's stored on
 `user_state.orchestratorName`, null until they pick one, and every reader
 resolves it through `resolveOrchestratorName` (`src/lib/orchestrator/name.ts`):
 null or blank is `APP_NAME`, so a home that never chose follows the product
@@ -88,9 +90,11 @@ default. A typed name is stored folded to one line (it's written into the
 brief, where a line break would start a new instruction) and capped at 40
 characters by `PATCH /api/user-state`.
 
-- **Where it shows.** The top of the rail (the home link, with its initial in
+- **Where it shows.** The top of the rail (the home link, with its face in
   the skinny rail and the tablet rail), the main chat's header and empty-chat
-  intro, and the "From …" chip on messages it sends into executions.
+  intro, and the "From …" chip on messages it sends into executions. Its face
+  (`OrchestratorMark`) is its picture, else its emoji on its color, else the
+  Ri mark for the default name, else its initial.
 - **Where it lands for the model.** `renderOrchestratorBrief` leads with it
   ("You are Atlas, Ri's orchestrator", or just "Ri's orchestrator" for the
   default) and says the user calls it that. The brief is reinstalled before

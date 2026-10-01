@@ -1,4 +1,4 @@
-import { Rocket, Check, User, Layers, Bot, Upload, Globe2 } from 'lucide-react';
+import { Rocket, Check, Layers, Bot, Upload, Globe2 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
 import type { WizardState } from './types';
 
@@ -23,11 +23,6 @@ function agentAuthSummary(state: WizardState): string {
 
 export function StepLaunch({ state }: { state: WizardState }) {
   const rows = [
-    {
-      icon: User,
-      label: state.name || 'Unnamed',
-      sub: state.description ? state.description.slice(0, 80) : 'No context yet',
-    },
     {
       icon: Layers,
       label: `${state.areas.length} area${state.areas.length === 1 ? '' : 's'}`,
@@ -62,7 +57,8 @@ export function StepLaunch({ state }: { state: WizardState }) {
         <div>
           <h2 className="text-xl font-semibold">Ready to launch</h2>
           <p className="text-sm text-muted-foreground">
-            Everything is set up. Launching will save your setup and open {APP_NAME}.
+            Everything is set up. Launching saves this and opens {APP_NAME}, where your assistant says hello
+            and asks the rest in the chat.
           </p>
         </div>
       </header>

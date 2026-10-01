@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userStateApi } from '@/lib/api/user-state';
 import { resolveOrchestratorName } from '@/lib/orchestrator/name';
+import { attachmentUrl } from '@/lib/attachments/view';
 import type { UpdateUserStateInput, UserStateRecord } from '@/db/types';
 
 const USER_STATE_KEY = ['user-state'] as const;
@@ -41,4 +42,23 @@ export function useUpdateUserState() {
 export function useOrchestratorName(): string {
   const { data } = useUserState();
   return resolveOrchestratorName(data?.orchestratorName);
+}
+
+export interface OrchestratorIdentity {
+  name: string;
+  emoji: string | null;
+  /** Where its image is served, when it has one. */
+  imageUrl: string | null;
+  color: string | null;
+}
+
+/** The orchestrator's name and look, as `OrchestratorMark` draws them. */
+export function useOrchestratorIdentity(): OrchestratorIdentity {
+  const { data } = useUserState();
+  return {
+    name: resolveOrchestratorName(data?.orchestratorName),
+    emoji: data?.orchestratorEmoji ?? null,
+    imageUrl: data?.orchestratorImage ? attachmentUrl(data.orchestratorImage.fileName) : null,
+    color: data?.orchestratorColor ?? null,
+  };
 }

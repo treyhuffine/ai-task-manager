@@ -39,8 +39,14 @@ type PolicyOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 
 // ─── User State ────────────────────────────────────────────────
 
-export type UserStateRecord = InferSelectModel<typeof userState>;
-export type UpdateUserStateInput = Partial<Omit<InferInsertModel<typeof userState>, 'id'>>;
+// `orchestratorImage` is stored snake_case like every attachment column and
+// hydrated by `getUserState` / `updateUserState`, so the app sees `Attachment`.
+export type UserStateRecord = Omit<InferSelectModel<typeof userState>, 'orchestratorImage'> & {
+  orchestratorImage: Attachment | null;
+};
+export type UpdateUserStateInput = Partial<
+  Omit<InferInsertModel<typeof userState>, 'id' | 'orchestratorImage'> & { orchestratorImage: Attachment | null }
+>;
 
 export type HarnessSettingsRecord = InferSelectModel<typeof harnessSettings>;
 export type UpsertHarnessSettingsInput = Omit<InferInsertModel<typeof harnessSettings>, 'id'> & { id?: string };

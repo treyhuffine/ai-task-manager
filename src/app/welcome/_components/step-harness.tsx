@@ -13,7 +13,7 @@ import {
   RefreshCw,
   Package,
 } from 'lucide-react';
-import { APP_NAME } from '@/constants/app';
+import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { defaultModelFor } from '@/lib/harness/options';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { CursorCredentialPanel } from '@/components/settings/cursor-credential-panel';
@@ -258,6 +258,12 @@ export function StepHarness({
           onSelect={(id) => update({ model: id })}
         />
       )}
+
+      <p className="border-t border-border pt-4 text-xs text-muted-foreground">
+        Already use {APP_NAME} on another device? Stop this one and run{' '}
+        <code className="font-mono text-foreground/80">{APP_SHORT_ID} connect</code> in a terminal to use that{' '}
+        {APP_NAME} here instead. A new home with nothing in it yet is set aside, not deleted.
+      </p>
     </div>
   );
 }

@@ -22,7 +22,9 @@ const TABS: ReadonlyArray<{ value: PluginsTab; label: string }> = [
   { value: 'skills', label: 'Skills' },
 ];
 
+/** `connectors:<providerId>` opens the Connectors tab on that provider (see ConnectorsSection). */
 function tabFor(anchor: string | null): PluginsTab | null {
+  if (anchor?.startsWith('connectors:')) return 'connectors';
   return anchor === 'skills' || anchor === 'connectors' ? anchor : null;
 }
 

@@ -150,6 +150,16 @@ export const userState = sqliteTable('user_state', {
   // app still reaches everyone who never chose. A preference, so no schema
   // default. See src/lib/orchestrator/name.ts.
   orchestratorName: text(),
+  // How the orchestrator looks wherever it's drawn (src/lib/orchestrator/look.ts):
+  // an image (uploaded, or art made in the app) wins over an emoji, which sits
+  // on the color. All null → the Ri mark for the default name, else its
+  // initial on the theme's primary. Preferences, so no schema defaults.
+  orchestratorEmoji: text(),
+  orchestratorImage: text({ mode: 'json' }).$type<StoredAttachment>(),
+  orchestratorColor: text(),
+  // When the main chat's first-run conversation (docs/main-chat-onboarding.md)
+  // was finished or skipped. Null → an empty main chat opens with it.
+  orchestratorIntroducedAt: text(),
 });
 
 // ─── Harness Settings ─────────────────────────────────────────
