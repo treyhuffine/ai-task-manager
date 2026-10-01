@@ -25,14 +25,20 @@ export const CHEAPEST_MODEL: Record<HarnessId, string | null> = {
 };
 
 
-/** Why an unattended background call cannot safely launch this harness. */
+/** Each new harness needs an explicit background-execution assessment. */
+const BACKGROUND_UNAVAILABLE_REASON: Record<HarnessId, string | null> = {
+  codex: null,
+  claude: null,
+  cursor: null,
+  opencode: null,
+  // agy honors skipPermissions but ignores strictMcpConfig and tool filters.
+  // Its plan mode is prompt behavior, not a replacement for those restrictions.
+  antigravity: 'Antigravity background calls are unavailable because its CLI cannot enforce '
+    + 'the required tool restrictions and MCP isolation. Choose another default harness for background AI.',
+};
+
+/** Why an unattended background call cannot launch this harness. */
 export function backgroundHarnessUnavailableReason(harness: HarnessId): string | null {
   if (!isHarnessEnabled(harness)) return `${harness} is disabled by the rollout configuration`;
-  // agy honors skipPermissions but silently ignores strictMcpConfig and tool
-  // filters. Plan mode is prompt behavior, not a replacement for those fences.
-  if (harness === 'antigravity') {
-    return 'Antigravity background calls are unavailable because its CLI cannot enforce ' +
-      'the required tool restrictions and MCP isolation. Choose another default harness for background AI.';
-  }
-  return null;
+  return BACKGROUND_UNAVAILABLE_REASON[harness];
 }

@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { useRetrySetup, useRetrySetupScript } from '@/hooks/use-execution';
 import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { formatElapsed } from '@/lib/executions/duration';
-import { harnessDefinition, isHarnessId } from '@/lib/harness/registry';
+import { harnessDefinition, isKnownHarnessId } from '@/lib/harness/registry';
 import { ThinkingDots } from './thinking-dots';
 
 /**
@@ -19,7 +19,7 @@ import { ThinkingDots } from './thinking-dots';
  */
 export function providerLabel(surfaceRef: string | null): string {
   if (!surfaceRef) return 'an agent';
-  return isHarnessId(surfaceRef) ? harnessDefinition(surfaceRef).name : surfaceRef;
+  return isKnownHarnessId(surfaceRef) ? harnessDefinition(surfaceRef).name : surfaceRef;
 }
 
 interface SetupCardProps {
