@@ -176,16 +176,15 @@ describe('start_execution', () => {
     expect(a).not.toBe(b);
   });
 
-  it('sets the permission mode before the prompt, only when it differs', async () => {
+  it('creates with the requested permission mode before sending a prompt', async () => {
     const { ws } = await seed();
     serverFetch.mockImplementation(async (p) => (p.endsWith('/sessions') ? { id: 'created', executionId: 'e' } : { id: 'evt' }));
     await run('start_execution', { workspaceId: ws.id, prompt: 'Plan it', requestId: 'plan-1', permissionMode: 'plan' });
     expect(serverFetch.mock.calls.map(([p, init]) => `${init?.method} ${p}`)).toEqual([
       `POST /workspaces/${ws.id}/sessions`,
-      'PATCH /sessions/created',
       'POST /sessions/created/messages',
     ]);
-    expect(JSON.parse(serverFetch.mock.calls[1][1]!.body as string)).toEqual({ permissionMode: 'plan' });
+    expect(JSON.parse(serverFetch.mock.calls[0][1]!.body as string)).toMatchObject({ permissionMode: 'plan' });
   });
 
   it('turns a refused task link into a conflict with the server\'s reason', async () => {
@@ -395,5 +394,39 @@ describe('workspace reads and create', () => {
     const { ws, execution } = await seed();
     const envelope = await run('list_workspace_sessions', { workspaceId: ws.id });
     expect((envelope as { result: Array<{ id: string }> }).result.map((s) => s.id)).toEqual([execution.id]);
+  });
+});
+
+
+describe('start_execution permissions', () => {
+  it.each(['ask', 'auto_edits'])('refuses Antigravity %s before creating an execution', async (permissionMode) => {
+    const { ws } = await seed();
+    const result = await run('start_execution', {
+      workspaceId: ws.id, prompt: 'Do it', requestId: 'unsupported-mode', provider: 'antigravity', permissionMode,
+    });
+    expect(result).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
+    expect(serverFetch).not.toHaveBeenCalled();
+  });
+
+  it('checks the saved default when the caller omits provider', async () => {
+    const { ws, q } = await seed();
+    q.updateUserState({ defaultHarness: 'antigravity' });
+    expect(await run('start_execution', {
+      workspaceId: ws.id, prompt: 'Do it', requestId: 'default-mode', permissionMode: 'ask',
+    })).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
+    expect(serverFetch).not.toHaveBeenCalled();
+  });
+
+  it('applies a requested mode to an existing execution before retrying the prompt', async () => {
+    const { ws, q } = await seed();
+    serverFetch.mockImplementation(async (p) => p.endsWith('/sessions') ? { id: 'created', executionId: 'e' } : { id: 'evt' });
+    await run('start_execution', { workspaceId: ws.id, prompt: 'Do it', requestId: 'retry-mode' });
+    const { sessionId } = JSON.parse(serverFetch.mock.calls[0][1]!.body as string);
+    q.createExecutionWithChat({ workspaceId: ws.id, harness: 'antigravity', label: null, chatSessionId: sessionId });
+    serverFetch.mockClear();
+    await run('start_execution', { workspaceId: ws.id, prompt: 'Plan it', requestId: 'retry-mode', permissionMode: 'plan' });
+    expect(serverFetch.mock.calls.map(([p, init]) => `${init?.method} ${p}`)).toEqual([
+      `PATCH /sessions/${sessionId}`, `POST /sessions/${sessionId}/messages`,
+    ]);
   });
 });

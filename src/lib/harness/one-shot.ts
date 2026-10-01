@@ -37,7 +37,7 @@ import {
   type StreamEvent,
 } from '@agentex/agent';
 import type { z } from 'zod';
-import { CHEAPEST_MODEL } from '@/lib/executor/harness';
+import { backgroundHarnessUnavailableReason, CHEAPEST_MODEL } from '@/lib/executor/harness';
 import { modelBelongsToProvider, type ProviderId } from '@/lib/harness/options';
 import { runtimeContextForHarness } from '@/lib/harness/runtime';
 import { withActivity } from '@/lib/service/maintenance';
@@ -118,6 +118,8 @@ export function runHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneShot
 
 async function executeHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneShotResult> {
   const providerType = resolveBackgroundHarness();
+  const unavailable = backgroundHarnessUnavailableReason(providerType);
+  if (unavailable) throw new Error(`[${opts.label}] ${unavailable}`);
   const model = opts.model ?? backgroundModelFor(providerType, opts.tier ?? 'fast');
   const cwd = opts.cwd ?? getAppRoot();
   const hasMcp = (opts.mcpServers?.length ?? 0) > 0;

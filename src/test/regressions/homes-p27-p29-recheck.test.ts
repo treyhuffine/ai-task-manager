@@ -123,7 +123,7 @@ describe("the home's records for that device wire remote linked folders", () => 
     try {
       const spec = await (await import('@/lib/executor/session-spec')).buildSessionSpec({
         chatSessionId: main.id, harness, cwd: home.root, sessionType: 'orchestration', workspaceId: agentId,
-        surfaceKind: null, surfaceRef: null, existingExternalSessionId: null, permissionMode: 'ask', prePlanMode: null,
+        surfaceKind: null, surfaceRef: null, existingExternalSessionId: null, permissionMode: main.permissionMode, prePlanMode: null,
         model: 'fake-model', modelVariant: null, effort: null,
       }, { deviceId, isHome: false, generation: null });
       await runner.send({ chatSessionId: main.id, message: 'hello', turnId: 'fresh-main', runId: null, spec });

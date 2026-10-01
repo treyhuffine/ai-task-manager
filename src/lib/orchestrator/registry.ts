@@ -142,6 +142,7 @@ import { createSkillShape, locationFrom, moveSkillShape, saveSkillShape } from '
 import { fetchLiveSignals, serverFetch, ServerResponseError } from './server-client';
 import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } from './session-credential';
 import { PERMISSION_MODES } from '@/lib/permissions/modes';
+import { assertSupportedPermissionMode, UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 import { APP_SHORT_ID } from '@/constants/app';
 import { condenseEvents, derivePendingFromEvents } from './session-oversight';
 import { isSessionUnread } from '@/lib/utils/session-sort';
@@ -2709,6 +2710,14 @@ const start_execution_action = defineAction({
     const sessionId = requestScopedId('session', workspace.id, input.requestId);
     const eventId = requestScopedId('prompt', workspace.id, input.requestId);
     const existing = getChatSession(sessionId);
+    if (input.permissionMode) {
+      try {
+        assertSupportedPermissionMode(input.permissionMode, existing?.harness ?? input.provider ?? defaultTriggerHarness());
+      } catch (err) {
+        if (err instanceof UnsupportedPermissionModeError) throw new ActionError('invalid_params', err.message);
+        throw err;
+      }
+    }
 
     // 1. The execution and its chat. The route is idempotent on sessionId, so
     //    a retry converges on the execution the first attempt created.
@@ -2726,6 +2735,7 @@ const start_execution_action = defineAction({
               ...(input.provider ? { harness: input.provider } : {}),
               ...(input.model ? { model: input.model } : {}),
               ...(input.effort ? { effort: input.effort } : {}),
+              ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
               ...(input.taskId ? { taskId: input.taskId } : {}),
               ...(input.deviceId ? { deviceId: input.deviceId } : {}),
             }),
@@ -2744,11 +2754,19 @@ const start_execution_action = defineAction({
 
     // 2. Permission mode, only when it differs, so a retry after the first
     //    turn started doesn't try to change it mid-run.
-    if (input.permissionMode && getChatSession(created.id)?.permissionMode !== input.permissionMode) {
-      await serverFetch(`/sessions/${created.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ permissionMode: input.permissionMode }),
-      });
+    if (existing && input.permissionMode && existing.permissionMode !== input.permissionMode) {
+      try {
+        await serverFetch(`/sessions/${created.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ permissionMode: input.permissionMode }),
+        });
+      } catch (err) {
+        if (err instanceof ServerResponseError && (err.status === 400 || err.status === 409)) {
+          throw new ActionError(err.status === 409 ? 'conflict' : 'invalid_params',
+            (err.json()?.error as string | undefined) ?? err.message);
+        }
+        throw err;
+      }
     }
 
     // 3. The prompt, idempotent on its event id, labeled with who sent it.

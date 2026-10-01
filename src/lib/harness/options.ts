@@ -183,9 +183,11 @@ export const EFFORT_OPTIONS: EffortOption[] = [
   },
 ];
 
-const FALLBACK_EFFORTS: Partial<Record<HarnessId, readonly EffortLevel[]>> = {
+const FALLBACK_EFFORTS: Record<HarnessId, readonly EffortLevel[]> = {
   claude: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   codex: ['low', 'medium', 'high', 'xhigh'],
+  cursor: [],
+  opencode: [],
   // `agy --effort` takes exactly these four. Its model catalog carries no
   // per-model effort metadata, so this list is the whole range.
   antigravity: ['low', 'medium', 'high', 'max'],

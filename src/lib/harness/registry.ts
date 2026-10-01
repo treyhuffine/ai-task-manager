@@ -225,6 +225,18 @@ export function isHarnessEnabled(id: HarnessId): boolean {
   }
 }
 
+export class HarnessDisabledError extends Error {
+  constructor(id: HarnessId) {
+    super(`${id} is disabled by the rollout configuration`);
+    this.name = 'HarnessDisabledError';
+  }
+}
+
+/** Launch/creation guard. Reading stored metadata must use the known-id helpers. */
+export function assertHarnessEnabled(id: HarnessId): void {
+  if (!isHarnessEnabled(id)) throw new HarnessDisabledError(id);
+}
+
 export const HARNESS_IDS = Object.freeze(ALL_HARNESS_IDS.filter(isHarnessEnabled));
 
 export function isHarnessId(value: unknown): value is HarnessId {

@@ -44,10 +44,10 @@ describe('harnessPermissionConfig', () => {
     }
   });
 
-  it('maps plan mode to planMode only where the harness supports it', () => {
+  it('refuses plan mode when the installed harness cannot apply it', () => {
     // agentex turns this into `agy --mode plan`, which wins over skipPermissions.
     expect(harnessPermissionConfig('plan', 'antigravity', { planMode: true })).toEqual({ planMode: true, extraArgs: [] });
-    expect(harnessPermissionConfig('plan', 'antigravity', { planMode: false })).toEqual({ extraArgs: [] });
+    expect(() => harnessPermissionConfig('plan', 'antigravity', { planMode: false })).toThrow(/not supported/);
   });
 
   it('adds raw permission flags for Claude only', () => {
@@ -55,13 +55,18 @@ describe('harnessPermissionConfig', () => {
       .toEqual(['--permission-mode', 'acceptEdits']);
     expect(harnessPermissionConfig('ask', 'claude', { planMode: true }).extraArgs)
       .toEqual(['--permission-mode', 'default']);
-    for (const harness of KNOWN_HARNESS_IDS.filter((id) => id !== 'claude')) {
-      expect(harnessPermissionConfig('ask', harness, { planMode: true })).toEqual({ extraArgs: [] });
-      expect(harnessPermissionConfig('auto_edits', harness, { planMode: true })).toEqual({ extraArgs: [] });
+    expect(harnessPermissionConfig('ask', 'codex', { planMode: true })).toEqual({ extraArgs: [] });
+    expect(harnessPermissionConfig('auto_edits', 'codex', { planMode: true })).toEqual({ extraArgs: [] });
+    expect(harnessPermissionConfig('ask', 'opencode', { planMode: true })).toEqual({ extraArgs: [] });
+    for (const harness of ['cursor', 'antigravity']) {
+      for (const mode of ['ask', 'auto_edits'] as const) {
+        expect(() => harnessPermissionConfig(mode, harness, { planMode: true })).toThrow(/not supported/);
+      }
     }
+    expect(() => harnessPermissionConfig('auto_edits', 'opencode', { planMode: true })).toThrow(/not supported/);
   });
 
   it('refuses a legacy mode instead of downgrading it', () => {
-    expect(() => harnessPermissionConfig('bypass' as never, 'claude', { planMode: true })).toThrow(/Unknown permission mode/);
+    expect(() => harnessPermissionConfig('bypass' as never, 'claude', { planMode: true })).toThrow(/not supported/);
   });
 });

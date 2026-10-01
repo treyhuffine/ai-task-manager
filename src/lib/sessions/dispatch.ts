@@ -67,7 +67,7 @@ import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
 import { killAllForOwner } from '@/lib/terminal/pty-manager';
 import { terminalOwnerId } from '@/lib/terminal/owner';
 import { invalidateHarnessSession, close as closeHarnessSession } from '@/lib/executor/adapter';
-import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord, WorkerCommandActor } from '@/db/types';
+import type { ChatSessionWithExecution, EffortLevel, PermissionMode, WorkspaceRecord, WorkerCommandActor } from '@/db/types';
 import type { PreparePayload } from '@/lib/worker/handlers';
 import { isDeviceConnected, wakeDevice } from '@/lib/workers/hub';
 import { cantRunAgentThere, runOnFor, setupProblem, setupUsable } from '@/lib/setups/run-on';
@@ -75,6 +75,8 @@ import { checkDeviceFolders } from '@/lib/setups/folders';
 import { requireHarnessId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 import { admitChange } from '@/lib/transfer/moving';
+import { assertSupportedPermissionMode } from '@/lib/executor/permission-map';
+import { getHarnessRuntime } from '@/lib/harness/runtime';
 
 const execFileAsync = promisify(execFile);
 
@@ -137,6 +139,7 @@ export interface DispatchExecutionSessionArgs {
   model?: string | null;
   modelVariant?: string | null;
   effort?: EffortLevel | null;
+  permissionMode?: PermissionMode;
   /** Override the workspace's default base branch. Used when the launcher
    *  has a `base` chip attached from a branch pick (e.g. `origin/feat-foo`).
    *  Falls back to `workspace.baseBranch` when null/empty. Ignored when
@@ -222,6 +225,13 @@ export async function dispatchExecutionSession(
   const providerId = args.harness
     ? requireHarnessId(args.harness)
     : userState?.defaultHarness ?? DEFAULT_HARNESS;
+  if (args.permissionMode !== undefined) {
+    assertSupportedPermissionMode(args.permissionMode, providerId);
+    if (args.permissionMode === 'plan') {
+      const runtime = await getHarnessRuntime(providerId, { cwd: ws.cwd });
+      assertSupportedPermissionMode(args.permissionMode, providerId, runtime.capabilities.planMode.supported);
+    }
+  }
   const harnessSettings = ensureHarnessSettings(providerId);
   const savedTupleMatchesProvider = userState?.defaultHarness === providerId;
   // Explicit args (the launcher's model control) beat the saved default
@@ -311,6 +321,7 @@ export async function dispatchExecutionSession(
       model: selection.model,
       modelVariant: selection.variant,
       effort: selection.effort,
+      permissionMode: args.permissionMode,
       label,
       worktreePath: liveMode && !elsewhere ? ws.cwd : null,
       branchName: liveBranch,

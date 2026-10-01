@@ -14,6 +14,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { getWorkDir } from '@/lib/config/paths';
+import { isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
 
 /**
  * Providers whose *session* path honours agentex's `instructionsFile`.
@@ -31,10 +32,16 @@ import { getWorkDir } from '@/lib/config/paths';
  * A resumed conversation already carries what it was first told, so
  * instructions changed since then reach the next fresh chat, not that one.
  */
-const SESSION_INSTRUCTIONS_PROVIDERS = new Set(['claude', 'codex', 'pi', 'antigravity']);
+const SESSION_INSTRUCTIONS_PROVIDERS: Record<HarnessId, boolean> = {
+  claude: true,
+  codex: true,
+  cursor: false,
+  opencode: false,
+  antigravity: true,
+};
 
 export function providerDeliversSessionInstructions(providerType: string): boolean {
-  return SESSION_INSTRUCTIONS_PROVIDERS.has(providerType);
+  return isKnownHarnessId(providerType) ? SESSION_INSTRUCTIONS_PROVIDERS[providerType] : providerType === 'pi';
 }
 
 export interface SessionInstructionBlock {

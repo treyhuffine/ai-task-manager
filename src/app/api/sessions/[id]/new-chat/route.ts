@@ -10,7 +10,7 @@ import {
 import type { ProviderId } from '@/lib/harness/options';
 import { EFFORT_LEVELS, type EffortLevel } from '@/db/types';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
-import { isHarnessId } from '@/lib/harness/registry';
+import { HarnessDisabledError, isKnownHarnessId } from '@/lib/harness/registry';
 
 /**
  * Start a fresh chat against the SAME execution as `:id` — a new conversation
@@ -35,7 +35,7 @@ interface ChatOverride {
 
 function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: unknown; effort?: unknown }): ChatOverride {
   const out: ChatOverride = {};
-  if (isHarnessId(src.providerId)) out.providerId = src.providerId;
+  if (isKnownHarnessId(src.providerId)) out.providerId = src.providerId;
   if (typeof src.model === 'string' && src.model.trim()) out.model = src.model.trim();
   if (typeof src.variant === 'string' && src.variant.trim()) out.variant = src.variant.trim();
   if (typeof src.effort === 'string' && EFFORT_LEVELS.includes(src.effort as EffortLevel)) {
@@ -129,6 +129,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return Response.json({ session: full });
   } catch (err) {
     console.error('[POST /api/sessions/:id/new-chat]', err);
-    return Response.json({ error: String(err) }, { status: 500 });
+    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError ? 409 : 500 });
   }
 }

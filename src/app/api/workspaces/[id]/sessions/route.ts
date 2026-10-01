@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { listWorkspaceExecutions, getWorkspace } from '@/lib/db/queries';
-import type { EffortLevel } from '@/db/types';
+import type { EffortLevel, PermissionMode } from '@/db/types';
 import {
   DeviceUnavailableForDispatch,
   dispatchExecutionSession,
@@ -8,8 +8,10 @@ import {
   TaskNotStartableForDispatch,
 } from '@/lib/sessions/dispatch';
 import { withCompression } from '@/lib/api/compression';
-import { isKnownHarnessId, KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
+import { HarnessDisabledError, isKnownHarnessId, KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
 import { actorFromRequest } from '@/lib/auth/actor';
+import { PERMISSION_MODES } from '@/lib/permissions/modes';
+import { UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -49,6 +51,7 @@ export async function POST(
       model?: string | null;
       modelVariant?: string | null;
       effort?: EffortLevel | null;
+      permissionMode?: PermissionMode;
       baseBranch?: string;
       prNumber?: number | null;
       liveMode?: boolean;
@@ -83,6 +86,9 @@ export async function POST(
         { status: 400 },
       );
     }
+    if (body.permissionMode !== undefined && !PERMISSION_MODES.includes(body.permissionMode)) {
+      return Response.json({ error: `Invalid permissionMode. Expected one of ${PERMISSION_MODES.join(', ')}.` }, { status: 400 });
+    }
     const row = await dispatchExecutionSession({
       workspaceId: id,
       sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
@@ -91,6 +97,7 @@ export async function POST(
       model: body.model ?? null,
       modelVariant: body.modelVariant ?? null,
       effort: body.effort ?? null,
+      permissionMode: body.permissionMode,
       baseBranch: body.baseBranch?.trim() || null,
       prNumber: typeof body.prNumber === 'number' ? body.prNumber : null,
       liveMode: !!body.liveMode,
@@ -100,6 +107,12 @@ export async function POST(
     });
     return Response.json(row, { status: 201 });
   } catch (err) {
+    if (err instanceof HarnessDisabledError) {
+      return Response.json({ error: err.message }, { status: 409 });
+    }
+    if (err instanceof UnsupportedPermissionModeError) {
+      return Response.json({ error: err.message }, { status: 400 });
+    }
     if (err instanceof WorkspaceNotFoundForDispatch) {
       return Response.json({ error: 'Workspace not found' }, { status: 404 });
     }

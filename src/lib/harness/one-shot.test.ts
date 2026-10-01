@@ -62,12 +62,25 @@ describe('resolveBackgroundHarness / backgroundModelFor', () => {
     expect(backgroundModelFor('antigravity', 'standard')).toBeUndefined();
   });
 
-  it('runs a background call on Antigravity with no model flag', async () => {
+  it('refuses Antigravity background calls while its CLI ignores required restrictions', async () => {
     userState = { defaultHarness: 'antigravity' };
     const { runHarnessText } = await import('./one-shot');
-    const result = await runHarnessText({ label: 't', prompt: 'ASK' });
-    expect(result.providerType).toBe('antigravity');
-    expect(lastCall()).not.toHaveProperty('model');
+    await expect(runHarnessText({ label: 'deck', prompt: 'ASK' })).rejects.toThrow(
+      /Antigravity background calls are unavailable.*tool restrictions and MCP isolation/,
+    );
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a saved default whose rollout flag was switched off', async () => {
+    userState = { defaultHarness: 'antigravity' };
+    const { runHarnessText } = await import('./one-shot');
+    vi.stubEnv('NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED', 'false');
+    try {
+      await expect(runHarnessText({ label: 'deck', prompt: 'ASK' })).rejects.toThrow(/disabled by the rollout configuration/);
+      expect(executeMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

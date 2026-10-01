@@ -222,3 +222,83 @@ describe('Antigravity chats through the real runner', () => {
     }
   });
 });
+
+
+describe('Antigravity permission boundaries', () => {
+  it.each(['ask', 'auto_edits'] as const)('refuses %s at chat creation and updates', async (permissionMode) => {
+    const q = await import('@/lib/db/queries');
+    expect(() => q.createChatSession({ type: 'orchestration', harness: 'antigravity', permissionMode })).toThrow(/not supported/);
+    const session = await chat();
+    expect(() => q.updateChatSession(session.id, { permissionMode })).toThrow(/not supported/);
+    expect(q.getChatSession(session.id)?.permissionMode).toBe('auto_all');
+    expect(agy.sessionSpawns()).toEqual([]);
+  });
+
+  it('refuses an unsupported stored mode at the final runner boundary', async () => {
+    const session = await chat();
+    const { getRawDb } = await import('@/lib/db');
+    // Model a row written by an older client that did not validate modes.
+    getRawDb().prepare('UPDATE chat_sessions SET permission_mode = ? WHERE id = ?').run('ask', session.id);
+    const { dispatch } = await import('@/lib/executor/adapter');
+    await expect(dispatch(session.id, 'hello')).rejects.toThrow(/not supported/);
+    expect(agy.sessionSpawns()).toEqual([]);
+  });
+
+  it('validates the initial mode before creating an execution through the API', async () => {
+    const q = await import('@/lib/db/queries');
+    const ws = q.createWorkspace({ name: 'permission-api', cwd: home.root, isGit: false, filesToCopy: [], status: 'active' });
+    const { POST } = await import('@/app/api/workspaces/[id]/sessions/route');
+    const post = (permissionMode: string) => POST(new Request('http://localhost/api/workspaces/test/sessions', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ harness: 'antigravity', model: MODEL, permissionMode }),
+    }) as never, { params: Promise.resolve({ id: ws.id }) });
+    for (const mode of ['ask', 'auto_edits', 'invalid']) {
+      expect((await post(mode)).status).toBe(400);
+      expect(q.listWorkspaceExecutions(ws.id)).toEqual([]);
+    }
+    const response = await post('plan');
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ harness: 'antigravity', permissionMode: 'plan' });
+    expect(q.listWorkspaceExecutions(ws.id)).toHaveLength(1);
+    expect(agy.sessionSpawns()).toEqual([]);
+  });
+});
+
+
+describe('disabled Antigravity new selections', () => {
+  it('rejects the shared selection resolver and execution API before creating artifacts', async () => {
+    const q = await import('@/lib/db/queries');
+    const ws = q.createWorkspace({ name: 'disabled-api', cwd: home.root, isGit: false, filesToCopy: [], status: 'active' });
+    vi.stubEnv('NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED', 'false');
+    try {
+      const { resolveHarnessSelection } = await import('@/lib/harness/model-discovery');
+      await expect(resolveHarnessSelection('antigravity', { model: MODEL })).rejects.toThrow(/disabled by the rollout configuration/);
+      const { POST } = await import('@/app/api/workspaces/[id]/sessions/route');
+      const response = await POST(new Request('http://localhost/api/workspaces/test/sessions', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ harness: 'antigravity', model: MODEL }),
+      }) as never, { params: Promise.resolve({ id: ws.id }) });
+      expect(response.status).toBe(409);
+      expect(q.listWorkspaceExecutions(ws.id)).toEqual([]);
+      expect(agy.sessionSpawns()).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('preserves existing main chats and the explicit disabled choice instead of substituting a harness', async () => {
+    const existing = await chat();
+    const q = await import('@/lib/db/queries');
+    vi.stubEnv('NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED', 'false');
+    try {
+      const { parseChatOverride, startNewMainChat, ensureMainChat } = await import('@/lib/sessions/main-chat');
+      const override = parseChatOverride({ providerId: 'antigravity', model: MODEL });
+      expect(override.providerId).toBe('antigravity');
+      await expect(startNewMainChat(null, override)).rejects.toThrow(/disabled by the rollout configuration/);
+      expect(q.getChatSession(existing.id)?.status).toBe('active');
+      expect((await ensureMainChat(null)).id).toBe(existing.id);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

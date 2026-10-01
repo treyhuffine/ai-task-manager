@@ -25,7 +25,7 @@ import {
 import { EFFORT_LEVELS, type ChatSessionRecord, type EffortLevel } from '@/db/types';
 import type { ProviderId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
-import { DEFAULT_HARNESS, isHarnessId } from '@/lib/harness/registry';
+import { assertHarnessEnabled, DEFAULT_HARNESS, isKnownHarnessId } from '@/lib/harness/registry';
 import { agentDeviceFor } from '@/lib/setups/run-on';
 
 /** `null` is the app's main chat. A workspace id is that agent's main chat. */
@@ -47,7 +47,7 @@ export function parseChatOverride(src: unknown): ChatOverride {
     effort?: unknown;
   };
   const out: ChatOverride = {};
-  if (isHarnessId(body.providerId)) out.providerId = body.providerId;
+  if (isKnownHarnessId(body.providerId)) out.providerId = body.providerId;
   if (typeof body.model === 'string' && body.model.trim()) out.model = body.model.trim();
   if (typeof body.variant === 'string' && body.variant.trim()) out.variant = body.variant.trim();
   if (typeof body.effort === 'string' && EFFORT_LEVELS.includes(body.effort as EffortLevel)) {
@@ -150,6 +150,8 @@ async function retireMainChat(id: string): Promise<void> {
  * flags are read when the process starts, so a new chat is the clean cut).
  */
 export async function startNewMainChat(scope: MainChatScope, override: ChatOverride = {}): Promise<ChatSessionRecord> {
+  // A disabled explicit choice must fail before retiring the current chat.
+  assertHarnessEnabled(override.providerId ?? getUserState()?.defaultHarness ?? DEFAULT_HARNESS);
   const current = currentMainChat(scope);
   if (current) await retireMainChat(current.id);
   return createMainChat(scope, override);

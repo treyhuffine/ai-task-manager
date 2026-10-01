@@ -1,3 +1,4 @@
+import { HarnessDisabledError } from '@/lib/harness/registry';
 import type { NextRequest } from 'next/server';
 import { parseChatOverride, startNewMainChat } from '@/lib/sessions/main-chat';
 import { archivedAgentResponse, resolveAgent } from '../_agent';
@@ -21,6 +22,6 @@ export async function POST(
     return Response.json({ session: await startNewMainChat(id, parseChatOverride(body)) });
   } catch (err) {
     console.error('[POST /api/workspaces/:id/chat/new]', err);
-    return Response.json({ error: String(err) }, { status: 500 });
+    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError ? 409 : 500 });
   }
 }
