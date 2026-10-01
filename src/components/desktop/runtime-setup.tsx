@@ -10,6 +10,7 @@ import type { EnvironmentSettings } from '@/lib/service/environment';
 const fields = [
   ['CLAUDE_COMMAND', 'Claude executable'], ['CODEX_COMMAND', 'Codex executable'],
   ['CURSOR_COMMAND', 'Cursor executable'], ['OPENCODE_COMMAND', 'OpenCode executable'],
+  ['ANTIGRAVITY_COMMAND', 'Antigravity executable'],
   ['LOCAL_SPEECH_TO_TEXT_URL', 'Parakeet server URL'], ['GROQ_API_KEY', 'Groq API key'], ['OPENAI_API_KEY', 'Embeddings API key'],
 ] as const;
 export function RuntimeSetup() {

@@ -25,8 +25,13 @@ import { getWorkDir } from '@/lib/config/paths';
  * dropped and the session never sees the text. Callers report that honestly
  * rather than as a partial degradation, because it is a total one. Revisit
  * whenever agentex grows session-scoped instructions for the rest.
+ *
+ * antigravity (agentex 0.0.39, `providers/antigravity/session.ts`) reads the
+ * file and puts it ahead of the first message of a conversation it starts.
+ * A resumed conversation already carries what it was first told, so
+ * instructions changed since then reach the next fresh chat, not that one.
  */
-const SESSION_INSTRUCTIONS_PROVIDERS = new Set(['claude', 'codex', 'pi']);
+const SESSION_INSTRUCTIONS_PROVIDERS = new Set(['claude', 'codex', 'pi', 'antigravity']);
 
 export function providerDeliversSessionInstructions(providerType: string): boolean {
   return SESSION_INSTRUCTIONS_PROVIDERS.has(providerType);

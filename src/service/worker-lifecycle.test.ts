@@ -45,7 +45,7 @@ afterEach(async () => {
   child = undefined; home = undefined; vi.unstubAllEnvs(); fs.rmSync(root, { recursive: true, force: true });
 });
 async function start(phase: ServiceStatus['phase'] = 'running') {
-  child = fork(path.join(repository, 'dist/service/main.cjs'), [], { cwd: repository, execArgv: [], env: { ...process.env, RI_RUNTIME_REPO: repository, TSX_TSCONFIG_PATH: path.join(project, 'tsconfig.json'), CLAUDE_COMMAND: '/usr/bin/false', CODEX_COMMAND: '/usr/bin/false', CURSOR_COMMAND: '/usr/bin/false', OPENCODE_COMMAND: '/usr/bin/false' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+  child = fork(path.join(repository, 'dist/service/main.cjs'), [], { cwd: repository, execArgv: [], env: { ...process.env, RI_RUNTIME_REPO: repository, TSX_TSCONFIG_PATH: path.join(project, 'tsconfig.json'), CLAUDE_COMMAND: '/usr/bin/false', CODEX_COMMAND: '/usr/bin/false', CURSOR_COMMAND: '/usr/bin/false', OPENCODE_COMMAND: '/usr/bin/false', ANTIGRAVITY_COMMAND: '/usr/bin/false' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
   for (const stream of [child.stdout, child.stderr]) stream?.on('data', value => { diagnostics += value.toString(); });
   await until(async () => (await serviceStatus())?.phase === phase);
   return (await serviceStatus())!;

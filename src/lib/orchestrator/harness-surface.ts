@@ -834,6 +834,11 @@ export async function installOrchestratorSurface(mode: OrchestratorMode): Promis
   await installInstructions(brief, {
     location: 'workspace',
     cwd: root,
+    // `runtimes` only picks which files get written: every runtime's project
+    // file is this one AGENTS.md, and `includeNativeFiles` adds each runtime's
+    // native file. Antigravity reads AGENTS.md here on its own, but its native
+    // file is a full GEMINI.md copy, so listing it would write a second rules
+    // file whenever the Claude pointer is on. It is left out on purpose.
     runtimes: ['claude', 'codex', 'cursor', 'opencode'],
     includeNativeFiles: await claudeMdWanted,
     managedTag: RI_MANAGED_TAG,

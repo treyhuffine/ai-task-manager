@@ -1,5 +1,10 @@
-export type HarnessId = 'claude' | 'codex' | 'cursor' | 'opencode';
-export type HarnessIconId = 'code' | 'terminal' | 'braces';
+export type HarnessId = 'claude' | 'codex' | 'cursor' | 'opencode' | 'antigravity';
+/**
+ * Which Lucide icon stands for a harness. The registry owns the choice so every
+ * surface (settings, composer, onboarding, trigger picker) draws the same one.
+ * The id-to-component map lives client-side in `harness-connection-ui.tsx`.
+ */
+export type HarnessIconId = 'code' | 'terminal' | 'square-terminal' | 'braces' | 'orbit';
 
 export interface HarnessCapabilities {
   sessions: boolean;
@@ -121,7 +126,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     agentexProviderId: 'cursor',
     name: 'Cursor',
     description: 'Cursor models, including Grok when available',
-    icon: 'terminal',
+    icon: 'square-terminal',
     installHint: 'Install the Cursor CLI from cursor.com',
     loginCommand: 'agent login',
     docsUrl: 'https://cursor.com/cli',
@@ -161,15 +166,59 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
       sessionModeChange: true,
     },
   },
+  antigravity: {
+    id: 'antigravity',
+    agentexProviderId: 'antigravity',
+    name: 'Antigravity',
+    description: 'Google Gemini models through Antigravity CLI',
+    icon: 'orbit',
+    installHint: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
+    // There is no login subcommand: running `agy` once signs in through the
+    // browser and caches the session in the OS keyring for headless runs.
+    loginCommand: 'agy',
+    docsUrl: 'https://antigravity.google/docs/cli/overview',
+    // GEMINI_API_KEY alone does nothing. It only bills the Gemini API when
+    // ~/.gemini/antigravity-cli/settings.json also selects
+    // `"modelProvider": "gemini"`, so naming it here would tell users to set a
+    // variable that has no effect. Agentex still reports that combination as
+    // an API-key auth option, and the auth route surfaces it from there.
+    apiKeyVar: null,
+    // Conversations are scoped to the folder they ran in, so this resumes from
+    // the chat's own working folder, like `claude --resume`.
+    resumeCommandTemplate: 'agy --conversation {id}',
+    maximumCapabilities: {
+      ...base,
+      modelDiscovery: true,
+      reasoningEffort: true,
+      planMode: true,
+      modes: true,
+    },
+  },
 };
 
 const ALL_HARNESS_IDS = Object.freeze(Object.keys(HARNESS_REGISTRY) as HarnessId[]);
 
-/** Emergency rollout switches. Both new harnesses ship enabled by default. */
+/** Every harness this build knows, rollout flag or not. Stored rows may name any of them. */
+export const KNOWN_HARNESS_IDS: readonly HarnessId[] = ALL_HARNESS_IDS;
+
+/**
+ * Emergency rollout switches. Every harness added after Claude and Codex ships
+ * enabled, and the exact string `false` hides it and makes dispatch refuse it.
+ * Each variable is spelled out in full because Next inlines `NEXT_PUBLIC_*`
+ * only for literal property reads, which keeps browser and server agreeing.
+ */
 export function isHarnessEnabled(id: HarnessId): boolean {
-  if (id === 'cursor') return process.env.NEXT_PUBLIC_RI_CURSOR_ENABLED !== 'false';
-  if (id === 'opencode') return process.env.NEXT_PUBLIC_RI_OPENCODE_ENABLED !== 'false';
-  return true;
+  switch (id) {
+    case 'cursor':
+      return process.env.NEXT_PUBLIC_RI_CURSOR_ENABLED !== 'false';
+    case 'opencode':
+      return process.env.NEXT_PUBLIC_RI_OPENCODE_ENABLED !== 'false';
+    case 'antigravity':
+      return process.env.NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED !== 'false';
+    case 'claude':
+    case 'codex':
+      return true;
+  }
 }
 
 export const HARNESS_IDS = Object.freeze(ALL_HARNESS_IDS.filter(isHarnessEnabled));

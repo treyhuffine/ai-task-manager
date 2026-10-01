@@ -1,13 +1,7 @@
 import { Rocket, Check, User, Layers, Bot, Upload, Globe2 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
+import { harnessDefinition } from '@/lib/harness/registry';
 import type { WizardState } from './types';
-
-const HARNESS_LABEL: Record<WizardState['harness'], string> = {
-  claude: 'Claude Code',
-  codex: 'Codex',
-  cursor: 'Cursor',
-  opencode: 'OpenCode',
-};
 
 function agentAuthSummary(state: WizardState): string {
   const auth = state.harnessAuth;
@@ -35,7 +29,7 @@ export function StepLaunch({ state }: { state: WizardState }) {
     },
     {
       icon: Bot,
-      label: HARNESS_LABEL[state.harness],
+      label: harnessDefinition(state.harness).name,
       sub: agentAuthSummary(state),
     },
     {

@@ -51,6 +51,10 @@ picked a mode sent its main chat to the missing route and nothing happened.
      A `CLAUDE.md` holding only our region is removed once it isn't
      needed. One the user wrote keeps their content and gains the pointer
      on top.
+   - Never a `GEMINI.md`. Antigravity reads `AGENTS.md` here on its own,
+     but its native file is a full copy rather than a pointer, so it is
+     deliberately left out of `installInstructions`' runtimes (a test
+     checks no `GEMINI.md` appears even with the Claude pointer on).
    - The skills-mode CLI command **bakes the data root inline**
      (`RI_ROOT='…' pnpm --silent --dir <repo> cli:dev` in dev,
      `RI_ROOT='…' ri` in prod). The harness's Bash tool starts a fresh
@@ -191,9 +195,11 @@ set and no execution:
   the brief (`renderAgentMainChatBrief`) and the agent's reference folders
   through the session instructions file under the work dir, and attaches
   the orchestrator MCP over the session config. Codex would symlink
-  `skillDirs` into the folder, so it gets none. Cursor and OpenCode drop
-  session instructions, so the brief rides the first message of a fresh
-  chat.
+  `skillDirs` into the folder, so it gets none. Antigravity reads the
+  instructions file and sends it ahead of the chat's first message (its
+  `skillDirs` go to `~/.gemini/antigravity-cli/skills`, never the folder).
+  Cursor and OpenCode drop session instructions, so the brief rides the
+  first message of a fresh chat.
 - **Scope.** The same as its executions: its connector scopes (when the
   harness isolates MCP), the agent browser on the isolated `ws-<id>`
   profile, and its reference folders.

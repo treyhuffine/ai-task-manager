@@ -37,6 +37,7 @@ const COMMAND_ENV: Record<HarnessId, string> = {
   codex: 'CODEX_COMMAND',
   cursor: 'CURSOR_COMMAND',
   opencode: 'OPENCODE_COMMAND',
+  antigravity: 'ANTIGRAVITY_COMMAND',
 };
 
 const CAPABILITY_KEYS: Partial<Record<keyof HarnessCapabilities, keyof ProviderCapabilities>> = {
@@ -173,7 +174,10 @@ export async function getHarnessRuntime(
   const capabilities = {} as Record<keyof HarnessCapabilities, HarnessCapabilityView>;
   for (const key of Object.keys(maximum) as Array<keyof HarnessCapabilities>) {
     if (key === 'reasoningEffort') {
-      const supported = maximum[key] && (harness === 'claude' || harness === 'codex');
+      // Agentex has no generic effort capability flag, so the registry
+      // maximum is the declaration. A missing or outdated binary still turns
+      // it off, and the runner only passes `config.effort` while it is on.
+      const supported = maximum[key];
       capabilities[key] = intersectHarnessCapability(supported, supported, undefined, report.binary);
       continue;
     }

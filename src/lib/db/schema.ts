@@ -86,6 +86,13 @@ export interface WorkspaceConnectorScope {
   account?: WorkspaceConnectorScopeAccount;
 }
 
+// The engines a chat can run on. Same vocabulary as `HarnessId` in
+// src/lib/harness/registry.ts (type tests in src/db/types.ts keep every
+// harness column in step with it). Stored on every chat, trigger and run as a
+// fact: which engine ran it. SQLite gets no CHECK for a text enum, so adding
+// an engine here is a TypeScript change and needs no migration.
+const HARNESS_VALUES = ['claude', 'codex', 'cursor', 'opencode', 'antigravity'] as const;
+
 // ─── User State ────────────────────────────────────────────────
 
 export const userState = sqliteTable('user_state', {
@@ -115,7 +122,7 @@ export const userState = sqliteTable('user_state', {
   // Last explicit provider-bound harness + model + effort tuple. The columns
   // remain nullable for pre-onboarding and legacy databases, but chat creation
   // resolves them to concrete values before anything reaches a runner.
-  defaultHarness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }),
+  defaultHarness: text({ enum: HARNESS_VALUES }),
   defaultModel: text(),
   defaultEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
   // Which surface powers the dashboard orchestrator chat:
@@ -148,11 +155,6 @@ export const userState = sqliteTable('user_state', {
 });
 
 // ─── Harness Settings ─────────────────────────────────────────
-
-// The engines a chat can run on. Same vocabulary as `HarnessId` in
-// src/lib/harness/registry.ts (a type test in src/db/types.ts keeps the two in
-// step). Stored on every chat, trigger and run as a fact: which engine ran it.
-const HARNESS_VALUES = ['claude', 'codex', 'cursor', 'opencode'] as const;
 
 export const harnessSettings = sqliteTable('harness_settings', {
   id: text().primaryKey(),
@@ -189,7 +191,7 @@ export const harnessOperations = sqliteTable(
     operation: text({ enum: ['disconnect_upstream_provider'] }).notNull(),
     upstreamProviderId: text().notNull(),
     status: text({ enum: ['pending', 'completed', 'failed'] }).notNull(),
-    replacementHarness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }),
+    replacementHarness: text({ enum: HARNESS_VALUES }),
     replacementModel: text(),
     lastErrorCode: text(),
   },

@@ -100,6 +100,13 @@ describe('referenceFolderProviderWiring', () => {
     expect(wiring.disallowedTools).toEqual([]);
   });
 
+  it('tells antigravity about the folders but cannot fence them off', () => {
+    // agentex 0.0.39 reads `instructionsFile` in the antigravity session and
+    // sends it ahead of the first message. `agy` takes no tool-filter flags.
+    const wiring = referenceFolderProviderWiring(config, 'antigravity');
+    expect(wiring).toEqual({ delivery: 'prompt-only', deliversInstructions: true, extraArgs: [], disallowedTools: [] });
+  });
+
   it('reports cursor and opencode as unsupported rather than pretending', () => {
     // Regression guard. agentex 0.0.34 reads `instructionsFile` in
     // `session.ts` only for claude/codex/pi — for cursor and opencode it lives
@@ -116,7 +123,7 @@ describe('referenceFolderProviderWiring', () => {
 
   it('is inert when there are no references, on every provider', () => {
     const empty = buildReferenceFolderSessionConfig([]);
-    for (const provider of ['claude', 'codex', 'opencode']) {
+    for (const provider of ['claude', 'codex', 'opencode', 'antigravity']) {
       const wiring = referenceFolderProviderWiring(empty, provider);
       expect(wiring.deliversInstructions).toBe(false);
       expect(wiring.extraArgs).toEqual([]);

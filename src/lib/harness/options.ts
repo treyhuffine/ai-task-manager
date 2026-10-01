@@ -7,7 +7,8 @@
  *
  * Effort levels mirror provider reasoning controls. Claude receives the
  * selected value through `--effort`. Codex receives it through Agentex's
- * per-turn app-server request.
+ * per-turn app-server request. Antigravity receives it through `agy --effort`
+ * when its process starts, so changing it needs a fresh chat.
  */
 
 import type { EffortLevel } from '@/db/types';
@@ -104,6 +105,11 @@ export function normalizeCustomModelId(raw: string | null | undefined): string |
  *
  * Codex model ids come from `codex debug models` at runtime. The entries below
  * mirror the current CLI catalog and are only the failure fallback.
+ *
+ * Cursor, OpenCode and Antigravity ship no bundled list (see
+ * `discoversModelsOnly`): their catalogs depend on the account, its upstream
+ * providers, or a sign-in, and Antigravity slugs carry a version and a
+ * thinking level (`gemini-3.1-pro-high`) that a static list would let rot.
  */
 export const MODEL_OPTIONS: Record<HarnessId, ModelOption[]> = {
   claude: [
@@ -124,7 +130,17 @@ export const MODEL_OPTIONS: Record<HarnessId, ModelOption[]> = {
   ],
   cursor: [],
   opencode: [],
+  antigravity: [],
 };
+
+/**
+ * Harnesses whose models are only known from live discovery: no bundled
+ * fallback, so a model id is validated against the harness's own catalog
+ * (asynchronously, before it reaches the synchronous selection boundary).
+ */
+export function discoversModelsOnly(id: ProviderId): boolean {
+  return MODEL_OPTIONS[id].length === 0;
+}
 
 /** Where a catalog came from: the harness itself, or Ri's bundled fallback. */
 export type HarnessModelSource = 'provider' | 'config';
@@ -170,6 +186,9 @@ export const EFFORT_OPTIONS: EffortOption[] = [
 const FALLBACK_EFFORTS: Partial<Record<HarnessId, readonly EffortLevel[]>> = {
   claude: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   codex: ['low', 'medium', 'high', 'xhigh'],
+  // `agy --effort` takes exactly these four. Its model catalog carries no
+  // per-model effort metadata, so this list is the whole range.
+  antigravity: ['low', 'medium', 'high', 'max'],
 };
 
 /**
@@ -262,12 +281,13 @@ export function explicitModelForProvider(
 ): ModelOption {
   const catalog = models.length > 0 ? models : modelsForProvider(providerId);
   const modelId = preferred?.trim();
-  // Cursor and OpenCode have no bundled catalog. This branch preserves a
-  // tuple already validated by async `resolveHarnessSelection`, or one that the
-  // executor's live-catalog preflight will reject before provider launch.
-  // It is deliberately not standalone validation for user input.
+  // Discovery-only harnesses (Cursor, OpenCode, Antigravity) have no bundled
+  // catalog. This branch preserves a tuple already validated by async
+  // `resolveHarnessSelection`, or one that the executor's live-catalog
+  // preflight will reject before provider launch. It is deliberately not
+  // standalone validation for user input.
   const externallyValidatedDynamicModel =
-    modelId && catalog.length === 0 && (providerId === 'cursor' || providerId === 'opencode');
+    modelId && catalog.length === 0 && discoversModelsOnly(providerId);
   if (modelId && (modelBelongsToProvider(providerId, modelId, catalog) || externallyValidatedDynamicModel)) {
     return catalog.find((model) => model.id === modelId) ?? { id: modelId, label: modelId };
   }
@@ -446,6 +466,7 @@ export const PRE_RECONCILE_BUNDLED_IDS: Record<HarnessId, string[]> = {
   ],
   cursor: [],
   opencode: [],
+  antigravity: [],
 };
 
 export interface HarnessModelReconciliation {

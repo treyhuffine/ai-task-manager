@@ -219,6 +219,17 @@ describe('CLAUDE.md pointer', () => {
     expect(second.claudeMdPath).toBeNull();
     expect(fs.existsSync(claudeMdPath())).toBe(false);
   });
+
+  it('never writes a GEMINI.md copy for Antigravity, even with the Claude pointer on', async () => {
+    // Antigravity reads the root AGENTS.md itself. Its native file would be a
+    // second, full copy of the rules, which the app root must never carry.
+    seedToken();
+    claude.needsPointer = true;
+    await installOrchestratorSurface('harness_mcp');
+    expect(fs.existsSync(path.join(root, 'AGENTS.md'))).toBe(true);
+    expect(fs.existsSync(claudeMdPath())).toBe(true);
+    expect(fs.existsSync(path.join(root, 'GEMINI.md'))).toBe(false);
+  });
 });
 
 describe('orchestratorSessionConfig', () => {

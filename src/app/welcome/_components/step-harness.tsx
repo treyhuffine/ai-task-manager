@@ -6,10 +6,6 @@ import {
   AlertCircle,
   AlertTriangle,
   Loader2,
-  Terminal,
-  Code2,
-  TerminalSquare,
-  Braces,
   RefreshCw,
   Package,
 } from 'lucide-react';
@@ -18,6 +14,7 @@ import { defaultModelFor } from '@/lib/harness/options';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { CursorCredentialPanel } from '@/components/settings/cursor-credential-panel';
 import { OpenCodeProviderPanel } from '@/components/settings/opencode-provider-panel';
+import { harnessIcon } from '@/components/settings/harness-connection-ui';
 import { api, ApiError } from '@/lib/api/client';
 import type {
   WizardState,
@@ -26,59 +23,46 @@ import type {
   HarnessVerifyState,
 } from './types';
 import type { HarnessVerifyResponse } from '@/app/api/harness/verify/route';
-import { HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
+import { HARNESS_IDS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 
-const HARNESSES: Array<{
+/**
+ * The onboarding card copy for each harness. Name, sign-in and install
+ * commands and the icon come from the registry. `envHint` is the alternative
+ * to signing in, or null where the harness has none worth suggesting.
+ */
+const HARNESS_COPY: Record<HarnessId, { hint: string; envHint: string | null }> = {
+  claude: { hint: 'Local Claude agent', envHint: 'ANTHROPIC_API_KEY' },
+  codex: { hint: 'Local Codex agent', envHint: 'OPENAI_API_KEY' },
+  cursor: { hint: 'Cursor models, including Grok when available', envHint: 'CURSOR_API_KEY' },
+  opencode: { hint: 'Models from your OpenCode providers', envHint: 'Configure a provider below' },
+  // Signing in through `agy` is the way in. An API key needs a settings
+  // change in the CLI as well, so it is not offered as the easy alternative.
+  antigravity: { hint: 'Gemini models with your Google account', envHint: null },
+};
+
+interface HarnessCard {
   id: HarnessId;
   name: string;
   hint: string;
   icon: React.ComponentType<{ className?: string }>;
   loginCmd: string;
-  envHint: string;
+  envHint: string | null;
   installHint: string;
-}> = [
-  {
-    id: 'claude',
-    name: 'Claude Code',
-    hint: 'Local Claude agent',
-    icon: Terminal,
-    loginCmd: 'claude login',
-    envHint: 'ANTHROPIC_API_KEY',
-    installHint: 'npm install -g @anthropic-ai/claude-code',
-  },
-  {
-    id: 'codex',
-    name: 'Codex',
-    hint: 'Local Codex agent',
-    icon: Code2,
-    loginCmd: 'codex login',
-    envHint: 'OPENAI_API_KEY',
-    installHint: 'npm install -g @openai/codex',
-  },
-  {
-    id: 'cursor',
-    name: 'Cursor',
-    hint: 'Cursor models, including Grok when available',
-    icon: TerminalSquare,
-    loginCmd: 'agent login',
-    envHint: 'CURSOR_API_KEY',
-    installHint: 'Install the Cursor CLI from cursor.com',
-  },
-  {
-    id: 'opencode',
-    name: 'OpenCode',
-    hint: 'Models from your OpenCode providers',
-    icon: Braces,
-    loginCmd: 'opencode auth login',
-    envHint: 'Configure a provider below',
-    installHint: 'npm install -g opencode-ai',
-  },
-];
+}
 
-const HARNESS_BY_ID = Object.fromEntries(HARNESSES.map((h) => [h.id, h])) as Record<
-  HarnessId,
-  (typeof HARNESSES)[number]
->;
+const HARNESSES: HarnessCard[] = (Object.keys(HARNESS_COPY) as HarnessId[]).map((id) => {
+  const definition = harnessDefinition(id);
+  return {
+    id,
+    name: definition.name,
+    ...HARNESS_COPY[id],
+    icon: harnessIcon(id),
+    loginCmd: definition.loginCommand ?? '',
+    installHint: definition.installHint,
+  };
+});
+
+const HARNESS_BY_ID = Object.fromEntries(HARNESSES.map((h) => [h.id, h])) as Record<HarnessId, HarnessCard>;
 
 export function StepHarness({
   state,
@@ -316,7 +300,7 @@ function AuthStatus({
   onAccept,
 }: {
   state: WizardState;
-  harness: (typeof HARNESSES)[number];
+  harness: HarnessCard;
   onRecheck: () => void;
   onAccept: (checked: boolean) => void;
 }) {
@@ -367,7 +351,7 @@ function ReadyState({
   onAccept,
 }: {
   report: HarnessAuthReport;
-  harness: (typeof HARNESSES)[number];
+  harness: HarnessCard;
   auth: WizardState['harnessAuth'];
   onAccept: (checked: boolean) => void;
 }) {
@@ -464,9 +448,16 @@ function ReadyState({
       {!verifyOk && (
         <div className="text-muted-foreground">
           If the test fails, sign in with{' '}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.loginCmd}</code> or set{' '}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.envHint}</code> in your
-          environment.
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.loginCmd}</code>
+          {harness.envHint ? (
+            <>
+              {' '}or set{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.envHint}</code> in your
+              environment.
+            </>
+          ) : (
+            '.'
+          )}
         </div>
       )}
     </div>

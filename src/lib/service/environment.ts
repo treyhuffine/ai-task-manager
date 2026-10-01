@@ -9,6 +9,7 @@ import { atomicWriteFile, withFileLock } from '@/lib/config/atomic-file';
 const command = z.string().max(4096).refine(value => !value || (path.isAbsolute(value) && !/[\r\n\0]/.test(value)), 'Use an absolute executable path').nullable().optional();
 export const EnvironmentInput = z.object({
   CLAUDE_COMMAND: command, CODEX_COMMAND: command, CURSOR_COMMAND: command, OPENCODE_COMMAND: command,
+  ANTIGRAVITY_COMMAND: command,
   LOCAL_SPEECH_TO_TEXT_URL: z.string().url().refine(value => { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password; }).nullable().optional(),
   GROQ_API_KEY: z.string().max(4096).nullable().optional(), OPENAI_API_KEY: z.string().max(4096).nullable().optional(),
   paths: z.array(z.string().max(4096).refine(value => path.isAbsolute(value) && !value.includes(path.delimiter))).max(30).optional(),

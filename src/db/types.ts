@@ -459,6 +459,13 @@ export type TriggerView = TriggerRecord & {
 type SameMembers<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 type Expect<T extends true> = T;
 export type HarnessColumnMatchesHarnessId = Expect<SameMembers<ChatSessionRecord['harness'], HarnessId>>;
+export type HarnessColumnsMatchHarnessId = [
+  Expect<SameMembers<TriggerRecord['harness'], HarnessId>>,
+  Expect<SameMembers<RunRecord['harness'], HarnessId>>,
+  Expect<SameMembers<HarnessSettingsRecord['harness'], HarnessId>>,
+  Expect<SameMembers<NonNullable<UserStateRecord['defaultHarness']>, HarnessId>>,
+  Expect<SameMembers<NonNullable<HarnessOperationRecord['replacementHarness']>, HarnessId>>,
+];
 
 export type TriggerWithLastRun = TriggerView & {
   lastRun: RunRecord | null;

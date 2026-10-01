@@ -8,7 +8,7 @@ import {
   TaskNotStartableForDispatch,
 } from '@/lib/sessions/dispatch';
 import { withCompression } from '@/lib/api/compression';
-import { isKnownHarnessId } from '@/lib/harness/registry';
+import { isKnownHarnessId, KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
 import { actorFromRequest } from '@/lib/auth/actor';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -79,7 +79,7 @@ export async function POST(
     }
     if (body.harness !== undefined && !isKnownHarnessId(body.harness)) {
       return Response.json(
-        { error: `Unknown harness: ${String(body.harness)}. Use claude, codex, cursor or opencode.` },
+        { error: `Unknown harness: ${String(body.harness)}. Use one of ${KNOWN_HARNESS_IDS.join(', ')}.` },
         { status: 400 },
       );
     }

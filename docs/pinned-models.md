@@ -17,7 +17,7 @@ seen yet:
   way to use a build the day it lands.
 - Codex discovery reads `codex debug models`, so it is only as current as the
   installed CLI.
-- Cursor and OpenCode have no bundled fallback at all.
+- Cursor, OpenCode and Antigravity have no bundled fallback at all.
 
 A pin is the escape hatch: type an exact provider model id, and it becomes a
 first-class model everywhere.

@@ -44,3 +44,16 @@ it('removes explicitly disabled credentials from the current CLI environment', (
   expect(env).toMatchObject({ HOME: root, RETAINED: 'yes' });
   expect(env.PATH?.split(':')[0]).toBe('/runtime/node/bin');
 });
+it('takes an absolute Antigravity executable and finds its installer folder', () => {
+  const agy = path.join(root, 'tools', 'agy');
+  fs.mkdirSync(path.dirname(agy), { recursive: true });
+  fs.writeFileSync(agy, '#!/bin/sh\n', { mode: 0o755 });
+  expect(() => saveEnvironment({ ANTIGRAVITY_COMMAND: 'agy' })).toThrow();
+  saveEnvironment({ ANTIGRAVITY_COMMAND: agy });
+  expect(environmentStatus().values.ANTIGRAVITY_COMMAND).toBe(agy);
+  const env = serviceEnvironment('/runtime/node/bin/node', { NODE_ENV: 'test', HOME: root, PATH: '/usr/bin' });
+  expect(env.ANTIGRAVITY_COMMAND).toBe(agy);
+  // The Antigravity installer writes ~/.local/bin/agy, which a service started
+  // outside a login shell would otherwise not have on PATH.
+  expect(env.PATH?.split(':')).toContain(path.join(root, '.local/bin'));
+});

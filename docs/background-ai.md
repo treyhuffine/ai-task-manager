@@ -28,7 +28,11 @@ tightly-bounded `provider.execute` through `@agentex/agent`, read
 - `backgroundModelFor(provider, tier)` — `fast` = the provider's cheap
   alias (`CHEAPEST_MODEL`: haiku / gpt-5.4-mini); `standard` = the user's
   `defaultModel` when it belongs to the provider, else the CLI's own
-  default model.
+  default model. Cursor, OpenCode and Antigravity have no cheap alias and
+  no bundled catalog to vouch for a stored id, so both tiers run on the
+  CLI's own default model. Antigravity in particular has no stable alias:
+  its slugs carry a version and a thinking level and get retired, and a
+  pinned one that stopped existing would fail every fast-tier call.
 
 ### Safety posture
 

@@ -81,6 +81,12 @@ export function harnessPermissionConfig(
  *
  * - `cursor` has no interactive permission prompts (it runs with `--force`), so
  *   it offers only `auto_all` (+ `plan` where supported).
+ * - `antigravity` can't ask either: headless `agy` has no approval channel,
+ *   and a tool that needs approval is soft-denied by its policy and reported
+ *   as a denial. `ask` would quietly become "deny every edit and command" and
+ *   `auto_edits` ("ask for shell") would quietly become "never run shell", so
+ *   neither is offered. `auto_all` is `--dangerously-skip-permissions` and
+ *   `plan` is `--mode plan`, which is the honest read-only choice.
  * - `opencode` prompts (so it offers `ask`) but has no accept-edits equivalent,
  *   so it omits `auto_edits`.
  * - everything else (claude, codex) offers the full set.
@@ -92,7 +98,7 @@ export function supportedPermissionModes(
 ): PermissionMode[] {
   const withPlan = (modes: PermissionMode[]): PermissionMode[] =>
     planModeSupported ? [...modes, 'plan'] : modes;
-  if (providerType === 'cursor') return withPlan(['auto_all']);
+  if (providerType === 'cursor' || providerType === 'antigravity') return withPlan(['auto_all']);
   if (providerType === 'opencode') return withPlan(['auto_all', 'ask']);
   return withPlan(['auto_all', 'auto_edits', 'ask']);
 }

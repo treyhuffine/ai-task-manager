@@ -49,6 +49,26 @@ describe('resolveBackgroundHarness / backgroundModelFor', () => {
     userState = { defaultModel: 'gpt-5.4-mini' };
     expect(backgroundModelFor('claude', 'standard')).toBeUndefined();
   });
+
+  it('leaves Antigravity on its CLI default rather than pinning a slug that can retire', async () => {
+    const { backgroundModelFor } = await import('./one-shot');
+    userState = { defaultHarness: 'antigravity', defaultModel: 'gemini-3.1-pro-high' };
+    // No stable cheap alias exists, so the fast tier sends no `--model`.
+    expect(backgroundModelFor('antigravity', 'fast')).toBeUndefined();
+    // With no bundled catalog to vouch for it, a stored id is not sent either:
+    // a stale cross-harness id (`opus`) would otherwise reach `agy`.
+    expect(backgroundModelFor('antigravity', 'standard')).toBeUndefined();
+    userState = { defaultHarness: 'antigravity', defaultModel: 'opus' };
+    expect(backgroundModelFor('antigravity', 'standard')).toBeUndefined();
+  });
+
+  it('runs a background call on Antigravity with no model flag', async () => {
+    userState = { defaultHarness: 'antigravity' };
+    const { runHarnessText } = await import('./one-shot');
+    const result = await runHarnessText({ label: 't', prompt: 'ASK' });
+    expect(result.providerType).toBe('antigravity');
+    expect(lastCall()).not.toHaveProperty('model');
+  });
 });
 
 describe('runHarnessText', () => {

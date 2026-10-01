@@ -3,7 +3,7 @@
  *
  * Skills live at <package-root>/skills/*. Install uses agentex to symlink each
  * skill dir into both standard cross-agent discovery channels:
- *   ~/.agents/skills/<name>  (Codex, Cursor, Gemini, OpenCode, Pi)
+ *   ~/.agents/skills/<name>  (Codex, Cursor, Gemini, Antigravity, OpenCode, Pi)
  *   ~/.claude/skills/<name>  (Claude Code)
  *
  * Symlinks mean skill content tracks the source — upgrades pick up new

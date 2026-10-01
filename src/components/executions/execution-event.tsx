@@ -12,6 +12,8 @@ import { extractPullRequestUrl } from '@/lib/executions/pr-link';
 import { FileChip, DiffLines } from './file-chip';
 import { EntityEditChip, parseEntityEditTool } from '@/components/entities/entity-edit-chip';
 import { useClaudeLogin, useClaudeAuthStatus } from '@/hooks/use-claude-login';
+import { useHarnessConnection, useRecheckHarnessConnection } from '@/hooks/use-harness-connection';
+import { harnessDefinition, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
 import { useSessionEvents, useRetrySend, useDeliveries, useCancelDelivery, useSendMessage } from '@/hooks/use-execution';
 import type { ClientEventStatus } from '@/hooks/use-execution';
 import { useMutation } from '@tanstack/react-query';
@@ -649,13 +651,25 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
   }
 }
 
+/** What the runner stored on an `auth_required` event (src/lib/runner/parse.ts). */
+interface AuthRequiredMeta {
+  httpStatus?: number | null;
+  reason?: string | null;
+  loginCommand?: string | null;
+  providerType?: string | null;
+}
+
 /**
  * Inline marker for an `auth_required` event. Two visual modes:
  *
  *   - **Actionable** (`isActionable={true}`): full amber callout with
- *     reason copy and a button. Button morphs by state:
+ *     reason copy and a button. Claude signs in from the app, so its
+ *     button morphs by state:
  *       - not logged in: "Log in"
  *       - logged in: "Resend" (re-dispatches the last user message)
+ *     Every other harness signs in through its own CLI in a terminal
+ *     (Antigravity: `agy`), so its callout names that command, checks the
+ *     sign-in again on request, and offers Resend once it holds.
  *
  *   - **Historical** (`isActionable={false}`): single-line muted chip,
  *     no button. Shown when the user has moved past this event (sent
@@ -677,16 +691,7 @@ function AuthRequiredBanner({
   sessionId?: string;
   isActionable: boolean;
 }) {
-  const login = useClaudeLogin();
-  const { data: authStatus } = useClaudeAuthStatus();
-  const isLoggedIn = authStatus?.loggedIn === true;
-
-  const meta = (event.toolInput ?? {}) as {
-    httpStatus?: number | null;
-    reason?: string | null;
-    loginCommand?: string | null;
-    providerType?: string | null;
-  };
+  const meta = (event.toolInput ?? {}) as AuthRequiredMeta;
   const providerLabel = formatProviderLabel(meta.providerType);
 
   // Historical: tiny muted chip, no button. The event is preserved for
@@ -704,6 +709,33 @@ function AuthRequiredBanner({
       </div>
     );
   }
+  // Events written before providers were recorded on them all came from Claude.
+  if (meta.providerType && meta.providerType !== 'claude') {
+    return (
+      <CliSignInBanner
+        harness={isKnownHarnessId(meta.providerType) ? meta.providerType : null}
+        providerLabel={providerLabel}
+        loginCommand={meta.loginCommand ?? null}
+        sessionId={sessionId}
+      />
+    );
+  }
+  return <ClaudeAuthRequiredBanner event={event} meta={meta} sessionId={sessionId} />;
+}
+
+function ClaudeAuthRequiredBanner({
+  event,
+  meta,
+  sessionId,
+}: {
+  event: ChatEventRecord;
+  meta: AuthRequiredMeta;
+  sessionId?: string;
+}) {
+  const login = useClaudeLogin();
+  const { data: authStatus } = useClaudeAuthStatus();
+  const isLoggedIn = authStatus?.loggedIn === true;
+
   const reason = meta.reason ?? null;
   const sublabel = (() => {
     switch (reason) {
@@ -728,20 +760,7 @@ function AuthRequiredBanner({
   //   that originally failed. Calm, green-tinted.
   // - Logged out: the original failure state. Loud, amber.
   if (isLoggedIn && !!sessionId) {
-    return (
-      <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[11px]">
-        <div className="flex items-start gap-2">
-          <ShieldCheck size={12} className="mt-0.5 text-emerald-500" />
-          <div className="flex-1 min-w-0">
-            <div className="font-medium text-foreground">Authentication restored</div>
-            <div className="mt-0.5 text-muted-foreground">
-              Resend your message to continue.
-            </div>
-          </div>
-          <ResendLastMessageButton sessionId={sessionId} />
-        </div>
-      </div>
-    );
+    return <AuthRestoredBanner sessionId={sessionId} />;
   }
 
   return (
@@ -773,6 +792,96 @@ function AuthRequiredBanner({
             </>
           )}
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Sign-in recovery for a harness that signs in through its own CLI. The app
+ * can't run that sign-in for the user (Antigravity's opens a browser from an
+ * interactive terminal), so the banner names the command, re-reads the
+ * harness's sign-in on request, and offers Resend once it holds.
+ */
+function CliSignInBanner({
+  harness,
+  providerLabel,
+  loginCommand,
+  sessionId,
+}: {
+  /** Null for a provider this build has no harness entry for. */
+  harness: HarnessId | null;
+  providerLabel: string;
+  loginCommand: string | null;
+  sessionId?: string;
+}) {
+  // A disabled query still returns whatever its key has cached, so the
+  // placeholder id is only read when `harness` is real.
+  const { connection, isLoading } = useHarnessConnection(harness ?? 'claude', harness !== null);
+  const recheck = useRecheckHarnessConnection();
+  const command = loginCommand ?? (harness ? harnessDefinition(harness).loginCommand : null);
+  const signedIn = harness !== null && !isLoading && connection.connected;
+
+  if (signedIn && sessionId) return <AuthRestoredBanner sessionId={sessionId} />;
+
+  return (
+    <div className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-[11px]">
+      <div className="flex items-start gap-2">
+        <AlertTriangle size={12} className="mt-0.5 text-amber-500" />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-foreground">{providerLabel} needs you to sign in</div>
+          <div className="mt-0.5 text-muted-foreground">
+            {command ? (
+              <>
+                Run <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10.5px] text-foreground/90">{command}</code>{' '}
+                in a terminal and finish signing in, then check again.
+              </>
+            ) : (
+              <>Sign in to {providerLabel} in a terminal, then check again.</>
+            )}
+          </div>
+          {recheck.isError && (
+            <div className="mt-1 text-destructive">Could not check the sign-in. Try again.</div>
+          )}
+        </div>
+        {harness && (
+          <button
+            type="button"
+            onClick={() => recheck.mutate(harness)}
+            disabled={recheck.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-foreground text-background px-2.5 py-1 text-[11px] font-medium hover:bg-foreground/90 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {recheck.isPending ? (
+              <>
+                <Loader2 size={11} className="animate-spin" />
+                <span>Checking…</span>
+              </>
+            ) : (
+              <>
+                <RefreshCw size={11} />
+                <span>Check again</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Sign-in is back: the only thing left is to retry the message that failed. */
+function AuthRestoredBanner({ sessionId }: { sessionId: string }) {
+  return (
+    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[11px]">
+      <div className="flex items-start gap-2">
+        <ShieldCheck size={12} className="mt-0.5 text-emerald-500" />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-foreground">Authentication restored</div>
+          <div className="mt-0.5 text-muted-foreground">
+            Resend your message to continue.
+          </div>
+        </div>
+        <ResendLastMessageButton sessionId={sessionId} />
       </div>
     </div>
   );
@@ -958,9 +1067,9 @@ function useLastUserEvent(events: ChatEventRecord[] | undefined): ChatEventRecor
 
 /**
  * Friendly display name for a provider type emitted by agentex. Falls
- * back to "Claude" when missing (the only provider currently emitting
- * `auth_required` end-to-end), and to a title-cased version of whatever
- * else shows up for forward-compat.
+ * back to "Claude" when missing (events written before the provider was
+ * recorded on them all came from Claude), and to a title-cased version of
+ * whatever else shows up for forward-compat.
  */
 function formatProviderLabel(providerType: string | null | undefined): string {
   switch (providerType) {
@@ -969,6 +1078,7 @@ function formatProviderLabel(providerType: string | null | undefined): string {
     case 'gemini': return 'Gemini';
     case 'cursor': return 'Cursor';
     case 'opencode': return 'OpenCode';
+    case 'antigravity': return 'Antigravity';
     case null:
     case undefined:
     case '':

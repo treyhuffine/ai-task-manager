@@ -105,6 +105,7 @@ import {
   bundledModelIds,
   curatedDefaultModelIds,
   explicitHarnessSelection,
+  harnessSupportsEffort,
   modelsForProvider,
   normalizeCustomModelId,
   reconcileEnabledModels,
@@ -4033,7 +4034,7 @@ export function ensureHarnessSettings(harness: HarnessId): HarnessSettingsRecord
     knownModels: bundledModelIds(harness),
     defaultModel: preferred && enabledModels.includes(preferred) ? preferred : enabledModels[0] ?? null,
     defaultVariant: null,
-    defaultEffort: state?.defaultHarness === harness && (harness === 'claude' || harness === 'codex')
+    defaultEffort: state?.defaultHarness === harness && harnessSupportsEffort(harness)
       ? state.defaultEffort
       : null,
     catalogRefreshedAt: null,

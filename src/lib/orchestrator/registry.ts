@@ -2058,7 +2058,7 @@ function rejectRemovedAgentId(agentId: string | undefined): void {
   if (agentId !== undefined) {
     throw new ActionError(
       'invalid_params',
-      'agentId was removed. Use provider to choose the engine (claude, codex, cursor, opencode).',
+      `agentId was removed. Use provider to choose the engine (${HARNESS_IDS.join(', ')}).`,
     );
   }
 }

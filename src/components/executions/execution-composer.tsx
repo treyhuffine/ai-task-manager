@@ -66,7 +66,7 @@ import type {
 import type { PrMentionItem } from '@/components/chat/editor/pr-menu/types';
 import { usePrList } from '@/hooks/use-prs';
 import { useHarnessModels } from '@/hooks/use-harness-models';
-import type { HarnessId } from '@/lib/harness/registry';
+import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 
 /**
  * Imperative handle for the execution composer. Exposes the minimum
@@ -372,10 +372,15 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const variants = pinnedModelOption.variants?.filter((variant) => !variant.disabled) ?? [];
     const explicitVariant = explicitVariantForModel(pinnedModelOption, modelVariant);
     const runtime = harnesses.data?.harnesses.find((entry) => entry.id === providerId)?.runtime;
-    const canChangeModel = runtime?.capabilities.sessionModelChange.supported ?? providerId !== 'cursor';
-    const canChangeVariant = runtime?.capabilities.sessionVariantChange.supported ?? providerId === 'opencode';
+    // Until the runtime probe answers, the registry maximum stands in: the
+    // harness can do at most this, and the probe can only take it away.
+    const maximum = providerId ? harnessDefinition(providerId).maximumCapabilities : null;
+    const canChangeModel = runtime?.capabilities.sessionModelChange.supported
+      ?? maximum?.sessionModelChange ?? false;
+    const canChangeVariant = runtime?.capabilities.sessionVariantChange.supported
+      ?? maximum?.sessionVariantChange ?? false;
     const canChangeEffort = runtime?.capabilities.sessionEffortChange.supported
-      ?? (providerId === 'claude' || providerId === 'codex');
+      ?? maximum?.sessionEffortChange ?? false;
     const selectionControlsDisabled = updateSession.isPending || Boolean(isRunning);
     const supportedPermissionModes = useMemo<PermissionMode[]>(
       () => supportedModesFor(providerId ?? 'claude', runtime?.capabilities.planMode.supported ?? false),

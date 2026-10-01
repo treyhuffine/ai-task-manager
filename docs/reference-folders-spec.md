@@ -284,6 +284,12 @@ spec originally assumed.** `instructionsFile` is read in agentex's
 | codex | `prompt-only` | prompt block, no tool-level fence |
 | cursor | `unsupported` | **nothing** |
 | opencode | `unsupported` | **nothing** |
+| antigravity | `prompt-only` | prompt block, no tool-level fence |
+
+Antigravity (agentex 0.0.39) reads `instructionsFile` in its session and sends
+it ahead of the first message of a conversation it starts. A resumed
+conversation keeps what it was first told, so a reference folder added later
+reaches the next fresh chat. `agy` takes no `--add-dir` or tool filters.
 
 `referenceFolderProviderWiring` returns that three-way verdict, split out of
 the adapter so it is testable without standing up a session. `unsupported`
@@ -562,7 +568,7 @@ Ordered by what actually costs a user something today.
 ### Blocked on agentex
 
 1. **Session-scoped `instructionsFile` for cursor and opencode.** Until then
-   reference folders are a total no-op on half of Ri's harnesses (see §7).
+   reference folders are a total no-op on two of Ri's five harnesses (see §7).
    The fix is one field read in `providers/<p>/session.ts`, mirroring what
    claude and codex already do. This is the single highest-value follow-up and
    it lives in the agentex repo, not here.

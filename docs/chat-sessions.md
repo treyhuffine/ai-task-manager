@@ -94,7 +94,7 @@ This drives a concrete decision: the CLI transcript is the source of truth for e
 
 This doc originally designed an `agents` table: a definition row (persona, prompt, harness, cwd) with sessions as its instances. Only the harness ever landed. Workspaces took over the cwd in May 2026 (`docs/workspaces-spec.md`), the persona fields were never built, and the table ended up as four rows mapping an id to an engine name (one per engine for executors, one per engine for the orchestrator). Every reader only ever took that engine name.
 
-It was deleted in September 2026 (`docs/agents-view-spec.md`, Phase 1): the migrations were collapsed into a fresh generated baseline without it, and existing databases were rebuilt and refilled with `scripts/db-rebuild.ts`. Each chat now stores the engine it runs on directly in `chat_sessions.harness` (`claude | codex | cursor | opencode`, the `HarnessId` values), and `triggers` and `runs` carry the same column. What a chat is for still lives in `type`.
+It was deleted in September 2026 (`docs/agents-view-spec.md`, Phase 1): the migrations were collapsed into a fresh generated baseline without it, and existing databases were rebuilt and refilled with `scripts/db-rebuild.ts`. Each chat now stores the engine it runs on directly in `chat_sessions.harness` (`claude | codex | cursor | opencode | antigravity`, the `HarnessId` values), and `triggers` and `runs` carry the same column. What a chat is for still lives in `type`.
 
 The user-facing idea of an agent lives on in the agents view: in the UI an agent is a workspace seen as a scope (where it lives, what it can use, its purpose, its instructions), with one stable persona across all of them. See `docs/agents-view-spec.md`.
 

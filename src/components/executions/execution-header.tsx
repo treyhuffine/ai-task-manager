@@ -855,6 +855,7 @@ function resumeIdLabel(harness: string | null): string {
   if (harness === 'codex') return 'Codex id';
   if (harness === 'cursor') return 'Cursor id';
   if (harness === 'opencode') return 'OpenCode id';
+  if (harness === 'antigravity') return 'Antigravity id';
   return 'Resume id';
 }
 

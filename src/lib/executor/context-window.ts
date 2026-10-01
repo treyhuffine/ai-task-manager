@@ -1,7 +1,7 @@
 /**
  * Model display label + context-window cap, derived from the model id the
  * CLI reports back in its `system` StreamEvent (e.g. `claude-opus-4-8`,
- * `gpt-5.4-mini`).
+ * `gpt-5.4-mini`, `gemini-3.1-pro-high`).
  *
  * Two halves, on purpose:
  *
@@ -42,6 +42,9 @@ const CONTEXT_CAPS: Array<{ test: RegExp; contextWindow: number }> = [
   // OpenAI / Codex. GPT-6 (Astra) ships a 1.05M window. GPT-5.x stays at 400k.
   { test: /gpt-?6/i, contextWindow: 1_050_000 },
   { test: /gpt-?5/i, contextWindow: 400_000 },
+  // Google Gemini (Antigravity). Every generation from 2 on has a 1,048,576
+  // token input window, Pro and Flash alike.
+  { test: /gemini-?(?:[2-9]|\d\d)/i, contextWindow: 1_048_576 },
 ];
 
 const FAMILY_LABEL: Record<string, string> = {
@@ -61,6 +64,8 @@ const FAMILY_LABEL: Record<string, string> = {
  *   gpt-5.6-sol                → "GPT-5.6 Sol"
  *   gpt-5.3-codex-spark        → "GPT-5.3 Codex Spark"
  *   gpt-6-astra                → "GPT-6 Astra"
+ *   gemini-3.1-pro-high        → "Gemini 3.1 Pro (High)"   (as `agy models` names it)
+ *   gemini-2.5-flash-lite      → "Gemini 2.5 Flash Lite"
  * Falls back to the raw id when nothing matches.
  */
 export function prettifyModelId(id: string): string {
@@ -81,6 +86,15 @@ export function prettifyModelId(id: string): string {
       ? variant
       : variant?.split('-').map((word) => word[0].toUpperCase() + word.slice(1)).join(' ') ?? null;
     return `GPT-${gpt[1]}${variantLabel ? ` ${variantLabel}` : ''}`;
+  }
+
+  // Antigravity slugs end in the thinking level the model runs at.
+  const gemini = /^gemini-(\d+(?:\.\d+)?)-([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*?)(?:-(minimal|low|medium|high|max))?$/i.exec(id);
+  if (gemini) {
+    const [, version, tier, level] = gemini;
+    const title = (word: string) => word[0].toUpperCase() + word.slice(1).toLowerCase();
+    const name = `Gemini ${version} ${tier.split('-').map(title).join(' ')}`;
+    return level ? `${name} (${title(level)})` : name;
   }
 
   return id;
