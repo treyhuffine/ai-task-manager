@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 import type { WorkspaceWithCounts } from '@/db/types';
 import { SessionRow } from './session-row';
 import { FoldRow } from './fold-row';
-import { InactiveFold } from './inactive-fold';
+import { InactiveAfterPopover } from './inactive-fold';
 import { useInactivity } from '@/hooks/use-inactivity';
 import { useFoldShown } from '@/lib/client/rail-fold';
 
@@ -54,7 +54,7 @@ const SUMMARY_TONE = {
   muted: 'text-muted-foreground/65',
 } as const;
 
-/** The fold toggles under an agent match its 32px threads. */
+/** The fold toggle under an agent matches its 32px threads. */
 const THREAD_FOLD_ROW = 'h-8 py-0 text-[10.5px]';
 
 const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: string }> = {
@@ -74,14 +74,14 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  * rows, so nothing here is counted twice.
  *
  * Its executions sit under it on one 32px line each, inset so their dots sit
- * under its icon: every live one and the three most recent quiet ones, with
- * "N more hidden · Show" to show the rest in place (remembered per agent).
- * Hiding them is one click on hover, and hidden executions fold into a line
- * that still says what wants you, so hiding never hides that. The whole row
- * drags.
+ * under its icon: every live one and the three most recent quiet ones. The
+ * rest, quiet overflow and inactive work alike, sit behind one toggle ("5 more
+ * and 44 inactive hidden" · Show, remembered per agent) that lists them in
+ * place, inactive ones last and dimmed. Hiding the executions is one click on
+ * hover, and hidden executions fold into a line that still says what wants
+ * you, so hiding never hides that. The whole row drags.
  *
  * Inactive executions (src/lib/sessions/inactive.ts), pinned ones included,
- * leave the threads for an "N inactive hidden · Show" toggle at the foot, and
  * the counts leave them out. Only the execution open right now stays.
  */
 export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onOpenLauncher }: AgentRailRowProps) {
@@ -91,7 +91,9 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
   const { data: rail } = useRailSessions();
   const updateWs = useUpdateWorkspace();
   const { isInactive } = useInactivity();
-  const [showAll, setShowAll] = useFoldShown(`more:agent:${workspace.id}`);
+  // One fold for everything past the first threads: the quiet overflow and
+  // the inactive ones together, so an agent never shows two toggles.
+  const [showAll, setShowAll] = useFoldShown(`hidden:agent:${workspace.id}`);
   const isActive = activeView.kind === 'agent' && activeView.id === workspace.id;
   const expanded = !workspace.collapsed;
 
@@ -151,7 +153,14 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     isInactive,
   ]);
 
-  const threads = showAll ? sessions : capped.shown;
+  // Shown, the inactive ones come last, dimmed.
+  const threads = showAll ? [...sessions, ...inactive] : capped.shown;
+  const foldLabel = [
+    capped.hidden > 0 ? `${capped.hidden} more` : null,
+    inactive.length > 0 ? `${inactive.length} inactive` : null,
+  ]
+    .filter(Boolean)
+    .join(' and ');
   const hasThreads = total > 0;
   const toggleThreads = () => updateWs.mutate({ id: workspace.id, collapsed: expanded });
   const open = () => (opensView ? openAgent(workspace.id) : toggleThreads());
@@ -268,22 +277,22 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
               inactive={isInactive(s)}
             />
           ))}
-          {/* Both folds are thread-height and indent to the thread labels. */}
-          {capped.hidden > 0 && (
+          {/* Thread-height, indented to the thread labels. The inactive timer
+              rides along when there's inactive work in the fold. */}
+          {foldLabel && (
             <FoldRow
-              count={capped.hidden}
-              noun="more"
+              label={foldLabel}
               shown={showAll}
               onToggle={() => setShowAll(!showAll)}
               className="pl-[28px]"
               rowClassName={THREAD_FOLD_ROW}
+              accessory={
+                inactive.length > 0 ? (
+                  <InactiveAfterPopover className="opacity-0 group-hover/fold:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100" />
+                ) : undefined
+              }
             />
           )}
-          <InactiveFold sectionId={`agent:${workspace.id}`} count={inactive.length} className="pl-[28px]" rowClassName={THREAD_FOLD_ROW}>
-            {inactive.map((s) => (
-              <SessionRow key={s.id} session={s} density="compact" workspaceIsGit={workspace.isGit} inactive />
-            ))}
-          </InactiveFold>
         </div>
       )}
 

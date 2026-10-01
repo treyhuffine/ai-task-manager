@@ -5,16 +5,15 @@ import { cn } from '@/lib/utils';
 
 /**
  * The toggle at the foot of a folded list: what's tucked away on the left
- * ("4 inactive hidden", "3 more hidden"), and Show or Hide on the right. The
- * rows it controls expand in place, below it. Used for an agent's extra
- * threads in the agents-first rail and for inactive executions everywhere
- * (`InactiveFold`).
+ * ("4 inactive hidden", "5 more and 44 inactive hidden"), and Show or Hide on
+ * the right. The rows it controls expand in place. One per list: inactive
+ * executions everywhere (`InactiveFold`), and under an agent in the
+ * agents-first rail, everything past its first threads.
  *
  * `accessory` sits after the toggle, e.g. the inactive timer.
  */
 export function FoldRow({
-  count,
-  noun,
+  label,
   shown,
   onToggle,
   accessory,
@@ -22,9 +21,8 @@ export function FoldRow({
   className,
   rowClassName,
 }: {
-  count: number;
-  /** What the hidden rows are: "more", "inactive". */
-  noun: string;
+  /** What's folded, without the verb: "4 inactive", "5 more and 44 inactive". */
+  label: string;
   shown: boolean;
   onToggle: () => void;
   accessory?: ReactNode;
@@ -49,7 +47,7 @@ export function FoldRow({
         )}
       >
         <span className="truncate text-muted-foreground/60">
-          {count} {noun} {shown ? 'shown' : 'hidden'}
+          {label} {shown ? 'shown' : 'hidden'}
         </span>
         <span className="flex-shrink-0 font-medium text-muted-foreground/80 transition-colors group-hover/fold:text-foreground">
           {shown ? 'Hide' : 'Show'}

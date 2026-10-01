@@ -47,8 +47,7 @@ export function InactiveFold({
   return (
     <div>
       <FoldRow
-        count={count}
-        noun="inactive"
+        label={`${count} inactive`}
         shown={shown}
         onToggle={() => setShown(!shown)}
         touch={touch}
