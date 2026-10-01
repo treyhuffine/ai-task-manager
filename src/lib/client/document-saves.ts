@@ -6,8 +6,17 @@ interface PendingSave extends DocumentDraft {
   running?: Promise<void>;
   inFlight?: Patch;
   visible: Readonly<Patch>;
+  failures: number;
 }
 const prefix = 'ri:document-draft:v1:';
+const retryDelays = [2_000, 5_000, 15_000, 30_000, 60_000];
+
+/** An unreachable home, a gateway or a server error can pass. A save the
+ * server refused (4xx) stays pending for explicit recovery instead. */
+function retryable(error: unknown) {
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status !== 'number' || status >= 500 || status === 408 || status === 429;
+}
 
 /** One serial writer per document, shared across page and slideout mounts.
  * Drafts are retained synchronously before the network debounce begins. */
@@ -41,7 +50,7 @@ export class DocumentSaveQueue {
   schedule(key: string, patch: Patch, base: Patch, writer: PendingSave['writer']) {
     let state = this.pending.get(key);
     if (!state) {
-      state = { patch: {}, base: {}, writer, visible: {} };
+      state = { patch: {}, base: {}, writer, visible: {}, failures: 0 };
       this.pending.set(key, state);
     }
     for (const field of Object.keys(patch)) {
@@ -78,8 +87,15 @@ export class DocumentSaveQueue {
           // The write error remains authoritative when local storage also
           // fails. Keep the in-memory patch available for the next retry.
           try { this.persist(key, state); } catch { /* Already retained in memory. */ }
+          // A save that failed in passing (a restart, a dropped connection)
+          // must not hold the unload guard until the next keystroke.
+          if (retryable(error)) {
+            const delay = retryDelays[Math.min(state.failures++, retryDelays.length - 1)];
+            state.timer = setTimeout(() => { void this.flush(key).catch(() => {}); }, delay);
+          }
           throw error;
         }
+        state.failures = 0;
         state.inFlight = undefined;
         Object.assign(state.base, patch);
         if (Object.keys(state.patch).length) {

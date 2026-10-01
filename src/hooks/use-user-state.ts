@@ -14,6 +14,7 @@ export function useUserState() {
 export function useUpdateUserState() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { carriesInput: true },
     mutationFn: (input: UpdateUserStateInput) => userStateApi.update(input),
     onSuccess: () => qc.invalidateQueries({ queryKey: USER_STATE_KEY }),
   });

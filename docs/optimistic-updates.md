@@ -107,6 +107,49 @@ normal nets: `settleEntity` after this client's own mutations, plus the
 `src/providers/query-provider.tsx`. The AI content-chat path additionally runs
 its own invalidate on turn completion (`src/components/ai-elements/slideout-chat.tsx`).
 
+## Leaving the page with unsaved work
+
+A client is a viewer. Work runs on the home and keeps running after the page
+goes away (route handlers don't abort when the browser disconnects), so leaving
+mid-archive, mid-preview or mid-AI-call loses nothing. The one thing a refresh
+or close can lose is input that exists only in this page.
+
+Every tab registers one `beforeunload` guard (`src/components/desktop/desktop-chrome.tsx`,
+mounted from the root layout, so it runs in plain browsers too, not only the
+desktop app). It asks before leaving only for that local input, and
+`viewerUnloadBlocker` in `src/lib/client/version-reload.ts` names the first
+thing that would be lost:
+
+| Blocker | Means |
+|---|---|
+| `chat` | A chat composer can't prove its draft is in localStorage, usually a file chip still uploading. |
+| `document` | A task, note or area edit in `documentSaves` hasn't been acknowledged by the server. |
+| `input` | Voice is recording or transcribing. |
+| `capture` | Quick capture content isn't stored on this device yet. |
+| `request` | A request carrying typed input is in flight and the page holds its only copy. |
+
+The browser's prompt can't carry custom text, so the guard also shows a toast
+with that reason, visible as soon as the person chooses to stay.
+
+Two rules keep it from firing for nothing:
+
+- **Only mutations that carry typed input count.** A mutation whose payload is
+  something the person typed, with no other local copy until the home
+  acknowledges it, sets `meta: { carriesInput: true }`: chat send and retry
+  (the composer clears on send), task/note/area create and update, the
+  execution scratchpad and profile text. The unload guard, desktop close and
+  version reload all count through `countUnsavedMutations`
+  (`src/lib/query/mutation-meta.ts`). Everything else, read receipts,
+  archives, previews, git, AI briefs, is left out, so a viewer can always walk
+  away from running work.
+- **A save that failed in passing retries on its own.** `documentSaves` retries a
+  failed write on a 2s, 5s, 15s, 30s then 60s ladder when the failure was a
+  network error, a gateway or server error, 408 or 429 (a server restart mid-save
+  is the common case). A 4xx refusal stays pending for the retained-draft
+  recovery instead of retrying. Before this, one failed save held the guard
+  for the life of the tab. The retries share the `save-changes-failed` toast id
+  so they replace each other rather than stacking.
+
 ## Tests
 
 `src/lib/query/optimistic-entity.test.ts` covers the pure helpers against a real

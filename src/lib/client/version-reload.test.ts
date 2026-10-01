@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { prepareVersionReload, shouldBlockViewerUnload } from './version-reload';
+import { prepareVersionReload, shouldBlockViewerUnload, viewerUnloadBlocker, UNLOAD_BLOCKER_MESSAGES } from './version-reload';
 import { documentSaves } from './document-saves';
 import { registerChatDraftWriter } from './chat-drafts';
 import { registerCaptureWriter, retainCaptureDraft } from './capture-draft';
@@ -79,4 +79,21 @@ it('keeps ordinary unload guards for failed document saves, requests, voice and 
   expect(shouldBlockViewerUnload(() => 0)).toBe(true);
   retainCaptureDraft(capture, false);
   expect(shouldBlockViewerUnload(() => 0)).toBe(false);
+});
+
+it('names what an ordinary unload would lose, so the view can explain the leave prompt', () => {
+  const hasDocuments = vi.spyOn(documentSaves, 'has').mockReturnValue(false);
+  expect(viewerUnloadBlocker(() => 0)).toBeNull();
+  expect(viewerUnloadBlocker(() => 1)).toBe('request');
+  const capture = {}; dispose.push(() => retainCaptureDraft(capture, false));
+  retainCaptureDraft(capture, true);
+  expect(viewerUnloadBlocker(() => 1)).toBe('capture');
+  const voice = {}; dispose.push(() => retainActiveInput(voice, false));
+  retainActiveInput(voice, true);
+  expect(viewerUnloadBlocker(() => 1)).toBe('input');
+  hasDocuments.mockReturnValue(true);
+  expect(viewerUnloadBlocker(() => 1)).toBe('document');
+  dispose.push(registerChatDraftWriter({}, () => false));
+  expect(viewerUnloadBlocker(() => 1)).toBe('chat');
+  for (const message of Object.values(UNLOAD_BLOCKER_MESSAGES)) expect(message).not.toMatch(/[\u2014\u2013;]/);
 });

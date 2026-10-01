@@ -2,11 +2,13 @@
 
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { hasActiveInput } from '@/lib/client/active-input';
 import { flushCaptureDrafts } from '@/lib/client/capture-draft';
-import { shouldBlockViewerUnload } from '@/lib/client/version-reload';
+import { UNLOAD_BLOCKER_MESSAGES, viewerUnloadBlocker } from '@/lib/client/version-reload';
 import { flushChatDrafts } from '@/lib/client/chat-drafts';
 import { documentSaves } from '@/lib/client/document-saves';
+import { countUnsavedMutations } from '@/lib/query/mutation-meta';
 import '@/lib/client/desktop';
 import { ServiceConnection } from './service-connection';
 
@@ -15,11 +17,13 @@ export function DesktopChrome() {
   useEffect(() => {
     if (window.riDesktop) document.documentElement.dataset.riDesktop = window.riDesktop.platform;
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (shouldBlockViewerUnload(() => queryClient.isMutating())) {
-        void documentSaves.flushAll().catch(() => {});
-        event.preventDefault();
-        event.returnValue = '';
-      }
+      const blocker = viewerUnloadBlocker(() => countUnsavedMutations(queryClient));
+      if (!blocker) return;
+      void documentSaves.flushAll().catch(() => {});
+      // Shown once the person stays. The leave prompt itself can't say why.
+      toast.warning(UNLOAD_BLOCKER_MESSAGES[blocker], { id: 'unload-guard', description: 'That is why this page asked before leaving.' });
+      event.preventDefault();
+      event.returnValue = '';
     };
     window.addEventListener('beforeunload', beforeUnload);
     // Window close now hides the live desktop renderer. Flush pending document
@@ -40,8 +44,8 @@ export function DesktopChrome() {
         await flushCaptureDrafts();
         flushChatDrafts();
         const deadline = Date.now() + 10_000;
-        while (queryClient.isMutating() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
-        const ready = queryClient.isMutating() === 0 && !documentSaves.has();
+        while (countUnsavedMutations(queryClient) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+        const ready = countUnsavedMutations(queryClient) === 0 && !documentSaves.has();
         if (!ready) document.body.inert = false;
         return ready;
       } catch { document.body.inert = false; return false; }

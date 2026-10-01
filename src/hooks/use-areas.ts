@@ -29,6 +29,7 @@ export function useCreateArea() {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: AREAS_KEY,
+    meta: { carriesInput: true },
     mutationFn: (input: CreateAreaInput) => areasApi.create(input),
     onSuccess: (record) => qc.setQueryData([...AREAS_KEY, record.id], record),
     onSettled: () => settleEntity(qc, 'areas'),
@@ -39,6 +40,7 @@ export function useUpdateArea() {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: AREAS_KEY,
+    meta: { carriesInput: true },
     mutationFn: ({ id, ...input }: UpdateAreaInput & { id: string }) =>
       areasApi.update(id, input),
     onMutate: async ({ id, ...input }) => ({
@@ -46,7 +48,7 @@ export function useUpdateArea() {
     }),
     onError: (_err, _vars, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);
-      toast.error('Could not save changes');
+      toast.error('Could not save changes', { id: 'save-changes-failed' });
     },
     onSettled: () => settleEntity(qc, 'areas'),
   });

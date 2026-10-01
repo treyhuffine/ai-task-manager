@@ -6,6 +6,7 @@ import { documentSaves } from '@/lib/client/document-saves';
 import { getApiCompatibilityIssue, reportApiCompatibility, subscribeApiCompatibility } from '@/lib/client/api-compatibility';
 import { API_PROTOCOL, apiCompatibilityIssue } from '@/lib/releases/api-contract';
 import { reloadVersion } from '@/lib/client/version-reload';
+import { countUnsavedMutations } from '@/lib/query/mutation-meta';
 
 /** Browser, phone and remote Electron all serve the Home's UI. Installation
  * identity comes from that Home, independently of the local shell/worker. */
@@ -41,7 +42,7 @@ export function ServiceConnection() {
           setMessage('Ri was updated. Saving your changes before reloading.');
           setCanReload(true);
           try {
-            await reloadVersion(() => queryClient.isMutating(), false, () => { if (!disposed) window.location.reload(); });
+            await reloadVersion(() => countUnsavedMutations(queryClient), false, () => { if (!disposed) window.location.reload(); });
           } catch { if (!disposed) setMessage('Ri was updated. Finish active input or reload with your drafts saved on this device.'); }
           return;
         }
@@ -63,7 +64,7 @@ export function ServiceConnection() {
   }, [queryClient]);
   const reload = async () => {
     setReloading(true);
-    try { await reloadVersion(() => queryClient.isMutating(), true); }
+    try { await reloadVersion(() => countUnsavedMutations(queryClient), true); }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Keep this view open until your drafts can be saved.'); setReloading(false); }
   };
   if (!message) return null;

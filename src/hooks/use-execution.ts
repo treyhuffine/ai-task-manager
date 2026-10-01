@@ -757,6 +757,9 @@ export function useSendMessage(id: string) {
   const runtimeKey = ['session', id, 'runtime-status'] as const;
 
   const mutation = useMutation<ChatEventDTO, Error, InternalSendInput>({
+    // The composer clears on send and restores only on failure, so until the
+    // home acknowledges it this request holds the only copy of the message.
+    meta: { carriesInput: true },
     mutationFn: (input) =>
       sessionsApi.sendMessage(id, input.content, {
         attachments: input.attachments,
@@ -876,6 +879,7 @@ export function useRetrySend(sessionId: string) {
   const qc = useQueryClient();
   const eventsKey = ['session', sessionId, 'events'] as const;
   return useMutation<ChatEventDTO, Error, { eventId: string }>({
+    meta: { carriesInput: true },
     mutationFn: async ({ eventId }) => {
       const events = qc.getQueryData<ChatEventDTO[]>(eventsKey) ?? [];
       const target = events.find((e) => e.id === eventId);
@@ -1317,6 +1321,7 @@ export function useScratchpad(id: string | null) {
 export function useSetScratchpad(id: string) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { carriesInput: true },
     mutationFn: (scratchPad: string | null) => sessionsApi.setScratchpad(id, scratchPad),
     // Optimistic so the editor doesn't flash. The cache holds the same
     // shape the GET returns.

@@ -90,6 +90,7 @@ export function useCreateTask() {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: TASKS_KEY,
+    meta: { carriesInput: true },
     mutationFn: (input: CreateTaskInput) => tasksApi.create(input),
     // Creates stay non-optimistic for the list (which filtered lists a new row
     // belongs to is decided server-side), but we seed the detail cache so
@@ -103,6 +104,7 @@ export function useUpdateTask() {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: TASKS_KEY,
+    meta: { carriesInput: true },
     mutationFn: ({ id, ...input }: UpdateTaskInput & { id: string }) =>
       tasksApi.update(id, input),
     onMutate: async ({ id, ...input }) => ({
@@ -110,7 +112,7 @@ export function useUpdateTask() {
     }),
     onError: (_err, _vars, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);
-      toast.error('Could not save changes');
+      toast.error('Could not save changes', { id: 'save-changes-failed' });
     },
     onSettled: () => settleEntity(qc, 'tasks'),
   });

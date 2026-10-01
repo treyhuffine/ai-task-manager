@@ -35,6 +35,7 @@ export function useCreateNote() {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: NOTES_KEY,
+    meta: { carriesInput: true },
     mutationFn: (input: CreateNoteInput) => notesApi.create(input),
     // See useCreateTask: seed the detail cache, leave list placement to settle.
     onSuccess: (record) => qc.setQueryData([...NOTES_KEY, record.id], record),
@@ -46,6 +47,7 @@ export function useUpdateNote() {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: NOTES_KEY,
+    meta: { carriesInput: true },
     mutationFn: ({ id, ...input }: UpdateNoteInput & { id: string }) =>
       notesApi.update(id, input),
     onMutate: async ({ id, ...input }) => ({
@@ -53,7 +55,7 @@ export function useUpdateNote() {
     }),
     onError: (_err, _vars, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);
-      toast.error('Could not save changes');
+      toast.error('Could not save changes', { id: 'save-changes-failed' });
     },
     onSettled: () => settleEntity(qc, 'notes'),
   });

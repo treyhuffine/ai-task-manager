@@ -82,7 +82,8 @@ One generic attachment system across the whole app:
 - **Two cache shapes per root:** single-entity `[root, id]` holds the full record (with `body`); lists `[root, filter]` hold DTOs that omit `body` and carry `bodyExcerpt` / `bodyLen`. The helper projects a body patch to the excerpt shape for lists (`projectPatchToList`) — never write a raw `body` onto a list row.
 - **Never write a server-normalized `body` into the live cache.** The Tiptap editor (`src/components/editor/rich-editor.tsx`) is authoritative while focused, and the server stores `body` verbatim, so the optimistic `body` already equals what the editor emitted. Writing a server echo back is the one thing that can reflow an open document or clobber newer keystrokes.
 - **Creates stay non-optimistic for lists** (the server owns filter placement); they seed the detail cache and let settle place the row. Recurring-task completes skip the optimistic `done` flip (the server bumps `nextRecurrenceAt`).
-- Full rationale and the body-editor safety analysis: `docs/optimistic-updates.md`.
+- **Leaving never waits on the home's work.** A client is a viewer, and server work keeps running after the page goes away. Only a mutation whose payload is typed input with no other local copy until acknowledged (chat send, entity create/update, scratchpad) sets `meta: { carriesInput: true }`, which makes refresh and close ask first. Guards count through `countUnsavedMutations` (`src/lib/query/mutation-meta.ts`), never raw `isMutating()`.
+- Full rationale, the body-editor safety analysis and the unload guard: `docs/optimistic-updates.md`.
 
 ## Orchestrator (agent surface)
 

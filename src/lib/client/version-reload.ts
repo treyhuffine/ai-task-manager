@@ -6,12 +6,31 @@ import { hasActiveInput } from './active-input';
 let preparedReload = false;
 export function isPreparedVersionReload() { return preparedReload; }
 
+export type UnloadBlocker = 'chat' | 'document' | 'input' | 'capture' | 'request';
+
+/** The browser's leave dialog can't say why, so the view explains it. */
+export const UNLOAD_BLOCKER_MESSAGES: Record<UnloadBlocker, string> = {
+  chat: 'A chat draft isn\'t saved yet, usually because a file is still uploading.',
+  document: 'Edits to a task, note or area haven\'t reached Ri yet.',
+  input: 'Voice input is still recording or transcribing.',
+  capture: 'A capture isn\'t saved on this device yet.',
+  request: 'Something you typed is still on its way to Ri.',
+};
+
 /** Ordinary reloads have no asynchronous save handshake. Prove chat retention
- * synchronously and let beforeunload block anything still unsafe. */
+ * synchronously and name the first thing a reload right now would lose. */
+export function viewerUnloadBlocker(isMutating: () => number): UnloadBlocker | null {
+  if (isPreparedVersionReload()) return null;
+  try { flushChatDrafts(); } catch { return 'chat'; }
+  if (documentSaves.has()) return 'document';
+  if (hasActiveInput()) return 'input';
+  if (hasPendingCapture()) return 'capture';
+  if (isMutating() > 0) return 'request';
+  return null;
+}
+
 export function shouldBlockViewerUnload(isMutating: () => number): boolean {
-  if (isPreparedVersionReload()) return false;
-  try { flushChatDrafts(); } catch { return true; }
-  return documentSaves.has() || isMutating() > 0 || hasActiveInput() || hasPendingCapture();
+  return viewerUnloadBlocker(isMutating) !== null;
 }
 
 /** Authorize only the immediate reload whose drafts were just proven safe.

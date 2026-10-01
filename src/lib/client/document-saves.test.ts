@@ -98,3 +98,50 @@ it('retains unacknowledged patches for an explicit API-upgrade refresh, refusing
   expect(() => noStorage.retainAll()).toThrow('quota');
   await noStorage.flushAll();
 });
+
+it('retries a save that failed in passing, so the unload guard clears on its own', async () => {
+  vi.useFakeTimers();
+  const saves = queue();
+  const writer = vi.fn()
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockRejectedValueOnce(Object.assign(new Error('API 503'), { status: 503 }))
+    .mockResolvedValue(undefined);
+  saves.schedule('notes:1', { body: 'draft' }, { body: '' }, writer);
+  await vi.advanceTimersByTimeAsync(500);
+  expect(writer).toHaveBeenCalledTimes(1);
+  expect(saves.has()).toBe(true);
+  await vi.advanceTimersByTimeAsync(2_000);
+  expect(writer).toHaveBeenCalledTimes(2);
+  expect(saves.has()).toBe(true);
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(writer.mock.calls).toEqual([[{ body: 'draft' }], [{ body: 'draft' }], [{ body: 'draft' }]]);
+  expect(saves.has()).toBe(false);
+  expect(saves.draft('notes:1')).toBeNull();
+});
+
+it('keeps a refused save pending for recovery instead of retrying it', async () => {
+  vi.useFakeTimers();
+  const saves = queue();
+  const writer = vi.fn().mockRejectedValue(Object.assign(new Error('API 404'), { status: 404 }));
+  saves.schedule('notes:1', { body: 'draft' }, { body: '' }, writer);
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(writer).toHaveBeenCalledTimes(1);
+  expect(saves.has()).toBe(true);
+  expect(saves.draft('notes:1')?.patch).toEqual({ body: 'draft' });
+});
+
+it('backs off retries and lets a new edit restart the debounce', async () => {
+  vi.useFakeTimers();
+  const saves = queue();
+  const writer = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+  saves.schedule('notes:1', { body: 'a' }, { body: '' }, writer);
+  await vi.advanceTimersByTimeAsync(500 + 2_000 + 5_000 + 15_000);
+  expect(writer).toHaveBeenCalledTimes(4);
+  await vi.advanceTimersByTimeAsync(29_000);
+  expect(writer).toHaveBeenCalledTimes(4);
+  writer.mockResolvedValue(undefined);
+  saves.schedule('notes:1', { body: 'ab' }, { body: '' }, writer);
+  await vi.advanceTimersByTimeAsync(500);
+  expect(writer).toHaveBeenLastCalledWith({ body: 'ab' });
+  expect(saves.has()).toBe(false);
+});
