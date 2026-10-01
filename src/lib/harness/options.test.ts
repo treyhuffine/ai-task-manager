@@ -120,7 +120,7 @@ describe('agent effort options', () => {
 
   it('rejects a model from the other provider namespace', () => {
     expect(explicitModelForProvider('claude', 'gpt-5.5').id).toBe('opus');
-    expect(explicitModelForProvider('codex', 'sonnet').id).toBe('gpt-6-astra');
+    expect(explicitModelForProvider('codex', 'sonnet').id).toBe('gpt-6.1-sol');
   });
 
   it('accepts the Claude Code Fable alias', () => {
@@ -195,19 +195,24 @@ describe('pinned model ids', () => {
 });
 
 describe('curated vs legacy bundled models', () => {
-  it('excludes the legacy Codex tail from the curated defaults but keeps it bundled', () => {
+  it('curates the GPT-6 generation and keeps the older one bundled but off', () => {
     const curated = curatedDefaultModelIds('codex');
     const bundled = bundledModelIds('codex');
     expect(curated).toEqual([
+      'gpt-6.1-sol',
       'gpt-6-astra',
-      'gpt-5.5',
-      'gpt-5.6-sol',
-      'gpt-5.6-terra',
-      'gpt-5.6-luna',
+      'gpt-6-sol',
+      'gpt-6-luna',
     ]);
-    for (const legacy of ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark']) {
+    for (const legacy of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5']) {
       expect(curated).not.toContain(legacy);
       expect(bundled).toContain(legacy);
+    }
+  });
+
+  it('drops models OpenAI retired, since they cannot run on any CLI', () => {
+    for (const retired of ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark']) {
+      expect(bundledModelIds('codex')).not.toContain(retired);
     }
   });
 
@@ -237,6 +242,24 @@ describe('reconcileEnabledModels', () => {
     const r = reconcileEnabledModels('codex', ['gpt-5.6-sol'], null);
     expect(r.enabledModels).not.toContain('gpt-5.4');
     expect(r.enabledModels).not.toContain('gpt-5.3-codex-spark');
+    expect(r.enabledModels).not.toContain('gpt-5.5');
+  });
+
+  it('folds the GPT-6 Sol and Luna release into an allowlist that already had Astra', () => {
+    // A row as the previous release left it: Astra already reconciled in, the
+    // retired 5.4 tail recorded as known.
+    const enabled = ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-6-astra'];
+    const known = [
+      'gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
+      'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark', 'gpt-6-astra',
+    ];
+    const r = reconcileEnabledModels('codex', enabled, known);
+    expect(r.enabledModels).toEqual([...enabled, 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna']);
+    expect(r.changed).toBe(true);
+    // Retired ids stay known, so they can never come back as "new".
+    expect(r.knownModels).toEqual(expect.arrayContaining([...known, 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna']));
+    // And the next pass is a no-op.
+    expect(reconcileEnabledModels('codex', r.enabledModels, r.knownModels).changed).toBe(false);
   });
 
   it('is a no-op for a row already current with the catalog', () => {

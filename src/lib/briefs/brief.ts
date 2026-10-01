@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { NoteRecord, TaskRecord } from '@/db/types';
 import { getWorkDir } from '@/lib/config/paths';
-import { backgroundModelFor, resolveBackgroundHarness, runHarnessJson } from '@/lib/harness/one-shot';
+import { resolveBackgroundHarness, runHarnessJson, standardModelFor } from '@/lib/harness/one-shot';
 import { renderBriefPrompt, BRIEF_SYSTEM_PROMPT } from './prompt';
 import {
   BRIEF_JSON_SHAPE,
@@ -155,7 +155,7 @@ export async function generateBrief(
   const work = (async () => {
     // Provenance: the harness + model the helper will resolve for this tier.
     const provider = resolveBackgroundHarness();
-    const model = backgroundModelFor(provider, 'standard') ?? null;
+    const model = standardModelFor(provider) ?? null;
     const raw = await runHarnessJson({
       label: 'entity-brief',
       system: BRIEF_SYSTEM_PROMPT,

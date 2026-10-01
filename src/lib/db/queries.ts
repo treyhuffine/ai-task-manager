@@ -4162,7 +4162,7 @@ export function addCustomHarnessModel(harness: HarnessId, modelId: string): Harn
  * Drop a pinned model id. It leaves the allowlist with it, because a pin has
  * no catalog entry to fall back to and an enabled row that resolves to nothing
  * is worse than a missing one. The exception is an id that shadows a bundled
- * model (someone pinned `gpt-5.4` by hand): that one still resolves without
+ * model (someone pinned `gpt-6-luna` by hand): that one still resolves without
  * the pin, so unpinning must not also hide it from the picker.
  */
 export function removeCustomHarnessModel(harness: HarnessId, modelId: string): HarnessSettingsRecord {

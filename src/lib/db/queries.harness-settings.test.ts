@@ -59,26 +59,25 @@ describe('ensureHarnessSettings', () => {
   it('seeds only the curated Codex models and leaves the legacy tail off', () => {
     const enabled = q.ensureHarnessSettings('codex').enabledModels;
     expect(enabled).toEqual([
+      'gpt-6.1-sol',
       'gpt-6-astra',
-      'gpt-5.5',
-      'gpt-5.6-sol',
-      'gpt-5.6-terra',
-      'gpt-5.6-luna',
+      'gpt-6-sol',
+      'gpt-6-luna',
     ]);
-    expect(enabled).not.toContain('gpt-5.4');
+    expect(enabled).not.toContain('gpt-5.6-sol');
   });
 
   it('records the whole bundled catalog as known so the legacy tail is never mistaken for new', () => {
     const row = q.ensureHarnessSettings('codex');
     expect(row.knownModels).toEqual([
+      'gpt-6.1-sol',
       'gpt-6-astra',
-      'gpt-5.5',
+      'gpt-6-sol',
+      'gpt-6-luna',
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
-      'gpt-5.4',
-      'gpt-5.4-mini',
-      'gpt-5.3-codex-spark',
+      'gpt-5.5',
     ]);
   });
 

@@ -12,6 +12,8 @@ import { getHarnessSettings } from '@/lib/db/queries';
 import { EFFORT_LEVELS, type EffortLevel } from '@/db/types';
 import { getHarnessRuntime, runtimeContextForHarness } from '@/lib/harness/runtime';
 import { HARNESS_REGISTRY } from '@/lib/harness/registry';
+import { getAppRoot } from '@/lib/config/paths';
+import { CHEAP_MODEL_CANDIDATES } from '@/lib/executor/harness';
 import type { ProviderRuntimeContext, UpstreamProvider } from '@agentex/agent';
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
@@ -216,6 +218,44 @@ export async function getHarnessModels(
 }
 
 /**
+ * Harnesses whose discovery reads the provider's own full catalog, so an id
+ * missing from it cannot run on this install. Codex prints what OpenAI serves
+ * to that CLI version. Claude's discovery only probes Ri's own alias list, and
+ * those aliases never go stale, so a probe that misses one is noise, not news.
+ */
+const LIVE_CATALOG_IS_AUTHORITATIVE: ReadonlySet<ProviderId> = new Set(['codex']);
+
+/**
+ * Discovered models followed by the bundled ones discovery did not return.
+ *
+ * Where the live catalog is authoritative, a bundled id it leaves out is
+ * either newer than the installed CLI (OpenAI lists a model only to CLI
+ * versions that can run it) or retired upstream, and sending it fails at the
+ * provider. Those stay in the list so settings can say why, but as
+ * unavailable, which keeps them out of the picker and out of every validator.
+ * Otherwise, and with no live answer at all (`config`), the bundle stands.
+ */
+export function withBundledFallback(
+  providerId: ProviderId,
+  discovery: Pick<HarnessModelsResponse, 'models' | 'source'>,
+): ModelOption[] {
+  const discovered = new Set(discovery.models.map((model) => model.id));
+  const missing = modelsForProvider(providerId).filter((model) => !discovered.has(model.id));
+  if (discovery.source !== 'provider' || !LIVE_CATALOG_IS_AUTHORITATIVE.has(providerId)) {
+    return [...discovery.models, ...missing];
+  }
+  const harness = HARNESS_REGISTRY[providerId].name;
+  return [
+    ...discovery.models,
+    ...missing.map((model) => ({
+      ...model,
+      availability: 'unavailable' as const,
+      availabilityReason: `The installed ${harness} does not offer this model. Update ${harness} to use it.`,
+    })),
+  ];
+}
+
+/**
  * User-pinned exact model ids for one provider, as catalog entries.
  *
  * Read straight from settings rather than through the discovery cache: a pin
@@ -228,22 +268,42 @@ export function customModelCatalog(providerId: ProviderId): ModelOption[] {
 }
 
 /**
- * Catalog used for server-side validation. Keep bundled models and pinned ids
- * alongside live discovery so stable aliases such as `opus` remain valid when
- * a provider API returns only versioned model ids, and so a hand-typed id is
- * accepted by every validator instead of only the one that saved it.
+ * Catalog used for server-side validation: what this install can run. Bundled
+ * models stay alongside live discovery so stable aliases such as `opus` remain
+ * valid whatever a probe says, except where the live catalog is authoritative
+ * (see `withBundledFallback`): there a model the installed CLI does not offer
+ * is refused here rather than at the provider. Pinned ids are added
+ * unconditionally: a pin is the user's explicit "send this verbatim", and it
+ * must be accepted by every validator instead of only the one that saved it.
  */
 export async function getHarnessModelCatalog(
   providerId: ProviderId,
   options: { cwd?: string; refresh?: boolean } = {},
 ): Promise<ModelOption[]> {
-  const discovered = (await getHarnessModels(providerId, options)).models
+  const runnable = withBundledFallback(providerId, await getHarnessModels(providerId, options))
     .filter((model) => model.availability !== 'unavailable');
   const byId = new Map<string, ModelOption>();
-  for (const model of [...discovered, ...modelsForProvider(providerId), ...customModelCatalog(providerId)]) {
+  for (const model of [...runnable, ...customModelCatalog(providerId)]) {
     if (!byId.has(model.id)) byId.set(model.id, model);
   }
   return [...byId.values()];
+}
+
+/**
+ * The first of the harness's cheap models (`CHEAP_MODEL_CANDIDATES`) this
+ * install can actually run, or undefined when it offers none of them. Callers
+ * then use the user's own model or skip the call. Never a dead id: that turns
+ * every background call into a provider error.
+ */
+export async function cheapModelFor(providerId: ProviderId): Promise<string | undefined> {
+  const candidates = CHEAP_MODEL_CANDIDATES[providerId] ?? [];
+  if (candidates.length === 0) return undefined;
+  try {
+    const catalog = await getHarnessModelCatalog(providerId, { cwd: getAppRoot() });
+    return candidates.find((id) => catalog.some((model) => model.id === id));
+  } catch {
+    return undefined;
+  }
 }
 
 /** Resolve and validate the explicit tuple used when a server creates a chat. */

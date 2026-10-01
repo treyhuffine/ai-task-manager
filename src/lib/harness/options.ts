@@ -51,10 +51,11 @@ export interface ModelOption {
   /** Typed in by the user (see `customModelOption`) rather than discovered. */
   custom?: boolean;
   /**
-   * Bundled but off by default: a superseded/legacy model kept in the catalog
-   * so a session pinned to it still resolves, but not seeded into a fresh
-   * allowlist and not auto-enabled when the catalog gains a new model. The
-   * curated (non-legacy) entries are the ones we stand behind by default.
+   * Bundled but off by default: a superseded model the provider still serves,
+   * kept so it stays one toggle away, but not seeded into a fresh allowlist
+   * and not auto-enabled when the catalog gains a new model. The curated
+   * (non-legacy) entries are the ones we stand behind by default. A model the
+   * provider has retired leaves the bundle instead: it cannot run anywhere.
    */
   legacy?: boolean;
 }
@@ -103,7 +104,14 @@ export function normalizeCustomModelId(raw: string | null | undefined): string |
  * stays generic, the live chip upgrades to "Opus 4.8" once known.
  *
  * Codex model ids come from `codex debug models` at runtime. The entries below
- * mirror the current CLI catalog and are only the failure fallback.
+ * mirror the current CLI catalog, in its priority order, and serve two jobs:
+ * the fallback when discovery fails, and the release signal that folds a new
+ * model into existing allowlists (see `reconcileEnabledModels`). OpenAI lists
+ * a model only to CLI versions that can run it and retires old ids outright
+ * (`gpt-5.4`, `gpt-5.4-mini` and `gpt-5.3-codex-spark` now fail with
+ * "not supported when using Codex with a ChatGPT account"), so a bundled id
+ * the installed CLI does not list is shown as unavailable, never sent
+ * (see `withBundledFallback`).
  */
 export const MODEL_OPTIONS: Record<HarnessId, ModelOption[]> = {
   claude: [
@@ -113,14 +121,14 @@ export const MODEL_OPTIONS: Record<HarnessId, ModelOption[]> = {
     { id: 'fable', label: 'Fable', hint: 'latest' },
   ],
   codex: [
+    { id: 'gpt-6.1-sol', label: '6.1 Sol', hint: 'Latest workhorse for coding and everyday work' },
     { id: 'gpt-6-astra', label: '6 Astra', hint: 'Most capable model for complex, demanding work' },
-    { id: 'gpt-5.5', label: '5.5', hint: 'Proven previous-generation model for coding and general work' },
-    { id: 'gpt-5.6-sol', label: '5.6 Sol', hint: 'Reliable agentic workhorse for everyday tasks' },
-    { id: 'gpt-5.6-terra', label: '5.6 Terra', hint: 'Balanced agentic coding model for everyday work' },
-    { id: 'gpt-5.6-luna', label: '5.6 Luna', hint: 'Fast and affordable agentic coding model' },
-    { id: 'gpt-5.4', label: '5.4', hint: 'Strong model for everyday coding', legacy: true },
-    { id: 'gpt-5.4-mini', label: '5.4 Mini', hint: 'Small, fast, and cost-efficient model for simpler coding tasks', legacy: true },
-    { id: 'gpt-5.3-codex-spark', label: '5.3 Codex Spark', hint: 'Ultra-fast coding model', legacy: true },
+    { id: 'gpt-6-sol', label: '6 Sol', hint: 'Previous workhorse for coding and everyday work' },
+    { id: 'gpt-6-luna', label: '6 Luna', hint: 'Fast and affordable model for easier tasks' },
+    { id: 'gpt-5.6-sol', label: '5.6 Sol', hint: 'Older generation workhorse', legacy: true },
+    { id: 'gpt-5.6-terra', label: '5.6 Terra', hint: 'Older generation balanced model', legacy: true },
+    { id: 'gpt-5.6-luna', label: '5.6 Luna', hint: 'Older generation fast model', legacy: true },
+    { id: 'gpt-5.5', label: '5.5', hint: 'Legacy coding model', legacy: true },
   ],
   cursor: [],
   opencode: [],

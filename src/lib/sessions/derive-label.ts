@@ -8,7 +8,7 @@
  *
  *   1. **AI summarization via the harness's CLI** (preferred). Routes
  *      through `@agentex/agent`'s `provider.execute({ model: 'haiku' /
- *      'gpt-5.4-mini' })` so it uses the user's existing CLI auth
+ *      'gpt-6-luna' })` so it uses the user's existing CLI auth
  *      (subscription, login token, etc.) instead of a separate API
  *      key. Same harness as the actual agent — Claude executors get a
  *      Claude-flavored title; Codex executors get a Codex-flavored one.
@@ -25,7 +25,7 @@
  */
 
 import { getProvider } from '@agentex/agent';
-import { CHEAPEST_MODEL } from '@/lib/executor/harness';
+import { cheapModelFor } from '@/lib/harness/model-discovery';
 import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import { runtimeContextForHarness } from '@/lib/harness/runtime';
 import { getAppRoot } from '@/lib/config/paths';
@@ -79,7 +79,7 @@ async function summarizeViaHarness(
   selectedModel?: string | null,
 ): Promise<string | null> {
   const providerType = harnessDefinition(harness).agentexProviderId;
-  const model = selectedModel ?? CHEAPEST_MODEL[providerType];
+  const model = selectedModel ?? await cheapModelFor(harness);
   if (!model) return null;
 
   try {
@@ -205,7 +205,7 @@ export async function deriveRetrospectiveLabel(sessionId: string): Promise<void>
     const harness = session.harness;
 
     const providerType = harnessDefinition(harness).agentexProviderId;
-    const model = session.model ?? CHEAPEST_MODEL[providerType];
+    const model = session.model ?? await cheapModelFor(harness);
     if (!model) return;
 
     const provider = getProvider(providerType);

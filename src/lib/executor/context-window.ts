@@ -61,6 +61,7 @@ const FAMILY_LABEL: Record<string, string> = {
  *   gpt-5.6-sol                → "GPT-5.6 Sol"
  *   gpt-5.3-codex-spark        → "GPT-5.3 Codex Spark"
  *   gpt-6-astra                → "GPT-6 Astra"
+ *   gpt-6.1-sol                → "GPT-6.1 Sol"
  * Falls back to the raw id when nothing matches.
  */
 export function prettifyModelId(id: string): string {
