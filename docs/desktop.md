@@ -662,7 +662,20 @@ On macOS, source launches cache an ad hoc signed `Ri Demo.app` under `.electron-
 
 If startup reports an HTTP 500 from `/api/health`, the application failed after HTTPS and HTTP/2 connected. Do not install a certificate or delete the database to address that message. The local recovery screen now includes up to three recent redacted Next error summaries. **Open log folder** reveals `service.log` with the full startup context. For the default source Home, the log is `.electron-demo/home/.work/service.log`. Detailed local errors are omitted from service status responses to paired devices.
 
-On 30 September 2026, a fresh source development Home passed the new acceptance check on macOS arm64 with Node 26.5.0, and a native macOS process identity probe reported `Ri Demo` with `isPackaged=false`. The reported failure on another Mac was not reproduced by that run. Its service log is still needed to establish the underlying cause, rather than interpreting the generic HTTP 500 as a TLS problem.
+On 30 September 2026, a fresh source development Home passed the new acceptance check on macOS arm64 with Node 26.5.0, and a native macOS process identity probe reported `Ri Demo` with `isPackaged=false`. The failing Mac's log, supplied on 1 October, identified `Module not found: Can't resolve 'yaml'` in `src/lib/skills/format.ts`. The dependency is already declared in `package.json` and pinned in `pnpm-lock.yaml`. Refresh the checkout's installed dependencies after pulling changes that add packages. A build alone does not install them.
+
+For that missing-dependency failure in the default source Home, quit Ri Demo and run the following from its checkout. Installation also rebuilds the CLI through the prepare hook. Stop and explicitly restart the failed source service before opening its viewer, since it has no staged runtime for the desktop to select automatically. These commands retain the same Home and database:
+
+```sh
+pnpm install --frozen-lockfile
+RI_DB_PATH= RI_CONFIG_DIR= RI_WORK_DIR= \
+node dist/cli/index.mjs service --root "$PWD/.electron-demo/home" stop
+RI_RUNTIME_REPO="$PWD" RI_DESKTOP=1 NEXT_DIST_DIR=.next-desktop-dev RI_DB_PATH= RI_CONFIG_DIR= RI_WORK_DIR= \
+node dist/cli/index.mjs service --root "$PWD/.electron-demo/home" start --dev
+pnpm desktop:dev
+```
+
+This recipe targets the default source Home only. If the recovery screen lists custom database/configuration/work paths or another selected Home, preserve those exact paths instead. It does not require a certificate change, schema reset, or deletion of `.electron-demo/home`.
 
 These commands must run in the worktree containing `desktop/`. Source runs default to `.electron-demo/home`. An explicit `RI_DESKTOP_ROOT` chooses another desktop home. Other database/config/work path overrides are cleared, so the normal CLI home is not silently inherited.
 
