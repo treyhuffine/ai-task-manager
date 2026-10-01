@@ -19,6 +19,7 @@
  * async orchestration layer that combines DB writes with filesystem ops.
  */
 
+import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
@@ -220,7 +221,7 @@ export async function dispatchExecutionSession(
   const userState = getUserState();
   const providerId = args.harness
     ? requireHarnessId(args.harness)
-    : userState?.defaultHarness ?? 'claude';
+    : userState?.defaultHarness ?? DEFAULT_HARNESS;
   const harnessSettings = ensureHarnessSettings(providerId);
   const savedTupleMatchesProvider = userState?.defaultHarness === providerId;
   // Explicit args (the launcher's model control) beat the saved default

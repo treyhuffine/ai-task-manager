@@ -2979,3 +2979,12 @@ Followed for Antigravity. Every mapping below is exhaustive over `HarnessId`, so
 - [ ] `[APP]` Surface `ExecutionResult.permissionDenials` (and the session equivalent once agentex reports it per turn) so a soft-denied tool is visible in the transcript, not only in the agent's reply
 - [ ] `[AX]` Session-scoped model and effort change if `agy` gains a control channel, so a change no longer needs a new chat
 - [ ] `[APP]` Antigravity history import once a stable conversation export exists
+
+### Default harness and display order
+
+`HARNESS_REGISTRY` insertion order is the shared display order for harness
+pickers: Codex first, followed by Claude Code, Cursor, OpenCode and Antigravity.
+Rollout flags filter this order without changing it. `DEFAULT_HARNESS` is the
+explicit Codex fallback used when no choice has been saved, including onboarding,
+new chats, executions, triggers and background AI. Saved harness choices and
+existing chats keep their harness. Changing the default does not migrate data.

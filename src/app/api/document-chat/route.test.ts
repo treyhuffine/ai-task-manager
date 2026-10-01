@@ -42,14 +42,16 @@ describe('GET /api/document-chat — seeds model + effort from defaults', () => 
     const req = new Request('http://test/api/document-chat?entityType=task&entityId=task_seed_1');
     const { session } = await (await GET(req)).json();
     expect(session.surfaceKind).toBe('task');
+    expect(session.harness).toBe('claude');
     expect(session.model).toBe('sonnet');
     expect(session.effort).toBe('medium');
   });
 
-  it('null defaults resolve to an explicit provider tuple', async () => {
+  it('null defaults resolve to the Codex tuple', async () => {
     const req = new Request('http://test/api/document-chat?entityType=note&entityId=note_seed_1');
     const { session } = await (await GET(req)).json();
-    expect(session.model).toBe('opus');
+    expect(session.harness).toBe('codex');
+    expect(session.model).toBe('gpt-6-astra');
     expect(session.effort).toBe('medium');
   });
 });

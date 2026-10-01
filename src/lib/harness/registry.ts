@@ -68,7 +68,32 @@ const base = {
   sessionModeChange: false,
 } satisfies HarnessCapabilities;
 
+/** Product display order. Defaults are explicit and never inferred from an array index. */
 export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
+  codex: {
+    id: 'codex',
+    agentexProviderId: 'codex',
+    name: 'Codex',
+    description: 'OpenAI models with your ChatGPT account',
+    icon: 'code',
+    installHint: 'npm install -g @openai/codex',
+    loginCommand: 'codex login',
+    docsUrl: 'https://developers.openai.com/codex/',
+    apiKeyVar: 'OPENAI_API_KEY',
+    resumeCommandTemplate: 'codex resume {id}',
+    maximumCapabilities: {
+      ...base,
+      durableCatchUp: true,
+      reasoningEffort: true,
+      permissionRequests: true,
+      questionRequests: true,
+      planMode: true,
+      modes: true,
+      concurrentSend: true,
+      sessionModelChange: true,
+      sessionEffortChange: true,
+    },
+  },
   claude: {
     id: 'claude',
     agentexProviderId: 'claude',
@@ -95,30 +120,6 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
       sessionModelChange: true,
       sessionEffortChange: true,
       sessionModeChange: true,
-    },
-  },
-  codex: {
-    id: 'codex',
-    agentexProviderId: 'codex',
-    name: 'Codex',
-    description: 'OpenAI models through Codex',
-    icon: 'code',
-    installHint: 'npm install -g @openai/codex',
-    loginCommand: 'codex login',
-    docsUrl: 'https://developers.openai.com/codex/',
-    apiKeyVar: 'OPENAI_API_KEY',
-    resumeCommandTemplate: 'codex resume {id}',
-    maximumCapabilities: {
-      ...base,
-      durableCatchUp: true,
-      reasoningEffort: true,
-      permissionRequests: true,
-      questionRequests: true,
-      planMode: true,
-      modes: true,
-      concurrentSend: true,
-      sessionModelChange: true,
-      sessionEffortChange: true,
     },
   },
   cursor: {
@@ -196,10 +197,13 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
   },
 };
 
-const ALL_HARNESS_IDS = Object.freeze(Object.keys(HARNESS_REGISTRY) as HarnessId[]);
+/** Used only when the user has not saved a harness choice. */
+export const DEFAULT_HARNESS: HarnessId = 'codex';
+
+const ALL_HARNESS_IDS = Object.freeze(Object.keys(HARNESS_REGISTRY) as [HarnessId, ...HarnessId[]]);
 
 /** Every harness this build knows, rollout flag or not. Stored rows may name any of them. */
-export const KNOWN_HARNESS_IDS: readonly HarnessId[] = ALL_HARNESS_IDS;
+export const KNOWN_HARNESS_IDS = ALL_HARNESS_IDS;
 
 /**
  * Emergency rollout switches. Every harness added after Claude and Codex ships

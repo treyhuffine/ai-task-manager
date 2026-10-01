@@ -16,13 +16,14 @@ import { ensureTmpDir, getAppRoot } from '../../src/lib/config/paths';
 import { getDb } from '../../src/lib/db';
 import { areas, tasks } from '../../src/lib/db/schema';
 import { triage, type TriageOutput } from '../../src/lib/triage/llm';
+import { DEFAULT_HARNESS } from '../../src/lib/harness/registry';
 
 const OUTPUT_PATH = path.join(ensureTmpDir(), 'retriage.json');
 const CONTEXT_PATH = path.join(getAppRoot(), 'triage-context.md');
 
 const args = process.argv.slice(2);
 const providerFlag = args.includes('--provider');
-const providerType = providerFlag ? args[args.indexOf('--provider') + 1] || 'claude' : null;
+const providerType = providerFlag ? args[args.indexOf('--provider') + 1] || DEFAULT_HARNESS : null;
 const verbose = args.includes('--verbose');
 
 interface DbTask {

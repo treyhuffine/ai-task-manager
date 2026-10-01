@@ -63,7 +63,7 @@ import type {
   StreamOutcome, StreamRecordWithOutcomes,
   TriageDisposition, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel,
 } from '@/db/types';
-import { isHarnessId, type HarnessId } from '@/lib/harness/registry';
+import { DEFAULT_HARNESS, isHarnessId, type HarnessId } from '@/lib/harness/registry';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { linksFromTexts } from '@/lib/entity-refs/derive-links';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
@@ -7040,7 +7040,7 @@ export function defaultTriggerHarness(): HarnessId {
   const saved = getUserState()?.defaultHarness;
   // A saved provider that has since been switched off by its rollout flag
   // falls back rather than pinning a trigger that can never run.
-  return isHarnessId(saved) ? saved : 'claude';
+  return isHarnessId(saved) ? saved : DEFAULT_HARNESS;
 }
 
 /**

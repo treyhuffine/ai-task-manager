@@ -40,6 +40,8 @@ beforeEach(async () => {
   laptopId = enroll('MacBook');
   desktopId = enroll('Studio');
   agentId = q.createWorkspace({ name: 'Ri', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false }).id;
+  // These placement tests exercise a saved Claude choice through the fake harness.
+  q.updateUserState({ defaultHarness: 'claude' });
   fake = installFakeHarness('claude');
 });
 

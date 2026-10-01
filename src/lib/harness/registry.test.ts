@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_HARNESS,
   HARNESS_IDS,
   HARNESS_REGISTRY,
   KNOWN_HARNESS_IDS,
@@ -12,7 +13,8 @@ import {
 
 describe('harness registry', () => {
   it('contains exactly the five product harnesses and no separate Grok or Gemini harness', () => {
-    expect(HARNESS_IDS).toEqual(['claude', 'codex', 'cursor', 'opencode', 'antigravity']);
+    expect(HARNESS_IDS).toEqual(['codex', 'claude', 'cursor', 'opencode', 'antigravity']);
+    expect(DEFAULT_HARNESS).toBe('codex');
     expect(KNOWN_HARNESS_IDS).toEqual(HARNESS_IDS);
     expect(isHarnessId('grok')).toBe(false);
     // Gemini CLI stopped serving Google accounts; Antigravity is the harness.

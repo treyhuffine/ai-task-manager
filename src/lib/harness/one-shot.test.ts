@@ -24,17 +24,17 @@ function lastCall() {
 }
 
 describe('resolveBackgroundHarness / backgroundModelFor', () => {
-  it('defaults to claude with the cheap alias on the fast tier', async () => {
+  it('defaults to Codex with the cheap alias on the fast tier', async () => {
     const { resolveBackgroundHarness, backgroundModelFor } = await import('./one-shot');
-    expect(resolveBackgroundHarness()).toBe('claude');
+    expect(resolveBackgroundHarness()).toBe('codex');
     expect(backgroundModelFor('claude', 'fast')).toBe('haiku');
     expect(backgroundModelFor('codex', 'fast')).toBe('gpt-5.4-mini');
   });
 
-  it('follows the user default harness from user state', async () => {
-    userState = { defaultHarness: 'codex' };
+  it('preserves a saved Claude default', async () => {
+    userState = { defaultHarness: 'claude' };
     const { resolveBackgroundHarness } = await import('./one-shot');
-    expect(resolveBackgroundHarness()).toBe('codex');
+    expect(resolveBackgroundHarness()).toBe('claude');
   });
 
   it('standard tier trusts the default model only when it belongs to the provider', async () => {

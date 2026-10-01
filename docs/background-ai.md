@@ -24,7 +24,8 @@ tightly-bounded `provider.execute` through `@agentex/agent`, read
   parses tolerantly (`extractJsonObject` strips fences/prose), validates
   with zod, and retries once with the rejection reason before throwing.
 - `resolveBackgroundHarness()` — `defaultHarness` from user state
-  (the same default the orchestrator chat uses), falling back to `claude`.
+  (the same default the orchestrator chat uses), falling back to Codex
+  when no choice is saved. Existing saved choices are preserved.
 - `backgroundModelFor(provider, tier)` — `fast` = the provider's cheap
   alias (`CHEAPEST_MODEL`: haiku / gpt-5.4-mini); `standard` = the user's
   `defaultModel` when it belongs to the provider, else the CLI's own

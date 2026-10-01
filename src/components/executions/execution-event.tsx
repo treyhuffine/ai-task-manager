@@ -13,7 +13,7 @@ import { FileChip, DiffLines } from './file-chip';
 import { EntityEditChip, parseEntityEditTool } from '@/components/entities/entity-edit-chip';
 import { useClaudeLogin, useClaudeAuthStatus } from '@/hooks/use-claude-login';
 import { useHarnessConnection, useRecheckHarnessConnection } from '@/hooks/use-harness-connection';
-import { harnessDefinition, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
+import { DEFAULT_HARNESS, harnessDefinition, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
 import { useSessionEvents, useRetrySend, useDeliveries, useCancelDelivery, useSendMessage } from '@/hooks/use-execution';
 import type { ClientEventStatus } from '@/hooks/use-execution';
 import { useMutation } from '@tanstack/react-query';
@@ -817,7 +817,7 @@ function CliSignInBanner({
 }) {
   // A disabled query still returns whatever its key has cached, so the
   // placeholder id is only read when `harness` is real.
-  const { connection, isLoading } = useHarnessConnection(harness ?? 'claude', harness !== null);
+  const { connection, isLoading } = useHarnessConnection(harness ?? DEFAULT_HARNESS, harness !== null);
   const recheck = useRecheckHarnessConnection();
   const command = loginCommand ?? (harness ? harnessDefinition(harness).loginCommand : null);
   const signedIn = harness !== null && !isLoading && connection.connected;

@@ -66,7 +66,7 @@ import type {
 import type { PrMentionItem } from '@/components/chat/editor/pr-menu/types';
 import { usePrList } from '@/hooks/use-prs';
 import { useHarnessModels } from '@/hooks/use-harness-models';
-import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
+import { DEFAULT_HARNESS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 
 /**
  * Imperative handle for the execution composer. Exposes the minimum
@@ -363,7 +363,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const { models: harnessModels } = useHarnessModels(providerId);
     const harnesses = useHarnesses();
     const pinnedModelOption = explicitModelForProvider(
-      providerId ?? 'claude',
+      providerId ?? DEFAULT_HARNESS,
       model,
       harnessModels,
     );
@@ -383,13 +383,13 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       ?? maximum?.sessionEffortChange ?? false;
     const selectionControlsDisabled = updateSession.isPending || Boolean(isRunning);
     const supportedPermissionModes = useMemo<PermissionMode[]>(
-      () => supportedModesFor(providerId ?? 'claude', runtime?.capabilities.planMode.supported ?? false),
+      () => supportedModesFor(providerId ?? DEFAULT_HARNESS, runtime?.capabilities.planMode.supported ?? false),
       [providerId, runtime?.capabilities.planMode.supported],
     );
     const showEffort = harness ? harnessSupportsEffort(harness) : false;
     const effortOptions = effortOptionsForModel(harness, pinnedModelOption);
     const explicitEffort = explicitEffortForModel(
-      providerId ?? 'claude',
+      providerId ?? DEFAULT_HARNESS,
       pinnedModelOption,
       effort,
     );
@@ -419,12 +419,12 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       if (isRunning) return;
       if (id === explicitModel) return;
       const nextModel = explicitModelForProvider(
-        providerId ?? 'claude',
+        providerId ?? DEFAULT_HARNESS,
         id,
         harnessModels,
       );
       const nextEffort = explicitEffortForModel(
-        providerId ?? 'claude',
+        providerId ?? DEFAULT_HARNESS,
         nextModel,
         explicitEffort,
       );
@@ -767,7 +767,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                     <ComposerProviderMenu
                       open={modelMenuOpen}
                       onOpenChange={setModelMenuOpen}
-                      currentProvider={providerId ?? 'claude'}
+                      currentProvider={providerId ?? DEFAULT_HARNESS}
                       model={explicitModel}
                       fallbackLabel={displayModelLabel}
                       onSelectModel={setModel}

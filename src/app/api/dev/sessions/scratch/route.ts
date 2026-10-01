@@ -22,7 +22,8 @@ import { mkdirSync } from 'node:fs';
 import { eq, and, desc } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { workspaces, chatSessions } from '@/lib/db/schema';
-import { createWorkspace, createExecutionSession } from '@/lib/db/queries';
+import { createWorkspace, createExecutionSession, getUserState } from '@/lib/db/queries';
+import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 import { hydrateRow } from '@/lib/db/hydrate';
 import { withCompression } from '@/lib/api/compression';
 
@@ -74,7 +75,7 @@ async function handleGET() {
     const session = existing ?? createExecutionSession({
       workspaceId: workspace.id,
       label: 'Dev scratch session',
-      harness: 'claude',
+      harness: getUserState()?.defaultHarness ?? DEFAULT_HARNESS,
     });
     return Response.json({ session, workspace });
   } catch (err) {

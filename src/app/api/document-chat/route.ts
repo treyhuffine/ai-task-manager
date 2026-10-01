@@ -9,7 +9,7 @@ import {
 import type { ProviderId } from '@/lib/harness/options';
 import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '@/db/types';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
-import { isHarnessId } from '@/lib/harness/registry';
+import { DEFAULT_HARNESS, isHarnessId } from '@/lib/harness/registry';
 import { withCompression } from '@/lib/api/compression';
 import { findSkill } from '@/lib/skills/locations';
 
@@ -112,7 +112,7 @@ async function createFocusedSession(ref: EntityRef, override: ChatOverride = {})
   const userState = getUserState();
   const providerId = override.providerId
     ?? userState?.defaultHarness
-    ?? 'claude';
+    ?? DEFAULT_HARNESS;
   const savedTupleMatchesProvider = userState?.defaultHarness === providerId;
   const harnessSettings = ensureHarnessSettings(providerId);
   const requestedModel = override.model

@@ -25,7 +25,7 @@ import {
 import { EFFORT_LEVELS, type ChatSessionRecord, type EffortLevel } from '@/db/types';
 import type { ProviderId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
-import { isHarnessId } from '@/lib/harness/registry';
+import { DEFAULT_HARNESS, isHarnessId } from '@/lib/harness/registry';
 import { agentDeviceFor } from '@/lib/setups/run-on';
 
 /** `null` is the app's main chat. A workspace id is that agent's main chat. */
@@ -65,7 +65,7 @@ async function createMainChat(scope: MainChatScope, override: ChatOverride): Pro
   const userState = getUserState();
   const providerId = override.providerId
     ?? userState?.defaultHarness
-    ?? 'claude';
+    ?? DEFAULT_HARNESS;
   const savedTupleMatchesProvider = userState?.defaultHarness === providerId;
   const harnessSettings = ensureHarnessSettings(providerId);
   const requestedModel = override.model

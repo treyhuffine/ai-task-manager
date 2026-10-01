@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EFFORT_OPTIONS,
   MODEL_OPTIONS,
+  PROVIDERS,
   bundledModelIds,
   curatedDefaultModelIds,
   customModelOption,
@@ -15,6 +16,12 @@ import {
   reconcileEnabledModels,
   type ModelOption,
 } from './options';
+
+describe('harness ordering', () => {
+  it('offers Codex first in the provider controls', () => {
+    expect(PROVIDERS.map(({ id }) => id)).toEqual(['codex', 'claude', 'cursor', 'opencode', 'antigravity']);
+  });
+});
 
 describe('agent effort options', () => {
   it('shows effort for Claude, Codex and Antigravity harnesses', () => {

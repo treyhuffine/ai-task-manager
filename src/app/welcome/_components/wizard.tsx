@@ -1,5 +1,6 @@
 'use client';
 
+import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -26,8 +27,8 @@ const INITIAL_STATE: WizardState = {
     { name: 'Work', emoji: '💼', attachments: [] },
     { name: 'Personal', emoji: '🏡', attachments: [] },
   ],
-  harness: 'claude',
-  model: defaultModelFor('claude'),
+  harness: DEFAULT_HARNESS,
+  model: defaultModelFor(DEFAULT_HARNESS),
   harnessAuth: { phase: 'idle', acceptsApiKeyBilling: false, verify: { phase: 'idle' } },
   // Global by default: agents can manage tasks and notes from any project.
   // No onboarding decision — the scope is adjustable later in Settings.

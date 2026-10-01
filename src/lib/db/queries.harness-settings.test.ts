@@ -226,3 +226,18 @@ describe('custom (pinned) harness models', () => {
     q.updateUserState({ defaultHarness: 'claude' });
   });
 });
+
+
+describe('defaultTriggerHarness', () => {
+  it('uses Codex only when there is no saved harness', () => {
+    q.updateUserState({ defaultHarness: null });
+    expect(q.defaultTriggerHarness()).toBe('codex');
+    expect(q.getUserState()?.defaultHarness).toBeNull();
+  });
+
+  it('preserves an existing Claude choice', () => {
+    q.updateUserState({ defaultHarness: 'claude' });
+    expect(q.defaultTriggerHarness()).toBe('claude');
+    expect(q.getUserState()?.defaultHarness).toBe('claude');
+  });
+});

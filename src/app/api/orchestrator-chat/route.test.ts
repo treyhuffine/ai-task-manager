@@ -44,17 +44,19 @@ describe('GET /api/orchestrator-chat — seeds model + effort from defaults', ()
     });
 
     const { session } = await (await GET(new Request('http://localhost/api'))).json();
+    expect(session.harness).toBe('claude');
     expect(session.model).toBe('opus');
     expect(session.effort).toBe('high');
   });
 
-  it('null defaults resolve to an explicit provider tuple', async () => {
+  it('null defaults resolve to the Codex tuple', async () => {
     const { session } = await (await GET(new Request('http://localhost/api'))).json();
-    expect(session.model).toBe('opus');
+    expect(session.harness).toBe('codex');
+    expect(session.model).toBe('gpt-6-astra');
     expect(session.effort).toBe('medium');
     expect(getUserState()).toMatchObject({
-      defaultHarness: 'claude',
-      defaultModel: 'opus',
+      defaultHarness: 'codex',
+      defaultModel: 'gpt-6-astra',
       defaultEffort: 'medium',
     });
   });

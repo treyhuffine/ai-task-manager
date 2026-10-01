@@ -16,7 +16,7 @@
  * structured-JSON variant with zod validation plus one retry.
  *
  * Harness resolution: `defaultHarness` from user state (the same
- * default the orchestrator chat uses), falling back to claude. Model:
+ * default the orchestrator chat uses), falling back to Codex. Model:
  * `standard` prefers the user's `defaultModel` when it belongs to the
  * resolved provider, else the CLI's own default; `fast` uses the provider's
  * cheap alias (haiku / gpt-5.4-mini).
@@ -29,6 +29,7 @@
  * installed AGENTS.md surface documents the action CLI) or to no tools.
  */
 
+import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 import {
   getProvider,
   type ExecutionResult,
@@ -86,7 +87,7 @@ export interface HarnessOneShotResult {
 
 /** The provider id background calls run on: the user's default agent harness. */
 export function resolveBackgroundHarness(): ProviderId {
-  return (getUserState()?.defaultHarness as ProviderId | null) ?? 'claude';
+  return (getUserState()?.defaultHarness as ProviderId | null) ?? DEFAULT_HARNESS;
 }
 
 /** Whether the resolved harness can attach MCP servers (Claude yes, Codex not yet). */

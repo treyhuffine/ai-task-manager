@@ -13,6 +13,7 @@ import { sql } from 'drizzle-orm';
 import type { SnakeizeKeys } from '@/lib/case/keys';
 import { TASK_STATUSES } from '@/lib/tasks/lifecycle';
 import { PERMISSION_MODES } from '@/lib/permissions/modes';
+import { KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
 
 // ─── Attachments ──────────────────────────────────────────────
 // Generic file reference stored on any entity that can carry uploads.
@@ -86,12 +87,10 @@ export interface WorkspaceConnectorScope {
   account?: WorkspaceConnectorScopeAccount;
 }
 
-// The engines a chat can run on. Same vocabulary as `HarnessId` in
-// src/lib/harness/registry.ts (type tests in src/db/types.ts keep every
-// harness column in step with it). Stored on every chat, trigger and run as a
-// fact: which engine ran it. SQLite gets no CHECK for a text enum, so adding
-// an engine here is a TypeScript change and needs no migration.
-const HARNESS_VALUES = ['claude', 'codex', 'cursor', 'opencode', 'antigravity'] as const;
+// Stored chats, triggers and runs use every harness known to the registry,
+// including ones hidden by rollout flags. SQLite gets no CHECK for a text
+// enum, so adding a harness changes TypeScript types, not the SQL schema.
+const HARNESS_VALUES = KNOWN_HARNESS_IDS;
 
 // ─── User State ────────────────────────────────────────────────
 
