@@ -54,6 +54,7 @@ import { HOME_VIEW, executionView } from '@/lib/client/active-view';
 import { usePreviewController } from './preview/use-preview-controller';
 import { runDotClass } from './preview/run-status';
 import { useWorkbench, DEFAULT_PANEL_PCT, DEFAULT_TERMINAL_PCT } from './workbench/use-workbench';
+import { useWorkbenchViewRequests } from './workbench/view-request';
 import { PANEL_VIEW_LABELS, type PanelView } from './workbench/workbench-state';
 import { WorkbenchPanel } from './workbench/workbench-panel';
 import { TerminalDrawer } from './workbench/terminal-drawer';
@@ -362,6 +363,22 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
 
   // Transcript task / note chips fire `ri:open-reference`: show Notes & tasks.
   useOpenReferenceListener(useCallback(() => openViewHere('notes', 'jump'), [openViewHere]));
+
+  // A view asked for from outside (Review in the archive dialog), usually
+  // just before navigating here, so neither half may have measured yet:
+  // open it on the half the viewport shows, or both while that's unknown.
+  const wideRef = useRef(wide);
+  wideRef.current = wide;
+  useWorkbenchViewRequests(
+    session?.id === sessionId ? sessionId : null,
+    useCallback((view: PanelView) => {
+      if (wideRef.current !== false) workbenchRef.current.show(view);
+      if (wideRef.current !== true) {
+        setToolsSheetOpen(false);
+        setMobileView(view);
+      }
+    }, []),
+  );
 
   // Lets the file tree drop an `@<path>` token into the composer when the
   // user picks "Reference in chat" from a row's menu.

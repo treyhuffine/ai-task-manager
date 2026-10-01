@@ -383,11 +383,12 @@ Non-git workspaces have no diff stats — render nothing.
 
 ### Archive
 
-When a session is archived:
+Archive happens on the click, with no "are you sure". It's undone from History, and a clean worktree loses nothing. The one exception is work that would be lost. When an execution is archived (`archiveSessionWorktree` in `src/lib/workspaces/index.ts`, the same on the home and on a device's worker):
 
-1. For git workspaces: open the workspace handle (`workspace.open(...)`) and check `ws.git.status()` for dirty/unpushed state. If anything is uncommitted or unpushed, refuse archive and show a confirm dialog ("This worktree has uncommitted changes. Archive anyway? Changes will be lost.").
-2. If user confirms (or no dirty state): call `ws.archive()` (runs the `archive` script if declared, then `git worktree remove --force`).
-3. Set `chat_sessions.archived_at = now()`, `status = 'archived'`.
+1. For git workspaces: read the worktree's status before anything else. Files that aren't committed (untracked or changed) refuse the archive with `DirtyWorktreeError`, before the teardown script runs, so a refused archive leaves everything running as it was. Commits that aren't pushed don't count: archive keeps the branch, and reopening checks it out again. (agentex refuses them on its own, and every execution branch has some, since it's rooted at `origin/main` and tracks it. Ri lets those through.)
+2. The archive route answers that refusal with 409 `dirty_worktree` and the files at stake: `files` (`{ path, change: 'untracked' | 'changed' }`, a new folder listed file by file, ignored files left out, at most 500) and `omitted` for the rest. A device relays its list through the worker command's result.
+3. The client (`useArchiveExecution`) shows them in a dialog with three ways out: Review changes (opens the execution on its Changes view), Cancel, or Archive anyway, which POSTs again with `force: true`. Bulk archive does the same for every refused execution in one dialog, each with its own Review link. Agents get the files named in `archive_execution`'s conflict message.
+4. Otherwise, or once forced: run the teardown, then `ws.archive()` (runs the `archive` script if declared, then `git worktree remove`), and set the execution `status = 'archived'`, cascading to its chats.
 
 For non-git workspaces, archive is just the DB update; nothing on disk to clean.
 

@@ -227,20 +227,43 @@ describe('archive_execution', () => {
     }));
   });
 
-  it('says what would be lost when the worktree is dirty, and points at force', async () => {
+  it('names the files that would be lost when the worktree is dirty, and points at force', async () => {
     const { execution } = await seed();
     const { ServerResponseError } = await import('./server-client');
     serverFetch.mockRejectedValueOnce(new ServerResponseError(
       409,
-      JSON.stringify({ error: 'DirtyWorktreeError', code: 'dirty_worktree', message: '2 uncommitted files' }),
+      JSON.stringify({
+        error: 'DirtyWorktreeError',
+        code: 'dirty_worktree',
+        message: 'Workspace has uncommitted or unpushed work: 1 untracked, 1 modified',
+        label: 'Fix login',
+        files: [
+          { path: 'notes.md', change: 'untracked' },
+          { path: 'src/login.ts', change: 'changed' },
+        ],
+        omitted: 3,
+      }),
       'POST → 409',
     ));
     const envelope = await run('archive_execution', { sessionId: execution.id });
     expect(envelope).toMatchObject({ ok: false, error: { code: 'conflict' } });
     const error = (envelope as { error: { message: string; suggestion: string } }).error;
-    expect(error.message).toContain('uncommitted or unpushed work');
-    expect(error.message).toContain('2 uncommitted files');
+    expect(error.message).toContain('not committed');
+    expect(error.message).toContain('notes.md (untracked), src/login.ts (changed) and 3 more');
     expect(error.suggestion).toContain('force: true');
+  });
+
+  it('falls back to the server message from a device too old to list the files', async () => {
+    const { execution } = await seed();
+    const { ServerResponseError } = await import('./server-client');
+    serverFetch.mockRejectedValueOnce(new ServerResponseError(
+      409,
+      JSON.stringify({ error: 'DirtyWorktreeError', code: 'dirty_worktree', message: '2 uncommitted files', label: null, files: null, omitted: 0 }),
+      'POST → 409',
+    ));
+    const envelope = await run('archive_execution', { sessionId: execution.id });
+    const error = (envelope as { error: { message: string } }).error;
+    expect(error.message).toContain('2 uncommitted files');
   });
 
   it('is a no-op on an archived execution and refuses non-execution chats', async () => {

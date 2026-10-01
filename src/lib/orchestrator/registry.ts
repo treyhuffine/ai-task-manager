@@ -111,6 +111,7 @@ import { getTriageMetrics } from '@/lib/stream-triage/metrics';
 import { onStreamCaptured } from '@/lib/stream-triage/triggers';
 import { getNotifierUserId } from '@/lib/notifications/user';
 import { detectIsGit, detectBaseBranch } from '@/lib/workspaces';
+import { describeUncommittedFiles, type DirtyWorktreeBody } from '@/lib/workspaces/uncommitted-files';
 import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
 import { generateWebhookCredentials } from '@/lib/triggers/webhook';
 import { isReservedTrigger, lockedFieldsFor } from '@/lib/triggers/reserved';
@@ -2774,9 +2775,9 @@ const archive_execution_action = defineAction({
   name: 'archive_execution',
   description:
     'Archive an execution when its work is done: removes its worktree (git workspaces) and hides it from ' +
-    'active lists. Pass any chat of the execution. If the worktree has uncommitted or unpushed work, this ' +
-    'fails with a conflict that says so, and force: true archives anyway, losing that work. Archiving an ' +
-    'archived execution is a no-op.',
+    'active lists. Pass any chat of the execution. Committed work stays on its branch, pushed or not. If the ' +
+    'worktree has files that are not committed (untracked or changed), this fails with a conflict naming ' +
+    'them, and force: true archives anyway, deleting them. Archiving an archived execution is a no-op.',
   params: {
     sessionId: z.string().min(1),
     force: z.boolean().optional(),
@@ -2802,12 +2803,15 @@ const archive_execution_action = defineAction({
         throw new ActionError('conflict', String(err.json()?.message ?? 'It is moving to another device.'), 'Archive it once it has arrived.');
       }
       if (err instanceof ServerResponseError && err.status === 409 && err.json()?.code === 'dirty_worktree') {
-        const detail = err.json()?.message;
+        const body = err.json() as Partial<DirtyWorktreeBody> | null;
+        const detail = Array.isArray(body?.files) && body.files.length > 0
+          ? describeUncommittedFiles(body.files, typeof body.omitted === 'number' ? body.omitted : 0)
+          : body?.message;
         throw new ActionError(
           'conflict',
-          'This execution has uncommitted or unpushed work in its worktree. Archiving removes the worktree and ' +
-            `that work with it.${typeof detail === 'string' ? ` (${detail})` : ''}`,
-          'Commit or push it first, or pass force: true to archive anyway.',
+          'This execution has files in its worktree that are not committed. Archiving removes the worktree and ' +
+            `deletes them.${typeof detail === 'string' ? ` (${detail})` : ''}`,
+          'Commit them first, or pass force: true to archive anyway.',
         );
       }
       throw err;

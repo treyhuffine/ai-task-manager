@@ -28,8 +28,8 @@ interface HoverState {
 interface HoverContextValue {
   state: HoverState | null;
   /** Show the preview after a brief delay so flicking past rows doesn't
-   *  pop a panel for every one. */
-  onRowEnter: (sessionId: string, anchor: HoverAnchor) => void;
+   *  pop a panel for every one. `owner` identifies the row, for `release`. */
+  onRowEnter: (sessionId: string, anchor: HoverAnchor, owner?: object) => void;
   /** Trigger a close — cancellable if the cursor re-enters the row or
    *  moves onto the panel. */
   onRowLeave: () => void;
@@ -38,6 +38,12 @@ interface HoverContextValue {
   cancelClose: () => void;
   /** Hard-close the preview (e.g. clicked into a session, scrolled). */
   closeNow: () => void;
+  /**
+   * Close the preview if `owner`'s row opened it (or is about to). For a
+   * row that goes away under the cursor, archived from its own menu, say:
+   * it never gets the mouseleave that would close its panel.
+   */
+  release: (owner: object) => void;
 }
 
 const HoverContext = createContext<HoverContextValue | null>(null);
@@ -49,6 +55,8 @@ export function SessionHoverProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<HoverState | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The row the open (or pending) preview belongs to.
+  const owner = useRef<object | null>(null);
 
   const clearTimers = useCallback(() => {
     if (openTimer.current) {
@@ -62,7 +70,8 @@ export function SessionHoverProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const onRowEnter = useCallback(
-    (sessionId: string, anchor: HoverAnchor) => {
+    (sessionId: string, anchor: HoverAnchor, rowOwner?: object) => {
+      owner.current = rowOwner ?? null;
       // Cancel any pending close — cursor came back.
       if (closeTimer.current) {
         clearTimeout(closeTimer.current);
@@ -108,12 +117,22 @@ export function SessionHoverProvider({ children }: { children: ReactNode }) {
     setState(null);
   }, [clearTimers]);
 
+  const release = useCallback(
+    (rowOwner: object) => {
+      if (owner.current !== rowOwner) return;
+      owner.current = null;
+      clearTimers();
+      setState(null);
+    },
+    [clearTimers],
+  );
+
   // Clear any pending timers if the provider unmounts mid-delay.
   useEffect(() => () => clearTimers(), [clearTimers]);
 
   const value = useMemo<HoverContextValue>(
-    () => ({ state, onRowEnter, onRowLeave, cancelClose, closeNow }),
-    [state, onRowEnter, onRowLeave, cancelClose, closeNow],
+    () => ({ state, onRowEnter, onRowLeave, cancelClose, closeNow, release }),
+    [state, onRowEnter, onRowLeave, cancelClose, closeNow, release],
   );
 
   return <HoverContext.Provider value={value}>{children}</HoverContext.Provider>;
@@ -134,8 +153,12 @@ export function useSessionHover() {
  * panel can be triggered from any rail rendering.
  */
 export function useSessionRowHover(sessionId: string) {
-  const { onRowEnter, onRowLeave, closeNow } = useSessionHover();
+  const { onRowEnter, onRowLeave, closeNow, release } = useSessionHover();
   const rowRef = useRef<HTMLDivElement | null>(null);
+
+  // Gone while hovered (archived, moved to another section): take its
+  // preview with it, or the panel floats beside a row that isn't there.
+  useEffect(() => () => release(rowRef), [release]);
 
   const onMouseEnter = useCallback(() => {
     const row = rowRef.current;
@@ -143,11 +166,15 @@ export function useSessionRowHover(sessionId: string) {
     const rect = row.getBoundingClientRect();
     const rail = row.closest('aside');
     const railRight = rail?.getBoundingClientRect().right ?? rect.right;
-    onRowEnter(sessionId, {
-      top: rect.top,
-      bottom: rect.bottom,
-      railRight,
-    });
+    onRowEnter(
+      sessionId,
+      {
+        top: rect.top,
+        bottom: rect.bottom,
+        railRight,
+      },
+      rowRef,
+    );
   }, [onRowEnter, sessionId]);
 
   return { rowRef, onMouseEnter, onMouseLeave: onRowLeave, closeNow };

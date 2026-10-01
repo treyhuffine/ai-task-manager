@@ -653,7 +653,11 @@ describe('the controls follow the work (P4.5)', () => {
     const { chatId, executionId, there, branch } = await startedOnLaptop();
 
     fs.writeFileSync(path.join(there, 'README.md'), '# unsaved\n');
-    expect(await call('archive', chatId)).toMatchObject({ status: 409, body: { code: 'dirty_worktree' } });
+    // The laptop names what archiving would delete, for the dialog that lists it.
+    expect(await call('archive', chatId)).toMatchObject({
+      status: 409,
+      body: { code: 'dirty_worktree', files: expect.arrayContaining([{ path: 'README.md', change: 'changed' }]) },
+    });
     expect(fs.existsSync(there)).toBe(true);
     expect(q.getExecution(executionId)!.status).not.toBe('archived');
 

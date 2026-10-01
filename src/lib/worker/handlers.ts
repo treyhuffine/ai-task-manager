@@ -38,6 +38,7 @@ import { reviewHere } from '@/lib/transfer/review';
 import { runGithub, type GithubRequest } from '@/lib/github/execution-github';
 import { pullBaseInto, pushExecutionBranch } from '@/lib/workspaces/branch-sync';
 import { looksLikeNonFastForward } from '@/lib/workspaces/git-errors';
+import { uncommittedFilesOf } from '@/lib/workspaces/uncommitted-files';
 import { fetchInputFiles, inputFilesDir, placeInputFiles } from './input-files';
 import { UnsupportedRequestError, type RequestHandler } from './run';
 import { applySetupHere, planSetupHere, SetupError, type SetupAgentRequest } from '@/lib/setups/set-up-here';
@@ -631,7 +632,9 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
                 : payload.op === 'archive_worktree' && (err as { name?: string }).name === 'DirtyWorktreeError'
                   ? 'dirty_worktree'
                   : (err as { name?: string }).name;
-        return { state: 'failed', error: err instanceof Error ? err.message : String(err), result: { code } };
+        // A refused archive names the files it would have deleted, for the person deciding.
+        const list = code === 'dirty_worktree' ? uncommittedFilesOf(err) : null;
+        return { state: 'failed', error: err instanceof Error ? err.message : String(err), result: list ? { code, ...list } : { code } };
       }
     },
     // Each is safe to repeat: a checkpoint finds its commit, a push has

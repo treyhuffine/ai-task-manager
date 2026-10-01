@@ -18,6 +18,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 export interface ConfirmOptions {
   title: string;
@@ -33,6 +35,19 @@ export interface ConfirmOptions {
    * actions. `default` is the neutral primary style.
    */
   tone?: 'default' | 'destructive';
+  /**
+   * Block content below the description, for what the description can't
+   * hold (it renders as a paragraph): a list of what's at stake, say.
+   */
+  content?: ReactNode;
+  /** `wide` gives `content` more room, on a phone too. */
+  size?: 'default' | 'wide';
+  /**
+   * A third way out, on the footer's left: it closes the dialog (resolving
+   * `false`, as cancel does) and then runs `onSelect`. For "look first"
+   * choices like reviewing what a destructive action would remove.
+   */
+  secondaryAction?: { label: string; icon?: ReactNode; onSelect: () => void };
 }
 
 type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>;
@@ -84,14 +99,33 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           if (!next) settle(false);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          className={cn(
+            opts?.size === 'wide' && 'data-[size=default]:max-w-[calc(100%-2rem)] data-[size=default]:sm:max-w-lg',
+          )}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>{opts?.title}</AlertDialogTitle>
             {opts?.description != null && (
               <AlertDialogDescription>{opts.description}</AlertDialogDescription>
             )}
           </AlertDialogHeader>
+          {opts?.content != null && <div className="min-w-0">{opts.content}</div>}
           <AlertDialogFooter>
+            {opts?.secondaryAction && (
+              <Button
+                variant="ghost"
+                className="sm:mr-auto"
+                onClick={() => {
+                  const { onSelect } = opts.secondaryAction!;
+                  settle(false);
+                  onSelect();
+                }}
+              >
+                {opts.secondaryAction.icon}
+                {opts.secondaryAction.label}
+              </Button>
+            )}
             <AlertDialogCancel onClick={() => settle(false)}>
               {opts?.cancelLabel ?? 'Cancel'}
             </AlertDialogCancel>

@@ -16,7 +16,7 @@ import {
   usePinSession,
   useUnpinSession,
 } from '@/hooks/use-workspaces';
-import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
+import { useArchiveExecution } from '@/hooks/use-archive-execution';
 import { cn } from '@/lib/utils';
 
 interface SessionRowMenuProps {
@@ -66,14 +66,14 @@ export function SessionRowMenu({
   onOpenLauncher,
   className,
 }: SessionRowMenuProps) {
-  const { confirmArchive } = useArchiveWithConfirm();
+  const { archive } = useArchiveExecution();
   const markRead = useMarkSessionRead();
   const markUnread = useMarkSessionUnread();
   const pin = usePinSession();
   const unpin = useUnpinSession();
 
   const handleArchive = () => {
-    void confirmArchive({ id: sessionId, label });
+    void archive({ id: sessionId, label });
   };
 
   const showWorkspaceGroup =

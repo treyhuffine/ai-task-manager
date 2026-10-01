@@ -3,7 +3,7 @@
 import { Archive, GitBranch, Moon, Pin, PinOff } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useDiffStats, useUnpinSession } from '@/hooks/use-workspaces';
-import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
+import { useArchiveExecution } from '@/hooks/use-archive-execution';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
@@ -332,7 +332,7 @@ export function SessionRow({
  */
 function InactiveQuickActions({ sessionId, label, isPinned }: { sessionId: string; label: string; isPinned: boolean }) {
   const unpin = useUnpinSession();
-  const { confirmArchive } = useArchiveWithConfirm();
+  const { archive } = useArchiveExecution();
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
   const button =
     'p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/40';
@@ -362,7 +362,7 @@ function InactiveQuickActions({ sessionId, label, isPinned }: { sessionId: strin
         className={button}
         onClick={(e) => {
           stop(e);
-          void confirmArchive({ id: sessionId, label });
+          void archive({ id: sessionId, label });
         }}
       >
         <Archive size={12} />

@@ -29,6 +29,8 @@ import { AgentRailRow } from './agent-rail-row';
 import { useRailStyle } from '@/lib/client/rail-style';
 import { WorkspaceCreateModal } from './workspace-create-modal';
 import { useBulkArchiveSessions } from '@/hooks/use-workspaces';
+import { useReviewChanges } from '@/hooks/use-archive-execution';
+import { archiveAnywayDialog } from '@/components/executions/uncommitted-files';
 import { startExecution } from '@/lib/executions/start-execution';
 import { useDashboard } from '@/contexts/dashboard-context';
 import {
@@ -76,25 +78,21 @@ function WorkspaceNavInner() {
   const { selecting, count, selectedIds, enter, exit } = selection;
   const bulkArchive = useBulkArchiveSessions();
   const confirm = useConfirm();
+  const reviewChanges = useReviewChanges();
 
   const handleConfirmArchive = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0 || bulkArchive.isPending) return;
 
-    // First pass: archive everything that's clean. Dirty worktrees come
-    // back unforced so we can confirm the data loss before discarding.
+    // First pass: archive everything that's clean. Worktrees with files
+    // that aren't committed come back unforced, naming those files, so the
+    // person sees what archiving them anyway would delete.
     const result = await bulkArchive.mutateAsync({ ids, force: false });
 
     if (result.dirty.length > 0) {
-      const n = result.dirty.length;
-      const ok = await confirm({
-        title: 'Discard uncommitted changes?',
-        description: `${n} of the selected execution${n === 1 ? ' has' : 's have'} uncommitted or unpushed work. Archiving removes those worktrees from disk, which permanently deletes any changes that haven't been committed. Committed work stays on each branch.`,
-        confirmLabel: `Archive and discard ${n}`,
-        tone: 'destructive',
-      });
+      const ok = await confirm(archiveAnywayDialog(result.dirty, reviewChanges));
       if (ok) {
-        const forced = await bulkArchive.mutateAsync({ ids: result.dirty, force: true });
+        const forced = await bulkArchive.mutateAsync({ ids: result.dirty.map((d) => d.id), force: true });
         result.failed.push(...forced.failed);
       }
     }

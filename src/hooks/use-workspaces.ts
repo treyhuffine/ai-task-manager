@@ -3,6 +3,7 @@ import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
 import { sessionsApi, type RailResponse, type HistoryResponse } from '@/lib/api/sessions';
 import { worktreeScopeFor } from '@/hooks/use-execution';
 import { ApiError } from '@/lib/api/client';
+import type { DirtyWorktreeBody, UncommittedFile } from '@/lib/workspaces/uncommitted-files';
 import type {
   ChatSessionRecord,
   ChatSessionWithExecution,
@@ -509,8 +510,8 @@ function dropSessionFromCaches(
  * (optimistic remove across all session caches); a failed request rolls
  * the snapshots back so the row reappears exactly where it was. The
  * dirty-worktree 409 is an expected "failure" here — the caller catches
- * it, the optimistic remove rolls back, and the row is gone again once
- * the user confirms the force pass.
+ * it, the optimistic remove rolls back, and the row is gone again if
+ * the person archives anyway after seeing the files.
  */
 export function useArchiveSession() {
   const qc = useQueryClient();
@@ -543,17 +544,45 @@ export function useArchiveSession() {
 }
 
 /**
+ * The archive route's 409 for a worktree with work that isn't committed,
+ * or null for any other error. Carries the files that would be lost.
+ */
+export function dirtyWorktreeOf(err: unknown): DirtyWorktreeBody | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  const body = err.body as Partial<DirtyWorktreeBody> | null;
+  if (body?.code !== 'dirty_worktree') return null;
+  return {
+    error: 'DirtyWorktreeError',
+    code: 'dirty_worktree',
+    message: typeof body.message === 'string' ? body.message : '',
+    label: typeof body.label === 'string' ? body.label : null,
+    files: Array.isArray(body.files) ? body.files : null,
+    omitted: typeof body.omitted === 'number' ? body.omitted : 0,
+  };
+}
+
+/** An execution the archive refused, with what archiving it anyway would delete. */
+export interface DirtyArchive {
+  id: string;
+  label: string | null;
+  /** Null when its device couldn't list them. */
+  files: UncommittedFile[] | null;
+  /** Files past the listed cap, counted but not named. */
+  omitted: number;
+}
+
+/**
  * Outcome of a bulk archive pass, partitioned so the caller can decide
  * what to do next:
  *   - `succeeded` — cleanly archived.
  *   - `dirty` — refused with 409 `dirty_worktree`; archivable only by a
- *     second force pass (which discards local changes), so it's surfaced
- *     for an explicit confirm rather than forced silently.
+ *     second force pass (which deletes the files listed), so it's surfaced
+ *     for an explicit decision rather than forced silently.
  *   - `failed` — any other error, with a message for the user.
  */
 export interface BulkArchiveResult {
   succeeded: string[];
-  dirty: string[];
+  dirty: DirtyArchive[];
   failed: { id: string; message: string }[];
 }
 
@@ -582,12 +611,9 @@ export function useBulkArchiveSessions() {
           return;
         }
         const err = outcome.reason;
-        const isDirty =
-          err instanceof ApiError &&
-          err.status === 409 &&
-          (err.body as { code?: string } | null)?.code === 'dirty_worktree';
-        if (isDirty) {
-          result.dirty.push(id);
+        const dirty = dirtyWorktreeOf(err);
+        if (dirty) {
+          result.dirty.push({ id, label: dirty.label, files: dirty.files, omitted: dirty.omitted });
         } else {
           result.failed.push({
             id,

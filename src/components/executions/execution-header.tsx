@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { HOTKEYS } from '@/constants/commands';
-import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
+import { useArchiveExecution } from '@/hooks/use-archive-execution';
 import { useDeliveries, useLastTurnEndedAt, useUpdateSession } from '@/hooks/use-execution';
 import { useMarkSessionRead, useMarkSessionUnread, usePinSession, useUnpinSession } from '@/hooks/use-workspaces';
 import { useOpener } from '@/hooks/use-opener';
@@ -106,7 +106,7 @@ export function ExecutionHeader({
   toolsBadgeClass,
 }: ExecutionHeaderProps) {
   const { pendingInputSessionIds, setActiveView, openAgent } = useDashboard();
-  const { confirmArchive } = useArchiveWithConfirm();
+  const { archive } = useArchiveExecution();
   const updateSession = useUpdateSession();
   const markRead = useMarkSessionRead();
   const markUnread = useMarkSessionUnread();
@@ -231,7 +231,7 @@ export function ExecutionHeader({
   );
 
   const handleArchive = () => {
-    void confirmArchive({
+    void archive({
       id: session.id,
       label: displayLabel,
       onArchived: () => setActiveView(HOME_VIEW),

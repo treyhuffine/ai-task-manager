@@ -53,6 +53,7 @@ import {
   clearPlacementWorktree,
 } from '@/lib/db/queries';
 import type { CreateWorktreeForSessionResult } from '@/lib/workspaces';
+import type { UncommittedList } from '@/lib/workspaces/uncommitted-files';
 import {
   createWorktreeForSession,
   resumeWorktreeForSession,
@@ -648,10 +649,11 @@ function normalizePrNumber(raw: number | null | undefined): number | null {
 export interface ArchiveExecutionSessionArgs {
   sessionId: string;
   /**
-   * If `false` (default), worktrees with uncommitted/unpushed changes
-   * cause `DirtyWorktreeError` to propagate so the caller can prompt the
-   * user. If `true`, force-archive — `git worktree remove --force` runs
-   * regardless of dirty state and uncommitted work is lost.
+   * If `false` (default), a worktree with work that isn't committed
+   * (untracked or changed files) makes `DirtyWorktreeError` propagate so
+   * the caller can show the person what would be lost. Commits that
+   * aren't pushed don't: the branch keeps them. If `true`, force-archive:
+   * `git worktree remove --force` runs regardless and that work is lost.
    */
   force?: boolean;
 }
@@ -744,7 +746,11 @@ async function archiveAdmitted(
 
 /** A worktree with work that isn't committed, on another device (P4.5): archiving it would lose that. */
 export class RemoteDirtyWorktreeError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** What it would lose, as the device listed it. Null from a worker too old to list it. */
+    readonly list: UncommittedList | null,
+  ) {
     super(message);
     this.name = 'DirtyWorktreeError';
   }
@@ -772,8 +778,10 @@ async function archiveOnOwner(
     await awaitWorkerCommand(quiesce.id, 60_000, 'Stopping it');
     await awaitWorkerCommand(remove.id, 120_000, 'Removing its worktree');
   } catch (err) {
-    if (err instanceof CommandFailedError && (err.result as { code?: string } | null)?.code === 'dirty_worktree') {
-      throw new RemoteDirtyWorktreeError(err.message);
+    const result = err instanceof CommandFailedError ? (err.result as ({ code?: string } & Partial<UncommittedList>) | null) : null;
+    if (result?.code === 'dirty_worktree') {
+      const list = Array.isArray(result.files) ? { files: result.files, omitted: typeof result.omitted === 'number' ? result.omitted : 0 } : null;
+      throw new RemoteDirtyWorktreeError(err instanceof Error ? err.message : String(err), list);
     }
     // Anything else leaves the worktree where it is. The record is archived all the same.
     console.warn(`[archive] ${executionId} on ${getDevice(placement.deviceId)?.name}:`, err instanceof Error ? err.message : err);

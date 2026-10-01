@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { ArrowUpToLine, ArrowDownToLine, ArrowUpRight, CheckCircle2, XCircle, Clock, AlertCircle, Archive, GitMerge, RotateCw } from 'lucide-react';
 import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState, type OpenablePr } from '@/hooks/use-execution-actions';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
-import { useArchiveWithConfirm } from '@/hooks/use-archive-with-confirm';
+import { useArchiveExecution } from '@/hooks/use-archive-execution';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { ApiError } from '@/lib/api/client';
 import { ActionButton } from './action-button';
@@ -53,7 +53,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row', fit = 
     session,
     workspace?.isGit ?? false,
   );
-  const { confirmArchive, isPending: archivePending } = useArchiveWithConfirm();
+  const { archive, isPending: archivePending } = useArchiveExecution();
   const helpWithError = useHelpWithError(session.id);
   const { setActiveView } = useDashboard();
 
@@ -91,7 +91,7 @@ export function ExecutionActionBar({ session, workspace, variant = 'row', fit = 
   };
 
   const handleArchive = () => {
-    void confirmArchive({
+    void archive({
       id: session.id,
       label: session.execution?.label ?? session.label,
       onArchived: () => setActiveView(HOME_VIEW),

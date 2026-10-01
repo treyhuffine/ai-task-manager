@@ -763,7 +763,14 @@ async function resolveLiveBaseSha(
 
 /**
  * Tear down a session's worktree. Idempotent — if the path is already gone
- * we treat that as success. Throws on dirty/unpushed unless `force` is set.
+ * we treat that as success. Throws agentex's `DirtyWorktreeError` when the
+ * worktree has work that isn't committed, unless `force` is set.
+ *
+ * Commits the branch hasn't pushed don't stop it. Archive removes the
+ * worktree and keeps the branch, and reopening checks that branch out
+ * again, so they aren't lost. agentex refuses them all the same, and every
+ * execution branch has some: it's rooted at `origin/main` and tracks it,
+ * so each commit counts as unpushed until the first push.
  */
 export async function archiveSessionWorktree(args: {
   session: WorktreePointer;
@@ -775,6 +782,15 @@ export async function archiveSessionWorktree(args: {
 }): Promise<void> {
   if (!args.session.worktreePath) return;
   const worktreePath = args.session.worktreePath;
+  const lib = await loadLib();
+
+  // Refuse before the teardown, not after it: a teardown stops what the
+  // worktree runs, and an archive the person then cancels to review the
+  // files should leave all of it as it was.
+  if (!args.force) {
+    const status = await readWorktreeStatus(lib, worktreePath, args.sourceCheckoutPath);
+    if (status?.dirty) throw new lib.DirtyWorktreeError(status);
+  }
 
   // Teardown runs while the worktree still exists, and is best-effort: a failing
   // teardown must not block archive (you should always be able to clean up).
@@ -789,12 +805,60 @@ export async function archiveSessionWorktree(args: {
     }
   }
 
-  const lib = await loadLib();
+  // agentex checks again as it removes, so nothing written since the read
+  // above is deleted unasked. Only unpushed commits are let through.
+  let force = args.force ?? false;
+  for (;;) {
+    try {
+      await lib.workspace.archive(worktreePath, { force });
+      return;
+    } catch (err) {
+      if (err instanceof lib.WorkspaceNotFoundError) return;
+      if (!force && err instanceof lib.DirtyWorktreeError && !err.status.dirty) {
+        force = true;
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/**
+ * The worktree's git status, or null when it can't be read (gone, or not a
+ * worktree agentex can open). Null skips only the early refusal: agentex's
+ * own check at removal still guards the files.
+ */
+async function readWorktreeStatus(
+  lib: AgentexWorkspace,
+  worktreePath: string,
+  source: string | undefined,
+): Promise<import('@agentex/workspace').WorkspaceStatus | null> {
   try {
-    await lib.workspace.archive(worktreePath, { force: args.force ?? false });
-  } catch (err) {
-    if (err instanceof lib.WorkspaceNotFoundError) return;
-    throw err;
+    const handle = await lib.workspace.open(worktreePath, source && source !== worktreePath ? { source } : {});
+    if (handle.kind !== 'git') return null;
+    const status = await handle.git.status();
+    if (!status.untracked.some((p) => p.endsWith('/'))) return status;
+    return { ...status, untracked: await listUntrackedFiles(worktreePath, status.untracked) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every untracked file on its own, where git status folds a new folder into
+ * one `dir/` entry: the person deciding should see the files they'd lose,
+ * not just the folder holding them. Ignored files stay out, as in status.
+ * Falls back to the folded list if git can't list them.
+ */
+async function listUntrackedFiles(worktreePath: string, folded: string[]): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+      cwd: worktreePath,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    return stdout.split('\0').filter(Boolean).sort();
+  } catch {
+    return folded;
   }
 }
 
