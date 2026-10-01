@@ -21,16 +21,28 @@ import { api, apiErrorText } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import type { AreaSuggestion } from '@/lib/onboarding/area-suggestions';
 import { OnboardingApps } from './onboarding-apps';
-import { AreasStep, areasLines, useAreaSuggestions } from './onboarding-areas';
+import { AreasStep, NO_AREAS, areasLines, useAreaSuggestions } from './onboarding-areas';
 import { HarnessStep, harnessLines } from './onboarding-harness';
-import { ImportStep, importLines, importableHistory, useImportDiscovery, type ImportableHistory } from './onboarding-import';
+import {
+  ImportProgress,
+  ImportStep,
+  importQuestion,
+  importableHistory,
+  recentProjects,
+  useImportDiscovery,
+  type ImportableHistory,
+} from './onboarding-import';
+import { ABOUT_SKIPPED, AboutStep, aboutQuestion, useAboutDraft } from './onboarding-about';
+import { useImportRun } from './import-runner';
 import { Card, PrimaryButton, QuietButton, Reply, Says, Turn, Typing } from './onboarding-ui';
 import { useHarnessCheck, type HarnessCheck } from './use-harness-check';
 import {
   FIRST_PROGRESS,
+  STEP_ORDER,
   nextStep,
   progressStorageKey,
   readProgress,
+  stepApplies,
   stepsThrough,
   type OnboardingProgress,
   type OnboardingStep,
@@ -96,24 +108,37 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
   const { data: check } = useHarnessCheck(hydrated && harnessPending);
 
   // History to bring in, looked for from the start (it can take a while).
+  // What counts is a recent project still on disk: that's what the import
+  // step offers and what the "working on" draft is written from.
   const discovery = useImportDiscovery(hydrated && !!userState);
   const history = discovery.data ? importableHistory(discovery.data) : null;
-  const importFound = discovery.isPending ? null : discovery.isError ? false : (history?.chats ?? 0) > 0;
-
-  // Area suggestions, once there's something to go on and a harness to ask.
-  const projectNames = (workspaces ?? []).map((w) => w.name);
-  const importSettled = progress.replies.import !== undefined || importFound === false;
-  const areaSuggestions = useAreaSuggestions(
-    { about: userState?.description ?? '', projects: projectNames },
-    hydrated && !harnessPending && progress.replies.about !== undefined && importSettled && (areas?.length ?? 0) === 0,
-  );
+  const recent = discovery.data ? recentProjects(discovery.data) : [];
+  const importFound = discovery.isPending ? null : discovery.isError ? false : recent.length > 0;
+  const importRun = useImportRun();
 
   const ctx: StepContext = {
     needsHarness,
     importFound,
+    hasDescription: !!userState?.description?.trim(),
     hasAreas: (areas?.length ?? 0) > 0,
     hasAgents: (workspaces?.length ?? 0) > 0,
+    importingAgents: !!importRun && importRun.status !== 'failed',
   };
+
+  // A draft of what they're working on, from that history, once a harness
+  // can write it. Usually ready by the time the step comes up.
+  const aboutDraft = useAboutDraft(
+    { userName: userState?.name?.trim() || null, projects: recent.map((p) => ({ name: p.name, titles: p.titles.slice(0, 4) })) },
+    hydrated && !harnessPending && stepApplies('about', ctx) && progress.replies.about === undefined,
+  );
+
+  // Area suggestions, once what they're working on is settled.
+  const aboutSettled = progress.replies.about !== undefined || (importFound !== null && !stepApplies('about', ctx));
+  const projectNames = [...new Set([...(workspaces ?? []).map((w) => w.name), ...(importRun?.projects ?? [])])];
+  const areaSuggestions = useAreaSuggestions(
+    { about: userState?.description ?? '', projects: projectNames },
+    hydrated && !harnessPending && aboutSettled && !ctx.hasAreas,
+  );
   const finished = progress.step === 'done';
 
   // Reaching the end is finishing: record it once, so the next empty chat
@@ -221,10 +246,14 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
                 <HarnessStep check={check} onDone={(r) => advance('harness', r)} />
               ) : step === 'you' ? (
                 <YouStep initial={userState.name ?? ''} onDone={(name) => advance('you', name)} />
-              ) : step === 'about' ? (
-                <AboutStep initial={userState.description ?? ''} onDone={(text) => advance('about', text)} />
               ) : step === 'import' ? (
                 <ImportStep discovery={discovery.data} loading={discovery.isPending} onDone={(r) => advance('import', r)} />
+              ) : step === 'about' ? (
+                <AboutStep
+                  draft={aboutDraft.data?.about ?? ''}
+                  drafting={aboutDraft.isFetching}
+                  onDone={(text) => advance('about', text)}
+                />
               ) : step === 'areas' ? (
                 <AreasStep
                   suggestions={said.suggestions}
@@ -241,6 +270,8 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
             </div>
           );
         })}
+        {/* An import keeps running while the conversation goes on. */}
+        <ImportProgress />
         <div ref={endRef} />
       </div>
     </div>
@@ -274,9 +305,18 @@ function Greeting() {
   );
 }
 
-/** What the assistant says at a step, given what was answered before it. */
+/** What the assistant says at a step: a word on the last answer, then its question. */
 function lines(step: OnboardingStep, said: Said): ReactNode {
-  const { replies, userName } = said;
+  const ack = acknowledge(step, said.replies, said.userName);
+  return (
+    <>
+      {ack && <Says>{ack}</Says>}
+      {question(step, said)}
+    </>
+  );
+}
+
+function question(step: OnboardingStep, said: Said): ReactNode {
   switch (step) {
     case 'identity':
       return (
@@ -286,54 +326,21 @@ function lines(step: OnboardingStep, said: Said): ReactNode {
         </Says>
       );
     case 'harness':
-      return (
-        <>
-          <Says>{replies.identity ? `${replies.identity} it is.` : 'Good.'}</Says>
-          {harnessLines(said.check)}
-        </>
-      );
+      return harnessLines(said.check);
     case 'you':
-      return (
-        <>
-          {/* After the harness picker, the name was already acknowledged. */}
-          {!replies.harness && <Says>{replies.identity ? `${replies.identity} it is.` : 'Good.'}</Says>}
-          {replies.harness && <Says>That works. I can think now.</Says>}
-          <Says>And what should I call you?</Says>
-        </>
-      );
-    case 'about':
-      return (
-        <>
-          <Says>{userName ? `Nice to meet you, ${userName}.` : 'Nice to meet you.'}</Says>
-          <Says>
-            What are you working on these days? A line or two helps me plan your days, and your agents get the
-            context too.
-          </Says>
-        </>
-      );
+      return <Says>And what should I call you?</Says>;
     case 'import':
-      return (
-        <>
-          <Says>{replies.about === SKIPPED ? 'No problem. Tell me any time.' : 'Thanks, that helps.'}</Says>
-          {importLines(said.history)}
-        </>
-      );
+      return importQuestion(said.history);
+    case 'about':
+      return aboutQuestion();
     case 'areas':
-      return (
-        <>
-          <Says>{ackBefore('areas', replies)}</Says>
-          {areasLines(said.suggestions.length > 0)}
-        </>
-      );
+      return areasLines(said.suggestions.length > 0);
     case 'apps':
       return (
-        <>
-          <Says>{ackBefore('apps', replies)}</Says>
-          <Says>
-            Want me to work in the apps you already use? Connect them and I can read and act in them for you. I
-            check with you before I send anything or do anything that can’t be undone.
-          </Says>
-        </>
+        <Says>
+          Want me to work in the apps you already use? Connect them and I can read and act in them for you. I
+          check with you before I send anything or do anything that can’t be undone.
+        </Says>
       );
     case 'agent':
       return (
@@ -343,25 +350,47 @@ function lines(step: OnboardingStep, said: Said): ReactNode {
         </Says>
       );
     case 'done':
-      return (
-        <>
-          <Says>{userName ? `You’re all set, ${userName}.` : 'You’re all set.'}</Says>
-          <Says>Ask me anything below, or start with one of these.</Says>
-        </>
-      );
+      return <Says>Ask me anything below, or start with one of these.</Says>;
   }
 }
 
-/** A word on whatever was answered just before `step`, which depends on which steps this home had. */
-function ackBefore(step: 'areas' | 'apps', replies: OnboardingProgress['replies']): string {
-  if (step === 'apps' && replies.areas !== undefined) {
-    return replies.areas === 'No areas for now' ? 'Fine, we can add some later.' : 'Done. I’ll file things there.';
+/**
+ * A word on whatever was answered last, before the next question. Which step
+ * that was depends on what this home was asked (a skipped or silent step has
+ * no reply), so it's found rather than assumed.
+ */
+function acknowledge(step: OnboardingStep, replies: OnboardingProgress['replies'], userName: string | null): string | null {
+  if (step === 'identity') return null;
+  if (step === 'done') return userName ? `You’re all set, ${userName}.` : 'You’re all set.';
+  const before = STEP_ORDER.slice(0, STEP_ORDER.indexOf(step)).reverse();
+  const last = before.find((s) => !!replies[s]);
+  if (!last) return null;
+  const reply = replies[last]!;
+  switch (last) {
+    case 'identity':
+      return `${reply} it is.`;
+    case 'harness':
+      return 'That works. I can think now.';
+    case 'you':
+      return userName ? `Nice to meet you, ${userName}.` : 'Nice to meet you.';
+    case 'import':
+      return reply === 'Not now'
+        ? 'Okay, they stay where they are.'
+        : 'I’m bringing those in now. It takes a few minutes, so let’s keep going.';
+    case 'about':
+      return reply === ABOUT_SKIPPED ? 'No problem. Tell me any time.' : 'Thanks, that helps.';
+    case 'areas':
+      return reply === NO_AREAS ? 'Fine, we can add some later.' : 'Done. I’ll file things there.';
+    case 'apps':
+      return reply === 'Not now' ? 'Sure, connect them any time.' : 'Great.';
+    case 'agent':
+      return reply === 'Later' ? 'No rush.' : 'Nice.';
+    default:
+      return null;
   }
-  if (replies.import) return replies.import === 'Not now' ? 'Okay, it stays where it is.' : 'Got it, they’re in.';
-  return replies.about === SKIPPED ? 'No problem. Tell me any time.' : 'Thanks, that helps.';
 }
 
-const SKIPPED = 'Skip for now';
+
 
 // ─── Steps ────────────────────────────────────────────────────
 
@@ -427,46 +456,6 @@ function YouStep({ initial, onDone }: { initial: string; onDone: (name: string) 
       <PrimaryButton disabled={!trimmed} busy={update.isPending} onClick={submit}>
         Continue <ArrowRight size={12} />
       </PrimaryButton>
-    </Card>
-  );
-}
-
-function AboutStep({ initial, onDone }: { initial: string; onDone: (text: string) => void }) {
-  const update = useUpdateUserState();
-  const [text, setText] = useState(initial);
-  const trimmed = text.trim();
-  const submit = () => {
-    update.mutate(
-      { description: trimmed },
-      {
-        onSuccess: () => onDone(trimmed || SKIPPED),
-        onError: (err) => toast.error('Couldn’t save that', { description: apiErrorText(err) }),
-      },
-    );
-  };
-  return (
-    <Card>
-      <textarea
-        autoFocus
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            submit();
-          }
-        }}
-        rows={3}
-        placeholder="Running a small product studio, shipping a new app, training for a marathon…"
-        aria-label="What you're working on"
-        className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
-      />
-      <div className="mt-2 flex items-center justify-end gap-1.5">
-        {!trimmed && <QuietButton onClick={() => onDone(SKIPPED)}>Skip for now</QuietButton>}
-        <PrimaryButton disabled={!trimmed} busy={update.isPending} onClick={submit}>
-          Continue <ArrowRight size={12} />
-        </PrimaryButton>
-      </div>
     </Card>
   );
 }

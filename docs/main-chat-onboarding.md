@@ -29,14 +29,15 @@ Each step shows only when it applies to this home (`stepApplies`).
 | Name and look | Always | "What should I go by?" Name, a look (emoji, a picture, art made in the app, a color), ideas to start from. For a new home, a note about `ri connect` for people who meant to connect another computer. | `orchestratorName`, `orchestratorEmoji`, `orchestratorColor`, `orchestratorImage` |
 | Harness | A home that was never set up, and the background check couldn't set one up | "I need a way to think." The harness picker (sign-in check, a real test request, model, billing consent for a key-only setup) | The active harness and its default model, user state's default tuple, the agent skill |
 | You | Always | "What should I call you?" | `user_state.name` |
-| What you're working on | Always | A line or two, or Skip for now | `user_state.description` |
-| Import | History from Claude Code, Codex or OpenCode was found (shown while the search runs, and finished silently if it finds nothing) | "I found 340 chats across 12 projects from Claude Code. Want to bring some in?" The Settings, Imports panel | Agents (one per project) and their chats |
+| Import | History from Claude Code, Codex or OpenCode in a folder still on disk (shown while the search runs, and finished silently if it finds nothing) | "I found 1,604 chats across 685 projects. Want to bring in the ones you're working on now?" The eight most recent projects, the latest three worked in within two weeks already ticked. Bringing them in starts the import in the background and moves straight on | Agents (one per project) and their chats |
+| What you're working on | There's history to draft from and no description yet | A one or two sentence draft written from the recent projects and their chat titles, to confirm ("That's right"), fix or skip. Never a blank box: with no history it isn't asked | `user_state.description` |
 | Areas | No areas yet | "Want me to keep things in areas?" Suggestions from what you said and the projects you brought in, Work and Personal, or your own | Areas |
 | Apps | Always | Popular apps in a row and a search over all of them. Notes that it checks before sending anything or doing anything that can't be undone (the default Ask first policy) | Connections, through Settings |
-| A first agent | No agents yet (after import) | The New agent dialog, or Later | A workspace |
+| A first agent | No agents yet, and no import bringing some in | The New agent dialog, or Later | A workspace |
 | Done | Always | "You're all set", then the starters | `orchestratorIntroducedAt`, and `onboardedAt` for a new home |
 
-Each answer shows as the user's reply bubble, and the next message picks it up. A short typing beat
+Each answer shows as the user's reply bubble, and the next message picks up whichever answer came
+last (`acknowledge`), since which steps came before depends on the home. A short typing beat
 separates steps (skipped under reduced motion). "Skip setup" ends it at any point once a harness is
 set up. Before that, nothing would work, so it isn't offered.
 
@@ -53,12 +54,26 @@ Three things start in the background so the steps that need them rarely wait:
   another harness, it's started over on this one.
 - **The search for history** (`useImportDiscovery`), from the first message, under the same cache key
   as the import panel. It can take up to 90 seconds.
+- **The import itself** (`import-runner.ts`), once projects are picked: module-level, so the
+  conversation, and even leaving the chat, never waits on it. A progress line sits under the newest
+  message and a toast says when it's done.
+- **The "working on" draft** (`POST /api/onboarding/about-suggestion`,
+  `src/lib/onboarding/about-suggestion.ts`), once the history is known and a harness is set up: one
+  fast call over the recent project names and chat titles. A failed call leaves a plain field.
 - **Area suggestions** (`POST /api/onboarding/area-suggestions`, `src/lib/onboarding/area-suggestions.ts`),
-  once you've said what you're working on and the import step is settled: one fast, tool-less call
+  once what you're working on is settled: one fast, tool-less call
   through the harness, two to four areas in your own words. The step shows Work and Personal at once
   and adds the suggestions when they land. A failed call answers with no suggestions.
 
 ## Decisions
+
+- **Confirm, don't compose.** "What are you working on?" as a blank box was the step people stalled
+  on. The history usually already says it, so the step offers a draft to accept or fix, and isn't
+  asked at all when there's nothing to draft from (the orchestrator learns from use, and Settings,
+  Profile keeps the field).
+- **Recent projects, not everything.** A machine can hold hundreds of project folders (every
+  worktree is one). The step offers the eight most recent and ticks the ones in use, and Settings,
+  Imports has the rest.
 
 - **No wizard.** The old `/welcome` asked five screens of things, only one of which a home needs
   before it works. The route now redirects home, so old links and sign-in returns still land.

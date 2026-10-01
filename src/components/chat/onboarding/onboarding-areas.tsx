@@ -11,6 +11,9 @@ import { cn } from '@/lib/utils';
 import { listJoin } from './onboarding-flow';
 import { Card, PrimaryButton, QuietButton, Says } from './onboarding-ui';
 
+/** The reply when no areas were added. */
+export const NO_AREAS = 'No areas for now';
+
 /** Always on offer, and the pick until suggestions arrive. */
 export const AREA_PRESETS: readonly AreaSuggestion[] = [
   { name: 'Work', emoji: '💼' },
@@ -87,7 +90,7 @@ export function AreasStep({
 
   const save = async () => {
     const chosen = options.filter((o) => selected.has(o.name));
-    if (chosen.length === 0) return onDone('No areas for now');
+    if (chosen.length === 0) return onDone(NO_AREAS);
     setSaving(true);
     const have = new Set((existing ?? []).map((a) => a.name.toLowerCase()));
     try {
@@ -151,7 +154,7 @@ export function AreasStep({
         </QuietButton>
       </div>
       <div className="mt-3 flex items-center justify-end gap-1.5">
-        <QuietButton onClick={() => onDone('No areas for now')}>Skip</QuietButton>
+        <QuietButton onClick={() => onDone(NO_AREAS)}>Skip</QuietButton>
         <PrimaryButton disabled={selected.size === 0} busy={saving} onClick={() => void save()}>
           Continue <ArrowRight size={12} />
         </PrimaryButton>

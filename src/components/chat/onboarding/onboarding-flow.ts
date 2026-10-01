@@ -10,8 +10,8 @@ export type OnboardingStep =
   | 'identity'
   | 'harness'
   | 'you'
-  | 'about'
   | 'import'
+  | 'about'
   | 'areas'
   | 'apps'
   | 'agent'
@@ -21,8 +21,8 @@ export const STEP_ORDER: readonly OnboardingStep[] = [
   'identity',
   'harness',
   'you',
-  'about',
   'import',
+  'about',
   'areas',
   'apps',
   'agent',
@@ -35,8 +35,12 @@ export interface StepContext {
   needsHarness: boolean;
   /** History from Claude Code, Codex or OpenCode to bring in. Null while still looking. */
   importFound: boolean | null;
+  /** Already says what they're working on (user_state.description). */
+  hasDescription: boolean;
   hasAreas: boolean;
   hasAgents: boolean;
+  /** An import is bringing projects in as agents (it runs in the background). */
+  importingAgents?: boolean;
 }
 
 /**
@@ -44,6 +48,10 @@ export interface StepContext {
  * that was set up, import when there's nothing to bring in, areas for someone
  * who has some, a first agent for someone who has one: each is skipped. Import
  * still shows while the search is running, and the step waits on it.
+ *
+ * "What are you working on" is never a blank box: it's a draft written from
+ * the history the import step found, to confirm or fix. With no history to
+ * draft from, or a description already there, it isn't asked.
  */
 export function stepApplies(step: OnboardingStep, ctx: StepContext): boolean {
   switch (step) {
@@ -51,10 +59,12 @@ export function stepApplies(step: OnboardingStep, ctx: StepContext): boolean {
       return ctx.needsHarness;
     case 'import':
       return ctx.importFound !== false;
+    case 'about':
+      return !ctx.hasDescription && ctx.importFound !== false;
     case 'areas':
       return !ctx.hasAreas;
     case 'agent':
-      return !ctx.hasAgents;
+      return !ctx.hasAgents && !ctx.importingAgents;
     default:
       return true;
   }

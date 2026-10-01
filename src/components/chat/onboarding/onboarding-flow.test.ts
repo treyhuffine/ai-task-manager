@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { FIRST_PROGRESS, listJoin, nextStep, progressStorageKey, readProgress, stepsThrough, type StepContext } from './onboarding-flow';
 
-const NEW_HOME: StepContext = { needsHarness: true, importFound: true, hasAreas: false, hasAgents: false };
-const SET_UP_HOME: StepContext = { needsHarness: false, importFound: false, hasAreas: true, hasAgents: true };
+const NEW_HOME: StepContext = { needsHarness: true, importFound: true, hasDescription: false, hasAreas: false, hasAgents: false };
+const SET_UP_HOME: StepContext = { needsHarness: false, importFound: false, hasDescription: true, hasAreas: true, hasAgents: true };
 
 function walk(ctx: StepContext) {
   const steps = ['identity'];
@@ -12,19 +12,27 @@ function walk(ctx: StepContext) {
 
 describe('nextStep', () => {
   it('walks a new home through everything', () => {
-    expect(walk(NEW_HOME)).toEqual(['identity', 'harness', 'you', 'about', 'import', 'areas', 'apps', 'agent', 'done']);
+    expect(walk(NEW_HOME)).toEqual(['identity', 'harness', 'you', 'import', 'about', 'areas', 'apps', 'agent', 'done']);
   });
 
   it('asks a home that is set up only what it lacks', () => {
-    expect(walk(SET_UP_HOME)).toEqual(['identity', 'you', 'about', 'apps', 'done']);
+    expect(walk(SET_UP_HOME)).toEqual(['identity', 'you', 'apps', 'done']);
   });
 
   it('still shows import while the search is running', () => {
-    expect(nextStep('about', { ...SET_UP_HOME, importFound: null })).toBe('import');
+    expect(nextStep('you', { ...SET_UP_HOME, importFound: null })).toBe('import');
   });
 
-  it('skips import when there is nothing to bring in', () => {
-    expect(nextStep('about', { ...NEW_HOME, importFound: false })).toBe('areas');
+  it('never asks what you work on as a blank box: no history, no question', () => {
+    expect(nextStep('you', { ...NEW_HOME, importFound: false })).toBe('areas');
+  });
+
+  it('does not ask what you work on when it is already known', () => {
+    expect(nextStep('import', { ...NEW_HOME, hasDescription: true })).toBe('areas');
+  });
+
+  it('does not ask for a first agent while an import is bringing some in', () => {
+    expect(nextStep('apps', { ...NEW_HOME, importingAgents: true })).toBe('done');
   });
 
   it('stays done', () => {
@@ -34,11 +42,11 @@ describe('nextStep', () => {
 
 describe('stepsThrough', () => {
   it('shows the finished steps and the current one', () => {
-    expect(stepsThrough('about', { identity: 'Rye', you: 'Trey' })).toEqual(['identity', 'you', 'about']);
+    expect(stepsThrough('import', { identity: 'Rye', you: 'Trey' })).toEqual(['identity', 'you', 'import']);
   });
 
   it('leaves out steps skipped over and steps finished without a word', () => {
-    expect(stepsThrough('apps', { identity: 'Rye', harness: '', you: 'Trey', about: 'x' })).toEqual([
+    expect(stepsThrough('apps', { identity: 'Rye', harness: '', you: 'Trey', import: '', about: 'x' })).toEqual([
       'identity',
       'you',
       'about',
