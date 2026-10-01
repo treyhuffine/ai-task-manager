@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useQuickCaptureOpen, setQuickCaptureOpen, toggleQuickCapture } from '@/lib/client/quick-capture';
 import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, MobileTab, Task, StreamEvent } from '@/types/dashboard';
 import { hot } from '@/lib/_debug/hot-path';
+import { DEFAULT_HOME_PANELS, panelForTab } from '@/lib/client/home-panels';
 import {
   HOME_VIEW,
   activeSessionIdOf,
@@ -121,6 +122,8 @@ interface DashboardActions {
   goHome: () => void;
   setActiveExecutionId: (id: string | null) => void;
   setPanelTab: (panel: PanelId, tab: AnyPanelTab) => void;
+  /** Bring a home tab on screen without covering the chat. No-op when it's already showing. */
+  showPanelTab: (tab: AnyPanelTab) => void;
   setFocusedPanel: (panel: PanelId) => void;
   resetLayout: () => void;
   // PanelLayout registers an imperative reset (e.g. setLayout([50, 50])) so
@@ -195,8 +198,9 @@ const MOCK_STREAM_EVENTS: StreamEvent[] = [
   { text: "Rationale queued to Slack via Orchestrator", time: "8:10 am", color: "bg-zinc-500" },
 ];
 
-const DEFAULT_PANEL_A_TAB: AnyPanelTab = 'deck';
-const DEFAULT_PANEL_B_TAB: AnyPanelTab = 'chat';
+// Chat (the orchestrator) on the left, the deck on the right.
+const DEFAULT_PANEL_A_TAB: AnyPanelTab = DEFAULT_HOME_PANELS.a;
+const DEFAULT_PANEL_B_TAB: AnyPanelTab = DEFAULT_HOME_PANELS.b;
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>('dark');
@@ -458,6 +462,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     else setPanelBTab(tab);
   }, []);
 
+  // Bring a tab on screen without covering the chat (see panelForTab).
+  const showPanelTab = useCallback((tab: AnyPanelTab) => {
+    const panel = panelForTab({ a: panelATab, b: panelBTab }, tab);
+    if (panel === 'a') setPanelATab(tab);
+    else if (panel === 'b') setPanelBTab(tab);
+  }, [panelATab, panelBTab]);
+
   const resetLayout = useCallback(() => {
     setPanelATab(DEFAULT_PANEL_A_TAB);
     setPanelBTab(DEFAULT_PANEL_B_TAB);
@@ -477,9 +488,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     } else if (aHasChat && bHasChat) {
       target = focusedPanel;
     } else {
-      // Neither has chat — default to panel B (right)
-      target = 'b';
-      setPanelBTab('chat');
+      // Neither has chat: bring it back on the left, where it lives.
+      target = 'a';
+      setPanelATab('chat');
     }
 
     setVoiceChatPanelTarget(target);
@@ -492,20 +503,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const openDeck = useCallback((deckId: string) => {
     setActiveDeckId(deckId);
     setMobileTab('deck');
-    // Switch a panel to deck tab — prefer whichever panel already has the deck,
-    // otherwise use the panel that doesn't have chat
-    const aHasDeck = panelATab === 'deck';
-    const bHasDeck = panelBTab === 'deck';
-    if (!aHasDeck && !bHasDeck) {
-      // Neither panel has deck — put it on whichever isn't chat
-      const aHasChat = panelATab === 'chat';
-      if (aHasChat) {
-        setPanelBTab('deck');
-      } else {
-        setPanelATab('deck');
-      }
-    }
-  }, [panelATab, panelBTab]);
+    // A panel already showing the deck keeps it. Otherwise the deck takes a
+    // panel that isn't the chat.
+    showPanelTab('deck');
+  }, [showPanelTab]);
 
   const clearActiveDeckId = useCallback(() => {
     setActiveDeckId(null);
@@ -568,6 +569,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       goHome,
       setActiveExecutionId,
       setPanelTab,
+      showPanelTab,
       setFocusedPanel,
       resetLayout,
       registerPanelLayoutReset,

@@ -6,7 +6,7 @@ import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import {
   Search, Target, FileText, MessageSquare, X, Loader2,
   Plus, Sun, Moon, LayoutDashboard, ListTodo, StickyNote,
-  Radio, MessagesSquare, Mic, Settings, Calendar,
+  Radio, MessagesSquare, Mic, Settings, Calendar, TextSearch,
   type LucideIcon,
 } from 'lucide-react';
 import { NoteIcon } from '@/components/shared/note-icon';
@@ -22,13 +22,14 @@ import {
   type PaletteCommand, type EntityTypeFilter,
 } from '@/constants/commands';
 import { openSettings } from '@/components/settings/settings-store';
+import { openChatSearch } from '@/components/workspaces/chat-search-store';
 import type { SearchResult } from '@/lib/api/search';
 import type { AnyPanelTab } from '@/types/dashboard';
 
 // ── Icon lookup for palette commands ─────────────────────────
 
 const ICON_MAP: Record<string, LucideIcon> = {
-  Plus, StickyNote, LayoutDashboard, ListTodo, FileText, Radio, MessagesSquare, Sun, Moon, Mic, Settings, Calendar,
+  Plus, StickyNote, LayoutDashboard, ListTodo, FileText, Radio, MessagesSquare, Sun, Moon, Mic, Settings, Calendar, TextSearch,
 };
 
 function CommandIcon({ name, size = 14 }: { name: string; size?: number }) {
@@ -89,7 +90,7 @@ export function SearchOverlay() {
   const { data, isFetching } = useSearch(deferredQuery);
   const results = data ?? [];
 
-  const { openTask, openNote, toggleTheme, theme, setPanelTab, triggerVoiceChat } = useDashboard();
+  const { openTask, openNote, toggleTheme, theme, showPanelTab, triggerVoiceChat } = useDashboard();
   const createTask = useCreateTask();
   const createNote = useCreateNote();
   const { data: recents } = useRecents(25, open);
@@ -115,9 +116,9 @@ export function SearchOverlay() {
   }, [openTask, openNote]);
 
   const handleNavigate = useCallback((tab: AnyPanelTab) => {
-    setPanelTab('a', tab);
+    showPanelTab(tab);
     setOpen(false);
-  }, [setPanelTab]);
+  }, [showPanelTab]);
 
   // Command handlers keyed by command id
   const executeCommand = useCallback((cmd: PaletteCommand) => {
@@ -147,6 +148,10 @@ export function SearchOverlay() {
       case 'voice-chat':
         setOpen(false);
         triggerVoiceChat();
+        break;
+      case 'search-chats':
+        setOpen(false);
+        openChatSearch();
         break;
       default:
         // go-* navigation commands

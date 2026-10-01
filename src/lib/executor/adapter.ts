@@ -768,6 +768,15 @@ export async function recycleAgentMainChats(workspaceId: string): Promise<void> 
 }
 
 /**
+ * Recycle the app's own main chat, for settings only its brief carries: the
+ * name the user calls the orchestrator. The brief is reinstalled at spawn, so
+ * the next turn starts a process that reads the new one.
+ */
+export async function recycleAppMainChats(): Promise<void> {
+  await Promise.all(listMainChats(null, { status: 'active' }).map((s) => recycleWhenIdle(s.id)));
+}
+
+/**
  * Recycle live sessions after a reference folder changes, so an added or
  * removed folder takes effect now rather than whenever the session happens to
  * restart. Session config (`instructionsFile`, `--add-dir`, the deny rules) is

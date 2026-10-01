@@ -77,6 +77,32 @@ picked a mode sent its main chat to the missing route and nothing happened.
    markers in agent prose render as interactive chips (`EntityAwareText`,
    wired into agent rows in `execution-event.tsx`).
 
+## The orchestrator's name
+
+The user names the app's main chat (Settings → Profile, "What do you call
+your assistant?", or the pencil on the rail's home row). It's stored on
+`user_state.orchestratorName`, null until they pick one, and every reader
+resolves it through `resolveOrchestratorName` (`src/lib/orchestrator/name.ts`):
+null or blank is `APP_NAME`, so a home that never chose follows the product
+default. A typed name is stored folded to one line (it's written into the
+brief, where a line break would start a new instruction) and capped at 40
+characters by `PATCH /api/user-state`.
+
+- **Where it shows.** The top of the rail (the home link, with its initial in
+  the skinny rail and the tablet rail), the main chat's header and empty-chat
+  intro, and the "From …" chip on messages it sends into executions.
+- **Where it lands for the model.** `renderOrchestratorBrief` leads with it
+  ("You are Atlas, Ri's orchestrator", or just "Ri's orchestrator" for the
+  default) and says the user calls it that. The brief is reinstalled before
+  every spawn, and a rename recycles the app's main chat
+  (`recycleAppMainChats`, now if idle, else when the turn ends), so the next
+  reply comes from a process that knows the new name. Messages it sends to
+  executions are labeled with it too (`describeSender`), again only once it
+  differs from the default.
+- **Not on the agent surface.** `update_user_state` exposes focus fields
+  only, and the name is an app setting, so the orchestrator can't rename
+  itself. It tells the user where to.
+
 ## Chat naming + history
 
 - **Titles are list affordances, and only intent-stable threads get them.**

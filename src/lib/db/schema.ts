@@ -145,6 +145,11 @@ export const userState = sqliteTable('user_state', {
   // 0 → never. A preference, so no schema default. See
   // src/lib/sessions/inactive.ts.
   executionInactiveAfterDays: integer(),
+  // What the user calls the app's main chat (the orchestrator). Null → the
+  // product default (resolveOrchestratorName, APP_NAME), so a rename of the
+  // app still reaches everyone who never chose. A preference, so no schema
+  // default. See src/lib/orchestrator/name.ts.
+  orchestratorName: text(),
 });
 
 // ─── Harness Settings ─────────────────────────────────────────

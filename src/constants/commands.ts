@@ -34,6 +34,12 @@ export const HOTKEYS = {
   toggleTerminal: { key: '`', meta: true, label: '\u2303`' },
   // Open Files and focus the tree's search, like an editor's Go to File.
   goToFile: { key: 'p', meta: true, label: '\u2318P' },
+  // Back and Forward in the desktop app, which has no browser chrome to do
+  // it (a browser handles these itself). Safari's and Finder's keys. Never
+  // taken from the terminal or a code editor, where ⌃[ is Escape and ⌘[
+  // outdents (`navigationKeyBlocked`).
+  navigateBack: { key: '[', meta: true, label: '\u2318[' },
+  navigateForward: { key: ']', meta: true, label: '\u2318]' },
 } as const satisfies Record<string, Hotkey>;
 
 /** Check if a KeyboardEvent matches a Hotkey (strict modifier match) */
@@ -68,6 +74,9 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'voice-chat', label: 'Voice chat', keywords: 'voice mic record dictate speak', icon: 'Mic', shortcut: '\u2318J', group: 'navigate' },
 
   // Navigate
+  // Opens the chat search modal. Transcript hits stay out of the palette's
+  // own results (docs/chat-sessions.md), so this hands off instead.
+  { id: 'search-chats', label: 'Search chats', keywords: 'search find chat chats execution transcript history conversation', icon: 'TextSearch', group: 'navigate' },
   { id: 'go-deck', label: 'Go to Deck', keywords: 'navigate deck dashboard', icon: 'LayoutDashboard', group: 'navigate' },
   { id: 'go-tasks', label: 'Go to Tasks', keywords: 'navigate tasks list', icon: 'ListTodo', group: 'navigate' },
   { id: 'go-notes', label: 'Go to Notes', keywords: 'navigate notes', icon: 'FileText', group: 'navigate' },

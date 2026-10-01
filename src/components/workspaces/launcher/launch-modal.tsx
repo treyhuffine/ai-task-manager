@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
+import { Command } from 'cmdk';
 import { Popover, PopoverTrigger } from '@/components/ui/popover';
 import { LauncherPopoverContent } from './launcher-popover';
 import { useQueryClient } from '@tanstack/react-query';
@@ -16,7 +17,6 @@ import {
   Loader2,
   MessageSquare,
   Plug,
-  Plus,
   Search,
   SquareCheckBig,
   X,
@@ -114,19 +114,33 @@ const CHIP_ICON: Record<LaunchSourceKind, React.ComponentType<{ size?: number; c
  * they do today.
  */
 export function LaunchModal() {
-  const { open, workspaceId: seedWorkspaceId, seed, nonce } = useLauncherStore();
-  return open ? <LaunchModalInner key={nonce} seedWorkspaceId={seedWorkspaceId} seed={seed} /> : null;
+  const { open, workspaceId: seedWorkspaceId, seed, pickAgent, nonce } = useLauncherStore();
+  return open ? (
+    <LaunchModalInner key={nonce} seedWorkspaceId={seedWorkspaceId} seed={seed} pickAgent={pickAgent} />
+  ) : null;
 }
 
-function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string | null; seed: LauncherSeed | null }) {
+function LaunchModalInner({
+  seedWorkspaceId,
+  seed,
+  pickAgent,
+}: {
+  seedWorkspaceId: string | null;
+  seed: LauncherSeed | null;
+  /** Opened with no agent picked (the rail's ➕): don't fill one in. */
+  pickAgent: boolean;
+}) {
   const { data: workspaces } = useWorkspaces({ status: 'active' });
   const { data: userState } = useUserState();
   const { setActiveView } = useDashboard();
   const qc = useQueryClient();
 
   const [workspaceId, setWorkspaceId] = useState<string | null>(
-    seedWorkspaceId ?? workspaces?.[0]?.id ?? null,
+    pickAgent ? null : seedWorkspaceId ?? workspaces?.[0]?.id ?? null,
   );
+  // The agent picker is controlled so a launch with no agent can open it
+  // instead of failing: the prompt is already written, only "where" is left.
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const workspace = workspaces?.find((w) => w.id === workspaceId) ?? null;
   const isGit = !!workspace?.isGit;
 
@@ -405,7 +419,10 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
   const launch = async ({ send = true }: { send?: boolean } = {}) => {
     if (launching) return;
     if (!workspaceId) {
-      setError('Pick an agent first.');
+      // Nothing to fix but where it runs. Ask that, in place, and leave the
+      // prompt as it is: picking returns focus to it for Enter.
+      setError(null);
+      setAgentPickerOpen(true);
       return;
     }
     // The disabled Start button covers clicks, but Enter submits from inside
@@ -534,10 +551,10 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
 
   // `hasContent` mirrors text or attachment chips; context chips alone are
   // also launchable.
-  // Pending uploads block Start so a chip can't be sent half-resolved.
+  // Pending uploads block Start so a chip can't be sent half-resolved. No
+  // agent yet doesn't: Start asks for one (see `launch`).
   const ready =
     (hasContent || chips.some((c) => c.chipKind === 'context'))
-    && !!workspaceId
     && !pendingUploads
     && !runOnProblem;
 
@@ -627,7 +644,13 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
               <WorkspacePicker
                 workspaces={workspaces ?? []}
                 workspaceId={workspaceId}
-                onChange={setWorkspaceId}
+                open={agentPickerOpen}
+                onOpenChange={setAgentPickerOpen}
+                onChange={(id) => {
+                  setWorkspaceId(id);
+                  setError(null);
+                  editorRef.current?.focus({ end: true });
+                }}
               />
               {!continuation && severalDevices && runOn && workspaceId && (
                 <RunOnControl
@@ -685,7 +708,10 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
                   placeholder="What are we working on?"
                   disabled={launching}
                   prs={prMentions}
-                  draftKey={workspaceId ? `launcher:${workspaceId}` : undefined}
+                  // Opened with no agent, the draft is the launcher's own and
+                  // stays put while an agent is picked. Keyed to the agent, a
+                  // pick would swap in that agent's draft over what you typed.
+                  draftKey={pickAgent ? 'launcher:new' : workspaceId ? `launcher:${workspaceId}` : undefined}
                   onContentChange={setHasContent}
                   onPendingUploadsChange={setPendingUploads}
                   onSubmit={() => void launch()}
@@ -807,7 +833,7 @@ function LaunchModalInner({ seedWorkspaceId, seed }: { seedWorkspaceId: string |
                 <button
                   type="button"
                   onClick={() => void launch({ send: false })}
-                  disabled={!workspaceId || launching || !!runOnProblem}
+                  disabled={launching || !!runOnProblem}
                   title="Create the session and open it without sending a message"
                   className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-40"
                 >
@@ -878,17 +904,25 @@ function Chip({ chip, onRemove }: { chip: LaunchChip; onRemove: () => void }) {
  * Workspace is a chip, not a container. Opening from a row prefills it, but
  * a launch can still target a different workspace — which is what lets this
  * same modal serve as a global "start work" entry point.
+ *
+ * Opened with no agent (the rail's ➕), the chip asks for one and a launch
+ * opens this list. It filters as you type and takes arrows and Enter, so the
+ * whole flow stays on the keyboard: write, Enter, type a few letters, Enter,
+ * Enter.
  */
 function WorkspacePicker({
   workspaces,
   workspaceId,
+  open,
+  onOpenChange,
   onChange,
 }: {
   workspaces: { id: string; name: string; emoji: string | null }[];
   workspaceId: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onChange: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const current = workspaces.find((w) => w.id === workspaceId);
 
   // Radix Popover (which portals to the body) rather than an absolutely
@@ -896,43 +930,65 @@ function WorkspacePicker({
   // its own scroll regions, and an in-tree dropdown gets clipped by it —
   // the list rendered *inside* the modal instead of floating over it.
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] font-semibold text-foreground transition-colors hover:bg-muted/60"
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] font-semibold transition-colors',
+            current
+              ? 'text-foreground hover:bg-muted/60'
+              : 'border border-dashed border-primary/50 text-primary hover:bg-primary/5',
+          )}
         >
           {current?.emoji ? (
             <span className="text-[13px] leading-none">{current.emoji}</span>
           ) : (
-            <Folder size={12} className="text-muted-foreground/70" />
+            <Folder size={12} className={current ? 'text-muted-foreground/70' : 'text-primary/80'} />
           )}
           {current?.name ?? 'Pick an agent'}
-          <ChevronDown size={11} className="text-muted-foreground/60" />
+          <ChevronDown size={11} className={current ? 'text-muted-foreground/60' : 'text-primary/70'} />
         </button>
       </PopoverTrigger>
-      <LauncherPopoverContent align="start" className="w-60 p-1">
-        {workspaces.map((w) => (
-          <button
-            key={w.id}
-            type="button"
-            onClick={() => {
-              onChange(w.id);
-              setOpen(false);
-            }}
-            className={cn(
-              'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors',
-              w.id === workspaceId ? 'bg-muted text-foreground' : 'text-foreground/90 hover:bg-muted/60',
-            )}
-          >
-            {w.emoji ? (
-              <span className="text-[13px] leading-none">{w.emoji}</span>
-            ) : (
-              <Folder size={11} className="text-muted-foreground/70" />
-            )}
-            <span className="truncate">{w.name}</span>
-          </button>
-        ))}
+      {/* Radix focuses the first field on open, which is the filter, so
+          typing narrows the list straight away. */}
+      <LauncherPopoverContent align="start" className="w-64 p-0">
+        <Command loop className="flex flex-col">
+          <div className="flex items-center gap-1.5 border-b border-border px-2.5">
+            <Search size={11} className="flex-shrink-0 text-muted-foreground/60" />
+            <Command.Input
+              placeholder="Find an agent…"
+              className="h-8 flex-1 bg-transparent text-[12px] outline-none placeholder:text-muted-foreground/50"
+            />
+          </div>
+          <Command.List className="max-h-64 overflow-y-auto p-1">
+            <Command.Empty className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+              No agent by that name
+            </Command.Empty>
+            {workspaces.map((w) => (
+              <Command.Item
+                key={w.id}
+                value={`${w.name} ${w.id}`}
+                onSelect={() => {
+                  onChange(w.id);
+                  onOpenChange(false);
+                }}
+                className={cn(
+                  'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-foreground/90',
+                  'data-[selected=true]:bg-muted/70 data-[selected=true]:text-foreground',
+                  w.id === workspaceId && 'font-medium text-foreground',
+                )}
+              >
+                {w.emoji ? (
+                  <span className="text-[13px] leading-none">{w.emoji}</span>
+                ) : (
+                  <Folder size={11} className="text-muted-foreground/70" />
+                )}
+                <span className="truncate">{w.name}</span>
+              </Command.Item>
+            ))}
+          </Command.List>
+        </Command>
       </LauncherPopoverContent>
     </Popover>
   );

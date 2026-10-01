@@ -9,8 +9,11 @@ import { UNLOAD_BLOCKER_MESSAGES, viewerUnloadBlocker } from '@/lib/client/versi
 import { flushChatDrafts } from '@/lib/client/chat-drafts';
 import { documentSaves } from '@/lib/client/document-saves';
 import { countUnsavedMutations } from '@/lib/query/mutation-meta';
+import { HOTKEYS, matchesHotkey } from '@/constants/commands';
+import { goBack, goForward, navigationKeyBlocked } from '@/lib/client/history-navigation';
 import '@/lib/client/desktop';
 import { ServiceConnection } from './service-connection';
+import { DesktopNavButtons } from './desktop-nav-buttons';
 
 export function DesktopChrome() {
   const queryClient = useQueryClient();
@@ -53,5 +56,26 @@ export function DesktopChrome() {
     const resume = window.riDesktop?.onResume?.(() => { document.body.inert = false; });
     return () => { resume?.(); background?.(); document.body.inert = false; window.removeEventListener('beforeunload', beforeUnload); document.removeEventListener('visibilitychange', visibility); unsubscribe?.(); };
   }, [queryClient]);
-  return <><div className="desktop-drag-fallback" aria-hidden="true" /><ServiceConnection /></>;
+  // Back and Forward from the keyboard and a mouse's side buttons, which a
+  // browser handles itself and this window doesn't. Left alone where the
+  // keys mean something else (`navigationKeyBlocked`).
+  useEffect(() => {
+    const desktop = window.riDesktop;
+    if (!desktop) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (navigationKeyBlocked(event, desktop.platform)) return;
+      if (matchesHotkey(event, HOTKEYS.navigateBack)) { event.preventDefault(); goBack(); }
+      else if (matchesHotkey(event, HOTKEYS.navigateForward)) { event.preventDefault(); goForward(); }
+    };
+    const mouseup = (event: MouseEvent) => {
+      if (event.button === 3) { event.preventDefault(); goBack(); }
+      else if (event.button === 4) { event.preventDefault(); goForward(); }
+    };
+    window.addEventListener('keydown', keydown);
+    window.addEventListener('mouseup', mouseup);
+    return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('mouseup', mouseup); };
+  }, []);
+  // Pages without the dashboard's title bar get this one: a drag strip that
+  // still carries Back and Forward, so a full-page note is never a dead end.
+  return <><div className="desktop-drag-fallback"><DesktopNavButtons /></div><ServiceConnection /></>;
 }

@@ -13,7 +13,8 @@ import { StreamList } from '@/components/stream/stream-list';
 import { DeckContainer } from '@/components/deck/deck-container';
 import { CalendarPanel } from '@/components/calendar/calendar-panel';
 import { useNeedsYourCall } from '@/hooks/use-stream';
-import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
+import { useUserState, useUpdateUserState, useOrchestratorName } from '@/hooks/use-user-state';
+import { OrchestratorMark } from '@/components/shared/orchestrator-mark';
 import { HarnessChat } from '@/components/chat/harness-chat';
 import { appMainChatIntro } from '@/components/chat/main-chat-intro';
 import { useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
@@ -22,9 +23,12 @@ import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
 
 // ─── Tab definitions ───────────────────────────────────────────
 
+// Chat leads: it's the orchestrator, the front door to everything else. The
+// home opens with it on the left and the deck on the right (dashboard-context
+// DEFAULT_PANEL_*_TAB).
 const CORE_TABS: { id: PanelTab; label: string }[] = [
-  { id: 'deck', label: 'Deck' },
   { id: 'chat', label: 'Chat' },
+  { id: 'deck', label: 'Deck' },
   { id: 'stream', label: 'Stream' },
   { id: 'tasks', label: 'Tasks' },
   { id: 'notes', label: 'Notes' },
@@ -54,11 +58,13 @@ const CHAT_MODES: { id: OrchestratorChatMode; label: string; title: string }[] =
 ];
 
 function ChatModeBar({
+  name,
   mode,
   onSwitch,
   onNewChat,
   newChatPending,
 }: {
+  name: string;
   mode: OrchestratorChatMode;
   onSwitch: (mode: OrchestratorChatMode) => void;
   onNewChat: () => void;
@@ -66,6 +72,13 @@ function ChatModeBar({
 }) {
   return (
     <div className="shrink-0 flex items-center justify-end gap-1.5 px-2 py-1 border-b border-border/50">
+      {/* Who you're talking to, the same name the rail's home row shows. */}
+      <span className="mr-auto flex min-w-0 items-center gap-1.5 pl-0.5">
+        <OrchestratorMark name={name} size="xs" />
+        <span className="truncate text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
+          {name}
+        </span>
+      </span>
       <div className="flex items-center rounded-md border border-border overflow-hidden">
         {CHAT_MODES.map((m) => (
           <button
@@ -102,6 +115,7 @@ function ChatContent({ isMobile }: { isMobile: boolean }) {
   const updateUserState = useUpdateUserState();
   const newChat = useNewOrchestratorChat();
   const mode = resolveOrchestratorMode(userState?.orchestratorMode);
+  const name = useOrchestratorName();
 
   const handleSwitch = (next: OrchestratorChatMode) => {
     if (next === mode) return;
@@ -114,13 +128,14 @@ function ChatContent({ isMobile }: { isMobile: boolean }) {
   return (
     <div className="flex flex-col h-full min-h-0">
       <ChatModeBar
+        name={name}
         mode={mode}
         onSwitch={handleSwitch}
         onNewChat={() => newChat.mutate()}
         newChatPending={newChat.isPending}
       />
       {/* Key on mode so a switch fully remounts against the new session. */}
-      <HarnessChat key={mode} isMobile={isMobile} intro={appMainChatIntro()} />
+      <HarnessChat key={mode} isMobile={isMobile} intro={appMainChatIntro(name)} />
     </div>
   );
 }

@@ -65,10 +65,7 @@ export function HistoryRow({
     setActiveView(executionView(session.id));
   };
 
-  // History is one-per-chat: prefer the chat's own label so sibling chats on
-  // one execution stay distinguishable, falling back to the execution title
-  // for a brand-new chat whose label hasn't been derived yet.
-  const label = session.label ?? session.execution?.label ?? 'Untitled';
+  const label = sessionDisplayLabel(session);
   const labelIsPlaceholder = !(session.label ?? session.execution?.label);
 
   const wsName = session.workspaceName ?? 'Agent removed';
@@ -76,9 +73,7 @@ export function HistoryRow({
   const wsEmoji = session.workspaceEmoji;
   const branch = session.branchName;
 
-  // Display the same instant the row is RANKED by, so a session that
-  // sorts to Today never reads "3 weeks ago" next to its own position.
-  const timestamp = session.lastActivityAt ?? session.lastOutcomeEventAt ?? session.startedAt;
+  const timestamp = sessionRankedAt(session);
 
   return (
     <div
@@ -149,11 +144,30 @@ export function HistoryRow({
 }
 
 /**
+ * A chat's name in history and search: one-per-chat, so prefer the chat's own
+ * label (sibling chats on one execution stay distinguishable), falling back
+ * to the execution title for a brand-new chat whose label hasn't been
+ * derived yet.
+ */
+export function sessionDisplayLabel(session: RailSession): string {
+  return session.label ?? session.execution?.label ?? 'Untitled';
+}
+
+/**
+ * The instant a history row is ranked by, which is also the one it displays,
+ * so a session that sorts to Today never reads "3 weeks ago" next to its own
+ * position.
+ */
+export function sessionRankedAt(session: RailSession): string | null {
+  return session.lastActivityAt ?? session.lastOutcomeEventAt ?? session.startedAt;
+}
+
+/**
  * Transcript snippet line for search results. Splits on the highlight
  * sentinels and wraps matched terms so the reason this row matched is obvious
  * at a glance. Two-line clamp keeps rows scannable.
  */
-function SearchSnippet({ snippet }: { snippet: string }) {
+export function SearchSnippet({ snippet }: { snippet: string }) {
   const segments = splitHighlight(snippet);
   return (
     <p className="mt-0.5 text-[9.5px] leading-snug text-muted-foreground/75 line-clamp-2">
@@ -181,7 +195,7 @@ function initialsFor(name: string): string {
   return (words[0]!.charAt(0) + words[1]!.charAt(0)).toUpperCase();
 }
 
-function WorkspaceAvatar({
+export function WorkspaceAvatar({
   wsImage,
   wsEmoji,
   wsName,

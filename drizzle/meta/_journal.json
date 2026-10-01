@@ -29,6 +29,13 @@
       "when": 1790794317732,
       "tag": "0003_right_black_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790883026746,
+      "tag": "0004_soft_nocturne",
+      "breakpoints": true
     }
   ]
 }

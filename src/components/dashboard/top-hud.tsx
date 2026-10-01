@@ -11,6 +11,7 @@ import { CreateMenu } from './create-menu';
 import { RailStatusPills } from './rail-status-pills';
 import { BudgetWarningPill } from './budget-warning-pill';
 import { HudDayButton } from '@/components/calendar/hud-day-button';
+import { DesktopNavButtons } from '@/components/desktop/desktop-nav-buttons';
 
 // Flip to false to hide (not yet launched)
 const SHOW_INBOX = true;
@@ -31,6 +32,8 @@ export function TopHud() {
 
   return (
     <header data-desktop-titlebar className="flex-shrink-0 h-10 border-b border-border flex items-center px-4 gap-4 bg-background z-50">
+      {/* Desktop app only, right after the window controls. */}
+      <DesktopNavButtons className="-mx-1" />
       {SHOW_INBOX && (
         <>
           <button
