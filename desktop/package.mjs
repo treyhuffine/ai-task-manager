@@ -5,16 +5,18 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { build, Platform, Arch } from 'electron-builder';
 import { createPublicKey } from 'node:crypto';
-import * as tar from 'tar';
-import { assertCompanionPackage, assertShellDependencies, rebaseResourceLinks } from './package-files.mjs';
-import { signRuntime } from './sign-runtime.mjs';
-import { stageSpeechHelper } from './speech/package.mjs';
+import { assertDesktopPackagingRuntime, DESKTOP_NODE_VERSION } from './package-preflight.mjs';
+
+assertDesktopPackagingRuntime();
+const { build, Platform, Arch } = await import('electron-builder');
+const tar = await import('tar');
+const { assertCompanionPackage, assertShellDependencies, rebaseResourceLinks } = await import('./package-files.mjs');
+const { signRuntime } = await import('./sign-runtime.mjs');
+const { stageSpeechHelper } = await import('./speech/package.mjs');
 
 const repo = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
-if (!['darwin', 'linux'].includes(process.platform) || !['arm64', 'x64'].includes(process.arch)) throw new Error('Build on the matching macOS/Linux arm64/x64 host.');
 const headless = process.argv.includes('--headless');
 const releaseBuild = process.argv.includes('--release');
 const run = (cmd, args, cwd = repo, env = process.env) => {
@@ -53,8 +55,7 @@ fs.cpSync(path.join(repo, '.next-desktop'), path.join(server, '.next-desktop'), 
 const { transformSync } = createRequire(require.resolve('tsup'))('esbuild');
 fs.writeFileSync(path.join(server, 'next.config.mjs'), transformSync(fs.readFileSync(path.join(repo, 'next.config.ts'), 'utf8'), { loader: 'ts', format: 'esm' }).code);
 
-const version = '26.5.0';
-if (process.versions.node !== version) throw new Error(`Build with pinned Node ${version} so native modules match the shipped runtime.`);
+const version = DESKTOP_NODE_VERSION;
 const archive = `node-v${version}-${process.platform}-${process.arch}.tar.gz`;
 const base = `https://nodejs.org/dist/v${version}/`;
 const checksums = await fetch(`${base}SHASUMS256.txt`).then((r) => { if (!r.ok) throw new Error('Could not download Node checksums'); return r.text(); });

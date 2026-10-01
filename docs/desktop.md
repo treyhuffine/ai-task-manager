@@ -648,7 +648,7 @@ Branding is already on main. [The asset guide](../assets/brand/README.md) and [p
 
 ### Run from this checkout
 
-Release builds require pnpm and pinned Node 26.5.0 so native modules match the bundled runtime. The dependency build allowlist includes Electron's runtime download. End users of the packaged app need neither Node nor pnpm.
+Release builds require pnpm and pinned Node 26.5.0 so native modules match the bundled runtime. The checked-in `.nvmrc` selects that version with `nvm install` and `nvm use`. Packaging checks the version before loading build tools, creating output or compiling anything. The dependency build allowlist includes Electron's runtime download. End users of the packaged app need neither Node nor pnpm.
 
 ```sh
 pnpm desktop:demo                       # Build the shell and production Next, then open
@@ -705,6 +705,27 @@ node desktop/launch.mjs --skip-build
 Use the actual selected root and advanced paths for another installation. A packaged, previously staged installation restarts its own selected runtime directly. This distinction prevents a new viewer from implicitly choosing replacement code for an existing source/CLI home.
 
 The first service start prefers `https://localhost:42242` and records an available public and private port. Later starts reuse those ports and report collisions instead of silently changing the origin. It uses `.next-desktop` or `.next-desktop-dev`, separate from ordinary web development. The existing authentication cookie is established before the page loads. The renderer has no Node access and receives a narrow platform/browser and save-handshake bridge through preload.
+
+### Build compatibility and generated route types
+
+The MacBook build log supplied on 1 October 2026 stopped on `.next/types/validator.ts` importing the removed `takeover-cancel` route. It had compiled the JavaScript successfully. Its Node 24.2.0 also differed from the package's pinned runtime, but that version check previously ran only after the production build and dependency staging.
+
+Web, production desktop, development desktop and smoke builds now use separate TypeScript profiles. Each checks the same source and its own generated route validators. Shared framework declarations live in `src/types/next.d.ts`; the root `next-env.d.ts` is excluded because concurrent Next processes rewrite it to point at whichever output started last. Type checking stays enabled. This uses Next's supported [custom tsconfig path](https://nextjs.org/docs/app/api-reference/config/typescript#custom-tsconfig-path). The inherited profile files also stop Next from appending unrelated build folders to the shared configuration.
+
+After pulling this fix, switch Node before installing. Rebuild the native dependencies if they were installed with the old Node:
+
+```sh
+git pull --ff-only
+nvm install
+nvm use
+pnpm install --frozen-lockfile
+pnpm rebuild better-sqlite3 node-pty
+pnpm desktop:package
+```
+
+No application data or other running build directory needs deleting. The broad `speech-helper` file-pattern messages in that log are build warnings, separate from the TypeScript error.
+
+Verification on 1 October 2026: all 364 desktop tests, the full typecheck and scoped lint passed. This includes 17 tests that use the real TypeScript compiler and Next configuration writer to prove profile isolation without disabling source or route validation, plus eight packaging preflight checks. A complete unsigned macOS arm64 package built successfully under Node 26.5.0. Its actual packaged window rendered onboarding, held the secure HttpOnly session cookie, and created/read a note through the authenticated API. The separate development service also passed HTTP/2 startup, session sign-in and UI rendering. Both used disposable Homes and stopped their services afterward. Runtime identity: `8132b4149f92fe7b4376c4bb5635c01c81ad2b001e7718f0658a65d7b8f883fe`. This verifies the build correction and local startup, not signed distribution or physical remote-device qualification.
 
 ### Standalone macOS app
 

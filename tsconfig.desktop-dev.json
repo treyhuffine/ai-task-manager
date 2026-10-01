@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.mts",
+    ".next-desktop-dev/types/**/*.ts",
+    ".next-desktop-dev/dev/types/**/*.ts"
+  ]
+}

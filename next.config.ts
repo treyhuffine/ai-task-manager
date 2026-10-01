@@ -1,6 +1,16 @@
 import type { NextConfig } from "next";
 
+const distDir = process.env.NEXT_DIST_DIR || ".next";
+const typeScriptConfigs: Record<string, string> = {
+  ".next-desktop": "tsconfig.desktop.json",
+  ".next-desktop-dev": "tsconfig.desktop-dev.json",
+  ".next-smoke": "tsconfig.smoke.json",
+};
+
 const nextConfig: NextConfig = {
+  // Each build checks its own generated routes. Sharing one tsconfig lets
+  // Next append every output folder, including stale routes from other builds.
+  typescript: { tsconfigPath: typeScriptConfigs[distDir] ?? "tsconfig.json" },
   // `@beamd/cli` is a binary launcher — Ri resolves its native per-platform
   // binary via `require.resolve` and execs it. It must stay external so the
   // production build doesn't bundle/rewrite that resolution (which breaks the
@@ -29,7 +39,7 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@connectors/engine"],
   // Honor NEXT_DIST_DIR so the smoke-test server can boot alongside a
   // running `pnpm dev` without fighting for `.next/dev/lock`.
-  distDir: process.env.NEXT_DIST_DIR || ".next",
+  distDir,
   // Local desktop homes and distribution artifacts are never server assets.
   outputFileTracingExcludes: { '*': ['./.electron-demo/**', './release/**'] },
   async headers() {
