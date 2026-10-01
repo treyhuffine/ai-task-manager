@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, ArrowUp, FolderPlus, PenLine } from 'lucide-react';
 import { toast } from 'sonner';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
@@ -16,7 +17,7 @@ import { appMainChatIntro, useEmptyChatActions } from '@/components/chat/main-ch
 import { useUpdateUserState, useUserState } from '@/hooks/use-user-state';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useAreas } from '@/hooks/use-areas';
-import { apiErrorText } from '@/lib/api/client';
+import { api, apiErrorText } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import type { AreaSuggestion } from '@/lib/onboarding/area-suggestions';
 import { OnboardingApps } from './onboarding-apps';
@@ -27,8 +28,8 @@ import { Card, PrimaryButton, QuietButton, Reply, Says, Turn, Typing } from './o
 import { useHarnessCheck, type HarnessCheck } from './use-harness-check';
 import {
   FIRST_PROGRESS,
-  PROGRESS_STORAGE_KEY,
   nextStep,
+  progressStorageKey,
   readProgress,
   stepsThrough,
   type OnboardingProgress,
@@ -73,12 +74,20 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
   const [typing, setTyping] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
+  // Progress is saved per home (see progressStorageKey), so it waits on the id.
+  const { data: home } = useQuery({
+    queryKey: ['home', 'identity'],
+    queryFn: () => api.get<{ id: string }>('/home'),
+    staleTime: Infinity,
+  });
+  const storageKey = home ? progressStorageKey(home.id) : null;
   useEffect(() => {
-    // Read once, after mount: localStorage isn't there during server render.
+    if (!storageKey) return;
+    // Read once the home is known: localStorage isn't there during server render.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setProgress(readProgress(window.localStorage.getItem(PROGRESS_STORAGE_KEY)));
+    setProgress(readProgress(window.localStorage.getItem(storageKey)));
     setHydrated(true);
-  }, []);
+  }, [storageKey]);
 
   // A home that was never set up needs a harness, and the check for one
   // starts now, while the person names the assistant.
@@ -123,7 +132,7 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
         replies: { ...current.replies, [step]: reply },
       };
       try {
-        window.localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(next));
+        if (storageKey) window.localStorage.setItem(storageKey, JSON.stringify(next));
       } catch {
         // Storage off: the conversation still works, minus resuming.
       }
@@ -158,7 +167,7 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
 
   const skip = () => {
     try {
-      window.localStorage.removeItem(PROGRESS_STORAGE_KEY);
+      if (storageKey) window.localStorage.removeItem(storageKey);
     } catch {
       // ignore
     }

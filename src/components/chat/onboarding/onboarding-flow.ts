@@ -72,8 +72,14 @@ export interface OnboardingProgress {
 
 export const FIRST_PROGRESS: OnboardingProgress = { step: 'identity', replies: {} };
 
-/** Per browser, so a reload or a sign-in redirect picks up where it was. */
-export const PROGRESS_STORAGE_KEY = 'ri.mainChat.onboarding';
+/**
+ * Per browser and per home, so a reload or a sign-in redirect picks up where
+ * it was, and a new home on an address an old one used (a test home started
+ * over on the same port) starts from the beginning.
+ */
+export function progressStorageKey(homeId: string): string {
+  return `ri.mainChat.onboarding:${homeId}`;
+}
 
 /** The next step after `step` that applies to this home. */
 export function nextStep(step: OnboardingStep, ctx: StepContext): OnboardingStep {

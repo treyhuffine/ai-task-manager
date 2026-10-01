@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FIRST_PROGRESS, listJoin, nextStep, readProgress, stepsThrough, type StepContext } from './onboarding-flow';
+import { FIRST_PROGRESS, listJoin, nextStep, progressStorageKey, readProgress, stepsThrough, type StepContext } from './onboarding-flow';
 
 const NEW_HOME: StepContext = { needsHarness: true, importFound: true, hasAreas: false, hasAgents: false };
 const SET_UP_HOME: StepContext = { needsHarness: false, importFound: false, hasAreas: true, hasAgents: true };
@@ -68,5 +68,11 @@ describe('listJoin', () => {
     expect(listJoin(['Google'])).toBe('Google');
     expect(listJoin(['Google', 'Slack'])).toBe('Google and Slack');
     expect(listJoin(['Google', 'Slack', 'Notion'])).toBe('Google, Slack and Notion');
+  });
+});
+
+describe('progressStorageKey', () => {
+  it('keeps each home apart, so a new home never resumes an old one', () => {
+    expect(progressStorageKey('home-a')).not.toBe(progressStorageKey('home-b'));
   });
 });
