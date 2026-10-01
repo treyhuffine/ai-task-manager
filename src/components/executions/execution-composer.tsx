@@ -26,6 +26,7 @@ import { buildRecallHistory } from '@/components/chat/editor/history-recall';
 import { useMarkSessionRead } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import { PERMISSION_MODE_META } from '@/lib/permission-modes';
+import { HarnessPermissionNotice } from '@/components/settings/harness-permission-notice';
 import { supportedPermissionModes as supportedModesFor } from '@/lib/executor/permission-map';
 import {
   type PermissionMode,
@@ -756,6 +757,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                     onOpenChange={setModeMenuOpen}
                     current={permissionMode}
                     options={supportedPermissionModes}
+                    harness={providerId}
                     onSelect={setMode}
                     disabled={selectionControlsDisabled}
                   />
@@ -952,6 +954,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 // ─── ModePicker ───────────────────────────────────────────────
 
 interface ModePickerProps {
+  harness: ProviderId | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   current: PermissionMode;
@@ -960,7 +963,10 @@ interface ModePickerProps {
   disabled?: boolean;
 }
 
-function ModePicker({ open, onOpenChange, current, options, onSelect, disabled }: ModePickerProps) {
+function ModePicker({ harness, open, onOpenChange, current, options, onSelect, disabled }: ModePickerProps) {
+  const descriptionFor = (mode: PermissionMode) => harness === 'antigravity' && mode === 'plan'
+    ? 'Ask the CLI to plan before making changes. Uses its configured tool policies.'
+    : PERMISSION_MODE_META[mode].description;
   const meta = PERMISSION_MODE_META[current];
   const Icon = meta.Icon;
   return (
@@ -969,7 +975,7 @@ function ModePicker({ open, onOpenChange, current, options, onSelect, disabled }
         <button
           type="button"
           disabled={disabled}
-          title={`${meta.title}: ${meta.description}\nShift+Tab to cycle`}
+          title={`${meta.title}: ${descriptionFor(current)}\nShift+Tab to cycle`}
           className={cn(
             'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
             meta.classes.text,
@@ -986,6 +992,7 @@ function ModePicker({ open, onOpenChange, current, options, onSelect, disabled }
         <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
           Permission mode
         </div>
+        <HarnessPermissionNotice harness={harness} />
         {options.map((m) => {
           const mm = PERMISSION_MODE_META[m];
           const ItemIcon = mm.Icon;
@@ -1010,7 +1017,7 @@ function ModePicker({ open, onOpenChange, current, options, onSelect, disabled }
               <div className="flex-1 min-w-0">
                 <div className={cn('text-[12px] font-medium', mm.classes.text)}>{mm.title}</div>
                 <div className="text-[10.5px] text-muted-foreground/80 mt-0.5 leading-snug">
-                  {mm.description}
+                  {descriptionFor(m)}
                 </div>
               </div>
             </button>

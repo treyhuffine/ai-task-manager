@@ -820,7 +820,10 @@ function CliSignInBanner({
   const { connection, isLoading } = useHarnessConnection(harness ?? DEFAULT_HARNESS, harness !== null);
   const recheck = useRecheckHarnessConnection();
   const command = loginCommand ?? (harness ? harnessDefinition(harness).loginCommand : null);
-  const signedIn = harness !== null && !isLoading && connection.connected;
+  // A cached success may predate this failure. Only a fresh, explicit check
+  // can establish that authentication was restored.
+  const signedIn = harness !== null && !isLoading && connection.connected
+    && recheck.isSuccess && recheck.variables === harness;
 
   if (signedIn && sessionId) return <AuthRestoredBanner sessionId={sessionId} />;
 
@@ -1072,20 +1075,9 @@ function useLastUserEvent(events: ChatEventRecord[] | undefined): ChatEventRecor
  * whatever else shows up for forward-compat.
  */
 function formatProviderLabel(providerType: string | null | undefined): string {
-  switch (providerType) {
-    case 'claude': return 'Claude';
-    case 'codex': return 'Codex';
-    case 'gemini': return 'Gemini';
-    case 'cursor': return 'Cursor';
-    case 'opencode': return 'OpenCode';
-    case 'antigravity': return 'Antigravity';
-    case null:
-    case undefined:
-    case '':
-      return 'Claude';
-    default:
-      return providerType.charAt(0).toUpperCase() + providerType.slice(1);
-  }
+  if (!providerType) return 'Claude'; // Historical events predate multiple harnesses.
+  if (isKnownHarnessId(providerType)) return harnessDefinition(providerType).name;
+  return providerType.charAt(0).toUpperCase() + providerType.slice(1);
 }
 
 const TOOL_GLYPH_ICONS: Record<ToolGlyph, typeof Wrench> = {
