@@ -100,8 +100,9 @@ export class AcceptanceFixture {
   page?: Page;
   origin?: string;
 
-  constructor(name: string, options: { chooseHome?: boolean; source?: boolean } = {}) {
+  constructor(name: string, options: { chooseHome?: boolean; source?: boolean; development?: boolean } = {}) {
     this.source = options.source === true;
+    assert(!options.development || this.source, 'Development acceptance requires a source viewer');
     const packaged = process.env.RI_DESKTOP_PACKAGE;
     assert(packaged || this.source, 'Set RI_DESKTOP_PACKAGE to an already built package directory (.app on macOS, linux-unpacked on Linux).');
     const layout = packaged ? desktopPackageLayout(packaged) : undefined;
@@ -122,7 +123,7 @@ export class AcceptanceFixture {
       PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
       RI_DESKTOP_STATE_DIR: path.join(this.base, 'desktop-state'), RI_DESKTOP_ROOT: this.root,
       RI_INSTALL_ROOT: path.join(this.base, 'runtime'), RI_DESKTOP_SMOKE: '1',
-    }, 'production')).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+    }, options.development ? 'development' : 'production')).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
     // Empty values prevent Next from filling provider secrets back from a
     // source checkout's .env.local during isolated acceptance.
     for (const key of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GROQ_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'CODEX_API_KEY', 'BEAMD_API_KEY']) this.env[key] = '';
@@ -180,7 +181,7 @@ export class AcceptanceFixture {
     assert.equal((await serviceStatus())?.phase, 'running');
     const launches = (this.report.launches ??= []) as unknown[];
     launches.push({ readyMs: Date.now() - started, origin: this.origin });
-    console.info('[acceptance] Packaged viewer and local service are ready');
+    console.info('[acceptance] Viewer and local service are ready');
     return page;
   }
 
@@ -222,7 +223,7 @@ export class AcceptanceFixture {
   }
 }
 
-export async function acceptance(name: string, run: (fixture: AcceptanceFixture) => Promise<void>, options: { source?: boolean } = {}) {
+export async function acceptance(name: string, run: (fixture: AcceptanceFixture) => Promise<void>, options: { source?: boolean; development?: boolean; chooseHome?: boolean } = {}) {
   const fixture = new AcceptanceFixture(name, options);
   let failure: unknown;
   try { await run(fixture); }

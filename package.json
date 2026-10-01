@@ -15,6 +15,7 @@
     "desktop:demo": "pnpm desktop:build && node desktop/launch.mjs",
     "desktop:dev": "pnpm desktop:build && node desktop/launch.mjs --dev",
     "desktop:test": "vitest run --config desktop/vitest.config.ts",
+    "desktop:dev-viewer-smoke": "pnpm desktop:build && tsx desktop/dev-viewer-smoke.ts",
     "desktop:dev-smoke": "pnpm cli:build && tsx desktop/dev-service-smoke.ts",
     "desktop:smoke": "pnpm desktop:build && tsx desktop/smoke.ts",
     "start": "next start",

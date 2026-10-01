@@ -35,6 +35,7 @@ import { hasLoginSupervision } from '../src/lib/service/supervision-state';
 import { localDeviceMenu } from './local-device-menu';
 import { isLocalViewer, isViewerReload, trustedViewerFrame, viewerPermission } from './viewer-trust';
 import { ViewerTransitions } from './viewer-transitions';
+import { signInDesktopSession } from './session-auth';
 import type { DesktopNotificationAction } from '../src/lib/notifications/desktop-contract';
 
 const repo = app.isPackaged ? path.join(process.resourcesPath, 'server') : process.env.RI_DESKTOP_REPO || path.resolve(__dirname, '../..');
@@ -618,12 +619,9 @@ async function openApp(ready: BackendReady) {
       configureViewerSession(ready);
       // The existing renderer and its monitors stay alive until the candidate
       // session has been accepted. A failed sign-in never strands a frozen view.
-      const response = await window!.webContents.session.fetch(`${ready.origin}/api/session`, {
-        method: 'POST', headers: { authorization: `Bearer ${ready.token}` },
-        signal: AbortSignal.timeout(15_000),
+      await signInDesktopSession({ origin: ready.origin, token: ready.token, local: isLocalViewer(ready),
+        fetch: (url, init) => window!.webContents.session.fetch(url, init),
       });
-      if (!response.ok) throw new Error('Your Home rejected this sign-in. Connect this device again.');
-      await response.text();
     },
     open: async previous => {
       if (quitting || preparingClose || !window || window.isDestroyed()) throw new Error('Ri stopped opening this connection.');
