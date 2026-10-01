@@ -1,3 +1,4 @@
+import { HarnessPermissionNotice } from '@/components/settings/harness-permission-notice';
 import { useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,7 +15,7 @@ import { defaultModelFor } from '@/lib/harness/options';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { CursorCredentialPanel } from '@/components/settings/cursor-credential-panel';
 import { OpenCodeProviderPanel } from '@/components/settings/opencode-provider-panel';
-import { harnessIcon } from '@/components/settings/harness-connection-ui';
+import { HarnessPicker } from '@/components/settings/harness-picker';
 import { api, ApiError } from '@/lib/api/client';
 import type {
   WizardState,
@@ -23,7 +24,7 @@ import type {
   HarnessVerifyState,
 } from './types';
 import type { HarnessVerifyResponse } from '@/app/api/harness/verify/route';
-import { HARNESS_IDS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
+import { HARNESS_IDS, KNOWN_HARNESS_IDS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 
 /**
  * The onboarding card copy for each harness. Name, sign-in and install
@@ -31,8 +32,8 @@ import { HARNESS_IDS, harnessDefinition, type HarnessId } from '@/lib/harness/re
  * to signing in, or null where the harness has none worth suggesting.
  */
 const HARNESS_COPY: Record<HarnessId, { hint: string; envHint: string | null }> = {
-  claude: { hint: 'Local Claude agent', envHint: 'ANTHROPIC_API_KEY' },
-  codex: { hint: 'Local Codex agent', envHint: 'OPENAI_API_KEY' },
+  claude: { hint: 'Claude models with your Anthropic account', envHint: 'ANTHROPIC_API_KEY' },
+  codex: { hint: 'OpenAI models with your ChatGPT account', envHint: 'OPENAI_API_KEY' },
   cursor: { hint: 'Cursor models, including Grok when available', envHint: 'CURSOR_API_KEY' },
   opencode: { hint: 'Models from your OpenCode providers', envHint: 'Configure a provider below' },
   // Signing in through `agy` is the way in. An API key needs a settings
@@ -44,19 +45,17 @@ interface HarnessCard {
   id: HarnessId;
   name: string;
   hint: string;
-  icon: React.ComponentType<{ className?: string }>;
   loginCmd: string;
   envHint: string | null;
   installHint: string;
 }
 
-const HARNESSES: HarnessCard[] = (Object.keys(HARNESS_COPY) as HarnessId[]).map((id) => {
+const HARNESSES: HarnessCard[] = KNOWN_HARNESS_IDS.map((id) => {
   const definition = harnessDefinition(id);
   return {
     id,
     name: definition.name,
     ...HARNESS_COPY[id],
-    icon: harnessIcon(id),
     loginCmd: definition.loginCommand ?? '',
     installHint: definition.installHint,
   };
@@ -119,7 +118,7 @@ export function StepHarness({
             verify: {
               phase: result.ok ? 'ok' : 'failed',
               result,
-              error: result.ok ? undefined : result.errorMessage ?? 'Agent did not respond',
+              error: result.ok ? undefined : result.errorMessage ?? 'Harness did not respond',
             },
           },
         }));
@@ -181,7 +180,7 @@ export function StepHarness({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="@container space-y-6">
       <header className="flex items-start gap-3">
         <div className="flex shrink-0 size-10 items-center justify-center rounded-md bg-muted">
           <Bot className="size-5" />
@@ -196,34 +195,14 @@ export function StepHarness({
 
       <div className="space-y-2">
         <div className="text-xs uppercase tracking-wide text-muted-foreground">Harness</div>
-        <div className="grid grid-cols-2 gap-2">
-          {HARNESSES.filter((h) => HARNESS_IDS.includes(h.id)).map((h) => {
-            const selected = state.harness === h.id;
-            const Icon = h.icon;
-            return (
-              <button
-                key={h.id}
-                type="button"
-                onClick={() => selectHarness(h.id)}
-                className={`relative flex flex-col items-center gap-2 rounded-lg border p-5 text-center transition-colors ${
-                  selected
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border bg-card hover:bg-muted/50'
-                }`}
-              >
-                {h.id === 'claude' && (
-                  <span className="absolute top-2 right-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-400">
-                    Recommended
-                  </span>
-                )}
-                <Icon className="size-6" />
-                <span className="text-sm font-medium">{h.name}</span>
-                <span className="text-xs text-muted-foreground">{h.hint}</span>
-              </button>
-            );
-          })}
-        </div>
+        <HarnessPicker
+          harnesses={HARNESS_IDS.map((id) => HARNESS_BY_ID[id])}
+          value={state.harness}
+          onChange={selectHarness}
+        />
       </div>
+
+      <HarnessPermissionNotice harness={state.harness} />
 
       <AuthStatus
         state={state}
@@ -265,7 +244,7 @@ function ModelChoice({
     <div className="space-y-2">
       <div className="text-xs uppercase tracking-wide text-muted-foreground">Default model</div>
       {isLoading && <div className="text-xs text-muted-foreground">Loading models…</div>}
-      <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto">
+      <div className="grid max-h-72 grid-cols-1 gap-2 overflow-y-auto @min-[400px]:grid-cols-2">
         {options.map((opt) => {
           const active = selected === opt.id;
           return (
