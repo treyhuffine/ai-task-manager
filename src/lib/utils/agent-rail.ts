@@ -10,32 +10,6 @@ import { isSessionUnread } from '@/lib/utils/session-sort';
  * each execution's dot says what that execution wants.
  */
 
-/** Quiet executions shown under an agent before the rest fold into a count. */
-export const QUIET_THREADS = 3;
-
-/**
- * Which of an agent's executions hang under it: every live one (needs you,
- * working, unread, pinned, or the one open right now), then the most recent
- * quiet ones up to `quiet`. Keeps the order they arrive in, which is the
- * rail's hotness order. `hidden` is what's left.
- */
-export function pickRailThreads<T>(
-  sessions: readonly T[],
-  isLive: (session: T) => boolean,
-  quiet: number = QUIET_THREADS,
-): { shown: T[]; hidden: number } {
-  const shown: T[] = [];
-  let quietShown = 0;
-  for (const s of sessions) {
-    if (isLive(s)) shown.push(s);
-    else if (quietShown < quiet) {
-      shown.push(s);
-      quietShown++;
-    }
-  }
-  return { shown, hidden: sessions.length - shown.length };
-}
-
 /**
  * What the agent's main chat is doing. Waiting on you wins over thinking (a
  * blocked turn is still a live process), and a new reply only counts once

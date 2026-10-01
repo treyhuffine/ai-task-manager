@@ -388,7 +388,7 @@ export function GeneralSection() {
           </div>
           <p className="text-[11px] text-muted-foreground/85">
             {railStyle === 'agents'
-              ? 'Each agent shows what it last said, bold with a dot when it wants you. Its executions hang under it on one line each: the live ones, a few recent ones, and the rest behind a Show toggle.'
+              ? 'Each agent shows what it last said, bold with a dot when it wants you. Its executions hang under it on one line each, all of them, with the inactive ones behind a Show toggle.'
               : 'One line per agent, with every active execution listed under it on two lines.'}
           </p>
         </div>

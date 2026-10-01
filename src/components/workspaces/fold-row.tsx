@@ -5,10 +5,8 @@ import { cn } from '@/lib/utils';
 
 /**
  * The toggle at the foot of a folded list: what's tucked away on the left
- * ("4 inactive hidden", "5 more and 44 inactive hidden"), and Show or Hide on
- * the right. The rows it controls expand in place. One per list: inactive
- * executions everywhere (`InactiveFold`), and under an agent in the
- * agents-first rail, everything past its first threads.
+ * ("4 inactive hidden"), and Show or Hide on the right. The rows it controls
+ * expand in place. One per list, for its inactive executions (`InactiveFold`).
  *
  * `accessory` sits after the toggle, e.g. the inactive timer.
  */
@@ -21,7 +19,7 @@ export function FoldRow({
   className,
   rowClassName,
 }: {
-  /** What's folded, without the verb: "4 inactive", "5 more and 44 inactive". */
+  /** What's folded, without the verb: "4 inactive". */
   label: string;
   shown: boolean;
   onToggle: () => void;

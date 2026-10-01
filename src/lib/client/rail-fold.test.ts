@@ -27,7 +27,7 @@ describe('rail fold memory', () => {
   it('keeps each section separate, and hidden is the absence of a key', () => {
     setFoldShown('inactive:agent:ws-1', true);
     expect(store.get(railFoldKey('inactive:agent:ws-1'))).toBe('1');
-    expect(store.has(railFoldKey('more:agent:ws-1'))).toBe(false);
+    expect(store.has(railFoldKey('inactive:agent:ws-2'))).toBe(false);
 
     setFoldShown('inactive:agent:ws-1', false);
     expect(store.has(railFoldKey('inactive:agent:ws-1'))).toBe(false);

@@ -3,10 +3,9 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
 /**
- * Whether one fold in a list is open: a section's inactive executions (see
- * `src/lib/sessions/inactive.ts`), or the quiet threads an agent keeps behind
- * "N more hidden" in the agents-first rail. Each fold remembers its own
- * choice, so opening one agent's leaves the others shut.
+ * Whether one list's fold of inactive executions is open (see
+ * `src/lib/sessions/inactive.ts`). Each fold remembers its own choice, so
+ * opening one agent's leaves the others shut.
  *
  * Per-browser in localStorage, like the Status tab's bucket collapse
  * (`ri.rail.bucket.<id>`): how a list is folded on this screen is a view
@@ -56,7 +55,7 @@ function subscribe(onChange: () => void): () => void {
   };
 }
 
-/** `[shown, setShown]` for one fold, e.g. `inactive:agent:<id>` or `more:agent:<id>`. */
+/** `[shown, setShown]` for one fold, e.g. `inactive:agent:<id>` or `inactive:pinned`. */
 export function useFoldShown(foldId: string): [boolean, (shown: boolean) => void] {
   const shown = useSyncExternalStore(
     subscribe,

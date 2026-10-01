@@ -58,17 +58,16 @@ section remembers its own choice in localStorage (`ri.rail.fold.inactive:<sectio
 `src/lib/client/rail-fold.ts`). Shown inactive rows are dimmed and carry a
 moon before their age.
 
-Under an agent in the agents-first rail, inactive work shares the one toggle
-that already holds the quiet overflow past its first three threads: "5 more
-and 44 inactive hidden" with Show, inactive rows last when shown. Two stacked
-toggles there read as two different things to choose between.
+Inactive is the only rule for what hides. The agents-first rail used to also
+cap each agent at its three most recent quiet threads behind "N more", which
+stacked two toggles under an agent and hid recent work for no stated reason.
+That cap is gone: everything with activity in the last week shows.
 
 | Surface | Section ids |
 |---|---|
 | Rail: Pinned | `pinned` |
 | Rail, Agents tab: Needs you (executions) | `unread` |
-| Rail, Agents tab: each agent's list (classic) | `agent:<workspaceId>` |
-| Rail, Agents tab: each agent's threads (agents-first) | one toggle with the quiet overflow, `hidden:agent:<workspaceId>` |
+| Rail, Agents tab: each agent's threads (agents-first) or list (classic) | `agent:<workspaceId>` |
 | Rail, Status tab: each bucket | `status:<bucket>` |
 | Skinny rail: a moon button at the foot | `skinny` |
 | Agent view Overview: Pinned, Needs you, Recent | `overview:<workspaceId>:pinned`, `:needs`, `:recent` |

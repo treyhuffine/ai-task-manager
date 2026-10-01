@@ -11,7 +11,6 @@ import { isSessionUnread, sortSessionsHotnessDesc } from '@/lib/utils/session-so
 import {
   agentVoice,
   mainChatActivity,
-  pickRailThreads,
   threadSummary,
   type AgentActivity,
   type VoiceTone,
@@ -26,10 +25,8 @@ import {
 import { cn } from '@/lib/utils';
 import type { WorkspaceWithCounts } from '@/db/types';
 import { SessionRow } from './session-row';
-import { FoldRow } from './fold-row';
-import { InactiveAfterPopover } from './inactive-fold';
+import { InactiveFold } from './inactive-fold';
 import { useInactivity } from '@/hooks/use-inactivity';
-import { useFoldShown } from '@/lib/client/rail-fold';
 
 interface AgentRailRowProps {
   workspace: WorkspaceWithCounts;
@@ -54,7 +51,7 @@ const SUMMARY_TONE = {
   muted: 'text-muted-foreground/65',
 } as const;
 
-/** The fold toggle under an agent matches its 32px threads. */
+/** The inactive toggle under an agent matches its 32px threads. */
 const THREAD_FOLD_ROW = 'h-8 py-0 text-[10.5px]';
 
 const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: string }> = {
@@ -74,15 +71,14 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  * rows, so nothing here is counted twice.
  *
  * Its executions sit under it on one 32px line each, inset so their dots sit
- * under its icon: every live one and the three most recent quiet ones. The
- * rest, quiet overflow and inactive work alike, sit behind one toggle ("5 more
- * and 44 inactive hidden" · Show, remembered per agent) that lists them in
- * place, inactive ones last and dimmed. Hiding the executions is one click on
- * hover, and hidden executions fold into a line that still says what wants
- * you, so hiding never hides that. The whole row drags.
- *
- * Inactive executions (src/lib/sessions/inactive.ts), pinned ones included,
- * the counts leave them out. Only the execution open right now stays.
+ * under its icon: every one with activity in the last week (the inactive
+ * threshold, src/lib/sessions/inactive.ts), however many. Inactive ones,
+ * pinned included, fold behind "N inactive hidden" · Show, the same toggle as
+ * every other list, and the counts leave them out. The execution open right
+ * now always stays. That is the only rule for what hides: no cap on how many
+ * recent ones show. Hiding the executions is one click on hover, and hidden
+ * executions fold into a line that still says what wants you, so hiding
+ * never hides that. The whole row drags.
  */
 export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onOpenLauncher }: AgentRailRowProps) {
   const { streamingSessionIds, pendingInputSessionIds, activeView, activeSessionId, activeExecutionId, openAgent } =
@@ -91,9 +87,6 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
   const { data: rail } = useRailSessions();
   const updateWs = useUpdateWorkspace();
   const { isInactive } = useInactivity();
-  // One fold for everything past the first threads: the quiet overflow and
-  // the inactive ones together, so an agent never shows two toggles.
-  const [showAll, setShowAll] = useFoldShown(`hidden:agent:${workspace.id}`);
   const isActive = activeView.kind === 'agent' && activeView.id === workspace.id;
   const expanded = !workspace.collapsed;
 
@@ -109,7 +102,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     purpose: workspace.purpose,
   });
 
-  const { sessions, inactive, total, capped, summary } = useMemo(() => {
+  const { sessions, inactive, total, summary } = useMemo(() => {
     const all = sortSessionsHotnessDesc(
       (rail?.sessions ?? []).filter((s) => s.workspaceId === workspace.id && s.status === 'active'),
     );
@@ -132,15 +125,6 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       sessions: kept,
       inactive: folded,
       total: all.length,
-      capped: pickRailThreads(
-        kept,
-        (s) =>
-          pendingInputSessionIds.has(s.id) ||
-          streamingSessionIds.has(s.id) ||
-          isSessionUnread(s) ||
-          !!s.execution?.pinnedAt ||
-          isOpen(s),
-      ),
       summary: threadSummary({ total: all.length, needsYou, working }),
     };
   }, [
@@ -153,14 +137,6 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     isInactive,
   ]);
 
-  // Shown, the inactive ones come last, dimmed.
-  const threads = showAll ? [...sessions, ...inactive] : capped.shown;
-  const foldLabel = [
-    capped.hidden > 0 ? `${capped.hidden} more` : null,
-    inactive.length > 0 ? `${inactive.length} inactive` : null,
-  ]
-    .filter(Boolean)
-    .join(' and ');
   const hasThreads = total > 0;
   const toggleThreads = () => updateWs.mutate({ id: workspace.id, collapsed: expanded });
   const open = () => (opensView ? openAgent(workspace.id) : toggleThreads());
@@ -268,7 +244,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         // Inset a little, no guide line: each dot sits under the agent's icon,
         // and size and weight carry the rest of the hierarchy.
         <div className="mt-0.5 mb-1.5 space-y-px">
-          {threads.map((s) => (
+          {sessions.map((s) => (
             <SessionRow
               key={s.id}
               session={s}
@@ -277,22 +253,17 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
               inactive={isInactive(s)}
             />
           ))}
-          {/* Thread-height, indented to the thread labels. The inactive timer
-              rides along when there's inactive work in the fold. */}
-          {foldLabel && (
-            <FoldRow
-              label={foldLabel}
-              shown={showAll}
-              onToggle={() => setShowAll(!showAll)}
-              className="pl-[28px]"
-              rowClassName={THREAD_FOLD_ROW}
-              accessory={
-                inactive.length > 0 ? (
-                  <InactiveAfterPopover className="opacity-0 group-hover/fold:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100" />
-                ) : undefined
-              }
-            />
-          )}
+          {/* The one fold: inactive work, thread-height, indented to the thread labels. */}
+          <InactiveFold
+            sectionId={`agent:${workspace.id}`}
+            count={inactive.length}
+            className="pl-[28px]"
+            rowClassName={THREAD_FOLD_ROW}
+          >
+            {inactive.map((s) => (
+              <SessionRow key={s.id} session={s} density="compact" workspaceIsGit={workspace.isGit} inactive />
+            ))}
+          </InactiveFold>
         </div>
       )}
 

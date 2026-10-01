@@ -3,33 +3,8 @@ import {
   agentAttention,
   agentVoice,
   mainChatActivity,
-  pickRailThreads,
-  QUIET_THREADS,
   threadSummary,
 } from './agent-rail';
-
-describe('pickRailThreads', () => {
-  const rows = (spec: string) => spec.split('').map((c, i) => ({ id: i, live: c === 'L' }));
-  const live = (r: { live: boolean }) => r.live;
-
-  it('shows every live execution and the first few quiet ones, in the order given', () => {
-    const { shown, hidden } = pickRailThreads(rows('qLqqLqqq'), live, 3);
-    expect(shown.map((r) => r.id)).toEqual([0, 1, 2, 3, 4]);
-    expect(hidden).toBe(3);
-  });
-
-  it('never hides a live execution, however many there are', () => {
-    const { shown, hidden } = pickRailThreads(rows('qqqqLLLL'), live, 2);
-    expect(shown.map((r) => r.id)).toEqual([0, 1, 4, 5, 6, 7]);
-    expect(hidden).toBe(2);
-  });
-
-  it('shows everything when the list is short', () => {
-    expect(pickRailThreads(rows('qq'), live)).toEqual({ shown: rows('qq'), hidden: 0 });
-    expect(pickRailThreads([], live)).toEqual({ shown: [], hidden: 0 });
-    expect(QUIET_THREADS).toBe(3);
-  });
-});
 
 describe('mainChatActivity', () => {
   const chat = (read: boolean) => ({
