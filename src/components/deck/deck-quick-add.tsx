@@ -20,7 +20,7 @@ interface DeckQuickAddCardProps {
  */
 export function DeckQuickAddCard({ onTaskCreated, onClose }: DeckQuickAddCardProps) {
   const [title, setTitle] = useState('');
-  const { ref: inputRef } = useAutosizeTextarea(title);
+  const { ref: attachInput, element: inputRef } = useAutosizeTextarea(title);
   const containerRef = useRef<HTMLDivElement>(null);
   const createTask = useCreateTask();
 
@@ -70,7 +70,7 @@ export function DeckQuickAddCard({ onTaskCreated, onClose }: DeckQuickAddCardPro
     <div ref={containerRef} className="relative py-2">
       <div className="pl-6 pr-20">
         <textarea
-          ref={inputRef}
+          ref={attachInput}
           rows={1}
           value={title}
           onChange={(e) => setTitle(e.target.value)}

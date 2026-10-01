@@ -407,7 +407,7 @@ export function NoteEditor({
   foldedHeadings,
   onFoldedHeadingsChange,
 }: NoteEditorProps) {
-  const { ref: titleRef, resize: resizeTitle } = useAutosizeTextarea()
+  const { ref: attachTitle, element: titleRef, resize: resizeTitle } = useAutosizeTextarea()
 
   const handleTitleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -449,7 +449,7 @@ export function NoteEditor({
     <div className="note-editor w-full mx-auto pb-16">
       {/* Title */}
       <textarea
-        ref={titleRef}
+        ref={attachTitle}
         className="note-title w-full text-[2.5rem] font-bold leading-tight bg-transparent border-none outline-none resize-none overflow-hidden text-foreground placeholder:text-muted-foreground/40"
         placeholder="Note title"
         defaultValue={title}

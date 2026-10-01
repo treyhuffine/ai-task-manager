@@ -122,7 +122,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const [editingDeadline, setEditingDeadline] = useState(false);
   const [editingBoomerang, setEditingBoomerang] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { ref: titleRef, resize: resizeTitle } = useAutosizeTextarea();
+  const { ref: attachTitle, element: titleRef, resize: resizeTitle } = useAutosizeTextarea();
   const pendingAttachmentsRef = useRef<Attachment[]>([]);
 
   const handleAttachment = useCallback((attachment: Attachment) => {
@@ -496,7 +496,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                     </div>
                     <div className="pt-1 px-4 md:px-12">
                       <textarea
-                        ref={titleRef}
+                        ref={attachTitle}
                         className={cn(
                           'w-full text-2xl font-bold leading-tight bg-transparent border-none outline-none resize-none overflow-hidden text-foreground placeholder:text-muted-foreground/40',
                           isDone && 'line-through text-muted-foreground',
