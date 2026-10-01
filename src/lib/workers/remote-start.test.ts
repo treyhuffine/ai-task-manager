@@ -35,6 +35,8 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   const homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
+  // The worker-process fixture installs and reports only fake Claude.
+  q.updateUserState({ defaultHarness: 'claude' });
   const laptop = q.pairDevice({ name: 'Laptop', kind: 'computer' });
   deviceId = q.registerDeviceForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).device.id;
   server = await startHomeServer();

@@ -82,7 +82,7 @@ describe('orchestrator trigger + run actions', () => {
       name: 'auto-agent', targetKind: 'orchestrator',
       prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
     } as never) as { trigger: { harness: string; provider: string } };
-    expect(result.trigger).toMatchObject({ harness: 'claude', provider: 'claude' });
+    expect(result.trigger).toMatchObject({ harness: 'codex', provider: 'codex' });
   });
 
   it('create_trigger stores the default harness on a workspace trigger when provider is omitted', async () => {
@@ -93,7 +93,7 @@ describe('orchestrator trigger + run actions', () => {
       prompt: 'X', kind: 'at',
       runAt: new Date(Date.now() + 60_000).toISOString(),
     } as never) as { trigger: { harness: string; provider: string } };
-    expect(result.trigger).toMatchObject({ harness: 'claude', provider: 'claude' });
+    expect(result.trigger).toMatchObject({ harness: 'codex', provider: 'codex' });
   });
 
   it('create_trigger rejects an invalid cron expression', async () => {
@@ -257,25 +257,25 @@ describe('orchestrator trigger + run actions', () => {
   });
 
   describe('provider selection', () => {
-    it('create_trigger falls back to Claude when the user has no default provider', async () => {
+    it('create_trigger falls back to Codex when the user has no default provider', async () => {
       await seed();
       const action = await findAction('create_trigger');
       const result = await action.handler({ remote: false }, {
         name: 'no-default', targetKind: 'orchestrator',
         prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
       } as never) as { trigger: { harness: string; provider: string } };
-      expect(result.trigger).toMatchObject({ harness: 'claude', provider: 'claude' });
+      expect(result.trigger).toMatchObject({ harness: 'codex', provider: 'codex' });
     });
 
-    it('create_trigger follows the user default provider when provider is omitted', async () => {
+    it('create_trigger preserves a saved Claude default when provider is omitted', async () => {
       const { wsId } = await seed();
-      await setDefaultProvider('codex');
+      await setDefaultProvider('claude');
       const action = await findAction('create_trigger');
       const result = await action.handler({ remote: false }, {
         name: 'follows-default', targetKind: 'workspace', workspaceId: wsId,
         prompt: 'X', kind: 'manual',
       } as never) as { trigger: { harness: string; provider: string } };
-      expect(result.trigger).toMatchObject({ harness: 'codex', provider: 'codex' });
+      expect(result.trigger).toMatchObject({ harness: 'claude', provider: 'claude' });
     });
 
     it('create_trigger honors an explicit provider over the user default', async () => {

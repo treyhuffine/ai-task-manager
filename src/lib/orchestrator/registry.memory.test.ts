@@ -25,6 +25,8 @@ beforeEach(async () => {
   identity.ensureHomeIdentity();
   // The home's own key, as the server's self-calls use it.
   const q = await import('@/lib/db/queries');
+  // Keep the main chat on the fake Claude harness installed below.
+  q.updateUserState({ defaultHarness: 'claude' });
   const { writeAuthConfig } = await import('@/lib/auth/config-file');
   writeAuthConfig({ localToken: q.pairDevice({ name: 'Home', kind: 'computer' }).token.plaintext });
   server = await startHomeServer();

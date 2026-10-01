@@ -170,7 +170,7 @@ describe('getHeartbeatConfig', () => {
       enabled: false,
       instructionsAreDefault: true,
       intervalSeconds: 3600,
-      provider: 'claude',
+      provider: 'codex',
       nextCheckInAt: null,
       running: false,
       lastCheckIn: null,
