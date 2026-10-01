@@ -1,51 +1,81 @@
-# The main chat's first run
+# First run: the main chat
 
-A new home's main chat opens with the orchestrator introducing itself and setting up the few things
-worth asking a person about, one message at a time, the way a conversation goes. Then it hands over
-to the usual starters.
+A new home has no setup wizard. It opens straight on the dashboard, and its main chat walks the
+person through setup as a conversation: the orchestrator introduces itself and asks, one message at
+a time, only what this home doesn't have yet. Then it hands over to the usual starters.
 
-Built 2026-10-01. Code: `src/components/chat/onboarding/` (flow in `onboarding-flow.ts`, rendering in
-`main-chat-onboarding.tsx`, the apps step in `onboarding-apps.tsx`) and the shared identity editor in
-`src/components/orchestrator/`.
+Built 2026-10-01. Code: `src/components/chat/onboarding/` (the steps and their order in
+`onboarding-flow.ts`, the conversation in `main-chat-onboarding.tsx`, one file per step that needs
+more than a field), the shared identity editor in `src/components/orchestrator/`, and the harness
+picker in `src/components/onboarding/`.
+
+## What a home actually needs
+
+Only a harness that answers: a coding CLI (Claude Code, Codex, Cursor or OpenCode), installed,
+signed in, and responding to a real request. Everything else has a default or can wait:
+
+- The model: the harness's default (Settings, Models changes it).
+- The agent skill: installed on setup, as the wizard did (Settings, Models shows it).
+- Areas, imports, apps, a first agent: useful, asked in the conversation, all skippable.
+
+So the harness is the only step that can't be skipped, and usually the person never sees it.
 
 ## The conversation
 
-| Step | It asks | What the answer writes |
-|---|---|---|
-| Name and look | "What should I go by?" Name, a look (emoji, a picture, art made in the app, a color) and ideas to start from (Ri with its mark, Rye 🍞, Chief of Staff 💼, Penny, Alfred, Jarvis, Ada, Grace, Sage, Atlas). Says both can change any time. | `orchestratorName`, `orchestratorEmoji`, `orchestratorColor`, `orchestratorImage` |
-| You | "What should I call you?" | `user_state.name` |
-| What you're working on | A line or two, or Skip for now | `user_state.description` |
-| Apps | Popular apps in a row, a search over all of them, and a note that it checks before sending anything or doing anything that can't be undone (the default Ask first policy, `docs/connector-approvals.md`) | Connections, through Settings |
-| A first agent | Only for a home with no agents: the same New agent dialog the rail uses, or Later | A workspace |
-| Done | "You're all set", then the starters | `orchestratorIntroducedAt` |
+Each step shows only when it applies to this home (`stepApplies`).
 
-Each answer shows as the user's reply bubble, and the assistant's next message picks it up ("Rye it
-is.", "Nice to meet you, Trey."). The face beside its messages, in the rail and in the chat header
-changes the moment a look is saved. A short typing beat separates steps (skipped under reduced
-motion). "Skip setup" ends it at any point.
+| Step | Shown when | It asks | What the answer writes |
+|---|---|---|---|
+| Name and look | Always | "What should I go by?" Name, a look (emoji, a picture, art made in the app, a color), ideas to start from. For a new home, a note about `ri connect` for people who meant to connect another computer. | `orchestratorName`, `orchestratorEmoji`, `orchestratorColor`, `orchestratorImage` |
+| Harness | A home that was never set up, and the background check couldn't set one up | "I need a way to think." The harness picker (sign-in check, a real test request, model, billing consent for a key-only setup) | The active harness and its default model, user state's default tuple, the agent skill |
+| You | Always | "What should I call you?" | `user_state.name` |
+| What you're working on | Always | A line or two, or Skip for now | `user_state.description` |
+| Import | History from Claude Code, Codex or OpenCode was found (shown while the search runs, and finished silently if it finds nothing) | "I found 340 chats across 12 projects from Claude Code. Want to bring some in?" The Settings, Imports panel | Agents (one per project) and their chats |
+| Areas | No areas yet | "Want me to keep things in areas?" Suggestions from what you said and the projects you brought in, Work and Personal, or your own | Areas |
+| Apps | Always | Popular apps in a row and a search over all of them. Notes that it checks before sending anything or doing anything that can't be undone (the default Ask first policy) | Connections, through Settings |
+| A first agent | No agents yet (after import) | The New agent dialog, or Later | A workspace |
+| Done | Always | "You're all set", then the starters | `orchestratorIntroducedAt`, and `onboardedAt` for a new home |
+
+Each answer shows as the user's reply bubble, and the next message picks it up. A short typing beat
+separates steps (skipped under reduced motion). "Skip setup" ends it at any point once a harness is
+set up. Before that, nothing would work, so it isn't offered.
+
+## Running ahead of the steps
+
+Three things start in the background so the steps that need them rarely wait:
+
+- **The harness check** (`use-harness-check.ts`), from the first message, for a home that was never
+  set up: every harness's sign-in at once (fast), then one real request to the one it can set up
+  without asking (`autoHarness`: Claude Code on a subscription or Bedrock, else Codex on a
+  subscription). A key-only setup bills per call and needs consent, and Cursor and OpenCode need a
+  model picked, so those go to the person. When the check passes, the step saves the setup and
+  finishes without a word (an empty reply, which isn't shown). If the empty main chat was made on
+  another harness, it's started over on this one.
+- **The search for history** (`useImportDiscovery`), from the first message, under the same cache key
+  as the import panel. It can take up to 90 seconds.
+- **Area suggestions** (`POST /api/onboarding/area-suggestions`, `src/lib/onboarding/area-suggestions.ts`),
+  once you've said what you're working on and the import step is settled: one fast, tool-less call
+  through the harness, two to four areas in your own words. The step shows Work and Personal at once
+  and adds the suggestions when they land. A failed call answers with no suggestions.
 
 ## Decisions
 
-- **Scripted, not stored.** The messages are drawn with the transcript's own components but are not
-  chat events. The real conversation with the harness starts clean (writing events the model never
-  saw would leave Ri's record and the harness's out of step), nothing waits on a model or spends
-  usage, and every answer lands in settings the orchestrator already reads: the name in its brief
-  (`renderOrchestratorBrief`), your name and description in user state. Sending a message replaces
-  the conversation with the real transcript, as it does the usual intro.
-- **Asked once.** Your name and what you're working on used to be the `/welcome` wizard's first step
-  ("You"). They moved here, so the wizard is only the machinery a chat needs to run (harness,
-  import, areas) and nobody is asked twice. The wizard's note about connecting another device moved
-  to its first step.
-- **Connecting reuses Settings.** Every way of connecting (OAuth, hosted MCP accounts, keys, your own
-  OAuth app) already lives on a provider's page in Settings, Plugins. An app tile opens that page
-  directly (`openSettings('plugins', { anchor: 'connectors:<id>' })`), and closing Settings or
-  returning from a sign-in page refreshes what the step shows as connected.
+- **No wizard.** The old `/welcome` asked five screens of things, only one of which a home needs
+  before it works. The route now redirects home, so old links and sign-in returns still land.
+- **Scripted, not stored.** The messages are drawn with the transcript's own components but aren't
+  chat events. The harness conversation starts clean (events the model never saw would leave Ri's
+  record and the harness's out of step), and every answer lands in settings the orchestrator already
+  reads. Sending a message replaces the conversation with the real transcript, as it does the usual
+  intro.
+- **Connecting reuses Settings.** Every way of connecting already lives on a provider's page in
+  Settings, Plugins. An app tile opens that page directly (`anchor: 'connectors:<id>'`), and closing
+  Settings or returning from a sign-in page refreshes what the step shows.
 - **Art is made in the app.** "Make art" draws soft color fields from a seed
-  (`src/lib/orchestrator/art.ts`), instantly and for free. Only kept art is uploaded, as an SVG
-  attachment, and is then drawn like any picture. Generated art has no script, text or links.
+  (`src/lib/orchestrator/art.ts`), instantly and for free, uploaded as SVG only if kept.
 - **One editor everywhere.** The name and look step, Settings, Profile ("Your assistant") and the
-  dialog behind the pencil on the rail's home row are the same `IdentityEditor`, saving through
-  `useSaveIdentity`.
+  dialog behind the pencil on the rail's home row are the same `IdentityEditor`.
+- **An empty chat isn't use.** `describeHomeUse` (what lets `ri connect` set a fresh home aside)
+  counts only chats with something said in them, since a new home makes its main chat on first load.
 
 ## When it shows
 
@@ -53,25 +83,22 @@ motion). "Skip setup" ends it at any point.
   end or skipping sets it, so the next empty chat opens on the usual intro. The conversation that
   just finished stays up, starters and all, until the chat is used.
 - Progress is kept per browser (`localStorage` `ri.mainChat.onboarding`), so a reload or a
-  connector's sign-in redirect comes back to the same step. Answers are saved as each step
-  finishes.
-- A home that existed before this (no `orchestrator_introduced_at`) sees it on its next empty main
-  chat: press New in the chat bar.
+  connector's sign-in redirect comes back to the same step. Answers are saved as each step finishes.
+- A home set up before this (`onboarded_at` set, no `orchestrator_introduced_at`) sees it on its
+  next empty main chat, without the harness step: press New in the chat bar.
 - Someone who types into the composer instead leaves it unfinished, and the next empty chat offers
-  it again where they left off, with Skip setup a click away.
+  it again where they left off.
 
 ## Storage
 
 `user_state` gained `orchestrator_emoji`, `orchestrator_image` (an attachment, snake_case on disk
-like every attachment column and hydrated by `getUserState` / `updateUserState`),
-`orchestrator_color` and `orchestrator_introduced_at` (migration 0005). All nullable preferences, no
-schema defaults. `PATCH /api/user-state` checks them through `parseOrchestratorLook`: one emoji, a
-palette color, an image that is an uploaded image file. Changing the look doesn't touch the running
-main chat. Changing the name recycles it (`docs/orchestrator-harness.md`).
+and hydrated by `getUserState` / `updateUserState`), `orchestrator_color` and
+`orchestrator_introduced_at` (migration 0005). All nullable preferences, no schema defaults.
+`PATCH /api/user-state` checks them through `parseOrchestratorLook`. `onboarded_at` now means the
+first run finished in a home that was new, and is still what `describeHomeUse` reads.
 
 ## Not built
 
-- Art made by a model (the user describes it, the harness draws it). The local generator covers
-  "make me something" without a wait or usage, and a model can come later behind the same button.
-- Workday hours and time zone. The deck asks for these where they matter, and the time zone is read
-  from the browser.
+- Art made by a model. The local generator covers "make me something" without a wait or usage.
+- Workday hours and time zone. The deck asks where they matter, and the time zone is read from the
+  browser.

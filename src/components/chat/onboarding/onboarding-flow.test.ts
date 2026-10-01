@@ -1,19 +1,34 @@
 import { describe, expect, it } from 'vitest';
-import { FIRST_PROGRESS, listJoin, nextStep, readProgress, stepsThrough } from './onboarding-flow';
+import { FIRST_PROGRESS, listJoin, nextStep, readProgress, stepsThrough, type StepContext } from './onboarding-flow';
+
+const NEW_HOME: StepContext = { needsHarness: true, importFound: true, hasAreas: false, hasAgents: false };
+const SET_UP_HOME: StepContext = { needsHarness: false, importFound: false, hasAreas: true, hasAgents: true };
+
+function walk(ctx: StepContext) {
+  const steps = ['identity'];
+  while (steps[steps.length - 1] !== 'done') steps.push(nextStep(steps[steps.length - 1] as never, ctx));
+  return steps;
+}
 
 describe('nextStep', () => {
-  it('walks name, you, what you do, apps, an agent, done', () => {
-    const walk = ['identity'];
-    while (walk[walk.length - 1] !== 'done') walk.push(nextStep(walk[walk.length - 1] as never, { hasAgents: false }));
-    expect(walk).toEqual(['identity', 'you', 'about', 'apps', 'agent', 'done']);
+  it('walks a new home through everything', () => {
+    expect(walk(NEW_HOME)).toEqual(['identity', 'harness', 'you', 'about', 'import', 'areas', 'apps', 'agent', 'done']);
   });
 
-  it('skips adding an agent for someone who has one', () => {
-    expect(nextStep('apps', { hasAgents: true })).toBe('done');
+  it('asks a home that is set up only what it lacks', () => {
+    expect(walk(SET_UP_HOME)).toEqual(['identity', 'you', 'about', 'apps', 'done']);
+  });
+
+  it('still shows import while the search is running', () => {
+    expect(nextStep('about', { ...SET_UP_HOME, importFound: null })).toBe('import');
+  });
+
+  it('skips import when there is nothing to bring in', () => {
+    expect(nextStep('about', { ...NEW_HOME, importFound: false })).toBe('areas');
   });
 
   it('stays done', () => {
-    expect(nextStep('done', { hasAgents: false })).toBe('done');
+    expect(nextStep('done', NEW_HOME)).toBe('done');
   });
 });
 
@@ -22,13 +37,12 @@ describe('stepsThrough', () => {
     expect(stepsThrough('about', { identity: 'Rye', you: 'Trey' })).toEqual(['identity', 'you', 'about']);
   });
 
-  it('leaves out a step that was skipped over', () => {
-    expect(stepsThrough('done', { identity: 'Rye', you: 'Trey', about: 'x', apps: 'Not now' })).toEqual([
+  it('leaves out steps skipped over and steps finished without a word', () => {
+    expect(stepsThrough('apps', { identity: 'Rye', harness: '', you: 'Trey', about: 'x' })).toEqual([
       'identity',
       'you',
       'about',
       'apps',
-      'done',
     ]);
   });
 });
@@ -40,10 +54,10 @@ describe('readProgress', () => {
     expect(readProgress('{"step":"somewhere"}')).toEqual(FIRST_PROGRESS);
   });
 
-  it('keeps the step and only text replies', () => {
-    expect(readProgress(JSON.stringify({ step: 'apps', replies: { identity: 'Rye', you: 7, nope: 'x' } }))).toEqual({
+  it('keeps the step and only text replies, the silent one included', () => {
+    expect(readProgress(JSON.stringify({ step: 'apps', replies: { identity: 'Rye', harness: '', you: 7, nope: 'x' } }))).toEqual({
       step: 'apps',
-      replies: { identity: 'Rye' },
+      replies: { identity: 'Rye', harness: '' },
     });
   });
 });

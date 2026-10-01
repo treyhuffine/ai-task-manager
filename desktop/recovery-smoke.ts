@@ -7,6 +7,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import electron from 'electron';
 import { _electron, type ElectronApplication } from 'playwright-core';
+import { waitForHome } from './first-run';
 import { demoEnvironment } from './config';
 import { installationEnvironment, localInstallation } from './installation';
 import { ensureService, serviceStatus, stopService } from '../src/lib/service/client';
@@ -70,8 +71,7 @@ try {
   await recovery.getByRole('button', { name: 'Recover service', exact: true }).click();
   await recovery.waitForFunction(() => !(document.getElementById('retry') as HTMLButtonElement).disabled, { timeout: 40_000 });
   assert.equal(await recovery.locator('#error').innerText(), '');
-  await main.waitForURL(url => url.protocol === 'https:' && url.pathname === '/welcome', { timeout: 240_000 });
-  await main.getByText('Welcome to Ri', { exact: true }).waitFor();
+  await waitForHome(main);
   const running = await serviceStatus();
   assert.equal(running?.phase, 'running'); assert.notEqual(running?.runId, failed?.runId);
   for (const dir of [advanced.root, advanced.config, advanced.work]) fs.mkdirSync(dir, { recursive: true });
@@ -116,7 +116,7 @@ try {
   instance = await _electron.launch({ executablePath, args: [...args, '--ri-use-saved-installation'],
     env: { ...env, RI_DESKTOP_SMOKE: '1' }, timeout: 240_000 });
   const associatedPage = await instance.firstWindow();
-  await associatedPage.waitForURL(url => url.protocol === 'https:' && url.pathname === '/welcome', { timeout: 240_000 });
+  await waitForHome(associatedPage);
   select(associationEnv);
   const associated = await serviceStatus();
   assert.deepEqual(associated?.identity, advanced);

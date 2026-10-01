@@ -1,8 +1,10 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import type { HistoryCheckpoint } from '@agentex/agent';
 import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import { getDb } from '@/lib/db';
+import { getAppRoot } from '@/lib/config/paths';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 import {
   chatEvents,
@@ -149,6 +151,15 @@ function updateScanState(
     .run();
 }
 
+/** A folder's real path (the home may sit behind a symlink, like macOS /tmp), or the path as given. */
+function realpathOr(folder: string): string {
+  try {
+    return fs.realpathSync(folder);
+  } catch {
+    return path.resolve(folder);
+  }
+}
+
 export async function discoverExternalAgentSessions(): Promise<ExternalAgentDiscovery> {
   const { candidates, available, completed } = await discoverCandidatesInternal();
   const db = getDb();
@@ -273,6 +284,15 @@ export async function discoverExternalAgentSessions(): Promise<ExternalAgentDisc
       importStatus: status,
       chatSessionId: row.chatSessionId,
     });
+  }
+
+  // Chats that ran in the home's own folder are Ri's: its main chat and the
+  // background calls (deck, labels, suggestions) that run a harness there.
+  // They're not history to bring in, and listed first they'd bury the real
+  // projects. Dropped before the counts so the summary agrees.
+  const homeRoot = realpathOr(getAppRoot());
+  for (let i = publicCandidates.length - 1; i >= 0; i -= 1) {
+    if (realpathOr(publicCandidates[i]!.cwd) === homeRoot) publicCandidates.splice(i, 1);
   }
 
   publicCandidates.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

@@ -11,6 +11,7 @@ import path from 'node:path';
 import { desktopPackageLayout } from './package-layout';
 import { execFileSync } from 'node:child_process';
 import { _electron, type ElectronApplication, type Page } from 'playwright-core';
+import { waitForHome } from './first-run';
 import { demoEnvironment } from './config';
 import { PARAKEET_FILES, PARAKEET_REVISION } from '../src/lib/stt/managed/model';
 import { verifyModelFile } from '../src/lib/stt/managed/download';
@@ -90,8 +91,7 @@ async function mainSmoke() {
     instance.process().stdout?.on('data', chunk => process.stdout.write(chunk));
     instance.process().stderr?.on('data', chunk => process.stderr.write(chunk));
     const page = await instance.firstWindow();
-    await page.waitForURL(url => url.protocol === 'https:' && url.pathname === '/welcome', { timeout: 240_000 });
-    await page.getByText('Welcome to Ri', { exact: true }).waitFor({ timeout: 60_000 });
+    await waitForHome(page);
     const origin = new URL(page.url()).origin;
     const initial = await serviceStatus();
     assert(initial?.phase === 'running');

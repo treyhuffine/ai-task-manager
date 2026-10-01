@@ -1,12 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowRight, ArrowUp, FolderPlus, Loader2, PenLine } from 'lucide-react';
+import { ArrowRight, ArrowUp, FolderPlus, PenLine } from 'lucide-react';
 import { toast } from 'sonner';
-import { APP_NAME } from '@/constants/app';
-import { Message, MessageContent } from '@/components/ai-elements/message';
-import { ThinkingDots } from '@/components/executions/thinking-dots';
-import { OrchestratorAvatar } from '@/components/shared/orchestrator-mark';
+import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import {
   IdentityEditor,
   draftFromState,
@@ -16,11 +13,18 @@ import {
 } from '@/components/orchestrator/identity-editor';
 import { WorkspaceCreateModal } from '@/components/workspaces/workspace-create-modal';
 import { appMainChatIntro, useEmptyChatActions } from '@/components/chat/main-chat-intro';
-import { useOrchestratorIdentity, useUpdateUserState, useUserState } from '@/hooks/use-user-state';
+import { useUpdateUserState, useUserState } from '@/hooks/use-user-state';
 import { useWorkspaces } from '@/hooks/use-workspaces';
+import { useAreas } from '@/hooks/use-areas';
 import { apiErrorText } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
+import type { AreaSuggestion } from '@/lib/onboarding/area-suggestions';
 import { OnboardingApps } from './onboarding-apps';
+import { AreasStep, areasLines, useAreaSuggestions } from './onboarding-areas';
+import { HarnessStep, harnessLines } from './onboarding-harness';
+import { ImportStep, importLines, importableHistory, useImportDiscovery, type ImportableHistory } from './onboarding-import';
+import { Card, PrimaryButton, QuietButton, Reply, Says, Turn, Typing } from './onboarding-ui';
+import { useHarnessCheck, type HarnessCheck } from './use-harness-check';
 import {
   FIRST_PROGRESS,
   PROGRESS_STORAGE_KEY,
@@ -29,31 +33,40 @@ import {
   stepsThrough,
   type OnboardingProgress,
   type OnboardingStep,
+  type StepContext,
 } from './onboarding-flow';
 
 /** How long the assistant "types" before a new step appears. */
 const TYPING_MS = 650;
 
 /**
- * The main chat's first run: the orchestrator introduces itself and sets up
- * the few things worth asking a person about, one message at a time, the way
- * a conversation would. Its name and look, what to call you, what you're
- * working on, the apps it can work in, and (for someone with none) a first
- * agent. Then it hands over to the usual starters.
+ * The main chat's first run, which is also a new home's whole setup: there
+ * is no wizard in front of the app. The orchestrator introduces itself and
+ * asks only what this home doesn't have yet, one message at a time:
+ *
+ *   its name and look → a harness to think with (only when the background
+ *   check couldn't set one up) → what to call you → what you're working on →
+ *   history to bring in (only when some was found) → areas (only with none) →
+ *   apps → a first agent (only with none) → the usual starters.
  *
  * The messages are scripted and drawn with the transcript's own components,
  * not stored as chat events. The real conversation with the harness starts
- * clean, nothing waits on a model, and every answer lands in the settings the
- * orchestrator already reads (its brief, user state), so it knows them all
- * the same. See docs/main-chat-onboarding.md.
+ * clean, and every answer lands in the settings the orchestrator already
+ * reads (its brief, user state), so it knows them all the same. Three things
+ * run in the background from the first message so the steps that need them
+ * rarely wait: the harness check, the search for history, and (once you've
+ * said what you're working on) area suggestions. See
+ * docs/main-chat-onboarding.md.
  *
  * Progress is kept per browser, so a reload or a connector's sign-in redirect
  * comes back to the same step. Finishing or skipping records
- * `orchestratorIntroducedAt`, and the chat opens on the usual intro after.
+ * `orchestratorIntroducedAt` (and `onboardedAt` for a new home), and the chat
+ * opens on the usual intro after.
  */
 export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
   const { data: userState } = useUserState();
   const { data: workspaces } = useWorkspaces({ status: 'active' });
+  const { data: areas } = useAreas();
   const update = useUpdateUserState();
   const [progress, setProgress] = useState<OnboardingProgress>(FIRST_PROGRESS);
   const [hydrated, setHydrated] = useState(false);
@@ -67,29 +80,55 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
     setHydrated(true);
   }, []);
 
-  const hasAgents = (workspaces?.length ?? 0) > 0;
+  // A home that was never set up needs a harness, and the check for one
+  // starts now, while the person names the assistant.
+  const needsHarness = !!userState && !userState.onboardedAt;
+  const harnessPending = needsHarness && progress.replies.harness === undefined;
+  const { data: check } = useHarnessCheck(hydrated && harnessPending);
+
+  // History to bring in, looked for from the start (it can take a while).
+  const discovery = useImportDiscovery(hydrated && !!userState);
+  const history = discovery.data ? importableHistory(discovery.data) : null;
+  const importFound = discovery.isPending ? null : discovery.isError ? false : (history?.chats ?? 0) > 0;
+
+  // Area suggestions, once there's something to go on and a harness to ask.
+  const projectNames = (workspaces ?? []).map((w) => w.name);
+  const importSettled = progress.replies.import !== undefined || importFound === false;
+  const areaSuggestions = useAreaSuggestions(
+    { about: userState?.description ?? '', projects: projectNames },
+    hydrated && !harnessPending && progress.replies.about !== undefined && importSettled && (areas?.length ?? 0) === 0,
+  );
+
+  const ctx: StepContext = {
+    needsHarness,
+    importFound,
+    hasAreas: (areas?.length ?? 0) > 0,
+    hasAgents: (workspaces?.length ?? 0) > 0,
+  };
   const finished = progress.step === 'done';
 
   // Reaching the end is finishing: record it once, so the next empty chat
   // opens on the usual intro. This chat keeps the conversation until it's used.
   const recorded = useRef(false);
   useEffect(() => {
-    if (!finished || recorded.current || userState?.orchestratorIntroducedAt) return;
+    if (!finished || recorded.current || !userState || userState.orchestratorIntroducedAt) return;
     recorded.current = true;
-    update.mutate({ orchestratorIntroducedAt: new Date().toISOString() });
-  }, [finished, update, userState?.orchestratorIntroducedAt]);
+    update.mutate(finishedPatch(userState.onboardedAt));
+  }, [finished, update, userState]);
 
   const advance = (step: OnboardingStep, reply: string) => {
-    const next: OnboardingProgress = {
-      step: nextStep(step, { hasAgents }),
-      replies: { ...progress.replies, [step]: reply },
-    };
-    setProgress(next);
-    try {
-      window.localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // Storage off: the conversation still works, minus resuming.
-    }
+    setProgress((current) => {
+      const next: OnboardingProgress = {
+        step: nextStep(step, ctx),
+        replies: { ...current.replies, [step]: reply },
+      };
+      try {
+        window.localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Storage off: the conversation still works, minus resuming.
+      }
+      return next;
+    });
     if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) setTyping(true);
   };
 
@@ -123,19 +162,26 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
     } catch {
       // ignore
     }
-    update.mutate({ orchestratorIntroducedAt: new Date().toISOString() });
+    update.mutate(finishedPatch(userState?.onboardedAt ?? null));
     onSkip();
   };
 
   if (!hydrated || !userState) return <div className="flex-1" />;
 
   const steps = stepsThrough(progress.step, progress.replies);
-  const userName = userState.name?.trim() || null;
+  const said: Said = {
+    replies: progress.replies,
+    userName: userState.name?.trim() || null,
+    check,
+    history,
+    suggestions: areaSuggestions.data?.areas ?? [],
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div ref={columnRef} className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-5 pt-4 pb-8">
-        {!finished && (
+        {/* Nothing works without a harness, so skipping waits until there is one. */}
+        {!finished && !harnessPending && (
           <div className="flex justify-end">
             <button
               type="button"
@@ -156,16 +202,26 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
               <Turn>
                 {/* The greeting and the first question are one turn. */}
                 {step === 'identity' && <Greeting />}
-                {lines(step, progress.replies, userName)}
+                {lines(step, said)}
               </Turn>
               {reply !== undefined ? (
                 <Reply step={step}>{reply}</Reply>
               ) : step === 'identity' ? (
-                <IdentityStep onDone={(name) => advance('identity', name)} />
+                <IdentityStep newHome={needsHarness} onDone={(name) => advance('identity', name)} />
+              ) : step === 'harness' ? (
+                <HarnessStep check={check} onDone={(r) => advance('harness', r)} />
               ) : step === 'you' ? (
                 <YouStep initial={userState.name ?? ''} onDone={(name) => advance('you', name)} />
               ) : step === 'about' ? (
                 <AboutStep initial={userState.description ?? ''} onDone={(text) => advance('about', text)} />
+              ) : step === 'import' ? (
+                <ImportStep discovery={discovery.data} loading={discovery.isPending} onDone={(r) => advance('import', r)} />
+              ) : step === 'areas' ? (
+                <AreasStep
+                  suggestions={said.suggestions}
+                  suggesting={areaSuggestions.isFetching}
+                  onDone={(r) => advance('areas', r)}
+                />
               ) : step === 'apps' ? (
                 <OnboardingApps onDone={(summary) => advance('apps', summary)} />
               ) : step === 'agent' ? (
@@ -182,6 +238,21 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
   );
 }
 
+/** Finishing the first run: introduced, and (for a new home) set up. */
+function finishedPatch(onboardedAt: string | null) {
+  const now = new Date().toISOString();
+  return { orchestratorIntroducedAt: now, ...(onboardedAt ? {} : { onboardedAt: now }) };
+}
+
+/** What's known when the assistant speaks at a step. */
+interface Said {
+  replies: OnboardingProgress['replies'];
+  userName: string | null;
+  check: HarnessCheck | undefined;
+  history: ImportableHistory | null;
+  suggestions: AreaSuggestion[];
+}
+
 function Greeting() {
   return (
     <>
@@ -195,7 +266,8 @@ function Greeting() {
 }
 
 /** What the assistant says at a step, given what was answered before it. */
-function lines(step: OnboardingStep, replies: OnboardingProgress['replies'], userName: string | null): ReactNode {
+function lines(step: OnboardingStep, said: Said): ReactNode {
+  const { replies, userName } = said;
   switch (step) {
     case 'identity':
       return (
@@ -204,10 +276,19 @@ function lines(step: OnboardingStep, replies: OnboardingProgress['replies'], use
           time.
         </Says>
       );
-    case 'you':
+    case 'harness':
       return (
         <>
           <Says>{replies.identity ? `${replies.identity} it is.` : 'Good.'}</Says>
+          {harnessLines(said.check)}
+        </>
+      );
+    case 'you':
+      return (
+        <>
+          {/* After the harness picker, the name was already acknowledged. */}
+          {!replies.harness && <Says>{replies.identity ? `${replies.identity} it is.` : 'Good.'}</Says>}
+          {replies.harness && <Says>That works. I can think now.</Says>}
           <Says>And what should I call you?</Says>
         </>
       );
@@ -221,10 +302,24 @@ function lines(step: OnboardingStep, replies: OnboardingProgress['replies'], use
           </Says>
         </>
       );
-    case 'apps':
+    case 'import':
       return (
         <>
           <Says>{replies.about === SKIPPED ? 'No problem. Tell me any time.' : 'Thanks, that helps.'}</Says>
+          {importLines(said.history)}
+        </>
+      );
+    case 'areas':
+      return (
+        <>
+          <Says>{ackBefore('areas', replies)}</Says>
+          {areasLines(said.suggestions.length > 0)}
+        </>
+      );
+    case 'apps':
+      return (
+        <>
+          <Says>{ackBefore('apps', replies)}</Says>
           <Says>
             Want me to work in the apps you already use? Connect them and I can read and act in them for you. I
             check with you before I send anything or do anything that can’t be undone.
@@ -248,107 +343,20 @@ function lines(step: OnboardingStep, replies: OnboardingProgress['replies'], use
   }
 }
 
+/** A word on whatever was answered just before `step`, which depends on which steps this home had. */
+function ackBefore(step: 'areas' | 'apps', replies: OnboardingProgress['replies']): string {
+  if (step === 'apps' && replies.areas !== undefined) {
+    return replies.areas === 'No areas for now' ? 'Fine, we can add some later.' : 'Done. I’ll file things there.';
+  }
+  if (replies.import) return replies.import === 'Not now' ? 'Okay, it stays where it is.' : 'Got it, they’re in.';
+  return replies.about === SKIPPED ? 'No problem. Tell me any time.' : 'Thanks, that helps.';
+}
+
 const SKIPPED = 'Skip for now';
-
-// ─── Conversation pieces ──────────────────────────────────────
-
-/** One run of the assistant's messages, under its avatar and name. */
-function Turn({ children }: { children: ReactNode }) {
-  const { name } = useOrchestratorIdentity();
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-1.5">
-        <OrchestratorAvatar size="sm" />
-        <span className="text-[11px] font-semibold text-foreground/80">{name}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Says({ children }: { children: ReactNode }) {
-  return (
-    <Message from="assistant">
-      <MessageContent className="text-[12.5px] leading-relaxed">{children}</MessageContent>
-    </Message>
-  );
-}
-
-/** The user's answer, as their message. The name step shows the face it picked. */
-function Reply({ step, children }: { step: OnboardingStep; children: ReactNode }) {
-  return (
-    <Message from="user">
-      <MessageContent className="whitespace-pre-wrap break-words text-[12.5px]">
-        {step === 'identity' ? (
-          <span className="inline-flex items-center gap-1.5">
-            <OrchestratorAvatar size="xs" />
-            {children}
-          </span>
-        ) : (
-          children
-        )}
-      </MessageContent>
-    </Message>
-  );
-}
-
-function Typing() {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <OrchestratorAvatar size="sm" />
-      <div className="pl-0.5 text-muted-foreground">
-        <ThinkingDots />
-      </div>
-    </div>
-  );
-}
-
-/** The card a step asks its question with. */
-function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <div className={cn('rounded-xl border border-border bg-card/60 p-3 shadow-sm', className)}>{children}</div>
-  );
-}
-
-function PrimaryButton({
-  children,
-  disabled,
-  busy,
-  onClick,
-}: {
-  children: ReactNode;
-  disabled?: boolean;
-  busy?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled || busy}
-      className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
-    >
-      {busy && <Loader2 size={12} className="animate-spin" />}
-      {children}
-    </button>
-  );
-}
-
-function QuietButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-    >
-      {children}
-    </button>
-  );
-}
 
 // ─── Steps ────────────────────────────────────────────────────
 
-function IdentityStep({ onDone }: { onDone: (name: string) => void }) {
+function IdentityStep({ newHome, onDone }: { newHome: boolean; onDone: (name: string) => void }) {
   const { data: userState } = useUserState();
   const [draft, setDraft] = useState<IdentityDraft>(() => draftFromState(userState));
   const { save, saving } = useSaveIdentity();
@@ -358,7 +366,17 @@ function IdentityStep({ onDone }: { onDone: (name: string) => void }) {
   return (
     <Card>
       <IdentityEditor draft={draft} onChange={setDraft} onSubmit={() => void submit()} />
-      <div className="mt-3 flex justify-end">
+      <div className="mt-3 flex items-end justify-between gap-3">
+        {/* The one thing to know before anything is set up here. */}
+        {newHome ? (
+          <p className="text-[10.5px] leading-snug text-muted-foreground">
+            Already use {APP_NAME} on another computer? Stop this one and run{' '}
+            <code className="font-mono text-foreground/80">{APP_SHORT_ID} connect</code> to use that one here. A
+            new home with nothing in it is set aside, not deleted.
+          </p>
+        ) : (
+          <span />
+        )}
         <PrimaryButton busy={saving} onClick={() => void submit()}>
           Continue <ArrowRight size={12} />
         </PrimaryButton>

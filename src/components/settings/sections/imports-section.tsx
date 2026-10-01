@@ -24,7 +24,8 @@ import type {
   ExternalAgentSource,
 } from '@/lib/import/types';
 
-const DISCOVERY_KEY = ['imports', 'external-agents'] as const;
+/** Shared with the main chat's first run, which looks for history ahead of asking. */
+export const DISCOVERY_KEY = ['imports', 'external-agents'] as const;
 
 const SOURCES: readonly ExternalAgentSource[] = ['claude', 'codex', 'opencode'];
 

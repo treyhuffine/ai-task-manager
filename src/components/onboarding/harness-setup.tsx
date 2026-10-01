@@ -1,7 +1,8 @@
+'use client';
+
 import { useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import {
-  Bot,
   Check,
   AlertCircle,
   AlertTriangle,
@@ -13,20 +14,77 @@ import {
   RefreshCw,
   Package,
 } from 'lucide-react';
-import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { defaultModelFor } from '@/lib/harness/options';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { CursorCredentialPanel } from '@/components/settings/cursor-credential-panel';
 import { OpenCodeProviderPanel } from '@/components/settings/opencode-provider-panel';
 import { api, ApiError } from '@/lib/api/client';
-import type {
-  WizardState,
-  WizardUpdate,
-  HarnessAuthReport,
-  HarnessVerifyState,
-} from './types';
+import type { HarnessAuthResponse } from '@/app/api/harness/auth/route';
 import type { HarnessVerifyResponse } from '@/app/api/harness/verify/route';
 import { HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
+
+/**
+ * Setting up the harness Ri thinks with: pick a coding CLI, check its
+ * sign-in, run one real request to prove it answers, pick a default model,
+ * and (when only an API key is there) agree to metered billing. It was the
+ * `/welcome` wizard's harness step. It now appears in the main chat's first
+ * run, only when the background check (`use-harness-check.ts`) couldn't set
+ * a harness up on its own (docs/main-chat-onboarding.md).
+ */
+
+/** Wire shape returned by /api/harness/auth. */
+export type HarnessAuthReport = HarnessAuthResponse;
+
+export interface HarnessVerifyState {
+  phase: 'idle' | 'running' | 'ok' | 'failed' | 'skipped';
+  result?: HarnessVerifyResponse;
+  error?: string;
+}
+
+export interface HarnessAuthState {
+  phase: 'idle' | 'checking' | 'ready' | 'error';
+  report?: HarnessAuthReport;
+  error?: string;
+  /** The real round trip that follows the fast auth check. */
+  verify: HarnessVerifyState;
+  /** Agreement to metered API-key billing, needed when there's no subscription. */
+  acceptsApiKeyBilling: boolean;
+}
+
+export interface HarnessSetupState {
+  harness: HarnessId;
+  /** Explicit default model id for the chosen harness. */
+  model: string;
+  harnessAuth: HarnessAuthState;
+}
+
+export type HarnessSetupUpdate = (
+  patch: Partial<HarnessSetupState> | ((s: HarnessSetupState) => Partial<HarnessSetupState>),
+) => void;
+
+export function initialHarnessSetup(harness: HarnessId = 'claude'): HarnessSetupState {
+  return {
+    harness,
+    model: defaultModelFor(harness),
+    harnessAuth: { phase: 'idle', acceptsApiKeyBilling: false, verify: { phase: 'idle' } },
+  };
+}
+
+/**
+ * Whether this setup can be saved: the CLI is installed, one real request
+ * answered (the truth, whatever detection said), a model is picked, and a
+ * key-only setup has agreed to metered billing.
+ */
+export function harnessSetupReady(state: HarnessSetupState): boolean {
+  if (!state.harness || !state.model) return false;
+  const a = state.harnessAuth;
+  if (a.phase !== 'ready' || !a.report) return false;
+  if (!a.report.binary.installed) return false;
+  if (a.verify.phase !== 'ok') return false;
+  const { hasSubscription, hasApiKey, hasBedrock } = a.report;
+  if (!hasSubscription && !hasBedrock && hasApiKey && !a.acceptsApiKeyBilling) return false;
+  return true;
+}
 
 const HARNESSES: Array<{
   id: HarnessId;
@@ -80,12 +138,17 @@ const HARNESS_BY_ID = Object.fromEntries(HARNESSES.map((h) => [h.id, h])) as Rec
   (typeof HARNESSES)[number]
 >;
 
-export function StepHarness({
+/** "Claude Code", "Codex", ... */
+export function harnessName(id: HarnessId): string {
+  return HARNESS_BY_ID[id]?.name ?? id;
+}
+
+export function HarnessSetup({
   state,
   update,
 }: {
-  state: WizardState;
-  update: WizardUpdate;
+  state: HarnessSetupState;
+  update: HarnessSetupUpdate;
 }) {
   const harness = HARNESS_BY_ID[state.harness];
   // Track the harness each in-flight request is for so a fast switch can't
@@ -197,19 +260,7 @@ export function StepHarness({
   };
 
   return (
-    <div className="space-y-6">
-      <header className="flex items-start gap-3">
-        <div className="flex shrink-0 size-10 items-center justify-center rounded-md bg-muted">
-          <Bot className="size-5" />
-        </div>
-        <div>
-          <h2 className="text-xl font-semibold">Pick your harness</h2>
-          <p className="text-sm text-muted-foreground">
-            {APP_NAME} runs chats and executions through one of these coding CLIs, its harness. Each uses its own sign-in.
-          </p>
-        </div>
-      </header>
-
+    <div className="space-y-4">
       <div className="space-y-2">
         <div className="text-xs uppercase tracking-wide text-muted-foreground">Harness</div>
         <div className="grid grid-cols-2 gap-2">
@@ -221,7 +272,7 @@ export function StepHarness({
                 key={h.id}
                 type="button"
                 onClick={() => selectHarness(h.id)}
-                className={`relative flex flex-col items-center gap-2 rounded-lg border p-5 text-center transition-colors ${
+                className={`relative flex flex-col items-center gap-1.5 rounded-lg border p-3 text-center transition-colors ${
                   selected
                     ? 'border-primary bg-primary/5'
                     : 'border-border bg-card hover:bg-muted/50'
@@ -258,12 +309,6 @@ export function StepHarness({
           onSelect={(id) => update({ model: id })}
         />
       )}
-
-      <p className="border-t border-border pt-4 text-xs text-muted-foreground">
-        Already use {APP_NAME} on another device? Stop this one and run{' '}
-        <code className="font-mono text-foreground/80">{APP_SHORT_ID} connect</code> in a terminal to use that{' '}
-        {APP_NAME} here instead. A new home with nothing in it yet is set aside, not deleted.
-      </p>
     </div>
   );
 }
@@ -321,7 +366,7 @@ function AuthStatus({
   onRecheck,
   onAccept,
 }: {
-  state: WizardState;
+  state: HarnessSetupState;
   harness: (typeof HARNESSES)[number];
   onRecheck: () => void;
   onAccept: (checked: boolean) => void;
@@ -374,7 +419,7 @@ function ReadyState({
 }: {
   report: HarnessAuthReport;
   harness: (typeof HARNESSES)[number];
-  auth: WizardState['harnessAuth'];
+  auth: HarnessAuthState;
   onAccept: (checked: boolean) => void;
 }) {
   // State: CLI binary not installed. Everything else is moot.

@@ -10,6 +10,7 @@ import net from 'node:net';
 import { once } from 'node:events';
 import electron from 'electron';
 import { _electron, type ElectronApplication } from 'playwright-core';
+import { waitForHome } from './first-run';
 import { generateCaPair, generateLeafPair } from '../src/lib/config/tls-x509';
 import { bundledCliCommand, demoEnvironment } from './config';
 import { mockMcp } from './mock-mcp';
@@ -67,8 +68,7 @@ async function ready(instance: ElectronApplication) {
   cdp.on('Network.responseReceived', ({ response }) => {
     if (response.protocol && response.url.startsWith('https://localhost:') && response.url.includes('/api/')) protocols.add(response.protocol);
   });
-  await page.waitForURL((url) => url.protocol === 'https:' && url.pathname === '/welcome', { timeout: 240_000 });
-  await page.getByText('Welcome to Ri', { exact: true }).waitFor({ timeout: 60_000 });
+  await waitForHome(page);
   return page;
 }
 
@@ -220,8 +220,6 @@ try {
     if (await editor.count()) await editor.first().click();
   }
   await title.waitFor();
-  // Reset only the disposable fixture's onboarding gate for the relaunch helper.
-  await page.evaluate(async () => fetch('/api/user-state', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ onboardedAt: null }) }));
   await title.fill('Last keystrokes survive immediate quit');
   const runtime = readServerRuntime();
   assert(runtime, 'The demo did not publish its managed server record');

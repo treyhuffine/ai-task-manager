@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import type { BrowserWindow } from 'electron';
 import type { Page } from 'playwright-core';
+import { waitForHome } from './first-run';
 import { acceptance, api, eventually } from './acceptance-fixture';
 import { serviceStatus } from '../src/lib/service/client';
 
@@ -41,8 +42,7 @@ void acceptance('development-viewer', async fixture => {
   assert.equal(before?.phase, 'running');
   fixture.check('An HTTP 500 sign-in failure reports the server error without asking to pair again');
   await recovery!.getByRole('button', { name: 'Connect or retry startup', exact: true }).click();
-  await page.waitForURL(url => url.protocol === 'https:' && url.pathname === '/welcome', { timeout: 240_000 });
-  await page.getByText('Welcome to Ri', { exact: true }).waitFor();
+  await waitForHome(page);
   fixture.origin = new URL(page.url()).origin;
   const home = await api<{ id: string }>(page, '/api/home');
   assert(home.id);
