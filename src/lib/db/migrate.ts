@@ -65,8 +65,9 @@ export function runMigrations(
 }
 
 /** Read-only compatibility check. An applied history must be an exact prefix
- * of this binary's history, including every hash, not just its last timestamp.
- * Safe for an update preflight opened with fileMustExist + readonly. */
+ * of this binary's history or its explicitly recognized retired lineage,
+ * including every hash, not just its last timestamp. Safe for an update
+ * preflight opened with fileMustExist + readonly. */
 export function inspectMigrationHistory(sqlite: Database.Database, migrationsFolder: string) {
   const migrations = readMigrationFiles({ migrationsFolder });
   for (let i = 0; i < migrations.length; i++) {
@@ -83,13 +84,51 @@ export function inspectMigrationHistory(sqlite: Database.Database, migrationsFol
       (migrations[0] && Number(applied[0].created_at) < migrations[0].folderMillis))) {
     throw new MigrationHistoryError(sqlite.name);
   }
+  const retired = retiredSkillScopeHistory(migrations, applied);
+  const expectedHistory = [...migrations.slice(0, 3), ...retired, ...migrations.slice(3)];
   for (let i = 0; i < applied.length; i++) {
-    const expected = migrations[i];
+    const expected = expectedHistory[i];
     if (!expected || Number(applied[i].created_at) !== expected.folderMillis || applied[i].hash !== expected.hash) {
       throw new MigrationCompatibilityError(`Database migration ${i + 1} does not match this release. Use the matching or newer Ri release. No migration was applied.`);
     }
   }
-  return { applied: applied.length, pending: migrations.slice(applied.length) };
+  return { applied: applied.length, pending: migrations.slice(applied.length - retired.length) };
+}
+
+interface MigrationIdentity { hash: string; folderMillis: number }
+interface AppliedMigration { hash: string; created_at: number | string }
+
+/**
+ * 25a3208 removed two already-used migrations, then ba98e4f reused 0003.
+ * Recognize only that exact alternative ancestry. Keep the original journal
+ * rows, so this is a forward-compatible history, not a journal repair. A Home
+ * that ran only CREATE keeps its unused skill_scopes table and every row.
+ * Never replay the retired DROP, even when that table happens to be empty.
+ * Normal releases remain append-only. Unknown/gapped histories still fail.
+ */
+function retiredSkillScopeHistory(
+  migrations: MigrationIdentity[], applied: AppliedMigration[],
+): MigrationIdentity[] {
+  const replacement = {
+    folderMillis: 1790794317732,
+    hash: '24a01a6e012e5935de1a1423011042693569cf997e141bc19c81cf56d3dd4b78',
+  };
+  const create = {
+    folderMillis: 1790787209414,
+    hash: '9122b33138438b245b95104dcbe6d4a8370fd908ed797e5dd423e90421038a21',
+  };
+  const drop = {
+    folderMillis: 1790792118119,
+    hash: 'fdc994186026400eeb3fcc9dcfd008aa8c0331d0affb8e2fb52645b3e375afc6',
+  };
+  const matches = (row: AppliedMigration | undefined, expected: MigrationIdentity) =>
+    row?.hash === expected.hash && Number(row.created_at) === expected.folderMillis;
+  // An older/different release must not gain access merely because it knows
+  // these old hashes. The replacement and every preceding prefix row must
+  // still match, and later migrations must still form an exact prefix.
+  if (migrations[3]?.hash !== replacement.hash ||
+      migrations[3]?.folderMillis !== replacement.folderMillis || !matches(applied[3], create)) return [];
+  return matches(applied[4], drop) ? [create, drop] : [create];
 }
 
 export class MigrationCompatibilityError extends Error {
