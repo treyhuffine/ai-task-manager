@@ -39,7 +39,7 @@ describe('saveHarnessSetup', () => {
     const saved = await saveHarnessSetup({ harness: 'claude' });
     expect(saved.model).toBe('opus');
     expect(calls).toContain(
-      `PUT /harness/models/enabled ${JSON.stringify({ harness: 'claude', enabledModelIds: ['opus', 'sonnet'], defaultModel: 'opus', defaultEffort: 'medium', makeActive: true })}`,
+      `PUT /harness/models/enabled ${JSON.stringify({ harness: 'claude', enabledModelIds: ['opus', 'sonnet'], defaultModel: 'opus', defaultVariant: null, defaultEffort: 'medium', makeActive: true })}`,
     );
   });
 

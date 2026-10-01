@@ -112,9 +112,11 @@ export const userState = sqliteTable('user_state', {
   // Null → resolveVoiceModel() auto-picks an available provider. Model ids
   // churn, so no schema literal.
   voiceModel: text(),
-  // Last explicit provider-bound harness + model + effort tuple. The columns
-  // remain nullable for pre-onboarding and legacy databases, but chat creation
-  // resolves them to concrete values before anything reaches a runner.
+  // The home's default harness + model + effort: what new chats, executions
+  // and background calls start on. Changed only on purpose (Settings, Models,
+  // a model menu's "Make default", first-run setup), never by sending or
+  // starting a chat (docs/default-selection.md). Nullable for a home that
+  // never chose; chat creation resolves null to concrete values.
   defaultHarness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }),
   defaultModel: text(),
   defaultEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),

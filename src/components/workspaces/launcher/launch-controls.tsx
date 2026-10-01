@@ -24,6 +24,8 @@ import type { RunOn } from '@/lib/setups/run-on';
 import { SetupAgentDialog } from '@/components/agents/setup-agent-dialog';
 import { START_RI } from '@/lib/executions/location';
 import { cn } from '@/lib/utils';
+import { MakeDefaultRow } from '@/components/settings/make-default-row';
+import { useDefaultSelection } from '@/hooks/use-default-selection';
 
 const TRIGGER_CLASS =
   'inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-40 disabled:pointer-events-none';
@@ -410,15 +412,21 @@ export function ModelControl({
   rememberedEfforts,
   onChange,
   disabled,
+  variant,
+  effort,
 }: {
   selection: ModelSelection;
   label: string;
+  /** The launch's variant and effort, carried along if it's made the default. */
+  variant?: string | null;
+  effort?: EffortLevel | null;
   /** Per-provider effort the user last chose, applied when switching to it. */
   rememberedEfforts?: Record<string, EffortLevel>;
   onChange: (next: LaunchHarnessSelection) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const defaultSelection = useDefaultSelection();
 
   const handlePick = (harness: ProviderId, model: ModelOption) => {
     const harnessKey = harness;
@@ -453,7 +461,8 @@ export function ModelControl({
       {/* Scrolling + height capping live in LauncherPopoverContent, which also
           renders in-tree so the dialog's scroll lock doesn't eat wheel events. */}
       <LauncherPopoverContent align="end" className="w-80 p-2">
-        <ModelList selected={selection} onPick={handlePick} />
+        <MakeDefaultRow current={{ harness: selection.harness, model: selection.model, variant, effort }} />
+        <ModelList selected={selection} onPick={handlePick} defaultSelection={defaultSelection} />
       </LauncherPopoverContent>
     </Popover>
   );

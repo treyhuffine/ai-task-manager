@@ -4,7 +4,6 @@ import {
   createExecutionChat,
   deleteChatSessionIfEmpty,
   setExecutionLabel,
-  updateUserState,
   ensureHarnessSettings,
 } from '@/lib/db/queries';
 import type { ProviderId } from '@/lib/harness/options';
@@ -112,11 +111,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       deleteChatSessionIfEmpty(current.id);
     }
 
-    updateUserState({
-      defaultHarness: selection.providerId,
-      defaultModel: selection.model,
-      defaultEffort: selection.effort,
-    });
 
     // Return the same shape as `GET /api/sessions/:id` (execution state
     // flattened on) rather than the bare insert result. The client seeds this

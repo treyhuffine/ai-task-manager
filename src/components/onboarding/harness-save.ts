@@ -1,42 +1,23 @@
 import { api } from '@/lib/api/client';
-import { DEFAULT_EFFORT, defaultModelFor, harnessSupportsEffort } from '@/lib/harness/options';
+import { setDefaultSelection } from '@/lib/client/default-selection';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { EffortLevel } from '@/db/types';
 
-interface HarnessListing {
-  harnesses: { id: HarnessId; settings: { enabledModels: string[]; defaultModel: string | null } }[];
-}
-
 /**
- * Make a harness the one Ri runs on, the way the old wizard's launch did: its
- * default model (the one picked, else the harness's own) enabled and made the
- * default, the harness made active, user state's default tuple to match, and
- * the agent skill installed unless this home already chose (`installAgentSkill`).
- *
- * Unlike the wizard, it keeps the models already enabled rather than narrowing
- * the list to one. Returns the tuple it saved, so the caller can start the
- * main chat over on it when the harness changed.
+ * Make a harness the one Ri runs on, from first-run setup: its default model
+ * (the one picked, else the harness's own) made the home's default the same
+ * way the model menus' "Make default" does (`setDefaultSelection`), plus the
+ * agent skill installed unless this home already chose (`installAgentSkill`).
+ * Returns the tuple it saved, so the caller can start the main chat over on
+ * it when the harness changed.
  */
 export async function saveHarnessSetup(input: {
   harness: HarnessId;
   model?: string;
 }): Promise<{ harness: HarnessId; model: string; effort: EffortLevel | null }> {
-  const { harnesses } = await api.get<HarnessListing>('/harness/harnesses');
-  const settings = harnesses.find((h) => h.id === input.harness)?.settings;
-  const model = input.model ?? settings?.defaultModel ?? defaultModelFor(input.harness);
-  const enabled = settings?.enabledModels ?? [];
-  const effort: EffortLevel | null = harnessSupportsEffort(input.harness) ? DEFAULT_EFFORT : null;
-
-  await api.put('/harness/models/enabled', {
-    harness: input.harness,
-    enabledModelIds: enabled.includes(model) ? enabled : [model, ...enabled],
-    defaultModel: model,
-    defaultEffort: effort,
-    makeActive: true,
-  });
-  await api.patch('/user-state', { defaultHarness: input.harness, defaultModel: model, defaultEffort: effort });
+  const saved = await setDefaultSelection({ harness: input.harness, model: input.model });
   await installAgentSkill();
-  return { harness: input.harness, model, effort };
+  return { harness: saved.harness, model: saved.model, effort: saved.effort };
 }
 
 /**

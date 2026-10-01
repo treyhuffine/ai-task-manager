@@ -811,6 +811,8 @@ function LaunchModalInner({
                   <ModelControl
                     selection={selection}
                     label={modelLabel}
+                    variant={harnessPick?.variant ?? null}
+                    effort={effort}
                     rememberedEfforts={efforts}
                     onChange={handleHarnessChange}
                     disabled={launching}

@@ -3,7 +3,6 @@ import {
   createChatSession,
   archiveChatSession,
   getUserState,
-  updateUserState,
   ensureHarnessSettings,
 } from '@/lib/db/queries';
 import type { ProviderId } from '@/lib/harness/options';
@@ -140,11 +139,6 @@ async function createFocusedSession(ref: EntityRef, override: ChatOverride = {})
     // derivation only fires on unlabeled sessions.
     label: null,
     status: 'active',
-  });
-  updateUserState({
-    defaultHarness: selection.providerId,
-    defaultModel: selection.model,
-    defaultEffort: selection.effort,
   });
   return session;
 }

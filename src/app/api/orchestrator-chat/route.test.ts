@@ -48,14 +48,15 @@ describe('GET /api/orchestrator-chat — seeds model + effort from defaults', ()
     expect(session.effort).toBe('high');
   });
 
-  it('null defaults resolve to an explicit provider tuple', async () => {
+  it('null defaults resolve to an explicit provider tuple, without choosing one for the home', async () => {
     const { session } = await (await GET(new Request('http://localhost/api'))).json();
     expect(session.model).toBe('opus');
     expect(session.effort).toBe('medium');
+    // Starting a chat uses the default. It never sets it (docs/default-selection.md).
     expect(getUserState()).toMatchObject({
-      defaultHarness: 'claude',
-      defaultModel: 'opus',
-      defaultEffort: 'medium',
+      defaultHarness: null,
+      defaultModel: null,
+      defaultEffort: null,
     });
   });
 

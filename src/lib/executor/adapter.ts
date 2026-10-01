@@ -26,9 +26,7 @@ import {
   getSendForEvent,
   getWorkerKeyId,
   getWorkspace,
-  getUserState,
   updateChatSession,
-  updateUserState,
   listChatSessions,
   listMainChats,
   createRun as createRunRow,
@@ -462,20 +460,9 @@ async function dispatchTo(
       effort: selection.effort,
     });
   }
-  if (!options.internalCall) {
-    const savedSelection = getUserState();
-    if (
-      savedSelection?.defaultHarness !== selection.providerId
-      || savedSelection?.defaultModel !== selection.model
-      || savedSelection?.defaultEffort !== selection.effort
-    ) {
-      updateUserState({
-        defaultHarness: selection.providerId,
-        defaultModel: selection.model,
-        defaultEffort: selection.effort,
-      });
-    }
-  }
+  // Sending never changes the home's default harness, model or effort: that's
+  // a choice made on purpose (Settings, Models, or "Make default" in a model
+  // menu), not whatever chat was typed in last (docs/default-selection.md).
 
   // Budget guard. Manual sends past the monthly ceiling require an
   // explicit `overBudget: true` from the UI's confirmation prompt.

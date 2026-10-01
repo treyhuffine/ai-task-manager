@@ -20,7 +20,6 @@ import {
   getUserState,
   listMainChats,
   updateChatSession,
-  updateUserState,
 } from '@/lib/db/queries';
 import { EFFORT_LEVELS, type ChatSessionRecord, type EffortLevel } from '@/db/types';
 import type { ProviderId } from '@/lib/harness/options';
@@ -96,11 +95,8 @@ async function createMainChat(scope: MainChatScope, override: ChatOverride): Pro
     label: null,
     status: 'active',
   });
-  updateUserState({
-    defaultHarness: selection.providerId,
-    defaultModel: selection.model,
-    defaultEffort: selection.effort,
-  });
+  // A chat starts on the default. Starting one, even on another harness,
+  // doesn't change it (docs/default-selection.md).
   return session;
 }
 

@@ -14,6 +14,8 @@ import {
 import type { EffortLevel } from '@/db/types';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { ModelList, type ModelSelection } from '@/components/settings/model-list';
+import { MakeDefaultRow } from '@/components/settings/make-default-row';
+import { useDefaultSelection } from '@/hooks/use-default-selection';
 import { ProviderIcon } from '@/components/settings/harness-connection-ui';
 import { openSettings } from '@/components/settings/settings-store';
 import { readProviderEffort } from '@/lib/executions/provider-effort';
@@ -36,6 +38,9 @@ interface ComposerProviderMenuProps {
   /** A provider switch (new chat) is in flight. */
   switching?: boolean;
   disabled?: boolean;
+  /** This session's variant and effort, carried along if it's made the default. */
+  variant?: string | null;
+  effort?: EffortLevel | null;
 }
 
 /**
@@ -61,8 +66,11 @@ export function ComposerProviderMenu({
   canChangeModel = true,
   switching,
   disabled,
+  variant,
+  effort,
 }: ComposerProviderMenuProps) {
   const [pending, setPending] = useState<ModelSelection | null>(null);
+  const defaultSelection = useDefaultSelection();
 
   const reset = (next: boolean) => {
     if (!next) setPending(null);
@@ -169,9 +177,11 @@ export function ComposerProviderMenu({
           </div>
         ) : (
           <div className="max-h-[440px] overflow-y-auto">
+            <MakeDefaultRow current={{ harness: currentProvider, model, variant, effort }} />
             <ModelList
               selected={selected}
               onPick={handlePick}
+              defaultSelection={defaultSelection}
               switchHintProvider={currentProvider}
               onManageModels={() => {
                 reset(false);
