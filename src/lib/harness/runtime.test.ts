@@ -1,6 +1,24 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderRuntimeReport } from '@agentex/agent';
-import { intersectHarnessCapability } from './runtime';
+import { intersectHarnessCapability, runtimeContextForHarness } from './runtime';
+import { HARNESS_REGISTRY, KNOWN_HARNESS_IDS } from './registry';
+
+vi.mock('./credentials', () => ({ openCursorApiKey: async () => null }));
+afterEach(() => vi.unstubAllEnvs());
+
+describe('harness executable overrides', () => {
+  it.each(KNOWN_HARNESS_IDS)('uses the %s override without losing other config', async (harness) => {
+    const variable = HARNESS_REGISTRY[harness].commandEnv;
+    vi.stubEnv(variable, `  /custom/${harness}  `);
+    expect(await runtimeContextForHarness(harness, { config: { model: 'chosen-model' } })).toMatchObject({
+      config: { command: `/custom/${harness}`, model: 'chosen-model' },
+    });
+    vi.stubEnv(variable, '  ');
+    expect(await runtimeContextForHarness(harness, { config: { command: '/configured/tool' } })).toMatchObject({
+      config: { command: '/configured/tool' },
+    });
+  });
+});
 
 const supportedBinary: ProviderRuntimeReport['binary'] = {
   status: 'supported',

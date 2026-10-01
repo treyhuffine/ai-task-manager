@@ -57,3 +57,20 @@ it('takes an absolute Antigravity executable and finds its installer folder', ()
   // outside a login shell would otherwise not have on PATH.
   expect(env.PATH?.split(':')).toContain(path.join(root, '.local/bin'));
 });
+
+it('preserves executable overrides for every known harness when rollout switches are off', async () => {
+  vi.stubEnv('NEXT_PUBLIC_RI_CURSOR_ENABLED', 'false');
+  vi.stubEnv('NEXT_PUBLIC_RI_OPENCODE_ENABLED', 'false');
+  vi.stubEnv('NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED', 'false');
+  vi.resetModules();
+  const { HARNESS_IDS, HARNESS_REGISTRY, KNOWN_HARNESS_IDS } = await import('@/lib/harness/registry');
+  const environment = await import('./environment');
+  expect(HARNESS_IDS).toEqual(['codex', 'claude']);
+  const executable = path.join(root, 'tool');
+  fs.writeFileSync(executable, '#!/bin/sh\n', { mode: 0o755 });
+  const settings = Object.fromEntries(KNOWN_HARNESS_IDS.map((id) => [HARNESS_REGISTRY[id].commandEnv, executable]));
+  environment.saveEnvironment(settings);
+  expect(environment.environmentStatus().values).toEqual(settings);
+  expect(environment.serviceEnvironment('/runtime/node/bin/node')).toMatchObject(settings);
+  vi.resetModules();
+});

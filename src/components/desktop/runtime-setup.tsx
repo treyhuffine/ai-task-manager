@@ -6,11 +6,13 @@ import { api, apiErrorText } from '@/lib/api/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import type { EnvironmentSettings } from '@/lib/service/environment';
+import { HARNESS_IDS, HARNESS_REGISTRY } from '@/lib/harness/registry';
 
 const fields = [
-  ['CLAUDE_COMMAND', 'Claude executable'], ['CODEX_COMMAND', 'Codex executable'],
-  ['CURSOR_COMMAND', 'Cursor executable'], ['OPENCODE_COMMAND', 'OpenCode executable'],
-  ['ANTIGRAVITY_COMMAND', 'Antigravity executable'],
+  ...HARNESS_IDS.map((id) => {
+    const harness = HARNESS_REGISTRY[id];
+    return [harness.commandEnv, `${harness.name} executable`] as const;
+  }),
   ['LOCAL_SPEECH_TO_TEXT_URL', 'Parakeet server URL'], ['GROQ_API_KEY', 'Groq API key'], ['OPENAI_API_KEY', 'Embeddings API key'],
 ] as const;
 export function RuntimeSetup() {

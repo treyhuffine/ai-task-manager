@@ -33,6 +33,8 @@ export interface HarnessCapabilities {
 export interface HarnessDefinition {
   id: HarnessId;
   agentexProviderId: HarnessId;
+  /** Optional absolute executable override, persisted in service settings. */
+  commandEnv: `${Uppercase<HarnessId>}_COMMAND`;
   name: string;
   description: string;
   icon: HarnessIconId;
@@ -73,6 +75,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
   codex: {
     id: 'codex',
     agentexProviderId: 'codex',
+    commandEnv: 'CODEX_COMMAND',
     name: 'Codex',
     description: 'OpenAI models with your ChatGPT account',
     icon: 'code',
@@ -97,6 +100,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
   claude: {
     id: 'claude',
     agentexProviderId: 'claude',
+    commandEnv: 'CLAUDE_COMMAND',
     name: 'Claude Code',
     description: 'Anthropic models through Claude Code',
     icon: 'terminal',
@@ -125,6 +129,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
   cursor: {
     id: 'cursor',
     agentexProviderId: 'cursor',
+    commandEnv: 'CURSOR_COMMAND',
     name: 'Cursor',
     description: 'Cursor models, including Grok when available',
     icon: 'square-terminal',
@@ -143,6 +148,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
   opencode: {
     id: 'opencode',
     agentexProviderId: 'opencode',
+    commandEnv: 'OPENCODE_COMMAND',
     name: 'OpenCode',
     description: 'OpenCode with your configured upstream providers',
     icon: 'braces',
@@ -170,6 +176,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
   antigravity: {
     id: 'antigravity',
     agentexProviderId: 'antigravity',
+    commandEnv: 'ANTIGRAVITY_COMMAND',
     name: 'Antigravity',
     description: 'Google Gemini models through Antigravity CLI',
     icon: 'orbit',

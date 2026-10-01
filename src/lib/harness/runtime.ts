@@ -32,14 +32,6 @@ interface CachedRuntime {
 
 const cache = new Map<string, CachedRuntime>();
 
-const COMMAND_ENV: Record<HarnessId, string> = {
-  claude: 'CLAUDE_COMMAND',
-  codex: 'CODEX_COMMAND',
-  cursor: 'CURSOR_COMMAND',
-  opencode: 'OPENCODE_COMMAND',
-  antigravity: 'ANTIGRAVITY_COMMAND',
-};
-
 const CAPABILITY_KEYS: Partial<Record<keyof HarnessCapabilities, keyof ProviderCapabilities>> = {
   sessions: 'sessions',
   resume: 'resume',
@@ -63,7 +55,7 @@ const CAPABILITY_KEYS: Partial<Record<keyof HarnessCapabilities, keyof ProviderC
 };
 
 function commandFor(harness: HarnessId): string | undefined {
-  const value = process.env[COMMAND_ENV[harness]]?.trim();
+  const value = process.env[HARNESS_REGISTRY[harness].commandEnv]?.trim();
   return value || undefined;
 }
 
