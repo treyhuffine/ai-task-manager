@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { acquireServiceOwner } from './owner';
+import { acquireServiceOwner, serviceOwnerHeld } from './owner';
 import { servicePaths } from './paths';
 
 let root: string;
@@ -17,6 +17,16 @@ beforeEach(() => {
 afterEach(() => { for (const release of releases.splice(0)) release(); vi.unstubAllEnvs(); fs.rmSync(root, { recursive: true, force: true }); });
 
 describe('local service ownership', () => {
+  it('tells whether another launcher holds the lock, without taking or creating it', () => {
+    expect(serviceOwnerHeld()).toBe(false);
+    expect(fs.existsSync(servicePaths().ownerLock)).toBe(false);
+    const release = acquireServiceOwner();
+    expect(serviceOwnerHeld()).toBe(true);
+    release();
+    expect(serviceOwnerHeld()).toBe(false);
+    // Checking left it free to take.
+    releases.push(acquireServiceOwner());
+  });
   it('refuses a competing launcher and permits a clean handoff', () => {
     const release = acquireServiceOwner();
     releases.push(release);

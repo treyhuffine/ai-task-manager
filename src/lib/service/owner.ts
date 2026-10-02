@@ -22,3 +22,22 @@ export function acquireServiceOwner(): () => void {
     lock.close();
   };
 }
+
+/** Whether a launcher holds this database's owner lock right now, checked
+ * without taking it or creating anything. Lets a second launcher refuse up
+ * front with a reason, rather than start and fail on the lock. */
+export function serviceOwnerHeld(): boolean {
+  const file = servicePaths().ownerLock;
+  if (!fs.existsSync(file)) return false;
+  const lock = new Database(file, { timeout: 0, fileMustExist: true });
+  try {
+    lock.exec('BEGIN IMMEDIATE');
+    lock.exec('ROLLBACK');
+    return false;
+  } catch (error) {
+    if ((error as { code?: string }).code === 'SQLITE_BUSY') return true;
+    throw error;
+  } finally {
+    lock.close();
+  }
+}

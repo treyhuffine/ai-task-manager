@@ -12,6 +12,7 @@ import { createCheckpoint } from '../src/lib/service/checkpoint';
 import { UpdateCoordinator, type UpdateBackend, type UpdateRecord } from '../src/lib/service/update';
 import type { Release } from '../src/lib/service/release-trust';
 import { consumeDesktopInitialization, stageFirstDesktopRuntime } from '../src/lib/service/initialization';
+import { acquireServiceOwner } from '../src/lib/service/owner';
 
 const mocks = vi.hoisted(() => ({ status: vi.fn(), legacy: vi.fn() }));
 vi.mock('../src/lib/service/client', () => ({ serviceStatus: mocks.status }));
@@ -162,6 +163,50 @@ it('refuses to adopt a stopped source installation even when its schema matches'
   expect(await inspectExistingInstallation()).toMatchObject({ canUse: false, phase: 'stopped', reason: expect.stringContaining('existing CLI service') });
   expect(fs.readFileSync(database)).toEqual(before);
   expect(fs.existsSync(path.join(getRuntimeInstallDir(), 'active-release'))).toBe(false);
+});
+it('opens a stopped dev home from its own checkout in development, applying migrations as it boots', async () => {
+  vi.stubEnv('RI_DESKTOP_MODE', 'development');
+  const db = new Database(database); runMigrations(db, path.join(directory, 'drizzle')); db.close();
+  expect(await inspectExistingInstallation()).toMatchObject({ canUse: true, phase: 'stopped', pendingMigrations: 0, appliedMigrations: 1 });
+  // A newer checkout: its migration applies at boot, the way `pnpm dev` does.
+  fs.writeFileSync(path.join(directory, 'drizzle/meta/_journal.json'), JSON.stringify({ version: '7', dialect: 'sqlite', entries: [
+    { idx: 0, version: '6', when: 1000, tag: '0000_test', breakpoints: true },
+    { idx: 1, version: '6', when: 2000, tag: '0001_test', breakpoints: true },
+  ] }));
+  fs.writeFileSync(path.join(directory, 'drizzle/0001_test.sql'), 'ALTER TABLE retained ADD COLUMN extra TEXT;');
+  const before = fs.readFileSync(database);
+  expect(await inspectExistingInstallation()).toMatchObject({ canUse: true, pendingMigrations: 1 });
+  expect(fs.readFileSync(database)).toEqual(before);
+  expect(fs.existsSync(path.join(getRuntimeInstallDir(), 'active-release'))).toBe(false);
+});
+it('opens a dev home `pnpm dev` booted but never used, before it has a work folder', async () => {
+  const db = new Database(database); runMigrations(db, path.join(directory, 'drizzle')); db.close();
+  fs.rmSync(path.join(directory, '.work'), { recursive: true });
+  await expect(inspectExistingInstallation()).rejects.toThrow();
+  vi.stubEnv('RI_DESKTOP_MODE', 'development');
+  expect(await inspectExistingInstallation()).toMatchObject({ canUse: true });
+  expect(fs.existsSync(path.join(directory, '.work'))).toBe(false);
+});
+it('refuses a dev home whose history this checkout does not recognize', async () => {
+  vi.stubEnv('RI_DESKTOP_MODE', 'development');
+  const db = new Database(database); runMigrations(db, path.join(directory, 'drizzle')); db.close();
+  fs.appendFileSync(path.join(directory, 'drizzle/0000_test.sql'), '\n-- a different history');
+  await expect(inspectExistingInstallation()).rejects.toThrow('does not match');
+});
+it('never adopts a stopped installation as development in a packaged app', async () => {
+  vi.stubEnv('RI_DESKTOP_MODE', 'development');
+  vi.stubEnv('RI_DESKTOP_RESOURCES', path.join(directory, 'resources'));
+  const db = new Database(database); runMigrations(db, path.join(directory, 'drizzle')); db.close();
+  expect(await inspectExistingInstallation()).toMatchObject({ canUse: false, reason: expect.stringContaining('existing CLI service') });
+});
+it('refuses up front while another launcher holds the home, like `pnpm dev`', async () => {
+  vi.stubEnv('RI_DESKTOP_MODE', 'development');
+  const db = new Database(database); runMigrations(db, path.join(directory, 'drizzle')); db.close();
+  const release = acquireServiceOwner();
+  try {
+    await expect(inspectExistingInstallation()).rejects.toThrow('Another launcher is using this installation');
+  } finally { release(); }
+  expect(await inspectExistingInstallation()).toMatchObject({ canUse: true });
 });
 it('attaches to a verified live owner without opening its database', async () => {
   fs.writeFileSync(database, 'not opened by the viewer');

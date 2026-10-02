@@ -13,6 +13,7 @@ import { ReleaseSchema } from '../src/lib/service/release-trust';
 import { MaintenanceWindowSchema } from '../src/lib/service/update-settings';
 import { resolveServiceRole } from '../src/lib/service/role';
 import { pendingDesktopInitialization } from '../src/lib/service/initialization';
+import { serviceOwnerHeld } from '../src/lib/service/owner';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const updateRecord = z.object({
@@ -75,6 +76,13 @@ function hasRecordedRecovery(active: NonNullable<ReturnType<typeof installedRunt
   return true;
 }
 
+/** The checkout a development launch runs from, or null for anything else. A
+ * packaged app is never development (`main.ts`) and carries its resources. */
+function sourceDevelopmentRepo(): string | null {
+  if (process.env.RI_DESKTOP_MODE !== 'development' || process.env.RI_DESKTOP_RESOURCES) return null;
+  return process.env.RI_DESKTOP_REPO || null;
+}
+
 export async function inspectExistingInstallation(): Promise<InstallationInspection> {
   const identity = serviceIdentity();
   const role = resolveServiceRole();
@@ -90,16 +98,33 @@ export async function inspectExistingInstallation(): Promise<InstallationInspect
   }
   const selected = fs.existsSync(identity.database) ? undefined : installedRuntime();
   const pendingInitialization = !!selected && pendingDesktopInitialization(selected.id);
-  if (!pendingInitialization) assertExistingInstallation(identity);
+  // The service makes the work folder as it starts, so development doesn't need one yet.
+  if (!pendingInitialization) assertExistingInstallation(identity, { allowMissingWork: !!sourceDevelopmentRepo() });
   const status = await serviceStatus();
   // A live verified owner is already responsible for its schema. Never open
   // the database as a side effect of connecting another viewer.
   if (status) return { identity, phase: status.phase, version: status.version, pendingMigrations: 0, appliedMigrations: 0,
     canUse: status.phase === 'running', reason: status.phase === 'running' ? undefined : 'Resolve the existing service state before connecting.' } satisfies InstallationInspection;
   if (readLiveServerRuntime()) throw new Error('An older foreground launcher is using this installation. Stop it before connecting the desktop app.');
+  // A launcher that publishes no record (`pnpm dev`) still holds the owner
+  // lock, and a service started now would only fail on it.
+  if (serviceOwnerHeld()) throw new Error('Another launcher is using this installation, such as `pnpm dev` or `ri start`. Stop it before opening the desktop app.');
   const active = selected ?? installedRuntime();
-  if (!active) return { identity, phase: 'stopped', pendingMigrations: 0, appliedMigrations: 0, canUse: false,
-    reason: 'Start this installation with its existing CLI service before connecting. Ri will not select replacement runtime binaries for a stopped CLI installation.' };
+  if (!active) {
+    // A source checkout in development is its own runtime: it opens the home
+    // the way `pnpm dev` does, applying its pending migrations as it boots.
+    // An unrelated history still refuses (`inspectMigrationHistory` throws).
+    const source = sourceDevelopmentRepo();
+    if (source) {
+      const db = new Database(identity.database, { readonly: true, fileMustExist: true });
+      try {
+        const history = inspectMigrationHistory(db, path.join(source, 'drizzle'));
+        return { identity, phase: 'stopped', pendingMigrations: history.pending.length, appliedMigrations: history.applied, canUse: true } satisfies InstallationInspection;
+      } finally { db.close(); }
+    }
+    return { identity, phase: 'stopped', pendingMigrations: 0, appliedMigrations: 0, canUse: false,
+      reason: 'Start this installation with its existing CLI service before connecting. Ri will not select replacement runtime binaries for a stopped CLI installation.' };
+  }
   if (pendingInitialization) return { identity, phase: 'initialization-pending', pendingMigrations: 0, appliedMigrations: 0, canUse: true,
     reason: 'The selected runtime has not opened its first database yet. Initial setup can resume after correcting the reported problem.' };
   if (hasRecordedRecovery(active, identity)) return { identity, phase: 'recovery-pending', pendingMigrations: 0, appliedMigrations: 0, canUse: true,
