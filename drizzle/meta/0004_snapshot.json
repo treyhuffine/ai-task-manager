@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e9137afc-8e05-4626-9845-192bb7d34487",
+  "id": "97f8cac7-8d8a-4189-90e6-a452396ec4c3",
   "prevId": "8908b1b3-fb00-4863-93b8-e4eee20bbc10",
   "tables": {
     "api_keys": {
@@ -6020,6 +6020,34 @@
         },
         "orchestrator_name": {
           "name": "orchestrator_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "orchestrator_emoji": {
+          "name": "orchestrator_emoji",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "orchestrator_image": {
+          "name": "orchestrator_image",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "orchestrator_color": {
+          "name": "orchestrator_color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "orchestrator_introduced_at": {
+          "name": "orchestrator_introduced_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
