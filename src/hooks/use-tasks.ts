@@ -29,10 +29,13 @@ function newIdempotencyKey(): string {
 
 const TASKS_KEY = ['tasks'] as const;
 
-export function useTasks(filter?: TaskFilter) {
+/** `refetchInterval` keeps a surface someone watches (the board) current with
+ * changes made elsewhere, like an agent moving a task mid-turn. */
+export function useTasks(filter?: TaskFilter, opts: { refetchInterval?: number } = {}) {
   return useQuery({
     queryKey: [...TASKS_KEY, filter],
     queryFn: () => tasksApi.list(filter),
+    refetchInterval: opts.refetchInterval,
   });
 }
 

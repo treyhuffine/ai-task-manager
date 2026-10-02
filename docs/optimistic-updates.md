@@ -107,6 +107,23 @@ normal nets: `settleEntity` after this client's own mutations, plus the
 `src/providers/query-provider.tsx`. The AI content-chat path additionally runs
 its own invalidate on turn completion (`src/components/ai-elements/slideout-chat.tsx`).
 
+Agents get two more nets, because their changes are the ones a person sits and
+watches for:
+
+- **Turn edges.** Every chat turn starting or ending, and every reconnect of
+  the page stream, refreshes task lists, counts and attention badges
+  (`invalidateTaskListsSoon` in `src/lib/query/invalidate-tasks.ts`, driven by
+  `useGlobalSessionStream`). An agent moves tasks during a turn, through MCP in
+  the server or the `ri` CLI in its own process, and the server sees every
+  turn edge either way. Coalesced to one refetch per second.
+- **The board polls** its lanes every 15s while mounted (`BOARD_POLL_MS` in
+  `task-kanban.tsx`), for a move in the middle of a long turn, a CLI call from
+  a terminal, or another device. TanStack pauses it while the tab is hidden.
+
+Neither touches a single task (`['tasks', <id>]`, the one that carries
+`body`). A background refresh never refetches a document someone may have
+open. That still converges on focus and on settle, as above.
+
 ## Leaving the page with unsaved work
 
 A client is a viewer. Work runs on the home and keeps running after the page

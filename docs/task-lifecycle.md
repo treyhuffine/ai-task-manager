@@ -79,6 +79,11 @@ proves clunky. Reviews (`execution_reviews`) are keyed to the exact output event
   The Board shows in the Tasks panel (its List/Board switcher) and nearly full
   screen from the top HUD's Board button or "Open board" in ⌘K
   (`src/components/tasks/task-board-modal.tsx`, linkable as `?board=1`).
+  In progress cards carry the attention badges (Working, Update, Stalled,
+  Blocked) and an Open button to the agent's chat (`agentSessionId` on
+  `getTaskAttentionSignals`). Working means a turn is running right now, and
+  it shows even beside an Update. The board follows agents without a reload
+  (`docs/optimistic-updates.md`, "Convergence for external writes").
 
 ## Migration and backfill
 

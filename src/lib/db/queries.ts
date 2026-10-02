@@ -1944,9 +1944,11 @@ export function getTaskLifecycleSignals(taskId: string): {
  *   - stalled: an associated workstream failed setup / dispatch.
  *   - review: an associated workstream produced outcome output that has not been
  *     reviewed since (a Review obligation — reading does not clear it).
- *   - working: an associated workstream is live on the task and neither stalled
- *     nor awaiting review (per the spec, an agent is pursuing it, not
- *     necessarily streaming this instant).
+ *   - working: an associated workstream is live on the task and not stalled.
+ *     Given the running-session set, live means a turn is running right now,
+ *     and that shows even beside an update still to review: both are true, and
+ *     "is an agent doing something" is the question the badge answers. Without
+ *     it, live is only an active association, so an update to review wins.
  * "Needs input" is intentionally absent: pending agent input is not durably
  * tracked, so we do not fake it.
  */
@@ -1967,7 +1969,7 @@ export function getTaskAttentionSignals(taskId: string, runningSessionIds?: Set<
     .all();
 
   if (associations.length === 0) {
-    return { ...base, stalled: false, review: false, working: false };
+    return { ...base, stalled: false, review: false, working: false, agentSessionId: null };
   }
 
   // Working is a RUNTIME signal: prefer the live running-session set (genuinely
@@ -1981,7 +1983,8 @@ export function getTaskAttentionSignals(taskId: string, runningSessionIds?: Set<
   // Stalled is a setup FAILURE, which means the execution is active but NOT
   // running — so it is checked across active associations, not just live ones
   // (a stalled agent by definition has no live session).
-  const stalled = associations.some((e) => !!e.setupError && e.status === 'active');
+  const stalledExecution = associations.find((e) => !!e.setupError && e.status === 'active');
+  const stalled = !!stalledExecution;
 
   // Review: an associated execution's latest REVIEWABLE output is unreviewed AND
   // newer than both the association and the task's current-state epoch — so a
@@ -1989,18 +1992,35 @@ export function getTaskAttentionSignals(taskId: string, runningSessionIds?: Set<
   // compared as instants (event times can be SQLite space-format while the
   // association/epoch are ISO — a lexicographic compare across formats is wrong).
   const gateMs = Math.max(tsToMs(epoch), 0);
-  const review = associations.some((e) => {
+  const reviewExecutions = associations.filter((e) => {
     const s = latestOutputReviewState(e.id);
     if (!s.hasUnreviewedOutput || !s.latestOutputEventAt) return false;
     const gate = Math.max(tsToMs(e.associatedAt), gateMs);
     return tsToMs(s.latestOutputEventAt) > gate;
   });
+  const review = reviewExecutions.length > 0;
+
+  // Where "open the agent" goes, in the badges' order of interest: the chat
+  // running now, the execution with an update, the stalled one, then any
+  // active one. An archived execution has no active chat and falls through.
+  const activeChatOf = (executionId: string | undefined): string | null =>
+    executionId ? listChatSessions({ executionId, status: 'active' })[0]?.id ?? null : null;
+  const runningChat = runningSessionIds
+    ? live.flatMap((e) => executionSessionIds(e.id)).find((sid) => runningSessionIds.has(sid)) ?? null
+    : null;
+  const agentSessionId =
+    runningChat ??
+    reviewExecutions.map((e) => activeChatOf(e.id)).find((sid) => sid !== null) ??
+    activeChatOf(stalledExecution?.id) ??
+    associations.filter((e) => e.status === 'active').map((e) => activeChatOf(e.id)).find((sid) => sid !== null) ??
+    null;
 
   return {
     ...base,
     stalled,
     review,
-    working: live.length > 0 && !stalled && !review,
+    working: live.length > 0 && !stalled && (!!runningSessionIds || !review),
+    agentSessionId,
   };
 }
 

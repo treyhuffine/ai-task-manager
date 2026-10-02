@@ -27,7 +27,7 @@ const BOARD_PARAM = 'board';
  */
 export function TaskBoardModal() {
   const open = useTaskBoardOpen();
-  const { activeView, closeAllSlideouts } = useDashboard();
+  const { activeView, closeAllSlideouts, openExecution } = useDashboard();
   // Whatever had focus when the board opened (the HUD's Board button). Radix
   // hands focus back to a `Dialog.Trigger`, and this board has none.
   const openerRef = useRef<HTMLElement | null>(null);
@@ -37,8 +37,10 @@ export function TaskBoardModal() {
     if (new URLSearchParams(window.location.search).has(BOARD_PARAM)) openTaskBoard();
   }, []);
 
-  // Reflect the open state in the URL without a router round-trip, the way
-  // settings does with `?settings=`.
+  // Reflect the open state in the URL without a router round-trip. A null
+  // state lets Next's router take the new URL as its own. Passing its current
+  // state skips that, and a navigation in flight (Open on a card) would then
+  // write `?board=1` back.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (open === params.has(BOARD_PARAM)) return;
@@ -46,7 +48,7 @@ export function TaskBoardModal() {
     else params.delete(BOARD_PARAM);
     const qs = params.toString();
     const url = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
-    window.history.replaceState(window.history.state, '', url);
+    window.history.replaceState(null, '', url);
   }, [open]);
 
   // Going somewhere else closes the board, so "Start with agent" from a task
@@ -101,6 +103,12 @@ export function TaskBoardModal() {
             Every task by lane. Drag a card to move it, or click it to open the task.
           </DialogDescription>
           <TaskKanban
+            // Close explicitly: the agent's chat may already be the view
+            // underneath, so the view-change close above wouldn't fire.
+            onOpenAgent={(sessionId) => {
+              closeTaskBoard();
+              openExecution(sessionId);
+            }}
             leading={
               <DialogTitle className="flex items-center gap-1.5 px-1 text-sm font-semibold">
                 <SquareKanban className="size-4 text-muted-foreground" />
