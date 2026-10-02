@@ -74,9 +74,11 @@ proves clunky. Reviews (`execution_reviews`) are keyed to the exact output event
   Current Work, not the stack.
 - Calendar: shows Todo + In progress deadlines; Consider stays off.
 - Stream: `promote_stream` can park an item in Consider or commit it to Todo.
-- Lanes (List, and the planned Kanban): Current Work, Todo, Consider, Done,
-  Archived — two views over the same records and the same lifecycle
-  (`src/lib/tasks/lanes.ts`).
+- Lanes (List and Board): Current Work, Todo, Consider, Done, Archived — two
+  views over the same records and the same lifecycle (`src/lib/tasks/lanes.ts`).
+  The Board shows in the Tasks panel (its List/Board switcher) and nearly full
+  screen from the top HUD's Board button or "Open board" in ⌘K
+  (`src/components/tasks/task-board-modal.tsx`, linkable as `?board=1`).
 
 ## Migration and backfill
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -41,7 +41,6 @@ import {
   ToolbarToggle,
   toolbarButtonClass,
 } from '@/components/shared/list-toolbar';
-import { TaskViewToggle, type TaskView } from './task-view';
 import { cn } from '@/lib/utils';
 
 /** Columns that accept new tasks. Done/Archived are reached by moving a task,
@@ -216,7 +215,12 @@ function KanbanColumn({
   );
 }
 
-export function TaskKanban({ view, onViewChange }: { view: TaskView; onViewChange: (next: TaskView) => void }) {
+/**
+ * The board. Rendered in two places: the Tasks panel (behind its List/Board
+ * switcher) and the board modal opened from the top HUD. The host fills the
+ * toolbar's ends, the switcher in the panel and a title and close in the modal.
+ */
+export function TaskKanban({ leading, trailing }: { leading: ReactNode; trailing?: ReactNode }) {
   const qc = useQueryClient();
   const { openTask } = useDashboard();
   const lifecycle = useTaskLifecycle();
@@ -368,13 +372,25 @@ export function TaskKanban({ view, onViewChange }: { view: TaskView; onViewChang
     [laneOfTask, byLane, persistReorder, lifecycle],
   );
 
+  // Esc cancels a drag. Claim it first (a window capture listener runs before
+  // a dialog's document one) so the board modal doesn't close mid-drag.
+  // dnd-kit ignores `defaultPrevented` and still cancels.
+  useEffect(() => {
+    if (!activeId) return;
+    const claim = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') e.preventDefault();
+    };
+    window.addEventListener('keydown', claim, true);
+    return () => window.removeEventListener('keydown', claim, true);
+  }, [activeId]);
+
   const activeTask = activeId ? allById.get(activeId) : null;
   const areaLabel = areaMode === 'all' ? 'All Areas' : areaMode === 'none' ? 'No Area' : areaName(areaMode) ?? 'Area';
 
   return (
     <div className="flex h-full flex-col">
       <ListToolbar>
-        <TaskViewToggle value={view} onChange={onViewChange} />
+        {leading}
         <div className="flex-1" />
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -401,6 +417,7 @@ export function TaskKanban({ view, onViewChange }: { view: TaskView; onViewChang
         <ToolbarToggle active={showArchived} onClick={() => setShowArchived((v) => !v)}>
           Archived
         </ToolbarToggle>
+        {trailing}
       </ListToolbar>
 
       <div className="min-h-0 flex-1 overflow-x-auto p-3">
