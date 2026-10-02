@@ -4,6 +4,7 @@ import { Check, Copy, ExternalLink, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { connectorMeta } from '@/components/connectors/connector-meta';
+import { APP_NAME } from '@/constants/app';
 import { isRegisteredMcp, oauthAppRedirectUri, type AuthConfigSummary, type ByoForm, type ProviderStatus } from './types';
 
 /**
@@ -80,6 +81,13 @@ export function ByoPanel({
           {copied ? <Check size={12} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={12} />}
         </Button>
       </div>
+      {/* Web callbacks follow Ri's address (src/lib/connectors/live-callback.ts). */}
+      {(registered || !provider.desktopCallback) && (
+        <p className="text-[11px] leading-normal text-muted-foreground">
+          This follows {APP_NAME}&apos;s address in Devices, and every sign-in uses it. If that address changes, add the new
+          one to your app on {provider.displayName} too.
+        </p>
+      )}
 
       {boundClientId && <p className="text-[11px] text-muted-foreground">This connection uses {configs.find(config => config.id === boundClientId)?.label ?? boundClientId}. Disconnect before changing or removing its OAuth app.</p>}
 
