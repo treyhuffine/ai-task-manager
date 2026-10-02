@@ -90,9 +90,11 @@ Why, as of September 2026:
 
 ## The builder
 
-The Skills tab starts with a one-line composer ("New skill: what should it
-do?"), and an agent's Setup tab has the same one for that project. Say what
-the skill should do, then:
+Plugins has a **New skill** button at the right of its tabs, there on either
+tab, so starting a skill never means switching to Skills first. It opens a
+one-line composer ("New skill: what should it do?") for a skill in Ri, and an
+agent's Setup tab has the same composer inline for that project. Say what the
+skill should do, then:
 
 - **Draft with AI** (Enter): creates the skill (in Ri, or in the project),
   named from your words, sends your text as the builder chat's first message,

@@ -1,13 +1,13 @@
 'use client';
 
 /**
- * The Skills tab of Plugins (docs/skills.md): a one-line composer to start a
- * new skill, then every skill grouped by where it lives, which is who uses
- * it: Ri's own, the global ones, and each project's.
+ * Skills in Plugins (docs/skills.md): the New skill button beside the tabs,
+ * and the Skills tab, every skill grouped by where it lives, which is who
+ * uses it: Ri's own, the global ones, and each project's.
  */
 
 import { useMemo, useState } from 'react';
-import { AlertCircle, Loader2, Pencil, ScrollText, Search } from 'lucide-react';
+import { AlertCircle, Loader2, Pencil, Plus, ScrollText, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { uuidv7 } from 'uuidv7';
 import { apiErrorText } from '@/lib/api/client';
@@ -19,6 +19,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { closeSettings } from '@/components/settings/settings-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ensureSkillChat, skillChatQueryKey } from '@/components/skills/use-skill-chat';
 import { LOCATION_GROUPS, displayPath } from '@/components/skills/location-copy';
 import { CatalogTile, Chip, GroupHeading } from '../connectors/parts';
@@ -36,9 +37,15 @@ function SkillLogo() {
  * it with AI (Enter: the text becomes the builder chat's first message) or
  * write it yourself (the text becomes the first description). Either way it
  * opens in the builder. It goes in Ri unless `location` says a project, as it
- * does from an agent's Setup tab.
+ * does from an agent's Setup tab. Plugins shows it in NewSkillButton's popover.
  */
-export function NewSkillComposer({ location }: { location?: Pick<CreateSkillBody, 'location' | 'workspaceId'> }) {
+export function NewSkillComposer({
+  location,
+  autoFocus,
+}: {
+  location?: Pick<CreateSkillBody, 'location' | 'workspaceId'>;
+  autoFocus?: boolean;
+}) {
   const qc = useQueryClient();
   const { openSkill } = useDashboard();
   const [text, setText] = useState('');
@@ -87,6 +94,7 @@ export function NewSkillComposer({ location }: { location?: Pick<CreateSkillBody
             }
           }}
           rows={1}
+          autoFocus={autoFocus}
           aria-label="Describe a new skill"
           placeholder="New skill: what should it do?"
           className="field-sizing-content max-h-32 min-h-7 flex-1 resize-none bg-transparent py-1 text-[12.5px] leading-5 text-foreground outline-none placeholder:text-muted-foreground/60"
@@ -114,6 +122,30 @@ export function NewSkillComposer({ location }: { location?: Pick<CreateSkillBody
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * New skill, at the right of the Plugins tabs so it's there from either
+ * tab: the composer in a popover, starting the skill in Ri. The builder's
+ * location menu moves it to global or a project.
+ */
+export function NewSkillButton() {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="xs" className="text-[11.5px]">
+          <Plus size={12} />
+          New skill
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[min(28rem,calc(100vw-2rem))] space-y-2 p-2">
+        <NewSkillComposer autoFocus />
+        <p className="px-1 text-[11px] leading-snug text-muted-foreground">
+          It starts in Ri, where every chat uses it. Move it to global or a project from the builder.
+        </p>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -212,8 +244,9 @@ export function SkillsGroup({ skills, searching }: { skills: SkillSummary[]; sea
 }
 
 /**
- * The Skills tab of Plugins: start a new skill, then every skill grouped by
- * where it lives. A search box appears once there are enough to need one.
+ * The Skills tab of Plugins: every skill grouped by where it lives. A search
+ * box appears once there are enough to need one. New skills start from
+ * NewSkillButton, beside the tabs.
  */
 export function SkillsTab() {
   const [query, setQuery] = useState('');
@@ -223,7 +256,6 @@ export function SkillsTab() {
   const all = data?.skills.length ?? 0;
   return (
     <div className="@container space-y-5">
-      <NewSkillComposer />
       {all > 8 && (
         <div className="relative">
           <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -242,7 +274,8 @@ export function SkillsTab() {
         </div>
       ) : all === 0 ? (
         <p className="py-6 text-center text-[12px] text-muted-foreground">
-          No skills yet. A skill teaches your agents one way of working, like how you review a pull request.
+          No skills yet. A skill teaches your agents one way of working, like how you review a pull request. Start
+          one with New skill.
         </p>
       ) : skills.length === 0 ? (
         <p className="py-6 text-center text-[12px] text-muted-foreground">No skills match “{query}”.</p>

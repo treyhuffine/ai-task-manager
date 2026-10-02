@@ -5,14 +5,15 @@
  * Connectors (the default, and where "Connect apps" in the rail lands) let
  * agents act in your accounts. Skills teach them how to do things
  * (docs/skills.md). `openSettings('plugins', { anchor: 'skills' })` opens on
- * Skills, for links that are about a skill.
+ * Skills, for links that are about a skill. New skill sits at the right of
+ * the tabs, so starting one never needs the Skills tab first.
  */
 
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSettingsStore } from '@/components/settings/settings-store';
 import { ConnectorsSection } from './connectors-section';
-import { SkillsTab } from './plugins/skills-catalog';
+import { NewSkillButton, SkillsTab } from './plugins/skills-catalog';
 
 export type PluginsTab = 'connectors' | 'skills';
 
@@ -41,13 +42,19 @@ export function PluginsSection() {
 
   return (
     <Tabs value={tab} onValueChange={(value) => setTab(value as PluginsTab)} className="gap-5">
-      <TabsList variant="line" className="h-8 w-full justify-start gap-4 border-b border-border/60 px-0">
-        {TABS.map((t) => (
-          <TabsTrigger key={t.value} value={t.value} className="h-full flex-none px-0.5 text-[12.5px]">
-            {t.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
+      {/* The button sits over the tab list's right end rather than in it: a tablist holds only tabs. */}
+      <div className="relative">
+        <TabsList variant="line" className="h-8 w-full justify-start gap-4 border-b border-border/60 px-0">
+          {TABS.map((t) => (
+            <TabsTrigger key={t.value} value={t.value} className="h-full flex-none px-0.5 text-[12.5px]">
+              {t.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <div className="absolute right-0 top-0 flex h-8 items-center pb-1">
+          <NewSkillButton />
+        </div>
+      </div>
       <TabsContent value="connectors">
         <ConnectorsSection />
       </TabsContent>
