@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Bot, Check, Copy, ExternalLink, KeyRound, Loader2, Plug, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConnectorLogo } from '@/components/connectors/connector-logo';
+import { Checkbox } from '@/components/ui/checkbox';
 import { openSettings } from '@/components/settings/settings-store';
 import { useSessionEvents } from '@/hooks/use-execution';
 import { useConnectionCardAction, useConnectorStatus, useSaveSignInApp } from '@/hooks/use-connection-requests';
@@ -11,6 +12,8 @@ import { apiErrorText } from '@/lib/api/client';
 import { openConnectorAuthorization } from '@/lib/client/desktop';
 import {
   DEVELOPER_CONSOLES,
+  describeAccounts,
+  looksLikeEmail,
   type ConnectionRequestView,
   type ConnectionResponseView,
 } from '@/lib/connectors/connection-catalog';
@@ -100,9 +103,11 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
 
   const resolved = response !== null;
   const title = cardTitle(view);
+  const offered = view.accounts ?? [];
   const subtitle = [
     view.label !== view.providerName ? view.providerName : null,
-    view.account,
+    // A single account is named here. Several are listed below, to choose from.
+    offered.length === 1 ? offered[0]!.label : view.kind === 'allow_agent' ? null : view.account,
     view.agent ? `for the ${view.agent.name} agent` : null,
   ].filter(Boolean).join(' · ');
 
@@ -128,16 +133,23 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
         ) : (
           <p>{appExplanation(view)}</p>
         )}
+        {view.kind === 'connect' && view.requestedAccount && !resolved && (
+          <p className="mt-1 text-foreground/85">
+            {looksLikeEmail(view.requestedAccount) ? `Sign in as ${view.requestedAccount}.` : `Sign in with your ${view.requestedAccount} account.`}
+          </p>
+        )}
       </div>
 
       {resolved ? (
         <ResolvedFooter response={response} view={view} />
       ) : view.kind === 'allow_agent' ? (
-        <Footer busy={busy} onDecline={() => run({ action: 'decline' })} notice={notice}>
-          <PrimaryButton busy={busy} onClick={() => run({ action: 'allow' })}>
-            Allow for {view.agent?.name ?? 'this agent'}
-          </PrimaryButton>
-        </Footer>
+        <AllowForAgent
+          view={view}
+          busy={busy}
+          notice={notice}
+          onDecline={() => run({ action: 'decline' })}
+          onAllow={(accounts) => run({ action: 'allow', accounts })}
+        />
       ) : view.method === 'mcp' ? (
         <Footer busy={busy} onDecline={() => run({ action: 'decline' })} notice={notice}>
           <PrimaryButton busy={busy} onClick={() => openSettings('plugins')}>
@@ -407,14 +419,74 @@ function SetupForm({
   );
 }
 
+/**
+ * Allow an agent to use a connected service. With several accounts, the user checks exactly the
+ * ones it may use: the one the agent named comes checked, and with none named nothing is, rather
+ * than handing over every inbox at once. What's checked is what's granted, and what the card,
+ * the answer and the agent's note all name.
+ */
+function AllowForAgent({
+  view,
+  busy,
+  notice,
+  onDecline,
+  onAllow,
+}: {
+  view: ConnectionRequestView;
+  busy: boolean;
+  notice: string | null;
+  onDecline: () => void;
+  onAllow: (accounts: string[]) => void;
+}) {
+  const offered = view.accounts ?? [];
+  const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set(view.preselected ?? []));
+  const choosing = offered.length > 1;
+  const toggle = (accountId: string) =>
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(accountId)) next.delete(accountId);
+      else next.add(accountId);
+      return next;
+    });
+  return (
+    <>
+      {choosing && (
+        <fieldset className="space-y-1 border-t border-border/60 px-3 py-2">
+          <legend className="sr-only">Accounts</legend>
+          <p className="pb-0.5 text-muted-foreground">
+            Which {view.providerName} accounts can {view.agent?.name ?? 'this agent'} use for {view.label}?
+          </p>
+          {offered.map((a) => (
+            <label key={`${a.accountId}|${a.authConfigId ?? ''}`} className="flex cursor-pointer items-center gap-2 text-foreground/90">
+              <Checkbox checked={checked.has(a.accountId)} disabled={busy} onCheckedChange={() => toggle(a.accountId)} />
+              <span className="truncate">{a.label}</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+      <Footer busy={busy} onDecline={onDecline} notice={notice}>
+        <PrimaryButton
+          busy={busy}
+          disabled={choosing && checked.size === 0}
+          onClick={() => onAllow(choosing ? [...checked] : offered.map((a) => a.accountId))}
+        >
+          Allow for {view.agent?.name ?? 'this agent'}
+        </PrimaryButton>
+      </Footer>
+    </>
+  );
+}
+
 function ResolvedFooter({ response, view }: { response: ConnectionResponseView; view: ConnectionRequestView }) {
+  const accounts = response.accounts ?? (response.account ? [response.account] : []);
+  const on = accounts.length === 0 ? '' : ` on ${describeAccounts(accounts)}`;
   const who = view.onBehalf && view.agent ? `The ${view.agent.name} agent can use it now.` : 'The agent was told to continue.';
   const text =
     response.outcome === 'declined'
       ? 'Not now. The agent was told.'
       : response.outcome === 'allowed'
-        ? `${view.agent?.name ?? 'The agent'} can use ${view.label} now.${view.onBehalf ? '' : ' The agent was told to continue.'}`
-        : `${view.kind === 'reconnect' ? 'Reconnected' : 'Connected'}${response.account ? ` as ${response.account}` : ''}. ${who}`;
+        ? `${view.agent?.name ?? 'The agent'} can use ${view.label}${on} now.${view.onBehalf ? '' : ' The agent was told to continue.'}`
+        : `${view.kind === 'reconnect' ? 'Reconnected' : 'Connected'}${accounts.length ? ` as ${describeAccounts(accounts)}` : ''}. ${who}`;
   return (
     <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-1.5 text-muted-foreground">
       {response.outcome === 'declined' ? <X size={11} className="shrink-0" /> : <Check size={11} className="shrink-0 text-emerald-500" />}

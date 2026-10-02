@@ -2,7 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { PROVIDER_CATALOG } from '@connectors/engine/providers';
 import {
   connectionNote,
+  describeAccounts,
+  matchAccounts,
+  namesAccount,
   resolveService,
+  type CardAccount,
   type CatalogToolkit,
   type ServiceResolution,
 } from './connection-catalog';
@@ -101,10 +105,29 @@ describe('connectionNote', () => {
   const gmail = { kind: 'connect' as const, label: 'Gmail', toolkitIds: ['gmail'], account: null };
 
   it('tells the agent the tools are there and to continue', () => {
-    const note = connectionNote('connected', gmail, { account: 'me@example.com' });
+    const note = connectionNote('connected', gmail, { accounts: ['me@example.com'] });
     expect(note).toMatch(/^\[Connection, from the app on the user's behalf\]/);
-    expect(note).toContain('The user connected Gmail (account me@example.com).');
+    expect(note).toContain('The user connected Gmail on me@example.com.');
     expect(note).toContain('Its tools (gmail__…) are available now. Continue the task you were doing.');
+  });
+
+  it('names every account granted, and how to choose between them', () => {
+    const note = connectionNote('allowed', { ...gmail, kind: 'allow_agent' }, { accounts: ['a@x.com', 'b@y.com'] });
+    expect(note).toContain('allowed this agent to use Gmail on a@x.com and b@y.com (pass `account` to choose).');
+  });
+
+  it('falls back to the card account, as a reconnect has', () => {
+    expect(connectionNote('connected', { ...gmail, kind: 'reconnect', account: 'me@example.com' })).toContain('reconnected Gmail on me@example.com.');
+  });
+
+  it('flags a sign-in that landed on another account than the one asked for', () => {
+    const asked = { ...gmail, requestedAccount: 'Market Standard' };
+    expect(connectionNote('connected', asked, { accounts: ['trey@marketstandard.app'] })).not.toContain("isn't the account");
+    expect(connectionNote('connected', asked, { accounts: ['trey@gitconnected.com'] })).toContain(
+      "That isn't the account you asked for (Market Standard), so check with the user before relying on it.",
+    );
+    // An access grant is the user's own pick on the card, not a sign-in that went astray.
+    expect(connectionNote('allowed', { ...asked, kind: 'allow_agent' }, { accounts: ['trey@gitconnected.com'] })).not.toContain("isn't the account");
   });
 
   it('asks for a retry after a reconnect or more access', () => {
@@ -126,5 +149,63 @@ describe('connectionNote', () => {
     const note = connectionNote('declined', gmail);
     expect(note).toContain('chose not to connect Gmail');
     expect(note).toContain("Don't ask for it again in this chat unless they bring it up.");
+  });
+});
+
+describe('matchAccounts', () => {
+  const account = (accountId: string, label: string): CardAccount => ({ accountId, authConfigId: null, connectionId: `c-${accountId}`, label });
+  const ACCOUNTS = [
+    account('1', 'trey@gitconnected.com'),
+    account('2', 'trey@marketstandard.app'),
+    account('3', 'trey@insiderfinance.io'),
+    account('4', 'Work Slack'),
+  ];
+  const ids = (hint: string | null) => matchAccounts(hint, ACCOUNTS).map((a) => a.accountId);
+
+  it('matches an exact email, label or account id, ignoring case', () => {
+    expect(ids('Trey@MarketStandard.app')).toEqual(['2']);
+    expect(ids('work slack')).toEqual(['4']);
+    expect(ids('3')).toEqual(['3']);
+  });
+
+  it('matches the words the user used when they name one account', () => {
+    expect(ids('Market Standard')).toEqual(['2']);
+    expect(ids('marketstandard.app')).toEqual(['2']);
+    expect(ids('my Market Standard email')).toEqual(['2']);
+    expect(ids('my insiderfinance gmail account')).toEqual(['3']);
+    expect(ids('insider finance')).toEqual(['3']);
+  });
+
+  it('names none when the words fit several, or are too short or too generic to mean anything', () => {
+    expect(ids('trey')).toEqual([]);
+    expect(ids('io')).toEqual([]);
+    expect(ids('my email')).toEqual([]);
+    expect(ids('')).toEqual([]);
+    expect(ids(null)).toEqual([]);
+  });
+
+  it('matches an address only exactly: a different address is a different account', () => {
+    expect(ids('trey@bounce.dev')).toEqual([]);
+    expect(ids('rey@marketstandard.app')).toEqual([]);
+  });
+});
+
+describe('namesAccount', () => {
+  it('tells a name from words that only say what kind of account', () => {
+    expect(namesAccount('trey@bounce.dev')).toBe(true);
+    expect(namesAccount('my Market Standard email')).toBe(true);
+    expect(namesAccount('my email')).toBe(false);
+    expect(namesAccount('the gmail account')).toBe(false);
+    expect(namesAccount('  ')).toBe(false);
+    expect(namesAccount(null)).toBe(false);
+  });
+});
+
+describe('describeAccounts', () => {
+  it('reads as a list', () => {
+    expect(describeAccounts([])).toBe('');
+    expect(describeAccounts(['a'])).toBe('a');
+    expect(describeAccounts(['a', 'b'])).toBe('a and b');
+    expect(describeAccounts(['a', 'b', 'c'])).toBe('a, b and c');
   });
 });

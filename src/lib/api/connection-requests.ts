@@ -3,6 +3,14 @@ import type { ProviderStatus } from '@/components/settings/sections/connectors/t
 
 export type ConnectionCardAction = 'sign_in' | 'key' | 'allow' | 'decline';
 
+export interface ConnectionCardBody {
+  action: ConnectionCardAction;
+  fields?: Record<string, string>;
+  returnTo?: string;
+  /** For `allow`: exactly the account ids checked on the card. */
+  accounts?: string[];
+}
+
 export type ConnectionCardResult =
   | { done: true }
   | { requestId: string; authorizationUrl: string; desktopFlowId?: string };
@@ -14,7 +22,7 @@ export interface ConnectorStatusResponse {
 
 export const connectionRequestsApi = {
   /** Answer a Connect card: start a sign-in, submit a key, allow an agent, or say not now. */
-  act: (eventId: string, body: { action: ConnectionCardAction; fields?: Record<string, string>; returnTo?: string }) =>
+  act: (eventId: string, body: ConnectionCardBody) =>
     api.post<ConnectionCardResult>(`/connectors/requests/${encodeURIComponent(eventId)}`, body),
 
   /** Which providers can connect in one click, and the redirect URI a new sign-in app registers. */

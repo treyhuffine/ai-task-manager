@@ -13,6 +13,11 @@
  * The `connected` cases need an MCP server to stand in for a connected service: pass --mcp-url and
  * the script adds it (as "Team Calendar") before running them.
  *
+ * The `accounts` cases connect three stand-in Google accounts (fake tokens, written straight into the
+ * dev home's connector store) and check the cards an agent with no access gets: one card per service,
+ * the account the user named checked, an address that isn't connected asking to connect it. A case
+ * with `allow` then answers its card with those accounts and checks the agent got exactly them.
+ *
  * Usage (dev app already running on an isolated home, see docs/connecting-from-chat.md):
  *   pnpm tsx scripts/eval-connection-requests.ts --base http://localhost:42277 --home /tmp/ri-eval \
  *     [--mcp-url http://127.0.0.1:42288/mcp] [--only id1,id2] [--out results.json]
@@ -33,10 +38,31 @@ interface Case {
   service?: RegExp;
   /** For `declined`: the follow-up asked in the same chat after "Not now". */
   followUp?: string;
-  phase: 'baseline' | 'connected';
+  phase: 'baseline' | 'connected' | 'accounts';
   /** Run in an execution of an agent with no connector access, instead of the main chat. */
   inAgent?: boolean;
+  /** With `inAgent`: a new agent for this case alone, so earlier grants don't carry over. */
+  freshAgent?: boolean;
+  /** For `ask`: every one of these cards must appear. */
+  cards?: CardCheck[];
+  /** For `ask`: answer the first card by allowing these accounts, then check the agent got them. */
+  allow?: string[];
 }
+
+interface CardCheck {
+  toolkits: string[];
+  kind: string;
+  /** The accounts checked to start with, by email. */
+  preselected?: string[];
+  requestedAccount?: RegExp;
+}
+
+/** Stand-in Google accounts for the `accounts` phase. */
+const GOOGLE_ACCOUNTS = [
+  { id: 'eval-google-gitconnected', accountId: '900000000000000000001', email: 'trey@gitconnected.example' },
+  { id: 'eval-google-marketstandard', accountId: '900000000000000000002', email: 'trey@marketstandard.example' },
+  { id: 'eval-google-insiderfinance', accountId: '900000000000000000003', email: 'trey@insiderfinance.example' },
+];
 
 const CASES: Case[] = [
   // Should ask: the request needs an outside service there are no tools for.
@@ -61,6 +87,23 @@ const CASES: Case[] = [
   { id: 'team-calendar', phase: 'connected', expect: 'no_ask', prompt: "Look up event evt_standup on the Team Calendar and tell me when it is." },
   // Should ask for access: connected to Ri, but this agent hasn't been given it.
   { id: 'agent-access', phase: 'connected', expect: 'ask', service: /team calendar/i, inAgent: true, prompt: "Look up event evt_standup on the Team Calendar and tell me when it is." },
+  // Several Google accounts connected, none given to this agent.
+  {
+    id: 'acct-named', phase: 'accounts', expect: 'ask', service: /gmail/i, inAgent: true, freshAgent: true,
+    prompt: 'Check my Market Standard Gmail for anything from Ana this week.',
+    cards: [{ toolkits: ['gmail'], kind: 'allow_agent', preselected: ['trey@marketstandard.example'] }],
+    allow: ['trey@marketstandard.example'],
+  },
+  {
+    id: 'acct-two-services', phase: 'accounts', expect: 'ask', service: /gmail|calendar/i, inAgent: true, freshAgent: true,
+    prompt: 'Look through my Gmail and my Google Calendar for anything about the Q3 offsite.',
+    cards: [{ toolkits: ['gmail'], kind: 'allow_agent' }, { toolkits: ['google_calendar'], kind: 'allow_agent' }],
+  },
+  {
+    id: 'acct-new', phase: 'accounts', expect: 'ask', service: /gmail/i, inAgent: true, freshAgent: true,
+    prompt: 'Check the trey@bounce.example Gmail inbox for invoices.',
+    cards: [{ toolkits: ['gmail'], kind: 'connect', requestedAccount: /trey@bounce\.example/ }],
+  },
 ];
 
 function arg(name: string): string | undefined {
@@ -133,25 +176,65 @@ async function settle(sessionId: string, afterCount: number, timeoutMs = 240_000
   throw new Error(`timed out waiting for ${sessionId}`);
 }
 
+interface ObservedCard {
+  id: string;
+  label: string;
+  kind: string;
+  toolkitIds: string[];
+  /** Emails of the accounts offered and checked to start with. */
+  accounts: string[];
+  preselected: string[];
+  requestedAccount: string | null;
+}
+
 interface Observed {
-  calls: { service: string; status: string | null }[];
-  cards: { id: string; label: string; kind: string }[];
+  calls: { service: string; account: string | null; status: string | null }[];
+  cards: ObservedCard[];
   reply: string;
 }
 
 function observe(evs: Event[]): Observed {
   // The transcript doesn't keep an MCP tool's result text, so a call's outcome is read from what
-  // it left behind: a card row right after it, or none.
+  // it left behind: a card for the service it named before the turn ended, or none. Matched by
+  // name, since parallel calls land their cards in any order.
   const calls: Observed['calls'] = [];
   evs.forEach((e, i) => {
     if (e.source !== 'tool_call' || !e.toolName?.includes('request_connection')) return;
-    const service = String((e.toolInput as { service?: unknown } | null)?.service ?? '');
-    const next = evs.slice(i + 1).find((x) => x.source === 'connection_request' || (x.source === 'tool_call' && x.toolName?.includes('request_connection')));
-    calls.push({ service, status: next?.source === 'connection_request' ? 'card' : 'no card' });
+    const input = e.toolInput as { service?: unknown; account?: unknown } | null;
+    const service = String(input?.service ?? '');
+    const rest = evs.slice(i + 1);
+    const end = rest.findIndex((x) => x.source === 'result');
+    const named = (label: string) => {
+      const [a, b] = [label.toLowerCase(), service.toLowerCase()];
+      return a.includes(b) || b.includes(a);
+    };
+    const card = (end < 0 ? rest : rest.slice(0, end)).find(
+      (x) => x.source === 'connection_request' && named(String((x.toolInput as { label?: unknown }).label)),
+    );
+    calls.push({ service, account: typeof input?.account === 'string' ? input.account : null, status: card ? 'card' : 'no card' });
   });
   const cards = evs
     .filter((e) => e.source === 'connection_request')
-    .map((e) => ({ id: e.id, label: String((e.toolInput as { label?: unknown }).label), kind: String((e.toolInput as { kind?: unknown }).kind) }));
+    .map((e): ObservedCard => {
+      const v = e.toolInput as {
+        label: string;
+        kind: string;
+        toolkitIds?: string[];
+        accounts?: { accountId: string; label: string }[];
+        preselected?: string[];
+        requestedAccount?: string | null;
+      };
+      const offered = v.accounts ?? [];
+      return {
+        id: e.id,
+        label: String(v.label),
+        kind: String(v.kind),
+        toolkitIds: v.toolkitIds ?? [],
+        accounts: offered.map((a) => a.label),
+        preselected: (v.preselected ?? []).map((id) => offered.find((a) => a.accountId === id)?.label ?? id),
+        requestedAccount: v.requestedAccount ?? null,
+      };
+    });
   const reply = [...evs].reverse().find((e) => e.source === 'agent')?.content ?? '';
   return { calls, cards, reply };
 }
@@ -165,28 +248,78 @@ interface Result {
   followUp?: Observed;
 }
 
-let evalAgentId: string | null = null;
+let sharedAgentId: string | null = null;
 
 /** An agent with its own folder and no connector access, for the `inAgent` cases. */
-async function evalAgent(): Promise<string> {
-  if (evalAgentId) return evalAgentId;
+async function createAgent(): Promise<string> {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-eval-agent-'));
   const created = await call<{ workspace?: { id: string }; id?: string }>('POST', '/workspaces', { name: `eval-agent-${path.basename(cwd).slice(-6)}`, cwd });
-  evalAgentId = created.workspace?.id ?? created.id ?? null;
-  if (!evalAgentId) throw new Error('could not create the eval agent');
-  return evalAgentId;
+  const id = created.workspace?.id ?? created.id ?? null;
+  if (!id) throw new Error('could not create the eval agent');
+  return id;
 }
 
-async function newChat(c: Case): Promise<string> {
+async function newChat(c: Case): Promise<{ id: string; agentId: string | null }> {
   if (c.inAgent) {
-    const created = await call<{ session?: { id: string }; id?: string }>('POST', `/workspaces/${await evalAgent()}/sessions`, { label: c.id });
-    return (created.session?.id ?? created.id)!;
+    const agentId = c.freshAgent ? await createAgent() : (sharedAgentId ??= await createAgent());
+    const created = await call<{ session?: { id: string }; id?: string }>('POST', `/workspaces/${agentId}/sessions`, { label: c.id });
+    return { id: (created.session?.id ?? created.id)!, agentId };
   }
-  return (await call<{ session: { id: string } }>('POST', '/orchestrator-chat', {})).session.id;
+  return { id: (await call<{ session: { id: string } }>('POST', '/orchestrator-chat', {})).session.id, agentId: null };
+}
+
+/** Why a card check failed, or null when a card matches it. */
+function checkCards(checks: CardCheck[], cards: ObservedCard[]): string | null {
+  for (const want of checks) {
+    const card = cards.find((k) => k.kind === want.kind && k.toolkitIds.join() === want.toolkits.join());
+    if (!card) return `no ${want.kind} card for ${want.toolkits.join('+')} (cards: ${cards.map((k) => `${k.kind} ${k.toolkitIds.join('+')}`).join(', ') || 'none'})`;
+    if (want.preselected && card.preselected.join() !== want.preselected.join()) {
+      return `${want.toolkits.join('+')} card checks [${card.preselected.join(', ')}], expected [${want.preselected.join(', ')}]`;
+    }
+    if (want.requestedAccount && !want.requestedAccount.test(card.requestedAccount ?? '')) {
+      return `${want.toolkits.join('+')} card asks for ${card.requestedAccount ?? 'no account'}`;
+    }
+  }
+  return null;
+}
+
+/** Allow the card with these accounts, then check the agent's access is exactly them. */
+async function allowAndCheck(sessionId: string, agentId: string, card: ObservedCard, emails: string[]): Promise<string | null> {
+  const ids = emails.map((email) => GOOGLE_ACCOUNTS.find((a) => a.email === email)!.accountId);
+  const count = (await events(sessionId)).length;
+  await call('POST', `/connectors/requests/${card.id}`, { action: 'allow', accounts: ids });
+  await settle(sessionId, count);
+  const ws = await call<{ connectorScopes?: { toolkitId: string; accounts?: { accountId: string }[] }[] }>('GET', `/workspaces/${agentId}`);
+  for (const toolkitId of card.toolkitIds) {
+    const scope = ws.connectorScopes?.find((sc) => sc.toolkitId === toolkitId);
+    const pinned = (scope?.accounts ?? []).map((a) => a.accountId).sort();
+    if (!scope || pinned.join() !== [...ids].sort().join()) return `${toolkitId} access is [${pinned.join(', ') || (scope ? 'all accounts' : 'none')}], expected [${ids.join(', ')}]`;
+  }
+  const answer = (await events(sessionId)).find((e) => e.source === 'connection_response' && (e.toolInput as { requestEventId?: string }).requestEventId === card.id);
+  const named = (answer?.toolInput as { accounts?: string[] } | undefined)?.accounts ?? [];
+  if (named.join() !== emails.join()) return `the answer names [${named.join(', ')}], expected [${emails.join(', ')}]`;
+  return null;
+}
+
+/** Connect the stand-in Google accounts in the dev home's own encrypted connector store. */
+async function seedGoogleAccounts(): Promise<void> {
+  const { fileStore } = await import('@connectors/engine/store');
+  const { aesGcmSecretBox } = await import('@connectors/engine/crypto');
+  const dir = path.join(resolvedHome, '.config', 'connectors');
+  const key = fs.readFileSync(path.join(dir, 'key'), 'utf8').trim();
+  const store = fileStore({ dir });
+  const box = aesGcmSecretBox({ key });
+  const now = new Date().toISOString();
+  for (const a of GOOGLE_ACCOUNTS) {
+    await store.save(
+      { id: a.id, ownerId: 'local', providerId: 'google', accountId: a.accountId, email: a.email, scopes: ['openid', 'email'], status: 'active', createdAt: now, updatedAt: now },
+      await box.seal({ type: 'oauth2', accessToken: 'eval-fake-token', expiresAt: Date.now() + 86_400_000 }),
+    );
+  }
 }
 
 async function runCase(c: Case): Promise<Result> {
-  const session = { id: await newChat(c) };
+  const session = await newChat(c);
   await sendAndSettle(session.id, c.prompt);
   const first = observe(await events(session.id));
   const done = (pass: boolean, why: string, followUp?: Observed): Result => ({ id: c.id, expect: c.expect, pass, why, observed: first, ...(followUp ? { followUp } : {}) });
@@ -194,7 +327,16 @@ async function runCase(c: Case): Promise<Result> {
   switch (c.expect) {
     case 'ask': {
       const card = first.cards.find((k) => c.service!.test(k.label));
-      return done(Boolean(card), card ? `card: ${card.label}` : `no card for ${c.service}`);
+      if (!card) return done(false, `no card for ${c.service}`);
+      const wrong = c.cards ? checkCards(c.cards, first.cards) : null;
+      if (wrong) return done(false, wrong);
+      const shown = first.cards.map((k) => `${k.kind} ${k.label}${k.preselected.length ? ` [${k.preselected.join(', ')}]` : ''}`).join('; ');
+      if (c.allow) {
+        const failed = await allowAndCheck(session.id, session.agentId!, first.cards[0]!, c.allow);
+        if (failed) return done(false, failed);
+        return done(true, `${shown}; allowed exactly ${c.allow.join(', ')}`);
+      }
+      return done(true, `card: ${shown}`);
     }
     case 'no_ask':
       return done(first.calls.length === 0, first.calls.length ? `asked: ${first.calls.map((k) => k.service).join(', ')}` : 'did not ask');
@@ -221,7 +363,7 @@ async function main() {
   const only = arg('only')?.split(',');
   const cases = CASES.filter((c) => !only || only.includes(c.id));
   const results: Result[] = [];
-  for (const phase of ['baseline', 'connected'] as const) {
+  for (const phase of ['baseline', 'connected', 'accounts'] as const) {
     const batch = cases.filter((c) => c.phase === phase);
     if (batch.length === 0) continue;
     if (phase === 'connected') {
@@ -232,6 +374,7 @@ async function main() {
       }
       await call('POST', '/connectors/mcp-servers', { name: 'Team Calendar', url, auth: { kind: 'none' } }).catch((e) => console.log(`(MCP server: ${e.message})`));
     }
+    if (phase === 'accounts') await seedGoogleAccounts();
     for (const c of batch) {
       process.stdout.write(`${c.id.padEnd(18)} `);
       try {

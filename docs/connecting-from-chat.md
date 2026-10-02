@@ -13,8 +13,8 @@ woken with a note.
 
 The chat never decides. It displays whatever card rows the server writes, in three cases:
 
-1. **The agent asks.** It calls `request_connection(service, reason)` on the connectors MCP. The only
-   model judgment in the whole flow is making that call. The tool exists in every chat (main chat,
+1. **The agent asks.** It calls `request_connection(service, reason, account?)` on the connectors
+   MCP, once per service. The only model judgment in the whole flow is making that call. The tool exists in every chat (main chat,
    agent chats, executions), even with nothing connected, because an agent can't ask for what it
    doesn't know is possible.
 2. **A connection stopped working.** A connector call returns `authorization_required` or
@@ -49,7 +49,11 @@ If more than one service could fit (Google or Outlook calendar), ask the user wh
 The agent names the service in plain words. `resolveService` (`connection-catalog.ts`) matches it
 against the live catalog, most specific first: a service by name ("Gmail", "Google Calendar"), then a
 provider ("Google": all its services), then a generic word ("calendar"). MCP servers the user added
-match by the name they gave them. Then `requestConnection` answers:
+match by the name they gave them. Built-in hosted services (Slack, Notion, Linear, Todoist and the
+rest of the `mcp` entries in the provider catalog) register their tools only once connected, under
+the provider's own id, so until then they stand in under that id. Without that, asking for Slack
+answered "unsupported" and the agent told the user Ri can't connect it. Then `requestConnection`
+answers:
 
 | Situation | Answer to the agent | Card |
 |---|---|---|
@@ -59,11 +63,41 @@ match by the name they gave them. Then `requestConnection` answers:
 | Connected, not for this agent | card shown, stop and wait | Allow for this agent |
 | Not connected | card shown, stop and wait | Connect |
 | A card for it is already open in this chat | already asked, wait | none |
-| The user said "Not now" earlier in this chat | don't ask again unless they bring it up | none (`user_asked` overrides) |
+| The user said "Not now" to it earlier in this chat | don't ask again unless they bring it up | none (`user_asked` overrides) |
 | No chat to put a card in (background jobs) | ask the user to use Settings | none |
 
 `for_agent` asks on another agent's behalf. The card names that agent, the asking chat learns the
 outcome, and that agent's sessions pick up the access.
+
+Cards are per service. "Look in Gmail and Google Calendar" is two calls and two cards, and a "Not
+now" holds only for the service it answered. A card covering the whole provider ("Google") waits on
+any open card for one of its services. (Cards used to be one per provider, so the Calendar request
+in that example was answered "already asked" and never shown.)
+
+### Which account
+
+A provider can have several connected accounts (six Google accounts is normal). The account is part
+of the request, never a guess:
+
+- **The agent names it when the user did.** `account` takes the user's words: an address
+  (`trey@marketstandard.app`) or a name ("my Market Standard email"). `matchAccounts`
+  (`connection-catalog.ts`) matches an exact address, label or account id first, else the one account
+  whose address or label holds the naming words ("my", "email", "gmail" and the like are ignored).
+  Words that fit several accounts name none.
+- **An address that isn't connected** is an account to connect: the card is a Connect card that says
+  "Sign in as …", even if other accounts of the provider are connected.
+- **Allow for this agent lists the accounts.** One account is named on the card. With several, each
+  gets a checkbox: the account the agent named comes checked, and with none named nothing is, so the
+  user picks rather than handing over every inbox at once. Allow is disabled until one is checked.
+- **The grant is exactly the checked accounts.** They're added to the agent's connector access as
+  account pins (the same pins the Agents view writes), merged into any pins it already has. A service
+  it already has for every account is left alone. Nothing grants "all accounts" from a card.
+- **Everything names them.** The answer row, the card's footer and the agent's note say which
+  accounts it got ("on trey@marketstandard.app", or "on a and b (pass `account` to choose)"). If a
+  sign-in lands on a different account than the one asked for, the note says so and tells the agent
+  to check with the user.
+- **"Usable already" is per account.** An agent that can use Gmail on one account but was asked about
+  another it can't use gets a card for that account. Otherwise it's told which accounts it has.
 
 ## The card
 
@@ -74,9 +108,15 @@ it offers, since setup can happen after the card appeared:
 - **One-time setup** when it doesn't: the card links the vendor's developer console, shows the
   redirect URI to register (copyable), and takes the client ID and secret. Saved through the same
   route and encrypted store as Settings, then the sign-in continues.
-- **A key field** for API-key services (Todoist, Stripe, Resend…).
+- **A key field** for API-key services (Telegram, Mailgun…).
+- **Connect in Settings** for a built-in hosted service (Slack, Notion, Linear, Todoist…), which
+  connects from Settings, under Plugins. That card doesn't resolve itself yet: after connecting
+  there, the user tells the agent, and its next `request_connection` finds the service connected
+  (and reloads its tools) or, for an agent without access, shows the allow card. An open card only
+  blocks another of the same kind, so the stale Connect card doesn't stand in the way.
 - **Reconnect / Allow access** for a connection that stopped working or needs more access.
-- **Allow for this agent** when the account is connected but the agent can't use it.
+- **Allow for this agent** when the account is connected but the agent can't use it, with a checkbox
+  per account when there are several (see Which account).
 
 Keys and app secrets go from the card straight to the server. They never pass through the chat or
 the agent. The agent's reason is shown attributed ("The agent says: …"), separate from app text,
@@ -92,9 +132,12 @@ mid-sign-in, the next click finds the account connected and resolves the card.
 New tools only reach a harness when its process restarts (it lists them once, at spawn). So after
 a connection or an allow, the server waits for the asking chat's current turn to end (bounded at
 10 minutes), recycles its process (`recycleWhenIdle`, which resumes the same conversation), and
-then sends the note: "The user connected Gmail (…). Its tools are available now. Continue." A
-decline sends the note without a reload. A connection made for an agent is added to that agent's
-connector access, which also recycles that agent's sessions.
+then sends the note: "The user connected Gmail on me@example.com. Its tools are available now.
+Continue." A decline sends the note without a reload. A connection made for an agent, or an allow, is
+added to that agent's connector access, pinned to exactly those accounts, which also recycles that
+agent's sessions. A Reconnect or More access card never changes an agent's access: it restores a
+connection the agent already uses (and lists every service of the provider, so granting from it would
+hand the agent all of them).
 
 ## Off switch
 
@@ -117,9 +160,12 @@ agent's ask.
 
 ## Measuring it
 
-`scripts/eval-connection-requests.ts` runs about 15 prompts against a real agent on an isolated dev
+`scripts/eval-connection-requests.ts` runs about 20 prompts against a real agent on an isolated dev
 home: requests that should ask, ones that shouldn't (Ri's own data, pasted content, no outside
-service), ones that should ask the user which service first, and a "Not now" that must stick. It
+service), ones that should ask the user which service first, and a "Not now" that must stick. Its
+last phase connects three stand-in Google accounts (fake tokens, straight into the dev home's
+connector store) and checks an agent with no access asks per service, checks the account the user
+named, asks to connect an address that isn't connected, and gets exactly the account allowed. It
 grades each and prints a summary. Rerun it after changing the rule's wording.
 
 ```sh

@@ -68,6 +68,17 @@ describe('POST /api/connectors/requests/[eventId]', () => {
     expect((await post({ action: 'decline' })).status).toBe(200);
   });
 
+  it('allows exactly the account ids checked on the card', async () => {
+    await post({ action: 'allow', accounts: ['acct-2', 7, null, 'acct-5'] });
+    expect(h.allowCardForAgent).toHaveBeenLastCalledWith('ev-1', ['acct-2', 'acct-5']);
+    await post({ action: 'allow', accounts: 'acct-2' });
+    expect(h.allowCardForAgent).toHaveBeenLastCalledWith('ev-1', []);
+    h.allowCardForAgent.mockRejectedValueOnce(new h.ConnectionRequestError('invalid', 'Choose at least one account.'));
+    const res = await post({ action: 'allow', accounts: [] });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'Choose at least one account.' });
+  });
+
   it('maps request errors to statuses', async () => {
     h.declineCard.mockRejectedValueOnce(new h.ConnectionRequestError('not_found', 'gone'));
     expect((await post({ action: 'decline' })).status).toBe(404);

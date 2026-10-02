@@ -72,8 +72,9 @@ export const CONNECTORS_MCP_SERVER_NAME = 'connectors';
  */
 const REQUEST_CONNECTION_BRIEF = `If the user's request needs an outside service you have no tools for
 (their email, calendar, Slack, a Linear ticket), don't say you can't: call
-\`request_connection\` with the service's name. The user gets a Connect card in
-this chat, and you get a note when they decide. Never for ${APP_NAME}'s own tasks,
+\`request_connection\` with the service's name (and the account, if they named
+one). The user gets a Connect card in this chat, and you get a note when they
+decide, naming exactly which accounts you got. Never for ${APP_NAME}'s own tasks,
 notes, deck or stream, or content they pasted. Don't guess a provider: if they
 said something generic ("my email", "my calendar") that more than one service
 could be, ask which one they use before calling.`;
