@@ -12,16 +12,15 @@
  * the agent can hand back to the human instead of spinning.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import type { Page } from 'playwright-core';
-import { ensureBrowserWorkDir } from '@/lib/config/paths';
 import { saveAttachment } from '@/lib/attachments/save';
 import type { Attachment } from '@/db/types';
 import { ActionError } from '@/lib/orchestrator/types';
+import { applyCap } from './cap';
 import { redactSecrets } from './redact';
+import { baselineOf, captureSnapshot, type SnapshotBaseline } from './snapshot';
 
 export type ReadMode = 'snapshot' | 'text' | 'screenshot' | 'pdf';
 
@@ -70,29 +69,8 @@ export interface ReadOptions {
   fullPage?: boolean;
   /** Session id, used to name spill files. */
   session?: string;
-}
-
-/** Full accessibility snapshot with aria-ref ids (`[ref=e12]`). */
-async function snapshotTree(page: Page, efficient: boolean): Promise<{ text: string; refCount: number }> {
-  const root = page.locator('body');
-  const raw = await root.ariaSnapshot({ mode: 'ai' });
-  const refCount = (raw.match(/\[ref=/g) ?? []).length;
-  if (!efficient) return { text: raw, refCount };
-  return { text: toEfficient(raw), refCount };
-}
-
-/**
- * Efficient tier: keep interactive and named-content lines (everything the
- * agent can act on or navigate by), drop long non-interactive prose. Lines
- * carrying a `[ref=` are the actionable set in ai mode; headings give
- * structure.
- */
-function toEfficient(snapshot: string): string {
-  const keep = /\[ref=|^\s*-\s*(heading|link|button|textbox|combobox|listbox|checkbox|radio|tab|menuitem|searchbox|switch|slider|option)\b/;
-  return snapshot
-    .split('\n')
-    .filter((line) => keep.test(line))
-    .join('\n');
+  /** Called with a snapshot read's baseline, so the next act can say what is new. */
+  onSnapshot?: (baseline: SnapshotBaseline) => void;
 }
 
 /** Readability over the rendered HTML, with a live-innerText fallback. */
@@ -213,9 +191,15 @@ export async function detectBlocked(page: Page): Promise<BlockedSignal | undefin
     // modal) must not read as a wall when the real content is present. The
     // predicate is inlined at each call site so it stays a plain anonymous
     // arrow (no bundler name-keeping helpers leak into the page context).
+    // A real password field is wide but often only ~20-38px tall, so the size
+    // floor only rules out collapsed honeypots. checkVisibility also catches a
+    // field hidden through an ancestor (a transparent or display:none modal).
     const hasPassword = Array.from(document.querySelectorAll('input[type="password"]')).some((el) => {
       const r = el.getBoundingClientRect();
-      if (r.width < 40 || r.height < 40) return false;
+      if (r.width < 40 || r.height < 10) return false;
+      if (typeof el.checkVisibility === 'function' && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) {
+        return false;
+      }
       const s = getComputedStyle(el);
       return s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) !== 0;
     });
@@ -243,26 +227,6 @@ export async function detectBlocked(page: Page): Promise<BlockedSignal | undefin
     };
   }
   return undefined;
-}
-
-/** Cap model-facing text, spilling the full content to scratch when over. */
-function applyCap(content: string, maxChars: number, session: string, label: string): {
-  content: string;
-  truncated?: boolean;
-  spillPath?: string;
-} {
-  if (content.length <= maxChars) return { content };
-  const dir = path.join(ensureBrowserWorkDir(), 'spill');
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const safeSession = session.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const spillPath = path.join(dir, `${safeSession}-${label}-${Date.now()}.txt`);
-  fs.writeFileSync(spillPath, content, { mode: 0o600 });
-  const head = content.slice(0, maxChars);
-  return {
-    content: `${head}\n\n[truncated at ${maxChars} chars. Full content spilled to ${spillPath}. Re-read with a tighter selector or a larger max_chars.]`,
-    truncated: true,
-    spillPath,
-  };
 }
 
 /** Read the current page through the chosen mode. */
@@ -304,21 +268,11 @@ export async function readPage(page: Page, opts: ReadOptions = {}): Promise<Read
     return { url, title, mode, ...capped, blocked };
   }
 
-  const { text, refCount } = await snapshotTree(page, opts.efficient ?? true);
-  const capped = applyCap(redactSecrets(text), maxChars, session, 'snapshot');
-  return { url, title, mode, refCount, ...capped, blocked };
-}
-
-/**
- * A compact snapshot auto-attached after navigation so the agent never has to
- * round-trip to re-read. Always the efficient interactive tier.
- */
-export async function pageState(page: Page): Promise<{ url: string; title: string; snapshot: string; refCount: number }> {
-  const { text, refCount } = await snapshotTree(page, true);
-  return {
-    url: page.url(),
-    title: await page.title().catch(() => ''),
-    snapshot: redactSecrets(text),
-    refCount,
-  };
+  const efficient = opts.efficient ?? true;
+  const snap = await captureSnapshot(page, { efficient, selector: opts.selector });
+  // A whole-page read is what the next act diffs against (both tiers carry
+  // every ref line, so either works as the baseline).
+  if (!opts.selector) opts.onSnapshot?.(baselineOf(snap, url));
+  const capped = applyCap(snap.text, maxChars, session, 'snapshot');
+  return { url, title, mode, refCount: snap.refCount, ...capped, blocked };
 }

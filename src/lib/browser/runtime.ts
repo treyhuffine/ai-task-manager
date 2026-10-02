@@ -19,6 +19,7 @@ import { getIdleCloseMs } from './config';
 import type { AgentBrowser, OpenOptions } from './session';
 import { openOrConnect, closeBrowser } from './session';
 import type { Mark } from './read';
+import type { SnapshotBaseline } from './snapshot';
 
 export interface DialogRecord {
   type: string;
@@ -56,6 +57,8 @@ export interface BrowserSession {
   idleTimer?: ReturnType<typeof setTimeout>;
   /** Pages we have already wired download + dialog handlers onto. */
   attached: WeakSet<Page>;
+  /** Per tab, the last snapshot the agent saw, so an act can say what is new. */
+  baselines: WeakMap<Page, SnapshotBaseline>;
 }
 
 const sessions = new Map<string, BrowserSession>();
@@ -182,6 +185,7 @@ export async function getSession(
       dialogs: [],
       dialogsSeen: 0,
       attached: new WeakSet<Page>(),
+      baselines: new WeakMap<Page, SnapshotBaseline>(),
     } satisfies BrowserSession);
 
   // On reconnect, rebind to the fresh browser.
@@ -290,6 +294,16 @@ export async function settleDownloads(
   while (session.downloadsSettled < targetStarted && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 100));
   }
+}
+
+/** Remember the snapshot the agent just saw of a tab. */
+export function rememberBaseline(session: BrowserSession, page: Page, baseline: SnapshotBaseline): void {
+  session.baselines.set(page, baseline);
+}
+
+/** The last snapshot the agent saw of a tab, if any. */
+export function baselineFor(session: BrowserSession, page: Page): SnapshotBaseline | undefined {
+  return session.baselines.get(page);
 }
 
 /** Replace the stored set-of-marks after a screenshot read. */

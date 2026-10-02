@@ -345,7 +345,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
       const browserOn = isBrowserEnabled() && (workspace ? workspace.browserEnabled : true);
       if (browserOn) {
         const profile = args.workspaceId ? `ws-${args.workspaceId}` : 'execution';
-        const browser = browserMcpServer(undefined, { profile });
+        const browser = browserMcpServer(undefined, { profile, sessionId: args.chatSessionId });
         if (browser) servers.push(browser);
       }
       if (servers.length > 0) spec.mcpServers = servers;

@@ -11,7 +11,9 @@
  * default one). This is how a workspace confines its executions to an isolated
  * browsing profile. Built per-request so the forced profile can vary per call.
  *
- * Bearer auth is enforced globally by the proxy (this path is not public).
+ * Bearer auth is enforced globally by the proxy (this path is not public). The
+ * session's signed credential names the calling chat, so the audit trail says
+ * which chat drove the browser (mcp-caller.ts).
  *
  * URL: POST /api/orchestrator/browser/mcp[?profile=<name>]
  */
@@ -20,6 +22,7 @@ import { createMcpHandler } from 'mcp-handler';
 import { APP_NAME } from '@/constants/app';
 import { browserActions } from '@/lib/orchestrator/browser-actions';
 import { runAction } from '@/lib/orchestrator/dispatch';
+import { mcpCallContext } from '@/lib/orchestrator/mcp-caller';
 
 const SERVER_INSTRUCTIONS = `${APP_NAME} browser: typed tools to read and act on web pages through the agent browser. Read a page (browser_read), then act on the refs it returns (browser_act). If a result carries a "blocked" login or challenge signal, hand back to the user instead of trying to log in.`;
 
@@ -33,10 +36,11 @@ function buildHandler(forcedProfile: string | null) {
             description: action.description,
             inputSchema: action.params,
           },
-          async (input: Record<string, unknown>) => {
+          async (input: Record<string, unknown>, extra) => {
             // Lock the browsing identity so an execution cannot switch profiles.
             const scoped = forcedProfile ? { ...input, profile: forcedProfile } : input;
-            const envelope = await runAction(action.name, scoped, { remote: true });
+            // The calling chat (from the session credential), for the audit trail.
+            const envelope = await runAction(action.name, scoped, mcpCallContext(extra?.requestInfo?.headers));
             return {
               content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }],
               isError: !envelope.ok,

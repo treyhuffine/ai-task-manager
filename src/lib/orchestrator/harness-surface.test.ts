@@ -356,6 +356,18 @@ describe('browserMcpServer', () => {
       url: 'http://localhost:5151/api/orchestrator/browser/mcp?profile=ws-123',
     });
   });
+
+  it('names the calling chat with its signed credential, so the browser audit can say which chat acted', async () => {
+    fs.mkdirSync(root, { recursive: true });
+    seedToken();
+    const { verifySessionCredential } = await import('./session-credential');
+    const server = browserMcpServer(5151, { profile: 'ws-123', sessionId: 'chat-7' }) as
+      | { headers: Record<string, string> }
+      | null;
+    expect(verifySessionCredential(server?.headers['x-ri-session'], 'tok_test_123')).toBe('chat-7');
+    const anonymous = browserMcpServer(5151, { profile: 'ws-123' }) as { headers: Record<string, string> } | null;
+    expect(anonymous?.headers['x-ri-session']).toBeUndefined();
+  });
 });
 
 describe('renderOrchestratorBrief', () => {
