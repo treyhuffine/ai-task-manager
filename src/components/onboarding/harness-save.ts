@@ -1,23 +1,25 @@
 import { api } from '@/lib/api/client';
-import { setDefaultSelection } from '@/lib/client/default-selection';
+import { setDefaultSelection, type DefaultSelection } from '@/lib/client/default-selection';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { EffortLevel } from '@/db/types';
 
 /**
  * Make a harness the one Ri runs on, from first-run setup: its default model
- * (the one picked, else the harness's own) made the home's default the same
- * way the model menus' "Make default" does (`setDefaultSelection`), plus the
- * agent skill installed unless this home already chose (`installAgentSkill`).
- * Returns the tuple it saved, so the caller can start the main chat over on
- * it when the harness changed.
+ * (the one picked, else the harness's own) and effort (the one picked, else
+ * the harness's usual) made the home's default the same way the model menus'
+ * "Make default" does (`setDefaultSelection`), plus the agent skill installed
+ * unless this home already chose (`installAgentSkill`). Returns the tuple it
+ * saved, so the caller can start the main chat over on it when it changed.
  */
 export async function saveHarnessSetup(input: {
   harness: HarnessId;
   model?: string;
-}): Promise<{ harness: HarnessId; model: string; effort: EffortLevel | null }> {
-  const saved = await setDefaultSelection({ harness: input.harness, model: input.model });
+  variant?: string | null;
+  effort?: EffortLevel | null;
+}): Promise<DefaultSelection> {
+  const saved = await setDefaultSelection(input);
   await installAgentSkill();
-  return { harness: saved.harness, model: saved.model, effort: saved.effort };
+  return saved;
 }
 
 /**

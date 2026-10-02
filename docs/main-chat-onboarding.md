@@ -14,7 +14,7 @@ picker in `src/components/onboarding/`.
 Only a harness that answers: a coding CLI (Claude Code, Codex, Cursor or OpenCode), installed,
 signed in, and responding to a real request. Everything else has a default or can wait:
 
-- The model: the harness's default (Settings, Models changes it).
+- The model and effort: the harness's defaults, said in one line with a way to change them (below).
 - The agent skill: installed on setup, as the wizard did (Settings, Models shows it).
 - Areas, imports, apps, a first agent: useful, asked in the conversation, all skippable.
 
@@ -50,8 +50,16 @@ Three things start in the background so the steps that need them rarely wait:
   without asking (`autoHarness`: Claude Code on a subscription or Bedrock, else Codex on a
   subscription). A key-only setup bills per call and needs consent, and Cursor and OpenCode need a
   model picked, so those go to the person. When the check passes, the step saves the setup and
-  finishes without a word (an empty reply, which isn't shown). If the empty main chat was made on
-  another harness, it's started over on this one.
+  finishes without a question (an empty reply, so the step itself isn't shown). If the empty main
+  chat was made on anything else, it's started over on this one.
+- **The model line** (`onboarding-default-model.tsx`). Wherever the harness was settled, after the
+  naming when the check did it, after the person's answer when they picked, one quiet line says
+  what's now the default: "Found Claude Code. Default set to Opus, medium effort." Change opens the
+  model menus' list (every harness with its sign-in state, so one that isn't signed in can't be
+  picked) and the effort ladder for the picked model, inline. Save makes it the default through
+  `setDefaultSelection`, like Settings, Models, and starts the empty main chat over on it. It's
+  never a question: the conversation goes on past it either way, and it doesn't come back once the
+  chat is used (the model menus' "Make default" and Settings change it after).
 - **The search for history** (`useImportDiscovery`), from the first message, under the same cache key
   as the import panel. It can take up to 90 seconds.
 - **The import itself** (`import-runner.ts`), once projects are picked: module-level, so the
@@ -108,7 +116,7 @@ Three things start in the background so the steps that need them rarely wait:
 
 `user_state` gained `orchestrator_emoji`, `orchestrator_image` (an attachment, snake_case on disk
 and hydrated by `getUserState` / `updateUserState`), `orchestrator_color` and
-`orchestrator_introduced_at` (migration 0005). All nullable preferences, no schema defaults.
+`orchestrator_introduced_at`, with `orchestrator_name`, in migration 0004. All nullable preferences, no schema defaults.
 `PATCH /api/user-state` checks them through `parseOrchestratorLook`. `onboarded_at` now means the
 first run finished in a home that was new, and is still what `describeHomeUse` reads.
 

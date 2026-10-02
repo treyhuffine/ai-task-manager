@@ -23,6 +23,7 @@ import type { AreaSuggestion } from '@/lib/onboarding/area-suggestions';
 import { OnboardingApps } from './onboarding-apps';
 import { AreasStep, NO_AREAS, areasLines, useAreaSuggestions } from './onboarding-areas';
 import { HarnessStep, harnessLines } from './onboarding-harness';
+import { DefaultModelLine } from './onboarding-default-model';
 import {
   ImportProgress,
   ImportStep,
@@ -58,7 +59,8 @@ const TYPING_MS = 650;
  * asks only what this home doesn't have yet, one message at a time:
  *
  *   its name and look → a harness to think with (only when the background
- *   check couldn't set one up) → what to call you → what you're working on →
+ *   check couldn't set one up, and either way a line saying which model and
+ *   effort are now the default, with Change) → what to call you → what you're working on →
  *   history to bring in (only when some was found) → areas (only with none) →
  *   apps → a first agent (only with none) → the usual starters.
  *
@@ -203,6 +205,12 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
   if (!hydrated || !userState) return <div className="flex-1" />;
 
   const steps = stepsThrough(progress.step, progress.replies);
+  // Where the harness was picked, a line on what's now the default and a way
+  // to change it: after the person's answer when they picked by hand, after
+  // the naming when the check picked on its own (that step isn't shown).
+  const harnessReply = progress.replies.harness;
+  const modelLineAfter: OnboardingStep | null =
+    harnessReply === undefined ? null : harnessReply === '' ? 'identity' : 'harness';
   const said: Said = {
     replies: progress.replies,
     userName: userState.name?.trim() || null,
@@ -267,6 +275,7 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
               ) : (
                 <Starters />
               )}
+              {step === modelLineAfter && <DefaultModelLine found={harnessReply === ''} />}
             </div>
           );
         })}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Loader2 } from 'lucide-react';
 import {
   HarnessSetup,
@@ -13,22 +14,41 @@ import { saveHarnessSetup } from '@/components/onboarding/harness-save';
 import { useMainChat, useNewMainChat } from '@/hooks/use-main-chat';
 import { apiErrorText } from '@/lib/api/client';
 import type { HarnessId } from '@/lib/harness/registry';
+import type { EffortLevel } from '@/db/types';
 import { Card, PrimaryButton, Says } from './onboarding-ui';
 import type { HarnessCheck } from './use-harness-check';
 
 /**
  * Make it the harness Ri runs on, and start the (still empty) main chat over
- * on it if the chat was made on another one: a chat's harness is fixed when
- * it's created, and a new home's first chat is made before any harness is
- * known.
+ * on it if the chat was made on anything else: a chat's harness, model and
+ * effort are fixed when it's created, and a new home's first chat is made
+ * before any harness is known. Also what the first run's model line saves
+ * through when the person changes the pick (`onboarding-default-model.tsx`).
  */
-function useApplyHarness() {
+export function useApplyHarness() {
+  const qc = useQueryClient();
   const { data: mainChat } = useMainChat(null);
   const newChat = useNewMainChat(null);
-  return async (harness: HarnessId, model?: string) => {
-    const saved = await saveHarnessSetup({ harness, model });
-    if (mainChat?.session.harness !== saved.harness || mainChat?.session.model !== saved.model) {
-      await newChat.mutateAsync({ providerId: saved.harness, model: saved.model, effort: saved.effort ?? undefined });
+  return async (input: { harness: HarnessId; model?: string; variant?: string | null; effort?: EffortLevel | null }) => {
+    const saved = await saveHarnessSetup(input);
+    // What reads the default (the model line, the model menus) catches up,
+    // as it does after "Make default" (`useSetDefaultSelection`).
+    void qc.invalidateQueries({ queryKey: ['user-state'] });
+    void qc.invalidateQueries({ queryKey: ['agent-models', saved.harness] });
+    void qc.invalidateQueries({ queryKey: ['agent-harnesses'] });
+    const session = mainChat?.session;
+    if (
+      session?.harness !== saved.harness ||
+      session.model !== saved.model ||
+      (session.modelVariant ?? null) !== saved.variant ||
+      (session.effort ?? null) !== saved.effort
+    ) {
+      await newChat.mutateAsync({
+        providerId: saved.harness,
+        model: saved.model,
+        variant: saved.variant ?? undefined,
+        effort: saved.effort ?? undefined,
+      });
     }
   };
 }
@@ -66,7 +86,7 @@ export function HarnessStep({ check, onDone }: { check: HarnessCheck | undefined
   useEffect(() => {
     if (check?.status !== 'ready' || started.current) return;
     started.current = true;
-    apply(check.harness)
+    apply({ harness: check.harness })
       .then(() => onDone(''))
       .catch((err) => setFailed(apiErrorText(err)));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the check lands ready
@@ -84,7 +104,7 @@ export function HarnessStep({ check, onDone }: { check: HarnessCheck | undefined
       suggested={check.status === 'attention' ? check.suggested : check.harness}
       problem={failed ?? (check.status === 'attention' ? check.problem : null)}
       onSave={async (state) => {
-        await apply(state.harness, state.model);
+        await apply({ harness: state.harness, model: state.model });
         onDone(`Use ${harnessName(state.harness)}`);
       }}
     />

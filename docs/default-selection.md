@@ -14,7 +14,9 @@ The default changes only when someone means it to:
   When what's picked there isn't the default, one quiet line at the top of the menu says what the
   default is and offers to make this the default (`MakeDefaultRow`). The default is also marked
   "default" in the list. Nothing shows outside the menu, so it never asks.
-- **First-run setup**: the harness the main chat's first run sets up (docs/main-chat-onboarding.md).
+- **First-run setup**: the harness the main chat's first run sets up, its model and the usual
+  effort. One line in the conversation says what that is, with Change for the harness, model and
+  effort (`DefaultModelLine`, docs/main-chat-onboarding.md).
 
 All three go through the same route (`PUT /api/harness/models/enabled` with `makeActive`, which
 writes the home's tuple in one transaction, `setActiveHarness`). On the client,
