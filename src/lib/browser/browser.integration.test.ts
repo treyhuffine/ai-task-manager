@@ -608,6 +608,23 @@ describe.skipIf(!RUN)('browser integration (e2e)', () => {
     T,
   );
 
+  it(
+    'a Cloudflare hard block is reported as one, without waiting it out',
+    async () => {
+      const { page } = await blankPage();
+      await page.setContent(
+        '<title>Attention Required! | Cloudflare</title><h1>Sorry, you have been blocked</h1><p>You are unable to access medium.com</p><p>Cloudflare Ray ID: 8c1</p>',
+      );
+      expect(await isInterstitial(page)).toBe(false);
+      const started = Date.now();
+      const res = await readPage(page, { mode: 'snapshot' });
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect(res.blocked?.kind).toBe('challenge');
+      expect(res.blocked?.message).toContain('hand back to the user');
+    },
+    T,
+  );
+
   it('lists profiles including the default agent profile', () => {
     const profiles = listBrowserProfiles();
     expect(profiles.some((p) => p.name === 'agent' && p.isDefault)).toBe(true);

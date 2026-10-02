@@ -151,6 +151,7 @@ async function setOfMarks(page: Page, fullPage: boolean): Promise<{ image: strin
  * wait them out before reading rather than returning the challenge page.
  */
 export async function isInterstitial(page: Page): Promise<boolean> {
+  if (await isHardBlock(page)) return false; // nothing to wait out
   try {
     return await page.evaluate(() => {
       const title = (document.title || '').toLowerCase();
@@ -160,6 +161,22 @@ export async function isInterstitial(page: Page): Promise<boolean> {
       return !!document.querySelector(
         '#challenge-form, #cf-challenge-running, .cf-browser-verification, .cf-turnstile, iframe[src*="challenges.cloudflare.com"]',
       );
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A hard block: Cloudflare's "Sorry, you have been blocked" page. It shares the
+ * "Attention Required!" title with a passable challenge, but it does not clear
+ * on its own, and retrying can keep the block going.
+ */
+export async function isHardBlock(page: Page): Promise<boolean> {
+  try {
+    return await page.evaluate(() => {
+      const text = (document.body?.innerText || '').slice(0, 2000).toLowerCase();
+      return /sorry, you have been blocked|you are unable to access/.test(text) && /cloudflare/.test(text + document.title.toLowerCase());
     });
   } catch {
     return false;
@@ -178,6 +195,13 @@ export async function settleInterstitial(page: Page, timeoutMs = 15_000): Promis
 
 export async function detectBlocked(page: Page): Promise<BlockedSignal | undefined> {
   const url = page.url();
+  if (await isHardBlock(page)) {
+    return {
+      kind: 'challenge',
+      message:
+        'The site\'s firewall (Cloudflare) has blocked this browser ("Sorry, you have been blocked"). It does not clear by waiting, and retrying can extend it. Stop using this site and hand back to the user.',
+    };
+  }
   // A challenge that has not cleared (settleInterstitial already gave it time).
   if (await isInterstitial(page)) {
     return {
