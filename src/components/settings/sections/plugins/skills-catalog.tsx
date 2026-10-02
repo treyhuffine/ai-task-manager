@@ -3,25 +3,21 @@
 /**
  * Skills in Plugins (docs/skills.md): the New skill button beside the tabs,
  * and the Skills tab, every skill grouped by where it lives, which is who
- * uses it: Ri's own, the global ones, and each project's.
+ * uses it: the drafts, Ri's own, the global ones, and each project's.
  */
 
 import { useMemo, useState } from 'react';
-import { AlertCircle, Loader2, Pencil, Plus, ScrollText, Search } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
-import { uuidv7 } from 'uuidv7';
+import { Loader2, Plus, ScrollText, Search } from 'lucide-react';
+import { toast } from 'sonner';
 import { apiErrorText } from '@/lib/api/client';
-import { sessionsApi } from '@/lib/api/sessions';
-import { skillsApi, type CreateSkillBody, type SkillSummary } from '@/lib/api/skills';
-import { SKILLS_KEY, skillKey, useSkills } from '@/hooks/use-skills';
-import { HOTKEYS, matchesHotkey } from '@/constants/commands';
+import type { SkillSummary } from '@/lib/api/skills';
+import { useCreateSkill, useSkills } from '@/hooks/use-skills';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { closeSettings } from '@/components/settings/settings-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ensureSkillChat, skillChatQueryKey } from '@/components/skills/use-skill-chat';
 import { LOCATION_GROUPS, displayPath } from '@/components/skills/location-copy';
+import { cn } from '@/lib/utils';
 import { CatalogTile, Chip, GroupHeading } from '../connectors/parts';
 
 function SkillLogo() {
@@ -33,119 +29,36 @@ function SkillLogo() {
 }
 
 /**
- * Where building a skill starts: one line. Say what it should do, then draft
- * it with AI (Enter: the text becomes the builder chat's first message) or
- * write it yourself (the text becomes the first description). Either way it
- * opens in the builder. It goes in Ri unless `location` says a project, as it
- * does from an agent's Setup tab. Plugins shows it in NewSkillButton's popover.
+ * New skill: starts a draft and opens it in the builder, chat on the left,
+ * the file on the right. Nothing uses a draft until it's installed from
+ * there. Clicking again before writing anything opens the same blank draft
+ * rather than piling up empty ones.
  */
-export function NewSkillComposer({
-  location,
-  autoFocus,
-}: {
-  location?: Pick<CreateSkillBody, 'location' | 'workspaceId'>;
-  autoFocus?: boolean;
-}) {
-  const qc = useQueryClient();
+export function NewSkillButton({ className }: { className?: string }) {
+  const create = useCreateSkill();
   const { openSkill } = useDashboard();
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState<'ai' | 'hand' | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const intent = text.trim();
-
-  const start = async (how: 'ai' | 'hand') => {
-    if (busy || (how === 'ai' && !intent)) return;
-    setBusy(how);
-    setError(null);
-    try {
-      const { skill } = await skillsApi.create({
-        ...location,
-        intent,
-        ...(how === 'hand' && intent ? { description: intent } : {}),
-      });
-      qc.setQueryData(skillKey(skill.ref), skill);
-      void qc.invalidateQueries({ queryKey: [...SKILLS_KEY, 'overview'] });
-      if (how === 'ai') {
-        const session = await ensureSkillChat(skill.ref, 'build');
-        qc.setQueryData(skillChatQueryKey(skill.ref, 'build'), session);
-        await sessionsApi.sendMessage(session.id, intent, { eventId: uuidv7() });
+  return (
+    <Button
+      variant="outline"
+      size="xs"
+      className={cn('text-[11.5px]', className)}
+      disabled={create.isPending}
+      onClick={() =>
+        create.mutate(
+          {},
+          {
+            onSuccess: ({ skill }) => {
+              closeSettings();
+              openSkill(skill.ref);
+            },
+            onError: (err) => toast.error(apiErrorText(err)),
+          },
+        )
       }
-      setText('');
-      closeSettings();
-      openSkill(skill.ref);
-    } catch (err) {
-      setError(apiErrorText(err));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-start gap-2 rounded-xl border border-border bg-card/20 py-1 pl-3 pr-1 transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
-        <ScrollText size={14} className="mt-[7px] shrink-0 text-muted-foreground" />
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (matchesHotkey(e.nativeEvent, HOTKEYS.submitCapture) && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              void start('ai');
-            }
-          }}
-          rows={1}
-          autoFocus={autoFocus}
-          aria-label="Describe a new skill"
-          placeholder="New skill: what should it do?"
-          className="field-sizing-content max-h-32 min-h-7 flex-1 resize-none bg-transparent py-1 text-[12.5px] leading-5 text-foreground outline-none placeholder:text-muted-foreground/60"
-        />
-        <Button
-          variant="ghost"
-          size="xs"
-          className="shrink-0 text-[11px] text-muted-foreground"
-          disabled={!!busy}
-          onClick={() => void start('hand')}
-          title="Start a blank skill and write it yourself"
-        >
-          {busy === 'hand' ? <Loader2 size={11} className="animate-spin" /> : <Pencil size={11} />}
-          Write it
-        </Button>
-        <Button size="xs" className="shrink-0 text-[11px]" disabled={!!busy || !intent} onClick={() => void start('ai')}>
-          {busy === 'ai' && <Loader2 size={11} className="animate-spin" />}
-          Draft with AI
-        </Button>
-      </div>
-      {error && (
-        <p className="flex items-start gap-1.5 text-[11px] text-destructive">
-          <AlertCircle size={12} className="mt-px shrink-0" />
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/**
- * New skill, at the right of the Plugins tabs so it's there from either
- * tab: the composer in a popover, starting the skill in Ri. The builder's
- * location menu moves it to global or a project.
- */
-export function NewSkillButton() {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="xs" className="text-[11.5px]">
-          <Plus size={12} />
-          New skill
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(28rem,calc(100vw-2rem))] space-y-2 p-2">
-        <NewSkillComposer autoFocus />
-        <p className="px-1 text-[11px] leading-snug text-muted-foreground">
-          It starts in Ri, where every chat uses it. Move it to global or a project from the builder.
-        </p>
-      </PopoverContent>
-    </Popover>
+    >
+      {create.isPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+      New skill
+    </Button>
   );
 }
 
@@ -193,9 +106,10 @@ interface Group {
   skills: SkillSummary[];
 }
 
-/** Ri first, then global, then each project by name. Empty groups are left out. */
+/** Drafts first (they're waiting on you), then Ri, global, and each project by name. Empty groups are left out. */
 function groupSkills(skills: SkillSummary[]): Group[] {
   const groups: Group[] = [
+    { key: 'draft', ...LOCATION_GROUPS.draft, skills: skills.filter((s) => s.location.kind === 'draft') },
     { key: 'ri', ...LOCATION_GROUPS.ri, skills: skills.filter((s) => s.location.kind === 'ri') },
     { key: 'global', ...LOCATION_GROUPS.global, skills: skills.filter((s) => s.location.kind === 'global') },
   ];

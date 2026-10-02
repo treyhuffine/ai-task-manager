@@ -1,42 +1,42 @@
 'use client';
 
-import { useState } from 'react';
-import { ChevronDown, FolderGit2, Globe, Loader2, ScrollText } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, Copy, FileClock, FolderGit2, Globe, Loader2, ScrollText, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiErrorText } from '@/lib/api/client';
 import type { MoveSkillBody, ProjectInfo, SkillView } from '@/lib/api/skills';
 import { useMoveSkill, useSkills } from '@/hooks/use-skills';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { displayPath, locationLabel } from './location-copy';
+import { WHO_USES, displayPath, locationLabel } from './location-copy';
 
 /**
- * Where a skill lives, which is who uses it: Ri, global, or a project. Moving
- * changes that. Adding to a project copies the skill into that repo, which
- * is how it's shared with the project's team, and leaves this one where it is.
+ * Where a skill is installed, which is who uses it, as one menu. A draft
+ * isn't installed anywhere, so the control is an Install button. Once it's
+ * installed, the control names the place and the same menu moves it
+ * (Ri, global, a project), copies it into a project to share it with that
+ * repo's team, or uninstalls it back to a draft. Installing needs a skill
+ * with nothing flagged as an error, the same rule the server keeps.
  */
 export function SkillLocationControl({ skill }: { skill: SkillView }) {
   const move = useMoveSkill(skill.ref);
+  const { data } = useSkills();
   const { openSkill } = useDashboard();
-  const [picking, setPicking] = useState(false);
-  const here = skill.location.kind;
+  const here = skill.location;
+  const draft = here.kind === 'draft';
+  const currentProject = here.kind === 'project' ? here.workspaceId : null;
+  const projects = (data?.projects ?? []).filter((p) => p.workspaceId !== currentProject);
+  const blocked = skill.hasErrors;
 
   const go = (body: MoveSkillBody, done: string) =>
     move.mutate(body, {
@@ -51,125 +51,212 @@ export function SkillLocationControl({ skill }: { skill: SkillView }) {
       onError: (err) => toast.error(apiErrorText(err)),
     });
 
-  return (
-    <>
+  const install = (to: 'ri' | 'global') =>
+    go({ to }, draft ? `Installed ${skill.name} ${to === 'ri' ? 'in Ri' : 'globally'}` : `${skill.name} is ${to === 'ri' ? 'a Ri skill' : 'global'} now`);
+  const installIn = (project: ProjectInfo) =>
+    go({ to: 'project', workspaceId: project.workspaceId }, `${draft ? 'Installed' : 'Moved'} ${skill.name} in ${project.name}`);
+
+  const trigger = draft ? (
+    <button
+      className="flex h-7 flex-shrink-0 items-center gap-1 rounded-lg bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+      title="A draft. No agent uses it until it's installed."
+    >
+      {move.isPending && <Loader2 size={11} className="animate-spin" />}
+      Install
+      <ChevronDown size={11} strokeWidth={2.5} />
+    </button>
+  ) : (
+    <button
+      className="flex h-7 max-w-48 flex-shrink-0 items-center gap-1 rounded-lg border border-border px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:border-muted-foreground/40 hover:text-foreground"
+      aria-label={`Installed in ${locationLabel(here)}`}
+      title={`Installed in ${locationLabel(here)}: ${displayPath(skill.dir)}`}
+    >
+      {move.isPending ? <Loader2 size={11} className="animate-spin" /> : <PlaceIcon kind={here.kind} />}
+      <span className="truncate">{locationLabel(here)}</span>
+      <ChevronDown size={11} />
+    </button>
+  );
+
+  // Another tool's skill, linked into the global folder: copy it in to change it.
+  if (!skill.editable) {
+    return (
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            className="flex h-7 flex-shrink-0 items-center gap-1 rounded-lg border border-border px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:border-muted-foreground/40 hover:text-foreground"
-            aria-label={`Where this skill lives: ${locationLabel(skill.location)}`}
-            title="Where this skill lives"
-          >
-            {move.isPending && <Loader2 size={11} className="animate-spin" />}
-            {locationLabel(skill.location)}
-            <ChevronDown size={11} />
-          </button>
-        </DropdownMenuTrigger>
+        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-72">
-          <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {skill.editable ? 'Move it' : 'Copy it'}
-          </DropdownMenuLabel>
-          {here !== 'ri' && (
-            <Item
-              icon={<ScrollText size={13} />}
-              label={skill.editable ? 'Move to Ri' : 'Copy into Ri'}
-              detail="Every chat Ri runs uses it."
-              onSelect={() => go({ to: 'ri', copy: !skill.editable }, skill.editable ? `${skill.name} is a Ri skill now` : `Copied ${skill.name} into Ri`)}
-            />
-          )}
-          {here !== 'global' && skill.editable && skill.canWriteGlobal && (
-            <Item
-              icon={<Globe size={13} />}
-              label="Move to global"
-              detail="Every agent on this computer, in Ri and outside it."
-              onSelect={() => go({ to: 'global' }, `${skill.name} is global now`)}
-            />
-          )}
-          <DropdownMenuSeparator />
-          <Item
-            icon={<FolderGit2 size={13} />}
-            label="Add to a project…"
-            detail="Copy it into an agent's repo to share it with the team."
-            onSelect={() => setPicking(true)}
+          <MenuLabel>Copy it</MenuLabel>
+          <PlaceItem kind="ri" label="Copy into Ri" detail={WHO_USES.ri} onSelect={() => go({ to: 'ri', copy: true }, `Copied ${skill.name} into Ri`)} />
+          <ProjectsSub
+            label="Copy to a project"
+            projects={projects}
+            onPick={(p) => go({ to: 'project', workspaceId: p.workspaceId, copy: true }, `Copied ${skill.name} to ${p.name}`)}
           />
         </DropdownMenuContent>
       </DropdownMenu>
-      {picking && (
-        <ProjectPicker
-          skill={skill}
-          onCancel={() => setPicking(false)}
-          onPick={(project) => {
-            setPicking(false);
-            go({ to: 'project', workspaceId: project.workspaceId, copy: true }, `Added ${skill.name} to ${project.name}`);
-          }}
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <MenuLabel>{draft ? 'Install it in' : 'Installed in'}</MenuLabel>
+        {blocked && (
+          <p className="flex items-start gap-1.5 px-2 pb-1.5 text-[10.5px] leading-snug text-amber-600 dark:text-amber-400">
+            <AlertCircle size={12} className="mt-px flex-shrink-0" />
+            Fix what the editor flags first. Agents would load it as it is.
+          </p>
+        )}
+        <PlaceItem kind="ri" label="Ri" detail={WHO_USES.ri} current={here.kind === 'ri'} disabled={blocked} onSelect={() => install('ri')} />
+        {(skill.canWriteGlobal || here.kind === 'global') && (
+          <PlaceItem
+            kind="global"
+            label="Global"
+            detail={WHO_USES.global}
+            current={here.kind === 'global'}
+            disabled={blocked}
+            onSelect={() => install('global')}
+          />
+        )}
+        <ProjectsSub
+          label={here.kind === 'project' ? here.projectName : 'A project'}
+          detail={here.kind === 'project' ? 'Move it to another project' : WHO_USES.project}
+          current={here.kind === 'project'}
+          disabled={blocked}
+          projects={projects}
+          onPick={installIn}
         />
-      )}
-    </>
+        {!draft && (
+          <>
+            <DropdownMenuSeparator />
+            <ProjectsSub
+              icon={<Copy size={13} />}
+              label="Copy to a project"
+              detail="Share it with a repo's team and keep this one."
+              disabled={blocked}
+              projects={projects}
+              onPick={(p) =>
+                go({ to: 'project', workspaceId: p.workspaceId, copy: true }, `Added a copy of ${skill.name} to ${p.name}`)
+              }
+            />
+            <PlaceItem
+              icon={<Undo2 size={13} />}
+              label="Uninstall"
+              detail="Back to a draft. No agent uses it."
+              onSelect={() => go({ to: 'draft' }, `Uninstalled ${skill.name}. It's a draft again.`)}
+            />
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
-function Item({ icon, label, detail, onSelect }: { icon: React.ReactNode; label: string; detail: string; onSelect: () => void }) {
+function PlaceIcon({ kind }: { kind: SkillView['location']['kind'] }) {
+  switch (kind) {
+    case 'draft':
+      return <FileClock size={13} />;
+    case 'ri':
+      return <ScrollText size={13} />;
+    case 'global':
+      return <Globe size={13} />;
+    case 'project':
+      return <FolderGit2 size={13} />;
+  }
+}
+
+function MenuLabel({ children }: { children: React.ReactNode }) {
   return (
-    <DropdownMenuItem onSelect={onSelect} className="items-start gap-2 py-1.5">
-      <span className="mt-0.5 text-muted-foreground">{icon}</span>
-      <span className="flex flex-col gap-0.5">
-        <span className="text-[12px] text-foreground">{label}</span>
-        <span className="text-[10.5px] text-muted-foreground">{detail}</span>
-      </span>
+    <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</DropdownMenuLabel>
+  );
+}
+
+function ItemText({ label, detail }: { label: string; detail?: string }) {
+  return (
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="truncate text-[12px] text-foreground">{label}</span>
+      {detail && <span className="text-[10.5px] text-muted-foreground">{detail}</span>}
+    </span>
+  );
+}
+
+function PlaceItem({
+  kind,
+  icon,
+  label,
+  detail,
+  current = false,
+  disabled = false,
+  onSelect,
+}: {
+  kind?: SkillView['location']['kind'];
+  icon?: React.ReactNode;
+  label: string;
+  detail: string;
+  current?: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <DropdownMenuItem
+      onSelect={(e) => {
+        if (current) return e.preventDefault();
+        onSelect();
+      }}
+      disabled={disabled && !current}
+      aria-current={current || undefined}
+      className="items-start gap-2 py-1.5"
+    >
+      <span className="mt-0.5 text-muted-foreground">{icon ?? (kind && <PlaceIcon kind={kind} />)}</span>
+      <ItemText label={label} detail={detail} />
+      {current && <Check size={13} className="mt-0.5 flex-shrink-0 text-primary" />}
     </DropdownMenuItem>
   );
 }
 
-function ProjectPicker({ skill, onCancel, onPick }: { skill: SkillView; onCancel: () => void; onPick: (project: ProjectInfo) => void }) {
-  const { data, isLoading } = useSkills();
-  const current = skill.location.kind === 'project' ? skill.location.workspaceId : null;
-  const projects = (data?.projects ?? []).filter((p) => p.workspaceId !== current);
-  const [selected, setSelected] = useState<string | null>(null);
-  const project = projects.find((p) => p.workspaceId === selected) ?? null;
-
+/** A submenu of the projects a skill can go in: agents whose folder is on this computer. */
+function ProjectsSub({
+  icon,
+  label,
+  detail,
+  current = false,
+  disabled = false,
+  projects,
+  onPick,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  detail?: string;
+  current?: boolean;
+  disabled?: boolean;
+  projects: ProjectInfo[];
+  onPick: (project: ProjectInfo) => void;
+}) {
   return (
-    <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add {skill.name} to a project</DialogTitle>
-          <DialogDescription>
-            A copy goes in the repo&apos;s .claude/skills. Agents working there use it, and your team gets it once
-            it&apos;s committed. This one stays where it is.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="max-h-72 space-y-0.5 overflow-y-auto">
-          {isLoading ? (
-            <Loader2 size={14} className="mx-auto my-4 animate-spin text-muted-foreground" />
-          ) : projects.length === 0 ? (
-            <p className="py-4 text-center text-[12px] text-muted-foreground">No agent has a folder on this computer yet.</p>
-          ) : (
-            projects.map((p) => (
-              <button
-                key={p.workspaceId}
-                onClick={() => setSelected(p.workspaceId)}
-                className={cn(
-                  'flex w-full flex-col items-start rounded-lg px-2.5 py-1.5 text-left transition-colors',
-                  selected === p.workspaceId ? 'bg-secondary' : 'hover:bg-muted/50',
-                )}
-              >
-                <span className="text-[12.5px] text-foreground">{p.name}</span>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger disabled={disabled} className={cn('items-start gap-2 py-1.5', disabled && 'opacity-50')}>
+        <span className="mt-0.5 text-muted-foreground">{icon ?? <FolderGit2 size={13} />}</span>
+        <ItemText label={label} detail={detail} />
+        {current && <Check size={13} className="mt-0.5 flex-shrink-0 text-primary" />}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="max-h-80 w-64 overflow-y-auto">
+        {projects.length === 0 ? (
+          <DropdownMenuItem disabled className="text-[11px]">
+            {current ? 'No other agent has a folder on this computer.' : 'No agent has a folder on this computer yet.'}
+          </DropdownMenuItem>
+        ) : (
+          projects.map((p) => (
+            <DropdownMenuItem key={p.workspaceId} onSelect={() => onPick(p)} className="items-start py-1.5">
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="truncate text-[12px] text-foreground">{p.name}</span>
                 <span className="truncate font-mono text-[10.5px] text-muted-foreground">
                   {displayPath(p.cwd)}
                   {!p.isGit && ' · not a git repo'}
                 </span>
-              </button>
-            ))
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button disabled={!project} onClick={() => project && onPick(project)}>
-            {project ? `Add to ${project.name}` : 'Add'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+              </span>
+            </DropdownMenuItem>
+          ))
+        )}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }

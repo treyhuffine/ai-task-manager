@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { skillsApi, type MoveSkillBody, type SaveSkillBody, type SkillView } from '@/lib/api/skills';
+import { skillsApi, type CreateSkillBody, type MoveSkillBody, type SaveSkillBody, type SkillView } from '@/lib/api/skills';
 
 export const SKILLS_KEY = ['skills'] as const;
 export const skillKey = (ref: string) => [...SKILLS_KEY, 'one', ref] as const;
@@ -35,6 +35,15 @@ function useSettle() {
     if (skill) qc.setQueryData(skillKey(skill.ref), skill);
     return qc.invalidateQueries({ queryKey: OVERVIEW_KEY });
   };
+}
+
+/** A new skill: a draft unless the body installs it. An empty body may hand back a blank draft. */
+export function useCreateSkill() {
+  const settle = useSettle();
+  return useMutation({
+    mutationFn: (body: CreateSkillBody) => skillsApi.create(body),
+    onSuccess: (result) => settle(result.skill),
+  });
 }
 
 export function useSaveSkill(ref: string) {

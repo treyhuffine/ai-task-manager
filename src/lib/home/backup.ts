@@ -34,7 +34,7 @@ export const BACKUP_MANIFEST = 'manifest.json';
 export const BACKUP_FORMAT_VERSION = 1;
 
 /** Top-level content copied as-is when present. */
-const CONTENT_DIRS = ['attachments', '.archive', 'skills'] as const;
+const CONTENT_DIRS = ['attachments', '.archive', 'skills', 'skill-drafts'] as const;
 const CONTENT_FILES = [
   'CLAUDE.md',
   'AGENTS.md',

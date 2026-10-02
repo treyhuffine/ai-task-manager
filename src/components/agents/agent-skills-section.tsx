@@ -4,14 +4,15 @@ import { Loader2 } from 'lucide-react';
 import { useSkills } from '@/hooks/use-skills';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { openSettings } from '@/components/settings/settings-store';
-import { NewSkillComposer, SkillTile } from '@/components/settings/sections/plugins/skills-catalog';
+import { NewSkillButton, SkillTile } from '@/components/settings/sections/plugins/skills-catalog';
 import type { WorkspaceRecord } from '@/db/types';
 
 /**
  * This agent's own skills: the project skills in its folder
  * (.claude/skills), which its chats and executions use and which the repo
  * shares with anyone who pulls it (docs/skills.md). It also gets every Ri
- * skill and every global skill, said in one line rather than listed.
+ * skill and every global skill, said in one line rather than listed. New
+ * skill starts a draft, which goes in a project when it's installed.
  */
 export function AgentSkillsSection({ workspace }: { workspace: WorkspaceRecord }) {
   const { data, isLoading } = useSkills();
@@ -25,7 +26,10 @@ export function AgentSkillsSection({ workspace }: { workspace: WorkspaceRecord }
   return (
     <section className="space-y-3">
       <div>
-        <h3 className="text-sm font-semibold text-foreground">Skills</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-foreground">Skills</h3>
+          {onThisComputer && <NewSkillButton />}
+        </div>
         <p className="text-[12px] leading-normal text-muted-foreground">
           Skills in this project&apos;s folder. Its chats and executions use them, and anyone who pulls the repo gets
           them once they&apos;re committed. It also uses {shared === 1 ? 'your 1 Ri and global skill' : `your ${shared} Ri and global skills`}
@@ -50,9 +54,7 @@ export function AgentSkillsSection({ workspace }: { workspace: WorkspaceRecord }
               ))}
             </div>
           )}
-          {onThisComputer ? (
-            <NewSkillComposer location={{ location: 'project', workspaceId: workspace.id }} />
-          ) : (
+          {!onThisComputer && (
             <p className="text-[12px] text-muted-foreground/80">
               This agent&apos;s folder isn&apos;t on this computer, so its skills are managed where it lives.
             </p>

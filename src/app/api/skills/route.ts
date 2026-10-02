@@ -8,10 +8,12 @@ export const runtime = 'nodejs';
 /**
  * Skills, wherever they live (docs/skills.md).
  *   GET  → { skills, projects, canWriteGlobal }: Ri's skills, the global
- *          ones, and each project's, plus the projects a skill can go in.
+ *          ones, each project's and the drafts, plus the projects a skill
+ *          can go in.
  *   POST { name?, intent?, description?, body?, location?, workspaceId? } →
- *          a new skill, in Ri unless a location says otherwise. Named from
- *          `intent` when `name` is absent.
+ *          a new skill, a draft unless a location installs it. Named from
+ *          `intent` when `name` is absent. With nothing at all, a blank
+ *          draft nobody has used comes back instead of another.
  */
 export async function GET() {
   try {

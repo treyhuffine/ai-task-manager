@@ -1,7 +1,11 @@
 /**
- * Where a skill lives, which is also who uses it. Three places, the same
- * ones Claude Code, Codex and the rest already use (docs/skills.md):
+ * Where a skill lives, which is also who uses it. Three places a skill is
+ * installed, the same ones Claude Code, Codex and the rest already use, and
+ * one where it's written first (docs/skills.md):
  *
+ *   draft    <app-root>/skill-drafts/<name>. Not installed: no agent
+ *            reads this folder. Every new skill starts here, and the user
+ *            (or the AI helping them) installs it when it's ready.
  *   ri       <app-root>/skills/<name>. Every chat Ri runs gets it
  *            (src/lib/executor/skills.ts attaches it).
  *   global   ~/.claude/skills/<name>, linked into ~/.agents/skills. Every
@@ -16,7 +20,7 @@
  * `.agents/skills` (or in a project's older `.ri/skills`) is found and edited
  * where it is.
  *
- * A skill is named by a ref: `ri:<name>`, `global:<name>` or
+ * A skill is named by a ref: `draft:<name>`, `ri:<name>`, `global:<name>` or
  * `project:<workspaceId>:<name>`. A bare name means `ri:<name>`.
  */
 
@@ -29,11 +33,23 @@ import { shippedSkillNames } from '@/lib/agent-skills/shipped';
 import { SKILL_FILE } from './format';
 import { SkillError, assertSafeFolderName, isSafeFolderName } from './library';
 
-export type SkillLocation = { kind: 'ri' } | { kind: 'global' } | { kind: 'project'; workspaceId: string };
+export type SkillLocation =
+  | { kind: 'draft' }
+  | { kind: 'ri' }
+  | { kind: 'global' }
+  | { kind: 'project'; workspaceId: string };
 export type SkillLocationKind = SkillLocation['kind'];
 
+export const DRAFT: SkillLocation = { kind: 'draft' };
 export const RI: SkillLocation = { kind: 'ri' };
 export const GLOBAL: SkillLocation = { kind: 'global' };
+
+/** Whether agents use a skill there: everywhere but drafts. */
+export function isInstalled(location: SkillLocation): boolean {
+  return location.kind !== 'draft';
+}
+
+const SINGLE_KINDS: Record<string, SkillLocation> = { draft: DRAFT, ri: RI, global: GLOBAL };
 
 export function skillRef(location: SkillLocation, name: string): string {
   return location.kind === 'project' ? `project:${location.workspaceId}:${name}` : `${location.kind}:${name}`;
@@ -42,8 +58,8 @@ export function skillRef(location: SkillLocation, name: string): string {
 export function parseSkillRef(ref: string): { location: SkillLocation; name: string } | null {
   const parts = ref.split(':');
   if (parts.length === 1) return isSafeFolderName(parts[0]) ? { location: RI, name: parts[0] } : null;
-  if ((parts[0] === 'ri' || parts[0] === 'global') && parts.length === 2 && isSafeFolderName(parts[1])) {
-    return { location: parts[0] === 'ri' ? RI : GLOBAL, name: parts[1] };
+  if (Object.hasOwn(SINGLE_KINDS, parts[0]) && parts.length === 2 && isSafeFolderName(parts[1])) {
+    return { location: SINGLE_KINDS[parts[0]], name: parts[1] };
   }
   if (parts[0] === 'project' && parts.length === 3 && parts[1] && isSafeFolderName(parts[2])) {
     return { location: { kind: 'project', workspaceId: parts[1] }, name: parts[2] };
@@ -58,6 +74,11 @@ export function sameLocation(a: SkillLocation, b: SkillLocation): boolean {
 /** `<app-root>/skills`. */
 export function riSkillsDir(): string {
   return path.join(getAppRoot(), 'skills');
+}
+
+/** `<app-root>/skill-drafts`, which no harness reads. */
+export function skillDraftsDir(): string {
+  return path.join(getAppRoot(), 'skill-drafts');
 }
 
 /**
@@ -108,6 +129,8 @@ interface Channels {
 
 function channelsOf(location: SkillLocation): Channels {
   switch (location.kind) {
+    case 'draft':
+      return { primary: skillDraftsDir(), mirror: null, legacy: [] };
     case 'ri':
       return { primary: riSkillsDir(), mirror: null, legacy: [] };
     case 'global': {
@@ -185,8 +208,8 @@ export function listSkillsAt(location: SkillLocation): LocatedSkill[] {
         if (!target || ours.has(path.dirname(target))) continue;
         // Only the global folder holds links worth showing: other tools
         // install skills there that way. Ri's own shipped skills and old
-        // links into Ri's skills aren't separate skills. In a project or
-        // Ri's folder, an outside link is left over from a session.
+        // links into Ri's skills aren't separate skills. In a project, Ri's
+        // folder or the drafts, an outside link is left over from a session.
         if (location.kind !== 'global' || shipped?.has(entry.name)) continue;
         if (path.dirname(target) === path.resolve(riSkillsDir())) continue;
         linkedFrom = target;
@@ -201,12 +224,13 @@ export function listSkillsAt(location: SkillLocation): LocatedSkill[] {
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Every skill Ri can see: its own, the global ones, and each project's. */
+/** Every skill Ri can see: its own, the global ones, each project's, and the drafts. */
 export function listAllSkills(): LocatedSkill[] {
   return [
     ...listSkillsAt(RI),
     ...listSkillsAt(GLOBAL),
     ...listProjects().flatMap((project) => listSkillsAt({ kind: 'project', workspaceId: project.workspaceId })),
+    ...listSkillsAt(DRAFT),
   ];
 }
 

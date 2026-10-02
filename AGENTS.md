@@ -73,8 +73,8 @@ One generic attachment system across the whole app:
 
 ## Skills
 
-- A skill lives in one of three places, and where it lives is who uses it: Ri's own (`<app-root>/skills`, every chat Ri runs), global (`~/.claude/skills` linked into `~/.agents/skills`, every agent on the computer), or a project (`<agent folder>/.claude/skills` linked into `.agents/skills`, shared by committing it). Built and managed from Plugins (the skill builder).
-- Go through `src/lib/skills/manage.ts` for every change: it keeps the folder, its `.agents/skills` link and the skill's builder and try chats (keyed by ref, `ri:<name>` / `global:<name>` / `project:<workspaceId>:<name>`) in step. Never write skill folders directly from app code. Full model: `docs/skills.md`.
+- Every new skill is a draft (`<app-root>/skill-drafts`, read by no harness) until it's installed. Installed, it lives in one of three places, and where it lives is who uses it: Ri's own (`<app-root>/skills`, every chat Ri runs), global (`~/.claude/skills` linked into `~/.agents/skills`, every agent on the computer), or a project (`<agent folder>/.claude/skills` linked into `.agents/skills`, shared by committing it). Built and managed from Plugins (the skill builder). Installing needs no errors in SKILL.md.
+- Go through `src/lib/skills/manage.ts` for every change: it keeps the folder, its `.agents/skills` link and the skill's builder and try chats (keyed by ref, `draft:<name>` / `ri:<name>` / `global:<name>` / `project:<workspaceId>:<name>`) in step. Installing, moving and uninstalling are all `moveSkill`. Never write skill folders directly from app code. Full model: `docs/skills.md`.
 
 ## Client data layer (TanStack Query)
 

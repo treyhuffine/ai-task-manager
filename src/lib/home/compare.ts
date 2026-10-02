@@ -96,6 +96,7 @@ export interface HomeComparison {
   attachments: FileComparison;
   persona: FileComparison;
   skills: FileComparison;
+  skillDrafts: FileComparison;
 }
 
 export interface HomeSide {
@@ -303,6 +304,7 @@ export function compareHomes(rootA: string, rootB: string): HomeComparison {
         attachments: compareFiles(path.join(rootA, 'attachments'), path.join(rootB, 'attachments')),
         persona: compareFiles(rootA, rootB, PERSONA_FILES),
         skills: compareFiles(path.join(rootA, 'skills'), path.join(rootB, 'skills')),
+        skillDrafts: compareFiles(path.join(rootA, 'skill-drafts'), path.join(rootB, 'skill-drafts')),
       };
     }),
   );
@@ -344,7 +346,12 @@ export function describeComparison(c: HomeComparison, opts: { names?: { a: strin
   const files = (label: string, f: FileComparison) =>
     `${label}: same ${f.same}, only in ${A} ${f.onlyInA.length}, only in ${B} ${f.onlyInB.length}, different ${f.differ.length}` +
     (f.differ.length && f.differ.length <= 10 ? ` (${f.differ.join(', ')})` : '');
-  lines.push(files('Attachments', c.attachments), files('Persona and memory', c.persona), files('Skills', c.skills));
+  lines.push(
+    files('Attachments', c.attachments),
+    files('Persona and memory', c.persona),
+    files('Skills', c.skills),
+    files('Skill drafts', c.skillDrafts),
+  );
 
   for (const k of c.kinds) {
     const brought = k.onlyInB.filter((r) => !k.onlyInBLikeA.some((l) => l.b.id === r.id));

@@ -3048,10 +3048,10 @@ const list_workspace_setups_action = defineAction({
 const list_skills_action = defineAction({
   name: 'list_skills',
   description:
-    'Return every skill and where it lives: "ri" (every chat Ri runs uses it), "global" (~/.claude/skills: ' +
-    'every agent on this computer, in Ri and outside it), or "project" (an agent\'s folder, shared through ' +
-    'its repo). Each has a `ref` for get_skill, save_skill and move_skill. With `workspaceCwd`, only the ' +
-    'skills a chat in that folder gets.',
+    'Return every skill and where it lives: "draft" (written, not installed: no agent uses it yet), "ri" ' +
+    '(every chat Ri runs uses it), "global" (~/.claude/skills: every agent on this computer, in Ri and outside ' +
+    'it), or "project" (an agent\'s folder, shared through its repo). Each has a `ref` for get_skill, ' +
+    'save_skill and move_skill. With `workspaceCwd`, only the skills a chat in that folder gets.',
   params: {
     workspaceCwd: z.string().nullable().optional(),
   },
@@ -3071,6 +3071,7 @@ const list_skills_action = defineAction({
     const folder = path.resolve(workspaceCwd);
     return shaped.filter((skill, i) => {
       const location = skills[i].location;
+      if (location.kind === 'draft') return false;
       return location.kind !== 'project' || path.resolve(location.cwd) === folder;
     });
   },
@@ -3138,20 +3139,14 @@ const get_skill_action = defineAction({
 const create_skill_action = defineAction({
   name: 'create_skill',
   description:
-    'Create a skill. It lives in Ri (every chat Ri runs uses it) unless `location` says "global" or "project" ' +
-    '(with `workspaceId`), which only the app or the local CLI can choose. Give a `name` ' +
-    '(lowercase-with-hyphens, the slash command) or an `intent` to name it from, plus an optional first ' +
-    '`description` and `body`. Retrying with the same content returns the same skill.',
+    'Create a skill. It starts as a draft, which no agent uses until it\'s installed (move_skill), unless ' +
+    '`location` installs it right away in "ri", "global" or "project" (with `workspaceId`). Install only when ' +
+    'the user asks. Give a `name` (lowercase-with-hyphens, the slash command) or an `intent` to name it from, ' +
+    'plus an optional first `description` and `body`. Retrying with the same content returns the same skill.',
   params: createSkillShape,
   mutating: true,
   handler: async (ctx, { location, workspaceId, ...input }) => {
-    if (location && location !== 'ri' && ctx.remote !== false) {
-      throw new ActionError(
-        'invalid_params',
-        'Only the app or the local CLI can put a new skill outside Ri (global, or in a project).',
-        'Create it in Ri, and the user can move it from the skill builder.',
-      );
-    }
+    if (location && location !== 'draft') assertCallerOnHome(ctx, 'Installing a skill');
     try {
       const where = locationFrom(location, workspaceId);
       const name = input.name?.trim();
@@ -3203,27 +3198,33 @@ const save_skill_action = defineAction({
 const move_skill_action = defineAction({
   name: 'move_skill',
   description:
-    'Move a skill (by `ref`) to where it lives: "ri", "global" (every agent on this computer), or "project" ' +
-    '(with `workspaceId`: committed with that repo, so its team gets it). `copy` keeps the original, which is ' +
-    'how a skill is shared with a project. Writing outside Ri is the user\'s call, so only the app or the local ' +
-    'CLI can move or copy a skill.',
+    'Install a draft skill (by `ref`), or move an installed one: `to` "ri" (every chat Ri runs uses it), ' +
+    '"global" (every agent on this computer), or "project" (with `workspaceId`: committed with that repo, so ' +
+    'its team gets it). `to: "draft"` uninstalls it. `copy` keeps the original, which is how a skill is ' +
+    'shared with a project. Install or move only when the user asks or agrees. A skill with errors can\'t be ' +
+    'installed. Returns the skill at its new `ref`.',
   params: { ref: z.string().min(1), ...moveSkillShape },
   mutating: true,
   cli: { positional: ['ref', 'to'] },
   handler: async (ctx, { ref, to, workspaceId, copy }) => {
-    if (ctx.remote !== false) {
-      throw new ActionError(
-        'invalid_params',
-        'Moving or copying a skill can only be done from the app or the local CLI, not over MCP.',
-        'Ask the user to move it from the skill builder.',
-      );
-    }
+    // Machine paths and live files belong to the home (docs/homes-spec.md §4.1).
+    assertCallerOnHome(ctx, 'Installing or moving a skill');
     try {
       return await serverFetch(`/skills/${encodeURIComponent(ref)}/move`, {
         method: 'POST',
         body: JSON.stringify({ to, workspaceId, copy }),
       });
     } catch (err) {
+      // A retried move finds the skill gone from here and already there.
+      const parsed = parseSkillRef(ref);
+      if (err instanceof ServerResponseError && err.status === 404 && parsed && !copy) {
+        try {
+          const moved = await getSkillView(skillRef(locationFrom(to, workspaceId), parsed.name));
+          if (moved) return { skill: moved };
+        } catch {
+          // Fall through to the original error.
+        }
+      }
       return skillActionError(err);
     }
   },

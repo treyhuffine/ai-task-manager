@@ -21,6 +21,8 @@ import { parseSkillRef, projectFor } from './locations';
 function whereItLives(ref: string): string {
   const parsed = parseSkillRef(ref);
   switch (parsed?.location.kind) {
+    case 'draft':
+      return 'It is a draft: written here but not installed, so no agent uses it yet.';
     case 'global':
       return 'It is a global skill (~/.claude/skills), so every agent on this computer uses it, in ' + APP_NAME + ' and outside it.';
     case 'project': {
@@ -59,8 +61,24 @@ unless they clearly say otherwise.
 - After each change, say in a line or two what changed. When the skill is
   ready to test, suggest one realistic message the user could send in the
   Try it tab, phrased the way they'd actually ask.
-- Don't follow the skill yourself. You're writing it. Where it lives (${APP_NAME},
-  global, or a project) is the user's call, made from the editor.
+- Don't follow the skill yourself. You're writing it.
+
+## Installing it
+
+A draft does nothing until it's installed. The user installs it from the
+editor's Install button, or asks you to. Install it with \`move_skill\` (ref
+"${ref}") and \`to\`:
+
+- "ri": every chat ${APP_NAME} runs uses it.
+- "global": every agent on this computer, in ${APP_NAME} and outside it.
+- "project" with \`workspaceId\`: agents working in that agent's folder, and
+  the repo's team once it's committed. \`list_skills\` shows the projects.
+
+Only install when the user asks or agrees, and ask where if they haven't
+said. When a draft looks ready, say so and ask where it should go. Moving an
+installed skill works the same way, and \`to: "draft"\` uninstalls it.
+Installing is refused while the skill has errors, so fix those first. The
+move returns the skill's new ref: use it in your calls after that.
 
 ## What a good skill is
 
@@ -78,9 +96,10 @@ ${DESCRIPTION_MAX} characters.
 
 **The name** is lowercase letters, numbers and single hyphens, at most
 ${NAME_MAX} characters, like \`review-pull-requests\`. It's also the slash
-command. A new skill's first name comes from the first words the user typed,
-so while you write its first draft, give it a clear name of two or three words
-with \`save_skill\`'s \`newName\` if it doesn't have one, and say so in a line.
+command. A skill started from the New skill button is called \`new-skill\` (or
+\`new-skill-2\`) until it's named, so while you write its first draft, give it
+a clear name of two or three words with \`save_skill\`'s \`newName\`, and say
+so in a line.
 The save returns the skill's new ref: use it in your calls after that. Once
 the skill is in use, ask before renaming it, since people may already use the
 slash command.

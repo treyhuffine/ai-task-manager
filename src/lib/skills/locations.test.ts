@@ -6,9 +6,11 @@ import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import * as q from '@/lib/db/queries';
 import { AGENT_BROWSER_SKILL_NAME } from '@/constants/app';
 import {
+  DRAFT,
   GLOBAL,
   RI,
   findSkill,
+  isInstalled,
   linkMirror,
   listAllSkills,
   listSkillsAt,
@@ -52,14 +54,14 @@ const agents = () => path.join(userHome, '.agents', 'skills');
 
 describe('refs', () => {
   it('round-trips every location, and reads a bare name as Ri', () => {
-    for (const location of [RI, GLOBAL, { kind: 'project' as const, workspaceId: 'ws-1' }]) {
+    for (const location of [DRAFT, RI, GLOBAL, { kind: 'project' as const, workspaceId: 'ws-1' }]) {
       expect(parseSkillRef(skillRef(location, 'review'))).toEqual({ location, name: 'review' });
     }
     expect(parseSkillRef('review')).toEqual({ location: RI, name: 'review' });
   });
 
   it('rejects refs that could name a path', () => {
-    for (const bad of ['ri:../x', 'global:.hidden', 'project::x', 'project:ws', 'other:x', 'a/b', 'ri:a:b']) {
+    for (const bad of ['ri:../x', 'global:.hidden', 'draft:../x', 'draft:a:b', 'project::x', 'project:ws', 'other:x', 'a/b', 'ri:a:b']) {
       expect(parseSkillRef(bad)).toBeNull();
     }
   });
@@ -108,7 +110,9 @@ describe('listing', () => {
     skillIn(path.join(home.root, 'skills'), 'a');
     skillIn(claude(), 'b');
     skillIn(path.join(project, '.claude', 'skills'), 'c');
-    expect(listAllSkills().map((s) => s.ref)).toEqual(['ri:a', 'global:b', `project:${wsId}:c`]);
+    skillIn(path.join(home.root, 'skill-drafts'), 'd');
+    expect(listAllSkills().map((s) => s.ref)).toEqual(['ri:a', 'global:b', `project:${wsId}:c`, 'draft:d']);
+    expect(findSkill('draft:d')?.dir).toBe(path.join(home.root, 'skill-drafts', 'd'));
     expect(findSkill(`project:${wsId}:c`)?.dir).toBe(path.join(project, '.claude', 'skills', 'c'));
     expect(findSkill('ri:missing')).toBeNull();
     expect(findSkill('project:no-such-agent:c')).toBeNull();
@@ -147,6 +151,16 @@ describe('writing places', () => {
     skillIn(claude(), 'theirs');
     linkMirror(GLOBAL, path.join(claude(), 'theirs'));
     expect(fs.lstatSync(path.join(agents(), 'theirs')).isSymbolicLink()).toBe(false);
+  });
+
+  it('writes drafts to <app-root>/skill-drafts, with no link for any harness to find', () => {
+    const dir = newSkillDir(DRAFT, 'idea');
+    expect(dir).toBe(path.join(home.root, 'skill-drafts', 'idea'));
+    skillIn(path.dirname(dir), 'idea');
+    linkMirror(DRAFT, dir);
+    expect(fs.readdirSync(path.join(home.root, 'skill-drafts'))).toEqual(['idea']);
+    expect(isInstalled(DRAFT)).toBe(false);
+    expect([RI, GLOBAL, { kind: 'project' as const, workspaceId: wsId }].every(isInstalled)).toBe(true);
   });
 
   it('keeps global skills out of the desktop app', () => {

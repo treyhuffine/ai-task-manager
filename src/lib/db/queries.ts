@@ -10163,6 +10163,26 @@ export function renameSkillChats(fromRefs: readonly string[], toRef: string): vo
     .run();
 }
 
+/**
+ * Whether anything was said in a skill's builder or try chats, archived ones
+ * included. A blank draft nobody has talked about is safe to hand out again
+ * as the next new skill.
+ */
+export function skillHasChatHistory(ref: string): boolean {
+  const row = getDb()
+    .select({ id: chatEvents.id })
+    .from(chatEvents)
+    .innerJoin(chatSessions, eq(chatEvents.sessionId, chatSessions.id))
+    .where(and(
+      eq(chatSessions.type, 'content'),
+      inArray(chatSessions.surfaceKind, [...SKILL_SURFACE_KINDS]),
+      eq(chatSessions.surfaceRef, ref),
+    ))
+    .limit(1)
+    .get();
+  return row !== undefined;
+}
+
 /** Active builder and try chats for a skill, newest first. */
 export function listSkillChats(ref: string): ChatSessionRecord[] {
   return getDb()
