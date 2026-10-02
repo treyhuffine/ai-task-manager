@@ -267,10 +267,12 @@ Tightening (removing) must apply now; the harness caches tool lists otherwise.
     the `@sm` container size up (the picker root is an `@container`).
   - Open, it lists "All accounts" (subtitle "Includes accounts you connect later"), a separator,
     then one checkbox per connected account. The menu stays open while toggling.
-  - "All accounts" checked shows every account checked. Unchecking one account from there keeps
-    all the others as an explicit set. Unchecking "All accounts" keeps every current account as an
-    explicit set. Checking "All accounts" clears the pins. In an explicit set a footnote says
-    accounts connected later stay off until added.
+  - "All accounts" and the individual accounts are exclusive. With "All accounts" checked (the
+    default), no account shows a check. Checking an account from there narrows the service to just
+    that account and clears "All accounts". Checking "All accounts" clears the pins. Clicking
+    "All accounts" while it is already checked does nothing (like a radio), because turning it off
+    would leave no accounts. In an explicit set a footnote says accounts connected later stay off
+    until added.
   - The last remaining account can't be unchecked (disabled). To remove the service, uncheck it.
   - Pinned accounts that are no longer connected appear under "Not connected (kept, inactive)",
     checked, and unchecking one removes it.

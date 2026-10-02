@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ConnectorLogo } from '@/components/connectors/connector-logo';
-import { pinKey, pinMatchesConnection, pinOfConnection, scopePins } from '@/lib/connectors/scope-pins';
+import { pinKey, pinMatchesConnection, scopePins, toggleAccountPin } from '@/lib/connectors/scope-pins';
 import type { WorkspaceConnectorScope, WorkspaceConnectorScopeAccount } from '@/db/types';
 
 interface Toolkit {
@@ -67,14 +67,16 @@ interface AccountMultiSelectProps {
 
 /**
  * Which accounts one service may use. "All accounts" (no pins) also covers accounts connected
- * later. Checking accounts individually stores exactly that set, so picking every account one by
- * one is NOT the same as "All accounts": a newly connected account stays off. The set can't be
- * emptied (unchecking the service is how to remove it), and a pinned account that is no longer
- * connected is listed so the stored intent stays visible and removable.
+ * later, and it is exclusive with the individual accounts: while it is on, no account shows a
+ * check, and checking an account switches to just that account. Checking accounts individually
+ * stores exactly that set, so picking every account one by one is NOT the same as "All accounts":
+ * a newly connected account stays off. The set can't be emptied (unchecking the service is how to
+ * remove it), and a pinned account that is no longer connected is listed so the stored intent
+ * stays visible and removable.
  */
 function AccountMultiSelect({ serviceName, accounts, pins, disabled, onChange }: AccountMultiSelectProps) {
   const all = pins.length === 0;
-  const selected = all ? accounts : accounts.filter((c) => isPinned(c, pins));
+  const selected = accounts.filter((c) => isPinned(c, pins));
   const dormant = pins.filter((p) => !accounts.some((c) => pinMatchesConnection(p, c)));
   const lastOne = !all && pins.length === 1;
 
@@ -87,12 +89,13 @@ function AccountMultiSelect({ serviceName, accounts, pins, disabled, onChange }:
         : `${selected.length} of ${accounts.length} accounts`;
   const dormantNote = dormant.length === 1 ? '1 chosen account is not connected' : `${dormant.length} chosen accounts are not connected`;
 
-  const toggleAll = () => onChange(all ? accounts.map(pinOfConnection) : []);
-  const toggleAccount = (c: Connection) => {
-    // From "All accounts", unchecking one keeps every other account (an explicit set).
-    if (all) return onChange(accounts.filter((a) => a.id !== c.id).map(pinOfConnection));
-    onChange(isPinned(c, pins) ? pins.filter((p) => !pinMatchesConnection(p, c)) : [...pins, pinOfConnection(c)]);
+  // "All accounts" works like a radio: checking it clears the pins, and clicking it while on does
+  // nothing, since turning it off would leave no accounts. Picking an account is how to leave it.
+  const selectAll = () => {
+    if (!all) onChange([]);
   };
+  // From "All accounts", checking one account narrows the service to just that account.
+  const toggleAccount = (c: Connection) => onChange(toggleAccountPin(pins, c));
   const removePin = (pin: WorkspaceConnectorScopeAccount) => onChange(pins.filter((p) => pinKey(p) !== pinKey(pin)));
   // Keep the menu open so several accounts can be toggled in one go.
   const stayOpen = (e: Event) => e.preventDefault();
@@ -110,7 +113,7 @@ function AccountMultiSelect({ serviceName, accounts, pins, disabled, onChange }:
         <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-2rem)]">
-        <DropdownMenuCheckboxItem checked={all} onCheckedChange={toggleAll} onSelect={stayOpen} className="items-start text-xs">
+        <DropdownMenuCheckboxItem checked={all} onCheckedChange={selectAll} onSelect={stayOpen} className="items-start text-xs">
           <span className="min-w-0">
             <span className="block font-medium">All accounts</span>
             <span className="block text-[10px] text-muted-foreground">Includes accounts you connect later</span>
@@ -118,7 +121,8 @@ function AccountMultiSelect({ serviceName, accounts, pins, disabled, onChange }:
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
         {accounts.map((c) => {
-          const checked = all || isPinned(c, pins);
+          // No pins is "All accounts", which checks no individual account.
+          const checked = isPinned(c, pins);
           return (
             <DropdownMenuCheckboxItem
               key={c.id}

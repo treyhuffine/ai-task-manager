@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeConnectorScopes, pinMatchesConnection, scopePins } from './scope-pins';
+import { normalizeConnectorScopes, pinMatchesConnection, scopePins, toggleAccountPin } from './scope-pins';
 import type { WorkspaceConnectorScope } from '@/db/types';
 
 describe('scopePins', () => {
@@ -26,6 +26,39 @@ describe('pinMatchesConnection', () => {
     expect(pinMatchesConnection({ accountId: 'a' }, { accountId: 'a', authConfigId: 'cfg' })).toBe(false);
     expect(pinMatchesConnection({ accountId: 'a', authConfigId: 'cfg' }, { accountId: 'a', authConfigId: 'cfg' })).toBe(true);
     expect(pinMatchesConnection({ accountId: 'a' }, { accountId: 'b' })).toBe(false);
+  });
+});
+
+describe('toggleAccountPin (the picker\'s account toggle)', () => {
+  const work = { accountId: 'work', authConfigId: null };
+  const home = { accountId: 'home', authConfigId: null };
+  const workByo = { accountId: 'work', authConfigId: 'cfg' };
+
+  it('from "All accounts", checking one account narrows to just that account', () => {
+    expect(toggleAccountPin([], work)).toEqual([{ accountId: 'work' }]);
+    expect(toggleAccountPin([], workByo)).toEqual([{ accountId: 'work', authConfigId: 'cfg' }]);
+  });
+
+  it('adds an unchecked account to an explicit set, keeping order', () => {
+    expect(toggleAccountPin([{ accountId: 'work' }], home)).toEqual([{ accountId: 'work' }, { accountId: 'home' }]);
+  });
+
+  it('removes a checked account from an explicit set', () => {
+    expect(toggleAccountPin([{ accountId: 'work' }, { accountId: 'home' }], work)).toEqual([{ accountId: 'home' }]);
+  });
+
+  it('never empties the set, since no pins would widen to every account', () => {
+    const pins = [{ accountId: 'work' }];
+    expect(toggleAccountPin(pins, work)).toBe(pins);
+  });
+
+  it('treats the same account through another OAuth client as a different account', () => {
+    expect(toggleAccountPin([{ accountId: 'work' }], workByo)).toEqual([{ accountId: 'work' }, { accountId: 'work', authConfigId: 'cfg' }]);
+    expect(toggleAccountPin([{ accountId: 'work' }, { accountId: 'work', authConfigId: 'cfg' }], workByo)).toEqual([{ accountId: 'work' }]);
+  });
+
+  it('leaves a pinned account that is no longer connected alone', () => {
+    expect(toggleAccountPin([{ accountId: 'gone' }, { accountId: 'work' }], work)).toEqual([{ accountId: 'gone' }]);
   });
 });
 
