@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-03T03:45:24.557Z",
+  "browser": "151.0.7922.173",
+  "executablePath": "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+  "checks": [
+    {
+      "name": "Ri host-only session cookies do not reach either evaluation hostname"
+    },
+    {
+      "name": "Discovery opens both connections without executing a tool"
+    },
+    {
+      "name": "Scenario sliders, comparison and reset work without additional tool calls",
+      "details": "$67.2K End MRR"
+    },
+    {
+      "name": "Reference double iframe, CSP and cross-origin DOM restriction are active"
+    },
+    {
+      "name": "Excalidraw text editing, app-only checkpoint call, context and return preserve the same result"
+    },
+    {
+      "name": "Reload and legacy call=true URLs never replay a tool",
+      "details": "{\"diagram\":1,\"scenario\":1}"
+    },
+    {
+      "name": "A real server tool error is visible"
+    },
+    {
+      "name": "Malformed UI resources fail locally with the tool result still visible"
+    },
+    {
+      "name": "Example buttons and Scenario Modeler remain usable at 390px width"
+    },
+    {
+      "name": "Expiry ends the view and does not execute a tool again"
+    },
+    {
+      "name": "No uncaught browser errors"
+    }
+  ],
+  "calls": {
+    "get-scenario-data": 3,
+    "create_view": 3,
+    "save_checkpoint": 1
+  }
+}

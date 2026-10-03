@@ -1,0 +1,10 @@
+{
+  "extApps": {
+    "url": "https://github.com/modelcontextprotocol/ext-apps.git",
+    "revision": "82221c0c8ce7661efa6771c9d461511b1650495f"
+  },
+  "excalidraw": {
+    "url": "https://github.com/excalidraw/excalidraw-mcp.git",
+    "revision": "157aa23ceb1976008aadc89eb05e3444060f09d6"
+  }
+}
