@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { TaskList } from './task-list';
 import { TaskKanban } from './task-kanban';
-import { TASK_VIEW_KEY, type TaskView } from './task-view';
+import { TASK_VIEW_KEY, TaskViewToggle, type TaskView } from './task-view';
 
 /**
  * The task surface: List and Kanban are two views over the same records and the
@@ -34,5 +34,5 @@ export function TaskSurface() {
 
   return view === 'list'
     ? <TaskList view={view} onViewChange={set} />
-    : <TaskKanban view={view} onViewChange={set} />;
+    : <TaskKanban leading={<TaskViewToggle value={view} onChange={set} />} />;
 }

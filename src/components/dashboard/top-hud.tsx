@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from 'react';
-import { Search, Inbox, Zap, X, Settings } from 'lucide-react';
+import { Search, Inbox, Zap, X, Settings, SquareKanban } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useLatestExecutionId } from '@/hooks/use-latest-execution';
+import { openTaskBoard } from '@/lib/client/task-board';
 import { HOTKEYS } from '@/constants/commands';
 import { InboxComingSoonSheet } from '@/components/shared/inbox-coming-soon-sheet';
 import { openSettings } from '@/components/settings/settings-store';
@@ -49,6 +50,16 @@ export function TopHud() {
       )}
 
       <RailStatusPills />
+
+      <button
+        onClick={openTaskBoard}
+        className="flex items-center gap-1.5 h-7 px-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+        aria-label="Open board"
+        title="Open board"
+      >
+        <SquareKanban size={14} />
+        <span className="text-[11px] font-medium">Board</span>
+      </button>
 
       {closeLabel ? (
         <button

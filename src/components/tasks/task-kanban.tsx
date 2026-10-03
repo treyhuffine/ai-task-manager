@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -16,9 +16,9 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { toast } from 'sonner';
-import { Filter, Plus } from 'lucide-react';
+import { Bot, Filter, Plus } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useTasks, useCreateTask } from '@/hooks/use-tasks';
+import { useTasks, useCreateTask, useTaskAttention } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { useAreas } from '@/hooks/use-areas';
 import { tasksApi } from '@/lib/api/tasks';
@@ -33,20 +33,25 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { KANBAN_COLUMNS, LANE_BY_KEY, laneStatus, columnDropCommand, laneForStatus, type TaskLane } from '@/lib/tasks/lanes';
 import { STATUS_COLOR } from './lifecycle-status-control';
+import { TaskBadges } from './task-badges';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
-import type { TaskStatus } from '@/db/types';
+import type { TaskAttentionSignals, TaskStatus } from '@/db/types';
 import {
   ListToolbar,
   ToolbarActiveDot,
   ToolbarToggle,
   toolbarButtonClass,
 } from '@/components/shared/list-toolbar';
-import { TaskViewToggle, type TaskView } from './task-view';
 import { cn } from '@/lib/utils';
 
 /** Columns that accept new tasks. Done/Archived are reached by moving a task,
  *  never created directly. */
 const CREATABLE_LANES: readonly TaskLane[] = ['consider', 'todo', 'current'];
+
+/** How often the board looks for changes made elsewhere: an agent moving a
+ * task in the middle of a long turn, the CLI, another device. Turn starts and
+ * ends refresh it sooner (src/lib/query/invalidate-tasks.ts). */
+const BOARD_POLL_MS = 15_000;
 
 type AreaMode = 'all' | 'none' | string; // 'all', 'none', or an area id
 
@@ -55,19 +60,27 @@ function KanbanCard({
   task,
   areaName,
   parentTitle,
+  signals,
   onOpen,
+  onOpenAgent,
   showArea,
 }: {
   task: TaskListDTO;
   areaName?: string | null;
   parentTitle?: string | null;
+  /** Live agent state, for In progress cards (see getTaskAttentionSignals). */
+  signals?: TaskAttentionSignals | null;
   onOpen: (id: string) => void;
+  onOpenAgent: (sessionId: string) => void;
   showArea: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     data: { status: task.status, lane: laneForStatus(task.status) },
   });
+  const agentSessionId = signals?.agentSessionId ?? null;
+  const showAgentRow =
+    !!signals && (signals.blocked || signals.stalled || signals.review || signals.working || !!agentSessionId);
   return (
     <div
       ref={setNodeRef}
@@ -75,6 +88,8 @@ function KanbanCard({
       className={cn(
         'group rounded-md border border-border bg-card p-2 text-xs shadow-sm',
         'hover:border-primary/40 cursor-grab active:cursor-grabbing',
+        // An agent running a turn on it right now: findable at a glance.
+        signals?.working && 'border-emerald-500/50 hover:border-emerald-500/70',
         isDragging && 'opacity-40',
       )}
       {...attributes}
@@ -82,7 +97,7 @@ function KanbanCard({
       onClick={() => onOpen(task.id)}
       role="button"
       tabIndex={0}
-      aria-label={`${task.title}. ${task.status}. Press space to pick up and reorder or move between columns.`}
+      aria-label={`${task.title}. ${task.status}.${signals?.working ? ' An agent is working on it.' : ''} Press space to pick up and reorder or move between columns.`}
     >
       {parentTitle && (
         <div className="mb-0.5 truncate text-[10px] text-muted-foreground">{parentTitle} /</div>
@@ -99,6 +114,30 @@ function KanbanCard({
           <span className="text-[10px] text-muted-foreground">{task.subtaskCount} sub</span>
         )}
       </div>
+      {showAgentRow && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <TaskBadges signals={signals} size="xs" />
+          {agentSessionId && (
+            // Straight to the agent's chat. Its own click, press and keys, so
+            // it neither opens the task nor picks the card up.
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenAgent(agentSessionId);
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+              className="ml-auto inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title="Open the agent's execution"
+              aria-label="Open the agent's execution"
+            >
+              <Bot size={11} aria-hidden />
+              Open
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -166,7 +205,9 @@ function KanbanColumn({
   tasks,
   areaName,
   parentTitleFor,
+  attention,
   onOpen,
+  onOpenAgent,
   showArea,
   onCreate,
 }: {
@@ -174,7 +215,9 @@ function KanbanColumn({
   tasks: TaskListDTO[];
   areaName: (id: string | null) => string | null;
   parentTitleFor: (id: string | null) => string | null;
+  attention?: Record<string, TaskAttentionSignals>;
   onOpen: (id: string) => void;
+  onOpenAgent: (sessionId: string) => void;
   showArea: boolean;
   onCreate: (lane: TaskLane, title: string) => void;
 }) {
@@ -204,7 +247,9 @@ function KanbanColumn({
                 task={t}
                 areaName={areaName(t.areaId ?? null)}
                 parentTitle={parentTitleFor(t.parentId ?? null)}
+                signals={attention?.[t.id]}
                 onOpen={onOpen}
+                onOpenAgent={onOpenAgent}
                 showArea={showArea}
               />
             ))
@@ -216,9 +261,23 @@ function KanbanColumn({
   );
 }
 
-export function TaskKanban({ view, onViewChange }: { view: TaskView; onViewChange: (next: TaskView) => void }) {
+/**
+ * The board. Rendered in two places: the Tasks panel (behind its List/Board
+ * switcher) and the board modal opened from the top HUD. The host fills the
+ * toolbar's ends, the switcher in the panel and a title and close in the modal.
+ */
+export function TaskKanban({
+  leading,
+  trailing,
+  onOpenAgent,
+}: {
+  leading: ReactNode;
+  trailing?: ReactNode;
+  /** Open an agent's execution from a card. Defaults to navigating there. */
+  onOpenAgent?: (sessionId: string) => void;
+}) {
   const qc = useQueryClient();
-  const { openTask } = useDashboard();
+  const { openTask, openExecution } = useDashboard();
   const lifecycle = useTaskLifecycle();
   const createTask = useCreateTask();
   const { data: areas } = useAreas();
@@ -248,11 +307,12 @@ export function TaskKanban({ view, onViewChange }: { view: TaskView; onViewChang
   const columns: TaskLane[] = showArchived ? [...KANBAN_COLUMNS, 'archived'] : KANBAN_COLUMNS;
 
   // One query per column, ordered by the shared sort contract.
-  const consider = useTasks({ status: 'consider', orderBy: 'sortKey' });
-  const todo = useTasks({ status: 'todo', orderBy: 'sortKey' });
-  const current = useTasks({ status: 'in_progress', orderBy: 'sortKey' });
-  const done = useTasks({ status: 'done', orderBy: 'sortKey' });
-  const archived = useTasks({ status: 'archived', orderBy: 'sortKey' });
+  const live = { refetchInterval: BOARD_POLL_MS };
+  const consider = useTasks({ status: 'consider', orderBy: 'sortKey' }, live);
+  const todo = useTasks({ status: 'todo', orderBy: 'sortKey' }, live);
+  const current = useTasks({ status: 'in_progress', orderBy: 'sortKey' }, live);
+  const done = useTasks({ status: 'done', orderBy: 'sortKey' }, live);
+  const archived = useTasks({ status: 'archived', orderBy: 'sortKey' }, showArchived ? live : {});
 
   const byLane: Record<TaskLane, TaskListDTO[]> = useMemo(() => {
     const inArea = (t: TaskListDTO) =>
@@ -277,6 +337,10 @@ export function TaskKanban({ view, onViewChange }: { view: TaskView; onViewChang
     return m;
   }, [byLane]);
   const parentTitleFor = useCallback((id: string | null) => (id ? allById.get(id)?.title ?? null : null), [allById]);
+
+  // What the agents on work underway are doing: Working, an Update to review,
+  // Stalled, and which chat to open. Polls, and refreshes on every turn edge.
+  const { data: attention } = useTaskAttention(byLane.current.map((t) => t.id));
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -368,13 +432,25 @@ export function TaskKanban({ view, onViewChange }: { view: TaskView; onViewChang
     [laneOfTask, byLane, persistReorder, lifecycle],
   );
 
+  // Esc cancels a drag. Claim it first (a window capture listener runs before
+  // a dialog's document one) so the board modal doesn't close mid-drag.
+  // dnd-kit ignores `defaultPrevented` and still cancels.
+  useEffect(() => {
+    if (!activeId) return;
+    const claim = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') e.preventDefault();
+    };
+    window.addEventListener('keydown', claim, true);
+    return () => window.removeEventListener('keydown', claim, true);
+  }, [activeId]);
+
   const activeTask = activeId ? allById.get(activeId) : null;
   const areaLabel = areaMode === 'all' ? 'All Areas' : areaMode === 'none' ? 'No Area' : areaName(areaMode) ?? 'Area';
 
   return (
     <div className="flex h-full flex-col">
       <ListToolbar>
-        <TaskViewToggle value={view} onChange={onViewChange} />
+        {leading}
         <div className="flex-1" />
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -401,6 +477,7 @@ export function TaskKanban({ view, onViewChange }: { view: TaskView; onViewChang
         <ToolbarToggle active={showArchived} onClick={() => setShowArchived((v) => !v)}>
           Archived
         </ToolbarToggle>
+        {trailing}
       </ListToolbar>
 
       <div className="min-h-0 flex-1 overflow-x-auto p-3">
@@ -419,7 +496,9 @@ export function TaskKanban({ view, onViewChange }: { view: TaskView; onViewChang
                 tasks={byLane[lane]}
                 areaName={areaName}
                 parentTitleFor={parentTitleFor}
+                attention={lane === 'current' ? attention : undefined}
                 onOpen={openTask}
+                onOpenAgent={onOpenAgent ?? openExecution}
                 showArea={areaMode === 'all'}
                 onCreate={handleColumnCreate}
               />

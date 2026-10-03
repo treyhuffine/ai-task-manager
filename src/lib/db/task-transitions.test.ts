@@ -227,6 +227,43 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     expect(q.getTaskAttentionSignals(task.id).stalled).toBe(true);
   });
 
+  it('points "open the agent" at the running chat, else an active one, and shows a running turn as Working', async () => {
+    const { q } = await setup();
+    const wsId = q.createWorkspace({ name: 'W', cwd: '/tmp/w-open', isGit: false }).id;
+    const task = q.createTask({ title: 'T', rawInput: 'x' });
+    expect(q.getTaskAttentionSignals(task.id).agentSessionId).toBeNull();
+
+    const exec = q.createExecution({ workspaceId: wsId });
+    const primary = q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    const sibling = q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    q.attachExecutionToTask(exec.id, task.id);
+
+    // Idle between turns: the execution's active chat, and not Working.
+    const idle = q.getTaskAttentionSignals(task.id, new Set());
+    expect(idle.working).toBe(false);
+    expect([primary.id, sibling.id]).toContain(idle.agentSessionId);
+
+    // A turn running in the sibling chat: that chat, and Working.
+    const running = q.getTaskAttentionSignals(task.id, new Set([sibling.id]));
+    expect(running.working).toBe(true);
+    expect(running.agentSessionId).toBe(sibling.id);
+
+    // Output to review while a new turn runs: both are true, so both show.
+    // Without the running set, an active association alone is not "doing
+    // something", and the update wins.
+    q.insertChatEvent({ id: 'out-1', sessionId: sibling.id, role: 'assistant', source: 'agent', content: 'progress', createdAt: new Date(Date.now() + 60_000).toISOString() });
+    const busy = q.getTaskAttentionSignals(task.id, new Set([sibling.id]));
+    expect(busy.review).toBe(true);
+    expect(busy.working).toBe(true);
+    const durable = q.getTaskAttentionSignals(task.id);
+    expect(durable.review).toBe(true);
+    expect(durable.working).toBe(false);
+
+    // Archived work is history: nothing to open.
+    q.archiveExecution(exec.id);
+    expect(q.getTaskAttentionSignals(task.id, new Set()).agentSessionId).toBeNull();
+  });
+
   it('lifecyclePreflight validates without applying and detects replay', async () => {
     const { q } = await setup();
     const t = q.createTask({ title: 'X', rawInput: 'x' });
