@@ -169,11 +169,6 @@ export class AcceptanceFixture {
     const page = await this.launchRaw(args);
     await page.waitForURL(url => url.protocol === 'https:', { timeout: 240_000 });
     this.origin = new URL(page.url()).origin;
-    if (new URL(page.url()).pathname === '/welcome') {
-      await page.getByText('Welcome to Ri', { exact: true }).waitFor();
-      await api(page, '/api/user-state', 'PATCH', { onboardedAt: new Date().toISOString() });
-      await this.navigate('/');
-    }
     await page.locator('aside:visible').first().waitFor();
     assert.equal(await page.evaluate(() => window.riDesktop?.platform), process.platform);
     assert.equal(await page.evaluate(() => typeof window.riDesktop?.settings), 'function', 'Local Home viewer requires its settings bridge');

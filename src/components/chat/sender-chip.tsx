@@ -4,6 +4,7 @@ import { CornerDownRight } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useSession } from '@/hooks/use-execution';
 import { useWorkspace } from '@/hooks/use-workspaces';
+import { useOrchestratorName } from '@/hooks/use-user-state';
 
 /**
  * Who sent a message that another chat sent (docs/agents-view-spec.md Phase
@@ -17,6 +18,7 @@ export function SenderChip({ senderSessionId }: { senderSessionId: string }) {
   const { data: sender, isError } = useSession(senderSessionId);
   const agentId = sender?.type === 'orchestration' ? sender.workspaceId ?? null : null;
   const { data: agent } = useWorkspace(agentId);
+  const orchestratorName = useOrchestratorName();
 
   let label: string;
   let open: (() => void) | null = null;
@@ -28,7 +30,7 @@ export function SenderChip({ senderSessionId }: { senderSessionId: string }) {
     label = `From ${agent?.name ?? 'an agent'}`;
     open = () => openAgent(agentId);
   } else if (sender.type === 'orchestration') {
-    label = 'From orchestrator';
+    label = `From ${orchestratorName}`;
     open = goHome;
   } else if (sender.type === 'execution') {
     label = `From ${sender.execution?.label ?? sender.label ?? 'another execution'}`;

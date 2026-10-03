@@ -47,15 +47,21 @@ individual events for precision, then collapse to one row per session.
 - **Cursor import stays out of scope.** Cursor is a live harness without a
   supported saved-history importer. OpenCode imports are included alongside
   Claude and Codex and remain part of the generic imported source filter.
-- **One always-visible search box in the main rail.** A persistent search input
-  sits above the rail tab switcher (`RailTabs`). When its query is non-empty,
-  results replace the active tab's body (so it "is part of" History and every
-  other tab). History's inline substring filter is removed in favor of this.
-- **Chat search stays out of ⌘K (deliberate).** ⌘K is a low-volume,
+- **Search opens a modal from the rail (since 2026-10-01).** The rail's search
+  icon, under the orchestrator's name, opens `ChatSearchModal`
+  (`src/components/workspaces/chat-search-modal.tsx`): the same endpoint, the
+  same status and source facets (shown once there's a query), and rows with
+  agent, branch, date and the highlighted snippet, opened with arrows and
+  Enter. With no query it lists recent chats (the History tab's order), so it
+  doubles as a quick switcher. This replaced the first version's always-visible
+  box above the tab switcher, which swapped the rail's body for results: a
+  256px column was too narrow to read snippets in, and it hid the agents you'd
+  come back to. History's inline substring filter stays removed.
+- **Chat search stays out of ⌘K's results (deliberate).** ⌘K is a low-volume,
   high-precision launcher across tasks/notes/stream; folding noisy transcript
-  hits into it risks drowning those results. Chat search is isolated to the
-  power-rail surface, where a longer, scrollable, facet-filtered result list is
-  the expected shape. Revisit only if users ask for it.
+  hits into it risks drowning those results. ⌘K's command mode has a "Search
+  chats" command that hands off to the chat search modal, which is where a
+  longer, scrollable, facet-filtered result list is the expected shape.
 
 ## Non-goals (v1)
 
@@ -198,6 +204,10 @@ debounces/`useDeferredValue`s the query, like `useSearch` does.
 ### UI
 
 **A. Persistent rail search (primary surface)** — `src/components/workspaces/rail-tabs.tsx`
+
+> Superseded 2026-10-01: search is a modal opened from the rail (see
+> Decisions). The plan below is the first version, kept for the record.
+
 - Add an always-visible search input between `TriggersButton` and `RailHeader`
   (wide mode only; hidden when `collapsed`).
 - Lift a `railSearch` string into `RailTabs`. When non-empty, render a new

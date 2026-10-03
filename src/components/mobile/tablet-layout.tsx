@@ -1,7 +1,8 @@
 "use client";
 
-import { Zap } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { useOrchestratorName } from '@/hooks/use-user-state';
+import { OrchestratorAvatar } from '@/components/shared/orchestrator-mark';
 import { useRailSessions, useWorkspaces } from '@/hooks/use-workspaces';
 import { useInactivity } from '@/hooks/use-inactivity';
 import { ContentPanel } from '@/components/dashboard/content-panel';
@@ -26,6 +27,7 @@ export function TabletLayout() {
   const { data: rail } = useRailSessions();
   const { isInactive } = useInactivity();
   const isDark = theme === 'dark';
+  const orchestratorName = useOrchestratorName();
 
   // One amber dot per agent that wants you: the agent itself (its main chat
   // is waiting on you or replied) or any of its work, the rail's rule.
@@ -45,18 +47,21 @@ export function TabletLayout() {
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
       <aside className="w-[60px] border-r border-border flex flex-col items-center bg-background z-30 py-3 gap-1">
+        {/* Home is the orchestrator's, so it wears its initial, as in the
+            desktop rail. */}
         <button
           onClick={goHome}
-          title="Home"
-          aria-label="Home"
+          title={`${orchestratorName} (Home)`}
+          aria-label={`${orchestratorName}, home`}
+          aria-current={activeView.kind === 'home' ? 'page' : undefined}
           className={cn(
             'w-10 h-10 rounded-xl flex items-center justify-center transition-all',
             activeView.kind === 'home'
-              ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
-              : isDark ? 'bg-secondary text-muted-foreground hover:text-foreground' : 'bg-muted text-muted-foreground hover:text-foreground',
+              ? 'bg-primary/10 ring-1 ring-primary/30'
+              : isDark ? 'bg-secondary hover:bg-secondary/80' : 'bg-muted hover:bg-muted/80',
           )}
         >
-          <Zap size={16} className={activeView.kind === 'home' ? 'fill-primary' : ''} />
+          <OrchestratorAvatar size="md" />
         </button>
 
         <div className="w-6 h-px bg-border my-2" />

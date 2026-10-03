@@ -42,7 +42,7 @@ import {
   runHarnessText,
   runHarnessJson,
   resolveBackgroundHarness,
-  backgroundModelFor,
+  standardModelFor,
   harnessSupportsMcp,
 } from '@/lib/harness/one-shot';
 import {
@@ -384,7 +384,7 @@ export async function generateDeck(
   // (Bash stays available on that path for exactly this reason).
   const providerType = resolveBackgroundHarness();
   // Recorded on the persisted deck: which harness/model generated it.
-  const generationModel = `${providerType}/${backgroundModelFor(providerType, 'standard') ?? 'default'}`;
+  const generationModel = `${providerType}/${standardModelFor(providerType) ?? 'default'}`;
 
   let gatheredBrief = '';
   let searchContext = '';

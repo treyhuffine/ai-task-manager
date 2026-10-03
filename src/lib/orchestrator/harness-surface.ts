@@ -57,6 +57,7 @@ import { readAuthConfig } from '@/lib/auth/config-file';
 import { SOUL_MD_FILENAME, USER_MD_FILENAME } from '@/lib/config/personalization-templates';
 import { SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
 import { connectorRequestsEnabled } from '@/lib/connectors/request-settings';
+import { DEFAULT_ORCHESTRATOR_NAME } from '@/lib/orchestrator/name';
 import type { WorkspaceRecord } from '@/db/types';
 import { KNOWN_HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
 
@@ -467,15 +468,26 @@ ambient context is fine. Writing through anything but the CLI is not.`;
  * (the data root still hosts walk-up agent sessions); harness modes get the
  * domain model + mode-specific tool guidance.
  */
-export function renderOrchestratorBrief(mode: OrchestratorMode, cliCommand = resolveCliCommand()): string {
+export function renderOrchestratorBrief(
+  mode: OrchestratorMode,
+  cliCommand = resolveCliCommand(),
+  name = DEFAULT_ORCHESTRATOR_NAME,
+): string {
   if (mode === 'legacy') return renderBaseBrief();
+
+  // The default name is the app's own, and "You are Ri, Ri's orchestrator"
+  // says it twice. A chosen name leads.
+  const whoYouAre = name === APP_NAME ? `You are ${APP_NAME}'s orchestrator` : `You are ${name}, ${APP_NAME}'s orchestrator`;
 
   return `# Orchestrator session
 
-You are ${APP_NAME}'s orchestrator, a productivity agent operating on the
+${whoYouAre}, a productivity agent operating on the
 user's behalf inside their task + note + deck system. This directory is the
 app's home: the SQLite database, markdown mirror, and attachments live
 right here.
+
+The user calls you **${name}**. Answer to it and use it when you refer to
+yourself. They can rename you in Settings, under Profile.
 
 **Never edit files here directly.** The markdown mirror is a one-way export
 (the app overwrites external edits), and direct writes bypass embeddings,
@@ -833,13 +845,16 @@ export interface InstalledSurface {
  * off (which retires the full-brief copy installs before AGENTS.md-only
  * left), and added on top of a CLAUDE.md the user wrote.
  */
-export async function installOrchestratorSurface(mode: OrchestratorMode): Promise<InstalledSurface> {
+export async function installOrchestratorSurface(
+  mode: OrchestratorMode,
+  opts: { name?: string } = {},
+): Promise<InstalledSurface> {
   const root = ensureAppRoot();
   // Seed MEMORY/USER/SOUL.md at the home root (write-once) before writing a brief that
   // references/@imports them — guarantees the import targets exist, including
   // on installs that predate these files. Never clobbers user edits.
   ensureBrainDir();
-  const brief = renderOrchestratorBrief(mode);
+  const brief = renderOrchestratorBrief(mode, undefined, opts.name);
   const claudeMdWanted = shouldWriteClaudeMdPointer();
 
   const { installInstructions } = await import('@agentex/agent');

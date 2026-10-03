@@ -34,9 +34,14 @@ Screenshots use the real onboarding and settings components in the dev app on po
 | Three | [Desktop](images/harness-review/onboarding-featured-desktop-3-options.png) / [Phone](images/harness-review/onboarding-featured-phone-3-options.png) | [Desktop](images/harness-review/settings-featured-desktop-3-options.png) / [Phone](images/harness-review/settings-featured-phone-3-options.png) |
 | Four | [Desktop](images/harness-review/onboarding-featured-desktop-4-options.png) / [Phone](images/harness-review/onboarding-featured-phone-4-options.png) | [Desktop](images/harness-review/settings-featured-desktop-4-options.png) / [Phone](images/harness-review/settings-featured-phone-4-options.png) |
 
-## Agentex fixes required before publication
+## Agentex fixes (resolved in @agentex/agent 0.0.41)
 
 Paths below are relative to `~/code/agentex/packages/agent/src/`. Reproductions used mock CLIs. Agentex typecheck and 272 tests across ten affected files passed, which did not expose these edge cases.
+
+All five are fixed in agentex 0.0.41 (commit `f11843d`), each with a regression test that fails on 0.0.40. Two outcomes differ from the suggested fix:
+
+- Instructions now ride on the first message every agy process accepts, resumes included, like a per-process system prompt. This replaces "only a new conversation". They stay pending until agy acknowledges a message that carried them.
+- An explicit `default` mode cannot be forced. agy 1.2.15 rejects `--mode default` (`valid: accept-edits, plan`), so `default` passes no flag and uses agy's saved `agentMode`. The mode's description now says so. Plan mode suppresses skip-permissions however it is requested.
 
 | Priority | Finding | Location | Required fix |
 | --- | --- | --- | --- |
@@ -65,10 +70,19 @@ The first final suite run overlapped the production build and hit two unrelated 
 
 Turbopack cannot resolve the handoff's agentex symlink outside its inferred root. For normal Turbopack verification only, the same unpublished package was copied into this worktree's node_modules. The upstream package was not modified, and the original symlink was restored after validation. The copied and original dist trees were compared and were identical. [Turbopack root](https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack)
 
-## Remaining landing steps
+## Landing (2 October 2026)
 
-1. Have the agentex owner fix the provider issues above and publish `@agentex/agent@0.0.39`.
-2. In this branch, run `pnpm up @agentex/agent@0.0.39` to replace the local dependency and update `pnpm-lock.yaml`. Commit the lockfile and rerun typecheck, tests and build against the published package.
-3. Have the user sign in through `agy`, then verify an actual turn, resume, plan behavior, effort and reference-folder instructions in the dev home.
-4. Merge the reviewed branch into current main once those gates pass.
-5. Install from the updated lockfile and build the merged release, then restart through Ri's normal service lifecycle when authorized. No production restart was performed by this review.
+- **Live verification:** a signed-in agy 1.2.15 passed every check through agentex. Checks covered auth detection, `agy models` (14 models), multi-turn memory in one process, resume in a new process on the same conversation, plan mode with effort, `run_command` as a correlated tool call and result, and interrupt then recovery. The checks ran through agentex, not Ri's UI.
+- **Merged** with `main` at `618ea9a`, which had moved ten commits.
+  - Main replaced the `/welcome` wizard with main-chat onboarding. The registry-driven harness picker now lives in `src/components/onboarding/harness-setup.tsx`.
+  - `initialHarnessSetup` defaults to `DEFAULT_HARNESS`.
+  - `CHEAP_MODEL_CANDIDATES` gives every harness an explicit entry. Cursor, OpenCode and Antigravity have empty lists, enforced with `satisfies`. Background calls keep the Antigravity guard.
+  - First-run `suggestedHarness` ranks Antigravity last and falls back to `DEFAULT_HARNESS`. A test checks that every harness is ranked.
+  - Route tests that resolve the null default now pin the bundled catalog, since the Codex catalog comes from the installed CLI.
+- **Dependency:** `^0.0.40` from main, which includes the Antigravity provider. Bump to 0.0.41 after it is published (`pnpm up @agentex/agent@0.0.41`) to pick up the fixes above.
+- **Verification after the merge:**
+  - `pnpm ts` passed.
+  - `pnpm test`: 4,866 passed, 25 skipped.
+  - `pnpm desktop:test`: 364 passed.
+  - Lint on the 120 changed files: the only 13 errors are in files identical to main.
+- **Not done:** an end-to-end pass through Ri's own UI with a signed-in agy, and a production restart.

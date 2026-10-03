@@ -13,7 +13,7 @@ import {
   renderOrchestratorBrief,
   renderContentFocusPrompt,
 } from './harness-surface';
-import { AGENT_BROWSER_SKILL_NAME } from '@/constants/app';
+import { AGENT_BROWSER_SKILL_NAME, APP_NAME } from '@/constants/app';
 
 // agentex tags the managed region `<!-- ri:managed:start hash=… -->` /
 // `<!-- ri:managed:end -->`. The start marker carries a content hash, so
@@ -75,6 +75,18 @@ describe('installOrchestratorSurface', () => {
 
     expect(result.claudeMdPath).toBeNull();
     expect(fs.existsSync(path.join(root, 'CLAUDE.md'))).toBe(false);
+  });
+
+  it('rewrites the name in AGENTS.md when the user renames the orchestrator', async () => {
+    fs.mkdirSync(root, { recursive: true });
+    seedToken();
+    const result = await installOrchestratorSurface('harness_mcp', { name: 'Atlas' });
+    expect(fs.readFileSync(result.agentsMdPath, 'utf8')).toContain('The user calls you **Atlas**.');
+
+    await installOrchestratorSurface('harness_mcp', { name: 'Juno' });
+    const body = fs.readFileSync(result.agentsMdPath, 'utf8');
+    expect(body).toContain('The user calls you **Juno**.');
+    expect(body).not.toContain('Atlas');
   });
 
   it('seeds user-owned USER.md/SOUL.md stubs (write-once) the brief references', async () => {
@@ -358,6 +370,20 @@ describe('browserMcpServer', () => {
 });
 
 describe('renderOrchestratorBrief', () => {
+  it('names the orchestrator after the app until the user picks a name', () => {
+    const brief = renderOrchestratorBrief('harness_mcp', 'ri');
+    expect(brief).toContain(`You are ${APP_NAME}'s orchestrator, a productivity agent`);
+    expect(brief).toContain(`The user calls you **${APP_NAME}**.`);
+  });
+
+  it('leads with the name the user picked, in both harness modes', () => {
+    for (const mode of ['harness_skills', 'harness_mcp'] as const) {
+      const brief = renderOrchestratorBrief(mode, 'ri', 'Atlas');
+      expect(brief).toContain(`You are Atlas, ${APP_NAME}'s orchestrator, a productivity agent`);
+      expect(brief).toContain('The user calls you **Atlas**.');
+    }
+  });
+
   it('embeds the CLI command in skills mode', () => {
     const brief = renderOrchestratorBrief('harness_skills', 'ri');
     expect(brief).toContain('ri agent <action> [params]');

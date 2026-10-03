@@ -23,7 +23,9 @@ html[data-ri-desktop='darwin'] body:not(:has([data-desktop-titlebar])) .h-dvh {
   height: calc(100dvh - 40px);
 }
 html[data-ri-desktop='darwin'] body:not(:has([data-desktop-titlebar])) > .desktop-drag-fallback {
-  display: block;
+  display: flex;
+  align-items: center;
+  padding-left: 88px;
   position: fixed;
   inset: 0 0 auto;
   height: 40px;
@@ -31,6 +33,9 @@ html[data-ri-desktop='darwin'] body:not(:has([data-desktop-titlebar])) > .deskto
   -webkit-app-region: drag;
   user-select: none;
   background: var(--background);
+}
+html[data-ri-desktop='darwin'] .desktop-drag-fallback button {
+  -webkit-app-region: no-drag;
 }
 
 @theme inline {

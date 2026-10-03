@@ -779,6 +779,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                       canChangeModel={canChangeModel && !isRunning}
                       switching={switchingProvider}
                       disabled={updateSession.isPending}
+                      variant={modelVariant}
+                      effort={effort}
                     />
                   ) : (
                     harnessModels.length > 0 && (

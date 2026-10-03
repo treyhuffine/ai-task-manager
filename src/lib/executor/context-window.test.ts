@@ -30,6 +30,9 @@ describe('prettifyModelId', () => {
     expect(prettifyModelId('gpt-5.6-luna')).toBe('GPT-5.6 Luna');
     expect(prettifyModelId('gpt-5.3-codex-spark')).toBe('GPT-5.3 Codex Spark');
     expect(prettifyModelId('gpt-6-astra')).toBe('GPT-6 Astra');
+    expect(prettifyModelId('gpt-6.1-sol')).toBe('GPT-6.1 Sol');
+    expect(prettifyModelId('gpt-6-sol')).toBe('GPT-6 Sol');
+    expect(prettifyModelId('gpt-6-luna')).toBe('GPT-6 Luna');
   });
 
   it('renders Antigravity Gemini slugs the way `agy models` names them', () => {

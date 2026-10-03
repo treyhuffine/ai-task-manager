@@ -12,10 +12,18 @@ vi.mock('@/lib/db/queries', () => ({
   getUserState: () => userState,
 }));
 
+// What the installed CLI offers from each harness's cheap-model list. The real
+// lookup runs live discovery, so the seam is the whole function.
+let cheapModels: Record<string, string | undefined>;
+vi.mock('@/lib/harness/model-discovery', () => ({
+  cheapModelFor: async (providerId: string) => cheapModels[providerId],
+}));
+
 beforeEach(() => {
   executeMock.mockReset();
   executeMock.mockResolvedValue({ status: 'completed', summary: 'ok' });
   userState = undefined;
+  cheapModels = { claude: 'haiku', codex: 'gpt-6-luna' };
   capabilities.mcp = true;
 });
 
@@ -24,11 +32,26 @@ function lastCall() {
 }
 
 describe('resolveBackgroundHarness / backgroundModelFor', () => {
-  it('defaults to Codex with the cheap alias on the fast tier', async () => {
+  it('defaults to Codex with the cheap model on the fast tier', async () => {
     const { resolveBackgroundHarness, backgroundModelFor } = await import('./one-shot');
     expect(resolveBackgroundHarness()).toBe('codex');
-    expect(backgroundModelFor('claude', 'fast')).toBe('haiku');
-    expect(backgroundModelFor('codex', 'fast')).toBe('gpt-5.4-mini');
+    expect(await backgroundModelFor('claude', 'fast')).toBe('haiku');
+    expect(await backgroundModelFor('codex', 'fast')).toBe('gpt-6-luna');
+  });
+
+  it('fast tier falls back to the user model, never a dead id, when no cheap model is offered', async () => {
+    // An install that lists none of the cheap candidates: sending one anyway
+    // is the provider error this replaced (gpt-5.4-mini after its retirement).
+    cheapModels = { codex: undefined };
+    userState = { defaultHarness: 'codex', defaultModel: 'gpt-6-astra' };
+    const { backgroundModelFor, runHarnessText } = await import('./one-shot');
+    expect(await backgroundModelFor('codex', 'fast')).toBe('gpt-6-astra');
+    await runHarnessText({ label: 't', prompt: 'x', tier: 'fast' });
+    expect(lastCall().model).toBe('gpt-6-astra');
+
+    // With no usable default either, the CLI picks its own.
+    userState = { defaultHarness: 'codex' };
+    expect(await backgroundModelFor('codex', 'fast')).toBeUndefined();
   });
 
   it('preserves a saved Claude default', async () => {
@@ -43,23 +66,23 @@ describe('resolveBackgroundHarness / backgroundModelFor', () => {
     const claudeModel = modelsForProvider('claude')[0].id;
 
     userState = { defaultModel: claudeModel };
-    expect(backgroundModelFor('claude', 'standard')).toBe(claudeModel);
+    expect(await backgroundModelFor('claude', 'standard')).toBe(claudeModel);
 
     // Cross-provider leftovers (stale state) fall back to the CLI default.
-    userState = { defaultModel: 'gpt-5.4-mini' };
-    expect(backgroundModelFor('claude', 'standard')).toBeUndefined();
+    userState = { defaultModel: 'gpt-6-luna' };
+    expect(await backgroundModelFor('claude', 'standard')).toBeUndefined();
   });
 
   it('leaves Antigravity on its CLI default rather than pinning a slug that can retire', async () => {
     const { backgroundModelFor } = await import('./one-shot');
     userState = { defaultHarness: 'antigravity', defaultModel: 'gemini-3.1-pro-high' };
     // No stable cheap alias exists, so the fast tier sends no `--model`.
-    expect(backgroundModelFor('antigravity', 'fast')).toBeUndefined();
+    expect(await backgroundModelFor('antigravity', 'fast')).toBeUndefined();
     // With no bundled catalog to vouch for it, a stored id is not sent either:
     // a stale cross-harness id (`opus`) would otherwise reach `agy`.
-    expect(backgroundModelFor('antigravity', 'standard')).toBeUndefined();
+    expect(await backgroundModelFor('antigravity', 'standard')).toBeUndefined();
     userState = { defaultHarness: 'antigravity', defaultModel: 'opus' };
-    expect(backgroundModelFor('antigravity', 'standard')).toBeUndefined();
+    expect(await backgroundModelFor('antigravity', 'standard')).toBeUndefined();
   });
 
   it('refuses Antigravity background calls while its CLI ignores required restrictions', async () => {

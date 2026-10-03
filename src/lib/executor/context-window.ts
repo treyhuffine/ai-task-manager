@@ -64,6 +64,7 @@ const FAMILY_LABEL: Record<string, string> = {
  *   gpt-5.6-sol                → "GPT-5.6 Sol"
  *   gpt-5.3-codex-spark        → "GPT-5.3 Codex Spark"
  *   gpt-6-astra                → "GPT-6 Astra"
+ *   gpt-6.1-sol                → "GPT-6.1 Sol"
  *   gemini-3.1-pro-high        → "Gemini 3.1 Pro (High)"   (as `agy models` names it)
  *   gemini-2.5-flash-lite      → "Gemini 2.5 Flash Lite"
  * Falls back to the raw id when nothing matches.

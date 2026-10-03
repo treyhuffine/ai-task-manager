@@ -118,9 +118,11 @@ export const userState = sqliteTable('user_state', {
   // Null → resolveVoiceModel() auto-picks an available provider. Model ids
   // churn, so no schema literal.
   voiceModel: text(),
-  // Last explicit provider-bound harness + model + effort tuple. The columns
-  // remain nullable for pre-onboarding and legacy databases, but chat creation
-  // resolves them to concrete values before anything reaches a runner.
+  // The home's default harness + model + effort: what new chats, executions
+  // and background calls start on. Changed only on purpose (Settings, Models,
+  // a model menu's "Make default", first-run setup), never by sending or
+  // starting a chat (docs/default-selection.md). Nullable for a home that
+  // never chose; chat creation resolves null to concrete values.
   defaultHarness: text({ enum: HARNESS_VALUES }),
   defaultModel: text(),
   defaultEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
@@ -151,6 +153,21 @@ export const userState = sqliteTable('user_state', {
   // 0 → never. A preference, so no schema default. See
   // src/lib/sessions/inactive.ts.
   executionInactiveAfterDays: integer(),
+  // What the user calls the app's main chat (the orchestrator). Null → the
+  // product default (resolveOrchestratorName, APP_NAME), so a rename of the
+  // app still reaches everyone who never chose. A preference, so no schema
+  // default. See src/lib/orchestrator/name.ts.
+  orchestratorName: text(),
+  // How the orchestrator looks wherever it's drawn (src/lib/orchestrator/look.ts):
+  // an image (uploaded, or art made in the app) wins over an emoji, which sits
+  // on the color. All null → the Ri mark for the default name, else its
+  // initial on the theme's primary. Preferences, so no schema defaults.
+  orchestratorEmoji: text(),
+  orchestratorImage: text({ mode: 'json' }).$type<StoredAttachment>(),
+  orchestratorColor: text(),
+  // When the main chat's first-run conversation (docs/main-chat-onboarding.md)
+  // was finished or skipped. Null → an empty main chat opens with it.
+  orchestratorIntroducedAt: text(),
 });
 
 // ─── Harness Settings ─────────────────────────────────────────

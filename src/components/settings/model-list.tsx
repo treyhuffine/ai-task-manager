@@ -32,6 +32,7 @@ export function ModelList({
   className,
   switchHintProvider,
   onManageModels,
+  defaultSelection,
 }: {
   selected: ModelSelection;
   onPick: (harness: ProviderId, model: ModelOption) => void;
@@ -45,6 +46,12 @@ export function ModelList({
   switchHintProvider?: ProviderId;
   /** Optional composer footer that opens the model allowlist settings. */
   onManageModels?: () => void;
+  /**
+   * The home's default, marked "default" in the list. The menus that pick
+   * for one chat or execution pass it, so the default is visible where it
+   * differs. Settings omits it: there the pick is the default.
+   */
+  defaultSelection?: { harness: ProviderId; model: string | null } | null;
 }) {
   return (
     <div className={cn('space-y-3', className)}>
@@ -55,6 +62,7 @@ export function ModelList({
           selected={selected}
           onPick={onPick}
           isSwitch={switchHintProvider != null && p.id !== switchHintProvider}
+          defaultModel={defaultSelection?.harness === p.id ? defaultSelection.model : null}
         />
       ))}
       {onManageModels && (
@@ -76,11 +84,14 @@ function ProviderGroup({
   selected,
   onPick,
   isSwitch,
+  defaultModel,
 }: {
   providerId: ProviderId;
   selected: ModelSelection;
   onPick: (harness: ProviderId, model: ModelOption) => void;
   isSwitch?: boolean;
+  /** The home's default model, when it's on this provider. */
+  defaultModel?: string | null;
 }) {
   const { connection } = useHarnessConnection(providerId);
   const { models } = useHarnessModels(providerId);
@@ -185,6 +196,7 @@ function ProviderGroup({
             key={m.id}
             model={m}
             selected={selected.harness === providerId && selected.model === m.id}
+            isDefault={defaultModel === m.id}
             disabled={!connected}
             onSelect={() => onPick(providerId, m)}
             onRemove={m.custom ? () => void unpin(m) : undefined}
@@ -246,6 +258,7 @@ function ProviderGroup({
 function ModelRow({
   model,
   selected,
+  isDefault,
   disabled,
   muted,
   pending,
@@ -256,6 +269,8 @@ function ModelRow({
 }: {
   model: ModelOption;
   selected: boolean;
+  /** The home's default (`ModelList`'s `defaultSelection`). */
+  isDefault?: boolean;
   disabled?: boolean;
   /** A row from the hidden drawer: present, but visibly not part of the set. */
   muted?: boolean;
@@ -291,6 +306,11 @@ function ModelRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-[12px] font-medium text-foreground">{model.label}</span>
+            {isDefault && (
+              <span className="text-[9.5px] font-medium text-muted-foreground/80" title="New chats and executions start on it">
+                default
+              </span>
+            )}
             {model.custom && (
               <span className="rounded bg-muted px-1 py-px text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
                 pinned

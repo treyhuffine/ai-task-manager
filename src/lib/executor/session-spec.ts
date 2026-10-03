@@ -34,6 +34,7 @@ import {
   renderContentFocusPrompt,
 } from '@/lib/orchestrator/harness-surface';
 import { resolveOrchestratorMode } from '@/lib/orchestrator/mode';
+import { resolveOrchestratorName } from '@/lib/orchestrator/name';
 import { isBrowserEnabled } from '@/lib/browser/config';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
 import { buildReferenceFolderSessionConfig, referenceFolderProviderWiring } from '@/lib/reference-folders/session-config';
@@ -268,9 +269,15 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     // (Codex today), so the config is safe to pass everywhere — but warn,
     // because the write guard genuinely doesn't hold there yet. The mode
     // resolves by the same rule the UI uses (lib/orchestrator/mode.ts).
-    const orchestratorMode = resolveOrchestratorMode(getUserState()?.orchestratorMode);
+    const userState = getUserState();
+    const orchestratorMode = resolveOrchestratorMode(userState?.orchestratorMode);
     try {
-      await installOrchestratorSurface(orchestratorMode);
+      // The brief carries the name the user calls the orchestrator. A rename
+      // recycles the app's main chat (PATCH /api/user-state), so this
+      // reinstall is where the new name lands.
+      await installOrchestratorSurface(orchestratorMode, {
+        name: resolveOrchestratorName(userState?.orchestratorName),
+      });
       applyProviderConfig(spec, orchestratorSessionConfig(orchestratorMode, { sessionId: args.chatSessionId }));
       // A `content` session is a *focused* orchestrator session: same
       // installed surface + tool set, narrowed to the one task/note the user

@@ -138,12 +138,14 @@ async function main() {
     console.info('Passed: real POST /api/session accepts the desktop credential and returns a secure session cookie');
     assert.equal((await request('/api/version')).status, 200);
     console.info('Passed: development proxy and authenticated API compile and respond');
-    const initial = await request('/');
-    assert.equal(initial.status, 307);
-    assert.equal(initial.location, '/welcome');
-    const page = await request('/welcome');
+    // A new home opens straight on the dashboard: no setup wizard in front of
+    // it (docs/main-chat-onboarding.md). The old route still lands home.
+    const page = await request('/');
     assert.equal(page.status, 200);
     assert.match(page.body, /<html/);
+    const legacy = await request('/welcome');
+    assert.equal(legacy.status, 307);
+    assert.equal(legacy.location, '/');
     console.info('Passed: the actual Next development UI compiles and renders');
   } catch (error) {
     console.error(`Development service log: ${log}`);

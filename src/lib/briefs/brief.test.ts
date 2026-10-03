@@ -8,7 +8,7 @@ const runHarnessJson = vi.fn();
 vi.mock('@/lib/harness/one-shot', () => ({
   runHarnessJson: (...args: unknown[]) => runHarnessJson(...args),
   resolveBackgroundHarness: () => 'claude',
-  backgroundModelFor: () => 'opus',
+  standardModelFor: () => 'opus',
 }));
 
 let workDir: string;

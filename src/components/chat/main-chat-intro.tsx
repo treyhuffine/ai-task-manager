@@ -1,5 +1,6 @@
 'use client';
 
+import { createContext, useContext } from 'react';
 import { ArrowUp, PenLine } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
 import { cn } from '@/lib/utils';
@@ -19,18 +20,34 @@ export interface MainChatStarter {
   draft?: boolean;
 }
 
+/** What an empty main chat can do: send a starter, or put one in the composer. */
+export interface EmptyChatActions {
+  send: (prompt: string) => void;
+  draft: (prompt: string) => void;
+  disabled: boolean;
+}
+
+/** Provided by the chat around a custom empty state (`HarnessChat`'s `emptyState`). */
+export const EmptyChatActionsContext = createContext<EmptyChatActions | null>(null);
+
+export function useEmptyChatActions(): EmptyChatActions {
+  const actions = useContext(EmptyChatActionsContext);
+  if (!actions) throw new Error('useEmptyChatActions must be used inside an empty chat');
+  return actions;
+}
+
 export interface MainChatIntro {
   title: string;
   description: string;
   starters: MainChatStarter[];
 }
 
-/** The app's main chat. */
-export function appMainChatIntro(): MainChatIntro {
+/** The app's main chat, introducing itself by the name the user calls it. */
+export function appMainChatIntro(name: string = APP_NAME): MainChatIntro {
   return {
     title: 'What should we work on?',
     description:
-      `I keep your tasks, notes, deck and stream in order, and I can see and steer every agent’s work. Ask me to set ${APP_NAME} up the way you work, too.`,
+      `I’m ${name}. I keep your tasks, notes, deck and stream in order, and I can see and steer every agent’s work. Ask me to set ${APP_NAME} up the way you work, too.`,
     starters: [
       { label: 'What’s on my plate today?', prompt: 'What’s on my plate today?' },
       { label: 'What needs me across my agents?', prompt: 'What needs my attention across my agents right now?' },

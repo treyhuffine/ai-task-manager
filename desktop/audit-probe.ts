@@ -9,6 +9,7 @@ import net from 'node:net';
 import { once } from 'node:events';
 import { execFileSync } from 'node:child_process';
 import { _electron, type ElectronApplication, type Page } from 'playwright-core';
+import { waitForHome } from './first-run';
 import { demoEnvironment } from './config';
 import { ensureGeneratedTls } from '../src/lib/config/tls';
 
@@ -24,8 +25,7 @@ async function start() {
   app = await _electron.launch({ executablePath: path.join(packaged, 'Contents/MacOS/Ri'), args: [], cwd: os.tmpdir(),
     env: { ...env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', RI_DESKTOP_SMOKE: '1' }, timeout: 240_000 });
   const page = await app.firstWindow();
-  await page.waitForURL(url => url.protocol === 'https:' && url.pathname === '/welcome', { timeout: 240_000 });
-  await page.getByText('Welcome to Ri', { exact: true }).waitFor();
+  await waitForHome(page);
   return page;
 }
 async function listen(server: net.Server) {
@@ -100,7 +100,7 @@ async function main() {
     await page.waitForFunction(() => document.documentElement.hasAttribute('data-audit-api'), undefined, { timeout: 10_000 });
     results.uploadedSvgScriptRan = await page.locator('svg').getAttribute('data-audit-script');
     results.uploadedSvgAuthenticatedApiStatus = await page.locator('svg').getAttribute('data-audit-api');
-    await page.goto(`${origin}/welcome`);
+    await page.goto(`${origin}/`);
     // Exercise real packaged Git folder endpoints under a Finder-like PATH.
     const folder = path.join(root, 'fixture-git'); fs.mkdirSync(folder);
     const git = (args: string[]) => execFileSync('/usr/bin/git', args, { cwd: folder, env: { ...process.env,
@@ -137,7 +137,6 @@ async function main() {
     assert.equal(results.titleBeforeQuitTest, 'Audit persisted control', 'Editor control did not persist');
     await page.evaluate(async () => {
       localStorage.setItem('desktop-audit-origin-marker', 'present');
-      await fetch('/api/user-state', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ onboardedAt: null }) });
     });
     const before = Date.now();
     await title.fill('Audit last keystrokes before quit');

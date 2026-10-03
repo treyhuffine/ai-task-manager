@@ -2,7 +2,6 @@ import type { NextRequest } from 'next/server';
 import {
   getChatSessionWithExecution,
   updateChatSession,
-  updateUserState,
   setExecutionPR,
   setExecutionLabel,
 } from '@/lib/db/queries';
@@ -266,13 +265,8 @@ export async function PATCH(
     // throws "No values to set" with an empty patch, so short-circuit. A
     // prNumber/executionLabel-only change is applied to the execution
     // above, so reload the flattened row to reflect it.
-    if (nextSelection) {
-      updateUserState({
-        defaultHarness: nextSelection.providerId,
-        defaultModel: nextSelection.model,
-        defaultEffort: nextSelection.effort,
-      });
-    }
+    // A model or effort picked for this chat stays this chat's. Making it
+    // the default is its own choice (docs/default-selection.md).
     if (Object.keys(updates).length === 0) {
       return Response.json(prChanged || executionChanged ? getChatSessionWithExecution(id) : existing);
     }

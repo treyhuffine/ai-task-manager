@@ -439,7 +439,7 @@ The app is a three-column layout: a slim execution rail on the left, and two fle
 │          │                     │                     │
 │  Agent   │     Panel A         │     Panel B         │
 │  Rail    │  ┌─────────────────┐│  ┌─────────────────┐│
-│          │  │Deck│Chat│Tasks│…││  │Chat│Deck│Tasks│…││
+│          │  │Chat│Deck│Tasks│…││  │Chat│Deck│Tasks│…││
 │  (slim)  │  └─────────────────┘│  └─────────────────┘│
 │          │                     │                     │
 │          │     [content]       │     [content]       │
@@ -452,7 +452,7 @@ The app is a three-column layout: a slim execution rail on the left, and two fle
 
 **Panel A and Panel B (center + right).** Two equal-width content panels, each with its own tab bar. Available tabs in each panel: **Deck, Chat, Tasks, Stream, Notes, Projects, Radar.** Each tab can appear in either panel — the user arranges them however they want.
 
-**Default layout: Panel A = Deck, Panel B = Chat.** This is the daily driver — the sorted task list alongside the conversational AI. New users see this and never think about panels. The flexibility is discoverable, not demanded.
+**Default layout: Panel A = Chat, Panel B = Deck.** This is the daily driver — the conversational AI alongside the sorted task list. New users see this and never think about panels. The flexibility is discoverable, not demanded. (Flipped 2026-10-01 from Deck left, Chat right: the chat is the orchestrator, the front door to everything else, so it leads, as the first tab and the left panel. Opening another tab from the palette or a deck link never covers the chat: `panelForTab` in `src/lib/client/home-panels.ts`.)
 
 **Key behaviors:**
 

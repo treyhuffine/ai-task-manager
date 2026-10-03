@@ -36,7 +36,7 @@ export function HudDayButton() {
   const today = todayLocalDate();
   const { data } = useDayShape(today, 1);
   const prefetch = usePrefetchDayShape();
-  const { setActiveView, setPanelTab, openTask } = useDashboard();
+  const { setActiveView, showPanelTab, openTask } = useDashboard();
   const [open, setOpen] = useState(false);
   const [weekOpen, setWeekOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -107,7 +107,7 @@ export function HudDayButton() {
 
   const goToCalendarTab = () => {
     setActiveView(HOME_VIEW);
-    setPanelTab('a', 'calendar');
+    showPanelTab('calendar');
   };
 
   const openDay = () => {

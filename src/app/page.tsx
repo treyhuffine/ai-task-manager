@@ -1,16 +1,12 @@
-import { redirect } from 'next/navigation';
 import { Dashboard } from '@/components/dashboard/dashboard';
-import { getUserState } from '@/lib/db/queries';
 
-// Gating depends on a runtime DB read (onboardedAt). Prerendering this page
-// caches the redirect decision against whatever the DB looked like at build
-// time, which produces an infinite /welcome ↔ / loop after onboarding.
+// Dynamic so the dashboard is never served from a build-time snapshot.
 export const dynamic = 'force-dynamic';
 
+/**
+ * Home. A new home opens here too: first-run setup is a conversation in the
+ * main chat, not a wizard in front of the app (docs/main-chat-onboarding.md).
+ */
 export default function Home() {
-  const state = getUserState();
-  if (!state?.onboardedAt) {
-    redirect('/welcome');
-  }
   return <Dashboard />;
 }

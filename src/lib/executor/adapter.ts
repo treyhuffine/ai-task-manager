@@ -26,9 +26,7 @@ import {
   getSendForEvent,
   getWorkerKeyId,
   getWorkspace,
-  getUserState,
   updateChatSession,
-  updateUserState,
   listChatSessions,
   listMainChats,
   createRun as createRunRow,
@@ -462,20 +460,9 @@ async function dispatchTo(
       effort: selection.effort,
     });
   }
-  if (!options.internalCall) {
-    const savedSelection = getUserState();
-    if (
-      savedSelection?.defaultHarness !== selection.providerId
-      || savedSelection?.defaultModel !== selection.model
-      || savedSelection?.defaultEffort !== selection.effort
-    ) {
-      updateUserState({
-        defaultHarness: selection.providerId,
-        defaultModel: selection.model,
-        defaultEffort: selection.effort,
-      });
-    }
-  }
+  // Sending never changes the home's default harness, model or effort: that's
+  // a choice made on purpose (Settings, Models, or "Make default" in a model
+  // menu), not whatever chat was typed in last (docs/default-selection.md).
 
   // Budget guard. Manual sends past the monthly ceiling require an
   // explicit `overBudget: true` from the UI's confirmation prompt.
@@ -765,6 +752,15 @@ export async function recycleWorkspaceSessions(workspaceId: string): Promise<voi
  */
 export async function recycleAgentMainChats(workspaceId: string): Promise<void> {
   await Promise.all(listMainChats(workspaceId, { status: 'active' }).map((s) => recycleWhenIdle(s.id)));
+}
+
+/**
+ * Recycle the app's own main chat, for settings only its brief carries: the
+ * name the user calls the orchestrator. The brief is reinstalled at spawn, so
+ * the next turn starts a process that reads the new one.
+ */
+export async function recycleAppMainChats(): Promise<void> {
+  await Promise.all(listMainChats(null, { status: 'active' }).map((s) => recycleWhenIdle(s.id)));
 }
 
 /**

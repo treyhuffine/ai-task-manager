@@ -23,7 +23,12 @@ import { PendingInputArea } from '@/components/executions/pending-input-overlay'
 import { BackgroundTasksBar } from '@/components/executions/background-tasks-bar';
 import { SyncingPill } from '@/components/executions/syncing-pill';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
-import { MainChatIntroPanel, type MainChatIntro } from '@/components/chat/main-chat-intro';
+import {
+  EmptyChatActionsContext,
+  MainChatIntroPanel,
+  type EmptyChatActions,
+  type MainChatIntro,
+} from '@/components/chat/main-chat-intro';
 import { ApiError } from '@/lib/api/client';
 import type { EffortLevel } from '@/db/types';
 
@@ -50,6 +55,7 @@ export function HarnessChat({
   composerPlaceholder,
   autoFocusComposer,
   intro,
+  emptyState,
 }: {
   isMobile?: boolean;
   scope?: MainChatScope;
@@ -57,6 +63,8 @@ export function HarnessChat({
   autoFocusComposer?: boolean;
   /** Shown while the chat is empty, in place of a blank transcript. */
   intro?: MainChatIntro;
+  /** Drawn while the chat is empty, instead of `intro` (the main chat's first run). It reads the chat's send and draft through `useEmptyChatActions`. */
+  emptyState?: React.ReactNode;
 }) {
   const { data, isLoading, error, refetch } = useMainChat(scope);
   const newChat = useNewMainChat(scope);
@@ -100,6 +108,7 @@ export function HarnessChat({
       composerPlaceholder={composerPlaceholder}
       autoFocusComposer={autoFocusComposer}
       intro={intro}
+      emptyState={emptyState}
       onSwitchProvider={(next) => newChat.mutate({
         providerId: next.harness,
         model: next.model,
@@ -124,6 +133,7 @@ export function HarnessChatSession({
   autoFocusComposer = true,
   composerPlaceholder,
   intro,
+  emptyState,
   onSwitchProvider,
   switchingProvider,
 }: {
@@ -138,6 +148,8 @@ export function HarnessChatSession({
   autoFocusComposer?: boolean;
   /** Shown while the conversation is empty, in place of a blank transcript. */
   intro?: MainChatIntro;
+  /** Drawn while the conversation is empty, instead of `intro`. */
+  emptyState?: React.ReactNode;
   /** Optional: enables the composer's provider switcher (starts a fresh chat
    *  on the chosen provider). The host owns what "new chat" means. */
   onSwitchProvider?: (next: {
@@ -161,7 +173,15 @@ export function HarnessChatSession({
   // The same cache the transcript reads. A send inserts its row
   // optimistically, so the intro gives way the moment anything is sent.
   const { data: events, isLoading: eventsLoading } = useSessionEvents(sessionId);
-  const showIntro = !!intro && !eventsLoading && (events?.length ?? 0) === 0 && !isRunning;
+  const showIntro = (!!intro || !!emptyState) && !eventsLoading && (events?.length ?? 0) === 0 && !isRunning;
+  const emptyActions: EmptyChatActions = {
+    send: (prompt) => void sendMessage.mutateAsync(prompt),
+    draft: (prompt) => {
+      composerHandleRef.current?.insertTextAtCursor(prompt);
+      composerHandleRef.current?.focus({ end: true });
+    },
+    disabled: sendMessage.isPending,
+  };
 
   // Voice-sent event ids, client-memory only — same soft-signal model as
   // the execution view and the legacy chat.
@@ -206,15 +226,14 @@ export function HarnessChatSession({
       }}
     >
       {reconciling && <SyncingPill />}
-      {showIntro && intro ? (
+      {showIntro && emptyState ? (
+        <EmptyChatActionsContext.Provider value={emptyActions}>{emptyState}</EmptyChatActionsContext.Provider>
+      ) : showIntro && intro ? (
         <MainChatIntroPanel
           intro={intro}
-          disabled={sendMessage.isPending}
-          onSend={(prompt) => void sendMessage.mutateAsync(prompt)}
-          onDraft={(prompt) => {
-            composerHandleRef.current?.insertTextAtCursor(prompt);
-            composerHandleRef.current?.focus({ end: true });
-          }}
+          disabled={emptyActions.disabled}
+          onSend={emptyActions.send}
+          onDraft={emptyActions.draft}
         />
       ) : (
         <ExecutionTranscript

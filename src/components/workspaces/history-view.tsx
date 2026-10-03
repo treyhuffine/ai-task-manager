@@ -28,9 +28,9 @@ const PILL_SCROLL_PRESETS = {
  *     the sessions actually present in the history feed (not the
  *     workspaces table) so an empty workspace never gets a chip.
  *
- * Full-text search over transcripts lives in the always-visible rail search
- * box (see `RailTabs` / `SessionSearchResults`), not here — it searches every
- * chat's content, not just this feed's labels.
+ * Full-text search over transcripts lives in the chat search modal (the
+ * rail's search icon, `ChatSearchModal`), not here — it searches every chat's
+ * content, not just this feed's labels.
  */
 export function HistoryView() {
   const { data, isLoading } = useHistorySessions();

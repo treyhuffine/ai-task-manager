@@ -50,7 +50,49 @@
   "openai/gpt-6-astra": {
     "input": 1000,
     "cached": 100,
-    "cacheCreation": 1000,
+    "cacheCreation": 1250,
     "output": 5000
+  },
+  "openai/gpt-6.1-sol": {
+    "input": 200,
+    "cached": 10,
+    "cacheCreation": 250,
+    "output": 1000
+  },
+  "openai/gpt-6-sol": {
+    "input": 200,
+    "cached": 20,
+    "cacheCreation": 250,
+    "output": 1000
+  },
+  "openai/gpt-6-luna": {
+    "input": 10,
+    "cached": 1,
+    "cacheCreation": 12.5,
+    "output": 50
+  },
+  "openai/gpt-5.6-sol": {
+    "input": 400,
+    "cached": 40,
+    "cacheCreation": 500,
+    "output": 2000
+  },
+  "openai/gpt-5.6-terra": {
+    "input": 200,
+    "cached": 20,
+    "cacheCreation": 250,
+    "output": 1200
+  },
+  "openai/gpt-5.6-luna": {
+    "input": 20,
+    "cached": 2,
+    "cacheCreation": 25,
+    "output": 120
+  },
+  "openai/gpt-5.5": {
+    "input": 500,
+    "cached": 50,
+    "cacheCreation": 500,
+    "output": 3000
   }
 }

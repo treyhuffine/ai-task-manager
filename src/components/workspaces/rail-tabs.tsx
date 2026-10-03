@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Clock, PanelLeftClose, PanelLeftOpen, Search, X } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Plus, Search, type LucideIcon } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { HOTKEYS } from '@/constants/commands';
 import { cn } from '@/lib/utils';
@@ -9,13 +9,14 @@ import { WorkspaceNav } from './workspace-nav';
 import { StatusView } from './status-view';
 import { HistoryView } from './history-view';
 import { PinnedRail } from './pinned-rail';
-import { SessionSearchResults } from './session-search-results';
 import { SkinnyView } from './skinny-view';
 import { SessionHoverProvider } from './session-hover-context';
 import { SessionHoverPreview } from './session-hover-preview';
 import { RailFooter } from './rail-footer';
+import { RailHome } from './rail-home';
+import { openLauncher } from './launcher/launcher-store';
+import { openChatSearch } from './chat-search-store';
 import { TriggersModal } from '@/components/triggers/triggers-modal';
-import { useRunsStats } from '@/hooks/use-runs-stats';
 
 type RailTab = 'status' | 'workspace' | 'history';
 
@@ -23,17 +24,22 @@ const STORAGE_KEY = 'ri.rail.tab';
 const DEFAULT_TAB: RailTab = 'workspace';
 
 /**
- * Top-level switcher for the left rail. Three surfaces in wide mode:
+ * The left rail, top to bottom:
  *
- *   - `workspace` — the canonical folder tree by workspace. Houses the
- *                workspace management actions (create, settings, reorder).
- *   - `status` — active sessions bucketed by their derived state
- *                (Needs Approval / Unread / Waiting / Working). Cross-
- *                workspace; the workspace tree is collapsed away.
- *   - `history` — chronological feed of every execution, active AND
- *                archived, grouped by date with a search input and
- *                workspace-pill filter. The only tab that surfaces
- *                archived sessions; the only tab with its own search.
+ *   - **Home** — the orchestrator by name, which is the way home (`RailHome`).
+ *   - **Toolbar** — ➕ a new execution in any agent (the launcher, with no
+ *     agent picked), search every chat (a modal), and collapse.
+ *   - **Tabs** — three lenses on the same work:
+ *       - `workspace` — the canonical folder tree by workspace. Houses the
+ *                    workspace management actions (create, settings, reorder).
+ *       - `status` — active sessions bucketed by their derived state
+ *                    (Needs Approval / Unread / Waiting / Working). Cross-
+ *                    workspace; the workspace tree is collapsed away.
+ *       - `history` — chronological feed of every execution, active AND
+ *                    archived, grouped by date with a workspace-pill filter.
+ *                    The only tab that surfaces archived sessions.
+ *   - **Footer** — what you set up rather than visit: schedules and
+ *     triggers, and connecting apps (`RailFooter`).
  *
  * Active tab persists per-user in localStorage. Defaults to `workspace`
  * — the workspace tree is the primary navigation surface; the other
@@ -42,7 +48,8 @@ const DEFAULT_TAB: RailTab = 'workspace';
  * In skinny mode (`railCollapsed`) the tab UI is hidden but the tab
  * choice is preserved so expanding back doesn't reshuffle the user's
  * view. The skinny renderer uses the tab only as a sort key — see
- * `SkinnyView`.
+ * `SkinnyView`. Home, the toolbar and schedules fold to icons in the same
+ * order, so a button is in the same place in both widths.
  */
 interface RailTabsProps {
   /**
@@ -69,12 +76,7 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
   } = useDashboard();
   const [tab, setTab] = useState<RailTab>(DEFAULT_TAB);
   const [triggersOpen, setTriggersOpen] = useState(false);
-  const [search, setSearch] = useState('');
   const collapsed = !!forceCollapsed || railCollapsed;
-  // Persistent transcript search overrides the active tab's body whenever it
-  // has a query — so finding a chat never means tabbing to History. Hidden in
-  // skinny mode (no room); the query is preserved for when the rail expands.
-  const searching = !collapsed && search.trim().length > 0;
   const onToggle =
     toggleTarget === 'execution' ? toggleExecutionRailOpen : toggleRailCollapsed;
 
@@ -88,9 +90,6 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
 
   const select = (next: RailTab) => {
     setTab(next);
-    // Selecting a tab is an explicit "show me this" — clear any active search
-    // so the tab body actually appears instead of staying under results.
-    setSearch('');
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(STORAGE_KEY, next);
     }
@@ -99,32 +98,22 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
   return (
     <SessionHoverProvider>
       <div className="flex flex-col h-full">
-        <TriggersButton
-          collapsed={collapsed}
-          onClick={() => setTriggersOpen(true)}
-        />
-        {!collapsed && <RailSearchInput value={search} onChange={setSearch} />}
-        <RailHeader
-          collapsed={collapsed}
-          tab={tab}
-          onSelectTab={select}
-          onToggle={onToggle}
-        />
+        <RailHome collapsed={collapsed} />
+        <RailToolbar collapsed={collapsed} onToggle={onToggle} />
+        {!collapsed && <RailHeader tab={tab} onSelectTab={select} />}
         <div
           className={cn(
             'flex-1 min-h-0 overflow-y-auto pt-1 pb-4',
-            collapsed && 'overflow-x-hidden',
+            collapsed && 'overflow-x-hidden border-t border-border/40',
           )}
         >
           {/* Pinned executions sit above the tab body on every wide tab, so
               the user's kept-close work is one glance away regardless of
-              which lens they're in. Hidden while searching (results own the
-              body) and in skinny mode (no room). Renders nothing when empty. */}
-          {!collapsed && !searching && <PinnedRail />}
+              which lens they're in. Hidden in skinny mode (no room).
+              Renders nothing when empty. */}
+          {!collapsed && <PinnedRail />}
           {collapsed ? (
             <SkinnyView tab={tab} />
-          ) : searching ? (
-            <SessionSearchResults query={search} />
           ) : tab === 'status' ? (
             <StatusView />
           ) : tab === 'history' ? (
@@ -133,7 +122,7 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
             <WorkspaceNav />
           )}
         </div>
-        {!collapsed && <RailFooter />}
+        <RailFooter collapsed={collapsed} onOpenSchedules={() => setTriggersOpen(true)} />
       </div>
       <SessionHoverPreview />
       <TriggersModal open={triggersOpen} onClose={() => setTriggersOpen(false)} />
@@ -142,143 +131,87 @@ export function RailTabs({ forceCollapsed, toggleTarget = 'global' }: RailTabsPr
 }
 
 /**
- * Prominent button at the top of the rail. Two modes:
- *   - expanded: full-width "Schedules and Triggers" pill with the clock icon
- *   - collapsed (skinny rail): icon-only button centered
- * Both open the TriggersModal — same surface, same affordance.
+ * Start work, find work, and fold the rail. A row of icons under the home
+ * row when the rail is wide, a column of the same icons in the same order
+ * when it's skinny.
+ *
+ * ➕ opens the launcher with no agent picked: you write what you want and
+ * pick where it runs, in either order. Starting in a given agent stays on
+ * that agent's row and view, which open the launcher on it.
  */
-function TriggersButton({
-  collapsed,
-  onClick,
-}: {
-  collapsed: boolean;
-  onClick: () => void;
-}) {
-  const { data } = useRunsStats();
-  const activeRuns = data?.activeRuns ?? 0;
-
+function RailToolbar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const toggleLabel = `${collapsed ? 'Expand rail' : 'Collapse rail'} (${HOTKEYS.toggleRail.label})`;
+  const actions = (
+    <>
+      <RailIconButton
+        icon={Plus}
+        label="New execution"
+        onClick={() => openLauncher({ workspaceId: null })}
+      />
+      <RailIconButton icon={Search} label="Search chats" onClick={openChatSearch} />
+    </>
+  );
   if (collapsed) {
     return (
-      <div className="flex items-center justify-center pt-2 pb-1 border-b border-border/40">
-        <button
-          type="button"
-          onClick={onClick}
-          aria-label={
-            activeRuns > 0
-              ? `Open Schedules and Triggers: ${activeRuns} run${activeRuns === 1 ? '' : 's'} active`
-              : 'Open Schedules and Triggers'
-          }
-          title={activeRuns > 0 ? `${activeRuns} active` : 'Schedules and Triggers'}
-          className="relative p-1.5 rounded-md text-muted-foreground/80 hover:text-foreground hover:bg-muted/50 transition-colors"
-        >
-          <Clock size={14} />
-          {activeRuns > 0 && (
-            <span
-              className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-blue-500"
-              aria-hidden
-            />
-          )}
-        </button>
+      <div className="flex flex-col items-center gap-0.5 pb-1.5">
+        {actions}
+        <RailIconButton
+          icon={PanelLeftOpen}
+          label={toggleLabel}
+          ariaLabel="Expand rail"
+          onClick={onToggle}
+        />
       </div>
     );
   }
   return (
-    <div className="px-2 pt-2 pb-1 border-b border-border/40">
-      <button
-        type="button"
-        onClick={onClick}
-        className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95"
-      >
-        <Clock size={12} className="text-primary-foreground" />
-        <span>Schedules and Triggers</span>
-        {activeRuns > 0 && (
-          <span className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary-foreground/15 text-primary-foreground text-[10px] tabular-nums">
-            <span className="size-1.5 rounded-full bg-primary-foreground" />
-            {activeRuns}
-          </span>
-        )}
-      </button>
+    <div className="flex items-center gap-0.5 px-2 pt-1 pb-1.5">
+      {actions}
+      <div className="flex-1" />
+      <RailIconButton
+        icon={PanelLeftClose}
+        label={toggleLabel}
+        ariaLabel="Collapse rail"
+        onClick={onToggle}
+      />
     </div>
   );
 }
 
-/**
- * Always-visible transcript search box, above the tab switcher. Typing here
- * searches the full text of every chat/execution transcript (native + imported)
- * and swaps the rail body for ranked results — regardless of which tab is
- * active. Escape clears it and returns to the tab.
- */
-function RailSearchInput({
-  value,
-  onChange,
+function RailIconButton({
+  icon: Icon,
+  label,
+  ariaLabel,
+  onClick,
 }: {
-  value: string;
-  onChange: (next: string) => void;
+  icon: LucideIcon;
+  /** Tooltip. Doubles as the accessible name unless `ariaLabel` is set. */
+  label: string;
+  ariaLabel?: string;
+  onClick: () => void;
 }) {
   return (
-    <div className="px-2 pt-1.5 pb-1 border-b border-border/40">
-      <div className="relative">
-        <Search
-          size={12}
-          className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/50 pointer-events-none"
-        />
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && value) {
-              e.preventDefault();
-              onChange('');
-            }
-          }}
-          placeholder="Search chats…"
-          aria-label="Search chat transcripts"
-          className={cn(
-            'w-full pl-7 pr-7 py-1.5 rounded-md text-[11px]',
-            'bg-muted/40 border border-transparent',
-            'placeholder:text-muted-foreground/50',
-            'focus:outline-none focus:border-border focus:bg-background',
-          )}
-        />
-        {value && (
-          <button
-            onClick={() => onChange('')}
-            aria-label="Clear search"
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground/50 hover:text-foreground"
-          >
-            <X size={12} />
-          </button>
-        )}
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel ?? label}
+      title={label}
+      className="p-1.5 rounded-md text-muted-foreground/80 hover:text-foreground hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+    >
+      <Icon size={14} />
+    </button>
   );
 }
 
 interface RailHeaderProps {
-  collapsed: boolean;
   tab: RailTab;
   onSelectTab: (next: RailTab) => void;
-  onToggle: () => void;
 }
 
-/**
- * Top section of the rail. In wide mode it carries the tab switcher
- * with the collapse button on the right; in skinny mode it's just the
- * expand button so the workspace icons get the rest of the vertical
- * space. The collapse/expand affordance always lives in the same spot
- * so muscle memory works in both modes.
- */
-function RailHeader({ collapsed, tab, onSelectTab, onToggle }: RailHeaderProps) {
-  if (collapsed) {
-    return (
-      <div className="flex items-center justify-center pt-1 pb-1.5 border-b border-border/40">
-        <ToggleButton collapsed={collapsed} onToggle={onToggle} />
-      </div>
-    );
-  }
+/** The tab switcher, in the wide rail only. */
+function RailHeader({ tab, onSelectTab }: RailHeaderProps) {
   return (
-    <div className="flex items-center gap-0.5 px-1 pt-1 pb-1.5 border-b border-border/40">
+    <div className="flex items-center gap-0.5 px-1 pt-1 pb-1.5 border-y border-border/40">
       <TabButton active={tab === 'workspace'} onClick={() => onSelectTab('workspace')}>
         Agents
       </TabButton>
@@ -288,22 +221,7 @@ function RailHeader({ collapsed, tab, onSelectTab, onToggle }: RailHeaderProps) 
       <TabButton active={tab === 'history'} onClick={() => onSelectTab('history')}>
         History
       </TabButton>
-      <ToggleButton collapsed={collapsed} onToggle={onToggle} />
     </div>
-  );
-}
-
-function ToggleButton({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
-  const Icon = collapsed ? PanelLeftOpen : PanelLeftClose;
-  return (
-    <button
-      onClick={onToggle}
-      aria-label={collapsed ? 'Expand rail' : 'Collapse rail'}
-      title={`${collapsed ? 'Expand rail' : 'Collapse rail'} (${HOTKEYS.toggleRail.label})`}
-      className="p-1 rounded-md text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors"
-    >
-      <Icon size={14} />
-    </button>
   );
 }
 

@@ -6,6 +6,18 @@ import { resetDb } from '@/lib/db';
 import { getUserState, updateUserState } from '@/lib/db/queries';
 import { GET } from './route';
 
+// Codex's catalog comes from the installed CLI. Resolve against the bundled
+// catalog so the default tuple does not depend on this machine's Codex.
+vi.mock('@/lib/harness/model-discovery', async () => {
+  const { explicitHarnessSelection } = await import('@/lib/harness/options');
+  return {
+    resolveHarnessSelection: async (
+      providerId: Parameters<typeof explicitHarnessSelection>[0],
+      preferred: Parameters<typeof explicitHarnessSelection>[1] = {},
+    ) => explicitHarnessSelection(providerId, preferred),
+  };
+});
+
 /**
  * New orchestrator chats seed their model + effort from the user's saved
  * defaults (`user_state.defaultModel` / `defaultEffort`), which the
@@ -49,15 +61,16 @@ describe('GET /api/orchestrator-chat — seeds model + effort from defaults', ()
     expect(session.effort).toBe('high');
   });
 
-  it('null defaults resolve to the Codex tuple', async () => {
+  it('null defaults resolve to the Codex tuple, without choosing one for the home', async () => {
     const { session } = await (await GET(new Request('http://localhost/api'))).json();
     expect(session.harness).toBe('codex');
-    expect(session.model).toBe('gpt-6-astra');
+    expect(session.model).toBe('gpt-6.1-sol');
     expect(session.effort).toBe('medium');
+    // Starting a chat uses the default. It never sets it (docs/default-selection.md).
     expect(getUserState()).toMatchObject({
-      defaultHarness: 'codex',
-      defaultModel: 'gpt-6-astra',
-      defaultEffort: 'medium',
+      defaultHarness: null,
+      defaultModel: null,
+      defaultEffort: null,
     });
   });
 

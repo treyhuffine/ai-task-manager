@@ -250,6 +250,30 @@ describe('external agent imports', () => {
     expect(secondScan.sources.opencode).toMatchObject({ available: false, found: 0, imported: 0 });
   }, 15_000);
 
+  it("leaves out chats that ran in the home's own folder, which are Ri's background work", async () => {
+    const homeRoot = process.env.RI_ROOT!;
+    fs.mkdirSync(homeRoot, { recursive: true });
+    const homeId = '22222222-2222-4222-8222-222222222222';
+    const dir = path.join(claudeHome, 'projects', '-ri-root');
+    fs.mkdirSync(dir, { recursive: true });
+    writeJsonl(path.join(dir, `${homeId}.jsonl`), [
+      {
+        type: 'user',
+        uuid: 'home-user-1',
+        sessionId: homeId,
+        cwd: homeRoot,
+        timestamp: '2026-01-03T10:00:00.000Z',
+        isSidechain: false,
+        message: { role: 'user', content: 'You are the context-gathering step in a task-prioritization pipeline' },
+      },
+    ]);
+    const importer = await import('./external-agents');
+    const scan = await importer.discoverExternalAgentSessions();
+    expect(scan.projects.map((p) => p.cwd)).not.toContain(homeRoot);
+    expect(scan.projects.flatMap((p) => p.sessions).some((s) => s.externalSessionId === homeId)).toBe(false);
+    expect(scan.sources.claude.found).toBe(1);
+  });
+
   it('keeps an import read-only until it is taken over: dispatch refuses it, whoever sends', async () => {
     const importer = await import('./external-agents');
     const scan = await importer.discoverExternalAgentSessions();

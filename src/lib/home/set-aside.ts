@@ -5,8 +5,10 @@
  *
  * Someone who meant to connect this device to their existing Ri, but
  * started a new one here, can connect instead as long as the new home is
- * still empty: no tasks, notes, agents, stream items or chats, and
- * onboarding not finished. Its database and identity are moved into
+ * still empty: no tasks, notes, agents, stream items or chats with anything
+ * said in them, and onboarding not finished. An empty chat doesn't count: a
+ * new home opens on its main chat, which makes one before anyone types (the
+ * first-run conversation is drawn, not stored). Its database and identity are moved into
  * `<root>/.set-aside/<time>/`. Nothing is deleted, and a home with anything
  * in it is never touched.
  */
@@ -25,7 +27,17 @@ export function describeHomeUse(): { unused: boolean; counts: Record<string, num
     );
     const counts: Record<string, number> = {};
     for (const t of COUNTED) {
-      counts[t] = tables.has(t) ? (db.prepare(`SELECT count(*) AS n FROM "${t}"`).get() as { n: number }).n : 0;
+      if (!tables.has(t)) {
+        counts[t] = 0;
+      } else if (t === 'chat_sessions' && tables.has('chat_events')) {
+        counts[t] = (
+          db
+            .prepare('SELECT count(*) AS n FROM chat_sessions s WHERE EXISTS (SELECT 1 FROM chat_events e WHERE e.session_id = s.id)')
+            .get() as { n: number }
+        ).n;
+      } else {
+        counts[t] = (db.prepare(`SELECT count(*) AS n FROM "${t}"`).get() as { n: number }).n;
+      }
     }
     const onboarded = tables.has('user_state')
       ? Boolean((db.prepare('SELECT onboarded_at FROM user_state LIMIT 1').get() as { onboarded_at: string | null } | undefined)?.onboarded_at)

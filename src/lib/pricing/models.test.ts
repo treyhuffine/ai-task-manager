@@ -46,6 +46,21 @@ describe('pricingFor', () => {
     expect(astra.output).toBeGreaterThan(astra.input);
   });
 
+  it('prices every bundled Codex model from its own row, not a tier guess', () => {
+    // Codex reports no costUsd. Without an exact row, `gpt-6.1-sol` would
+    // bridge to `gpt-6-sol` (wrong cached rate) and the 5.6 family to $0.
+    expect(pricingFor('gpt-6.1-sol')).toEqual({ input: 200, cached: 10, cacheCreation: 250, output: 1000 });
+    expect(pricingFor('gpt-6-sol')).toEqual({ input: 200, cached: 20, cacheCreation: 250, output: 1000 });
+    expect(pricingFor('gpt-6-luna')).toEqual({ input: 10, cached: 1, cacheCreation: 12.5, output: 50 });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (const id of ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5']) {
+      expect(pricingFor(id)).toEqual(pricingFor(`openai/${id}`));
+      expect(pricingFor(id).input).toBeGreaterThan(0);
+    }
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('returns zero pricing for an unknown model and warns once', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(pricingFor('nonexistent-model-9')).toEqual({

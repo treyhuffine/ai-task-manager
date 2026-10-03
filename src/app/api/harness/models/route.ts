@@ -1,4 +1,4 @@
-import { getHarnessModels } from '@/lib/harness/model-discovery';
+import { getHarnessModels, withBundledFallback } from '@/lib/harness/model-discovery';
 import { customModelOption, modelsForProvider, type ModelOption } from '@/lib/harness/options';
 import { isHarnessId } from '@/lib/harness/registry';
 import { getAppRoot } from '@/lib/config/paths';
@@ -30,8 +30,11 @@ async function handleGET(request: Request) {
   const bundledHints = new Map(
     modelsForProvider(provider).map((model) => [model.id, model.hint] as const),
   );
+  // Where the live catalog is authoritative (Codex), a bundled model the
+  // installed CLI does not list comes back unavailable, with the reason
+  // settings shows in place of the hint (withBundledFallback).
   const catalogById = new Map<string, ModelOption>();
-  for (const model of [...discovery.models, ...modelsForProvider(provider)]) {
+  for (const model of withBundledFallback(provider, discovery)) {
     if (catalogById.has(model.id)) continue;
     const curated = bundledHints.get(model.id);
     catalogById.set(model.id, curated ? { ...model, hint: curated } : model);
@@ -45,10 +48,14 @@ async function handleGET(request: Request) {
   }
   // Pinned ids extend the catalog rather than replacing entries in it: one
   // that shadows a discovered model keeps that model's efforts, variants and
-  // context window and only gains the badge that makes it removable.
+  // context window and only gains the badge that makes it removable. A pin
+  // over an unavailable bundled entry wins, the same way the validation
+  // catalog accepts it (getHarnessModelCatalog).
   const pinned = new Set(settings.customModels);
   for (const id of settings.customModels) {
-    if (!catalogById.has(id)) catalogById.set(id, customModelOption(id));
+    const existing = catalogById.get(id);
+    if (existing && existing.availability !== 'unavailable') continue;
+    catalogById.set(id, customModelOption(id));
   }
   const catalog = [...catalogById.values()];
   const byId = new Map(catalog.map((model) => [model.id, model]));

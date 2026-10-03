@@ -41,6 +41,23 @@ describe('setting aside a home started by mistake', () => {
     expect(fs.existsSync(home.dbPath)).toBe(true);
   });
 
+  it('does not count the empty main chat a new home opens on', async () => {
+    const { createChatSession } = await import('@/lib/db/queries');
+    createChatSession({ type: 'orchestration', harness: 'claude', status: 'active' });
+    const { resetDb } = await import('@/lib/db');
+    resetDb();
+    expect(describeHomeUse()).toMatchObject({ unused: true, counts: expect.objectContaining({ chat_sessions: 0 }) });
+  });
+
+  it('counts a chat once anything was said in it', async () => {
+    const { createChatSession, insertChatEvent } = await import('@/lib/db/queries');
+    const chat = createChatSession({ type: 'orchestration', harness: 'claude', status: 'active' });
+    insertChatEvent({ sessionId: chat.id, role: 'user', source: 'user', content: 'Hello' });
+    const { resetDb } = await import('@/lib/db');
+    resetDb();
+    expect(describeHomeUse()).toMatchObject({ unused: false, counts: expect.objectContaining({ chat_sessions: 1 }) });
+  });
+
   it('treats a finished onboarding as use', async () => {
     const { updateUserState } = await import('@/lib/db/queries');
     updateUserState({ onboardedAt: new Date().toISOString() });

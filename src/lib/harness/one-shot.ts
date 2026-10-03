@@ -19,7 +19,7 @@
  * default the orchestrator chat uses), falling back to Codex. Model:
  * `standard` prefers the user's `defaultModel` when it belongs to the
  * resolved provider, else the CLI's own default; `fast` uses the provider's
- * cheap alias (haiku / gpt-5.4-mini).
+ * cheap model (haiku / gpt-6-luna) when the installed CLI offers it.
  *
  * Tool-using calls: pass `mcpServers` + `allowedTools`. Claude honors both
  * (strict MCP config, pre-approved tools, everything else denied
@@ -37,14 +37,15 @@ import {
   type StreamEvent,
 } from '@agentex/agent';
 import type { z } from 'zod';
-import { backgroundHarnessUnavailableReason, CHEAPEST_MODEL } from '@/lib/executor/harness';
+import { backgroundHarnessUnavailableReason } from '@/lib/executor/harness';
+import { cheapModelFor } from '@/lib/harness/model-discovery';
 import { modelBelongsToProvider, type ProviderId } from '@/lib/harness/options';
 import { runtimeContextForHarness } from '@/lib/harness/runtime';
 import { withActivity } from '@/lib/service/maintenance';
 import { getAppRoot } from '@/lib/config/paths';
 import { getUserState } from '@/lib/db/queries';
 
-/** fast = cheap alias (haiku / gpt-5.4-mini); standard = the user's default agent model. */
+/** fast = cheap model (haiku / gpt-6-luna); standard = the user's default agent model. */
 export type ModelTier = 'fast' | 'standard';
 
 const DEFAULT_DISALLOWED_TOOLS = ['Write', 'Edit', 'NotebookEdit', 'Bash'];
@@ -100,15 +101,23 @@ export function harnessSupportsMcp(providerType: ProviderId = resolveBackgroundH
 }
 
 /**
- * Model id for a tier, or undefined to let the CLI use its own default.
- * `standard` trusts the user's default agent model only when it belongs to
- * the resolved provider — stale cross-provider state falls back cleanly.
+ * The `standard` tier: the user's default agent model, trusted only when it
+ * belongs to the resolved provider — stale cross-provider state falls back
+ * cleanly to undefined, which lets the CLI use its own default.
  */
-export function backgroundModelFor(providerType: ProviderId, tier: ModelTier): string | undefined {
+export function standardModelFor(providerType: ProviderId): string | undefined {
   const preferred = getUserState()?.defaultModel?.trim() || undefined;
-  const preferredValid = preferred && modelBelongsToProvider(providerType, preferred) ? preferred : undefined;
-  if (tier === 'fast') return CHEAPEST_MODEL[providerType] ?? preferredValid;
-  return preferredValid;
+  return preferred && modelBelongsToProvider(providerType, preferred) ? preferred : undefined;
+}
+
+/**
+ * Model id for a tier, or undefined to let the CLI use its own default.
+ * `fast` takes the provider's cheap model when the installed CLI offers one,
+ * else the `standard` choice.
+ */
+export async function backgroundModelFor(providerType: ProviderId, tier: ModelTier): Promise<string | undefined> {
+  if (tier === 'fast') return (await cheapModelFor(providerType)) ?? standardModelFor(providerType);
+  return standardModelFor(providerType);
 }
 
 /** Run one bounded harness call and return its final text. Throws on failure. */
@@ -120,7 +129,7 @@ async function executeHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneS
   const providerType = resolveBackgroundHarness();
   const unavailable = backgroundHarnessUnavailableReason(providerType);
   if (unavailable) throw new Error(`[${opts.label}] ${unavailable}`);
-  const model = opts.model ?? backgroundModelFor(providerType, opts.tier ?? 'fast');
+  const model = opts.model ?? await backgroundModelFor(providerType, opts.tier ?? 'fast');
   const cwd = opts.cwd ?? getAppRoot();
   const hasMcp = (opts.mcpServers?.length ?? 0) > 0;
   const skipPermissions = opts.skipPermissions ?? !hasMcp;

@@ -18,6 +18,8 @@ import { AreaSlideout } from '@/components/dashboard/area-slideout';
 import { AreasSheet } from '@/components/dashboard/areas-sheet';
 import { SettingsModal } from '@/components/settings/settings-modal';
 import { LaunchModal } from '@/components/workspaces/launcher/launch-modal';
+import { ChatSearchModal } from '@/components/workspaces/chat-search-modal';
+import { IdentityDialog } from '@/components/orchestrator/identity-dialog';
 import { MobileLayout } from '@/components/mobile/mobile-layout';
 import { TabletLayout } from '@/components/mobile/tablet-layout';
 import { AuthRecoveryCard } from '@/components/auth/auth-recovery-card';
@@ -181,6 +183,8 @@ function DashboardShell() {
         />
         <SettingsModal />
         <LaunchModal />
+        <ChatSearchModal />
+        <IdentityDialog />
         <AuthRecoveryCard />
       </div>
     </div>

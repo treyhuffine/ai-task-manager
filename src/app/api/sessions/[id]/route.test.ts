@@ -113,16 +113,14 @@ describe('PATCH /api/sessions/[id] selection changes', () => {
     expect(recycleForModeChange).not.toHaveBeenCalled();
   });
 
-  it('persists and recycles an effort change after the active turn finishes', async () => {
+  it('persists and recycles an effort change after the active turn finishes, for this chat only', async () => {
     const response = await PATCH(request({ effort: 'xhigh' }), params());
 
     expect(response.status).toBe(200);
     expect(updateChatSession).toHaveBeenCalledWith(SESSION_ID, { effort: 'xhigh' });
-    expect(updateUserState).toHaveBeenCalledWith({
-      defaultHarness: 'claude',
-      defaultModel: 'opus',
-      defaultEffort: 'xhigh',
-    });
+    // The home's default is a choice of its own ("Make default"), never a
+    // side effect of changing one chat (docs/default-selection.md).
+    expect(updateUserState).not.toHaveBeenCalled();
     expect(recycleForModeChange).toHaveBeenCalledWith(SESSION_ID);
   });
 
@@ -192,11 +190,7 @@ describe('PATCH /api/sessions/[id] selection changes', () => {
 
     expect(response.status).toBe(200);
     expect(updateChatSession).toHaveBeenCalledWith(SESSION_ID, { model: 'opencode/grok-4.5' });
-    expect(updateUserState).toHaveBeenCalledWith({
-      defaultHarness: 'opencode',
-      defaultModel: 'opencode/grok-4.5',
-      defaultEffort: null,
-    });
+    expect(updateUserState).not.toHaveBeenCalled();
   });
 });
 

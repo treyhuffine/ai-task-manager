@@ -1,15 +1,19 @@
 'use client';
 
-import { Plug } from 'lucide-react';
+import { Clock, Plug } from 'lucide-react';
 import { openSettings } from '@/components/settings/settings-store';
 import { CONNECTOR_ICONS } from '@/components/connectors/connector-icon-data';
+import { useRunsStats } from '@/hooks/use-runs-stats';
 import { cn } from '@/lib/utils';
 
-// Thin strip at the bottom of the expanded rail: the way into connecting
-// apps (Gmail, Notion, Linear, ... and remote MCP servers) so agents can act
-// in them. Opens Settings → Plugins on its Connectors tab. Hidden in
-// skinny mode along with the rest of the expanded chrome (the icon-only rail
-// has no room).
+// The bottom of the rail: what you set up rather than visit. Schedules and
+// triggers (when agents work without you asking) and connecting apps (where
+// they can act). Both are occasional, so they sit below the work instead of
+// above it, where Schedules used to be a full-width primary button.
+//
+// Connect apps opens Settings → Plugins on its Connectors tab (Gmail, Notion,
+// Linear, ... and remote MCP servers). The skinny rail keeps only the
+// schedules clock, whose dot says runs are going. Connect apps needs its words.
 //
 // Replaces the old ⌘K/⌘J hint labels + theme toggle that used to live here:
 // the shortcuts stay global, and theme still toggles from the command palette
@@ -42,9 +46,23 @@ function AppTile({ id, className }: { id: (typeof APPS)[number]; className?: str
   );
 }
 
-export function RailFooter() {
+export function RailFooter({
+  collapsed,
+  onOpenSchedules,
+}: {
+  collapsed: boolean;
+  onOpenSchedules: () => void;
+}) {
+  if (collapsed) {
+    return (
+      <footer className="flex flex-shrink-0 justify-center border-t border-border/40 py-1.5">
+        <SchedulesButton collapsed onClick={onOpenSchedules} />
+      </footer>
+    );
+  }
   return (
-    <footer className="flex-shrink-0 px-2 py-2 border-t border-border/40">
+    <footer className="flex flex-shrink-0 flex-col gap-1 px-2 py-2 border-t border-border/40">
+      <SchedulesButton collapsed={false} onClick={onOpenSchedules} />
       <button
         type="button"
         onClick={() => openSettings('plugins', { anchor: 'connectors' })}
@@ -61,5 +79,53 @@ export function RailFooter() {
         </span>
       </button>
     </footer>
+  );
+}
+
+/**
+ * Opens Schedules and Triggers. Carries the live run count so work running
+ * on a schedule is visible from anywhere: a number in the wide rail, a dot
+ * on the clock in the skinny one.
+ */
+function SchedulesButton({ collapsed, onClick }: { collapsed: boolean; onClick: () => void }) {
+  const { data } = useRunsStats();
+  const activeRuns = data?.activeRuns ?? 0;
+  const running = activeRuns > 0 ? `${activeRuns} run${activeRuns === 1 ? '' : 's'} active` : null;
+
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={running ? `Open Schedules and Triggers: ${running}` : 'Open Schedules and Triggers'}
+        title={running ? `Schedules and Triggers: ${running}` : 'Schedules and Triggers'}
+        className="relative p-1.5 rounded-md text-muted-foreground/80 hover:text-foreground hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      >
+        <Clock size={14} />
+        {running && (
+          <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-blue-500" aria-hidden />
+        )}
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={running ? `Schedules and Triggers: ${running}` : 'Schedules and Triggers'}
+      className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 transition-colors"
+    >
+      <Clock size={13} className="flex-shrink-0" />
+      <span>Schedules and Triggers</span>
+      {running && (
+        <span
+          className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] tabular-nums"
+          aria-label={running}
+        >
+          <span className="size-1.5 rounded-full bg-blue-500" aria-hidden />
+          {activeRuns}
+        </span>
+      )}
+    </button>
   );
 }

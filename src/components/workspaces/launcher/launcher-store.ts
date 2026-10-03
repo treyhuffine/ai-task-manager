@@ -13,7 +13,9 @@ import { useSyncExternalStore } from 'react';
  *
  * `workspaceId` is a *seed*, not a constraint. The modal renders it as a
  * changeable chip, so opening from a row prefills that workspace while
- * still allowing a launch into a different one.
+ * still allowing a launch into a different one. An explicit `null` opens it
+ * with no agent picked (the rail's ➕): the person writes the prompt and
+ * picks where it runs, in either order.
  */
 /** Optional seed for "Start with agent": the task this execution will own,
  * plus its title/body which the modal turns into a context chip. */
@@ -28,26 +30,34 @@ interface LauncherState {
   open: boolean;
   workspaceId: string | null;
   seed: LauncherSeed | null;
+  /** Opened with no agent picked (`workspaceId: null`). The modal must not fill one in. */
+  pickAgent: boolean;
   /** Bumped on every open so the modal can reset its draft without an effect. */
   nonce: number;
 }
 
-let state: LauncherState = { open: false, workspaceId: null, seed: null, nonce: 0 };
+let state: LauncherState = { open: false, workspaceId: null, seed: null, pickAgent: false, nonce: 0 };
 const listeners = new Set<() => void>();
 
 function emit() {
   for (const listener of listeners) listener();
 }
 
-/** Open the launcher. Pass a workspace id (a seed, not a constraint) or a full
- * seed object for "Start with agent". */
+/** Open the launcher. Pass a workspace id (a seed, not a constraint), a full
+ * seed object for "Start with agent", or `{ workspaceId: null }` to open with
+ * no agent picked. A seed that leaves the workspace out reopens on the last
+ * agent the launcher was seeded with. */
 export function openLauncher(arg?: string | LauncherSeed | null): void {
   const seed: LauncherSeed | null =
     typeof arg === 'string' ? { workspaceId: arg } : arg ?? null;
+  const pickAgent = seed?.workspaceId === null;
   state = {
     open: true,
+    // Remembered across an agent-less open, so the next seeded one still
+    // falls back to the agent it fell back to before.
     workspaceId: seed?.workspaceId ?? state.workspaceId,
     seed,
+    pickAgent,
     nonce: state.nonce + 1,
   };
   emit();
@@ -66,10 +76,11 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-function getSnapshot(): LauncherState {
+/** The launcher's current state, outside React. */
+export function getLauncherState(): LauncherState {
   return state;
 }
 
 export function useLauncherStore(): LauncherState {
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  return useSyncExternalStore(subscribe, getLauncherState, getLauncherState);
 }
