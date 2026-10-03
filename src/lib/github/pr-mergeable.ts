@@ -28,6 +28,12 @@ export interface PrStatus {
   reviewDecision: PrReviewDecision | null;
   /** Whether "merge when ready" (auto-merge) is currently enabled on the PR. */
   autoMergeEnabled: boolean;
+  /**
+   * GitHub won't merge it until the branch has its base's latest commits
+   * (`mergeStateStatus: BEHIND`). GitHub only says so when the base requires
+   * branches to be up to date. Otherwise a branch behind its base merges fine.
+   */
+  outOfDate: boolean;
 }
 
 /**
@@ -54,6 +60,7 @@ const UNKNOWN_STATUS: PrStatus = {
   checks: null,
   reviewDecision: null,
   autoMergeEnabled: false,
+  outOfDate: false,
 };
 
 function classifyRollupItem(c: RawRollupItem): 'passed' | 'failed' | 'pending' {
@@ -147,6 +154,7 @@ export async function getPrStatus(cwd: string, prNumber: number): Promise<PrStat
       checks: summarizeChecks(parsed.statusCheckRollup),
       reviewDecision: mapReviewDecision(parsed.reviewDecision),
       autoMergeEnabled: parsed.autoMergeRequest != null,
+      outOfDate: parsed.mergeStateStatus === 'BEHIND',
     };
   } catch {
     return UNKNOWN_STATUS;

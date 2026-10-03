@@ -12,6 +12,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { looksLikeUpstreamMismatch } from './git-errors';
+import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
 
 const execFileAsync = promisify(execFile);
 
@@ -83,4 +84,138 @@ async function fetchOrSay(git: ReturnType<typeof gitIn>, remote: string, refspec
     const detail = stderr.split('\n').find((l) => l.trim())?.trim() ?? '';
     throw new Error(`Couldn't fetch ${what} from ${remote}.${detail ? ` ${detail}` : ''}`);
   }
+}
+
+/**
+ * Where a branch stands, for the git chip. `git status` counts ahead/behind
+ * against the branch's upstream, and the first push re-points that upstream
+ * from the base (`origin/main`) to the branch's own remote copy
+ * (`origin/feat`). So the same two numbers mean "against the base" before the
+ * first push and "against my remote copy" after it. This says which, and
+ * counts against the base separately.
+ */
+export interface BranchSync {
+  /** The branch's upstream, e.g. `origin/feat`. Null when it tracks nothing. */
+  upstream: string | null;
+  /**
+   * The upstream is the base itself: a branch not pushed yet, or work on the
+   * base. Status ahead/behind are then counted against the base. Otherwise
+   * they're counted against the branch's own remote copy.
+   */
+  upstreamIsBase: boolean;
+  /** The base as a remote-tracking ref, e.g. `origin/main`. Null when unresolvable. */
+  base: string | null;
+  /** Commits the base has that this branch lacks, as of the last fetch. Null when the base can't be read. */
+  behindBase: number | null;
+}
+
+/**
+ * Read a worktree's `BranchSync`, measured against the agent's configured
+ * base branch on its remote (`origin/main`), never against agentex's recorded
+ * base, which every worktree of a repository shares (see `resolveAnchor` in
+ * diff-stats.ts). Also refreshes the base and the upstream from the remote in
+ * the background, at most every `REFRESH_EVERY_MS`, so the next read is
+ * current: counts only move when something fetches, and a status read never
+ * waits on the network.
+ */
+export async function readBranchSync(
+  worktreePath: string,
+  opts: { baseBranch: string | null; remoteName: string | null },
+): Promise<BranchSync> {
+  const git = gitIn(worktreePath);
+  const [upstream, remotesOut] = await Promise.all([
+    git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}').catch(() => null),
+    git('remote').catch(() => ''),
+  ]);
+  const remotes = remotesOut.split('\n').filter(Boolean);
+  const base = await resolveBaseTrackingRef(git, remotes, opts);
+  let behindBase: number | null = null;
+  if (base) {
+    const counted = await git('rev-list', '--count', `HEAD..refs/remotes/${base}`).catch(() => null);
+    behindBase = counted == null ? null : parseInt(counted, 10) || 0;
+  }
+  refreshInBackground(worktreePath, remotes, [base, upstream || null]);
+  return { upstream: upstream || null, upstreamIsBase: !!upstream && upstream === base, base, behindBase };
+}
+
+/** The base branch as `<remote>/<branch>`: as configured, else the remote's default branch. */
+async function resolveBaseTrackingRef(
+  git: ReturnType<typeof gitIn>,
+  remotes: string[],
+  opts: { baseBranch: string | null; remoteName: string | null },
+): Promise<string | null> {
+  const remote = opts.remoteName ?? (remotes.includes('origin') ? 'origin' : remotes[0]);
+  if (opts.baseBranch) {
+    const [head, ...rest] = opts.baseBranch.split('/');
+    if (rest.length > 0 && remotes.includes(head!)) return opts.baseBranch;
+    return remote ? `${remote}/${opts.baseBranch}` : null;
+  }
+  if (!remote) return null;
+  const defaultBranch = await git('symbolic-ref', '--short', `refs/remotes/${remote}/HEAD`).catch(() => '');
+  return defaultBranch || `${remote}/main`;
+}
+
+/** How often a worktree's base and upstream are refreshed from the remote. */
+export const REFRESH_EVERY_MS = 90_000;
+const lastRefresh = new Map<string, number>();
+
+/**
+ * Fetch the given remote-tracking refs, fire and forget. Never prompts for
+ * credentials and gives up after 30s. A failure (offline, a deleted branch)
+ * just leaves the counts as they were.
+ */
+function refreshInBackground(worktreePath: string, remotes: string[], refs: (string | null)[]): void {
+  const now = Date.now();
+  if (now - (lastRefresh.get(worktreePath) ?? 0) < REFRESH_EVERY_MS) return;
+  lastRefresh.set(worktreePath, now);
+  const specsByRemote = new Map<string, string[]>();
+  for (const ref of new Set(refs)) {
+    const split = splitTrackingRef(ref, remotes);
+    if (!split) continue;
+    const specs = specsByRemote.get(split.remote) ?? [];
+    specs.push(`+refs/heads/${split.branch}:refs/remotes/${split.remote}/${split.branch}`);
+    specsByRemote.set(split.remote, specs);
+  }
+  for (const [remote, specs] of specsByRemote) {
+    execFileAsync('git', ['fetch', '--quiet', '--no-tags', remote, ...specs], {
+      cwd: worktreePath,
+      timeout: 30_000,
+      env: sanitizeChildEnv({ GIT_TERMINAL_PROMPT: '0' }),
+    }).catch(() => {});
+  }
+}
+
+/** `origin/feat/x` into its remote and branch, by the remotes this repository has. */
+function splitTrackingRef(ref: string | null, remotes: string[]): { remote: string; branch: string } | null {
+  if (!ref) return null;
+  const remote = remotes
+    .filter((r) => ref.startsWith(`${r}/`))
+    .sort((a, b) => b.length - a.length)[0];
+  return remote ? { remote, branch: ref.slice(remote.length + 1) } : null;
+}
+
+/**
+ * Bring in commits pushed to this branch's own remote copy from elsewhere:
+ * GitHub's "Update branch", a suggestion committed in review, or another
+ * clone. Fetches the upstream fresh, then merges (a fast-forward when this
+ * side has nothing new). A conflict throws the library's `MergeConflictError`
+ * like `pullBaseInto` does.
+ */
+export async function pullUpstreamInto(
+  handle: { path: string; git: { mergeFrom(ref: string, opts?: { strategy?: 'merge' | 'rebase' }): Promise<void> } },
+  opts: { strategy: 'merge' | 'rebase' },
+): Promise<void> {
+  const git = gitIn(handle.path);
+  const upstream = await git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}').catch(() => '');
+  if (!upstream) throw new Error('This branch tracks no remote branch to pull from.');
+  const remotes = (await git('remote')).split('\n').filter(Boolean);
+  const split = splitTrackingRef(upstream, remotes);
+  if (!split) throw new Error(`This branch tracks ${upstream}, which isn't on a remote.`);
+  await fetchOrSay(git, split.remote, `+refs/heads/${split.branch}:refs/remotes/${split.remote}/${split.branch}`, split.branch);
+  await handle.git.mergeFrom(upstream, { strategy: opts.strategy });
+}
+
+/** Test seam: forget when each worktree was last refreshed. */
+export function resetRefreshThrottle(): void {
+  lastRefresh.clear();
 }

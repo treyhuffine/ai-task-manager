@@ -560,7 +560,7 @@ export function ExecutionHeader({
           <div className="flex flex-shrink-0 items-center gap-2 has-[>div:empty]:hidden">
             <span aria-hidden className="mx-1 h-5 w-px flex-shrink-0 bg-border" />
             <div className="flex-shrink-0">
-              <ExecutionActionBar session={session} workspace={workspace} variant="narrative" fit />
+              <ExecutionActionBar session={session} workspace={workspace} fit />
             </div>
           </div>
         )}

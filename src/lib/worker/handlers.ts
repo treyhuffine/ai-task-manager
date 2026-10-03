@@ -36,7 +36,7 @@ import { hasBackgroundTasks, isRunning } from '@/lib/runner/live-state';
 import { openHere } from './open-here';
 import { reviewHere } from '@/lib/transfer/review';
 import { runGithub, type GithubRequest } from '@/lib/github/execution-github';
-import { pullBaseInto, pushExecutionBranch } from '@/lib/workspaces/branch-sync';
+import { pullBaseInto, pullUpstreamInto, pushExecutionBranch } from '@/lib/workspaces/branch-sync';
 import { looksLikeNonFastForward } from '@/lib/workspaces/git-errors';
 import { uncommittedFilesOf } from '@/lib/workspaces/uncommitted-files';
 import { fetchInputFiles, inputFilesDir, placeInputFiles } from './input-files';
@@ -71,13 +71,15 @@ export interface PreparePayload {
 
 /**
  * A Git operation on an execution's worktree here (P4.2, P4.5): the
- * checkpoint a transfer publishes, a push, bringing in the base branch, or
- * removing the worktree when the execution is archived.
+ * checkpoint a transfer publishes, a push, bringing in the base branch or
+ * what was pushed to the branch elsewhere, or removing the worktree when the
+ * execution is archived.
  */
 export type GitPayload =
   | { op: 'checkpoint'; message: string; includeUntracked: string[]; filesToCopy: string[]; transferId?: string }
   | { op: 'push'; workspaceId?: string }
   | { op: 'pull_base'; strategy: 'merge' | 'rebase'; workspaceId: string; baseBranch?: string | null }
+  | { op: 'pull_upstream'; strategy: 'merge' | 'rebase'; workspaceId: string }
   | { op: 'archive_worktree'; force: boolean; teardownCommand: string | null; workspaceId: string };
 
 /** Stopping everything an execution runs here, for a transfer (P4.2). */
@@ -609,6 +611,13 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
             await pullBaseInto(handle, { strategy: payload.strategy, baseBranch: payload.baseBranch ?? null });
             return { state: 'delivered', result: { pulled: true } };
           }
+          case 'pull_upstream': {
+            const source = agentFolderHere(ctx.target.homeId, payload.workspaceId) ?? worktree;
+            const handle = await openWorktreeHandle({ worktreePath: worktree }, { cwd: source, baseBranch: null, remoteName: null });
+            if (!handle || handle.kind !== 'git') return { state: 'failed', error: "The worktree isn't a Git repository." };
+            await pullUpstreamInto(handle, { strategy: payload.strategy });
+            return { state: 'delivered', result: { pulled: true } };
+          }
           case 'archive_worktree': {
             const source = agentFolderHere(ctx.target.homeId, payload.workspaceId) ?? worktree;
             if (worktree === source) return { state: 'delivered', result: { removed: false } };
@@ -627,7 +636,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
             ? err.code
             : payload.op === 'push' && looksLikeNonFastForward(err)
               ? 'non_fast_forward'
-              : payload.op === 'pull_base' && (err as { name?: string }).name === 'MergeConflictError'
+              : (payload.op === 'pull_base' || payload.op === 'pull_upstream') && (err as { name?: string }).name === 'MergeConflictError'
                 ? 'merge_conflict'
                 : payload.op === 'archive_worktree' && (err as { name?: string }).name === 'DirtyWorktreeError'
                   ? 'dirty_worktree'
@@ -638,8 +647,8 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       }
     },
     // Each is safe to repeat: a checkpoint finds its commit, a push has
-    // nothing left, a merged base has nothing to bring in, and a removed
-    // worktree is gone.
+    // nothing left, a merged base or upstream has nothing to bring in, and
+    // a removed worktree is gone.
     recover: (command, _stage, ctx) => gitCommand.run(command, ctx),
   };
 

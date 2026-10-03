@@ -13,6 +13,7 @@ import { fileErrorAnswer } from './file-http';
 import { readWorktreeDiffStats } from './diff-stats';
 import { detectSourceWip } from './wip';
 import { workingState } from '@/lib/transfer/git-checkpoint';
+import { readBranchSync, type BranchSync } from './branch-sync';
 
 /** Where an execution's files are on the device answering. */
 export interface ExecutionLocation {
@@ -81,7 +82,7 @@ export async function readExecution(location: ExecutionLocation, read: Execution
     case 'status': {
       const handle = await openWorktreeHandle(pointer, sourceOf(location));
       if (!handle || handle.kind !== 'git') return ok(null);
-      return ok(await handle.git.status());
+      return ok(await readGitStatus(handle, location.worktreePath, sourceOf(location)));
     }
     case 'diff_stats': {
       if (!location.isGit) return ok(null);
@@ -103,4 +104,17 @@ export async function readExecution(location: ExecutionLocation, read: Execution
       return ok(await workingState(location.worktreePath, location.filesToCopy));
     }
   }
+}
+
+/**
+ * A worktree's git status with its `BranchSync` alongside, the shape
+ * `GET /sessions/:id/status` answers here and on a connected device.
+ */
+export async function readGitStatus<S extends object>(
+  handle: { git: { status(): Promise<S> } },
+  worktreePath: string,
+  source: { baseBranch: string | null; remoteName: string | null },
+): Promise<S & { sync: BranchSync }> {
+  const [status, sync] = await Promise.all([handle.git.status(), readBranchSync(worktreePath, source)]);
+  return { ...status, sync };
 }

@@ -515,6 +515,8 @@ describe('the controls follow the work (P4.5)', () => {
   const routes = {
     push: () => import('@/app/api/sessions/[id]/push/route'),
     pullBase: () => import('@/app/api/sessions/[id]/pull-base/route'),
+    pullUpstream: () => import('@/app/api/sessions/[id]/pull-upstream/route'),
+    status: () => import('@/app/api/sessions/[id]/status/route'),
     merge: () => import('@/app/api/sessions/[id]/merge/route'),
     pr: () => import('@/app/api/sessions/[id]/pr/route'),
     commit: () => import('@/app/api/sessions/[id]/commit/route'),
@@ -582,8 +584,23 @@ describe('the controls follow the work (P4.5)', () => {
     expect(await call('push', chatId)).toMatchObject({ status: 409, body: { code: 'non_fast_forward' } });
     expect(git(remote, 'log', '--format=%s', '-1', `refs/heads/${branch}`)).toBe('theirs');
 
-    // The base branch moved: brought in there.
+    // The status read there says what the counts are against: the branch's own remote copy.
+    git(there, 'fetch', '-q', 'origin');
+    expect((await call('status', chatId, { method: 'GET' })).body).toMatchObject({
+      ahead: 1,
+      behind: 1,
+      sync: { upstream: `origin/${branch}`, upstreamIsBase: false, base: 'origin/main', behindBase: 0 },
+    });
+    // Pull brings theirs in there, merging with this side's commit, and then the push goes through.
+    expect(await call('pullUpstream', chatId, { body: { strategy: 'merge' } })).toMatchObject({ status: 200, body: { ok: true } });
+    expect(fs.readFileSync(path.join(there, 'THEIRS.md'), 'utf8')).toBe('theirs\n');
+    expect(await call('push', chatId)).toMatchObject({ status: 200, body: { ok: true } });
+    expect(git(remote, 'rev-parse', `refs/heads/${branch}`)).toBe(git(there, 'rev-parse', 'HEAD'));
+
+    // The base branch moved: counted against the base there, then brought in.
     pushToMain('BASE.md', 'from main\n');
+    git(there, 'fetch', '-q', 'origin');
+    expect((await call('status', chatId, { method: 'GET' })).body).toMatchObject({ sync: { behindBase: 1 } });
     expect(await call('pullBase', chatId, { body: { strategy: 'merge' } })).toMatchObject({ status: 200, body: { ok: true } });
     expect(fs.readFileSync(path.join(there, 'BASE.md'), 'utf8')).toBe('from main\n');
     // And a conflict says so.

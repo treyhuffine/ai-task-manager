@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatSessionWithExecution } from '@/db/types';
 import type { DiffStats, PrInfo, WorktreeStatus } from '@/lib/api/sessions';
-import { deriveActionState } from './use-execution-actions';
+import type { BranchSync } from '@/lib/workspaces/branch-sync';
+import { baseInfo, deriveActionState } from './use-execution-actions';
 
 const clean: WorktreeStatus = { dirty: false, untracked: [], modified: [], staged: [], ahead: 0, behind: 0 } as unknown as WorktreeStatus;
 
@@ -72,5 +73,58 @@ describe('a branch with work and no PR', () => {
     expect(deriveActionState({ ...base, session: here, status: dirty, diffStats: changed })).toMatchObject({ kind: 'dirty' });
     const behind = { ...clean, behind: 5 } as WorktreeStatus;
     expect(deriveActionState({ ...base, session: here, status: behind, diffStats: changed })).toEqual({ kind: 'behindBase', behind: 5 });
+  });
+});
+
+describe('reading the upstream for what it is (BranchSync)', () => {
+  // Before the first push the branch tracks the base, after it its own remote copy.
+  const unpushed: BranchSync = { upstream: 'origin/main', upstreamIsBase: true, base: 'origin/main', behindBase: 0 };
+  const pushed: BranchSync = { upstream: 'origin/feat', upstreamIsBase: false, base: 'origin/main', behindBase: 5 };
+  const at = (sync: BranchSync, counts: Partial<WorktreeStatus> = {}) => ({ ...clean, ...counts, sync }) as WorktreeStatus;
+  const changed: DiffStats = { files: 3, additions: 40, deletions: 2 };
+  const open = (extra: Partial<PrInfo> = {}) =>
+    ({ number: 402, url: 'https://github.com/o/r/pull/402', state: 'OPEN', mergeable: 'MERGEABLE', outOfDate: false, ...extra }) as PrInfo;
+  const derive = (status: WorktreeStatus, extra: { pr?: PrInfo; diffStats?: DiffStats } = {}) =>
+    deriveActionState({ ...base, session: here, status, pr: extra.pr ?? null, diffStats: extra.diffStats ?? null });
+
+  it('offers your push before a pull when the base moved, since being behind never blocks', () => {
+    expect(derive(at(unpushed, { ahead: 4, behind: 2 }))).toEqual({ kind: 'aheadNoPr', ahead: 4 });
+    expect(baseInfo(at(unpushed, { ahead: 4, behind: 2 }))).toEqual({ name: 'main', behind: 2 });
+    // Nothing of its own yet: catching up is the only step.
+    expect(derive(at(unpushed, { behind: 3 }))).toEqual({ kind: 'behindBase', behind: 3 });
+  });
+
+  it('offers the PR for a pushed branch, and says how far behind the base it is', () => {
+    expect(derive(at(pushed), { diffStats: changed })).toEqual({ kind: 'branchNoPr', files: 3 });
+    expect(baseInfo(at(pushed))).toEqual({ name: 'main', behind: 5 });
+  });
+
+  it("pulls what someone else pushed to the branch before anything else", () => {
+    expect(derive(at(pushed, { behind: 2 }), { diffStats: changed })).toEqual({ kind: 'behindRemote', behind: 2, remote: 'origin' });
+    // Both sides moved: still the pull first, which merges, then the push.
+    expect(derive(at(pushed, { ahead: 1, behind: 2 }))).toMatchObject({ kind: 'behindRemote', behind: 2 });
+    expect(derive(at(pushed, { behind: 1 }), { pr: open() })).toEqual({
+      kind: 'behindRemote', behind: 1, remote: 'origin', pr: { prNumber: 402, prUrl: 'https://github.com/o/r/pull/402' },
+    });
+  });
+
+  it('lets an open PR merge while behind the base, unless GitHub requires it up to date', () => {
+    expect(derive(at(pushed), { pr: open() })).toMatchObject({ kind: 'prOpenInSync', prNumber: 402 });
+    expect(derive(at(pushed), { pr: open({ outOfDate: true }) })).toMatchObject({ kind: 'prOpenBehindBase', behind: 5 });
+    // Required update and unpushed work: bring the base in first, then one push carries both.
+    expect(derive(at(pushed, { ahead: 2 }), { pr: open({ outOfDate: true }) })).toMatchObject({ kind: 'prOpenBehindBase' });
+    expect(derive(at(pushed, { ahead: 2 }), { pr: open() })).toMatchObject({ kind: 'prOpenAhead', ahead: 2 });
+    expect(derive(at(pushed), { pr: open({ mergeable: 'CONFLICTING' }) })).toMatchObject({ kind: 'prConflictingWithBase', behind: 5 });
+  });
+
+  it('settles a merged or closed PR before anything on the branch', () => {
+    expect(derive(at(pushed, { behind: 3 }), { pr: open({ state: 'MERGED' }) })).toMatchObject({ kind: 'prMerged' });
+    expect(derive(at(pushed, { ahead: 1 }), { pr: open({ state: 'CLOSED' }) })).toMatchObject({ kind: 'prClosed' });
+  });
+
+  it('reads an older device the old way, with the upstream taken as the base', () => {
+    // No `sync`: behind wins before a PR, as it always did.
+    expect(derive({ ...clean, ahead: 4, behind: 2 } as WorktreeStatus)).toEqual({ kind: 'behindBase', behind: 2 });
+    expect(baseInfo({ ...clean, behind: 2 } as WorktreeStatus)).toBeNull();
   });
 });

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ArrowUpToLine, ArrowDownToLine, ArrowUpRight, CheckCircle2, XCircle, Clock, AlertCircle, Archive, GitMerge, RotateCw } from 'lucide-react';
-import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState, type OpenablePr } from '@/hooks/use-execution-actions';
+import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState, type BaseInfo, type OpenablePr } from '@/hooks/use-execution-actions';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import { useArchiveExecution } from '@/hooks/use-archive-execution';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -21,35 +21,20 @@ interface ExecutionActionBarProps {
   session: ChatSessionWithExecution;
   workspace: WorkspaceRecord | undefined | null;
   /**
-   * Layout variant:
-   *   - `row` (default): standalone strip with its own border + bg.
-   *     Used on mobile where space allows a dedicated row.
-   *   - `inline`: no wrapper — just the buttons. Used inside the
-   *     desktop full-width header so the actions sit alongside the
-   *     status pill and menu.
-   *   - `narrative`: a single contained chip that reads as a sentence
-   *     describing the current git state and the next action. Used
-   *     by the desktop header's narrative layout variant.
-   */
-  variant?: 'row' | 'inline' | 'narrative';
-  /**
-   * Narrative only: size the chip to its content instead of stretching to
-   * the row. The desktop header sets this, since the chip sits at its far
-   * right next to the layout toggles.
+   * Size the chip to its content instead of stretching to the row. The
+   * desktop header sets this, since the chip sits at its far right next to
+   * the layout toggles. The phone gives it a full-width row.
    */
   fit?: boolean;
 }
 
 /**
- * State-driven cluster of review-and-ship actions. Visibility-only —
- * missing actions don't render; the exception is `Merge`, which
- * renders greyed with a tooltip when a PR exists but isn't mergeable.
- *
- * For non-git workspaces and not-yet-provisioned worktrees the bar
- * collapses to nothing (handled at the call site).
+ * The git chip: one sentence describing where the branch stands, tinted by
+ * state, with the one next step. Nothing renders for non-git workspaces and
+ * not-yet-provisioned worktrees, apart from a linked PR's reference.
  */
-export function ExecutionActionBar({ session, workspace, variant = 'row', fit = false }: ExecutionActionBarProps) {
-  const { state, openablePr, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts } = useExecutionActions(
+export function ExecutionActionBar({ session, workspace, fit = false }: ExecutionActionBarProps) {
+  const { state, base, openablePr, push, pullBase, pullUpstream, retrySetup, resolveConflicts } = useExecutionActions(
     session,
     workspace?.isGit ?? false,
   );
@@ -157,6 +142,29 @@ export function ExecutionActionBar({ session, workspace, variant = 'row', fit = 
     });
   };
 
+  /** Bring in what was pushed to the branch elsewhere. A conflict goes to the agent. */
+  const handlePullUpstream = () => {
+    pullUpstream.mutate(undefined, {
+      // The branch now has what its remote had, so a refused push is settled.
+      onSuccess: () => push.reset(),
+      onError: (err) => {
+        if (err instanceof ApiError && err.status === 409) {
+          const body = err.body as { code?: string } | null;
+          if (body?.code === 'merge_conflict') {
+            handleResolveConflicts('local_vs_remote');
+            return;
+          }
+        }
+        setActionError({
+          title: 'Pull failed',
+          action: 'Pull the branch',
+          message: errorText(err),
+          context: baseContext(),
+        });
+      },
+    });
+  };
+
   const handleResolveConflicts = (scenario: 'pr_vs_base' | 'local_vs_remote') => {
     resolveConflicts.mutate(scenario, {
       onSuccess: () => {
@@ -230,53 +238,21 @@ export function ExecutionActionBar({ session, workspace, variant = 'row', fit = 
     />
   );
 
-  if (variant === 'narrative') {
-    return (
-      <>
-        <Narrative
-          state={state}
-          openablePr={openablePr}
-          fit={fit}
-          sessionId={session.id}
-          push={{ pending: push.isPending, onClick: handlePush }}
-          pullBase={{ pending: pullBase.isPending, onClick: handlePull }}
-          retrySetup={{ pending: retrySetup.isPending, onClick: handleRetrySetup }}
-          archive={{ pending: archivePending, onClick: handleArchive }}
-          resolveConflicts={resolveAction}
-        />
-        {errorModal}
-      </>
-    );
-  }
-
-  const buttons = (
-    <Buttons
-      state={state}
-      sessionId={session.id}
-      push={{ pending: push.isPending, onClick: handlePush }}
-      pullBase={{ pending: pullBase.isPending, onClick: handlePull }}
-      retrySetup={{ pending: retrySetup.isPending, onClick: handleRetrySetup }}
-      archive={{ pending: archivePending, onClick: handleArchive }}
-      resolveConflicts={resolveAction}
-      openPrPending={openPr.isPending}
-      mergePending={mergePr.isPending}
-    />
-  );
-
-  if (variant === 'inline') {
-    return (
-      <>
-        <div className="flex items-center gap-1.5 min-w-0">{buttons}</div>
-        {errorModal}
-      </>
-    );
-  }
-
   return (
     <>
-      <div className="flex items-center gap-1.5 border-b border-border bg-background/95 px-3 py-1.5 overflow-x-auto">
-        {buttons}
-      </div>
+      <Narrative
+        state={state}
+        base={base}
+        openablePr={openablePr}
+        fit={fit}
+        sessionId={session.id}
+        push={{ pending: push.isPending, onClick: handlePush }}
+        pullBase={{ pending: pullBase.isPending, onClick: handlePull }}
+        pullUpstream={{ pending: pullUpstream.isPending, onClick: handlePullUpstream }}
+        retrySetup={{ pending: retrySetup.isPending, onClick: handleRetrySetup }}
+        archive={{ pending: archivePending, onClick: handleArchive }}
+        resolveConflicts={resolveAction}
+      />
       {errorModal}
     </>
   );
@@ -285,214 +261,6 @@ export function ExecutionActionBar({ session, workspace, variant = 'row', fit = 
 interface ResolveAction {
   pending: boolean;
   onClick: (scenario: 'pr_vs_base' | 'local_vs_remote') => void;
-}
-
-interface ButtonsProps {
-  state: ActionState;
-  sessionId: string;
-  push: { pending: boolean; onClick: () => void };
-  pullBase: { pending: boolean; onClick: () => void };
-  retrySetup: { pending: boolean; onClick: () => void };
-  archive: { pending: boolean; onClick: () => void };
-  resolveConflicts: ResolveAction;
-  openPrPending: boolean;
-  mergePending: boolean;
-}
-
-function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolveConflicts, openPrPending: _openPrPending, mergePending: _mergePending }: ButtonsProps) {
-  switch (state.kind) {
-    case 'setupFailed':
-      return (
-        <ActionButton
-          icon={<RotateCw size={11} />}
-          label="Try again"
-          onClick={retrySetup.onClick}
-          pending={retrySetup.pending}
-          variant="primary"
-          title={`Worktree setup failed: ${state.error}\nClick to fetch and retry.`}
-        />
-      );
-
-    case 'dirty':
-      return (
-        <CommitButton
-          sessionId={sessionId}
-          variant="primary"
-          andPush
-          pendingCount={state.staged + state.unstaged + state.untracked}
-        />
-      );
-
-    case 'behindBase':
-      return (
-        <ActionButton
-          icon={<ArrowDownToLine size={11} />}
-          label="Pull"
-          count={state.behind}
-          onClick={pullBase.onClick}
-          pending={pullBase.pending}
-          variant="primary"
-          title="Pull and merge updates from the base branch"
-        />
-      );
-
-    case 'aheadNoPr':
-      return (
-        <ActionButton
-          icon={<ArrowUpToLine size={11} />}
-          label="Push"
-          count={state.ahead}
-          onClick={push.onClick}
-          pending={push.pending}
-          variant="primary"
-          title="Push branch to origin"
-        />
-      );
-
-    case 'branchNoPr':
-      return <OpenPrButton sessionId={sessionId} />;
-
-    case 'prOpenInSync':
-      return (
-        <>
-          <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
-          <MergeButton
-            sessionId={sessionId}
-            prNumber={state.prNumber}
-            prUrl={state.prUrl}
-            enabled={true}
-            variant="primary"
-          />
-        </>
-      );
-
-    case 'prOpenAhead':
-      return (
-        <>
-          <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
-          <ActionButton
-            icon={<ArrowUpToLine size={11} />}
-            label="Push"
-            count={state.ahead}
-            onClick={push.onClick}
-            pending={push.pending}
-            variant="primary"
-            title="Push new commits to update the PR"
-          />
-          <MergeButton
-            sessionId={sessionId}
-            prNumber={state.prNumber}
-            prUrl={state.prUrl}
-            enabled={false}
-            reason="Local has unpushed commits. Push first, then merge."
-          />
-        </>
-      );
-
-    case 'prOpenBehindBase':
-      return (
-        <>
-          <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
-          <ActionButton
-            icon={<ArrowDownToLine size={11} />}
-            label="Pull"
-            count={state.behind}
-            onClick={pullBase.onClick}
-            pending={pullBase.pending}
-            variant="primary"
-            title="Pull and merge updates from the base branch"
-          />
-          <MergeButton
-            sessionId={sessionId}
-            prNumber={state.prNumber}
-            prUrl={state.prUrl}
-            enabled={false}
-            reason="Base branch has moved. Pull base first to resolve."
-          />
-        </>
-      );
-
-    case 'prConflictingWithBase':
-      return (
-        <>
-          <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
-          <ActionButton
-            icon={<GitMerge size={11} />}
-            label="Resolve conflicts"
-            onClick={() => resolveConflicts.onClick('pr_vs_base')}
-            pending={resolveConflicts.pending}
-            variant="primary"
-            title="GitHub reports this PR can't merge cleanly. Ask the agent to pull base, resolve, and push."
-          />
-          <MergeButton
-            sessionId={sessionId}
-            prNumber={state.prNumber}
-            prUrl={state.prUrl}
-            enabled={false}
-            reason="PR has conflicts with base. Resolve first."
-          />
-        </>
-      );
-
-    case 'localDiverged':
-      return (
-        <ActionButton
-          icon={<GitMerge size={11} />}
-          label="Resolve conflicts"
-          onClick={() => resolveConflicts.onClick('local_vs_remote')}
-          pending={resolveConflicts.pending}
-          variant="primary"
-          title="Local has diverged from origin. Ask the agent to fetch, merge, resolve, and push."
-        />
-      );
-
-    case 'prMergeable':
-      return (
-        <>
-          <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} />
-          <MergeButton
-            sessionId={sessionId}
-            prNumber={state.prNumber}
-            prUrl={state.prUrl}
-            enabled={true}
-            variant="primary"
-          />
-        </>
-      );
-
-    case 'prMerged':
-      return (
-        <>
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-            <CheckCircle2 size={11} />
-            <a
-              href={state.prUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="hover:underline"
-            >
-              PR #{state.prNumber} merged
-            </a>
-          </span>
-          <ActionButton
-            icon={<Archive size={11} />}
-            label="Archive"
-            onClick={archive.onClick}
-            pending={archive.pending}
-            variant="primary"
-            title="Archive this execution"
-          />
-        </>
-      );
-
-    case 'prClosed':
-      return (
-        <PrChip sessionId={sessionId} prNumber={state.prNumber} prUrl={state.prUrl} closed />
-      );
-
-    default:
-      return null;
-  }
 }
 
 interface PrChipProps {
@@ -615,12 +383,15 @@ function ReviewBadge({ decision }: { decision: PrReviewDecision }) {
 
 interface NarrativeProps {
   state: ActionState;
+  /** The base's name and how far behind it the branch is, when known. */
+  base: BaseInfo | null;
   /** The PR to link to. States that don't carry one render it from here. */
   openablePr: OpenablePr | null;
   fit?: boolean;
   sessionId: string;
   push: { pending: boolean; onClick: () => void };
   pullBase: { pending: boolean; onClick: () => void };
+  pullUpstream: { pending: boolean; onClick: () => void };
   retrySetup: { pending: boolean; onClick: () => void };
   archive: { pending: boolean; onClick: () => void };
   resolveConflicts: ResolveAction;
@@ -655,6 +426,10 @@ const THEME_BY_STATE: Record<ActionState['kind'], ChipTheme | null> = {
     text: 'text-amber-700 dark:text-amber-300',
   },
   behindBase: {
+    chip: 'border-orange-500/40 bg-orange-500/10',
+    text: 'text-orange-700 dark:text-orange-300',
+  },
+  behindRemote: {
     chip: 'border-orange-500/40 bg-orange-500/10',
     text: 'text-orange-700 dark:text-orange-300',
   },
@@ -706,7 +481,7 @@ const THEME_BY_STATE: Record<ActionState['kind'], ChipTheme | null> = {
  * the one next action floated right (via `justify-between`), and the chip is
  * tinted by state so the user can recognize the situation at a glance.
  */
-function Narrative({ state, openablePr, fit, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeProps) {
+function Narrative({ state, base, openablePr, fit, sessionId, push, pullBase, pullUpstream, retrySetup, archive, resolveConflicts }: NarrativeProps) {
   const theme = THEME_BY_STATE[state.kind];
   if (!theme) return null;
   const pr = narrativePr(state, openablePr);
@@ -719,12 +494,14 @@ function Narrative({ state, openablePr, fit, sessionId, push, pullBase, retrySet
       >
         <NarrativeBody
           state={state}
+          base={base}
           hasPr={pr != null}
           badges={pr && !pr.closed ? <PrBadges sessionId={sessionId} /> : null}
           theme={theme}
           sessionId={sessionId}
           push={push}
           pullBase={pullBase}
+          pullUpstream={pullUpstream}
           retrySetup={retrySetup}
           archive={archive}
           resolveConflicts={resolveConflicts}
@@ -742,7 +519,10 @@ interface NarrativeBodyProps extends Omit<NarrativeProps, 'openablePr' | 'fit'> 
   badges: React.ReactNode;
 }
 
-function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase, retrySetup, archive, resolveConflicts }: NarrativeBodyProps) {
+function NarrativeBody({ state, base, hasPr, badges, theme, sessionId, push, pullBase, pullUpstream, retrySetup, archive, resolveConflicts }: NarrativeBodyProps) {
+  const baseName = base?.name ?? 'base';
+  // How far behind the base, beside a step it doesn't block.
+  const behindNote = <BehindBaseNote base={base} />;
   switch (state.kind) {
     case 'setupFailed':
       return (
@@ -789,7 +569,7 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
           <NarrativeLeft>
             {badges}
             <NarrativeText themed={theme.text}>
-              <span className="font-semibold tabular-nums">{state.behind}</span> behind base
+              <span className="font-semibold tabular-nums">{state.behind}</span> behind {baseName}
             </NarrativeText>
           </NarrativeLeft>
           <ActionButton
@@ -798,7 +578,27 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
             onClick={pullBase.onClick}
             pending={pullBase.pending}
             variant="primary"
-            title="Pull and merge updates from the base branch"
+            title={`Bring in ${baseName}'s new commits`}
+          />
+        </>
+      );
+
+    case 'behindRemote':
+      return (
+        <>
+          <NarrativeLeft>
+            {badges}
+            <NarrativeText themed={theme.text}>
+              <span className="font-semibold tabular-nums">{state.behind}</span> new on {state.remote}
+            </NarrativeText>
+          </NarrativeLeft>
+          <ActionButton
+            icon={<ArrowDownToLine size={11} />}
+            label="Pull"
+            onClick={pullUpstream.onClick}
+            pending={pullUpstream.pending}
+            variant="primary"
+            title={`Bring in ${state.behind === 1 ? 'a commit' : 'commits'} pushed to this branch from elsewhere`}
           />
         </>
       );
@@ -812,6 +612,7 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
               <span className="font-semibold tabular-nums">{state.ahead}</span>{' '}
               {state.ahead === 1 ? 'commit ahead' : 'commits ahead'}
             </NarrativeText>
+            {behindNote}
           </NarrativeLeft>
           {/* One step at a time: once pushed, the chip moves to
               `branchNoPr` and offers Open PR. */}
@@ -835,6 +636,7 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
               <span className="font-semibold tabular-nums">{state.files}</span>{' '}
               {state.files === 1 ? 'file changed' : 'files changed'}
             </NarrativeText>
+            {behindNote}
           </NarrativeLeft>
           {/* A PR is already linked (GitHub just didn't confirm it), so
               don't offer to open a second one. */}
@@ -849,6 +651,7 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
           <NarrativeLeft>
             {badges}
             <NarrativeText themed={theme.text}>Ready to merge</NarrativeText>
+            {behindNote}
           </NarrativeLeft>
           <MergeButton
             sessionId={sessionId}
@@ -868,6 +671,7 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
             <NarrativeText themed={theme.text}>
               <span className="font-semibold tabular-nums">{state.ahead}</span> unpushed
             </NarrativeText>
+            {behindNote}
           </NarrativeLeft>
           <ActionButton
             icon={<ArrowUpToLine size={11} />}
@@ -886,7 +690,11 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
           <NarrativeLeft>
             {badges}
             <NarrativeText themed={theme.text}>
-              <span className="font-semibold tabular-nums">{state.behind}</span> behind base
+              {state.behind > 0 ? (
+                <><span className="font-semibold tabular-nums">{state.behind}</span> behind {baseName}</>
+              ) : (
+                <>Behind {baseName}</>
+              )}
             </NarrativeText>
           </NarrativeLeft>
           <ActionButton
@@ -895,7 +703,7 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
             onClick={pullBase.onClick}
             pending={pullBase.pending}
             variant="primary"
-            title="Pull and merge updates from the base branch"
+            title={`GitHub won't merge it until it has ${baseName}'s latest commits. Bring them in, then push.`}
           />
         </>
       );
@@ -931,13 +739,15 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
               Diverged from origin
             </span>
           </NarrativeLeft>
+          {/* The push was refused because the remote has commits this side
+              lacks. Pull merges them, and only a conflict goes to the agent. */}
           <ActionButton
-            icon={<GitMerge size={11} />}
-            label="Resolve conflicts"
-            onClick={() => resolveConflicts.onClick('local_vs_remote')}
-            pending={resolveConflicts.pending}
+            icon={<ArrowDownToLine size={11} />}
+            label="Pull"
+            onClick={pullUpstream.onClick}
+            pending={pullUpstream.pending || resolveConflicts.pending}
             variant="primary"
-            title="Ask the agent to fetch, merge, resolve, and push"
+            title="Bring in what was pushed to this branch elsewhere, then push. A conflict goes to the agent."
           />
         </>
       );
@@ -973,6 +783,24 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
     default:
       return null;
   }
+}
+
+/**
+ * How far behind its base the branch is, muted, beside a step it doesn't
+ * block: GitHub merges a branch that's behind unless the base requires it up
+ * to date (then the state is `prOpenBehindBase`). Folds away when the header
+ * runs out of room.
+ */
+function BehindBaseNote({ base }: { base: BaseInfo | null }) {
+  if (!base || base.behind <= 0) return null;
+  return (
+    <span
+      className="whitespace-nowrap text-muted-foreground @max-[1120px]/exec:hidden"
+      title={`${base.name} has ${base.behind} ${base.behind === 1 ? 'commit' : 'commits'} this branch doesn't. It can still merge.`}
+    >
+      · {base.behind} behind {base.name}
+    </span>
+  );
 }
 
 function NarrativeLeft({ children }: { children: React.ReactNode }) {

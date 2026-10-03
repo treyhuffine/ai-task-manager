@@ -316,6 +316,11 @@ export function useSessionStatus(id: string | null) {
     queryFn: () => sessionsApi.status(id!),
     enabled: !!id && !!scope,
     staleTime: 2_000,
+    // Each read refreshes the base and the branch's remote copy in the
+    // background (`readBranchSync`, at most every 90s), and the next read
+    // shows it. So a commit pushed from GitHub, or the base moving on,
+    // reaches the git chip within a couple of minutes while it's on screen.
+    refetchInterval: 60_000,
   });
 }
 
@@ -443,6 +448,15 @@ export function usePullBase(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (strategy?: 'merge' | 'rebase') => sessionsApi.pullBase(id, strategy ?? 'merge'),
+    onSuccess: () => invalidateWorktree(qc, id),
+  });
+}
+
+/** Pull the branch's own remote copy (see `pullUpstreamInto`). */
+export function usePullUpstream(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (strategy?: 'merge' | 'rebase') => sessionsApi.pullUpstream(id, strategy ?? 'merge'),
     onSuccess: () => invalidateWorktree(qc, id),
   });
 }

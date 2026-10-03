@@ -12,6 +12,7 @@ import type { SessionRuntimeStatus } from '@/lib/executor/runtime-status';
 import type { MessageDelivery } from '@/lib/workers/delivery';
 import type { TransferView } from '@/lib/transfer/view';
 import type { WorkingState } from '@/lib/transfer/git-checkpoint';
+import type { BranchSync } from '@/lib/workspaces/branch-sync';
 import { clientIsHost, type OpenTarget } from './fs';
 
 /** A review checkout on the viewer's device (P4.1). */
@@ -81,14 +82,22 @@ export interface DiffStats {
   deletions: number;
 }
 
-/** Mirrors `WorkspaceStatus` from `@agentex/workspace`. */
+/** Mirrors `WorkspaceStatus` from `@agentex/workspace`, plus `sync`. */
 export interface WorktreeStatus {
   dirty: boolean;
   untracked: string[];
   modified: string[];
   staged: string[];
+  /** Commits not on the upstream. What the upstream is, `sync` says. */
   ahead: number;
+  /** Commits on the upstream not here. */
   behind: number;
+  /**
+   * What the upstream is and how far behind the base the branch is
+   * (`BranchSync`). Absent from a connected device on an older version, in
+   * which case ahead/behind are read the old way.
+   */
+  sync?: BranchSync;
 }
 
 export interface StructuredDiffLine { kind: 'add' | 'del' | 'ctx'; text: string }
@@ -185,6 +194,11 @@ export interface PrInfo {
   reviewDecision: PrReviewDecision | null;
   /** Whether auto-merge ("merge when ready") is enabled on the PR. */
   autoMergeEnabled: boolean;
+  /**
+   * GitHub requires it brought up to date with its base before merging.
+   * Absent from a connected device on an older version.
+   */
+  outOfDate?: boolean;
 }
 
 export interface PrResponse {
@@ -718,6 +732,11 @@ export const sessionsApi = {
 
   pullBase(id: string, strategy: 'merge' | 'rebase' = 'merge'): Promise<{ ok: true }> {
     return api.post<{ ok: true }>(`/sessions/${id}/pull-base`, { strategy });
+  },
+
+  /** Bring in what was pushed to the branch's own remote copy from elsewhere. */
+  pullUpstream(id: string, strategy: 'merge' | 'rebase' = 'merge'): Promise<{ ok: true }> {
+    return api.post<{ ok: true }>(`/sessions/${id}/pull-upstream`, { strategy });
   },
 
   resolveConflicts(
