@@ -1,0 +1,847 @@
+--- a/host/package.json
++++ b/host/package.json
+@@ -4,31 +4,38 @@
+   "version": "2.0.3",
+   "type": "module",
+   "scripts": {
+-    "build": "tsc --noEmit && concurrently \"cross-env INPUT=index.html vite build\" \"cross-env INPUT=sandbox.html vite build\"",
+-    "watch": "concurrently \"cross-env INPUT=index.html vite build --watch\" \"cross-env INPUT=sandbox.html vite build --watch\"",
+-    "serve": "bun --watch serve.ts",
+-    "start": "cross-env NODE_ENV=development npm run build && npm run serve",
+-    "dev": "cross-env NODE_ENV=development concurrently \"npm run watch\" \"npm run serve\""
++    "build": "tsc --noEmit && cross-env INPUT=index.html vite build && cross-env INPUT=sandbox.html vite build",
++    "serve": "tsx serve.ts"
+   },
+   "dependencies": {
+     "@modelcontextprotocol/client": "2.0.0",
+-    "@modelcontextprotocol/ext-apps": "^2.0.0",
+-    "react": "^19.2.0",
+-    "react-dom": "^19.2.0",
+-    "zod": "^4.2.0"
++    "@modelcontextprotocol/ext-apps": "2.0.3",
++    "react": "19.2.3",
++    "react-dom": "19.2.3",
++    "zod": "4.3.5"
+   },
+   "devDependencies": {
+-    "@types/express": "^5.0.0",
+-    "@types/node": "22.10.0",
+-    "@types/react": "^19.2.2",
+-    "@types/react-dom": "^19.2.2",
+-    "@vitejs/plugin-react": "^4.3.4",
+-    "concurrently": "^9.2.1",
+-    "cors": "^2.8.5",
+-    "express": "^5.1.0",
+-    "prettier": "^3.6.2",
+-    "typescript": "^5.9.3",
+-    "vite": "^6.0.0",
+-    "vite-plugin-singlefile": "^2.3.0"
+-  }
++    "@types/express": "5.0.6",
++    "@types/node": "20.19.27",
++    "@types/react": "19.2.8",
++    "@types/react-dom": "19.2.3",
++    "@vitejs/plugin-react": "4.7.0",
++    "concurrently": "9.2.4",
++    "cors": "2.8.5",
++    "express": "5.2.1",
++    "prettier": "3.7.4",
++    "typescript": "5.9.3",
++    "vite": "6.4.3",
++    "vite-plugin-singlefile": "2.3.0",
++    "tsx": "4.21.0",
++    "cross-env": "10.1.0",
++    "playwright-core": "1.57.0",
++    "@types/cors": "2.8.19"
++  },
++  "pnpm": {
++    "onlyBuiltDependencies": [
++      "esbuild"
++    ]
++  },
++  "packageManager": "pnpm@10.33.2"
+ }
+--- a/host/serve.ts
++++ b/host/serve.ts
+@@ -19,16 +19,21 @@
+ const __filename = fileURLToPath(import.meta.url);
+ const __dirname = dirname(__filename);
+ 
+-const HOST_PORT = parseInt(process.env.HOST_PORT || "8080", 10);
+-const SANDBOX_PORT = parseInt(process.env.SANDBOX_PORT || "8081", 10);
++const HOST_PORT = parseInt(process.env.HOST_PORT || "48880", 10);
++const SANDBOX_PORT = parseInt(process.env.SANDBOX_PORT || "48881", 10);
+ const DIRECTORY = join(__dirname, "dist");
+ const SERVERS: string[] = process.env.SERVERS
+   ? JSON.parse(process.env.SERVERS)
+-  : ["http://localhost:3001/mcp"];
++  : ["http://ri-mcp-apps.127.0.0.1.nip.io:48883/mcp", "http://ri-mcp-apps.127.0.0.1.nip.io:48882/mcp"];
+ 
+ // ============ Host Server (port 8080) ============
+ const hostApp = express();
+-hostApp.use(cors());
++hostApp.use((req, res, next) => {
++  if (req.hostname !== "ri-mcp-apps.127.0.0.1.nip.io") { res.sendStatus(404); return; }
++  next();
++});
++hostApp.use(cors({ origin: "http://ri-mcp-apps.127.0.0.1.nip.io:48880" }));
++hostApp.use((_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
+ 
+ // Exclude sandbox.html from host server
+ hostApp.use((req, res, next) => {
+@@ -46,13 +51,19 @@
+   res.json(SERVERS);
+ });
+ 
++hostApp.get("/favicon.ico", (_req, res) => { res.sendStatus(204); });
++
+ hostApp.get("/", (_req, res) => {
+   res.redirect("/index.html");
+ });
+ 
+ // ============ Sandbox Server (port 8081) ============
+ const sandboxApp = express();
+-sandboxApp.use(cors());
++sandboxApp.use((req, res, next) => {
++  if (req.hostname !== "ri-mcp-sandbox.127.0.0.1.sslip.io") { res.sendStatus(404); return; }
++  next();
++});
++sandboxApp.use(cors({ origin: "http://ri-mcp-apps.127.0.0.1.nip.io:48880" }));
+ 
+ // Validate CSP domain entries to prevent injection attacks.
+ // Rejects entries containing characters that could:
+@@ -61,7 +72,7 @@
+ // - space: inject multiple sources in one entry
+ function sanitizeCspDomains(domains?: string[]): string[] {
+   if (!domains) return [];
+-  return domains.filter((d) => typeof d === "string" && !/[;\r\n'" ]/.test(d));
++  return domains.filter((d) => typeof d === "string" && /^https:\/\//.test(d) && !/[;\r\n'" ]/.test(d) && !/^https:\/\/(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|\[)/i.test(d));
+ }
+ 
+ function buildCspHeader(csp?: McpUiResourceCsp): string {
+@@ -96,6 +107,8 @@
+     frameDomains ? `frame-src ${frameDomains}` : "frame-src 'none'",
+     // Plugins: always blocked (defense in depth)
+     "object-src 'none'",
++    "form-action 'none'",
++    "frame-ancestors http://ri-mcp-apps.127.0.0.1.nip.io:48880 http://ri-mcp-sandbox.127.0.0.1.sslip.io:48881",
+     // Base URI: use baseUriDomains if provided, otherwise block all
+     baseUriDomains ? `base-uri ${baseUriDomains}` : "base-uri 'none'",
+   ];
+@@ -132,19 +145,19 @@
+ });
+ 
+ // ============ Start both servers ============
+-hostApp.listen(HOST_PORT, (err) => {
++hostApp.listen(HOST_PORT, "127.0.0.1", (err) => {
+   if (err) {
+     console.error("Error starting server:", err);
+     process.exit(1);
+   }
+-  console.log(`Host server:    http://localhost:${HOST_PORT}`);
++  console.log(`Host server:    http://ri-mcp-apps.127.0.0.1.nip.io:${HOST_PORT}`);
+ });
+ 
+-sandboxApp.listen(SANDBOX_PORT, (err) => {
++sandboxApp.listen(SANDBOX_PORT, "127.0.0.1", (err) => {
+   if (err) {
+     console.error("Error starting server:", err);
+     process.exit(1);
+   }
+-  console.log(`Sandbox server: http://localhost:${SANDBOX_PORT}`);
++  console.log(`Sandbox server: http://ri-mcp-sandbox.127.0.0.1.sslip.io:${SANDBOX_PORT}`);
+   console.log("\nPress Ctrl+C to stop\n");
+ });
+--- a/host/index.html
++++ b/host/index.html
+@@ -4,7 +4,7 @@
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <meta name="color-scheme" content="light dark">
+-    <title>MCP Apps Host</title>
++    <title>Ri MCP Apps evaluation</title>
+     <link rel="stylesheet" href="/src/global.css">
+   </head>
+   <body>
+--- a/host/src/index.tsx
++++ b/host/src/index.tsx
+@@ -61,7 +61,7 @@
+   return {
+     server: params.get("server"),
+     tool: params.get("tool"),
+-    call: params.get("call") === "true",
++    call: false, // Reload always ends the session. URL arguments are never replayed.
+     hideThemeToggle: params.get("theme") === "hide",
+   };
+ }
+@@ -90,6 +90,9 @@
+ 
+ function Host({ serversPromise }: HostProps) {
+   const [toolCalls, setToolCalls] = useState<ToolCallEntry[]>([]);
++  const [sessionEnded, setSessionEnded] = useState(() =>
++    performance.getEntriesByType("navigation").some((entry) => (entry as PerformanceNavigationTiming).type === "reload")
++  );
+   const [destroyingIds, setDestroyingIds] = useState<Set<number>>(new Set());
+   const queryParams = useMemo(() => getQueryParams(), []);
+ 
+@@ -106,8 +109,36 @@
+     setToolCalls((calls) => calls.filter((c) => c.id !== id));
+   };
+ 
++  const endSession = () => {
++    toolCalls.forEach((info) => requestClose(info.id));
++    setSessionEnded(true);
++  };
++  useEffect(() => {
++    if (toolCalls.length === 0) return;
++    const timer = window.setTimeout(() => {
++      setDestroyingIds(new Set(toolCalls.map((info) => info.id)));
++      setSessionEnded(true);
++    }, 30 * 60 * 1000);
++    return () => window.clearTimeout(timer);
++  }, [toolCalls]);
++  const addToolCall = (info: ToolCallInfo) => {
++    setSessionEnded(false);
++    setToolCalls((calls) => [...calls, { ...info, id: nextToolCallId++ }]);
++  };
++
+   return (
+     <>
++      <header className={styles.demoIntro}>
++        <p>Ri Plugin UI · Milestone 0A</p>
++        <h1>Try real MCP Apps</h1>
++        <p>Draw and edit a workflow, or explore a business scenario. These are the actual Excalidraw and official Scenario Modeler interfaces.</p>
++        <p>Synthetic examples only. Results stay in this tab's memory. Reload, End session or 30 minutes without opening another result ends the session. Each Open button makes a new tool call.</p>
++        {sessionEnded && <p role="status" className={styles.sessionEnded}>Session ended. Previous results were discarded. No tool call was replayed. Choose an example to start again.</p>}
++        {toolCalls.length > 0 && <button onClick={endSession}>End session</button>}
++      </header>
++      <Suspense fallback={<p role="status">Connecting to the example servers...</p>}>
++        <DemoPresets serversPromise={serversPromise} addToolCall={addToolCall} activeCount={toolCalls.length} />
++      </Suspense>
+       {!queryParams.hideThemeToggle && <ThemeToggle />}
+       {toolCalls.map((info) => (
+         <ToolCallInfoPanel
+@@ -118,17 +149,58 @@
+           onCloseComplete={() => completeClose(info.id)}
+         />
+       ))}
++      <details className={styles.demoIntro}><summary>Advanced: manual tool inputs</summary>
+       <CallToolPanel
+         serversPromise={serversPromise}
+-        addToolCall={(info) => setToolCalls([...toolCalls, { ...info, id: nextToolCallId++ }])}
++        addToolCall={addToolCall}
+         initialServer={queryParams.server}
+         initialTool={queryParams.tool}
+-        autoCall={queryParams.call}
++        activeCount={toolCalls.length}
+       />
++      </details>
+     </>
+   );
+ }
+ 
++
++const DIAGRAM = [
++  { type: "cameraUpdate", x: 0, y: 0, width: 800, height: 600 },
++  { type: "text", id: "title", x: 110, y: 55, text: "Review workflow", fontSize: 28 },
++  { type: "rectangle", id: "capture", x: 90, y: 160, width: 180, height: 90, backgroundColor: "#a5d8ff", roundness: { type: 3 }, label: { text: "Capture", fontSize: 24 } },
++  { type: "arrow", id: "a1", x: 280, y: 205, width: 80, height: 0, points: [[0, 0], [80, 0]], endArrowhead: "arrow" },
++  { type: "rectangle", id: "review", x: 370, y: 160, width: 180, height: 90, backgroundColor: "#b2f2bb", roundness: { type: 3 }, label: { text: "Review", fontSize: 24 } },
++  { type: "arrow", id: "a2", x: 460, y: 260, width: 0, height: 75, points: [[0, 0], [0, 75]], endArrowhead: "arrow" },
++  { type: "rectangle", id: "execute", x: 370, y: 345, width: 180, height: 90, backgroundColor: "#ffec99", roundness: { type: 3 }, label: { text: "Execute", fontSize: 24 } },
++  { type: "text", id: "note", x: 90, y: 475, text: "Move a shape or add a label in Edit.", fontSize: 20 },
++];
++
++function DemoPresets({ serversPromise, addToolCall, activeCount }: {
++  serversPromise: Promise<ServerInfo[]>;
++  addToolCall: (info: ToolCallInfo) => void;
++  activeCount: number;
++}) {
++  const servers = use(serversPromise);
++  const [error, setError] = useState<string | null>(null);
++  const open = (name: string, input: Record<string, unknown>) => {
++    const server = servers.find(s => s.tools.has(name));
++    if (!server) { setError("This example is unavailable. Reload to reconnect. No tool call was made."); return; }
++    if (activeCount >= 4) { setError("Close a result or end the session before opening another example."); return; }
++    setError(null);
++    try { addToolCall(callTool(server, name, input)); } catch (err) { setError(String(err)); }
++  };
++  return <section className={styles.demoPresets} aria-label="Example plugins">
++    {connectionFailures.length > 0 && <div role="alert">Some examples could not connect: {connectionFailures.join(". ")}. Reload to reconnect, then explicitly open an example.</div>}
++    {error && <p role="alert">{error}</p>}
++    <article><h2>Excalidraw</h2><p>Sketch a review workflow, expand it and edit the real diagram.</p>
++      <button onClick={() => open("create_view", { elements: JSON.stringify(DIAGRAM) })}>Open diagram example</button>
++      <p>{servers.some(s => s.tools.has("create_view")) ? "Connected to the pinned local Excalidraw fallback. The public endpoint rejected browser CORS." : "Unavailable"}</p>
++    </article>
++    <article><h2>Scenario Modeler</h2><p>Adjust growth and churn, then compare live charts with a template.</p>
++      <button onClick={() => open("get-scenario-data", { customInputs: { startingMRR: 50000, monthlyGrowthRate: 5, monthlyChurnRate: 3, grossMargin: 80, fixedCosts: 30000 } })}>Open scenario example</button>
++      <p>{servers.some(s => s.tools.has("get-scenario-data")) ? "Connected to the pinned local official example." : "Unavailable"}</p>
++    </article>
++  </section>;
++}
+ 
+ // CallToolPanel renders the unified form with Suspense around ServerSelect
+ interface CallToolPanelProps {
+@@ -137,12 +209,13 @@
+   initialServer?: string | null;
+   initialTool?: string | null;
+   autoCall?: boolean;
+-}
+-function CallToolPanel({ serversPromise, addToolCall, initialServer, initialTool, autoCall }: CallToolPanelProps) {
++  activeCount: number;
++}
++function CallToolPanel({ serversPromise, addToolCall, initialServer, initialTool, autoCall, activeCount }: CallToolPanelProps) {
+   const [selectedServer, setSelectedServer] = useState<ServerInfo | null>(null);
+   const [selectedTool, setSelectedTool] = useState("");
+   const [inputJson, setInputJson] = useState("{}");
+-  const [hasAutoCalledRef] = useState({ called: false });
++  const [hasAutoCalledRef] = useState({ called: true });
+ 
+   // Filter out app-only tools, prioritize tools with UIs
+   const toolNames = selectedServer
+@@ -188,7 +261,7 @@
+   const handleSubmit = (overrideServer?: ServerInfo, overrideTool?: string) => {
+     const server = overrideServer ?? selectedServer;
+     const tool = overrideTool ?? selectedTool;
+-    if (!server) return;
++    if (!server || activeCount >= 4) return;
+ 
+     const toolCallInfo = callTool(server, tool, JSON.parse(inputJson));
+     addToolCall(toolCallInfo);
+@@ -197,7 +270,7 @@
+     const url = new URL(window.location.href);
+     url.searchParams.set("server", server.name);
+     url.searchParams.set("tool", tool);
+-    url.searchParams.set("call", "true"); // Auto-call on refresh
++    url.searchParams.delete("call"); // Never repeat a call on refresh.
+     history.replaceState(null, "", url.toString());
+   };
+ 
+@@ -223,6 +296,7 @@
+         <label>
+           Tool
+           <select
++            aria-label="Tool"
+             className={styles.toolSelect}
+             value={selectedTool}
+             onChange={(e) => handleToolSelect(e.target.value)}
+@@ -235,13 +309,14 @@
+         <label>
+           Input
+           <textarea
++            aria-label="Input"
+             className={styles.toolInput}
+             aria-invalid={!isValidJson}
+             value={inputJson}
+             onChange={(e) => setInputJson(e.target.value)}
+           />
+         </label>
+-        <button type="submit" disabled={!selectedTool || !isValidJson}>
++        <button type="submit" disabled={!selectedTool || !isValidJson || activeCount >= 4}>
+           Call Tool
+         </button>
+       </form>
+@@ -301,6 +376,7 @@
+ 
+   return (
+     <select
++      aria-label="Server"
+       value={selectedIndex}
+       onChange={(e) => {
+         const newIndex = Number(e.target.value);
+@@ -427,6 +503,7 @@
+   const appBridgeRef = useRef<ReturnType<typeof newAppBridge> | null>(null);
+   const [modelContext, setModelContext] = useState<ModelContext | null>(null);
+   const [messages, setMessages] = useState<AppMessage[]>([]);
++  const [viewError, setViewError] = useState<string | null>(null);
+   const [displayMode, setDisplayMode] = useState<"inline" | "fullscreen">("inline");
+ 
+   useEffect(() => {
+@@ -443,7 +520,7 @@
+         if (firstTime) {
+           const appBridge = newAppBridge(toolCallInfo.serverInfo, iframe, {
+             onContextUpdate: setModelContext,
+-            onMessage: (msg) => setMessages((prev) => [...prev, msg]),
++            onMessage: (msg) => setMessages((prev) => [...prev.slice(-19), msg]),
+             onDisplayModeChange: setDisplayMode,
+           }, {
+             // Provide container dimensions - maxHeight for flexible sizing
+@@ -451,10 +528,10 @@
+             displayMode: "inline",
+           });
+           appBridgeRef.current = appBridge;
+-          initializeApp(iframe, appBridge, toolCallInfo);
++          void initializeApp(iframe, appBridge, toolCallInfo).catch((err) => setViewError(String(err)));
+         }
+-      });
+-    });
++      }).catch((err) => setViewError(String(err)));
++    }).catch((err) => setViewError(String(err)));
+ 
+   }, [toolCallInfo]);
+ 
+@@ -471,11 +548,12 @@
+     }
+ 
+     log.info("Sending teardown notification to MCP App");
+-    appBridgeRef.current.teardownResource({})
++    appBridgeRef.current.teardownResource({}, { timeout: 2000 })
+       .catch((err) => {
+         log.warn("Teardown request failed (app may have already closed):", err);
+       })
+       .finally(() => {
++        void appBridgeRef.current?.close();
+         onTeardownComplete?.();
+       });
+   }, [isDestroying, onTeardownComplete]);
+@@ -516,7 +594,12 @@
+ 
+   return (
+     <div className={panelClassName}>
+-      <iframe ref={iframeRef} />
++      {displayMode === "fullscreen" && <div className={styles.returnToolbar}>
++        <button onClick={() => { setDisplayMode("inline"); appBridgeRef.current?.sendHostContextChange({ displayMode: "inline" }); }}>Return to examples</button>
++        <span>{toolCallInfo.serverInfo.name} · Synthetic example</span>
++      </div>}
++      {viewError && <p role="alert">View unavailable: {viewError}. The tool result is still available below.</p>}
++      <iframe title={`${toolCallInfo.serverInfo.name} interactive result`} ref={iframeRef} />
+       {messages.length > 0 && (
+         <CollapsiblePanel
+           icon="💬"
+@@ -538,6 +621,7 @@
+ }
+ function ToolResultPanel({ toolCallInfo }: ToolResultPanelProps) {
+   const result = use(toolCallInfo.resultPromise);
++  if (result.isError) return <div role="alert" className={styles.error}>Tool failed: {result.content.filter(c => c.type === "text").map(c => c.text).join(" ")}</div>;
+   const resultJson = JSON.stringify(result, null, 2);
+   return <CollapsiblePanel icon="📤" label="Tool Result" content={resultJson} />;
+ }
+@@ -575,13 +659,15 @@
+ }
+ 
+ 
++const connectionFailures: string[] = [];
++
+ async function connectToAllServers(): Promise<ServerInfo[]> {
+   const serverUrlsResponse = await fetch("/api/servers");
+   const serverUrls = (await serverUrlsResponse.json()) as string[];
+ 
+   // Use allSettled to be resilient to individual server failures
+   const results = await Promise.allSettled(
+-    serverUrls.map((url) => connectToServer(new URL(url)))
++    serverUrls.map((url) => Promise.race([connectToServer(new URL(url)), new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Connection timed out after 15 seconds")), 15000))]))
+   );
+ 
+   const servers: ServerInfo[] = [];
+@@ -591,6 +677,7 @@
+       servers.push(result.value);
+     } else {
+       console.warn(`[HOST] Failed to connect to ${serverUrls[i]}:`, result.reason);
++      connectionFailures.push(`${serverUrls[i]}: ${String(result.reason)}`);
+     }
+   }
+ 
+--- a/host/src/implementation.ts
++++ b/host/src/implementation.ts
+@@ -11,7 +11,7 @@
+ import { HOST_STYLE_VARIABLES } from "./host-styles";
+ 
+ 
+-const SANDBOX_PROXY_BASE_URL = "http://localhost:8081/sandbox.html";
++const SANDBOX_PROXY_BASE_URL = "http://ri-mcp-sandbox.127.0.0.1.sslip.io:48881/sandbox.html";
+ const IMPLEMENTATION = { name: "MCP Apps Host", version: "1.0.0" };
+ 
+ 
+@@ -98,12 +98,12 @@
+   input: Record<string, unknown>,
+ ): ToolCallInfo {
+   log.info("Calling tool", name, "with input", input);
+-  const resultPromise = serverInfo.client.callTool({ name, arguments: input }) as Promise<CallToolResult>;
+-
+   const tool = serverInfo.tools.get(name);
+   if (!tool) {
+     throw new Error(`Unknown tool: ${name}`);
+   }
++  const resultPromise = serverInfo.client.callTool({ name, arguments: input }) as Promise<CallToolResult>;
++  void resultPromise.catch(() => {}); // A rendering boundary shows failure. Never retry.
+ 
+   const toolCallInfo: ToolCallInfo = { serverInfo, tool, input, resultPromise };
+ 
+@@ -137,6 +137,7 @@
+   }
+ 
+   const html = "blob" in content ? atob(content.blob) : content.text;
++  if (html.length > 20 * 1024 * 1024) throw new Error("UI resource exceeds the demo size limit");
+ 
+   // Extract CSP and permissions metadata, preferring content-level (resources/read)
+   // and falling back to listing-level (resources/list) per the spec
+@@ -199,7 +200,7 @@
+   log.info("Loading sandbox proxy...", csp ? `(CSP: ${JSON.stringify(csp)})` : "");
+   iframe.src = sandboxUrl.href;
+ 
+-  return readyPromise;
++  return Promise.race([readyPromise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Sandbox timed out")), 15000))]);
+ }
+ 
+ 
+@@ -225,7 +226,7 @@
+ 
+   // Wait for inner iframe to be ready
+   log.info("Waiting for MCP App to initialize...");
+-  await appInitializedPromise;
++  await Promise.race([appInitializedPromise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("View initialization timed out")), 15000))]);
+   log.info("MCP App initialized");
+ 
+   // Send tool call input to iframe
+@@ -305,7 +306,7 @@
+   });
+ 
+   // Listen for theme changes (from toggle or system) and notify the app
+-  onThemeChange((newTheme) => {
++  const unsubscribeTheme = onThemeChange((newTheme) => {
+     log.info("Theme changed:", newTheme);
+     appBridge.sendHostContextChange({ theme: newTheme });
+   });
+@@ -328,6 +329,7 @@
+   // AppBridge inherits Protocol's onclose hook — chain disposal there.
+   const prevOnclose = appBridge.onclose;
+   appBridge.onclose = () => {
++    unsubscribeTheme();
+     iframeResizeObserver.disconnect();
+     prevOnclose?.();
+   };
+@@ -344,7 +346,9 @@
+ 
+   appBridge.onopenlink = async (params, _extra) => {
+     log.info("Open link request:", params);
+-    window.open(params.url, "_blank", "noopener,noreferrer");
++    const url = new URL(params.url);
++    if (url.protocol !== "https:") throw new Error("Only HTTPS links are supported in the demo");
++    window.open(url.href, "_blank", "noopener,noreferrer");
+     return {};
+   };
+ 
+@@ -357,6 +361,7 @@
+     // Normalize: empty content array means clear context
+     const hasContent = params.content && params.content.length > 0;
+     const hasStructured = params.structuredContent && Object.keys(params.structuredContent).length > 0;
++    if (JSON.stringify(params).length > 32768) throw new Error("Context exceeds the demo size limit");
+     callbacks?.onContextUpdate?.(hasContent || hasStructured ? params : null);
+     return {};
+   };
+@@ -393,7 +398,8 @@
+       iframe.style.height = to.height = `${height}px`;
+     }
+ 
+-    iframe.animate([from, to], { duration: 300, easing: "ease-out" });
++    // Apply dimensions immediately so moving iframe ancestors cannot swallow clicks.
++    void from;
+   };
+ 
+   // Handle display mode change requests from the app
+--- a/host/src/sandbox.ts
++++ b/host/src/sandbox.ts
+@@ -1,7 +1,7 @@
+ import type { McpUiSandboxProxyReadyNotification, McpUiSandboxResourceReadyNotification } from "@modelcontextprotocol/ext-apps/app-bridge";
+ import { buildAllowAttribute } from "@modelcontextprotocol/ext-apps/app-bridge";
+ 
+-const ALLOWED_REFERRER_PATTERN = /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/;
++const ALLOWED_REFERRER_PATTERN = /^http:\/\/ri-mcp-apps\.127\.0\.0\.1\.nip\.io:48880(\/|$)/;
+ 
+ if (window.self === window.top) {
+   throw new Error("This file is only to be used in an iframe sandbox.");
+--- a/host/src/index.module.css
++++ b/host/src/index.module.css
+@@ -279,3 +279,17 @@
+   background-color: var(--color-bg-secondary);
+   color: light-dark(#dc2626, #f87171);
+ }
++
++.demoIntro, .demoPresets { max-width: 1120px; margin: 1.5rem auto; padding: 0 1rem; }
++.demoIntro h1 { font-size: 2rem; margin: .5rem 0; }
++.demoIntro p { color: var(--color-text-secondary); line-height: 1.5; }
++.demoPresets { display: flex; flex-wrap: wrap; gap: 1rem; }
++.demoPresets article { flex: 1 1 300px; border: 1px solid var(--color-border); background: var(--color-bg-secondary); border-radius: 10px; padding: 1.2rem; }
++.demoPresets article p { line-height: 1.5; }
++.demoIntro button, .demoPresets button { background: var(--color-primary); color: white; border: 0; padding: .8rem 1rem; border-radius: 6px; font: inherit; cursor: pointer; }
++.demoIntro .sessionEnded { color: var(--color-text); padding: 1rem; border: 1px solid var(--color-border); border-radius: 6px; }
++.toolCallInfoPanel { max-width: 1120px; }
++
++.returnToolbar { display: flex; flex: 0 0 48px; align-items: center; gap: 1rem; padding: .5rem 1rem; background: var(--color-bg-secondary); border-bottom: 1px solid var(--color-border); }
++.returnToolbar button { border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text); border-radius: 6px; padding: .5rem; cursor: pointer; }
++.returnToolbar span { font-size: .85rem; color: var(--color-text-secondary); }
+--- a/scenario/package.json
++++ b/scenario/package.json
+@@ -17,41 +17,34 @@
+     "dist"
+   ],
+   "scripts": {
+-    "build": "tsc --noEmit && cross-env INPUT=mcp-app.html vite build && tsc -p tsconfig.server.json && bun build server.ts --outdir dist --target node && bun build main.ts --outfile dist/index.js --target node --external \"./server.js\" --banner \"#!/usr/bin/env node\"",
+-    "watch": "cross-env INPUT=mcp-app.html vite build --watch",
+-    "serve:http": "bun --watch main.ts",
+-    "serve:stdio": "bun main.ts --stdio",
+-    "start": "npm run start:http",
+-    "start:http": "cross-env NODE_ENV=development npm run build && npm run serve:http",
+-    "start:stdio": "cross-env NODE_ENV=development npm run build 1>&2 && npm run serve:stdio",
+-    "dev": "cross-env NODE_ENV=development concurrently \"npm run watch\" \"npm run serve:http\"",
+-    "prepublishOnly": "npm run build",
+-    "serve": "bun --watch main.ts"
++    "build": "tsc --noEmit && cross-env INPUT=mcp-app.html vite build",
++    "serve": "tsx main.ts"
+   },
+   "dependencies": {
+     "@modelcontextprotocol/express": "2.0.0",
+-    "@modelcontextprotocol/ext-apps": "^2.0.0",
++    "@modelcontextprotocol/ext-apps": "2.0.3",
+     "@modelcontextprotocol/node": "2.0.0",
+     "@modelcontextprotocol/server": "2.0.0",
+-    "chart.js": "^4.4.0",
+-    "cors": "^2.8.5",
+-    "express": "^5.1.0",
+-    "react": "^19.2.0",
+-    "react-dom": "^19.2.0",
+-    "zod": "^4.2.0"
++    "chart.js": "4.5.1",
++    "cors": "2.8.5",
++    "express": "5.2.1",
++    "react": "19.2.3",
++    "react-dom": "19.2.3",
++    "zod": "4.3.5"
+   },
+   "devDependencies": {
+-    "@types/cors": "^2.8.19",
+-    "@types/express": "^5.0.0",
+-    "@types/node": "22.10.0",
+-    "@types/react": "^19.2.2",
+-    "@types/react-dom": "^19.2.2",
+-    "@vitejs/plugin-react": "^4.3.4",
+-    "concurrently": "^9.2.1",
+-    "cross-env": "^10.1.0",
+-    "typescript": "^5.9.3",
+-    "vite": "^6.0.0",
+-    "vite-plugin-singlefile": "^2.3.0"
++    "@types/cors": "2.8.19",
++    "@types/express": "5.0.6",
++    "@types/node": "20.19.27",
++    "@types/react": "19.2.8",
++    "@types/react-dom": "19.2.3",
++    "@vitejs/plugin-react": "4.7.0",
++    "concurrently": "9.2.4",
++    "cross-env": "10.1.0",
++    "typescript": "5.9.3",
++    "vite": "6.4.3",
++    "vite-plugin-singlefile": "2.3.0",
++    "tsx": "4.21.0"
+   },
+   "types": "dist/server.d.ts",
+   "exports": {
+@@ -62,5 +55,11 @@
+   },
+   "bin": {
+     "mcp-scenario-modeler-server": "dist/index.js"
+-  }
++  },
++  "pnpm": {
++    "onlyBuiltDependencies": [
++      "esbuild"
++    ]
++  },
++  "packageManager": "pnpm@10.33.2"
+ }
+--- a/scenario/main.ts
++++ b/scenario/main.ts
+@@ -20,10 +20,10 @@
+ export async function startStreamableHTTPServer(
+   createServer: () => McpServer,
+ ): Promise<void> {
+-  const port = parseInt(process.env.PORT ?? "3001", 10);
++  const port = parseInt(process.env.PORT ?? "48882", 10);
+ 
+-  const app = createMcpExpressApp({ host: "0.0.0.0" });
+-  app.use(cors());
++  const app = createMcpExpressApp({ host: "127.0.0.1", allowedHosts: ["ri-mcp-apps.127.0.0.1.nip.io"], allowedOrigins: ["ri-mcp-apps.127.0.0.1.nip.io"] });
++  app.use(cors({ origin: "http://ri-mcp-apps.127.0.0.1.nip.io:48880" }));
+ 
+   app.all("/mcp", async (req: Request, res: Response) => {
+     const server = createServer();
+@@ -51,12 +51,12 @@
+     }
+   });
+ 
+-  const httpServer = app.listen(port, (err) => {
++  const httpServer = app.listen(port, "127.0.0.1", (err) => {
+     if (err) {
+       console.error("Failed to start server:", err);
+       process.exit(1);
+     }
+-    console.log(`MCP server listening on http://localhost:${port}/mcp`);
++    console.log(`MCP server listening on http://ri-mcp-apps.127.0.0.1.nip.io:${port}/mcp`);
+   });
+ 
+   const shutdown = () => {
+--- a/excalidraw-source/package.json
++++ b/excalidraw-source/package.json
+@@ -2,7 +2,7 @@
+   "name": "@mcp-demos/excalidraw-server",
+   "version": "0.3.2",
+   "type": "module",
+-  "packageManager": "pnpm@10.11.0",
++  "packageManager": "pnpm@10.33.2",
+   "description": "Streamable Excalidraw diagram MCP App server",
+   "license": "MIT",
+   "main": "dist/server.js",
+@@ -20,14 +20,8 @@
+     }
+   },
+   "scripts": {
+-    "postinstall": "node scripts/setup-bun.mjs || echo 'setup-bun.mjs failed or not available'",
+-    "build": "node scripts/build.mjs",
+-    "watch": "vite build --watch",
+-    "serve": "bun --watch src/main.ts",
+-    "start": "cross-env NODE_ENV=development npm run build && npm run serve",
+-    "dev": "cross-env NODE_ENV=development concurrently 'npm run watch' 'npm run serve'",
+-    "dev:ui": "vite --config vite.config.dev.ts",
+-    "prepublishOnly": "npm run build"
++    "build": "tsc --noEmit && vite build",
++    "serve": "tsx src/main.ts"
+   },
+   "dependencies": {
+     "@excalidraw/excalidraw": "^0.18.0",
+@@ -53,19 +47,12 @@
+     "cross-env": "^10.1.0",
+     "typescript": "^5.9.3",
+     "vite": "^6.0.0",
+-    "vite-plugin-singlefile": "^2.3.0"
++    "vite-plugin-singlefile": "^2.3.0",
++    "tsx": "4.21.0"
+   },
+-  "optionalDependencies": {
+-    "@oven/bun-darwin-aarch64": "^1.2.21",
+-    "@oven/bun-darwin-x64": "^1.2.21",
+-    "@oven/bun-darwin-x64-baseline": "^1.2.21",
+-    "@oven/bun-linux-aarch64": "^1.2.21",
+-    "@oven/bun-linux-aarch64-musl": "^1.2.21",
+-    "@oven/bun-linux-x64": "^1.2.21",
+-    "@oven/bun-linux-x64-baseline": "^1.2.21",
+-    "@oven/bun-linux-x64-musl": "^1.2.21",
+-    "@oven/bun-linux-x64-musl-baseline": "^1.2.21",
+-    "@oven/bun-windows-x64": "^1.2.21",
+-    "@oven/bun-windows-x64-baseline": "^1.2.21"
++  "pnpm": {
++    "onlyBuiltDependencies": [
++      "esbuild"
++    ]
+   }
+ }
+--- a/excalidraw-source/src/main.ts
++++ b/excalidraw-source/src/main.ts
+@@ -10,7 +10,7 @@
+ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+ import cors from "cors";
+ import type { Request, Response } from "express";
+-import { FileCheckpointStore } from "./checkpoint-store.js";
++import { MemoryCheckpointStore } from "./checkpoint-store.js";
+ import { createServer } from "./server.js";
+ 
+ /**
+@@ -21,10 +21,10 @@
+ export async function startStreamableHTTPServer(
+   createServer: () => McpServer,
+ ): Promise<void> {
+-  const port = parseInt(process.env.PORT ?? "3001", 10);
++  const port = parseInt(process.env.PORT ?? "48883", 10);
+ 
+-  const app = createMcpExpressApp({ host: "0.0.0.0" });
+-  app.use(cors());
++  const app = createMcpExpressApp({ host: "127.0.0.1", allowedHosts: ["ri-mcp-apps.127.0.0.1.nip.io"] });
++  app.use(cors({ origin: "http://ri-mcp-apps.127.0.0.1.nip.io:48880" }));
+ 
+   app.all("/mcp", async (req: Request, res: Response) => {
+     const server = createServer();
+@@ -52,12 +52,12 @@
+     }
+   });
+ 
+-  const httpServer = app.listen(port, (err) => {
++  const httpServer = app.listen(port, "127.0.0.1", (err) => {
+     if (err) {
+       console.error("Failed to start server:", err);
+       process.exit(1);
+     }
+-    console.log(`MCP server listening on http://localhost:${port}/mcp`);
++    console.log(`MCP server listening on http://ri-mcp-apps.127.0.0.1.nip.io:${port}/mcp`);
+   });
+ 
+   const shutdown = () => {
+@@ -81,7 +81,7 @@
+ }
+ 
+ async function main() {
+-  const store = new FileCheckpointStore();
++  const store = new MemoryCheckpointStore();
+   const factory = () => createServer(store);
+   if (process.argv.includes("--stdio")) {
+     await startStdioServer(factory);
+--- a/excalidraw-source/src/server.ts
++++ b/excalidraw-source/src/server.ts
+@@ -663,7 +663,7 @@
+     resourceUri,
+     { mimeType: RESOURCE_MIME_TYPE },
+     async (): Promise<ReadResourceResult> => {
+-      const html = await fs.readFile(path.join(distDir, "mcp-app.html"), "utf-8");
++      const html = await fs.readFile(path.join(distDir, "src", "mcp-app.html"), "utf-8");
+       return {
+         contents: [{
+           uri: resourceUri,
+--- a/excalidraw-source/src/edit-context.ts
++++ b/excalidraw-source/src/edit-context.ts
+@@ -1,4 +1,7 @@
+ import type { App } from "@modelcontextprotocol/ext-apps";
++
++// Evaluation storage is confined to this iframe instance.
++let demoPersistedElements: string | null = null;
+ 
+ const DEBOUNCE_MS = 2000;
+ let timer: ReturnType<typeof setTimeout> | null = null;
+@@ -8,7 +11,7 @@
+ let checkpointId: string | null = null;
+ 
+ /**
+- * Set the localStorage key for this widget instance (use viewUUID or tool-call-derived ID).
++ * Set the iframe memory key for this widget instance (use viewUUID or tool-call-derived ID).
+  */
+ export function setStorageKey(key: string) {
+   storageKey = `excalidraw:${key}`;
+@@ -64,12 +67,12 @@
+ }
+ 
+ /**
+- * Load persisted elements from localStorage (if any).
++ * Load persisted elements from iframe memory (if any).
+  */
+ export function loadPersistedElements(): any[] | null {
+   if (!storageKey) return null;
+   try {
+-    const stored = localStorage.getItem(storageKey);
++    const stored = demoPersistedElements;
+     if (!stored) return null;
+     return JSON.parse(stored);
+   } catch {
+@@ -89,7 +92,7 @@
+ }
+ 
+ /**
+- * Excalidraw onChange handler. Persists to localStorage and sends updated
++ * Excalidraw onChange handler. Keeps edits in iframe memory and sends updated
+  * elements JSON to model context — only when user actually changed something
+  * (debounced). Does NOT call setState to avoid infinite re-render loops.
+  */
+@@ -104,7 +107,7 @@
+   timer = setTimeout(() => {
+     if (storageKey) {
+       try {
+-        localStorage.setItem(storageKey, JSON.stringify(live));
++        demoPersistedElements = JSON.stringify(live);
+       } catch {}
+     }
+     if (checkpointId) {
