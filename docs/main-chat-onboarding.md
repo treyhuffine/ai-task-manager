@@ -11,7 +11,7 @@ picker in `src/components/onboarding/`.
 
 ## What a home actually needs
 
-Only a harness that answers: a coding CLI (Claude Code, Codex, Cursor or OpenCode), installed,
+Only a harness that answers: a coding CLI (Codex, Claude Code, Cursor, OpenCode or Antigravity), installed,
 signed in, and responding to a real request. Everything else has a default or can wait:
 
 - The model and effort: the harness's defaults, said in one line with a way to change them (below).
@@ -47,9 +47,11 @@ Three things start in the background so the steps that need them rarely wait:
 
 - **The harness check** (`use-harness-check.ts`), from the first message, for a home that was never
   set up: every harness's sign-in at once (fast), then one real request to the one it can set up
-  without asking (`autoHarness`: Claude Code on a subscription or Bedrock, else Codex on a
-  subscription). A key-only setup bills per call and needs consent, and Cursor and OpenCode need a
-  model picked, so those go to the person. When the check passes, the step saves the setup and
+  without asking (`autoHarness`: Codex on a subscription, then Claude Code on a subscription or
+  Bedrock, in registry order). A key-only setup bills per call and needs consent, and Cursor,
+  OpenCode and Antigravity need a model picked, so those go to the person. The picker also suggests
+  the first installed harness in enabled registry order. Existing homes skip this setup and keep
+  their saved choices. When the check passes, the step saves the setup and
   finishes without a question (an empty reply, so the step itself isn't shown). If the empty main
   chat was made on anything else, it's started over on this one.
 - **The model line** (`onboarding-default-model.tsx`). Wherever the harness was settled, after the

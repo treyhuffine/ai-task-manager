@@ -77,7 +77,7 @@ Turbopack cannot resolve the handoff's agentex symlink outside its inferred root
   - Main replaced the `/welcome` wizard with main-chat onboarding. The registry-driven harness picker now lives in `src/components/onboarding/harness-setup.tsx`.
   - `initialHarnessSetup` defaults to `DEFAULT_HARNESS`.
   - `CHEAP_MODEL_CANDIDATES` gives every harness an explicit entry. Cursor, OpenCode and Antigravity have empty lists, enforced with `satisfies`. Background calls keep the Antigravity guard.
-  - First-run `suggestedHarness` ranks Antigravity last and falls back to `DEFAULT_HARNESS`. A test checks that every harness is ranked.
+  - First-run `suggestedHarness` follows the enabled registry order and falls back to `DEFAULT_HARNESS`. Automatic setup prefers a ready Codex subscription, then Claude Code. Tests cover both installed, registry order and disabled harnesses.
   - Route tests that resolve the null default now pin the bundled catalog, since the Codex catalog comes from the installed CLI.
 - **Dependency:** `^0.0.40` from main, which includes the Antigravity provider. Bump to 0.0.41 after it is published (`pnpm up @agentex/agent@0.0.41`) to pick up the fixes above.
 - **Verification after the merge:**
