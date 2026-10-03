@@ -29,6 +29,7 @@ describe('narrativePr', () => {
   it('falls back to the linked PR in states that carry none', () => {
     expect(narrativePr({ kind: 'behindBase', behind: 4 }, linked)).toBe(linked);
     expect(narrativePr({ kind: 'aheadNoPr', ahead: 1 }, linked)).toBe(linked);
+    expect(narrativePr({ kind: 'branchNoPr', files: 2 }, linked)).toBe(linked);
     expect(narrativePr({ kind: 'localDiverged' }, linked)).toBe(linked);
     expect(narrativePr({ kind: 'setupFailed', error: 'x', prNumber: 7 }, linked)).toBe(linked);
     expect(narrativePr({ kind: 'aheadNoPr', ahead: 1 }, null)).toBeNull();

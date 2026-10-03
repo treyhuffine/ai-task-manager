@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { sessionsApi, type MergeRequestBody, type AutoMergeRequestBody, type PrInfo, type WorktreeStatus } from '@/lib/api/sessions';
+import { sessionsApi, type MergeRequestBody, type AutoMergeRequestBody, type PrInfo, type WorktreeStatus, type DiffStats } from '@/lib/api/sessions';
 import {
   useCommit,
   usePush,
@@ -13,6 +13,7 @@ import {
   useWorktreeScope,
   worktreeScopeFromCache,
 } from '@/hooks/use-execution';
+import { useDiffStats } from '@/hooks/use-workspaces';
 import type { ChatSessionWithExecution } from '@/db/types';
 import type { TransferView } from '@/lib/transfer/view';
 import { preparedFolder } from '@/lib/executions/location';
@@ -33,6 +34,12 @@ export type ActionState =
    *  affordance to keep up with main. */
   | { kind: 'behindBase'; behind: number }
   | { kind: 'aheadNoPr'; ahead: number }
+  /** Clean, nothing left to push, no PR, but the branch changes files
+   *  against its base: it was pushed (or never tracked a remote) and the
+   *  next step is opening the PR. Upstream ahead/behind can't see this,
+   *  since after the first push the upstream is the branch's own remote
+   *  copy, so it reads the base-relative diff stats instead. */
+  | { kind: 'branchNoPr'; files: number }
   | { kind: 'prOpenInSync'; prNumber: number; prUrl: string }
   | { kind: 'prOpenAhead'; prNumber: number; prUrl: string; ahead: number }
   | { kind: 'prOpenBehindBase'; prNumber: number; prUrl: string; behind: number }
@@ -216,6 +223,7 @@ export function useExecutionActions(
   const { data: status } = useSessionStatus(id || null);
   const { data: prResp } = useSessionPr(id || null);
   const { data: transfer } = useTransfer(id || null);
+  const { data: diffStats } = useDiffStats(id || null, session?.executionId ?? null);
   const openablePr = useOpenablePr(session);
   const commit = useCommit(id);
   const push = usePush(id);
@@ -237,8 +245,8 @@ export function useExecutionActions(
   }, [push.error]);
 
   const state = useMemo<ActionState>(
-    () => deriveActionState({ session, workspaceIsGit, transfer, pushNonFastForward, status, pr: prResp?.pr }),
-    [session, workspaceIsGit, prResp, status, pushNonFastForward, transfer],
+    () => deriveActionState({ session, workspaceIsGit, transfer, pushNonFastForward, status, pr: prResp?.pr, diffStats }),
+    [session, workspaceIsGit, prResp, status, pushNonFastForward, transfer, diffStats],
   );
 
   return { state, openablePr, commit, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts };
@@ -252,10 +260,12 @@ export interface ActionStateInput {
   pushNonFastForward: boolean;
   status: WorktreeStatus | null | undefined;
   pr: PrInfo | null | undefined;
+  /** Changes against the base (the Changes view's totals), not the upstream. */
+  diffStats: DiffStats | null | undefined;
 }
 
 /** The action bar's state, from the session, its worktree status and its PR. Pure, for tests. */
-export function deriveActionState({ session, workspaceIsGit, transfer, pushNonFastForward, status, pr }: ActionStateInput): ActionState {
+export function deriveActionState({ session, workspaceIsGit, transfer, pushNonFastForward, status, pr, diffStats }: ActionStateInput): ActionState {
   if (!session) return { kind: 'noWorktree' };
   if (session.status === 'archived') return { kind: 'archived' };
   // A move supersedes every other state until the destination has the
@@ -349,13 +359,18 @@ export function deriveActionState({ session, workspaceIsGit, transfer, pushNonFa
     }
 
     // Clean, no PR — pick the next-step affordance based on
-    // ahead/behind. Pre-PR `behindBase` is a recent addition; the
-    // original machine left clean-but-behind branches with no button.
+    // ahead/behind, then on whether the branch changes anything against
+    // its base. Pre-PR `behindBase` is a recent addition; the original
+    // machine left clean-but-behind branches with no button, and pushed
+    // branches with no PR without one too (`branchNoPr`).
     if (behind > 0) {
       return { kind: 'behindBase', behind };
     }
     if (ahead > 0) {
       return { kind: 'aheadNoPr', ahead };
+    }
+    if (diffStats && diffStats.files > 0) {
+      return { kind: 'branchNoPr', files: diffStats.files };
     }
   }
 

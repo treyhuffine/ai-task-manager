@@ -338,19 +338,19 @@ function Buttons({ state, sessionId, push, pullBase, retrySetup, archive, resolv
 
     case 'aheadNoPr':
       return (
-        <>
-          <ActionButton
-            icon={<ArrowUpToLine size={11} />}
-            label="Push"
-            count={state.ahead}
-            onClick={push.onClick}
-            pending={push.pending}
-            variant="secondary"
-            title="Push branch to origin"
-          />
-          <OpenPrButton sessionId={sessionId} />
-        </>
+        <ActionButton
+          icon={<ArrowUpToLine size={11} />}
+          label="Push"
+          count={state.ahead}
+          onClick={push.onClick}
+          pending={push.pending}
+          variant="primary"
+          title="Push branch to origin"
+        />
       );
+
+    case 'branchNoPr':
+      return <OpenPrButton sessionId={sessionId} />;
 
     case 'prOpenInSync':
       return (
@@ -662,6 +662,10 @@ const THEME_BY_STATE: Record<ActionState['kind'], ChipTheme | null> = {
     chip: 'border-blue-500/40 bg-blue-500/10',
     text: 'text-blue-700 dark:text-blue-300',
   },
+  branchNoPr: {
+    chip: 'border-blue-500/40 bg-blue-500/10',
+    text: 'text-blue-700 dark:text-blue-300',
+  },
   prOpenInSync: {
     chip: 'border-emerald-500/40 bg-emerald-500/10',
     text: 'text-emerald-700 dark:text-emerald-300',
@@ -809,19 +813,32 @@ function NarrativeBody({ state, hasPr, badges, theme, sessionId, push, pullBase,
               {state.ahead === 1 ? 'commit ahead' : 'commits ahead'}
             </NarrativeText>
           </NarrativeLeft>
-          <div className="flex items-center gap-1.5">
-            <ActionButton
-              icon={<ArrowUpToLine size={11} />}
-              label="Push"
-              onClick={push.onClick}
-              pending={push.pending}
-              variant="secondary"
-              title="Push branch to origin"
-            />
-            {/* A PR is already linked (GitHub just didn't confirm it), so
-                don't offer to open a second one. */}
-            {!hasPr && <OpenPrButton sessionId={sessionId} />}
-          </div>
+          {/* One step at a time: once pushed, the chip moves to
+              `branchNoPr` and offers Open PR. */}
+          <ActionButton
+            icon={<ArrowUpToLine size={11} />}
+            label="Push"
+            onClick={push.onClick}
+            pending={push.pending}
+            variant="primary"
+            title="Push branch to origin"
+          />
+        </>
+      );
+
+    case 'branchNoPr':
+      return (
+        <>
+          <NarrativeLeft>
+            {badges}
+            <NarrativeText themed={theme.text}>
+              <span className="font-semibold tabular-nums">{state.files}</span>{' '}
+              {state.files === 1 ? 'file changed' : 'files changed'}
+            </NarrativeText>
+          </NarrativeLeft>
+          {/* A PR is already linked (GitHub just didn't confirm it), so
+              don't offer to open a second one. */}
+          {!hasPr && <OpenPrButton sessionId={sessionId} />}
         </>
       );
 

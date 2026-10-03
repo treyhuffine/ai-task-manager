@@ -87,7 +87,12 @@ on its own.
 behavior: colored by state, status on the left, the one next step on the
 right (Commit & push, Push, Open PR, Pull, Merge #N, Resolve conflicts,
 Archive, or Try again when setup failed). Push and Pull are mirrored
-arrows. The PR sits just outside on its left as a reference, not a
+arrows. It is always one step, never two: unpushed commits offer Push,
+and a pushed branch with no PR offers Open PR. "Pushed" can't come from
+the upstream ahead count (after the first push the upstream is the
+branch's own remote copy, so it reads 0), so that state reads the
+Changes view's diff against the base (`branchNoPr`, "N files changed").
+The PR sits just outside on its left as a reference, not a
 button: a small squared `#402 ↗` that opens it on GitHub, so the step is
 the only thing that reads as clickable. It never goes in the box or the
 panel. On the phone it gets its own row under the header.
