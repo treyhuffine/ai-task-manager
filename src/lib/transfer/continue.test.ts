@@ -17,13 +17,19 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { setUpAgentOn } from '@/test/fixtures/setups';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import { startWorkerProcess, type WorkerProcess } from '@/test/fixtures/worker-process';
 import { installFakeHarness, type FakeHarness } from '@/test/fixtures/fake-harness';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
+
+// Transfer behavior is deterministic. Its optional summary must never launch
+// a real provider when the user's default changes.
+vi.mock('@/lib/harness/one-shot', () => ({
+  runHarnessText: vi.fn(async () => ({ text: 'Continue from the recorded checkpoint.' })),
+}));
 
 let home: TestHome;
 let server: HomeServer;
@@ -56,6 +62,7 @@ beforeEach(async () => {
   homeId = own.id;
   hostId = own.hostDeviceId;
   const q = await import('@/lib/db/queries');
+  q.updateUserState({ defaultHarness: 'claude' });
   q.updateDevice(hostId, { name: 'Mini' });
 
   // One repository, a clone on each device.

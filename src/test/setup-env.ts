@@ -28,7 +28,7 @@ for (const name of [DB_PATH_ENV, CONFIG_DIR_ENV, WORK_DIR_ENV, BRAIN_PATH_ENV]) 
  * had closed its database (the review's "closed database" rejections). Tests
  * that need a key set their own.
  */
-for (const name of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GROQ_API_KEY', 'CURSOR_API_KEY']) delete process.env[name];
+for (const name of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GROQ_API_KEY', 'CURSOR_API_KEY', 'GEMINI_API_KEY']) delete process.env[name];
 
 /**
  * No test reaches a real server on this machine. A call to the app's own

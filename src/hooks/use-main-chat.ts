@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api/client';
+import { api, apiErrorText } from '@/lib/api/client';
+import { toast } from 'sonner';
 import type { ChatSessionRecord, EffortLevel } from '@/db/types';
 import type { HarnessId } from '@/lib/harness/registry';
 
@@ -65,6 +66,7 @@ export function useNewMainChat(scope: MainChatScope) {
   return useMutation({
     mutationFn: (opts: NewMainChatOptions | void) =>
       api.post<MainChatResponse>(scope === null ? basePath(scope) : `${basePath(scope)}/new`, opts ?? {}),
+    onError: (error) => toast.error('Could not start a new chat', { description: apiErrorText(error) }),
     onSuccess: (data) => {
       qc.setQueryData(mainChatKey(scope), data);
       qc.invalidateQueries({ queryKey: mainChatHistoryKey(scope) });

@@ -42,8 +42,8 @@ that.
 
 `.claude/skills` holds the real folder. The `.agents/skills` entry is a link to
 it (relative inside a project, so it works in any clone), because Codex,
-Cursor, Gemini, OpenCode and Pi read `.agents/skills` while Claude Code reads
-`.claude/skills`. A skill someone put only in `.agents/skills`, or in a
+Cursor, Gemini, Antigravity, OpenCode and Pi read `.agents/skills` while Claude
+Code reads `.claude/skills`. A skill someone put only in `.agents/skills`, or in a
 project's older `.ri/skills`, is found and edited where it is.
 
 A skill is named by a **ref**: `draft:<name>`, `ri:<name>`, `global:<name>`,
@@ -68,7 +68,13 @@ the skill's chats follow it.
 ### How a chat gets them
 
 - Ri's skills are attached to every chat Ri starts (agentex `skillDirs`,
-  `src/lib/executor/skills.ts`). Drafts never are.
+  `src/lib/executor/skills.ts`). Drafts never are. How a harness takes them
+  is agentex's business: Claude gets a temporary folder, Codex links them
+  into the chat's `.agents/skills` (so an agent's main chat on Codex gets
+  none), OpenCode gets them through its session config, and Antigravity
+  links them into its own global folder, `~/.gemini/antigravity-cli/skills`.
+  Cursor sessions don't take them yet (agentex reads `skillDirs` only on
+  Cursor's one-shot path).
 - Global and project skills aren't attached: every harness reads those
   folders on its own, from the user's home and from the chat's working folder.
   An execution's worktree has the project's committed skills. An uncommitted

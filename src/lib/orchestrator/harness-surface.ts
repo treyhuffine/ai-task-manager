@@ -59,11 +59,23 @@ import { SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator
 import { connectorRequestsEnabled } from '@/lib/connectors/request-settings';
 import { DEFAULT_ORCHESTRATOR_NAME } from '@/lib/orchestrator/name';
 import type { WorkspaceRecord } from '@/db/types';
+import { KNOWN_HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
 
 export type OrchestratorMode = 'legacy' | 'harness_skills' | 'harness_mcp';
 
 export const ORCHESTRATOR_MCP_SERVER_NAME = 'orchestrator';
 export const CONNECTORS_MCP_SERVER_NAME = 'connectors';
+
+// Every harness reads the shared AGENTS.md. Decide explicitly whether its
+// native instruction file may also be written when Claude needs its pointer.
+// Antigravity's native file is a full GEMINI.md copy, so exclude that duplicate.
+const APP_ROOT_INSTRUCTION_FILES: Record<HarnessId, boolean> = {
+  codex: true,
+  claude: true,
+  cursor: true,
+  opencode: true,
+  antigravity: false,
+};
 
 /**
  * The brief's half of asking for a connection (the tool description carries the full rule). The
@@ -856,7 +868,8 @@ export async function installOrchestratorSurface(
   await installInstructions(brief, {
     location: 'workspace',
     cwd: root,
-    runtimes: ['claude', 'codex', 'cursor', 'opencode'],
+    // On-disk instruction maintenance covers stored harnesses even while hidden.
+    runtimes: KNOWN_HARNESS_IDS.filter((id) => APP_ROOT_INSTRUCTION_FILES[id]),
     includeNativeFiles: await claudeMdWanted,
     managedTag: RI_MANAGED_TAG,
   });

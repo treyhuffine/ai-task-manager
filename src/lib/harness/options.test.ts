@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   EFFORT_OPTIONS,
   MODEL_OPTIONS,
+  PROVIDERS,
   bundledModelIds,
   curatedDefaultModelIds,
   customModelOption,
+  discoversModelsOnly,
   explicitHarnessSelection,
   explicitEffortForModel,
   explicitModelForProvider,
@@ -15,10 +17,19 @@ import {
   type ModelOption,
 } from './options';
 
+describe('harness ordering', () => {
+  it('offers Codex first in the provider controls', () => {
+    expect(PROVIDERS.map(({ id }) => id)).toEqual(['codex', 'claude', 'cursor', 'opencode', 'antigravity']);
+  });
+});
+
 describe('agent effort options', () => {
-  it('shows effort for Claude and Codex harnesses', () => {
+  it('shows effort for Claude, Codex and Antigravity harnesses', () => {
     expect(harnessSupportsEffort('claude')).toBe(true);
     expect(harnessSupportsEffort('codex')).toBe(true);
+    expect(harnessSupportsEffort('antigravity')).toBe(true);
+    expect(harnessSupportsEffort('cursor')).toBe(false);
+    expect(harnessSupportsEffort('opencode')).toBe(false);
     expect(harnessSupportsEffort('other')).toBe(false);
   });
 
@@ -138,6 +149,70 @@ describe('agent effort options', () => {
       defaultEffort: 'ultra',
     };
     expect(explicitEffortForModel('codex', model, 'medium')).toBe('ultra');
+  });
+});
+
+describe('Antigravity selection', () => {
+  const catalog: ModelOption[] = [
+    { id: 'gemini-3.8-flash-medium', label: 'Gemini 3.8 Flash (Medium)' },
+    { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)' },
+  ];
+
+  it('offers exactly the four levels `agy --effort` takes, labelled as Ri labels them', () => {
+    expect(effortOptionsForModel('antigravity', null).map((option) => [option.id, option.label])).toEqual([
+      ['low', 'Low'],
+      ['medium', 'Medium'],
+      ['high', 'High'],
+      ['max', 'Max'],
+    ]);
+    // A discovered model carries no effort metadata, so the same four apply.
+    expect(effortOptionsForModel('antigravity', catalog[1]!).map((option) => option.id)).toEqual([
+      'low', 'medium', 'high', 'max',
+    ]);
+  });
+
+  it('keeps a supported effort and resolves an unsupported one to medium', () => {
+    expect(explicitHarnessSelection('antigravity', { model: 'gemini-3.1-pro-high', effort: 'max' }, catalog))
+      .toEqual({ providerId: 'antigravity', model: 'gemini-3.1-pro-high', variant: null, effort: 'max' });
+    // `xhigh` and `ultra` belong to Claude and Codex. Carried over, they fall
+    // back rather than reaching `agy` as a value it would reject.
+    expect(explicitHarnessSelection('antigravity', { model: 'gemini-3.1-pro-high', effort: 'xhigh' }, catalog).effort)
+      .toBe('medium');
+    expect(explicitHarnessSelection('antigravity', { model: 'gemini-3.1-pro-high', effort: 'ultra' }, catalog).effort)
+      .toBe('medium');
+    expect(explicitHarnessSelection('antigravity', { model: 'gemini-3.1-pro-high' }, catalog).effort).toBe('medium');
+  });
+
+  it('ships no bundled models and preserves a live-validated slug at the DB boundary', () => {
+    expect(MODEL_OPTIONS.antigravity).toEqual([]);
+    expect(discoversModelsOnly('antigravity')).toBe(true);
+    expect(discoversModelsOnly('cursor')).toBe(true);
+    expect(discoversModelsOnly('opencode')).toBe(true);
+    expect(discoversModelsOnly('claude')).toBe(false);
+    expect(discoversModelsOnly('codex')).toBe(false);
+    expect(explicitHarnessSelection('antigravity', { model: 'gemini-3.8-flash-medium', effort: 'high' })).toEqual({
+      providerId: 'antigravity',
+      model: 'gemini-3.8-flash-medium',
+      variant: null,
+      effort: 'high',
+    });
+  });
+
+  it('never carries another harness model across, and never invents one', () => {
+    expect(explicitModelForProvider('antigravity', 'opus', catalog).id).toBe('gemini-3.8-flash-medium');
+    expect(explicitModelForProvider('antigravity', 'gpt-5.5', catalog).id).toBe('gemini-3.8-flash-medium');
+    // No catalog and no model: nothing to fall back on, so nothing is chosen.
+    expect(explicitModelForProvider('antigravity', null).id).toBe('');
+  });
+
+  it('has nothing to reconcile into an allowlist', () => {
+    expect(curatedDefaultModelIds('antigravity')).toEqual([]);
+    expect(reconcileEnabledModels('antigravity', ['gemini-3.1-pro-high'], null)).toEqual({
+      enabledModels: ['gemini-3.1-pro-high'],
+      knownModels: [],
+      changed: true,
+    });
+    expect(reconcileEnabledModels('antigravity', ['gemini-3.1-pro-high'], []).changed).toBe(false);
   });
 });
 

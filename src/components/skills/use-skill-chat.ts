@@ -2,7 +2,8 @@
 
 import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api/client';
+import { api, apiErrorText } from '@/lib/api/client';
+import { toast } from 'sonner';
 import { useRuntimeStatus } from '@/hooks/use-execution';
 import { hasRuntimeActivity } from '@/lib/executor/runtime-status';
 import { SKILLS_KEY } from '@/hooks/use-skills';
@@ -53,6 +54,7 @@ export function useSkillChat(ref: string, kind: SkillChatKind, opts: { enabled?:
   const newChat = useMutation({
     mutationFn: () =>
       api.post<{ session: ChatSessionRecord }>('/document-chat', { entityType: ENTITY_TYPE[kind], entityId: ref }),
+    onError: (error) => toast.error('Could not start a new chat', { description: apiErrorText(error) }),
     onSuccess: (data) => qc.setQueryData(queryKey, data.session),
   });
 

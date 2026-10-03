@@ -25,6 +25,7 @@
  */
 
 import { getProvider } from '@agentex/agent';
+import { backgroundHarnessUnavailableReason } from '@/lib/executor/harness';
 import { cheapModelFor } from '@/lib/harness/model-discovery';
 import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import { runtimeContextForHarness } from '@/lib/harness/runtime';
@@ -78,6 +79,7 @@ async function summarizeViaHarness(
   harness: HarnessId,
   selectedModel?: string | null,
 ): Promise<string | null> {
+  if (backgroundHarnessUnavailableReason(harness)) return null;
   const providerType = harnessDefinition(harness).agentexProviderId;
   const model = selectedModel ?? await cheapModelFor(harness);
   if (!model) return null;
@@ -203,6 +205,7 @@ export async function deriveRetrospectiveLabel(sessionId: string): Promise<void>
     const session = getChatSession(sessionId);
     if (!session) return;
     const harness = session.harness;
+    if (backgroundHarnessUnavailableReason(harness)) return;
 
     const providerType = harnessDefinition(harness).agentexProviderId;
     const model = session.model ?? await cheapModelFor(harness);

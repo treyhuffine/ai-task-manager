@@ -1,6 +1,6 @@
 # Agent Harness Expansion: OpenCode and Cursor
 
-Status: live harness support implemented, OpenCode saved-history import implemented locally and pending Agentex 0.0.31 publication
+Status: live harness support implemented, OpenCode saved-history import implemented locally and pending Agentex 0.0.31 publication. Antigravity added as the fifth harness on 2026-10-01 (section 23), pending Agentex 0.0.39 publication
 
 Date: 2026-07-10
 
@@ -1967,9 +1967,10 @@ claude --resume <id>
 codex resume <id>
 agent --resume <id>
 opencode run --session <id>
+agy --conversation <id>
 ```
 
-Generate these through the registry. Do not hardcode them in execution components.
+Generate these through the registry. Do not hardcode them in execution components. OpenCode's template is null in the shipped registry (see the resume command decision near the top of this document).
 
 ## 15. Security requirements
 
@@ -2229,12 +2230,14 @@ the browser and server share the same visible harness set:
 ```text
 NEXT_PUBLIC_RI_OPENCODE_ENABLED
 NEXT_PUBLIC_RI_CURSOR_ENABLED
+NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED
 ```
 
 Semantics:
 
-- Both harnesses are enabled by default after the Agentex 0.0.28 release
-- Setting either variable to the exact string `false` hides that harness and
+- OpenCode and Cursor are enabled by default after the Agentex 0.0.28 release,
+  and Antigravity after the Agentex 0.0.39 release
+- Setting any of them to the exact string `false` hides that harness and
   makes server dispatch reject it
 - Claude and Codex are not controlled by these emergency switches
 - Model allowlists are now part of the base four-harness model and do not need
@@ -2880,6 +2883,11 @@ These tasks are explicitly outside the first production release and should remai
 
 ## 22. Source references
 
+Antigravity:
+
+- CLI overview, install and sign-in: https://antigravity.google/docs/cli/overview
+- Headless `stream-json` protocol: https://antigravity.google/docs/cli/headless
+
 OpenCode:
 
 - Models and variants: https://opencode.ai/docs/models/
@@ -2916,3 +2924,67 @@ Local source anchors:
 - Agentex OpenCode: `packages/agent/src/providers/opencode/`
 - Agentex Cursor: `packages/agent/src/providers/cursor/`
 - Agentex ACP base: `packages/agent/src/providers/acp/`
+- Agentex Antigravity: `packages/agent/src/providers/antigravity/`
+
+## 23. Antigravity, the fifth harness
+
+Added 2026-10-01 against Agentex 0.0.39. Google's Antigravity CLI (`agy`) replaced Gemini CLI for personal Google accounts (Free, AI Pro, AI Ultra) on 2026-06-18, so it is how a Google subscriber runs Gemini models in Ri. Gemini CLI is not a harness. This section records what Ri does with it and the checklist the addition followed, which is the checklist for any future harness.
+
+### 23.1 What Antigravity is in Ri
+
+| Concern | Decision |
+|---|---|
+| Identity | `HarnessId` `antigravity`, agentex provider `antigravity`, name "Antigravity", description "Google Gemini models through Antigravity CLI", Lucide `Orbit` icon |
+| Install | `curl -fsSL https://antigravity.google/cli/install.sh \| bash`. Agentex finds `agy` on PATH or in `~/.local/bin`, `/usr/local/bin`, `/opt/homebrew/bin`. `ANTIGRAVITY_COMMAND` (also in Runtime setup and `service configure`) overrides it |
+| Sign-in | Run `agy` once in a terminal. It signs in through the browser and caches the session in the OS keyring. There is no login subcommand, so `loginCommand` is `agy`. Agentex reads sign-in from `agy models` |
+| `apiKeyVar` | `null`. `GEMINI_API_KEY` alone does nothing: it bills the Gemini API only when `~/.gemini/antigravity-cli/settings.json` also sets `"modelProvider": "gemini"`. Agentex reports that combination as an `api_key` auth option, and `/api/harness/auth` names `GEMINI_API_KEY` from the live report, so the metered badge still appears when it is real. Settings never tells users to set a variable that would have no effect |
+| Models | Discovered only (`agy models`). No bundled list, because slugs carry a version and a thinking level (`gemini-3.1-pro-high`) and get retired. Labels come from discovery, and `prettifyModelId` renders pinned or reported slugs the same way ("Gemini 3.1 Pro (High)"). Gemini 2 and later report a 1,048,576 token context window |
+| Effort | `reasoningEffort` maximum is true, with fallback levels `low`, `medium`, `high`, `max` (exactly what `agy --effort` takes). The runner passes `config.effort`, which agentex turns into `--effort` at process start. `sessionEffortChange` is false, so changing effort or model starts a new chat |
+| Permission modes | `auto_all` and `plan` only, like Cursor. Headless `agy` has no approval channel: a tool that needs approval is soft-denied by policy and reported as a denial. Offering `ask` would mean "deny every edit and command" and `auto_edits` ("ask for shell") would mean "never run shell", both silently. `auto_all` is `--dangerously-skip-permissions`, `plan` is `--mode plan`, passed without skip permissions. This requests CLI planning behavior, not a filesystem sandbox. Unsupported modes are rejected on writes and again before launch. The initial execution mode is stored atomically, before the first prompt |
+| Sessions and resume | One `agy --input-format stream-json --output-format stream-json` process per session. The conversation id is the external session id, and a restart resumes with `--conversation <id>`. The resume command shown in the UI is `agy --conversation {id}`, run from the chat's folder because conversations are scoped to it |
+| Instructions | Agentex reads `instructionsFile` in the session and sends it ahead of the first message of a conversation it starts, so Antigravity is in `SESSION_INSTRUCTIONS_PROVIDERS`. Agent instructions, reference folders and an agent main chat's brief all arrive. Reference folders are `prompt-only` (no `--add-dir` or tool filters). A successful resume keeps its original instructions. Agentex must fix missing instructions when a requested resume starts a new conversation, before publication |
+| Orchestrator surface | Antigravity reads the data root's `AGENTS.md`. It is deliberately not in `installInstructions`' runtimes, because its native file is a full `GEMINI.md` copy and the app root carries one rules file |
+| Skills | Workspace skills from `.agents/skills`, global from `~/.agents/skills`. Ri's own skills arrive as `skillDirs`, which agentex links into `~/.gemini/antigravity-cli/skills`, never the chat's folder, so an agent main chat still gets them |
+| MCP | None (`mcp: false`). Agentex passes no MCP servers to `agy`, so connectors, the agent browser and the orchestrator MCP don't reach it, the same as Codex, Cursor and OpenCode. Executions skip connectors and the browser up front because `strictMcpIsolation` is false |
+| Background AI | `CHEAPEST_MODEL.antigravity` is explicitly null. One-shots fail clearly before launch because agy ignores the required tool filters and MCP isolation. Automatic titles use the existing snippet fallback. No other harness is silently substituted |
+| Reconciliation | No durable catch-up. `reconcileSession` reports `unsupported_provider`, as for Cursor |
+| Sign-in loss mid-chat | Agentex emits `auth_required` with `loginCommand: "agy"`. The transcript banner is provider-aware: it names the command, checks the sign-in again on request through `/api/harness/auth`, and offers Resend once it holds. Only Claude keeps the in-app login button |
+| History import | Out of scope. The import vocabulary (`claude`, `codex`, `opencode`) is unchanged |
+| Rollout | `NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED`, on unless set to the exact string `false` |
+| Schema | `HARNESS_VALUES` derives from the registry's unfiltered known ids, including `antigravity`. SQLite text enums carry no CHECK, so no migration. Type tests in `src/db/types.ts` hold every harness column to `HarnessId` |
+
+### 23.2 New harness checklist
+
+Followed for Antigravity. The complete permission, command, model, effort, instruction-delivery and cheap-model mappings are exhaustive over `HarnessId`. Optional cosmetic overrides remain partial. Import-source lists describe supported history formats, not runnable harnesses.
+
+- [x] `[APP]` `src/lib/harness/registry.ts`: `HarnessId`, `HarnessDefinition` (provider, name, description, icon, install, login, docs, `apiKeyVar`, resume template, maximum capabilities), rollout flag in `isHarnessEnabled`
+- [x] `[APP]` Maximums never exceed the agentex provider's declared capabilities (a registry test checks every harness)
+- [x] `[APP]` `src/lib/harness/options.ts`: `MODEL_OPTIONS`, `FALLBACK_EFFORTS`, `PRE_RECONCILE_BUNDLED_IDS`. Discovery-only harnesses are recognized by an empty bundled list (`discoversModelsOnly`), not by name
+- [x] `[APP]` `src/lib/harness/registry.ts`: required `commandEnv`, consumed by runtime discovery, service environment validation and Runtime setup. Effort support comes from the registry maximum, not a harness list
+- [x] `[APP]` `src/lib/service/environment.ts` and Runtime setup: the command override
+- [x] `[APP]` `src/lib/db/schema.ts` `HARNESS_VALUES` (derived from the unfiltered registry ids for every harness column) and the `src/db/types.ts` type tests
+- [x] `[APP]` `src/lib/executor/permission-map.ts`: the honest mode set
+- [x] `[APP]` `src/lib/executor/session-instructions.ts`: whether the session path reads `instructionsFile`, checked against agentex source
+- [x] `[APP]` `src/lib/executor/agent-main-chat.ts`: whether `skillDirs` would land in the cwd
+- [x] `[APP]` `src/lib/executor/harness.ts` `CHEAPEST_MODEL`: a stable alias or explicit null, plus the background availability guard
+- [x] `[APP]` `src/lib/orchestrator/harness-surface.ts`: exhaustive instruction-file participation map, explicitly excluding Antigravity from native-file generation
+- [x] `[APP]` UI: the onboarding card copy (`step-harness.tsx`), the registry icon map (`harness-connection-ui.tsx`), resume id label, provider label, auth banner. Capability fallbacks in the composer and background task bar read registry maximums
+- [x] `[APP]` Tests: registry, options, permission map, instruction delivery, reference-folder wiring, one-shot, orchestrator surface, service environment, icons, and an end-to-end run through the real runner and agentex provider against a stand-in CLI (`src/lib/executor/antigravity-harness.test.ts`, `src/test/fixtures/mock-agy.ts`)
+- [x] `[APP]` Docs: `AGENTS.md`, `README.md`, this section, `docs/skills.md`, `docs/desktop.md`, `docs/reference-folders-spec.md`, `docs/orchestrator-harness.md`, `docs/background-ai.md`, `docs/pinned-models.md`
+- [ ] `[AX]` Publish Agentex 0.0.39, then `pnpm up @agentex/agent@0.0.39` to refresh `pnpm-lock.yaml`
+- [ ] `[APP]` Live check with a signed-in `agy`: onboarding verify, a chat, a resume, plan mode, an execution with reference folders
+
+### 23.3 Follow-ups
+
+- [ ] `[APP]` Surface `ExecutionResult.permissionDenials` (and the session equivalent once agentex reports it per turn) so a soft-denied tool is visible in the transcript, not only in the agent's reply
+- [ ] `[AX]` Session-scoped model and effort change if `agy` gains a control channel, so a change no longer needs a new chat
+- [ ] `[APP]` Antigravity history import once a stable conversation export exists
+
+### Default harness and display order
+
+`HARNESS_REGISTRY` insertion order is the shared display order for harness
+pickers: Codex first, followed by Claude Code, Cursor, OpenCode and Antigravity.
+Rollout flags filter this order without changing it. `DEFAULT_HARNESS` is the
+explicit Codex fallback used when no choice has been saved, including onboarding,
+new chats, executions, triggers and background AI. Saved harness choices and
+existing chats keep their harness. Changing the default does not migrate data.

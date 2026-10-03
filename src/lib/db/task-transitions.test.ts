@@ -312,9 +312,10 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     expect([a.id, b.id, c.id].every((id) => q.getTask(id)!.sortKey != null)).toBe(true);
 
     // Two previously-null cards can now actually be reordered relative to each other.
-    const bBefore = q.getTask(b.id)!.sortKey!;
     q.reorderTaskInLane(b.id, a.id, c.id);
-    expect(q.getTask(b.id)!.sortKey).not.toBe(bBefore);
+    const bKey = q.getTask(b.id)!.sortKey!;
+    expect(q.getTask(a.id)!.sortKey! < bKey).toBe(true);
+    expect(bKey < q.getTask(c.id)!.sortKey!).toBe(true);
   });
 
   it('reusing an idempotency key for a different command is a conflict', async () => {

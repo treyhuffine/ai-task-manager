@@ -19,6 +19,7 @@
  * async orchestration layer that combines DB writes with filesystem ops.
  */
 
+import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
@@ -66,7 +67,7 @@ import { copyFilesToWorktree } from '@/lib/workspaces/files-to-copy';
 import { killAllForOwner } from '@/lib/terminal/pty-manager';
 import { terminalOwnerId } from '@/lib/terminal/owner';
 import { invalidateHarnessSession, close as closeHarnessSession } from '@/lib/executor/adapter';
-import type { ChatSessionWithExecution, EffortLevel, WorkspaceRecord, WorkerCommandActor } from '@/db/types';
+import type { ChatSessionWithExecution, EffortLevel, PermissionMode, WorkspaceRecord, WorkerCommandActor } from '@/db/types';
 import type { PreparePayload } from '@/lib/worker/handlers';
 import { isDeviceConnected, wakeDevice } from '@/lib/workers/hub';
 import { cantRunAgentThere, runOnFor, setupProblem, setupUsable } from '@/lib/setups/run-on';
@@ -74,6 +75,7 @@ import { checkDeviceFolders } from '@/lib/setups/folders';
 import { requireHarnessId } from '@/lib/harness/options';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
 import { admitChange } from '@/lib/transfer/moving';
+import { assertSupportedPermissionMode } from '@/lib/executor/permission-map';
 
 const execFileAsync = promisify(execFile);
 
@@ -136,6 +138,7 @@ export interface DispatchExecutionSessionArgs {
   model?: string | null;
   modelVariant?: string | null;
   effort?: EffortLevel | null;
+  permissionMode?: PermissionMode;
   /** Override the workspace's default base branch. Used when the launcher
    *  has a `base` chip attached from a branch pick (e.g. `origin/feat-foo`).
    *  Falls back to `workspace.baseBranch` when null/empty. Ignored when
@@ -220,7 +223,12 @@ export async function dispatchExecutionSession(
   const userState = getUserState();
   const providerId = args.harness
     ? requireHarnessId(args.harness)
-    : userState?.defaultHarness ?? 'claude';
+    : userState?.defaultHarness ?? DEFAULT_HARNESS;
+  if (args.permissionMode !== undefined) {
+    assertSupportedPermissionMode(args.permissionMode, providerId);
+    // The actual runner validates live capabilities on the execution device.
+    // The home's binary cannot decide whether a connected device supports plan.
+  }
   const harnessSettings = ensureHarnessSettings(providerId);
   const savedTupleMatchesProvider = userState?.defaultHarness === providerId;
   // Explicit args (the launcher's model control) beat the saved default
@@ -310,6 +318,7 @@ export async function dispatchExecutionSession(
       model: selection.model,
       modelVariant: selection.variant,
       effort: selection.effort,
+      permissionMode: args.permissionMode,
       label,
       worktreePath: liveMode && !elsewhere ? ws.cwd : null,
       branchName: liveBranch,

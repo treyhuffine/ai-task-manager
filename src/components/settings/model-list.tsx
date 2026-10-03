@@ -10,6 +10,7 @@ import { useHarnessModels } from '@/hooks/use-harness-models';
 import { useRemoveCustomModel, useSaveHarnessModels } from '@/hooks/use-harnesses';
 import { ProviderIcon, ConnectionBadge, ConnectionPanel } from './harness-connection-ui';
 import { PinModelInput } from './pin-model-input';
+import { HarnessPermissionNotice } from './harness-permission-notice';
 import { cn } from '@/lib/utils';
 
 export interface ModelSelection {
@@ -187,6 +188,7 @@ function ProviderGroup({
 
       {/* Shows the login/check CTA only when the provider isn't cleanly connected. */}
       <ConnectionPanel harness={providerId} />
+      <HarnessPermissionNotice harness={providerId} />
 
       <div className={cn('mt-1', !connected && 'opacity-50')}>
         {rows.map((m) => (

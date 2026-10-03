@@ -8,9 +8,10 @@ import {
 import type { ProviderId } from '@/lib/harness/options';
 import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '@/db/types';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
-import { isHarnessId } from '@/lib/harness/registry';
+import { assertHarnessEnabled, DEFAULT_HARNESS, HarnessDisabledError, isKnownHarnessId } from '@/lib/harness/registry';
 import { withCompression } from '@/lib/api/compression';
 import { findSkill } from '@/lib/skills/locations';
+import { permissionsForNewChat, UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 
 /** Optional per-chat provider/model override (the composer's "switch provider"). */
 interface ChatOverride {
@@ -22,7 +23,7 @@ interface ChatOverride {
 
 function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: unknown; effort?: unknown }): ChatOverride {
   const out: ChatOverride = {};
-  if (isHarnessId(src.providerId)) out.providerId = src.providerId;
+  if (isKnownHarnessId(src.providerId)) out.providerId = src.providerId;
   if (typeof src.model === 'string' && src.model.trim()) out.model = src.model.trim();
   if (typeof src.variant === 'string' && src.variant.trim()) out.variant = src.variant.trim();
   if (typeof src.effort === 'string' && EFFORT_LEVELS.includes(src.effort as EffortLevel)) {
@@ -107,11 +108,15 @@ function findCurrent(ref: EntityRef): ChatSessionWithExecution | null {
   );
 }
 
-async function createFocusedSession(ref: EntityRef, override: ChatOverride = {}) {
+async function createFocusedSession(
+  ref: EntityRef,
+  override: ChatOverride = {},
+  permissions?: Pick<ChatSessionWithExecution, 'permissionMode' | 'prePlanMode'>,
+) {
   const userState = getUserState();
   const providerId = override.providerId
     ?? userState?.defaultHarness
-    ?? 'claude';
+    ?? DEFAULT_HARNESS;
   const savedTupleMatchesProvider = userState?.defaultHarness === providerId;
   const harnessSettings = ensureHarnessSettings(providerId);
   const requestedModel = override.model
@@ -126,6 +131,7 @@ async function createFocusedSession(ref: EntityRef, override: ChatOverride = {})
       ?? harnessSettings.defaultEffort,
   }, { repairInvalidModel: override.model === undefined });
   const session = createChatSession({
+    ...permissions,
     type: 'content',
     harness: selection.providerId,
     // Pins the harness session to this one entity (see harness-surface's
@@ -163,7 +169,7 @@ async function handleGET(req: Request) {
     return Response.json({ session });
   } catch (err) {
     console.error('[GET /api/document-chat]', err);
-    return Response.json({ error: String(err) }, { status: 500 });
+    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError || err instanceof UnsupportedPermissionModeError ? 409 : 500 });
   }
 }
 
@@ -190,7 +196,10 @@ export async function POST(req: Request) {
   if (missing) return missing;
   const override = parseOverride(src);
   try {
+    const harness = override.providerId ?? getUserState()?.defaultHarness ?? DEFAULT_HARNESS;
+    assertHarnessEnabled(harness);
     const current = findCurrent(ref);
+    const permissions = permissionsForNewChat(harness, current);
     if (current) {
       // Tear down the cached AgentSession so the archived chat's process
       // doesn't linger; the next dispatch on the new session spawns fresh.
@@ -201,10 +210,10 @@ export async function POST(req: Request) {
       const { deriveRetrospectiveLabel } = await import('@/lib/sessions/derive-label');
       void deriveRetrospectiveLabel(current.id);
     }
-    const session = await createFocusedSession(ref, override);
+    const session = await createFocusedSession(ref, override, permissions);
     return Response.json({ session });
   } catch (err) {
     console.error('[POST /api/document-chat]', err);
-    return Response.json({ error: String(err) }, { status: 500 });
+    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError || err instanceof UnsupportedPermissionModeError ? 409 : 500 });
   }
 }

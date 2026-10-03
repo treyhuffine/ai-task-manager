@@ -16,7 +16,7 @@
  * structured-JSON variant with zod validation plus one retry.
  *
  * Harness resolution: `defaultHarness` from user state (the same
- * default the orchestrator chat uses), falling back to claude. Model:
+ * default the orchestrator chat uses), falling back to Codex. Model:
  * `standard` prefers the user's `defaultModel` when it belongs to the
  * resolved provider, else the CLI's own default; `fast` uses the provider's
  * cheap model (haiku / gpt-6-luna) when the installed CLI offers it.
@@ -29,6 +29,7 @@
  * installed AGENTS.md surface documents the action CLI) or to no tools.
  */
 
+import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 import {
   getProvider,
   type ExecutionResult,
@@ -36,6 +37,7 @@ import {
   type StreamEvent,
 } from '@agentex/agent';
 import type { z } from 'zod';
+import { backgroundHarnessUnavailableReason } from '@/lib/executor/harness';
 import { cheapModelFor } from '@/lib/harness/model-discovery';
 import { modelBelongsToProvider, type ProviderId } from '@/lib/harness/options';
 import { runtimeContextForHarness } from '@/lib/harness/runtime';
@@ -86,7 +88,7 @@ export interface HarnessOneShotResult {
 
 /** The provider id background calls run on: the user's default agent harness. */
 export function resolveBackgroundHarness(): ProviderId {
-  return (getUserState()?.defaultHarness as ProviderId | null) ?? 'claude';
+  return (getUserState()?.defaultHarness as ProviderId | null) ?? DEFAULT_HARNESS;
 }
 
 /** Whether the resolved harness can attach MCP servers (Claude yes, Codex not yet). */
@@ -125,6 +127,8 @@ export function runHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneShot
 
 async function executeHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneShotResult> {
   const providerType = resolveBackgroundHarness();
+  const unavailable = backgroundHarnessUnavailableReason(providerType);
+  if (unavailable) throw new Error(`[${opts.label}] ${unavailable}`);
   const model = opts.model ?? await backgroundModelFor(providerType, opts.tier ?? 'fast');
   const cwd = opts.cwd ?? getAppRoot();
   const hasMcp = (opts.mcpServers?.length ?? 0) > 0;

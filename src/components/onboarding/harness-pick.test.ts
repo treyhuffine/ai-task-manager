@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { autoHarness, suggestedHarness, type HarnessReports } from './harness-pick';
+import { autoHarness, suggestedHarness, unrankedHarnesses, type HarnessReports } from './harness-pick';
+import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 
 function report(opts: { installed?: boolean; subscription?: boolean; apiKey?: boolean; bedrock?: boolean }) {
   return {
@@ -25,8 +26,9 @@ describe('autoHarness', () => {
     expect(autoHarness({ claude: report({ apiKey: true }), codex: report({ apiKey: true }) })).toBeNull();
   });
 
-  it('asks for Cursor and OpenCode, which need a model picked', () => {
+  it('asks for Cursor, OpenCode and Antigravity, which need a model picked', () => {
     expect(autoHarness({ cursor: report({ subscription: true }), opencode: report({ subscription: true }) })).toBeNull();
+    expect(autoHarness({ antigravity: report({ subscription: true }) })).toBeNull();
   });
 
   it('asks when nothing is installed or the checks failed', () => {
@@ -40,6 +42,14 @@ describe('suggestedHarness', () => {
     expect(suggestedHarness({ claude: report({ installed: false }), codex: report({ installed: false }), cursor: report({}) })).toBe(
       'cursor',
     );
-    expect(suggestedHarness({})).toBe('claude');
+    expect(suggestedHarness({})).toBe(DEFAULT_HARNESS);
+  });
+
+  it('suggests Antigravity when it is the only CLI installed', () => {
+    expect(suggestedHarness({ claude: report({ installed: false }), antigravity: report({}) })).toBe('antigravity');
+  });
+
+  it('ranks every known harness', () => {
+    expect(unrankedHarnesses()).toEqual([]);
   });
 });

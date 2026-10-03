@@ -26,6 +26,7 @@ import { buildRecallHistory } from '@/components/chat/editor/history-recall';
 import { useMarkSessionRead } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import { PERMISSION_MODE_META } from '@/lib/permission-modes';
+import { HarnessPermissionNotice } from '@/components/settings/harness-permission-notice';
 import { supportedPermissionModes as supportedModesFor } from '@/lib/executor/permission-map';
 import {
   type PermissionMode,
@@ -66,7 +67,7 @@ import type {
 import type { PrMentionItem } from '@/components/chat/editor/pr-menu/types';
 import { usePrList } from '@/hooks/use-prs';
 import { useHarnessModels } from '@/hooks/use-harness-models';
-import type { HarnessId } from '@/lib/harness/registry';
+import { DEFAULT_HARNESS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 
 /**
  * Imperative handle for the execution composer. Exposes the minimum
@@ -363,7 +364,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const { models: harnessModels } = useHarnessModels(providerId);
     const harnesses = useHarnesses();
     const pinnedModelOption = explicitModelForProvider(
-      providerId ?? 'claude',
+      providerId ?? DEFAULT_HARNESS,
       model,
       harnessModels,
     );
@@ -372,19 +373,24 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const variants = pinnedModelOption.variants?.filter((variant) => !variant.disabled) ?? [];
     const explicitVariant = explicitVariantForModel(pinnedModelOption, modelVariant);
     const runtime = harnesses.data?.harnesses.find((entry) => entry.id === providerId)?.runtime;
-    const canChangeModel = runtime?.capabilities.sessionModelChange.supported ?? providerId !== 'cursor';
-    const canChangeVariant = runtime?.capabilities.sessionVariantChange.supported ?? providerId === 'opencode';
+    // Until the runtime probe answers, the registry maximum stands in: the
+    // harness can do at most this, and the probe can only take it away.
+    const maximum = providerId ? harnessDefinition(providerId).maximumCapabilities : null;
+    const canChangeModel = runtime?.capabilities.sessionModelChange.supported
+      ?? maximum?.sessionModelChange ?? false;
+    const canChangeVariant = runtime?.capabilities.sessionVariantChange.supported
+      ?? maximum?.sessionVariantChange ?? false;
     const canChangeEffort = runtime?.capabilities.sessionEffortChange.supported
-      ?? (providerId === 'claude' || providerId === 'codex');
+      ?? maximum?.sessionEffortChange ?? false;
     const selectionControlsDisabled = updateSession.isPending || Boolean(isRunning);
     const supportedPermissionModes = useMemo<PermissionMode[]>(
-      () => supportedModesFor(providerId ?? 'claude', runtime?.capabilities.planMode.supported ?? false),
+      () => supportedModesFor(providerId ?? DEFAULT_HARNESS, runtime?.capabilities.planMode.supported ?? false),
       [providerId, runtime?.capabilities.planMode.supported],
     );
     const showEffort = harness ? harnessSupportsEffort(harness) : false;
     const effortOptions = effortOptionsForModel(harness, pinnedModelOption);
     const explicitEffort = explicitEffortForModel(
-      providerId ?? 'claude',
+      providerId ?? DEFAULT_HARNESS,
       pinnedModelOption,
       effort,
     );
@@ -414,12 +420,12 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       if (isRunning) return;
       if (id === explicitModel) return;
       const nextModel = explicitModelForProvider(
-        providerId ?? 'claude',
+        providerId ?? DEFAULT_HARNESS,
         id,
         harnessModels,
       );
       const nextEffort = explicitEffortForModel(
-        providerId ?? 'claude',
+        providerId ?? DEFAULT_HARNESS,
         nextModel,
         explicitEffort,
       );
@@ -751,6 +757,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                     onOpenChange={setModeMenuOpen}
                     current={permissionMode}
                     options={supportedPermissionModes}
+                    harness={providerId}
                     onSelect={setMode}
                     disabled={selectionControlsDisabled}
                   />
@@ -762,7 +769,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                     <ComposerProviderMenu
                       open={modelMenuOpen}
                       onOpenChange={setModelMenuOpen}
-                      currentProvider={providerId ?? 'claude'}
+                      currentProvider={providerId ?? DEFAULT_HARNESS}
                       model={explicitModel}
                       fallbackLabel={displayModelLabel}
                       onSelectModel={setModel}
@@ -949,6 +956,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 // ─── ModePicker ───────────────────────────────────────────────
 
 interface ModePickerProps {
+  harness: ProviderId | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   current: PermissionMode;
@@ -957,7 +965,10 @@ interface ModePickerProps {
   disabled?: boolean;
 }
 
-function ModePicker({ open, onOpenChange, current, options, onSelect, disabled }: ModePickerProps) {
+function ModePicker({ harness, open, onOpenChange, current, options, onSelect, disabled }: ModePickerProps) {
+  const descriptionFor = (mode: PermissionMode) => harness === 'antigravity' && mode === 'plan'
+    ? 'Ask the CLI to plan before making changes. Uses its configured tool policies.'
+    : PERMISSION_MODE_META[mode].description;
   const meta = PERMISSION_MODE_META[current];
   const Icon = meta.Icon;
   return (
@@ -966,7 +977,7 @@ function ModePicker({ open, onOpenChange, current, options, onSelect, disabled }
         <button
           type="button"
           disabled={disabled}
-          title={`${meta.title}: ${meta.description}\nShift+Tab to cycle`}
+          title={`${meta.title}: ${descriptionFor(current)}\nShift+Tab to cycle`}
           className={cn(
             'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
             meta.classes.text,
@@ -983,6 +994,7 @@ function ModePicker({ open, onOpenChange, current, options, onSelect, disabled }
         <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
           Permission mode
         </div>
+        <HarnessPermissionNotice harness={harness} />
         {options.map((m) => {
           const mm = PERMISSION_MODE_META[m];
           const ItemIcon = mm.Icon;
@@ -1007,7 +1019,7 @@ function ModePicker({ open, onOpenChange, current, options, onSelect, disabled }
               <div className="flex-1 min-w-0">
                 <div className={cn('text-[12px] font-medium', mm.classes.text)}>{mm.title}</div>
                 <div className="text-[10.5px] text-muted-foreground/80 mt-0.5 leading-snug">
-                  {mm.description}
+                  {descriptionFor(m)}
                 </div>
               </div>
             </button>

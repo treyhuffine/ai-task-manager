@@ -193,3 +193,21 @@ describe('PATCH /api/sessions/[id] selection changes', () => {
     expect(updateUserState).not.toHaveBeenCalled();
   });
 });
+
+
+describe('Antigravity permission changes', () => {
+  it.each(['ask', 'auto_edits'])('refuses %s without changing stored permissions', async (permissionMode) => {
+    getChatSessionWithExecution.mockReturnValue({ ...existing, harness: 'antigravity' });
+    const response = await PATCH(request({ permissionMode }), params());
+    expect(response.status).toBe(409);
+    expect(updateChatSession).not.toHaveBeenCalled();
+    expect(recycleForModeChange).not.toHaveBeenCalled();
+  });
+
+  it('stores plan and preserves the previous explicit mode', async () => {
+    getChatSessionWithExecution.mockReturnValue({ ...existing, harness: 'antigravity' });
+    const response = await PATCH(request({ permissionMode: 'plan' }), params());
+    expect(response.status).toBe(200);
+    expect(updateChatSession).toHaveBeenCalledWith(SESSION_ID, { permissionMode: 'plan', prePlanMode: 'auto_all' });
+  });
+});

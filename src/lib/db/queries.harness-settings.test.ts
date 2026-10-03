@@ -225,3 +225,32 @@ describe('custom (pinned) harness models', () => {
     q.updateUserState({ defaultHarness: 'claude' });
   });
 });
+
+
+describe('defaultTriggerHarness', () => {
+  it('uses Codex only when there is no saved harness', () => {
+    q.updateUserState({ defaultHarness: null });
+    expect(q.defaultTriggerHarness()).toBe('codex');
+    expect(q.getUserState()?.defaultHarness).toBeNull();
+  });
+
+  it('preserves an existing Claude choice', () => {
+    q.updateUserState({ defaultHarness: 'claude' });
+    expect(q.defaultTriggerHarness()).toBe('claude');
+    expect(q.getUserState()?.defaultHarness).toBe('claude');
+  });
+});
+
+
+it('keeps a saved Antigravity trigger default when rollout disables execution', () => {
+  const previous = process.env.NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED;
+  process.env.NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED = 'false';
+  try {
+    q.updateUserState({ defaultHarness: 'antigravity' });
+    expect(q.defaultTriggerHarness()).toBe('antigravity');
+    expect(q.getUserState()?.defaultHarness).toBe('antigravity');
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED;
+    else process.env.NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED = previous;
+  }
+});

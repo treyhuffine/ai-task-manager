@@ -1,7 +1,18 @@
 'use client';
 
-import { Terminal, Code2, AlertTriangle, Loader2, RefreshCw, SquareTerminal, Braces } from 'lucide-react';
+import {
+  AlertTriangle,
+  Braces,
+  Code2,
+  Loader2,
+  Orbit,
+  RefreshCw,
+  SquareTerminal,
+  Terminal,
+  type LucideIcon,
+} from 'lucide-react';
 import { findProvider, type ProviderId } from '@/lib/harness/options';
+import { harnessDefinition, type HarnessIconId } from '@/lib/harness/registry';
 import {
   useHarnessConnection,
   useRecheckHarnessConnection,
@@ -16,11 +27,39 @@ import { cn } from '@/lib/utils';
  * provider switcher so there's exactly one connect/check UI.
  */
 
+/** The Lucide component for each registry icon id. */
+const HARNESS_ICONS: Record<HarnessIconId, LucideIcon> = {
+  terminal: Terminal,
+  code: Code2,
+  'square-terminal': SquareTerminal,
+  braces: Braces,
+  orbit: Orbit,
+};
+
+/**
+ * The icon a harness is drawn with everywhere, chosen in its registry entry.
+ * For lists built once at module scope. Inside a render, use `HarnessIcon`.
+ */
+export function harnessIcon(id: ProviderId): LucideIcon {
+  return HARNESS_ICONS[harnessDefinition(id).icon];
+}
+
+/** A harness's registry icon, rendered from a static set of components. */
+export function HarnessIcon({ id, size, className }: { id: ProviderId; size?: number; className?: string }) {
+  const icon: HarnessIconId = harnessDefinition(id).icon;
+  switch (icon) {
+    case 'terminal': return <Terminal size={size} className={className} />;
+    case 'code': return <Code2 size={size} className={className} />;
+    case 'square-terminal': return <SquareTerminal size={size} className={className} />;
+    case 'braces': return <Braces size={size} className={className} />;
+    case 'orbit': return <Orbit size={size} className={className} />;
+  }
+}
+
 export function ProviderIcon({ id, size = 15 }: { id: ProviderId; size?: number }) {
-  const Icon = id === 'codex' ? Code2 : id === 'cursor' ? SquareTerminal : id === 'opencode' ? Braces : Terminal;
   return (
     <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
-      <Icon size={size} className="text-primary" />
+      <HarnessIcon id={id} size={size} className="text-primary" />
     </span>
   );
 }
@@ -100,6 +139,8 @@ export function ConnectionPanel({
 
   const notInstalled = connection.status === 'not_installed';
   const metered = connection.metered;
+  // Empty for a harness where a bare environment variable is not a way in
+  // (OpenCode, Antigravity). The live report still names one when it is.
   const apiKeyVar = connection.apiKeyVar ?? provider.apiKeyVar;
 
   return (
@@ -122,17 +163,27 @@ export function ConnectionPanel({
           <>Install the CLI, then check again:</>
         ) : harness === 'opencode' ? (
           <>Connect at least one upstream provider below, then check again.</>
+        ) : metered && !provider.apiKeyVar ? (
+          // The variable only bills because the CLI's own settings opted into
+          // it (Antigravity's `"modelProvider": "gemini"`), so signing in alone
+          // would not change anything.
+          <>
+            {apiKeyVar} is set and {provider.name} is configured to use it, so turns bill the API
+            directly. Change that in {provider.name}&apos;s own settings to use your subscription instead.
+          </>
         ) : metered ? (
           <>
             {apiKeyVar} is set, so turns bill the API directly. Run{' '}
             <span className="font-mono text-foreground/80">{provider.loginCmd}</span> to use your subscription
             instead.
           </>
-        ) : (
+        ) : apiKeyVar ? (
           <>
             Sign in to use your subscription, then check again. Or set{' '}
             <span className="font-mono text-foreground/80">{apiKeyVar}</span> to bill the API.
           </>
+        ) : (
+          <>Sign in to use your subscription, then check again.</>
         )}
       </p>
       <code className="block rounded bg-muted/70 px-2 py-1 font-mono text-[11px] text-foreground/90">

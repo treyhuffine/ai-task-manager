@@ -408,7 +408,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
             console.warn(
               `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
                 'configured but NOT delivered — this harness ignores session-scoped instructions, ' +
-                'so the agent will not be told these folders exist. Use claude or codex for reference folders.',
+                'so the agent will not be told these folders exist. Use claude, codex or antigravity for reference folders.',
             );
           }
         }
@@ -433,7 +433,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
       console.warn(
         `[executor] execution on provider "${providerType}": agent instructions configured but NOT ` +
           'delivered — this harness ignores session-scoped instructions, so the agent will not see ' +
-          'them. Use claude or codex for agent instructions.',
+          'them. Use claude, codex or antigravity for agent instructions.',
       );
     }
   }

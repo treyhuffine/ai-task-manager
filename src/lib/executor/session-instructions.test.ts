@@ -64,6 +64,15 @@ describe('planSessionInstructions', () => {
     expect(planSessionInstructions('codex', [{ name: 'agent instructions', text: agentBlock }]).text).toBe(agentBlock);
   });
 
+  it('delivers on antigravity, whose session puts the file ahead of the first message', async () => {
+    const { planSessionInstructions, providerDeliversSessionInstructions } = await load();
+    expect(providerDeliversSessionInstructions('antigravity')).toBe(true);
+    expect(planSessionInstructions('antigravity', [
+      { name: 'agent instructions', text: agentBlock },
+      { name: 'reference folders', text: '## Reference folders\n- api  ->  /code/api' },
+    ])).toEqual({ text: `${agentBlock}\n\n## Reference folders\n- api  ->  /code/api`, undelivered: [] });
+  });
+
   it('reports what was lost on harnesses whose session path drops the file', async () => {
     const { planSessionInstructions, providerDeliversSessionInstructions } = await load();
     for (const provider of ['cursor', 'opencode']) {

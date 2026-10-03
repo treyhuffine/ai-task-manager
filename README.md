@@ -26,7 +26,7 @@ The fuller product thinking lives in [`docs/prd.md`](docs/prd.md).
 
 - **Framework:** Next.js 16 (App Router), React 19, TypeScript
 - **Database:** SQLite (`better-sqlite3`) + Drizzle ORM, vector search via `sqlite-vec`
-- **AI:** subscription harnesses via `@agentex/agent` (Claude Code, Codex, ...) for chat and background AI; OpenAI via the Vercel AI SDK for embeddings only
+- **AI:** subscription harnesses via `@agentex/agent` (Claude Code, Codex, Cursor, OpenCode, Antigravity) for chat and background AI; OpenAI via the Vercel AI SDK for embeddings only
 - **UI:** Tailwind CSS v4, shadcn/ui (Radix), Vercel AI Elements, Tiptap
 - **State:** TanStack Query
 - **CLI:** Commander, packaged via tsup
@@ -43,7 +43,7 @@ pnpm dev                  # Next dev, brain at ~/ri-dev, port 42241
 
 Open [http://localhost:42241](http://localhost:42241).
 
-Agent features run through your existing Claude Code or Codex CLI (subscription auth) — no model API key required. Optional keys in `.env.local`: `OPENAI_API_KEY` enables embeddings / semantic search, `GROQ_API_KEY` enables cloud speech-to-text (Parakeet covers STT locally without it).
+Agent features run through a coding CLI you already use and are signed in to (Claude Code, Codex, Cursor, OpenCode, or Google's Antigravity CLI `agy`), so no model API key is required. Optional keys in `.env.local`: `OPENAI_API_KEY` enables embeddings / semantic search, `GROQ_API_KEY` enables cloud speech-to-text (Parakeet covers STT locally without it).
 
 > **Native modules:** pnpm blocks postinstall scripts by default. `better-sqlite3` and `sqlite-vec` need them to build their `.node` bindings — `pnpm approve-builds` enables them. If you skip it and see "Could not locate the bindings file" later, run `pnpm rebuild better-sqlite3` to recover. macOS needs Xcode Command Line Tools (`xcode-select --install`).
 

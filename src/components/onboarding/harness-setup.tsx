@@ -1,5 +1,6 @@
 'use client';
 
+import { HarnessPermissionNotice } from '@/components/settings/harness-permission-notice';
 import { useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -7,10 +8,6 @@ import {
   AlertCircle,
   AlertTriangle,
   Loader2,
-  Terminal,
-  Code2,
-  TerminalSquare,
-  Braces,
   RefreshCw,
   Package,
 } from 'lucide-react';
@@ -18,10 +15,11 @@ import { defaultModelFor } from '@/lib/harness/options';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { CursorCredentialPanel } from '@/components/settings/cursor-credential-panel';
 import { OpenCodeProviderPanel } from '@/components/settings/opencode-provider-panel';
+import { HarnessPicker } from '@/components/settings/harness-picker';
 import { api, ApiError } from '@/lib/api/client';
 import type { HarnessAuthResponse } from '@/app/api/harness/auth/route';
 import type { HarnessVerifyResponse } from '@/app/api/harness/verify/route';
-import { HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
+import { DEFAULT_HARNESS, HARNESS_IDS, KNOWN_HARNESS_IDS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 
 /**
  * Setting up the harness Ri thinks with: pick a coding CLI, check its
@@ -62,7 +60,7 @@ export type HarnessSetupUpdate = (
   patch: Partial<HarnessSetupState> | ((s: HarnessSetupState) => Partial<HarnessSetupState>),
 ) => void;
 
-export function initialHarnessSetup(harness: HarnessId = 'claude'): HarnessSetupState {
+export function initialHarnessSetup(harness: HarnessId = DEFAULT_HARNESS): HarnessSetupState {
   return {
     harness,
     model: defaultModelFor(harness),
@@ -86,57 +84,42 @@ export function harnessSetupReady(state: HarnessSetupState): boolean {
   return true;
 }
 
-const HARNESSES: Array<{
+/**
+ * The onboarding card copy for each harness. Name, sign-in and install
+ * commands and the icon come from the registry. `envHint` is the alternative
+ * to signing in, or null where the harness has none worth suggesting.
+ */
+const HARNESS_COPY: Record<HarnessId, { hint: string; envHint: string | null }> = {
+  claude: { hint: 'Claude models with your Anthropic account', envHint: 'ANTHROPIC_API_KEY' },
+  codex: { hint: 'OpenAI models with your ChatGPT account', envHint: 'OPENAI_API_KEY' },
+  cursor: { hint: 'Cursor models, including Grok when available', envHint: 'CURSOR_API_KEY' },
+  opencode: { hint: 'Models from your OpenCode providers', envHint: 'Configure a provider below' },
+  // Signing in through `agy` is the way in. An API key needs a settings
+  // change in the CLI as well, so it is not offered as the easy alternative.
+  antigravity: { hint: 'Gemini models with your Google account', envHint: null },
+};
+
+interface HarnessCard {
   id: HarnessId;
   name: string;
   hint: string;
-  icon: React.ComponentType<{ className?: string }>;
   loginCmd: string;
-  envHint: string;
+  envHint: string | null;
   installHint: string;
-}> = [
-  {
-    id: 'claude',
-    name: 'Claude Code',
-    hint: 'Local Claude agent',
-    icon: Terminal,
-    loginCmd: 'claude login',
-    envHint: 'ANTHROPIC_API_KEY',
-    installHint: 'npm install -g @anthropic-ai/claude-code',
-  },
-  {
-    id: 'codex',
-    name: 'Codex',
-    hint: 'Local Codex agent',
-    icon: Code2,
-    loginCmd: 'codex login',
-    envHint: 'OPENAI_API_KEY',
-    installHint: 'npm install -g @openai/codex',
-  },
-  {
-    id: 'cursor',
-    name: 'Cursor',
-    hint: 'Cursor models, including Grok when available',
-    icon: TerminalSquare,
-    loginCmd: 'agent login',
-    envHint: 'CURSOR_API_KEY',
-    installHint: 'Install the Cursor CLI from cursor.com',
-  },
-  {
-    id: 'opencode',
-    name: 'OpenCode',
-    hint: 'Models from your OpenCode providers',
-    icon: Braces,
-    loginCmd: 'opencode auth login',
-    envHint: 'Configure a provider below',
-    installHint: 'npm install -g opencode-ai',
-  },
-];
+}
 
-const HARNESS_BY_ID = Object.fromEntries(HARNESSES.map((h) => [h.id, h])) as Record<
-  HarnessId,
-  (typeof HARNESSES)[number]
->;
+const HARNESSES: HarnessCard[] = KNOWN_HARNESS_IDS.map((id) => {
+  const definition = harnessDefinition(id);
+  return {
+    id,
+    name: definition.name,
+    ...HARNESS_COPY[id],
+    loginCmd: definition.loginCommand ?? '',
+    installHint: definition.installHint,
+  };
+});
+
+const HARNESS_BY_ID = Object.fromEntries(HARNESSES.map((h) => [h.id, h])) as Record<HarnessId, HarnessCard>;
 
 /** "Claude Code", "Codex", ... */
 export function harnessName(id: HarnessId): string {
@@ -198,7 +181,7 @@ export function HarnessSetup({
             verify: {
               phase: result.ok ? 'ok' : 'failed',
               result,
-              error: result.ok ? undefined : result.errorMessage ?? 'Agent did not respond',
+              error: result.ok ? undefined : result.errorMessage ?? 'Harness did not respond',
             },
           },
         }));
@@ -260,37 +243,17 @@ export function HarnessSetup({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="@container space-y-4">
       <div className="space-y-2">
         <div className="text-xs uppercase tracking-wide text-muted-foreground">Harness</div>
-        <div className="grid grid-cols-2 gap-2">
-          {HARNESSES.filter((h) => HARNESS_IDS.includes(h.id)).map((h) => {
-            const selected = state.harness === h.id;
-            const Icon = h.icon;
-            return (
-              <button
-                key={h.id}
-                type="button"
-                onClick={() => selectHarness(h.id)}
-                className={`relative flex flex-col items-center gap-1.5 rounded-lg border p-3 text-center transition-colors ${
-                  selected
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border bg-card hover:bg-muted/50'
-                }`}
-              >
-                {h.id === 'claude' && (
-                  <span className="absolute top-2 right-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-400">
-                    Recommended
-                  </span>
-                )}
-                <Icon className="size-6" />
-                <span className="text-sm font-medium">{h.name}</span>
-                <span className="text-xs text-muted-foreground">{h.hint}</span>
-              </button>
-            );
-          })}
-        </div>
+        <HarnessPicker
+          harnesses={HARNESS_IDS.map((id) => HARNESS_BY_ID[id])}
+          value={state.harness}
+          onChange={selectHarness}
+        />
       </div>
+
+      <HarnessPermissionNotice harness={state.harness} />
 
       <AuthStatus
         state={state}
@@ -332,7 +295,7 @@ function ModelChoice({
     <div className="space-y-2">
       <div className="text-xs uppercase tracking-wide text-muted-foreground">Default model</div>
       {isLoading && <div className="text-xs text-muted-foreground">Loading models…</div>}
-      <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto">
+      <div className="grid max-h-72 grid-cols-1 gap-2 overflow-y-auto @min-[400px]:grid-cols-2">
         {options.map((opt) => {
           const active = selected === opt.id;
           return (
@@ -367,7 +330,7 @@ function AuthStatus({
   onAccept,
 }: {
   state: HarnessSetupState;
-  harness: (typeof HARNESSES)[number];
+  harness: HarnessCard;
   onRecheck: () => void;
   onAccept: (checked: boolean) => void;
 }) {
@@ -418,7 +381,7 @@ function ReadyState({
   onAccept,
 }: {
   report: HarnessAuthReport;
-  harness: (typeof HARNESSES)[number];
+  harness: HarnessCard;
   auth: HarnessAuthState;
   onAccept: (checked: boolean) => void;
 }) {
@@ -515,9 +478,16 @@ function ReadyState({
       {!verifyOk && (
         <div className="text-muted-foreground">
           If the test fails, sign in with{' '}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.loginCmd}</code> or set{' '}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.envHint}</code> in your
-          environment.
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.loginCmd}</code>
+          {harness.envHint ? (
+            <>
+              {' '}or set{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">{harness.envHint}</code> in your
+              environment.
+            </>
+          ) : (
+            '.'
+          )}
         </div>
       )}
     </div>

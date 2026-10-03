@@ -1,3 +1,4 @@
+import { HarnessDisabledError } from '@/lib/harness/registry';
 import type { NextRequest } from 'next/server';
 import { getChatSession } from '@/lib/db/queries';
 import { currentMainChat, ensureMainChat } from '@/lib/sessions/main-chat';
@@ -34,6 +35,6 @@ async function handleGET(
     return Response.json({ session: await ensureMainChat(id) });
   } catch (err) {
     console.error('[GET /api/workspaces/:id/chat]', err);
-    return Response.json({ error: String(err) }, { status: 500 });
+    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError ? 409 : 500 });
   }
 }

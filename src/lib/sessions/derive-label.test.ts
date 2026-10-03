@@ -87,3 +87,32 @@ describe('deriveRetrospectiveLabel', () => {
     expect(q.getChatSession(session.id)?.label).toBeNull();
   });
 });
+
+
+describe('background title restrictions', () => {
+  it.each(['cursor', 'antigravity'] as const)('never runs title generation for disabled %s', async (harness) => {
+    const { q, session } = await seedOrchestrationChat();
+    q.updateChatSession(session.id, { harness, model: 'example-model' });
+    q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'plan the launch', createdAt: at(1) });
+    const flag = harness === 'cursor' ? 'NEXT_PUBLIC_RI_CURSOR_ENABLED' : 'NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED';
+    vi.stubEnv(flag, 'false');
+    try {
+      const { deriveRetrospectiveLabel } = await import('./derive-label');
+      await deriveRetrospectiveLabel(session.id);
+      expect(executeMock).not.toHaveBeenCalled();
+      expect(q.getChatSession(session.id)?.label).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('keeps the snippet fallback for Antigravity even when it is enabled', async () => {
+    const { q, session } = await seedOrchestrationChat();
+    q.updateChatSession(session.id, { harness: 'antigravity', model: 'gemini-3.1-pro-high' });
+    q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'plan the launch', createdAt: at(1) });
+    const { deriveRetrospectiveLabel } = await import('./derive-label');
+    await deriveRetrospectiveLabel(session.id);
+    expect(executeMock).not.toHaveBeenCalled();
+    expect(q.getChatSession(session.id)?.label).toBeNull();
+  });
+});

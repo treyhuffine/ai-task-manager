@@ -1,5 +1,7 @@
 'use client';
 
+import { HarnessPermissionNotice } from './harness-permission-notice';
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Bot, Globe2, Loader2, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
@@ -33,19 +35,19 @@ import {
   type ModelOption,
 } from '@/lib/harness/options';
 import type { EffortLevel } from '@/db/types';
-import { HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
+import { DEFAULT_HARNESS, HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
 import { cn } from '@/lib/utils';
+import { HarnessPicker } from './harness-picker';
 
 export function HarnessSettingsPanel() {
   const { data: userState } = useUserState();
   const { data, isLoading } = useHarnesses();
-  const savedActive = userState?.defaultHarness ?? 'claude';
-  const active: HarnessId = HARNESS_IDS.includes(savedActive) ? savedActive : 'claude';
+  const active: HarnessId = userState?.defaultHarness ?? DEFAULT_HARNESS;
   const [selectedTab, setSelectedTab] = useState<HarnessId | null>(null);
-  const tab = selectedTab ?? active;
+  const tab = selectedTab ?? (HARNESS_IDS.includes(active) ? active : DEFAULT_HARNESS);
 
   return (
-    <section className="space-y-4 text-[12px]">
+    <section className="@container space-y-4 text-[12px]">
       <header className="space-y-1">
         <div className="flex items-center gap-2 text-foreground">
           <Bot size={14} className="text-muted-foreground" />
@@ -58,22 +60,12 @@ export function HarnessSettingsPanel() {
 
       {isLoading || !data ? <SettingsSkeleton rows={5} /> : (
         <>
-          <div className="flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1">
-            {data.harnesses.map((harness) => (
-              <button
-                key={harness.id}
-                type="button"
-                onClick={() => setSelectedTab(harness.id)}
-                className={cn(
-                  'flex min-w-[110px] flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors',
-                  tab === harness.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {harness.name}
-                {active === harness.id && <span className="h-1.5 w-1.5 rounded-full bg-primary" title="Default harness" />}
-              </button>
-            ))}
-          </div>
+          <HarnessPicker
+            harnesses={data.harnesses}
+            value={tab}
+            onChange={setSelectedTab}
+            defaultHarness={active}
+          />
           {data.harnesses.filter((harness) => harness.id === tab).map((harness) => (
             <HarnessPane key={`${harness.id}:${harness.settings.updatedAt}`} harness={harness} active={active === harness.id} />
           ))}
@@ -188,7 +180,7 @@ function HarnessPane({ harness, active }: { harness: HarnessSettingsView; active
       });
       toast.success(makeActive ? `${harness.name} is now the default` : `${harness.name} models saved`);
     } catch (error) {
-      toast.error('Could not save agent settings', {
+      toast.error('Could not save harness settings', {
         description: error instanceof Error ? error.message : String(error),
       });
     }
@@ -213,6 +205,7 @@ function HarnessPane({ harness, active }: { harness: HarnessSettingsView; active
         </div>
       </div>
 
+      <HarnessPermissionNotice harness={harness.id} />
       <ConnectionPanel harness={harness.id} showSignedIn />
       {harness.id === 'cursor' && <CursorCredentialPanel />}
       {harness.id === 'opencode' && <OpenCodeProviderPanel />}
@@ -297,7 +290,7 @@ function HarnessPane({ harness, active }: { harness: HarnessSettingsView; active
       </div>
 
       {enabled.length > 0 && (
-        <div className="grid gap-2 border-t border-border pt-3 sm:grid-cols-3">
+        <div className="grid gap-2 border-t border-border pt-3 @min-[400px]:grid-cols-3">
           <LabeledSelect
             label="Default model"
             value={defaultModel ?? enabled[0] ?? ''}

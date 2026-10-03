@@ -35,6 +35,8 @@ beforeEach(async () => {
   identity.resetHomeIdentityCache();
   const homeId = identity.ensureHomeIdentity().home.id;
   const q = await import('@/lib/db/queries');
+  // The worker-process fixture installs and reports only fake Claude.
+  q.updateUserState({ defaultHarness: 'claude' });
   const laptop = q.pairDevice({ name: 'Laptop', kind: 'computer' });
   deviceId = q.registerDeviceForApiKey({ apiKeyId: laptop.key.id, name: 'Laptop', platform: 'darwin' }).device.id;
   server = await startHomeServer();
@@ -308,3 +310,30 @@ describe('starting an execution on a connected device', () => {
     expect(q.listWorkspaceExecutions(workspaceId)).toHaveLength(0);
   });
 });
+
+
+it('starts plan mode on the worker even when the home has no harness binary', async () => {
+  const savedCommand = process.env.CLAUDE_COMMAND;
+  process.env.CLAUDE_COMMAND = '/usr/bin/false';
+  const { clearHarnessRuntimeCache } = await import('@/lib/harness/runtime');
+  const { clearHarnessModelCache } = await import('@/lib/harness/model-discovery');
+  clearHarnessRuntimeCache('claude');
+  clearHarnessModelCache('claude');
+  try {
+    const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
+    const { ensureWorktreeReady } = await import('@/lib/runs/dispatch');
+    const { dispatch } = await import('@/lib/executor/adapter');
+    const q = await import('@/lib/db/queries');
+    const session = await dispatchExecutionSession({ workspaceId, deviceId, harness: 'claude', model: 'opus', permissionMode: 'plan' });
+    expect(session.permissionMode).toBe('plan');
+    expect(await ensureWorktreeReady(session.id, q.getExecution(session.executionId!)!)).toEqual({ ok: true });
+    await dispatch(session.id, 'plan on the laptop');
+    expect(q.listChatEvents(session.id).some((event) => event.content === 'ok: plan on the laptop')).toBe(true);
+    expect(q.getChatSession(session.id)?.permissionMode).toBe('plan');
+  } finally {
+    if (savedCommand === undefined) delete process.env.CLAUDE_COMMAND;
+    else process.env.CLAUDE_COMMAND = savedCommand;
+    clearHarnessRuntimeCache('claude');
+    clearHarnessModelCache('claude');
+  }
+}, 90_000);

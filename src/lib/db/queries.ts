@@ -64,7 +64,7 @@ import type {
   StreamOutcome, StreamRecordWithOutcomes,
   TriageDisposition, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel,
 } from '@/db/types';
-import { isHarnessId, type HarnessId } from '@/lib/harness/registry';
+import { DEFAULT_HARNESS, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { linksFromTexts } from '@/lib/entity-refs/derive-links';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
@@ -78,6 +78,7 @@ import {
 } from '@/lib/sessions/activity';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
+import { assertSupportedPermissionMode } from '@/lib/executor/permission-map';
 import { DEFAULT_FILES_TO_COPY } from '@/lib/workspaces/defaults';
 import { deriveAttachments } from '@/lib/attachments/derive';
 import { AttachmentMetadataRepairError, planNoteAttachmentMetadataRepair } from '@/lib/attachments/repair-metadata';
@@ -106,6 +107,7 @@ import {
   bundledModelIds,
   curatedDefaultModelIds,
   explicitHarnessSelection,
+  harnessSupportsEffort,
   modelsForProvider,
   normalizeCustomModelId,
   reconcileEnabledModels,
@@ -4068,7 +4070,7 @@ export function ensureHarnessSettings(harness: HarnessId): HarnessSettingsRecord
     knownModels: bundledModelIds(harness),
     defaultModel: preferred && enabledModels.includes(preferred) ? preferred : enabledModels[0] ?? null,
     defaultVariant: null,
-    defaultEffort: state?.defaultHarness === harness && (harness === 'claude' || harness === 'codex')
+    defaultEffort: state?.defaultHarness === harness && harnessSupportsEffort(harness)
       ? state.defaultEffort
       : null,
     catalogRefreshedAt: null,
@@ -7072,9 +7074,9 @@ export function reorderWorkspaces(orderedIds: string[]): void {
  */
 export function defaultTriggerHarness(): HarnessId {
   const saved = getUserState()?.defaultHarness;
-  // A saved provider that has since been switched off by its rollout flag
-  // falls back rather than pinning a trigger that can never run.
-  return isHarnessId(saved) ? saved : 'claude';
+  // Keep an explicit saved choice even when rollout disables dispatch.
+  // The launch boundary refuses it instead of substituting another harness.
+  return isKnownHarnessId(saved) ? saved : DEFAULT_HARNESS;
 }
 
 /**
@@ -7685,6 +7687,9 @@ export function getChatSession(id: string): ChatSessionRecord | undefined {
 export function createChatSession(input: CreateChatSessionInput & { id?: string }): ChatSessionRecord {
   const db = getDb();
   const providerId = input.harness;
+  const permissionMode = input.permissionMode ?? DEFAULT_PERMISSION_MODE;
+  assertSupportedPermissionMode(permissionMode, providerId);
+  if (input.prePlanMode) assertSupportedPermissionMode(input.prePlanMode, providerId);
   const selection = explicitHarnessSelection(
     providerId,
     { model: input.model, variant: input.modelVariant, effort: input.effort },
@@ -7704,7 +7709,7 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
       status: input.status ?? 'active',
       // Policy default lives here, not the schema (inert DB backstop equals
       // this). See docs/schema-defaults.md.
-      permissionMode: input.permissionMode ?? DEFAULT_PERMISSION_MODE,
+      permissionMode,
       // Store ISO (UTC) rather than the SQLite `datetime('now')` default's
       // space-format, so `startedAt` sorts consistently against the ISO
       // outcome/unread timestamps it's compared with (see session-sort.ts).
@@ -7722,6 +7727,14 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
 
 export function updateChatSession(id: string, input: UpdateChatSessionInput): ChatSessionRecord | null {
   const db = getDb();
+  if (input.harness !== undefined || input.permissionMode !== undefined || input.prePlanMode !== undefined) {
+    const existing = getChatSession(id);
+    if (!existing) return null;
+    const harness = input.harness ?? existing.harness;
+    assertSupportedPermissionMode(input.permissionMode ?? existing.permissionMode, harness);
+    const prePlanMode = input.prePlanMode === undefined ? existing.prePlanMode : input.prePlanMode;
+    if (prePlanMode) assertSupportedPermissionMode(prePlanMode, harness);
+  }
   let normalized = input;
   if (Object.hasOwn(input, 'externalSessionId') && !Object.hasOwn(input, 'externalProviderType')) {
     if (input.externalSessionId === null) {
@@ -7882,12 +7895,15 @@ export function createExecutionWithChat(params: {
   modelVariant?: string | null;
   /** Optional preferred effort, normalized against the selected model. */
   effort?: ChatSessionRecord['effort'];
+  permissionMode?: ChatSessionRecord['permissionMode'];
   /** Start-with-agent: associate this task with the new execution AND Start it
    * (Consider/Todo -> In progress) in the SAME transaction, so execution + chat
    * + association + start commit atomically. A terminal race rolls everything
    * back (no orphan execution) and throws `conflict`. */
   startTask?: { taskId: string; idempotencyKey: string };
 }): { execution: ExecutionRecord; session: ChatSessionRecord } {
+  const permissionMode = params.permissionMode ?? DEFAULT_PERMISSION_MODE;
+  assertSupportedPermissionMode(permissionMode, params.harness);
   const db = getDb();
   const now = new Date().toISOString();
   const selection = explicitHarnessSelection(
@@ -7925,7 +7941,7 @@ export function createExecutionWithChat(params: {
         status: 'active',
         // Policy default lives here, not the schema. The DB default is an inert
         // backstop kept equal to this. See docs/schema-defaults.md.
-        permissionMode: DEFAULT_PERMISSION_MODE,
+        permissionMode,
         // ISO (UTC) to match the execution's timestamps and to sort
         // consistently against ISO outcome/unread timestamps (the SQLite
         // `datetime('now')` default would store the space-format instead).
@@ -8020,6 +8036,8 @@ export function createExecutionChat(args: {
   model?: string | null;
   modelVariant?: string | null;
   effort?: ChatSessionRecord['effort'];
+  permissionMode?: ChatSessionRecord['permissionMode'];
+  prePlanMode?: ChatSessionRecord['prePlanMode'];
   label?: string | null;
 }): ChatSessionRecord | null {
   const execution = getExecution(args.executionId);
@@ -8029,6 +8047,8 @@ export function createExecutionChat(args: {
     executionId: args.executionId,
     workspaceId: execution.workspaceId,
     harness: args.harness,
+    permissionMode: args.permissionMode,
+    prePlanMode: args.prePlanMode,
     label: args.label ?? null,
     status: 'active',
     ...(args.model !== undefined ? { model: args.model } : {}),

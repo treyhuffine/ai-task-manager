@@ -30,7 +30,7 @@ import { LocationMenu, MoveActions } from './transfer/location-menu';
 import { useDeviceLabelMode } from '@/lib/client/device-label-mode';
 import { ExecutionTaskChips } from './execution-task-chips';
 import { BACKGROUND_DOT } from '@/components/workspaces/activity-style';
-import { resumeCommandForHarness } from '@/lib/harness/registry';
+import { harnessDefinition, isKnownHarnessId, resumeCommandForHarness } from '@/lib/harness/registry';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { HOME_VIEW } from '@/lib/client/active-view';
 
@@ -851,11 +851,7 @@ function CopyableDetailRow({
 }
 
 function resumeIdLabel(harness: string | null): string {
-  if (harness === 'claude') return 'Claude id';
-  if (harness === 'codex') return 'Codex id';
-  if (harness === 'cursor') return 'Cursor id';
-  if (harness === 'opencode') return 'OpenCode id';
-  return 'Resume id';
+  return isKnownHarnessId(harness) ? `${harnessDefinition(harness).name} id` : 'Resume id';
 }
 
 

@@ -1,5 +1,6 @@
-import type { PermissionMode } from '@/db/types';
-import { PERMISSION_MODES } from '@/lib/permissions/modes';
+import type { ChatSessionRecord, PermissionMode } from '@/db/types';
+import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES } from '@/lib/permissions/modes';
+import { harnessDefinition, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
 
 /**
  * The harness boundary for permission modes.
@@ -51,20 +52,21 @@ function claudePermissionFlag(mode: PermissionMode): string | null {
 
 /**
  * Resolve an app permission mode into harness config for `providerType`.
- * `caps.planMode` is the provider's `capabilities.planMode.supported`; plan mode
- * only takes effect where the harness supports it (otherwise it falls through
- * with no flags, matching the prior behavior).
+ * `caps.planMode` is the installed provider's plan-mode capability. Refuse
+ * unsupported stored modes here too: callers that bypass an API must never
+ * quietly launch with different permissions.
  */
 export function harnessPermissionConfig(
   mode: PermissionMode,
   providerType: string,
   caps: { planMode: boolean },
 ): HarnessPermissionConfig {
+  assertSupportedPermissionMode(mode, providerType, caps.planMode);
   if (mode === 'auto_all') {
     return { skipPermissions: true, extraArgs: [] };
   }
   if (mode === 'plan') {
-    return caps.planMode ? { planMode: true, extraArgs: [] } : { extraArgs: [] };
+    return { planMode: true, extraArgs: [] };
   }
   // ask / auto_edits: only Claude needs an explicit flag today.
   if (providerType === 'claude') {
@@ -81,18 +83,63 @@ export function harnessPermissionConfig(
  *
  * - `cursor` has no interactive permission prompts (it runs with `--force`), so
  *   it offers only `auto_all` (+ `plan` where supported).
+ * - `antigravity` can't ask either: headless `agy` has no approval channel,
+ *   and a tool that needs approval is soft-denied by its policy and reported
+ *   as a denial. `ask` would quietly become "deny every edit and command" and
+ *   `auto_edits` ("ask for shell") would quietly become "never run shell", so
+ *   neither is offered. `auto_all` is `--dangerously-skip-permissions` and
+ *   `plan` is the CLI's `--mode plan` behavior, not a filesystem sandbox.
  * - `opencode` prompts (so it offers `ask`) but has no accept-edits equivalent,
  *   so it omits `auto_edits`.
  * - everything else (claude, codex) offers the full set.
  * `plan` is included only where the harness supports plan mode.
  */
+const HARNESS_PERMISSION_MODES: Record<HarnessId, readonly PermissionMode[]> = {
+  claude: ['auto_all', 'auto_edits', 'ask', 'plan'],
+  codex: ['auto_all', 'auto_edits', 'ask', 'plan'],
+  cursor: ['auto_all', 'plan'],
+  opencode: ['auto_all', 'ask', 'plan'],
+  antigravity: ['auto_all', 'plan'],
+};
+
 export function supportedPermissionModes(
   providerType: string,
   planModeSupported: boolean,
 ): PermissionMode[] {
-  const withPlan = (modes: PermissionMode[]): PermissionMode[] =>
-    planModeSupported ? [...modes, 'plan'] : modes;
-  if (providerType === 'cursor') return withPlan(['auto_all']);
-  if (providerType === 'opencode') return withPlan(['auto_all', 'ask']);
-  return withPlan(['auto_all', 'auto_edits', 'ask']);
+  if (!isKnownHarnessId(providerType)) return [];
+  return HARNESS_PERMISSION_MODES[providerType].filter((mode) => mode !== 'plan' || planModeSupported);
+}
+
+export class UnsupportedPermissionModeError extends Error {
+  constructor(mode: unknown, providerType: string) {
+    super(`Permission mode ${JSON.stringify(mode)} is not supported by ${providerType}.`);
+    this.name = 'UnsupportedPermissionModeError';
+  }
+}
+
+/** Validate writes against the registry, and launches against the live runtime. */
+export function assertSupportedPermissionMode(
+  mode: PermissionMode,
+  providerType: string,
+  planModeSupported = isKnownHarnessId(providerType)
+    && harnessDefinition(providerType).maximumCapabilities.planMode,
+): void {
+  if (!supportedPermissionModes(providerType, planModeSupported).includes(mode)) {
+    throw new UnsupportedPermissionModeError(mode, providerType);
+  }
+}
+
+
+/** A model or harness switch starts a new chat, not a new permission grant. */
+export function permissionsForNewChat(
+  harness: HarnessId,
+  current?: Pick<ChatSessionRecord, 'permissionMode' | 'prePlanMode'> | null,
+): Pick<ChatSessionRecord, 'permissionMode' | 'prePlanMode'> {
+  const permissions = {
+    permissionMode: current?.permissionMode ?? DEFAULT_PERMISSION_MODE,
+    prePlanMode: current?.prePlanMode ?? null,
+  };
+  assertSupportedPermissionMode(permissions.permissionMode, harness);
+  if (permissions.prePlanMode) assertSupportedPermissionMode(permissions.prePlanMode, harness);
+  return permissions;
 }

@@ -62,7 +62,7 @@ export function PinModelInput({
             event.stopPropagation();
             void submit();
           }}
-          placeholder="claude-opus-4-8"
+          placeholder="Exact model ID"
           spellCheck={false}
           autoComplete="off"
           className="min-w-0 flex-1 bg-transparent font-mono text-[11px] text-foreground outline-none placeholder:font-sans placeholder:text-muted-foreground/60 disabled:opacity-50"
@@ -80,7 +80,7 @@ export function PinModelInput({
       </div>
       <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground/70">
         {malformed
-          ? 'Model IDs have no spaces, for example claude-opus-4-8'
+          ? 'Use an exact model ID without spaces.'
           : 'Sends this exact ID instead of a tier alias. Unpin it any time.'}
       </p>
     </div>

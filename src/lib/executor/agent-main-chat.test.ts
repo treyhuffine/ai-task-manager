@@ -242,6 +242,25 @@ describe('prepareAgentMainChatSpawn', () => {
     expect(resumed.firstTurnPreamble).toBeNull();
     expect(withFirstTurnPreamble('hi', null)).toBe('hi');
   });
+
+  it('hands Antigravity the brief and references as session instructions, unfenced', async () => {
+    const seeded = await seed();
+    seeded.q.createReferenceFolder({ workspaceId: seeded.ws.id, alias: 'api', path: REFERENCE });
+    const spawn = await prepare(seeded, { providerType: 'antigravity', strictMcpIsolation: false });
+    // agentex sends the file ahead of the first message, so no preamble of our own.
+    expect(spawn.instructions).toContain('# The "ri" agent\'s main chat');
+    expect(spawn.instructions).toContain(REFERENCE);
+    expect(spawn.firstTurnPreamble).toBeNull();
+    // `agy` takes no tool filters or --add-dir: the guards hold by the brief alone, and say so.
+    expect(spawn.extraArgs).toEqual([]);
+    expect(spawn.warnings).toEqual(expect.arrayContaining([
+      'the git write guard is prompt-only (this harness ignores tool filtering)',
+      '1 reference folder(s) announced in the prompt, but not fenced off',
+    ]));
+    // No MCP on Antigravity, so no connectors or browser either.
+    expect(spawn.config.mcpServers?.some((server) => server.name === 'connectors' || server.name === 'browser') ?? false)
+      .toBe(false);
+  });
 });
 
 describe('on a connected device (P2.7)', () => {
@@ -303,5 +322,7 @@ describe('skillDirsWriteIntoCwd', () => {
     const { skillDirsWriteIntoCwd } = await import('./agent-main-chat');
     expect(skillDirsWriteIntoCwd('codex')).toBe(true);
     expect(skillDirsWriteIntoCwd('claude')).toBe(false);
+    // agentex links Antigravity skillDirs into ~/.gemini/antigravity-cli/skills, not the cwd.
+    expect(skillDirsWriteIntoCwd('antigravity')).toBe(false);
   });
 });

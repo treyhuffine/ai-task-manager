@@ -6,6 +6,18 @@ import { resetDb } from '@/lib/db';
 import { updateUserState } from '@/lib/db/queries';
 import { GET } from './route';
 
+// Codex's catalog comes from the installed CLI. Resolve against the bundled
+// catalog so the default tuple does not depend on this machine's Codex.
+vi.mock('@/lib/harness/model-discovery', async () => {
+  const { explicitHarnessSelection } = await import('@/lib/harness/options');
+  return {
+    resolveHarnessSelection: async (
+      providerId: Parameters<typeof explicitHarnessSelection>[0],
+      preferred: Parameters<typeof explicitHarnessSelection>[1] = {},
+    ) => explicitHarnessSelection(providerId, preferred),
+  };
+});
+
 /**
  * Focused (note/task) chats seed model + effort from the user's saved defaults
  * the same way orchestrator chats do — a per-entity new chat should start with
@@ -42,14 +54,16 @@ describe('GET /api/document-chat — seeds model + effort from defaults', () => 
     const req = new Request('http://test/api/document-chat?entityType=task&entityId=task_seed_1');
     const { session } = await (await GET(req)).json();
     expect(session.surfaceKind).toBe('task');
+    expect(session.harness).toBe('claude');
     expect(session.model).toBe('sonnet');
     expect(session.effort).toBe('medium');
   });
 
-  it('null defaults resolve to an explicit provider tuple', async () => {
+  it('null defaults resolve to the Codex tuple', async () => {
     const req = new Request('http://test/api/document-chat?entityType=note&entityId=note_seed_1');
     const { session } = await (await GET(req)).json();
-    expect(session.model).toBe('opus');
+    expect(session.harness).toBe('codex');
+    expect(session.model).toBe('gpt-6.1-sol');
     expect(session.effort).toBe('medium');
   });
 });

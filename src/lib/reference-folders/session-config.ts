@@ -99,7 +99,9 @@ export function referenceFolderProviderWiring(
   };
   if (!config.instructions) return { ...inert, delivery: 'full' };
   // On cursor and opencode the session path drops `instructionsFile`, so the
-  // agent never learns the folders exist (see session-instructions.ts).
+  // agent never learns the folders exist (see session-instructions.ts). Every
+  // harness that reads it but isn't Claude (codex, antigravity) is told about
+  // the folders without being fenced off.
   if (!providerDeliversSessionInstructions(providerType)) return inert;
   if (!ARGV_TOOL_FILTER_PROVIDERS.has(providerType)) {
     return { ...inert, delivery: 'prompt-only', deliversInstructions: true };

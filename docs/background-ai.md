@@ -24,11 +24,21 @@ tightly-bounded `provider.execute` through `@agentex/agent`, read
   parses tolerantly (`extractJsonObject` strips fences/prose), validates
   with zod, and retries once with the rejection reason before throwing.
 - `resolveBackgroundHarness()` — `defaultHarness` from user state
-  (the same default the orchestrator chat uses), falling back to `claude`.
+  (the same default the orchestrator chat uses), falling back to Codex
+  when no choice is saved. Existing saved choices are preserved.
 - `backgroundModelFor(provider, tier)` — `fast` = the provider's cheap
   alias (`CHEAPEST_MODEL`: haiku / gpt-5.4-mini); `standard` = the user's
   `defaultModel` when it belongs to the provider, else the CLI's own
-  default model.
+  default model. Cursor and OpenCode have no cheap alias or bundled catalog,
+  so both tiers use the CLI's default model.
+
+Antigravity background calls fail clearly before a provider is launched.
+Its headless CLI honors auto-approval but does not enforce agentex's tool
+filters or MCP isolation. Selecting it as the default does not silently
+switch to another harness. Automatic titles use their existing snippet
+fallback. A disabled rollout flag likewise refuses all background calls.
+Antigravity's cheap-model entry is explicitly null because its discovered
+slugs have no stable cheap alias.
 
 ### Safety posture
 

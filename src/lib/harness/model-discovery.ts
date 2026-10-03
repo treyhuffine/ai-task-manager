@@ -11,7 +11,7 @@ import {
 import { getHarnessSettings } from '@/lib/db/queries';
 import { EFFORT_LEVELS, type EffortLevel } from '@/db/types';
 import { getHarnessRuntime, runtimeContextForHarness } from '@/lib/harness/runtime';
-import { HARNESS_REGISTRY } from '@/lib/harness/registry';
+import { assertHarnessEnabled, HARNESS_REGISTRY } from '@/lib/harness/registry';
 import { getAppRoot } from '@/lib/config/paths';
 import { CHEAP_MODEL_CANDIDATES } from '@/lib/executor/harness';
 import type { ProviderRuntimeContext, UpstreamProvider } from '@agentex/agent';
@@ -316,6 +316,7 @@ export async function resolveHarnessSelection(
   } = {},
   options: { cwd?: string; refresh?: boolean; repairInvalidModel?: boolean } = {},
 ): Promise<ExplicitHarnessSelection> {
+  assertHarnessEnabled(providerId);
   const catalog = await getHarnessModelCatalog(providerId, {
     cwd: options.cwd,
     refresh: options.refresh,

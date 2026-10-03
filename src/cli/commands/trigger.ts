@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import readline from 'node:readline';
 import { Command } from 'commander';
 import { dispatchAction } from '../lib/dispatch';
+import { KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
 import type { TriggerRecord, RunRecord, TriggerWithLastRun } from '@/db/types';
 
 export function registerTriggerCommands(program: Command) {
@@ -59,7 +60,7 @@ function registerTriggerCommand(program: Command) {
     .option('--workspace <id-or-slug>', 'Target workspace (required when target=workspace).')
     .option(
       '--provider <id>',
-      'Who runs it: claude | codex | cursor | opencode. Defaults to your default provider.',
+      `Who runs it: ${KNOWN_HARNESS_IDS.join(' | ')}. Defaults to your default provider.`,
     )
     // ── Per-run overrides ──
     .option('--model <model>', 'Per-run model override. Must belong to the provider.')

@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/sheet';
 import { useSession, useSessionEvents, useStopBackgroundTask } from '@/hooks/use-execution';
 import { useHarnesses } from '@/hooks/use-harnesses';
+import { harnessDefinition } from '@/lib/harness/registry';
 import {
   useBackgroundTasks,
   deriveTaskDetail,
@@ -361,7 +362,7 @@ function StopButton({
   const providerId = session?.harness ?? null;
   const canStop = providerId
     ? harnesses.data?.harnesses.find((entry) => entry.id === providerId)?.runtime.capabilities.stopTask.supported
-      ?? providerId === 'claude'
+      ?? harnessDefinition(providerId).maximumCapabilities.stopTask
     : false;
   const couldntStop = !stop.isPending && stop.data?.stopped === false;
   if (!canStop || providerType === 'codex') return null;

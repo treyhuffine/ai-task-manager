@@ -1,5 +1,6 @@
 'use client';
 
+import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { Command } from 'cmdk';
@@ -192,7 +193,7 @@ function LaunchModalInner({
   const [efforts, setEfforts] = useState<Record<string, EffortLevel>>({});
   const prefsWorkspaceRef = useRef<string | null>(null);
 
-  const fallbackProvider: ProviderId = userState?.defaultHarness ?? 'claude';
+  const fallbackProvider: ProviderId = userState?.defaultHarness ?? DEFAULT_HARNESS;
   const fallbackModel = userState?.defaultModel ?? defaultModelFor(fallbackProvider);
 
   useEffect(() => {

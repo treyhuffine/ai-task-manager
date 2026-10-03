@@ -32,9 +32,9 @@ function lastCall() {
 }
 
 describe('resolveBackgroundHarness / backgroundModelFor', () => {
-  it('defaults to claude with the cheap model on the fast tier', async () => {
+  it('defaults to Codex with the cheap model on the fast tier', async () => {
     const { resolveBackgroundHarness, backgroundModelFor } = await import('./one-shot');
-    expect(resolveBackgroundHarness()).toBe('claude');
+    expect(resolveBackgroundHarness()).toBe('codex');
     expect(await backgroundModelFor('claude', 'fast')).toBe('haiku');
     expect(await backgroundModelFor('codex', 'fast')).toBe('gpt-6-luna');
   });
@@ -54,10 +54,10 @@ describe('resolveBackgroundHarness / backgroundModelFor', () => {
     expect(await backgroundModelFor('codex', 'fast')).toBeUndefined();
   });
 
-  it('follows the user default harness from user state', async () => {
-    userState = { defaultHarness: 'codex' };
+  it('preserves a saved Claude default', async () => {
+    userState = { defaultHarness: 'claude' };
     const { resolveBackgroundHarness } = await import('./one-shot');
-    expect(resolveBackgroundHarness()).toBe('codex');
+    expect(resolveBackgroundHarness()).toBe('claude');
   });
 
   it('standard tier trusts the default model only when it belongs to the provider', async () => {
@@ -71,6 +71,39 @@ describe('resolveBackgroundHarness / backgroundModelFor', () => {
     // Cross-provider leftovers (stale state) fall back to the CLI default.
     userState = { defaultModel: 'gpt-6-luna' };
     expect(await backgroundModelFor('claude', 'standard')).toBeUndefined();
+  });
+
+  it('leaves Antigravity on its CLI default rather than pinning a slug that can retire', async () => {
+    const { backgroundModelFor } = await import('./one-shot');
+    userState = { defaultHarness: 'antigravity', defaultModel: 'gemini-3.1-pro-high' };
+    // No stable cheap alias exists, so the fast tier sends no `--model`.
+    expect(await backgroundModelFor('antigravity', 'fast')).toBeUndefined();
+    // With no bundled catalog to vouch for it, a stored id is not sent either:
+    // a stale cross-harness id (`opus`) would otherwise reach `agy`.
+    expect(await backgroundModelFor('antigravity', 'standard')).toBeUndefined();
+    userState = { defaultHarness: 'antigravity', defaultModel: 'opus' };
+    expect(await backgroundModelFor('antigravity', 'standard')).toBeUndefined();
+  });
+
+  it('refuses Antigravity background calls while its CLI ignores required restrictions', async () => {
+    userState = { defaultHarness: 'antigravity' };
+    const { runHarnessText } = await import('./one-shot');
+    await expect(runHarnessText({ label: 'deck', prompt: 'ASK' })).rejects.toThrow(
+      /Antigravity background calls are unavailable.*tool restrictions and MCP isolation/,
+    );
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a saved default whose rollout flag was switched off', async () => {
+    userState = { defaultHarness: 'antigravity' };
+    const { runHarnessText } = await import('./one-shot');
+    vi.stubEnv('NEXT_PUBLIC_RI_ANTIGRAVITY_ENABLED', 'false');
+    try {
+      await expect(runHarnessText({ label: 'deck', prompt: 'ASK' })).rejects.toThrow(/disabled by the rollout configuration/);
+      expect(executeMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

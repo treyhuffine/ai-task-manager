@@ -19,6 +19,7 @@
  * either context unchanged.
  */
 
+import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ChevronDown,
@@ -124,7 +125,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
   // shouldn't retune the effort your next chat starts with.
   useEffect(() => setEfforts(readProviderEfforts()), []);
 
-  const fallbackProvider: ProviderId = userState?.defaultHarness ?? 'claude';
+  const fallbackProvider: ProviderId = userState?.defaultHarness ?? DEFAULT_HARNESS;
   const fallbackModel = userState?.defaultModel ?? defaultModelFor(fallbackProvider);
   const selection = {
     harness: harnessPick?.harness ?? fallbackProvider,

@@ -35,8 +35,19 @@ describe('prettifyModelId', () => {
     expect(prettifyModelId('gpt-6-luna')).toBe('GPT-6 Luna');
   });
 
+  it('renders Antigravity Gemini slugs the way `agy models` names them', () => {
+    expect(prettifyModelId('gemini-3.1-pro-high')).toBe('Gemini 3.1 Pro (High)');
+    expect(prettifyModelId('gemini-3.8-flash-medium')).toBe('Gemini 3.8 Flash (Medium)');
+    expect(prettifyModelId('gemini-3.6-flash-low')).toBe('Gemini 3.6 Flash (Low)');
+    expect(prettifyModelId('gemini-2.5-flash-lite')).toBe('Gemini 2.5 Flash Lite');
+    expect(prettifyModelId('gemini-3-pro-preview')).toBe('Gemini 3 Pro Preview');
+    // Partner models served through Antigravity keep their own labels.
+    expect(prettifyModelId('claude-sonnet-4-6')).toBe('Sonnet 4.6');
+  });
+
   it('falls back to the raw id when unrecognized', () => {
     expect(prettifyModelId('some-future-model')).toBe('some-future-model');
+    expect(prettifyModelId('gemini')).toBe('gemini');
   });
 });
 
@@ -63,6 +74,15 @@ describe('resolveModelInfo', () => {
     expect(resolveModelInfo('gpt-5.4-mini')?.contextWindow).toBe(400_000);
     expect(resolveModelInfo('gpt-5.6-sol')?.contextWindow).toBe(400_000);
     expect(resolveModelInfo('gpt-6-astra')?.contextWindow).toBe(1_050_000);
+  });
+
+  it('caps Gemini 2 and later at 1,048,576 tokens', () => {
+    expect(resolveModelInfo('gemini-3.1-pro-high')).toEqual({
+      label: 'Gemini 3.1 Pro (High)',
+      contextWindow: 1_048_576,
+    });
+    expect(resolveModelInfo('gemini-3.8-flash-medium')?.contextWindow).toBe(1_048_576);
+    expect(resolveModelInfo('gemini-1.0-pro')?.contextWindow).toBe(0);
   });
 
   it('returns label with a 0 cap (hides %) for unknown models', () => {

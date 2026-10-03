@@ -113,14 +113,15 @@ describe('get_heartbeat / update_heartbeat', () => {
   });
 
   it('a provider switch resets model and effort unless restated', async () => {
-    await run('update_heartbeat', { model: 'claude-opus-4-8', effort: 'high' });
+    const initial = await run('update_heartbeat', { provider: 'claude', model: 'claude-opus-4-8', effort: 'high' });
+    expect(initial.ok).toBe(true);
     const switched = await run('update_heartbeat', { provider: 'codex' });
     expect(switched.ok).toBe(true);
     expect(switched.result).toMatchObject({ provider: 'codex', model: null, effort: null });
   });
 
   it('rejects a model that cannot run on the provider', async () => {
-    const env = await run('update_heartbeat', { model: 'gpt-5.5' });
+    const env = await run('update_heartbeat', { model: 'opus' });
     expect(env).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
   });
 

@@ -13,6 +13,7 @@ import { sql } from 'drizzle-orm';
 import type { SnakeizeKeys } from '@/lib/case/keys';
 import { TASK_STATUSES } from '@/lib/tasks/lifecycle';
 import { PERMISSION_MODES } from '@/lib/permissions/modes';
+import { KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
 
 // ─── Attachments ──────────────────────────────────────────────
 // Generic file reference stored on any entity that can carry uploads.
@@ -86,6 +87,11 @@ export interface WorkspaceConnectorScope {
   account?: WorkspaceConnectorScopeAccount;
 }
 
+// Stored chats, triggers and runs use every harness known to the registry,
+// including ones hidden by rollout flags. SQLite gets no CHECK for a text
+// enum, so adding a harness changes TypeScript types, not the SQL schema.
+const HARNESS_VALUES = KNOWN_HARNESS_IDS;
+
 // ─── User State ────────────────────────────────────────────────
 
 export const userState = sqliteTable('user_state', {
@@ -117,7 +123,7 @@ export const userState = sqliteTable('user_state', {
   // a model menu's "Make default", first-run setup), never by sending or
   // starting a chat (docs/default-selection.md). Nullable for a home that
   // never chose; chat creation resolves null to concrete values.
-  defaultHarness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }),
+  defaultHarness: text({ enum: HARNESS_VALUES }),
   defaultModel: text(),
   defaultEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
   // Which surface powers the dashboard orchestrator chat:
@@ -166,11 +172,6 @@ export const userState = sqliteTable('user_state', {
 
 // ─── Harness Settings ─────────────────────────────────────────
 
-// The engines a chat can run on. Same vocabulary as `HarnessId` in
-// src/lib/harness/registry.ts (a type test in src/db/types.ts keeps the two in
-// step). Stored on every chat, trigger and run as a fact: which engine ran it.
-const HARNESS_VALUES = ['claude', 'codex', 'cursor', 'opencode'] as const;
-
 export const harnessSettings = sqliteTable('harness_settings', {
   id: text().primaryKey(),
   ...timestamps,
@@ -206,7 +207,7 @@ export const harnessOperations = sqliteTable(
     operation: text({ enum: ['disconnect_upstream_provider'] }).notNull(),
     upstreamProviderId: text().notNull(),
     status: text({ enum: ['pending', 'completed', 'failed'] }).notNull(),
-    replacementHarness: text({ enum: ['claude', 'codex', 'cursor', 'opencode'] }),
+    replacementHarness: text({ enum: HARNESS_VALUES }),
     replacementModel: text(),
     lastErrorCode: text(),
   },
