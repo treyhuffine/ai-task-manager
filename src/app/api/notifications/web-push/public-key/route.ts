@@ -1,7 +1,6 @@
-import { NextResponse } from 'next/server';
-import { getVapidKeys } from '@/lib/notifications/web-push/vapid';
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/notifications/web-push/public-key';
 
-/** The VAPID public key the browser needs to subscribe to push. */
-export function GET() {
-  return NextResponse.json({ publicKey: getVapidKeys().publicKey });
-}
+
+export const GET = withCompression(serveOperation(operation.GETInput, operation.GET));

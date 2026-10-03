@@ -1,44 +1,46 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import type { TaskListDTO } from '@/lib/api/dto/entity-list';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useTasks, useCompleteTask } from '@/hooks/use-tasks';
-import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
+import type { DeckItem as DbDeckItem, DeckChange, DeckRecord, TaskRecord } from '@/db/types';
 import { useAreas } from '@/hooks/use-areas';
-import { isClientReadyTodo } from '@/lib/deck/client-ready';
-import { appendDeckItem, prependDeckItem, toPersistedDeckItems } from '@/lib/deck/quick-add';
-import { useDeckQuickAddMode } from '@/lib/client/deck-quick-add-mode';
+import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
+import { useCompleteTask, useTasks } from '@/hooks/use-tasks';
+import type { DeckGenerationContext } from '@/lib/ai/deck-generation';
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import { useDeckLayoutMode } from '@/lib/client/deck-layout-mode';
-import { DeckConductor } from './deck-conductor';
+import { useDeckQuickAddMode } from '@/lib/client/deck-quick-add-mode';
+import { calendarDaysUntil, formatLocalDate } from '@/lib/dates';
+import { isClientReadyTodo } from '@/lib/deck/client-ready';
+import { todayLocalDate } from '@/lib/deck/date';
+import { appendDeckItem, prependDeckItem, toPersistedDeckItems } from '@/lib/deck/quick-add';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
+import type {
+	AlternativeItem,
+	DeckChangeView,
+	DeckItem,
+	DeckPlan,
+	RoutineItem,
+	WorkMode,
+} from '@/types/dashboard';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { CheckInIntake } from './check-in-intake';
 import { CurrentWorkSection } from './current-work-section';
 import { DeadlineBand } from './deadline-band';
-import { DeckStack } from './deck-stack';
-import { DeckMoreOptions } from './deck-more-options';
-import { DeckTaskBrowser } from './deck-task-browser';
-import { DeckDayBar } from './deck-day-bar';
-import { DeckQuickAddCard } from './deck-quick-add';
 import { DeckAddComposer } from './deck-add-composer';
-import { DeckFocusedView } from './deck-focused-view';
-import { CheckInIntake } from './check-in-intake';
 import { DeckChangeBrief, type DeckVersionSummary } from './deck-change-brief';
+import { DeckConductor } from './deck-conductor';
+import { DeckDayBar } from './deck-day-bar';
+import { DeckFocusedView } from './deck-focused-view';
 import { DeckInterruptBanner } from './deck-interrupt-banner';
+import { DeckMoreOptions } from './deck-more-options';
+import { DeckQuickAddCard } from './deck-quick-add';
+import { DeckStack } from './deck-stack';
+import { DeckTaskBrowser } from './deck-task-browser';
 import { DeckTriagePrompt } from './deck-triage-prompt';
-import { Skeleton } from '@/components/ui/skeleton';
-import type {
-  DeckPlan,
-  DeckItem,
-  AlternativeItem,
-  DeckChangeView,
-  RoutineItem,
-  WorkMode,
-} from '@/types/dashboard';
-import type { DeckGenerationContext } from '@/lib/ai/deck-generation';
-import type { TaskRecord, DeckRecord, DeckItem as DbDeckItem, DeckChange } from '@/db/types';
-import { api, ApiError, apiErrorText } from '@/lib/api/client';
-import { calendarDaysUntil, formatLocalDate } from '@/lib/dates';
-import { todayLocalDate } from '@/lib/deck/date';
-import { toast } from 'sonner';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -244,7 +246,7 @@ export function DeckContainer() {
         items: toPersistedDeckItems(p.items),
         alternatives: p.alternatives.map(alt => ({ taskId: alt.taskId, reason: alt.reason })),
       };
-      api.patch(`/deck/${deckId}`, body).catch((err) => {
+      trpcClient.deck.update.mutate({params: {id: deckId}, body: body}).catch((err) => {
         console.error('Failed to persist deck:', err);
         toast.error('Could not save your deck', {
           description: apiErrorText(err),
@@ -268,7 +270,7 @@ export function DeckContainer() {
 
   // Fetch the day's version history (drives the revert control).
   const loadVersions = useCallback((forDate?: string) => {
-    api.get<DeckRecord[]>('/deck/versions', { query: forDate ? { date: forDate } : undefined })
+    trpcClient.deck.versionsGet.query({query: rpcQuery(forDate ? { date: forDate } : undefined)})
       .then((rows) => {
         setVersions(
           rows.map((r) => ({
@@ -288,7 +290,7 @@ export function DeckContainer() {
   useEffect(() => {
     if (!tasks || initialLoadDone) return;
 
-    api.get<DeckRecord | null>('/deck')
+    trpcClient.deck.current.query({})
       .then((record) => {
         if (record) {
           const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
@@ -315,7 +317,7 @@ export function DeckContainer() {
       return;
     }
 
-    api.get<DeckRecord>(`/deck/${activeDeckId}`)
+    trpcClient.deck.get.query({params: {id: activeDeckId}})
       .then((record) => {
         const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
         setPlan(hydrated);
@@ -401,7 +403,7 @@ export function DeckContainer() {
     setGenerating(true);
 
     try {
-      const record = await api.post<DeckRecord>('/deck/generate', generationContext);
+      const record = await trpcClient.deck.generatePost.mutate({body: generationContext});
       const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
       setPlan(hydrated);
       setActiveDeckRecord(record);
@@ -409,8 +411,8 @@ export function DeckContainer() {
       setPhase('deck');
       loadVersions(record.forDate ?? undefined);
     } catch (err) {
-      if (err instanceof ApiError) {
-        console.error('Deck generation failed:', err.body ?? err.message);
+      if (apiErrorStatus(err) !== undefined) {
+        console.error('Deck generation failed:', apiErrorBody(err) ?? apiErrorText(err));
       } else {
         console.error('Deck generation error:', err);
       }
@@ -465,7 +467,7 @@ export function DeckContainer() {
   const handleRevert = useCallback(async (deckId: string) => {
     if (!tasks) return;
     try {
-      const record = await api.post<DeckRecord>(`/deck/${deckId}/revert`);
+      const record = await trpcClient.deck.revertPost.mutate({params: {id: deckId}});
       const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
       setPlan(hydrated);
       setActiveDeckRecord(record);

@@ -1,12 +1,12 @@
 'use client';
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { api, apiErrorText } from '@/lib/api/client';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import type { EnvironmentSettings } from '@/lib/service/environment';
+import { Input } from '@/components/ui/input';
+import { apiErrorText } from '@/lib/api/client';
 import { HARNESS_IDS, HARNESS_REGISTRY } from '@/lib/harness/registry';
+import { trpcClient } from '@/lib/trpc/client';
+import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { toast } from 'sonner';
 
 const fields = [
   ...HARNESS_IDS.map((id) => {
@@ -16,14 +16,14 @@ const fields = [
   ['LOCAL_SPEECH_TO_TEXT_URL', 'Parakeet server URL'], ['GROQ_API_KEY', 'Groq API key'], ['OPENAI_API_KEY', 'Embeddings API key'],
 ] as const;
 export function RuntimeSetup() {
-  const query = useQuery({ queryKey: ['service-environment'], queryFn: () => api.get<{ values: EnvironmentSettings; secrets: Record<string, boolean> }>('/service/environment'), retry: false });
+  const query = useQuery({ queryKey: ['service-environment'], queryFn: () => trpcClient.service.environmentGet.query({}), retry: false });
   const [patch, setPatch] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   if (!query.data) return null;
   const save = async () => {
     setSaving(true);
     try {
-      await api.patch('/service/environment', Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, value || null])));
+      await trpcClient.service.environmentPatch.mutate({body: Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, value || null]))});
       setPatch({}); await query.refetch();
       toast.success('Settings saved. Restart the service after current work finishes.');
     } catch (error) { toast.error(apiErrorText(error)); }
@@ -34,10 +34,10 @@ export function RuntimeSetup() {
     <div className="mt-4 space-y-3">
       <p className="text-muted-foreground">Installed tools are discovered automatically. Set an absolute executable path if a tool is missing. Optional keys are encrypted in this installation.</p>
       {fields.map(([name, label]) => {
-        const secret = name.endsWith('API_KEY');
-        const configured = query.data?.secrets[name];
+        const secret = name === 'GROQ_API_KEY' || name === 'OPENAI_API_KEY';
+        const configured = secret && query.data?.secrets[name];
         return <label key={name} className="block space-y-1"><span>{label}{configured ? ' (configured)' : ''}</span>
-          <Input type={secret ? 'password' : 'text'} autoComplete="off" value={patch[name] ?? (secret ? '' : String(query.data?.values[name as keyof EnvironmentSettings] ?? ''))}
+          <Input type={secret ? 'password' : 'text'} autoComplete="off" value={patch[name] ?? (secret ? '' : String((!secret ? query.data?.values[name] : undefined) ?? ''))}
             placeholder={secret && configured ? 'Leave unchanged, or enter a replacement' : undefined}
             onChange={event => setPatch(previous => ({ ...previous, [name]: event.target.value }))} />
         </label>;

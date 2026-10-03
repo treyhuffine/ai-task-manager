@@ -1,19 +1,19 @@
+import { trpcClient } from '@/lib/trpc/client';
 /**
  * Polls `/api/runs/<id>/observe` for live activity status. Stops
  * polling once the run reaches a terminal state — there's no point
  * re-asking when the answer can't change.
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api/client';
 import type { RunObservation } from '@/lib/runs/observe';
+import { useQuery } from '@tanstack/react-query';
 
 export type RunObservationResponse = RunObservation & { summary: string };
 
 export function useRunObservation(runId: string | null) {
   return useQuery<RunObservationResponse>({
     queryKey: ['run-observation', runId],
-    queryFn: () => api.get<RunObservationResponse>(`/runs/${runId}/observe`),
+    queryFn: () => trpcClient.runs.observeGet.query({params: {id: runId ?? ''}}),
     enabled: !!runId,
     refetchInterval: (q) => {
       const data = q.state.data;

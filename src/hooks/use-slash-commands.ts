@@ -1,3 +1,4 @@
+import { trpcClient } from '@/lib/trpc/client';
 /**
  * Fetches the merged slash-command list for a chat session: agentex's
  * local skill discovery reconciled against the provider's runtime
@@ -9,10 +10,9 @@
  * thrashing the API.
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api/client';
-import type { SkillCommandDiagnostic } from '@agentex/agent';
 import type { SlashCommand } from '@/components/chat/editor/slash-menu/types';
+import type { SkillCommandDiagnostic } from '@agentex/agent';
+import { useQuery } from '@tanstack/react-query';
 
 export interface SlashCommandsResponse {
   /** Descriptors carrying the decayed `frecency` the route joins on. */
@@ -29,7 +29,7 @@ export function slashCommandsKey(sessionId: string) {
 export function useSlashCommands(sessionId: string | null | undefined) {
   return useQuery({
     queryKey: slashCommandsKey(sessionId ?? ''),
-    queryFn: () => api.get<SlashCommandsResponse>(`/sessions/${sessionId}/slash-commands`),
+    queryFn: () => trpcClient.sessions.slashCommandsGet.query({params: {id: sessionId ?? ''}}),
     enabled: !!sessionId,
     refetchOnWindowFocus: true,
     staleTime: 30_000,

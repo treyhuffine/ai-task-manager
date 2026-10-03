@@ -848,7 +848,13 @@ export function updateTask(id: string, input: UpdateTaskInput, meta: EntityVersi
 
 export function deleteTask(id: string): boolean {
   const db = getDb();
-  const result = db.delete(tasks).where(eq(tasks.id, id)).run();
+  const result = inEntityTx(() => {
+    // Completion history belongs to the task. Unlike the status ledger, its
+    // original FK has no cascade. Keep cleanup and deletion atomic so a
+    // remaining note/subtask reference cannot erase history on a failed delete.
+    db.delete(taskCompletions).where(eq(taskCompletions.taskId, id)).run();
+    return db.delete(tasks).where(eq(tasks.id, id)).run();
+  });
   if (result.changes === 0) return false;
   deleteEmbedding('task', id);
   void syncDeletion('task', id);
@@ -2080,6 +2086,15 @@ export function listNotes(filter: NoteFilter = {}): NoteRecord[] {
 export function getNote(id: string): NoteRecord | undefined {
   const db = getDb();
   return hydrateRow(db.select().from(notes).where(eq(notes.id, id)).get());
+}
+
+/** Viewing metadata bypasses content versioning, embedding and mirror writes. */
+export function markNoteViewed(id: string): void {
+  getDb().update(notes).set({ lastViewedAt: new Date().toISOString() }).where(eq(notes.id, id)).run();
+}
+
+export function markTaskViewed(id: string): void {
+  getDb().update(tasks).set({ lastViewedAt: new Date().toISOString() }).where(eq(tasks.id, id)).run();
 }
 
 export function createNote(input: CreateNoteInput): NoteRecord {
@@ -10216,4 +10231,49 @@ export function listSkillChats(ref: string): ChatSessionRecord[] {
     ))
     .orderBy(desc(chatSessions.createdAt))
     .all();
+}
+
+/** Recently viewed entities, projected for the launcher. */
+export function getRecentEntities(limit = 10) {
+  const db = getDb();
+  // Fetch recently viewed tasks
+  const recentTasks = db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      entityType: sql<'task'>`'task'`.as('entityType'),
+      lastViewedAt: tasks.lastViewedAt,
+      hasBody: sql<boolean>`(length(trim(${tasks.body})) > 0)`.as('hasBody'),
+    })
+    .from(tasks)
+    .where(isNotNull(tasks.lastViewedAt))
+    .orderBy(desc(tasks.lastViewedAt))
+    .limit(limit)
+    .all();
+
+  // Fetch recently viewed notes
+  const recentNotes = db
+    .select({
+      id: notes.id,
+      title: sql<string>`COALESCE(${notes.title}, substr(${notes.body}, 1, 60))`.as('title'),
+      entityType: sql<'note'>`'note'`.as('entityType'),
+      lastViewedAt: notes.lastViewedAt,
+      hasBody: sql<boolean>`(length(trim(${notes.body})) > 0)`.as('hasBody'),
+    })
+    .from(notes)
+    .where(isNotNull(notes.lastViewedAt))
+    .orderBy(desc(notes.lastViewedAt))
+    .limit(limit)
+    .all();
+
+  // Merge and sort by lastViewedAt, take top N
+  const merged = [...recentTasks, ...recentNotes]
+    .sort((a, b) => (b.lastViewedAt ?? '').localeCompare(a.lastViewedAt ?? ''))
+    .slice(0, limit);
+
+  return merged.map(item => ({ ...item, hasBody: Boolean(item.hasBody) }));
+}
+
+export function listDecks(limit = 10): DeckRecord[] {
+  return getDb().select().from(decks).orderBy(desc(decks.createdAt)).limit(limit).all();
 }

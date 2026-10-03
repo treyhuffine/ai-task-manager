@@ -1,0 +1,289 @@
+import { EFFORT_LEVELS, PERMISSION_MODES, type EffortLevel, type PermissionMode } from '@/db/types';
+import { getAppRoot } from '@/lib/config/paths';
+import {
+  getChatSessionWithExecution,
+  setExecutionLabel,
+  setExecutionPR,
+  updateChatSession,
+} from '@/lib/db/queries';
+import * as executor from '@/lib/executor/adapter';
+import { supportedPermissionModes } from '@/lib/executor/permission-map';
+import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
+import { explicitHarnessSelection } from '@/lib/harness/options';
+import { getHarnessRuntime } from '@/lib/harness/runtime';
+import { reply, type OperationContext } from '@/lib/server/operation';
+import { z as rpcZ } from 'zod/v4';
+
+// Compressed when the body is JSON and over ~1KiB; a streamed or
+// non-JSON response passes through untouched. See lib/api/compression.ts.
+
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+  try {
+    const { id } = rpcInput.params;
+    const row = getChatSessionWithExecution(id);
+    if (!row) return reply({ error: 'Session not found' }, { status: 404 });
+    return reply(row);
+  } catch (err) {
+    console.error('[GET /api/sessions/:id]', err);
+    return reply({ error: String(err) }, { status: 500 });
+  }
+}
+
+interface PatchBody {
+  label?: string | null;
+  /**
+   * The execution's stable title (shown in the header). Lives on the
+   * execution, not the chat — so renaming here survives a "new chat" on
+   * the same execution. `null`/empty clears it. Distinct from `label`,
+   * which is the per-chat title in the history dropdown.
+   */
+  executionLabel?: string | null;
+  permissionMode?: PermissionMode;
+  /** Explicit provider model id. */
+  model?: string;
+  /** Provider-native variant, separate from reasoning effort. */
+  modelVariant?: string | null;
+  /** Explicit provider reasoning effort. */
+  effort?: EffortLevel | null;
+  /** Explicit PR link. `null` clears the link. */
+  prNumber?: number | null;
+  /** Manual chat-tab order (fractional index). `null` resets to creation order. */
+  tabSortKey?: string | null;
+}
+
+function selectionChangeWhileRunningResponse() {
+  return reply({
+    error: 'selection_change_while_running',
+    reason: 'Wait for the active turn to finish before changing its model, variant, effort, or mode.',
+  }, { status: 409 });
+}
+
+/**
+ * Updates a small whitelist of session fields. Label is freeform; other
+ * mutations have dedicated routes (`/view`, `/archive`, etc.) so this is
+ * intentionally narrow rather than a generic "update session".
+ *
+ * `permissionMode` change behavior: the row is updated, then the
+ * cached AgentSession (if any) is closed via `executor.recycleForModeChange`.
+ * The next dispatch reopens the CLI with the new `--permission-mode`
+ * flag and resumes the conversation via `externalSessionId`. We don't
+ * await the close — the route returns as soon as the row update lands.
+ */
+export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: OperationContext) {
+  try {
+    const { id } = rpcInput.params;
+    const body: PatchBody = rpcInput.body;
+
+    const existing = getChatSessionWithExecution(id);
+    if (!existing) return reply({ error: 'Session not found' }, { status: 404 });
+
+    const updates: PatchBody = {};
+    if ('label' in body) {
+      const trimmed = typeof body.label === 'string' ? body.label.trim() : null;
+      updates.label = trimmed || null;
+    }
+    // Pure ordering field — no executor recycle, no running-guard.
+    // Reordering tabs mid-turn is harmless.
+    if ('tabSortKey' in body) {
+      updates.tabSortKey = typeof body.tabSortKey === 'string' ? body.tabSortKey : null;
+    }
+    // Track whether any executor-relevant field changed; if so, recycle
+    // the cached AgentSession so the next dispatch spawns a fresh CLI
+    // process with the new --permission-mode / --model / --effort flags.
+    let executorChanged = false;
+    if ('permissionMode' in body) {
+      const mode = body.permissionMode;
+      if (!mode || !PERMISSION_MODES.includes(mode)) {
+        return reply(
+          { error: `Invalid permissionMode. Expected one of ${PERMISSION_MODES.join(', ')}.` },
+          { status: 400 },
+        );
+      }
+      if (mode !== existing.permissionMode && executor.isRunning(id)) {
+        return selectionChangeWhileRunningResponse();
+      }
+      const providerId = existing.harness;
+      const cwd = executor.resolveCwd(existing) ?? getAppRoot();
+      const runtime = await getHarnessRuntime(providerId, { cwd });
+      // Single source of truth for the per-provider matrix (shared with the
+      // composer's picker) — see permission-map.ts. Reason text stays tailored.
+      const supported = supportedPermissionModes(providerId, runtime.capabilities.planMode.supported);
+      if (!supported.includes(mode)) {
+        const reason =
+          mode === 'plan'
+            ? (runtime.capabilities.planMode.reason ?? 'Plan mode is unavailable for this harness')
+            : (mode === 'ask' || mode === 'auto_edits') && !runtime.capabilities.permissionRequests.supported
+              ? (runtime.capabilities.permissionRequests.reason ?? 'Permission prompts are unavailable for this harness')
+              : mode === 'auto_edits'
+                ? 'Accept edits mode is not available for this harness'
+                : `${mode} mode is not available for this harness`;
+        return reply({ error: reason }, { status: 409 });
+      }
+      if (mode !== existing.permissionMode) {
+        updates.permissionMode = mode;
+        executorChanged = true;
+        // Track prior mode on plan entry so ExitPlanMode can revert.
+        // Cleared on any non-plan transition. Mirrors Claude Code's
+        // ToolPermissionContext.prePlanMode behavior.
+        if (mode === 'plan' && existing.permissionMode !== 'plan') {
+          (updates as Record<string, unknown>).prePlanMode = existing.permissionMode;
+        } else if (mode !== 'plan' && existing.prePlanMode) {
+          (updates as Record<string, unknown>).prePlanMode = null;
+        }
+      }
+    }
+    let nextSelection: ReturnType<typeof explicitHarnessSelection> | null = null;
+    if ('model' in body || 'modelVariant' in body || 'effort' in body) {
+      const providerId = existing.harness;
+      const cwd = executor.resolveCwd(existing) ?? getAppRoot();
+      const [catalog, runtime] = await Promise.all([
+        getHarnessModelCatalog(providerId, { cwd }),
+        getHarnessRuntime(providerId, { cwd }),
+      ]);
+      const requestedModel = 'model' in body ? body.model?.trim() : existing.model;
+      if ('model' in body && (!requestedModel || !catalog.some((model) => model.id === requestedModel))) {
+        return reply(
+          { error: `Invalid model for ${providerId}. Pick a model from that provider's catalog.` },
+          { status: 400 },
+        );
+      }
+
+      const requestedVariant = 'modelVariant' in body
+        ? (typeof body.modelVariant === 'string' ? body.modelVariant.trim() || null : null)
+        : existing.modelVariant;
+      const requestedEffort = 'effort' in body ? body.effort : existing.effort;
+      if ('effort' in body && (!requestedEffort || !EFFORT_LEVELS.includes(requestedEffort))) {
+        return reply(
+          { error: `Invalid effort. Expected one of ${EFFORT_LEVELS.join(', ')}.` },
+          { status: 400 },
+        );
+      }
+
+      nextSelection = explicitHarnessSelection(
+        providerId,
+        { model: requestedModel, variant: requestedVariant, effort: requestedEffort },
+        catalog,
+      );
+      if ('modelVariant' in body && nextSelection.variant !== requestedVariant) {
+        return reply(
+          { error: `Variant ${requestedVariant ?? 'default'} is not supported by model ${nextSelection.model}.` },
+          { status: 400 },
+        );
+      }
+      // A null resolution means the target harness has no reasoning-effort axis
+      // at all (e.g. OpenCode/Cursor), so an incoming effort is simply
+      // irrelevant rather than "unsupported" — ignore it instead of rejecting a
+      // model change. The mismatch error is reserved for harnesses that do have
+      // an effort axis but can't honor the specific requested level.
+      if ('effort' in body && nextSelection.effort !== null && nextSelection.effort !== requestedEffort) {
+        return reply(
+          { error: `Effort ${requestedEffort} is not supported by model ${nextSelection.model}.` },
+          { status: 400 },
+        );
+      }
+      if (
+        executor.isRunning(id)
+        && (
+          nextSelection.model !== existing.model
+          || nextSelection.variant !== existing.modelVariant
+          || nextSelection.effort !== existing.effort
+        )
+      ) {
+        return selectionChangeWhileRunningResponse();
+      }
+      if (nextSelection.model !== existing.model) {
+        if (!runtime.capabilities.sessionModelChange.supported) {
+          return reply({
+            error: 'selection_requires_new_chat',
+            reason: runtime.capabilities.sessionModelChange.reason,
+          }, { status: 409 });
+        }
+        updates.model = nextSelection.model;
+        executorChanged = true;
+      }
+      if (nextSelection.variant !== existing.modelVariant) {
+        if (!runtime.capabilities.sessionVariantChange.supported) {
+          return reply({
+            error: 'selection_requires_new_chat',
+            reason: runtime.capabilities.sessionVariantChange.reason,
+          }, { status: 409 });
+        }
+        updates.modelVariant = nextSelection.variant;
+        executorChanged = true;
+      }
+      if (nextSelection.effort !== existing.effort) {
+        if (!runtime.capabilities.sessionEffortChange.supported) {
+          return reply({
+            error: 'selection_requires_new_chat',
+            reason: runtime.capabilities.sessionEffortChange.reason,
+          }, { status: 409 });
+        }
+        updates.effort = nextSelection.effort;
+        executorChanged = true;
+      }
+    }
+    // prNumber was lifted off chat_sessions onto the execution. Route it
+    // to the execution row rather than the chat update below.
+    let prChanged = false;
+    if ('prNumber' in body) {
+      const num = body.prNumber;
+      if (num !== null && (typeof num !== 'number' || !Number.isInteger(num) || num <= 0)) {
+        return reply(
+          { error: 'Invalid prNumber. Expected a positive integer or null.' },
+          { status: 400 },
+        );
+      }
+      if (existing.executionId && num !== existing.prNumber) {
+        setExecutionPR(existing.executionId, num ?? null);
+        prChanged = true;
+      }
+    }
+
+    // executionLabel is the execution's stable header title — also on the
+    // execution row, so route it there (same pattern as prNumber). The
+    // chat's own `label` above is untouched, keeping the two titles
+    // independent.
+    let executionChanged = false;
+    if ('executionLabel' in body && existing.executionId) {
+      const trimmed = typeof body.executionLabel === 'string' ? body.executionLabel.trim() : null;
+      const next = trimmed || null;
+      if (next !== (existing.execution?.label ?? null)) {
+        setExecutionLabel(existing.executionId, next);
+        executionChanged = true;
+      }
+    }
+
+    // No-op when nothing on the chat row changed (e.g. PATCH with
+    // permissionMode matching the current value). Drizzle's update()
+    // throws "No values to set" with an empty patch, so short-circuit. A
+    // prNumber/executionLabel-only change is applied to the execution
+    // above, so reload the flattened row to reflect it.
+    // A model or effort picked for this chat stays this chat's. Making it
+    // the default is its own choice (docs/default-selection.md).
+    if (Object.keys(updates).length === 0) {
+      const current = prChanged || executionChanged ? getChatSessionWithExecution(id) : existing;
+      return current ? reply(current) : reply({ error: 'Session not found' }, { status: 404 });
+    }
+
+    const row = updateChatSession(id, updates);
+    if (!row) return reply({ error: 'Session not found' }, { status: 404 });
+
+    if (executorChanged) {
+      // Fire-and-forget: a fresh CLI process spawns on the next message.
+      executor.recycleForModeChange(id).catch((err) => {
+        console.error(`[PATCH /api/sessions/:id] recycleForModeChange failed for ${id}:`, err);
+      });
+    }
+
+    // Return the flattened row so the client sees worktree/branch/pr state
+    // sourced from the execution, consistent with GET.
+    const current = getChatSessionWithExecution(id);
+    return current ? reply(current) : reply({ error: 'Session not found' }, { status: 404 });
+  } catch (err) {
+    console.error('[PATCH /api/sessions/:id]', err);
+    return reply({ error: String(err) }, { status: 400 });
+  }
+}
+
+export const GETInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict() }).strict();
+export const PATCHInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "label": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "executionLabel": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "permissionMode": rpcZ.enum(["auto_all", "auto_edits", "ask", "plan"]).optional(), "model": rpcZ.string().optional(), "modelVariant": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "effort": rpcZ.union([rpcZ.null(), rpcZ.literal("low"), rpcZ.literal("medium"), rpcZ.literal("high"), rpcZ.literal("xhigh"), rpcZ.literal("max"), rpcZ.literal("ultra")]).optional(), "prNumber": rpcZ.union([rpcZ.null(), rpcZ.number().finite()]).optional(), "tabSortKey": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional() }).strict().default({}) }).strict();

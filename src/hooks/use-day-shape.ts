@@ -1,10 +1,10 @@
-import { keepPreviousData, useQueryClient, useQuery } from '@tanstack/react-query';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
-import { api } from '@/lib/api/client';
-import type { CalendarRangeResult } from '@/lib/calendar/types';
 
 const fetchRange = (start: string, days: number) =>
-  api.get<CalendarRangeResult>('/calendar', { query: { start, days } });
+  trpcClient.calendar.list.query({query: rpcQuery({ start, days })});
 
 /**
  * The day shape for a date range, from `GET /api/calendar`. Client-driven
@@ -48,7 +48,7 @@ export function useRefreshDayShape() {
   const qc = useQueryClient();
   return useCallback(
     async (start: string, days = 1) => {
-      await api.get<CalendarRangeResult>('/calendar', { query: { start, days, fresh: 1 } });
+      await trpcClient.calendar.list.query({query: rpcQuery({ start, days, fresh: 1 })});
       await qc.invalidateQueries({ queryKey: ['calendar'] });
     },
     [qc],

@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api/client';
 import type { ProviderId } from '@/lib/harness/options';
+import { trpcClient } from '@/lib/trpc/client';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
 
 /**
  * Shared "is this agent provider connected?" detection — the same
@@ -68,7 +68,7 @@ const KEY = (harness: ProviderId) => ['agent-connection', harness] as const;
 export function useHarnessConnection(harness: ProviderId, enabled = true) {
   const query = useQuery({
     queryKey: KEY(harness),
-    queryFn: () => api.post<HarnessAuthApiResponse>('/harness/auth', { harness }),
+    queryFn: () => trpcClient.harness.authPost.mutate({body: { harness }}),
     enabled,
     staleTime: 60_000,
   });
@@ -81,7 +81,7 @@ export function useRecheckHarnessConnection() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (harness: ProviderId) =>
-      api.post<HarnessAuthApiResponse>('/harness/auth', { harness, fresh: true }),
+      trpcClient.harness.authPost.mutate({body: { harness, fresh: true }}),
     onSuccess: (data, harness) => {
       qc.setQueryData(KEY(harness), data);
     },

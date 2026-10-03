@@ -18,18 +18,19 @@
  * URL: POST /api/orchestrator/browser/mcp[?profile=<name>]
  */
 
-import { createMcpHandler } from 'mcp-handler';
 import { APP_NAME } from '@/constants/app';
 import { browserActions } from '@/lib/orchestrator/browser-actions';
 import { runAction } from '@/lib/orchestrator/dispatch';
 import { mcpCallContext } from '@/lib/orchestrator/mcp-caller';
+import type { Action } from '@/lib/orchestrator/types';
+import { createMcpHandler } from 'mcp-handler';
 
 const SERVER_INSTRUCTIONS = `${APP_NAME} browser: typed tools to read and act on web pages through the agent browser. Read a page (browser_read), then act on the refs it returns (browser_act). If a result carries a "blocked" login or challenge signal, hand back to the user instead of trying to log in.`;
 
 function buildHandler(forcedProfile: string | null) {
   return createMcpHandler(
     (server) => {
-      for (const action of browserActions) {
+      for (const action of browserActions as unknown as Action[]) {
         server.registerTool(
           action.name,
           {
@@ -42,7 +43,7 @@ function buildHandler(forcedProfile: string | null) {
             // The calling chat (from the session credential), for the audit trail.
             const envelope = await runAction(action.name, scoped, mcpCallContext(extra?.requestInfo?.headers));
             return {
-              content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }],
+              content: [{ type: 'text' as const, text: JSON.stringify(envelope, null, 2) }],
               isError: !envelope.ok,
             };
           },

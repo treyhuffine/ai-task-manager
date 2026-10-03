@@ -8,12 +8,12 @@
  * unconfirmed rather than retried.
  */
 
-import { existsSync } from 'node:fs';
 import { chatPlacement, getChatSessionWithExecution, getDevice, getWorkspace } from '@/lib/db/queries';
 import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
 import type { ReadExecutionRequest, WriteExecutionRequest } from '@/lib/workers/protocol';
 import type { ExecutionRead, ReadAnswer } from '@/lib/workspaces/execution-reads';
 import type { ExecutionWrite } from '@/lib/workspaces/execution-writes';
+import { existsSync } from 'node:fs';
 
 /** The read answered by the execution's device, or null when it runs here and the route answers itself. */
 export async function readOnOwner(chatSessionId: string, read: ExecutionRead): Promise<Response | null> {
@@ -58,12 +58,12 @@ async function askOwner(deviceId: string, executionId: string, chatSessionId: st
  * the route makes it itself. Refused while that device is away: a file
  * edit is live work, not something to queue for later.
  */
-export async function writeOnOwner(chatSessionId: string, write: ExecutionWrite): Promise<Response | null> {
+export async function writeAnswerOnOwner(chatSessionId: string, write: ExecutionWrite) {
   const placement = chatPlacement(chatSessionId);
   if (!placement || placement.isHome || !placement.executionId) return null;
   const session = getChatSessionWithExecution(chatSessionId);
   const ws = session?.workspaceId ? getWorkspace(session.workspaceId) : null;
-  if (!session || !ws) return Response.json({ error: 'Session not found' }, { status: 404 });
+  if (!session || !ws) return ({ body: { error: 'Session not found' }, status: ({ status: 404 }).status ?? 200 });
   const name = getDevice(placement.deviceId)?.name ?? 'Its device';
   const request: WriteExecutionRequest = {
     executionId: placement.executionId,
@@ -74,13 +74,10 @@ export async function writeOnOwner(chatSessionId: string, write: ExecutionWrite)
   };
   try {
     const answer = (await requestWorker(placement.deviceId, 'write_execution', request)) as ReadAnswer;
-    return Response.json(answer.body, { status: answer.status });
+    return ({ body: answer.body, status: ({ status: answer.status }).status ?? 200 });
   } catch (err) {
     if (err instanceof WorkerUnavailableError) {
-      return Response.json(
-        { error: 'unavailable', message: `${name} is not connected right now, so the change wasn't made.` },
-        { status: 409 },
-      );
+      return ({ body: { error: 'unavailable', message: `${name} is not connected right now, so the change wasn't made.` }, status: ({ status: 409 }).status ?? 200 });
     }
     if (err instanceof WorkerRequestError) {
       // It may have been made: a timeout doesn't say. Not a 5xx, which
@@ -88,7 +85,7 @@ export async function writeOnOwner(chatSessionId: string, write: ExecutionWrite)
       const message = err.unsupported
         ? `${name} runs an older Ri that can't change files from here. Update Ri there.`
         : `${name} didn't confirm the change. Check the file before trying again. (${err.message})`;
-      return Response.json({ error: 'unconfirmed', message }, { status: 424 });
+      return ({ body: { error: 'unconfirmed', message }, status: ({ status: 424 }).status ?? 200 });
     }
     throw err;
   }
@@ -122,4 +119,10 @@ export function executionFolder(chatSessionId: string): string | null {
   // Here, only a worktree that's still on disk.
   const here = getChatSessionWithExecution(chatSessionId)?.worktreePath ?? null;
   return here && existsSync(here) ? here : null;
+}
+
+/** Compatibility HTTP adapter. UI procedures consume the answer as data. */
+export async function writeOnOwner(chatSessionId: string, write: ExecutionWrite) {
+ const answer = await writeAnswerOnOwner(chatSessionId, write);
+ return answer ? Response.json(answer.body, { status: answer.status }) : null;
 }

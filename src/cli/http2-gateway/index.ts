@@ -169,7 +169,7 @@ export function startHttp2Gateway(opts: Http2GatewayOptions): Promise<Http2Gatew
     req.on('error', () => upstream.destroy());
   });
 
-  // ── HTTP/1.1 Upgrade forwarding (development HMR WebSocket) ──
+  // ── HTTP/1.1 Upgrade forwarding (tRPC and development HMR) ──
   // Track upgraded client sockets so shutdown can tear them down: they are raw
   // TCP connections, not HTTP/2 sessions, so the session drain does not cover them.
   const upgradeSockets = new Set<Duplex>();
@@ -348,7 +348,7 @@ async function closeGateway(
     await new Promise((r) => setTimeout(r, 50));
   }
   // Destroy whatever remains — HTTP/2 sessions and any upgraded WebSocket
-  // sockets (HMR), which are raw TCP connections outside the session set and
+  // sockets, which are raw TCP connections outside the session set and
   // would otherwise survive shutdown.
   for (const session of sessions) {
     try {

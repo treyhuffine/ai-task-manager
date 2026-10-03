@@ -1,8 +1,6 @@
 import type { NextRequest } from 'next/server';
-import { uuidv7 } from 'uuidv7';
-import { transitionTask, getTask, lifecyclePreflight } from '@/lib/db/queries';
-import { coordinateLifecycleChange, type RuntimeChoice, type ScopeChange } from '@/lib/sessions/workstream';
-import { inProcessWorkstreamRuntime } from '@/lib/sessions/workstream-runtime';
+import { transitionTaskForViewer } from '@/lib/tasks/viewer-lifecycle';
+import { type RuntimeChoice } from '@/lib/sessions/workstream';
 import { isTaskLifecycleError, isTransitionCommand, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 
 /**
@@ -33,41 +31,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       body.runtimeChoice === 'keep_running' || body.runtimeChoice === 'stop_running_agent'
         ? body.runtimeChoice
         : undefined;
-    const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : uuidv7();
+    const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined;
     const expectedStatusChangedCount = typeof body.expectedStatusChangedCount === 'number' ? body.expectedStatusChangedCount : undefined;
     const acknowledgedChildIds = Array.isArray(body.acknowledgedChildIds) ? body.acknowledgedChildIds : undefined;
     const acknowledgedExecutionIds = Array.isArray(body.acknowledgedExecutionIds) ? body.acknowledgedExecutionIds : undefined;
 
-    // Validate the command CAN apply before any runtime coordination, so a
-    // rejected command (stale revision, replay, open children, illegal move)
-    // never stops an agent or sends a scope-change message. A replay skips
-    // coordination entirely.
-    const pre = lifecyclePreflight({ taskId: id, command, idempotencyKey, expectedStatusChangedCount, acknowledgedChildIds });
-    if (!pre.replay && (command === 'archive' || command === 'return_to_todo' || command === 'move_to_consider')) {
-      const task = getTask(id);
-      const change: ScopeChange | undefined =
-        command === 'archive'
-          ? { taskId: id, taskTitle: task?.title ?? '', action: 'archived' }
-          : command === 'return_to_todo'
-            ? { taskId: id, taskTitle: task?.title ?? '', action: 'returned to Todo' }
-            : undefined;
-      await coordinateLifecycleChange({
-        taskId: id,
-        kind: command === 'move_to_consider' ? 'uncommit' : 'displace',
-        choice,
-        change,
-        acknowledgedExecutionIds,
-        runtime: inProcessWorkstreamRuntime,
-      });
-    }
-
-    const result = transitionTask({
-      taskId: id,
-      command,
-      idempotencyKey,
-      expectedStatusChangedCount,
-      acknowledgedChildIds,
-      meta: { source: 'human', reason: typeof body.reason === 'string' ? body.reason : null },
+    const result = await transitionTaskForViewer(id, command, {
+      idempotencyKey, expectedStatusChangedCount, acknowledgedChildIds,
+      acknowledgedExecutionIds, runtimeChoice: choice,
+      reason: typeof body.reason === 'string' ? body.reason : undefined,
     });
 
     return Response.json(result);

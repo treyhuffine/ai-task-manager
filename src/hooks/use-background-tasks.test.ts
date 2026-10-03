@@ -1,5 +1,6 @@
+import type { ChatEventRecord } from '@/lib/api/dto/records';
 import { describe, expect, it } from 'vitest';
-import type { ChatEventRecord } from '@/db/types';
+
 import { deriveBackgroundTasks, deriveTaskDetail } from './use-background-tasks';
 
 /**

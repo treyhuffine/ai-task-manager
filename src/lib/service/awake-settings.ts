@@ -9,3 +9,5 @@ export interface AwakeStatus extends AwakePreferences {
   power: AwakePower;
   detail: string;
 }
+
+export const AwakeStatusSchema = AwakePreferencesSchema.extend({ phase: z.enum(["off", "checking", "active", "on-battery", "unavailable", "unsupported", "stopped"]), power: z.enum(["external", "battery", "unknown"]), detail: z.string() });

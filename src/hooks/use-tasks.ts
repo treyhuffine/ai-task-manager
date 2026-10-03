@@ -1,24 +1,22 @@
-import { documentSaves } from '@/lib/client/document-saves';
-import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { tasksApi } from '@/lib/api/tasks';
-import { apiErrorText, apiErrorCode, apiErrorDetails } from '@/lib/api/client';
 import { useLifecycleGuard } from '@/components/tasks/lifecycle-guard';
+import type { TaskFilter, TaskRecord } from '@/db/types';
+import { apiErrorCode, apiErrorDetails, apiErrorText } from '@/lib/api/client';
+import type { TaskListDTO } from '@/lib/api/dto/entity-list';
+import { tasksApi } from '@/lib/api/tasks';
+import { documentSaves } from '@/lib/client/document-saves';
+import { entityKeys } from '@/lib/query/entity-keys';
 import {
-  optimisticPatch,
-  optimisticRemove,
-  optimisticTransition,
-  rollbackOptimistic,
-  settleEntity,
+	optimisticPatch,
+	optimisticRemove,
+	optimisticTransition,
+	rollbackOptimistic,
+	settleEntity,
 } from '@/lib/query/optimistic-entity';
 import { targetState, type TransitionCommand } from '@/lib/tasks/lifecycle';
-import type {
-  CreateTaskInput,
-  UpdateTaskInput,
-  TaskFilter,
-  TaskRecord,
-} from '@/db/types';
-import type { TaskListDTO } from '@/lib/api/dto/entity-list';
+import { trpc } from '@/lib/trpc/client';
+import type { RouterInputs } from '@/lib/trpc/router';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 /** A stable idempotency key per user action (safe re-fire on lost response). */
 function newIdempotencyKey(): string {
@@ -27,22 +25,18 @@ function newIdempotencyKey(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-const TASKS_KEY = ['tasks'] as const;
-
 /** `refetchInterval` keeps a surface someone watches (the board) current with
  * changes made elsewhere, like an agent moving a task mid-turn. */
 export function useTasks(filter?: TaskFilter, opts: { refetchInterval?: number } = {}) {
   return useQuery({
-    queryKey: [...TASKS_KEY, filter],
-    queryFn: () => tasksApi.list(filter),
+    ...trpc.tasks.list.queryOptions(filter),
     refetchInterval: opts.refetchInterval,
   });
 }
 
 export function useTask(id: string | null) {
   return useQuery({
-    queryKey: [...TASKS_KEY, id],
-    queryFn: () => tasksApi.get(id!),
+    ...trpc.tasks.get.queryOptions({ id: id ?? '' }),
     enabled: !!id,
   });
 }
@@ -56,17 +50,18 @@ export function useTask(id: string | null) {
  * to an area. Kept fresh as tasks move between lanes. */
 export function useTaskCounts(areaId?: string | null) {
   return useQuery({
-    queryKey: [...TASKS_KEY, 'counts', areaId ?? null],
-    queryFn: () => tasksApi.counts(areaId),
+    ...trpc.tasks.counts.queryOptions({ areaId: areaId ?? null }),
     staleTime: 5_000,
   });
 }
 
 export function useTaskAttention(ids: string[]) {
-  const key = [...ids].sort().join(',');
+  const sortedIds = [...new Set(ids)].sort();
   return useQuery({
-    queryKey: [...TASKS_KEY, 'attention', key],
-    queryFn: () => tasksApi.attention(ids),
+    ...trpc.tasks.attention.queryOptions({ ids: sortedIds }),
+    // Large boards keep all badges. The server bounds each read to 200 IDs,
+    // and the imperative helper splits larger sets without changing this key.
+    queryFn: () => tasksApi.attention(sortedIds),
     enabled: ids.length > 0,
     refetchInterval: 20_000,
     staleTime: 10_000,
@@ -82,8 +77,7 @@ export function useTaskAttention(ids: string[]) {
  */
 export function useDeadlines(withinDays?: number) {
   return useQuery({
-    queryKey: [...TASKS_KEY, 'deadlines', withinDays ?? null],
-    queryFn: () => tasksApi.deadlines(withinDays),
+    ...trpc.tasks.deadlines.queryOptions({ withinDays }),
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
@@ -91,24 +85,22 @@ export function useDeadlines(withinDays?: number) {
 
 export function useCreateTask() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationKey: TASKS_KEY,
+  return useMutation(trpc.tasks.create.mutationOptions({
     meta: { carriesInput: true },
-    mutationFn: (input: CreateTaskInput) => tasksApi.create(input),
     // Creates stay non-optimistic for the list (which filtered lists a new row
     // belongs to is decided server-side), but we seed the detail cache so
     // opening the freshly-created item is instant.
-    onSuccess: (record) => qc.setQueryData([...TASKS_KEY, record.id], record),
+    onSuccess: (record) => qc.setQueryData(entityKeys.tasks.detail(record.id), record),
     onSettled: () => settleEntity(qc, 'tasks'),
-  });
+  }));
 }
 
 export function useUpdateTask() {
   const qc = useQueryClient();
   return useMutation({
-    mutationKey: TASKS_KEY,
+    mutationKey: trpc.tasks.update.mutationKey(),
     meta: { carriesInput: true },
-    mutationFn: ({ id, ...input }: UpdateTaskInput & { id: string }) =>
+    mutationFn: ({ id, ...input }: RouterInputs['tasks']['update']['patch'] & { id: string }) =>
       tasksApi.update(id, input),
     onMutate: async ({ id, ...input }) => ({
       snapshot: await optimisticPatch(qc, 'tasks', id, input),
@@ -124,7 +116,7 @@ export function useUpdateTask() {
 export function useDeleteTask() {
   const qc = useQueryClient();
   return useMutation({
-    mutationKey: TASKS_KEY,
+    mutationKey: trpc.tasks.delete.mutationKey(),
     mutationFn: async (id: string) => {
       await documentSaves.flush(`tasks:${id}`);
       return tasksApi.delete(id);
@@ -142,7 +134,7 @@ export function useCompleteTask() {
   const qc = useQueryClient();
   const guard = useLifecycleGuard();
   return useMutation({
-    mutationKey: TASKS_KEY,
+    mutationKey: trpc.tasks.complete.mutationKey(),
     mutationFn: ({ id, note }: { id: string; note?: string }) => {
       // Pass the revision the client last saw so two rapid completes (e.g. a
       // recurring Todo->Todo double-click) can't both apply — the second sees a
@@ -193,7 +185,7 @@ export function useTransitionTask() {
   const qc = useQueryClient();
   const guard = useLifecycleGuard();
   return useMutation({
-    mutationKey: TASKS_KEY,
+    mutationKey: trpc.tasks.transition.mutationKey(),
     mutationFn: ({ id, command, expectedStatusChangedCount }: { id: string; command: TransitionCommand; expectedStatusChangedCount?: number }) =>
       tasksApi.transition(id, command, { idempotencyKey: newIdempotencyKey(), expectedStatusChangedCount }),
     onMutate: async ({ id, command }) => {
@@ -220,9 +212,9 @@ export function useTransitionTask() {
 }
 
 function findCachedTask(qc: QueryClient, id: string): TaskRecord | TaskListDTO | undefined {
-  const single = qc.getQueryData<TaskRecord>([...TASKS_KEY, id]);
+  const single = qc.getQueryData<TaskRecord>(entityKeys.tasks.detail(id));
   if (single) return single;
-  for (const [, data] of qc.getQueriesData<TaskListDTO[]>({ queryKey: TASKS_KEY })) {
+  for (const [, data] of qc.getQueriesData<TaskListDTO[]>(trpc.tasks.list.pathFilter())) {
     if (Array.isArray(data)) {
       const hit = data.find((task) => task?.id === id);
       if (hit) return hit;

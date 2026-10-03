@@ -1,11 +1,10 @@
-import { api } from './client';
-import type { TreeEntry } from './sessions';
 import type {
-  ResolvedReferenceFolder,
-  ReferenceFolderRecord,
-  CreateReferenceFolderInput,
-  UpdateReferenceFolderInput,
+	CreateReferenceFolderInput,
+	UpdateReferenceFolderInput
 } from '@/db/types';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
+import type { RouterOutputs } from '@/lib/trpc/router';
 
 export const referenceFoldersApi = {
   /**
@@ -13,22 +12,20 @@ export const referenceFoldersApi = {
    * resolved to absolute paths with existence and git state attached.
    * Omit `workspaceId` for the global rows alone.
    */
-  list(workspaceId?: string | null): Promise<ResolvedReferenceFolder[]> {
-    return api.get<ResolvedReferenceFolder[]>('/reference-folders', {
-      query: workspaceId ? { workspaceId } : undefined,
-    });
+  list(workspaceId?: string | null) {
+    return trpcClient.referenceFolders.list.query({query: rpcQuery(workspaceId ? { workspaceId } : undefined)});
   },
 
-  create(input: CreateReferenceFolderInput): Promise<ResolvedReferenceFolder> {
-    return api.post<ResolvedReferenceFolder>('/reference-folders', input);
+  create(input: CreateReferenceFolderInput) {
+    return trpcClient.referenceFolders.create.mutate({body: input});
   },
 
-  update(id: string, input: UpdateReferenceFolderInput): Promise<ResolvedReferenceFolder> {
-    return api.patch<ResolvedReferenceFolder>(`/reference-folders/${id}`, input);
+  update(id: string, input: UpdateReferenceFolderInput) {
+    return trpcClient.referenceFolders.update.mutate({params: {id: id}, body: input});
   },
 
-  archive(id: string): Promise<ReferenceFolderRecord> {
-    return api.post<ReferenceFolderRecord>(`/reference-folders/${id}/archive`);
+  archive(id: string) {
+    return trpcClient.referenceFolders.archivePost.mutate({params: {id: id}});
   },
 
   /**
@@ -36,47 +33,25 @@ export const referenceFoldersApi = {
    * Paths are relative to the reference's root; the composer joins them onto
    * `absolutePath` for the chip.
    */
-  tree(id: string): Promise<ReferenceTreeResponse> {
-    return api.get<ReferenceTreeResponse>(`/reference-folders/${id}/tree`);
+  tree(id: string) {
+    return trpcClient.referenceFolders.treeGet.query({params: {id: id}});
   },
 
   /** Reference folders visible from a session's workspace, for the picker. */
-  forSession(sessionId: string): Promise<{ referenceFolders: SessionReferenceFolder[] }> {
-    return api.get<{ referenceFolders: SessionReferenceFolder[] }>(
-      `/sessions/${sessionId}/reference-folders`,
-    );
+  forSession(sessionId: string) {
+    return trpcClient.sessions.referenceFoldersGet.query({params: {id: sessionId}});
   },
 
   /** Who points at this workspace. References are one-way, so this is the
    *  only way a workspace learns it is being read. */
-  referencedBy(workspaceId: string): Promise<{ referencedBy: ReferencedByEntry[] }> {
-    return api.get<{ referencedBy: ReferencedByEntry[] }>(
-      `/workspaces/${workspaceId}/referenced-by`,
-    );
+  referencedBy(workspaceId: string) {
+    return trpcClient.workspaces.referencedByGet.query({params: {id: workspaceId}});
   },
 };
 
-export interface ReferencedByEntry {
-  id: string;
-  alias: string;
-  /** Null when the reference is global — every workspace sees it. */
-  workspaceId: string | null;
-  workspaceName: string | null;
-}
+export type ReferencedByEntry = RouterOutputs['workspaces']['referencedByGet']['referencedBy'][number];
 
-export interface ReferenceTreeResponse {
-  entries: TreeEntry[];
-  /** True when the folder was larger than the listing cap. */
-  truncated: boolean;
-}
+export type ReferenceTreeResponse = RouterOutputs['referenceFolders']['treeGet'];
 
 /** The slim shape the composer's picker needs. */
-export interface SessionReferenceFolder {
-  id: string;
-  alias: string;
-  /** Where it is on the device the chat runs on. */
-  absolutePath: string;
-  exists: boolean;
-  /** Its files can be listed here: false for a chat on another device, whose files are there. */
-  browsable: boolean;
-}
+export type SessionReferenceFolder = RouterOutputs['sessions']['referenceFoldersGet']['referenceFolders'][number];

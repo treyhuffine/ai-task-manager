@@ -19,37 +19,37 @@
  * either context unchanged.
  */
 
-import { DEFAULT_HARNESS } from '@/lib/harness/registry';
-import { useEffect, useMemo, useState } from 'react';
 import {
-  ChevronDown,
-  ChevronRight,
-  FolderOpen,
-  Save,
-} from 'lucide-react';
-import { useCreateTrigger } from '@/hooks/use-triggers';
-import { useWorkspaces } from '@/hooks/use-workspaces';
-import { useUserState } from '@/hooks/use-user-state';
-import {
-  frequencyToTrigger,
-  type FrequencyKind,
-  type Weekday,
-} from '@/lib/scheduler/frequency';
+	EffortControl,
+	ModelControl,
+	type LaunchHarnessSelection,
+} from '@/components/workspaces/launcher/launch-controls';
 import type { EffortLevel, TriggerRecord } from '@/db/types';
 import { useHarnessModels } from '@/hooks/use-harness-models';
-import {
-  defaultModelFor,
-  explicitEffortForModel,
-  harnessSupportsEffort,
-  type ProviderId,
-} from '@/lib/harness/options';
+import { useCreateTrigger } from '@/hooks/use-triggers';
+import { useUserState } from '@/hooks/use-user-state';
+import { useWorkspaces } from '@/hooks/use-workspaces';
 import { readProviderEfforts } from '@/lib/executions/provider-effort';
 import {
-  EffortControl,
-  ModelControl,
-  type LaunchHarnessSelection,
-} from '@/components/workspaces/launcher/launch-controls';
+	defaultModelFor,
+	explicitEffortForModel,
+	harnessSupportsEffort,
+	type ProviderId,
+} from '@/lib/harness/options';
+import { DEFAULT_HARNESS } from '@/lib/harness/registry';
+import {
+	frequencyToTrigger,
+	type FrequencyKind,
+	type Weekday,
+} from '@/lib/scheduler/frequency';
 import { cn } from '@/lib/utils';
+import {
+	ChevronDown,
+	ChevronRight,
+	FolderOpen,
+	Save,
+} from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 
 const FREQUENCY_OPTIONS: { value: FrequencyKind; label: string }[] = [
   { value: 'manual', label: 'Manual: Run now only' },
@@ -195,7 +195,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
     };
     createTrigger.mutate(input, {
       onSuccess: (result) => {
-        if (result.webhookSecret && result.webhookPublicId) {
+        if ('webhookSecret' in result && result.webhookSecret && 'webhookPublicId' in result && result.webhookPublicId) {
           onCreated(result.trigger, {
             publicId: result.webhookPublicId,
             secret: result.webhookSecret,

@@ -172,17 +172,31 @@ export function terminalStreamResponse(
 
   let unsubscribe: (() => void) | null = null;
   let keepAlive: ReturnType<typeof setInterval> | null = null;
+  let closed = false;
+  const cleanup = () => {
+    unsubscribe?.();
+    unsubscribe = null;
+    if (keepAlive) clearInterval(keepAlive);
+    keepAlive = null;
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const enqueue = (chunk: Uint8Array) => {
+        if (closed) return;
         try { controller.enqueue(chunk); } catch { /* closed */ }
+      };
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        cleanup();
+        try { controller.close(); } catch { /* closed */ }
       };
 
       const owner = resolveOwner();
       if (!owner.ok) {
         enqueue(sse('error', { message: owner.error }));
-        try { controller.close(); } catch { /* */ }
+        close();
         return;
       }
 
@@ -191,13 +205,13 @@ export function terminalStreamResponse(
           enqueue(sse('data', chunk.data, chunk.offset));
         } else {
           enqueue(sse('exit', { code: chunk.code, signal: chunk.signal }));
-          try { controller.close(); } catch { /* */ }
+          close();
         }
       }, since);
 
       if (!result) {
         enqueue(sse('error', { message: 'Terminal not found' }));
-        try { controller.close(); } catch { /* */ }
+        close();
         return;
       }
       unsubscribe = result.unsubscribe;
@@ -210,7 +224,7 @@ export function terminalStreamResponse(
       if (result.replay) enqueue(sse('data', result.replay, result.offset));
       if (result.exited) {
         enqueue(sse('exit', { code: result.exitCode, signal: null }));
-        try { controller.close(); } catch { /* */ }
+        close();
         return;
       }
 
@@ -222,8 +236,8 @@ export function terminalStreamResponse(
       }, 25_000);
     },
     cancel() {
-      if (unsubscribe) unsubscribe();
-      if (keepAlive) clearInterval(keepAlive);
+      closed = true;
+      cleanup();
     },
   });
 

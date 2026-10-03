@@ -1,5 +1,6 @@
 'use client';
 
+import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 /**
  * Reviewing it here (docs/homes-spec.md §8.1, P4.1): this device's checkout
  * of the execution's published commit, labeled with the commit and where the
@@ -10,15 +11,15 @@
  * ordinary Git branch of your own in this checkout.
  */
 
+import type { WorkspaceRecord } from '@/db/types';
+import { useOpenCodeHere, useReview } from '@/hooks/use-execution';
+import { apiErrorText } from '@/lib/api/client';
+import { clientIsHost, fsApi, type OpenTarget } from '@/lib/api/fs';
+import { sessionsApi } from '@/lib/api/sessions';
+import { useEditorPreference } from '@/lib/client/editor-preference';
+import { ArrowRightLeft, Copy, Loader2, RefreshCw, SquareArrowOutUpRight } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowRightLeft, Copy, Loader2, RefreshCw, SquareArrowOutUpRight } from 'lucide-react';
-import { useOpenCodeHere, useReview } from '@/hooks/use-execution';
-import { sessionsApi } from '@/lib/api/sessions';
-import { clientIsHost, fsApi, type OpenTarget } from '@/lib/api/fs';
-import { apiErrorText } from '@/lib/api/client';
-import { useEditorPreference } from '@/lib/client/editor-preference';
-import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { ContinueDialog } from './continue-dialog';
 import { useMoves } from './location-menu';
 

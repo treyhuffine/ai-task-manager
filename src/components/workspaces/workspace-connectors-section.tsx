@@ -1,5 +1,6 @@
 'use client';
 
+import { trpcClient } from '@/lib/trpc/client';
 /**
  * Workspace connectors (docs/connectors-workspace-scoping-spec.md §7). A sticky, per-workspace
  * allowlist of *services* (toolkits), optionally limited to some accounts, that this workspace's
@@ -7,13 +8,12 @@
  * always has every connected service. The grouped picker UI is shared with the create modal via
  * ConnectorScopePicker; this wrapper adds the load-current / dirty / save (PUT + recycle) behavior.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, AlertCircle } from 'lucide-react';
-import { api } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
-import { ConnectorScopePicker } from './connector-scope-picker';
-import { pinKey, scopePins } from '@/lib/connectors/scope-pins';
 import type { WorkspaceConnectorScope } from '@/db/types';
+import { pinKey, scopePins } from '@/lib/connectors/scope-pins';
+import { AlertCircle, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ConnectorScopePicker } from './connector-scope-picker';
 
 function errMsg(e: unknown): string {
   const body = (e as { body?: { error?: string } }).body;
@@ -38,8 +38,7 @@ export function WorkspaceConnectorsSection({ workspaceId }: { workspaceId: strin
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .get<{ connectorScopes?: WorkspaceConnectorScope[] }>(`/workspaces/${workspaceId}`)
+    trpcClient.workspaces.get.query({params: {id: workspaceId}})
       .then((ws) => {
         setScopes(ws.connectorScopes ?? []);
         setSavedScopes(ws.connectorScopes ?? []);
@@ -54,7 +53,7 @@ export function WorkspaceConnectorsSection({ workspaceId }: { workspaceId: strin
     setBusy(true);
     setError(null);
     try {
-      await api.put(`/workspaces/${workspaceId}/connector-scopes`, { scopes });
+      await trpcClient.workspaces.connectorScopesPut.mutate({params: {id: workspaceId}, body: { scopes }});
       setSavedScopes(scopes);
     } catch (e) {
       setError(errMsg(e));

@@ -1,14 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Check, Loader2, Search } from 'lucide-react';
-import { api } from '@/lib/api/client';
 import { ConnectorLogo } from '@/components/connectors/connector-logo';
 import { connectorMeta } from '@/components/connectors/connector-meta';
-import { openSettings, useSettingsStore } from '@/components/settings/settings-store';
 import type { Connection, ProviderStatus } from '@/components/settings/sections/connectors/types';
+import { openSettings, useSettingsStore } from '@/components/settings/settings-store';
+import { trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowRight, Check, Loader2, Search } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { listJoin } from './onboarding-flow';
 
 /**
@@ -37,8 +37,8 @@ export function OnboardingApps({ onDone }: { onDone: (summary: string) => void }
     queryKey: ['connectors', 'onboarding-catalog'],
     queryFn: async (): Promise<Catalog> => {
       const [status, connections] = await Promise.all([
-        api.get<{ providers: ProviderStatus[] }>('/connectors/status'),
-        api.get<{ connections: Connection[] }>('/connectors/connections'),
+        trpcClient.connectors.statusGet.query({}),
+        trpcClient.connectors.connectionsGet.query({}),
       ]);
       return { providers: status.providers, connections: connections.connections };
     },

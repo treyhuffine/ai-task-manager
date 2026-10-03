@@ -1,3 +1,6 @@
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
+import type { RouterOutputs } from '@/lib/trpc/router';
 /**
  * Client for the per-execution preview API. Mirrors `PreviewState` from
  * `src/lib/preview/service.ts` (kept in sync by hand — the server shape is
@@ -6,65 +9,19 @@
 
 import { api } from './client';
 
-export type PreviewServerStatus = 'idle' | 'starting' | 'running' | 'crashed' | 'stopped';
+export type PreviewServerStatus = RouterOutputs['executions']['previewStatusGet']['serverStatus'];
 
-export interface PreviewManualUrl {
-  service: string | null;
-  url: string;
-  label: string | null;
-}
+export type PreviewManualUrl = RouterOutputs['executions']['previewStatusGet']['manualUrls'][number];
 
-export interface PreviewRemoteError {
-  code: string;
-  message: string;
-  hint?: string;
-}
+export type PreviewRemoteError = NonNullable<RouterOutputs['executions']['previewStatusGet']['remoteError']>;
 
-export interface PreviewState {
-  executionId: string;
-  service: string | null;
-  previewName: string;
-  assignedPort: number | null;
-  serverStatus: PreviewServerStatus;
-  port: number | null;
-  message: string | null;
-  localUrl: string | null;
-  pinned: boolean;
-  activeRemoteProviderId: string;
-  activeRemoteProviderLabel: string;
-  remoteUrl: string | null;
-  remoteError: PreviewRemoteError | null;
-  manualUrls: PreviewManualUrl[];
-  /** Workspace setup-script state. `running` = deps installing (server held
-   *  back); `failed` = setup errored (preview may be missing deps). */
-  setupStatus: 'running' | 'failed' | null;
-  setupError: string | null;
-  /**
-   * The execution runs on another device (P3.5). Its app runs there, not
-   * here: nothing is started at home for it, and a local address there is
-   * never offered to another device. A URL pasted for it (the person's own
-   * tunnel) is still used for a viewer elsewhere.
-   */
-  elsewhere: { deviceName: string; folder: string | null } | null;
-}
+export type PreviewState = RouterOutputs['executions']['previewStatusGet'];
 
-export interface PreviewLogLine {
-  seq: number;
-  at: string;
-  stream: 'stdout' | 'stderr';
-  line: string;
-}
+export type PreviewLogLine = RouterOutputs['executions']['previewLogsGet']['lines'][number];
 
-export interface PreviewLogsResponse {
-  cursor: number;
-  lines: PreviewLogLine[];
-}
+export type PreviewLogsResponse = RouterOutputs['executions']['previewLogsGet'];
 
-export interface PreviewProviderInfo {
-  id: string;
-  label: string;
-  kind: 'dynamic' | 'static';
-}
+export type PreviewProviderInfo = RouterOutputs['preview']['settingsGet']['providers'][number];
 
 /** The browser-approval challenge streamed during a device-code connect. */
 export interface DevicePending {
@@ -83,81 +40,57 @@ export type DeviceConnectEvent =
   | { phase: 'error'; code: string; message: string };
 
 /** Which beamd binary Ri resolves to + its version — for skew legibility. */
-export interface BeamdBinInfo {
-  path: string;
-  source: 'env' | 'path' | 'bundled-native' | 'bundled-shim' | 'fallback';
-  version: string | null;
-  outdated: boolean;
-  minVersion: string;
-}
+export type BeamdBinInfo = NonNullable<RouterOutputs['preview']['settingsGet']['beamd']['bin']>;
 
-export interface PreviewSettings {
-  activeProvider: string;
-  manualTemplate: string | null;
-  /** beamd connection state — driven by the machine's `~/.beamd/` account,
-   *  not a Ri-stored credential. `error` carries the reason when not
-   *  connected (e.g. a version-skew `beamd_cli_outdated`); `bin` reports which
-   *  beamd binary Ri is using. */
-  beamd: {
-    connected: boolean;
-    server: string | null;
-    error: { code: string; message: string } | null;
-    bin: BeamdBinInfo | null;
-  };
-  providers: PreviewProviderInfo[];
-}
+export type PreviewSettings = RouterOutputs['preview']['settingsGet'];
 
 function serviceQuery(service?: string | null): Record<string, string> | undefined {
   return service ? { service } : undefined;
 }
 
 export const previewApi = {
-  status(executionId: string, service?: string | null): Promise<PreviewState> {
-    return api.get<PreviewState>(`/executions/${executionId}/preview/status`, {
-      query: serviceQuery(service),
-    });
+  status(executionId: string, service?: string | null) {
+    return trpcClient.executions.previewStatusGet.query({params: {id: executionId}, query: rpcQuery(serviceQuery(service))});
   },
 
-  start(executionId: string, opts: { service?: string | null; remote?: boolean } = {}): Promise<PreviewState> {
-    return api.post<PreviewState>(`/executions/${executionId}/preview/start`, {
+  start(executionId: string, opts: { service?: string | null; remote?: boolean } = {}) {
+    return trpcClient.executions.previewStartPost.mutate({params: {id: executionId}, body: {
       service: opts.service ?? null,
       remote: opts.remote ?? false,
-    });
+    }});
   },
 
-  stop(executionId: string, service?: string | null): Promise<PreviewState> {
-    return api.post<PreviewState>(`/executions/${executionId}/preview/stop`, { service: service ?? null });
+  stop(executionId: string, service?: string | null) {
+    return trpcClient.executions.previewStopPost.mutate({params: {id: executionId}, body: { service: service ?? null }});
   },
 
-  logs(executionId: string, cursor = 0, service?: string | null): Promise<PreviewLogsResponse> {
-    return api.get<PreviewLogsResponse>(`/executions/${executionId}/preview/logs`, {
-      query: { cursor, ...(service ? { service } : {}) },
-    });
+  logs(executionId: string, cursor = 0, service?: string | null) {
+    return trpcClient.executions.previewLogsGet.query({params: {id: executionId}, query: rpcQuery({ cursor, ...(service ? { service } : {}) })});
   },
 
-  setUrls(executionId: string, urls: PreviewManualUrl[]): Promise<{ urls: PreviewManualUrl[] }> {
-    return api.put<{ urls: PreviewManualUrl[] }>(`/executions/${executionId}/preview-urls`, { urls });
+  setUrls(executionId: string, urls: PreviewManualUrl[]) {
+    return trpcClient.executions.previewUrlsPut.mutate({params: {id: executionId}, body: { urls }});
   },
 
-  pin(executionId: string, pinned: boolean, service?: string | null): Promise<PreviewState> {
-    return api.post<PreviewState>(`/executions/${executionId}/preview/pin`, { pinned, service: service ?? null });
+  pin(executionId: string, pinned: boolean, service?: string | null) {
+    return trpcClient.executions.previewPinPost.mutate({params: {id: executionId}, body: { pinned, service: service ?? null }});
   },
 
   /** Re-run the workspace setup script (deps install) for this execution.
    *  Used by the preview pane's "Re-run setup" recovery when the dev server
    *  can't start because dependencies are missing. Fires in the background;
    *  `setupStatus` flips to 'running' and the gate holds Start until it lands. */
-  retrySetupScript(executionId: string): Promise<{ ok: true } | { error: string }> {
-    return api.post(`/executions/${executionId}/retry-setup-script`);
+  retrySetupScript(executionId: string) {
+    return trpcClient.executions.retrySetupScriptPost.mutate({params: {id: executionId}});
   },
 
-  restoreSet(workspaceId: string): Promise<{ results: Array<{ executionId: string; service: string | null; ok: boolean; error?: string }> }> {
-    return api.post(`/workspaces/${workspaceId}/preview/restore-set`);
+  restoreSet(workspaceId: string) {
+    return trpcClient.workspaces.previewRestoreSetPost.mutate({params: {id: workspaceId}});
   },
 
   settings: {
-    get(): Promise<PreviewSettings> {
-      return api.get<PreviewSettings>('/preview/settings');
+    get() {
+      return trpcClient.preview.settingsGet.query({});
     },
     update(body: {
       activeProvider?: string;
@@ -166,13 +99,11 @@ export const previewApi = {
       connect?: { server: string; token: string; insecure?: boolean };
       /** Disconnect this machine (drives `beamd logout`). */
       disconnect?: boolean;
-    }): Promise<PreviewSettings> {
-      return api.put<PreviewSettings>('/preview/settings', body);
+    }) {
+      return trpcClient.preview.settingsPut.mutate({body: body});
     },
-    test(): Promise<{ ok: true; server: string; slug: string; baseDomain: string; bin: BeamdBinInfo | null }> {
-      return api.post<{ ok: true; server: string; slug: string; baseDomain: string; bin: BeamdBinInfo | null }>(
-        '/preview/settings/test',
-      );
+    test() {
+      return trpcClient.preview.settingsTestPost.mutate({});
     },
     /** Device-code (browser-approve) connect. Returns the raw NDJSON stream
      *  ({@link DeviceConnectEvent} per line); auth + 401 handling applied. */

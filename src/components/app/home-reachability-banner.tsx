@@ -1,4 +1,5 @@
 'use client';
+import { trpcClient } from '@/lib/trpc/client';
 
 /**
  * "Cannot reach your Ri on Mac Mini" (docs/homes-spec.md §3.5).
@@ -9,12 +10,12 @@
  * with a retry, and drafts stay in the composer, so nothing typed is lost.
  */
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
+import { getAuthToken } from '@/lib/api/client';
+import { getConnectivity, probeHome, reportReachable, subscribeConnectivity } from '@/lib/api/connectivity';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, RefreshCw, WifiOff } from 'lucide-react';
-import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
-import { api, getAuthToken } from '@/lib/api/client';
-import { getConnectivity, probeHome, reportReachable, subscribeConnectivity } from '@/lib/api/connectivity';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 const HOME_CACHE_KEY = `${APP_SHORT_ID}.home`;
 const RETRY_EVERY_MS = 5000;
@@ -47,7 +48,7 @@ export function HomeReachabilityBanner() {
   const { data: home } = useQuery({
     queryKey: ['home'],
     queryFn: async () => {
-      const info = await api.get<HomeInfo>('/home');
+      const info = await trpcClient.home.info.query({});
       try {
         window.localStorage.setItem(HOME_CACHE_KEY, JSON.stringify(info));
       } catch {

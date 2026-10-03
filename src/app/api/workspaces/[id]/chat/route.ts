@@ -1,40 +1,6 @@
-import { HarnessDisabledError } from '@/lib/harness/registry';
-import type { NextRequest } from 'next/server';
-import { getChatSession } from '@/lib/db/queries';
-import { currentMainChat, ensureMainChat } from '@/lib/sessions/main-chat';
-import { followAgentUntilRun } from '@/lib/sessions/main-chat-device';
 import { withCompression } from '@/lib/api/compression';
-import { archivedAgentResponse, resolveAgent } from './_agent';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/workspaces/[id]/chat';
 
-/**
- * The agent's main chat: an orchestration chat scoped to this workspace,
- * running in the agent's folder (docs/agents-view-spec.md §4). GET returns
- * the current one, creating it if the agent has none ("ensure" semantics,
- * like `/api/orchestrator-chat`). An archived agent still returns its
- * current chat but never gets a new one.
- */
-// Compressed when the body is JSON and over ~1KiB; a streamed or
-// non-JSON response passes through untouched. See lib/api/compression.ts.
-export const GET = withCompression(handleGET);
 
-async function handleGET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    const agent = resolveAgent(id);
-    if (!agent.ok) return agent.response;
-    const existing = currentMainChat(id);
-    if (existing) {
-      // Not run anywhere yet: it goes where the agent lives now (P3.4).
-      if (followAgentUntilRun(existing.id).moved) return Response.json({ session: getChatSession(existing.id) ?? existing });
-      return Response.json({ session: existing });
-    }
-    if (agent.ws.status === 'archived') return archivedAgentResponse();
-    return Response.json({ session: await ensureMainChat(id) });
-  } catch (err) {
-    console.error('[GET /api/workspaces/:id/chat]', err);
-    return Response.json({ error: String(err) }, { status: err instanceof HarnessDisabledError ? 409 : 500 });
-  }
-}
+export const GET = withCompression(serveOperation(operation.GETInput, operation.GET));

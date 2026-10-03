@@ -1,3 +1,5 @@
+import { apiErrorStatus } from '@/lib/api/error-status';
+
 type Patch = Record<string, unknown>;
 export interface DocumentDraft { patch: Patch; base: Patch }
 interface PendingSave extends DocumentDraft {
@@ -14,7 +16,7 @@ const retryDelays = [2_000, 5_000, 15_000, 30_000, 60_000];
 /** An unreachable home, a gateway or a server error can pass. A save the
  * server refused (4xx) stays pending for explicit recovery instead. */
 function retryable(error: unknown) {
-  const status = (error as { status?: unknown } | null)?.status;
+  const status = apiErrorStatus(error);
   return typeof status !== 'number' || status >= 500 || status === 408 || status === 429;
 }
 

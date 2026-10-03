@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { ArrowRightLeft, Copy, X, AlertTriangle, Loader2 } from 'lucide-react';
-import { useSessionWip, useApplyWip } from '@/hooks/use-execution';
+import { useApplyWip, useSessionWip } from '@/hooks/use-execution';
 import { apiErrorText } from '@/lib/api/client';
 import type { WipApplyResult } from '@/lib/api/sessions';
+import { AlertTriangle, ArrowRightLeft, Copy, Loader2, X } from 'lucide-react';
+import { useState } from 'react';
 
 interface WipHandoffBannerProps {
   sessionId: string;
@@ -46,7 +46,7 @@ export function WipHandoffBanner({ sessionId, worktreeReady }: WipHandoffBannerP
   const handle = (action: 'copy' | 'move') => {
     apply.mutate(action, {
       onSuccess: (result: WipApplyResult) => {
-        if (result.action === 'move' && result.conflict) {
+        if (result.action === 'move' && 'conflict' in result && result.conflict) {
           setConflict({ stashMessage: result.stashMessage ?? null });
           return;
         }

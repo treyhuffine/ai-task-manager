@@ -34,6 +34,9 @@ export interface InputQueue {
   push: (data: string) => void;
   /** Drop anything not yet sent. Called when the terminal goes away. */
   dispose: () => void;
+  /** Drop unsent bytes and ignore new input until explicitly resumed. */
+  pause: () => void;
+  resume: () => void;
 }
 
 export interface InputQueueOptions {
@@ -54,6 +57,7 @@ export function createInputQueue({ send, onError }: InputQueueOptions): InputQue
   let pending = '';
   let draining = false;
   let disposed = false;
+  let paused = false;
 
   async function drain(): Promise<void> {
     draining = true;
@@ -61,7 +65,7 @@ export function createInputQueue({ send, onError }: InputQueueOptions): InputQue
       // Re-check after every await: more keystrokes almost certainly
       // arrived while the last request was open, and they're what this
       // loop exists to coalesce.
-      while (pending && !disposed) {
+      while (pending && !disposed && !paused) {
         const batch = pending;
         pending = '';
         try {
@@ -77,7 +81,7 @@ export function createInputQueue({ send, onError }: InputQueueOptions): InputQue
 
   return {
     push(data: string) {
-      if (disposed || !data) return;
+      if (disposed || paused || !data) return;
       pending += data;
       if (!draining) void drain();
     },
@@ -85,5 +89,7 @@ export function createInputQueue({ send, onError }: InputQueueOptions): InputQue
       disposed = true;
       pending = '';
     },
+    pause() { paused = true; pending = ''; },
+    resume() { if (!disposed) paused = false; },
   };
 }

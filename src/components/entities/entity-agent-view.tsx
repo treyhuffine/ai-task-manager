@@ -1,22 +1,22 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Clock, Flame, Loader2, RefreshCw, Zap } from 'lucide-react';
-import { useTask, useUpdateTask } from '@/hooks/use-tasks';
-import { useNote, useUpdateNote } from '@/hooks/use-notes';
-import { useSendMessage, useSessionEvents } from '@/hooks/use-execution';
-import { useEntityBrief } from '@/hooks/use-entity-brief';
+import type { DocumentChatHandle } from '@/components/ai-elements/slideout-chat';
 import { HarnessChatSession } from '@/components/chat/harness-chat';
+import { EntityBriefCard } from '@/components/entities/entity-brief-card';
+import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
+import { AreaSelect } from '@/components/shared/area-select';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
 import { SubtaskSection } from '@/components/tasks/subtask-section';
-import { AreaSelect } from '@/components/shared/area-select';
-import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
-import { EntityBriefCard } from '@/components/entities/entity-brief-card';
-import type { DocumentChatHandle } from '@/components/ai-elements/slideout-chat';
-import { ApiError } from '@/lib/api/client';
+import type { Effort, Energy, TaskRecord } from '@/db/types';
+import { useEntityBrief } from '@/hooks/use-entity-brief';
+import { useSendMessage, useSessionEvents } from '@/hooks/use-execution';
+import { useNote, useUpdateNote } from '@/hooks/use-notes';
+import { useTask, useUpdateTask } from '@/hooks/use-tasks';
+import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
 import { cn } from '@/lib/utils';
-import type { Effort, Energy, TaskRecord } from '@/db/types';
+import { Clock, Flame, Loader2, RefreshCw, Zap } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * The agent-first surface for one note or task.
@@ -139,7 +139,7 @@ export function EntityAgentView({
             <div>
               <p className="text-[12px] font-semibold text-foreground">Couldn&apos;t start the agent.</p>
               <p className="mt-1 text-[11px] text-muted-foreground/80">
-                {chat.error instanceof ApiError ? chat.error.message : 'The agent may not be set up yet.'}
+                {apiErrorStatus(chat.error) !== undefined ? apiErrorText(chat.error) : 'The agent may not be set up yet.'}
               </p>
               <button
                 onClick={() => chat.refetch()}

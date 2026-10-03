@@ -7,37 +7,37 @@
  * for an agent that lives only on another device, its folder there.
  */
 
-import fs from 'node:fs';
-import { chatPlacement, getChatSessionWithExecution, getDevice, getWorkspace, queueWorkerCommand } from '@/lib/db/queries';
-import { agentDeviceFor } from '@/lib/setups/run-on';
-import { requestWorker, wakeDevice, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
-import { awaitWorkerCommand, CommandFailedError } from '@/lib/workers/await-command';
-import { runGithub, type GithubRequest } from '@/lib/github/execution-github';
-import type { GitPayload } from '@/lib/worker/handlers';
 import type { WorkerCommandActor } from '@/db/types';
+import { chatPlacement, getChatSessionWithExecution, getDevice, getWorkspace, queueWorkerCommand } from '@/lib/db/queries';
+import { runGithub, type GithubRequest } from '@/lib/github/execution-github';
+import { agentDeviceFor } from '@/lib/setups/run-on';
+import type { GitPayload } from '@/lib/worker/handlers';
+import { awaitWorkerCommand, CommandFailedError } from '@/lib/workers/await-command';
+import { requestWorker, wakeDevice, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
+import fs from 'node:fs';
 
 /** GitHub for the execution's branch: in the agent's folder here, or on the device the agent lives on. */
-export async function githubOnOwner(sessionId: string, request: GithubRequest): Promise<Response> {
+export async function githubAnswerOnOwner(sessionId: string, request: GithubRequest) {
   const session = getChatSessionWithExecution(sessionId);
   const ws = session?.workspaceId ? getWorkspace(session.workspaceId) : null;
-  if (!session || !ws) return Response.json({ error: 'Session not found' }, { status: 404 });
+  if (!session || !ws) return ({ body: { error: 'Session not found' }, status: ({ status: 404 }).status ?? 200 });
   if (fs.existsSync(ws.cwd)) {
     const answer = await runGithub(ws.cwd, request);
-    return Response.json(answer.body, { status: answer.status });
+    return ({ body: answer.body, status: ({ status: answer.status }).status ?? 200 });
   }
   const deviceId = agentDeviceFor(ws.id) ?? chatPlacement(sessionId)?.deviceId ?? null;
   const name = deviceId ? getDevice(deviceId)?.name ?? 'its device' : 'its device';
-  if (!deviceId) return Response.json({ error: 'not_set_up', message: `${ws.name} has no folder to reach GitHub from.` }, { status: 409 });
+  if (!deviceId) return ({ body: { error: 'not_set_up', message: `${ws.name} has no folder to reach GitHub from.` }, status: ({ status: 409 }).status ?? 200 });
   try {
     const answer = (await requestWorker(deviceId, 'github', { workspaceId: ws.id, request }, 60_000)) as { status: number; body: unknown };
-    return Response.json(answer.body, { status: answer.status });
+    return ({ body: answer.body, status: ({ status: answer.status }).status ?? 200 });
   } catch (err) {
     if (err instanceof WorkerUnavailableError) {
       // The pull request chip says nothing rather than fail while it's away.
-      if (request.op === 'pr') return Response.json({ pr: null, unavailable: `${name} is not connected right now.` });
-      return Response.json({ error: 'unavailable', message: `${name} is not connected right now.` }, { status: 409 });
+      if (request.op === 'pr') return ({ body: { pr: null, unavailable: `${name} is not connected right now.` }, status: ({ status: 200 }).status ?? 200 });
+      return ({ body: { error: 'unavailable', message: `${name} is not connected right now.` }, status: ({ status: 409 }).status ?? 200 });
     }
-    if (err instanceof WorkerRequestError) return Response.json({ error: 'worker_error', message: err.message }, { status: 424 });
+    if (err instanceof WorkerRequestError) return ({ body: { error: 'worker_error', message: err.message }, status: ({ status: 424 }).status ?? 200 });
     throw err;
   }
 }
@@ -72,4 +72,10 @@ export async function gitOnOwner(
     const code = (err.result as { code?: string } | null)?.code ?? 'failed';
     return { ok: false, response: Response.json({ error: code, message: err.message }, { status: 409 }) };
   }
+}
+
+/** Compatibility HTTP adapter. UI procedures consume the answer as data. */
+export async function githubOnOwner(sessionId: string, request: GithubRequest) {
+ const answer = await githubAnswerOnOwner(sessionId, request);
+ return Response.json(answer.body, { status: answer.status });
 }

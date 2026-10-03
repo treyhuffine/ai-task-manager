@@ -1,17 +1,11 @@
-import { useQuery, useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
-import { sessionsApi, type RailResponse, type HistoryResponse } from '@/lib/api/sessions';
+import type { CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceStatus } from '@/db/types';
 import { worktreeScopeFor } from '@/hooks/use-execution';
-import { ApiError } from '@/lib/api/client';
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import type { ChatSessionRecord, ChatSessionWithExecution } from '@/lib/api/dto/records';
+import { sessionsApi, type HistoryResponse, type RailResponse } from '@/lib/api/sessions';
+import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
 import type { DirtyWorktreeBody, UncommittedFile } from '@/lib/workspaces/uncommitted-files';
-import type {
-  ChatSessionRecord,
-  ChatSessionWithExecution,
-  CreateWorkspaceInput,
-  UpdateWorkspaceInput,
-  WorkspaceStatus,
-  EffortLevel,
-} from '@/db/types';
+import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 
 const WORKSPACES_KEY = ['workspaces'] as const;
 
@@ -548,8 +542,8 @@ export function useArchiveSession() {
  * or null for any other error. Carries the files that would be lost.
  */
 export function dirtyWorktreeOf(err: unknown): DirtyWorktreeBody | null {
-  if (!(err instanceof ApiError) || err.status !== 409) return null;
-  const body = err.body as Partial<DirtyWorktreeBody> | null;
+  if (!(apiErrorStatus(err) !== undefined) || apiErrorStatus(err) !== 409) return null;
+  const body = apiErrorBody(err) as Partial<DirtyWorktreeBody> | null;
   if (body?.code !== 'dirty_worktree') return null;
   return {
     error: 'DirtyWorktreeError',
@@ -617,7 +611,7 @@ export function useBulkArchiveSessions() {
         } else {
           result.failed.push({
             id,
-            message: err instanceof Error ? err.message : String(err),
+            message: err instanceof Error ? apiErrorText(err) : String(err),
           });
         }
       });

@@ -1,92 +1,31 @@
-import { api } from './client';
-import type { TaskListDTO } from '@/lib/api/dto/entity-list';
-import type {
-  TaskRecord,
-  CreateTaskInput,
-  UpdateTaskInput,
-  TaskFilter,
-  TaskStatus,
-  TaskAttentionSignals,
-  DeadlineTask,
-} from '@/db/types';
+import { trpcClient } from '@/lib/trpc/client';
+import type { RouterInputs, RouterOutputs } from '@/lib/trpc/router';
 import type { TransitionCommand } from '@/lib/tasks/lifecycle';
 
-/** Server outcome of a lifecycle command (transition or completion). */
-export interface LifecycleResult {
-  task: TaskRecord;
-  fromStatus: TaskStatus;
-  toStatus: TaskStatus;
-  statusChangedCount: number;
-  recurring?: boolean;
-  nextRecurrenceAt?: string | null;
-  replayed: boolean;
-}
-
+export type LifecycleResult = RouterOutputs['tasks']['complete'];
+type Input = RouterInputs['tasks'];
+/** Imperative calls (drag/drop, confirmation loops) share the typed transport.
+ * Hooks use tRPC query options, so cache keys and outputs stay server-derived. */
 export const tasksApi = {
-  list(filter?: TaskFilter): Promise<TaskListDTO[]> {
-    return api.get<TaskListDTO[]>('/tasks', { query: filter as Record<string, string> });
+  list: (filter?: Input['list']) => trpcClient.tasks.list.query(filter),
+  get: (id: string) => trpcClient.tasks.get.query({ id }),
+  create: (input: Input['create']) => trpcClient.tasks.create.mutate(input),
+  update: (id: string, patch: Input['update']['patch']) => trpcClient.tasks.update.mutate({ id, patch }),
+  delete: (id: string) => trpcClient.tasks.delete.mutate({ id }),
+  complete: (id: string, opts: Omit<Input['complete'], 'id'> = {}) => trpcClient.tasks.complete.mutate({ id, ...opts }),
+  transition: (id: string, command: TransitionCommand, opts: Omit<Input['transition'], 'id' | 'command'> = {}) => trpcClient.tasks.transition.mutate({ id, command, ...opts }),
+  executions: (id: string) => trpcClient.tasks.executions.query({ id }),
+  reorder: (id: string, opts: Omit<Input['reorder'], 'id'>) => trpcClient.tasks.reorder.mutate({ id, ...opts }),
+  attention: async (ids: string[]) => {
+    const unique = [...new Set(ids)];
+    const batches: Promise<RouterOutputs['tasks']['attention']>[] = [];
+    for (let start = 0; start < unique.length; start += 200) {
+      batches.push(trpcClient.tasks.attention.query({ ids: unique.slice(start, start + 200) }));
+    }
+    const result: RouterOutputs['tasks']['attention'] = {};
+    for (const batch of await Promise.all(batches)) Object.assign(result, batch);
+    return result;
   },
-
-  get(id: string): Promise<TaskRecord> {
-    return api.get<TaskRecord>(`/tasks/${id}`);
-  },
-
-  create(input: CreateTaskInput): Promise<TaskRecord> {
-    return api.post<TaskRecord>('/tasks', input);
-  },
-
-  update(id: string, input: UpdateTaskInput): Promise<TaskRecord> {
-    return api.patch<TaskRecord>(`/tasks/${id}`, input);
-  },
-
-  delete(id: string): Promise<void> {
-    return api.delete(`/tasks/${id}`);
-  },
-
-  complete(
-    id: string,
-    opts: { note?: string; idempotencyKey?: string; expectedStatusChangedCount?: number; runtimeChoice?: 'keep_running' | 'stop_running_agent'; acknowledgedChildIds?: string[]; acknowledgedExecutionIds?: string[] } = {},
-  ): Promise<LifecycleResult> {
-    return api.post(`/tasks/${id}/complete`, opts);
-  },
-
-  /** The executions currently owning a task (for the active-agent warning). */
-  executions(id: string): Promise<Array<{ id: string; label: string | null; status: string }>> {
-    return api.get(`/tasks/${id}/executions`);
-  },
-
-  /** Reorder a task within its lane, server-side and atomic, against the full
-   * sibling set (including Area-hidden cards). Pass the visible neighbor ids. */
-  reorder(id: string, opts: { prevId?: string | null; nextId?: string | null }): Promise<{ sortKey: string }> {
-    return api.post(`/tasks/${id}/reorder`, opts);
-  },
-
-  /** Batch attention badges for the given task ids. */
-  attention(ids: string[]): Promise<Record<string, TaskAttentionSignals>> {
-    if (ids.length === 0) return Promise.resolve({});
-    return api.get(`/tasks/attention`, { query: { ids: ids.join(',') } });
-  },
-
-  /** Real hard deadlines that are overdue or due within `withinDays` days
-   * (default 7). Deterministic — no deck generation involved. */
-  deadlines(withinDays?: number): Promise<DeadlineTask[]> {
-    return api.get(`/tasks/deadlines`, {
-      query: withinDays != null ? { withinDays: String(withinDays) } : undefined,
-    });
-  },
-
-  /** Task counts by canonical status, optionally within an area. */
-  counts(areaId?: string | null): Promise<Record<TaskStatus, number>> {
-    return api.get(`/tasks/counts`, { query: areaId ? { areaId } : undefined });
-  },
-
-  /** Apply a semantic lifecycle transition (move_to_todo / move_to_consider /
-   * start / return_to_todo / reopen / archive / restore). */
-  transition(
-    id: string,
-    command: TransitionCommand,
-    opts: { idempotencyKey?: string; expectedStatusChangedCount?: number; reason?: string; runtimeChoice?: 'keep_running' | 'stop_running_agent'; acknowledgedChildIds?: string[]; acknowledgedExecutionIds?: string[] } = {},
-  ): Promise<LifecycleResult> {
-    return api.post(`/tasks/${id}/transition`, { command, ...opts });
-  },
+  counts: (areaId?: string | null) => trpcClient.tasks.counts.query({ areaId }),
+  deadlines: (withinDays?: number) => trpcClient.tasks.deadlines.query({ withinDays }),
 };

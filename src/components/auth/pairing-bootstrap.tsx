@@ -1,16 +1,17 @@
 'use client';
 
-import { API_PROTOCOL, API_PROTOCOL_HEADER } from '@/lib/releases/api-contract';
-import { useEffect } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
-import { useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { ASSOCIATE_FRAGMENT_KEY, PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
 import {
-  AUTH_TOKEN_STORAGE_KEY,
-  getAuthToken,
-  setAuthToken,
+	AUTH_TOKEN_STORAGE_KEY,
+	getAuthToken,
+	setAuthToken,
 } from '@/lib/api/client';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcOptions } from '@/lib/trpc/request-options';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect } from 'react';
+import { toast } from 'sonner';
 
 /**
  * Redeem `#associate=<code>`: a worker on this device opened this page to
@@ -20,16 +21,7 @@ import {
  */
 async function associateThisBrowser(code: string, token: string, queryClient: QueryClient): Promise<void> {
   try {
-    const res = await fetch('/api/devices/associate', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', [API_PROTOCOL_HEADER]: String(API_PROTOCOL) },
-      body: JSON.stringify({ code }),
-    });
-    const body = (await res.json().catch(() => null)) as { device?: { id: string; name: string }; message?: string } | null;
-    if (!res.ok || !body?.device) {
-      toast.error(body?.message ?? 'This browser could not be linked to its device.');
-      return;
-    }
+    const body = await trpcClient.devices.associatePost.mutate({ body: { code } }, rpcOptions({ headers: { authorization: `Bearer ${token}` } }));
     void queryClient.invalidateQueries({ queryKey: ['devices'] });
     toast.success(`This browser is on ${body.device.name}`);
   } catch {

@@ -1,5 +1,6 @@
-import type { HostedMcpEndpointSetup } from '@connectors/engine/providers';
 import { connectorEndpointSelection, type HostedEndpointSelection } from '@/lib/client/connector-endpoint';
+import type { RouterInputs, RouterOutputs } from '@/lib/trpc/router';
+import type { HostedMcpEndpointSetup } from '@connectors/engine/providers';
 
 export interface ConnectionRequestAccount {
   serverId?: string;
@@ -35,16 +36,21 @@ export function selectRequestAccount(options: ConnectionRequestOptions, connecti
     authConfigId: selected.authConfigId, endpointConfig: selected.endpointConfig, configured: selected.configured } : options;
 }
 
-interface StartResponse {
-  authorizationUrl?: string;
-  authUrl?: string;
-  requiresAuth?: boolean;
-  connection?: unknown;
-}
+type OAuthStart = RouterOutputs['connectors']['connectPost'];
+type Field<T, Key extends PropertyKey> = T extends unknown ? Key extends keyof T ? T[Key] : never : never;
+type StartResponse = {
+  authorizationUrl?: Field<OAuthStart, 'authorizationUrl'>;
+  authUrl?: Field<OAuthStart, 'authUrl'>;
+  requiresAuth?: Field<OAuthStart, 'requiresAuth'>;
+  connection?: Pick<RouterOutputs['connectors']['connectDirectPost']['connection'], 'id'>;
+};
+export type ConnectionPostArgs =
+  | [path: '/connectors/connect', body: RouterInputs['connectors']['connectPost']['body']]
+  | [path: '/connectors/connectDirect', body: RouterInputs['connectors']['connectDirectPost']['body']];
 
 /** Use the same declared authentication path as the connector's Settings form. */
 export async function requestConnection(options: ConnectionRequestOptions, deps: {
-  post: (path: string, body: Record<string, unknown>) => Promise<StartResponse>;
+  post: (...args: ConnectionPostArgs) => Promise<StartResponse>;
   openAuthorization: (url: string) => Promise<unknown>;
 }): Promise<string> {
   options = selectRequestAccount(options);
@@ -57,7 +63,7 @@ export async function requestConnection(options: ConnectionRequestOptions, deps:
     if (options.authKind === 'bearer' && !token) throw new Error('A connection token is required.');
     const result = await deps.post('/connectors/connectDirect', {
       providerId: options.providerId,
-      fields: options.authKind === 'bearer' ? { token } : {},
+      fields: options.authKind === 'bearer' ? { token: token ?? '' } : {},
       ...(options.existingConnectionId ? { existingConnectionId: options.existingConnectionId } : {}),
       ...(options.serverId ? { serverId: options.serverId } : {}),
       ...endpoint,

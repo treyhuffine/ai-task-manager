@@ -1,20 +1,6 @@
-import { commitSkill } from '@/lib/skills/manage';
-import { skillErrorResponse } from '@/lib/skills/http';
-
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/skills/[ref]/commit';
 export const runtime = 'nodejs';
 
-type Context = { params: Promise<{ ref: string }> };
-
-/**
- * Commit a project skill in its repo, only that skill's files, on the branch
- * the folder has checked out: POST → { skill, commit: { sha, branch, message } }.
- * Never pushes.
- */
-export async function POST(_request: Request, { params }: Context) {
-  const { ref } = await params;
-  try {
-    return Response.json(await commitSkill(ref));
-  } catch (err) {
-    return skillErrorResponse(err, `POST /api/skills/${ref}/commit`);
-  }
-}
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));

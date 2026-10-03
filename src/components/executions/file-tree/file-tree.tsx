@@ -1,52 +1,52 @@
 'use client';
 
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { useMutationState } from '@tanstack/react-query';
-import { Plus, FilePlus, FolderPlus } from 'lucide-react';
-import { toast } from 'sonner';
-import { ApiError } from '@/lib/api/client';
-import { copyText } from '@/lib/clipboard';
 import {
-  useCreateDir,
-  useCreateFile,
-  useDeleteDir,
-  useDeletePath,
-  useFolderTree,
-  useRenamePath,
-  writeFileMutationKey,
-} from '@/hooks/use-folder';
-import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ancestorsOfChanged } from './build-tree';
 import {
-  type ExpandOverrides,
-  resolveExpanded,
-  setOverride,
-  toggleOverride,
-  forceOpenAncestors,
-  parseOverrides,
-  serializeOverrides,
-} from './expand-state';
-import { TreeList, type PendingCreate, type PendingError } from './tree-list';
-import { TreeViewToggle, type TreeViewMode } from './tree-view-toggle';
-import { TreeSearchBar } from './tree-search-bar';
+	useCreateDir,
+	useCreateFile,
+	useDeleteDir,
+	useDeletePath,
+	useFolderTree,
+	useRenamePath,
+	writeFileMutationKey,
+} from '@/hooks/use-folder';
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import { copyText } from '@/lib/clipboard';
+import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
+import { useMutationState } from '@tanstack/react-query';
+import { FilePlus, FolderPlus, Plus } from 'lucide-react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { OpenWorktreeButton } from '../open-worktree-button';
 import { TreeRowsSkeleton } from '../skeletons';
+import { ancestorsOfChanged } from './build-tree';
+import {
+	forceOpenAncestors,
+	parseOverrides,
+	resolveExpanded,
+	serializeOverrides,
+	setOverride,
+	toggleOverride,
+	type ExpandOverrides,
+} from './expand-state';
+import { TreeList, type PendingCreate, type PendingError } from './tree-list';
+import { TreeSearchBar } from './tree-search-bar';
+import { TreeViewToggle, type TreeViewMode } from './tree-view-toggle';
 
 interface FileTreeProps {
   /**
@@ -600,15 +600,15 @@ export function FileTree({
 }
 
 function errorMessage(err: unknown): string {
-  if (err instanceof ApiError) {
+  if (apiErrorStatus(err) !== undefined) {
     // `message` first: a change refused on another device says why there
     // (not connected, unconfirmed) and keeps a code in `error`.
-    const body = err.body as { error?: string; message?: string; code?: string } | null;
+    const body = apiErrorBody(err) as { error?: string; message?: string; code?: string } | null;
     if (body?.message) return body.message;
     if (body?.error) return body.error;
     if (body?.code === 'exists') return 'Already exists';
-    return `HTTP ${err.status}`;
+    return `HTTP ${apiErrorStatus(err)}`;
   }
-  if (err instanceof Error) return err.message;
+  if (err instanceof Error) return apiErrorText(err);
   return 'Unknown error';
 }

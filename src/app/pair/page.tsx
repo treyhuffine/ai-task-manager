@@ -1,11 +1,12 @@
 'use client';
+import { createAppTRPCClient } from '@/lib/trpc/client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import { Loader2, Check, AlertCircle, MonitorSmartphone, KeyRound, ChevronRight, Terminal, QrCode } from 'lucide-react';
-import { APP_NAME, APP_SHORT_ID, PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
-import { setAuthToken } from '@/lib/api/client';
 import { QrScannerModal } from '@/components/auth/qr-scanner-modal';
+import { APP_NAME, APP_SHORT_ID, PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
+import { ApiClient, apiErrorStatus, setAuthToken } from '@/lib/api/client';
+import { AlertCircle, Check, ChevronRight, KeyRound, Loader2, MonitorSmartphone, QrCode, Terminal } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * Extract a pairing token from a scanned QR payload.
@@ -69,23 +70,8 @@ export default function PairPage() {
     async (candidate: string) => {
       setStatus({ kind: 'validating' });
       try {
-        const res = await fetch('/api/user-state', {
-          headers: { authorization: `Bearer ${candidate}` },
-        });
-        if (res.status === 401 || res.status === 403) {
-          setStatus({
-            kind: 'error',
-            message: 'That token was rejected. It may have been revoked or mistyped.',
-          });
-          return;
-        }
-        if (!res.ok) {
-          setStatus({
-            kind: 'error',
-            message: `Server returned HTTP ${res.status}. Try again in a moment.`,
-          });
-          return;
-        }
+        const client = createAppTRPCClient({ transport: new ApiClient({ getToken: () => candidate, onUnauthorized: () => {} }) });
+        await client.userState.list.query({});
         setAuthToken(candidate);
         // Mirror the token into an httpOnly cookie so browser-native loads
         // (<img>, <audio>, EventSource) authenticate without us having to
@@ -102,10 +88,11 @@ export default function PairPage() {
         }
         setStatus({ kind: 'ok' });
         router.replace('/');
-      } catch {
+      } catch (error) {
+        const rejected = [401, 403].includes(apiErrorStatus(error) ?? 0);
         setStatus({
           kind: 'error',
-          message: `Couldn't reach the server. Check your connection and try again.`,
+          message: rejected ? 'That token was rejected. It may have been revoked or mistyped.' : `Couldn't reach the server. Check your connection and try again.`,
         });
       }
     },

@@ -1,22 +1,22 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
-import { X, Loader2, ImagePlus, Trash2, SmilePlus } from 'lucide-react';
-import { useCreateWorkspace } from '@/hooks/use-workspaces';
-import { useAreas } from '@/hooks/use-areas';
-import { ApiError } from '@/lib/api/client';
 import { EmojiPicker } from '@/components/shared/emoji-picker';
-import { uploadAttachment } from '@/lib/attachments/client';
-import { fsApi } from '@/lib/api/fs';
-import { cn } from '@/lib/utils';
-import type { Attachment, WorkspaceConnectorScope } from '@/db/types';
-import { FolderPicker } from './folder-picker';
-import { FilesToCopySection } from './files-to-copy-section';
-import { WorktreeScriptsSection } from './worktree-scripts-section';
-import { ConnectorScopePicker } from './connector-scope-picker';
 import { Switch } from '@/components/ui/switch';
+import type { Attachment, WorkspaceConnectorScope } from '@/db/types';
+import { useAreas } from '@/hooks/use-areas';
+import { useCreateWorkspace } from '@/hooks/use-workspaces';
+import { apiErrorBody, apiErrorStatus } from '@/lib/api/client';
+import { fsApi } from '@/lib/api/fs';
+import { uploadAttachment } from '@/lib/attachments/client';
+import { cn } from '@/lib/utils';
 import { DEFAULT_FILES_TO_COPY } from '@/lib/workspaces/defaults';
+import { ImagePlus, Loader2, SmilePlus, Trash2, X } from 'lucide-react';
+import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ConnectorScopePicker } from './connector-scope-picker';
+import { FilesToCopySection } from './files-to-copy-section';
+import { FolderPicker } from './folder-picker';
+import { WorktreeScriptsSection } from './worktree-scripts-section';
 
 interface WorkspaceCreateModalProps {
   open: boolean;
@@ -188,9 +188,9 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
           onOpenChange(false);
         },
         onError: (err) => {
-          if (err instanceof ApiError) {
-            const body = err.body as { error?: string } | null;
-            setError(body?.error ?? `Request failed (${err.status})`);
+          if (apiErrorStatus(err) !== undefined) {
+            const body = apiErrorBody(err) as { error?: string } | null;
+            setError(body?.error ?? `Request failed (${apiErrorStatus(err)})`);
           } else {
             setError(String(err));
           }

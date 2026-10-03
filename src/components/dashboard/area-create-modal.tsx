@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useCallback, useRef, type FormEvent } from "react";
-import { Dialog as DialogPrimitive, VisuallyHidden } from "radix-ui";
-import { X, Loader2, ImagePlus, Trash2, SmilePlus } from "lucide-react";
-import { useCreateArea } from "@/hooks/use-areas";
 import { EmojiPicker } from "@/components/shared/emoji-picker";
-import { cn } from "@/lib/utils";
-import type { Attachment } from "@/db/types";
+import type { Attachment } from '@/db/types';
+import { useCreateArea } from "@/hooks/use-areas";
 import { uploadAttachment } from "@/lib/attachments/client";
+import { cn } from "@/lib/utils";
+import { ImagePlus, Loader2, SmilePlus, Trash2, X } from "lucide-react";
+import { Dialog as DialogPrimitive, VisuallyHidden } from "radix-ui";
+import { useCallback, useRef, useState, type FormEvent } from "react";
 
 interface AreaCreateModalProps {
   open: boolean;

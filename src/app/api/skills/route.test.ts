@@ -4,18 +4,18 @@
  * committing a project skill. The logic itself is covered in src/lib/skills.
  */
 
+import * as q from '@/lib/db/queries';
+import { setSkillSessionControlForTests } from '@/lib/skills/manage';
+import { createTestHome, type TestHome } from '@/test/fixtures/home';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTestHome, type TestHome } from '@/test/fixtures/home';
-import * as q from '@/lib/db/queries';
-import { setSkillSessionControlForTests } from '@/lib/skills/manage';
-import { GET as list, POST as create } from './route';
-import { DELETE as archive, GET as read, PUT as save } from './[ref]/route';
-import { POST as move } from './[ref]/move/route';
 import { POST as commit } from './[ref]/commit/route';
+import { POST as move } from './[ref]/move/route';
+import { DELETE as archive, GET as read, PUT as save } from './[ref]/route';
+import { POST as create, GET as list } from './route';
 
 let home: TestHome;
 let userHome: string;
@@ -60,7 +60,7 @@ describe('/api/skills', () => {
     expect(created.status).toBe(201);
     const { skill } = await created.json();
     expect(skill).toMatchObject({ ref: 'draft:review-pull-requests', location: { kind: 'draft' } });
-    const overview = await (await list()).json();
+    const overview = await (await list(new Request('http://localhost/api/skills'))).json();
     expect(overview.skills.map((s: { ref: string }) => s.ref)).toEqual(['draft:review-pull-requests']);
     expect(overview.projects).toEqual([expect.objectContaining({ workspaceId: wsId, name: 'Blog' })]);
   });

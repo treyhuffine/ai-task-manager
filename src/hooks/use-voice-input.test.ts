@@ -1,13 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { hasActiveInput } from '@/lib/client/active-input';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { parseHTML } from 'linkedom';
 import { act, createElement, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { parseHTML } from 'linkedom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVoiceInput, type UseVoiceInputReturn } from './use-voice-input';
-import { hasActiveInput } from '@/lib/client/active-input';
 
 const client = vi.hoisted(() => ({ get: vi.fn(), upload: vi.fn() }));
 vi.mock('@/lib/api/client', () => ({ api: client }));
+vi.mock('@/lib/trpc/client', () => ({ trpcClient: { transcribe: { status: { query: client.get } } } }));
 vi.mock('@/hooks/use-user-state', () => ({ useUserState: () => ({ data: undefined }) }));
 
 function deferred<T>() {

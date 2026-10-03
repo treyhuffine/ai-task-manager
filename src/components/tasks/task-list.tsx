@@ -1,5 +1,7 @@
 "use client";
 
+import { entityKeys } from '@/lib/query/entity-keys';
+
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
@@ -141,7 +143,7 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
     areaFilter === 'all'
       ? 'All Areas'
       : areas?.find((a) => a.id === areaFilter)?.name ?? 'All Areas';
-  const queryKey = ['tasks', filter];
+  const queryKey = entityKeys.tasks.list(filter);
 
   // Filter menu holds Area + Energy; the trigger flags when either narrows the list.
   const filterActive = areaFilter !== 'all' || energyFilter !== 'all';
@@ -249,7 +251,7 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
 
     Promise.all(allPatches.map(p => tasksApi.update(p.id, { sortKey: p.sortKey })))
       .then(() => {
-        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        queryClient.invalidateQueries({ queryKey: entityKeys.tasks.all });
       })
       .catch(() => {
         queryClient.setQueryData(queryKey, previousData);
@@ -271,14 +273,14 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
     }
 
     // Optimistic cache update against the priority-ordered query.
-    const priorityKey = ['tasks', { ...filter, orderBy: 'sortKey' as const }];
+    const priorityKey = entityKeys.tasks.list({ ...filter, orderBy: 'sortKey' });
     const previousData = queryClient.getQueryData(priorityKey);
     queryClient.setQueryData(priorityKey, placement.reordered);
 
     const allPatches = [...placement.normalizationPatches, placement.movedPatch];
     Promise.all(allPatches.map(p => tasksApi.update(p.id, { sortKey: p.sortKey })))
       .then(() => {
-        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        queryClient.invalidateQueries({ queryKey: entityKeys.tasks.all });
       })
       .catch(() => {
         queryClient.setQueryData(priorityKey, previousData);
@@ -492,7 +494,7 @@ function QuickCreateRow({ lane, onCreate }: { lane: TaskLane; onCreate: (title: 
 interface VirtualTaskListProps {
   tasks: TaskListDTO[] | undefined;
   isLoading: boolean;
-  error: Error | null;
+  error: { message: string } | null;
   sensors: ReturnType<typeof useSensors>;
   onDragEnd: (event: DragEndEvent) => void;
   onComplete: (id: string) => void;

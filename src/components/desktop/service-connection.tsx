@@ -1,12 +1,14 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api/client';
-import { documentSaves } from '@/lib/client/document-saves';
 import { getApiCompatibilityIssue, reportApiCompatibility, subscribeApiCompatibility } from '@/lib/client/api-compatibility';
-import { API_PROTOCOL, apiCompatibilityIssue } from '@/lib/releases/api-contract';
+import { documentSaves } from '@/lib/client/document-saves';
 import { reloadVersion } from '@/lib/client/version-reload';
 import { countUnsavedMutations } from '@/lib/query/mutation-meta';
+import { API_PROTOCOL, apiCompatibilityIssue } from '@/lib/releases/api-contract';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcOptions } from '@/lib/trpc/request-options';
+import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 
 /** Browser, phone and remote Electron all serve the Home's UI. Installation
  * identity comes from that Home, independently of the local shell/worker. */
@@ -46,9 +48,9 @@ export function ServiceConnection() {
           } catch { if (!disposed) setMessage('Ri was updated. Finish active input or reload with your drafts saved on this device.'); }
           return;
         }
-        const status = await api.get<{ phase: string; update?: { phase: string } }>('/service', { timeoutMs: 3000 });
+        const status = await trpcClient.service.list.query({}, rpcOptions({ timeoutMs: 3000 }));
         managed = status.phase !== 'unmanaged';
-        if (status.update?.phase === 'draining') {
+        if ('update' in status && status.update?.phase === 'draining') {
           setMessage('Preparing an update. Saving your changes.');
           await documentSaves.flushAll();
         } else { setMessage(status.phase === 'updating' ? 'Updating Ri. Your drafts are retained on this device.' : ''); setCanReload(false); }

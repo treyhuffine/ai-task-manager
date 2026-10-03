@@ -1,45 +1,66 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { EntityAwareText } from '@/components/ai-elements/entity-reference';
+import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
+import { CopyMessageButton } from '@/components/chat/copy-message-button';
+import { MessageEntityChip, type EntityLookup } from '@/components/chat/message-entity-chip';
+import { MessageFileChip } from '@/components/chat/message-file-chip';
+import { SenderChip } from '@/components/chat/sender-chip';
+import { VoiceSentBadge } from '@/components/chat/voice-sent-badge';
+import { EntityEditChip, parseEntityEditTool } from '@/components/entities/entity-edit-chip';
+import type { Attachment } from '@/db/types';
+import { useClaudeAuthStatus, useClaudeLogin } from '@/hooks/use-claude-login';
+import type { ClientEventStatus } from '@/hooks/use-execution';
+import { useCancelDelivery, useDeliveries, useRetrySend, useScratchpad, useSendMessage, useSessionEntities, useSessionEvents } from '@/hooks/use-execution';
+import { useHarnessConnection, useRecheckHarnessConnection } from '@/hooks/use-harness-connection';
+import { hot } from '@/lib/_debug/hot-path';
+import type { ChatEventRecord } from '@/lib/api/dto/records';
+import { sessionsApi } from '@/lib/api/sessions';
+import { dispatchOpenReference } from '@/lib/entity-refs/open-event';
 import {
-  ChevronRight, AlertTriangle, RefreshCw, MessageCircleMore,
-  ShieldCheck, ShieldAlert, HelpCircle, LogIn, Loader2,
-  FileText, Pencil, FilePlus, Terminal, Search, Globe, Boxes, ListTodo, Wrench,
-  ClipboardList, SquareTerminal, ArrowUpRight, Bot, CheckCircle2, XCircle, CircleSlash, ArrowRightLeft } from 'lucide-react';
-import { describeToolCall, describeToolResult, fileTargetPath, isSubagentTool, type ToolGlyph } from '@/lib/executions/tool-display';
+	parseEntitySegments,
+	type EntitySegment
+} from '@/lib/entity-refs/parse-markers';
+import { approvalResponseView } from '@/lib/executions/connector-approvals';
 import { computeEditDiff } from '@/lib/executions/edit-diff';
 import { extractPullRequestUrl } from '@/lib/executions/pr-link';
-import { FileChip, DiffLines } from './file-chip';
-import { EntityEditChip, parseEntityEditTool } from '@/components/entities/entity-edit-chip';
-import { useClaudeLogin, useClaudeAuthStatus } from '@/hooks/use-claude-login';
-import { useHarnessConnection, useRecheckHarnessConnection } from '@/hooks/use-harness-connection';
-import { DEFAULT_HARNESS, harnessDefinition, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
-import { useSessionEvents, useRetrySend, useDeliveries, useCancelDelivery, useSendMessage } from '@/hooks/use-execution';
-import type { ClientEventStatus } from '@/hooks/use-execution';
-import { useMutation } from '@tanstack/react-query';
-import { sessionsApi } from '@/lib/api/sessions';
-import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
-import { EntityAwareText } from '@/components/ai-elements/entity-reference';
-import { VoiceSentBadge } from '@/components/chat/voice-sent-badge';
-import { CopyMessageButton } from '@/components/chat/copy-message-button';
-import { SenderChip } from '@/components/chat/sender-chip';
-import { MessageFileChip } from '@/components/chat/message-file-chip';
-import { MessageEntityChip, type EntityLookup } from '@/components/chat/message-entity-chip';
-import {
-  parseEntitySegments,
-  type EntityMarker,
-  type EntitySegment,
-} from '@/lib/entity-refs/parse-markers';
-import { useSessionEntities, useScratchpad } from '@/hooks/use-execution';
-import { dispatchOpenReference } from '@/lib/entity-refs/open-event';
-import { hot } from '@/lib/_debug/hot-path';
-import { cn } from '@/lib/utils';
-import type { ChatEventRecord, Attachment } from '@/db/types';
+import { describeToolCall, describeToolResult, fileTargetPath, isSubagentTool, type ToolGlyph } from '@/lib/executions/tool-display';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
-import { approvalResponseView } from '@/lib/executions/connector-approvals';
-import { ConnectorApprovalCard } from './connector-approval-card';
-import { ConnectionRequestCard } from './connection-request-card';
+import { DEFAULT_HARNESS, harnessDefinition, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
+import { cn } from '@/lib/utils';
+import { useMutation } from '@tanstack/react-query';
+import {
+	AlertTriangle,
+	ArrowRightLeft,
+	ArrowUpRight, Bot,
+	Boxes,
+	CheckCircle2,
+	ChevronRight,
+	CircleSlash,
+	ClipboardList,
+	FilePlus,
+	FileText,
+	Globe,
+	HelpCircle,
+	ListTodo,
+	Loader2,
+	LogIn,
+	MessageCircleMore,
+	Pencil,
+	RefreshCw,
+	Search,
+	ShieldAlert,
+	ShieldCheck,
+	SquareTerminal,
+	Terminal,
+	Wrench,
+	XCircle
+} from 'lucide-react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { backgroundTaskOutcomePresentation } from './background-task-presentation';
+import { ConnectionRequestCard } from './connection-request-card';
+import { ConnectorApprovalCard } from './connector-approval-card';
+import { DiffLines, FileChip } from './file-chip';
 
 interface ExecutionEventProps {
   event: ChatEventRecord;

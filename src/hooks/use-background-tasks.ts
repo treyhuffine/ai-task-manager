@@ -1,10 +1,11 @@
+import type { ChatEventRecord } from '@/lib/api/dto/records';
 import { useMemo } from 'react';
-import type { ChatEventRecord } from '@/db/types';
+
 import {
-  decodeBackgroundTaskEvent,
-  TERMINAL_BACKGROUND_TASK_STATUSES,
-  type BackgroundTaskPhase,
-  type BackgroundTaskStatus,
+	decodeBackgroundTaskEvent,
+	TERMINAL_BACKGROUND_TASK_STATUSES,
+	type BackgroundTaskPhase,
+	type BackgroundTaskStatus,
 } from '@/lib/executor/background-task-event';
 
 /**

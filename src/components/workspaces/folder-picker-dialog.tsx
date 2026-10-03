@@ -1,23 +1,23 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
-import {
-  ChevronRight,
-  FolderPlus,
-  Home as HomeIcon,
-  Loader2,
-  X,
-  Eye,
-  EyeOff,
-  ArrowLeft,
-  GitBranch,
-} from 'lucide-react';
-import { ApiError } from '@/lib/api/client';
+import { FileIcon, FolderIcon } from '@/components/file-icon';
+import { apiErrorBody, apiErrorStatus } from '@/lib/api/client';
 import { fsApi, type FsBrowseEntry, type FsBrowseResponse } from '@/lib/api/fs';
 import { workspacesApi } from '@/lib/api/workspaces';
-import { FileIcon, FolderIcon } from '@/components/file-icon';
 import { cn } from '@/lib/utils';
+import {
+	ArrowLeft,
+	ChevronRight,
+	Eye,
+	EyeOff,
+	FolderPlus,
+	GitBranch,
+	Home as HomeIcon,
+	Loader2,
+	X,
+} from 'lucide-react';
+import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface FolderPickerDialogProps {
   open: boolean;
@@ -110,9 +110,9 @@ export function FolderPickerDialog({
       })
       .catch((err) => {
         if (reqId !== reqIdRef.current) return;
-        if (err instanceof ApiError) {
-          const body = err.body as { error?: string; message?: string } | null;
-          setError(body?.message ?? body?.error ?? `Failed to load (${err.status})`);
+        if (apiErrorStatus(err) !== undefined) {
+          const body = apiErrorBody(err) as { error?: string; message?: string } | null;
+          setError(body?.message ?? body?.error ?? `Failed to load (${apiErrorStatus(err)})`);
         } else {
           setError(String(err));
         }
@@ -204,9 +204,9 @@ export function FolderPickerDialog({
       setCwd(res.path);
       setSelected(null);
     } catch (err) {
-      if (err instanceof ApiError) {
-        const body = err.body as { error?: string } | null;
-        setNewFolderError(body?.error ?? `Failed (${err.status})`);
+      if (apiErrorStatus(err) !== undefined) {
+        const body = apiErrorBody(err) as { error?: string } | null;
+        setNewFolderError(body?.error ?? `Failed (${apiErrorStatus(err)})`);
       } else {
         setNewFolderError(String(err));
       }

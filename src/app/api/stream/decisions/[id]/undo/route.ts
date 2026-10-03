@@ -1,16 +1,6 @@
-import { undoTriageDecision } from '@/lib/db/queries';
-import { triageErrorResponse } from '@/lib/stream-triage/http';
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/stream/decisions/[id]/undo';
 
-/** POST /api/stream/decisions/:id/undo — reverse a decision per the spec's
- *  undo table. Captures go back to pending; never deletes a stream item. */
-export async function POST(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    return Response.json(undoTriageDecision(id));
-  } catch (err) {
-    return triageErrorResponse('POST /api/stream/decisions/:id/undo', err);
-  }
-}
+
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));

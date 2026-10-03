@@ -1,4 +1,5 @@
-import type { ChatEventRecord } from '@/db/types';
+import type { ChatEventRecord } from '@/lib/api/dto/records';
+
 import { isSubagentTool } from '@/lib/executions/tool-display';
 
 /**

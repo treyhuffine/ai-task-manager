@@ -1,3 +1,4 @@
+import { trpcClient } from '@/lib/trpc/client';
 /**
  * Request coalescer for session diff stats.
  *
@@ -20,7 +21,6 @@
  * that each resolve a visible band of rows.
  */
 
-import { api } from './client';
 import type { DiffStats } from './sessions';
 
 /**
@@ -55,8 +55,7 @@ function flush() {
     const chunk = ids.slice(i, i + CHUNK_SIZE);
     // Not awaited: chunks race each other so the earliest response paints its
     // rows rather than waiting behind the rest.
-    void api
-      .post<{ stats: Record<string, DiffStats | null> }>('/sessions/diff-stats', { ids: chunk })
+    void trpcClient.sessions.diffStatsPost.mutate({body: { ids: chunk }})
       .then(({ stats }) => {
         for (const id of chunk) {
           // An id the server omitted is "no stats", same as an explicit null.

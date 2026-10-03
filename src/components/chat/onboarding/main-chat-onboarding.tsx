@@ -1,54 +1,55 @@
 'use client';
+import { trpcClient } from '@/lib/trpc/client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, ArrowUp, FolderPlus, PenLine } from 'lucide-react';
-import { toast } from 'sonner';
-import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
+import { appMainChatIntro, useEmptyChatActions } from '@/components/chat/main-chat-intro';
 import {
-  IdentityEditor,
-  draftFromState,
-  draftName,
-  useSaveIdentity,
-  type IdentityDraft,
+	IdentityEditor,
+	draftFromState,
+	draftName,
+	useSaveIdentity,
+	type IdentityDraft,
 } from '@/components/orchestrator/identity-editor';
 import { WorkspaceCreateModal } from '@/components/workspaces/workspace-create-modal';
-import { appMainChatIntro, useEmptyChatActions } from '@/components/chat/main-chat-intro';
+import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
+import { useAreas } from '@/hooks/use-areas';
 import { useUpdateUserState, useUserState } from '@/hooks/use-user-state';
 import { useWorkspaces } from '@/hooks/use-workspaces';
-import { useAreas } from '@/hooks/use-areas';
-import { api, apiErrorText } from '@/lib/api/client';
-import { cn } from '@/lib/utils';
+import { apiErrorText } from '@/lib/api/client';
 import type { AreaSuggestion } from '@/lib/onboarding/area-suggestions';
+import { cn } from '@/lib/utils';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowRight, ArrowUp, FolderPlus, PenLine } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
+import { useImportRun } from './import-runner';
+import { ABOUT_SKIPPED, AboutStep, aboutQuestion, useAboutDraft } from './onboarding-about';
 import { OnboardingApps } from './onboarding-apps';
 import { AreasStep, NO_AREAS, areasLines, useAreaSuggestions } from './onboarding-areas';
-import { HarnessStep, harnessLines } from './onboarding-harness';
 import { DefaultModelLine } from './onboarding-default-model';
 import {
-  ImportProgress,
-  ImportStep,
-  importQuestion,
-  importableHistory,
-  recentProjects,
-  useImportDiscovery,
-  type ImportableHistory,
+	FIRST_PROGRESS,
+	STEP_ORDER,
+	nextStep,
+	progressStorageKey,
+	readProgress,
+	stepApplies,
+	stepsThrough,
+	type OnboardingProgress,
+	type OnboardingStep,
+	type StepContext,
+} from './onboarding-flow';
+import { HarnessStep, harnessLines } from './onboarding-harness';
+import {
+	ImportProgress,
+	ImportStep,
+	importQuestion,
+	importableHistory,
+	recentProjects,
+	useImportDiscovery,
+	type ImportableHistory,
 } from './onboarding-import';
-import { ABOUT_SKIPPED, AboutStep, aboutQuestion, useAboutDraft } from './onboarding-about';
-import { useImportRun } from './import-runner';
 import { Card, PrimaryButton, QuietButton, Reply, Says, Turn, Typing } from './onboarding-ui';
 import { useHarnessCheck, type HarnessCheck } from './use-harness-check';
-import {
-  FIRST_PROGRESS,
-  STEP_ORDER,
-  nextStep,
-  progressStorageKey,
-  readProgress,
-  stepApplies,
-  stepsThrough,
-  type OnboardingProgress,
-  type OnboardingStep,
-  type StepContext,
-} from './onboarding-flow';
 
 /** How long the assistant "types" before a new step appears. */
 const TYPING_MS = 650;
@@ -91,7 +92,7 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
   // Progress is saved per home (see progressStorageKey), so it waits on the id.
   const { data: home } = useQuery({
     queryKey: ['home', 'identity'],
-    queryFn: () => api.get<{ id: string }>('/home'),
+    queryFn: () => trpcClient.home.info.query({}),
     staleTime: Infinity,
   });
   const storageKey = home ? progressStorageKey(home.id) : null;

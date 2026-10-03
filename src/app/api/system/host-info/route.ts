@@ -1,24 +1,6 @@
-import os from 'node:os';
-import { getAppRoot } from '@/lib/config/paths';
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/system/host-info';
 
-/**
- * Returns identity info about the machine running the app. Used by the
- * settings page to render "Currently connected to: <hostname>".
- *
- * Not sensitive — same surface the user would see in `ri doctor`.
- */
 
-export interface HostInfoResponse {
-  hostname: string;
-  platform: NodeJS.Platform;
-  appRoot: string;
-}
-
-export function GET() {
-  const body: HostInfoResponse = {
-    hostname: os.hostname(),
-    platform: process.platform,
-    appRoot: getAppRoot(),
-  };
-  return Response.json(body);
-}
+export const GET = withCompression(serveOperation(operation.GETInput, operation.GET));

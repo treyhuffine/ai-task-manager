@@ -1,14 +1,6 @@
-import type { NextRequest } from 'next/server';
-import { getExecutionReviewContext } from '@/lib/db/queries';
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/executions/[id]/review-context';
 
-/** What the review affordance needs for an execution (latest output event to
- * disposition, current disposition, the single owning task if any). */
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await params;
-    return Response.json(getExecutionReviewContext(id));
-  } catch (err) {
-    console.error('[GET /api/executions/:id/review-context]', err);
-    return Response.json({ error: String(err) }, { status: 500 });
-  }
-}
+
+export const GET = withCompression(serveOperation(operation.GETInput, operation.GET));

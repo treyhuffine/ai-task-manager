@@ -396,4 +396,20 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     q.updateTask(t.id, { status: 'done' } as Parameters<typeof q.updateTask>[1], { source: 'human' });
     expect(q.getTask(t.id)!.status).toBe('in_progress');
   });
+
+  it('deletes completion history with a task, but rolls it back when a remaining reference refuses deletion', async () => {
+    const { q, db, schema } = await setup();
+    const task = q.createTask({ title: 'Completed', rawInput: 'Completed' });
+    q.completeTask(task.id, { idempotencyKey: 'complete', meta: { source: 'human' } });
+    const note = q.createNote({ body: 'Keep reference', taskId: task.id });
+    const history = () => db.select().from(schema.taskCompletions).where(eq(schema.taskCompletions.taskId, task.id)).all();
+    expect(history()).toHaveLength(1);
+    expect(() => q.deleteTask(task.id)).toThrow(/FOREIGN KEY/);
+    expect(history()).toHaveLength(1);
+    expect(q.getTask(task.id)).toBeDefined();
+    q.deleteNote(note.id);
+    expect(q.deleteTask(task.id)).toBe(true);
+    expect(history()).toHaveLength(0);
+    expect(q.getTask(task.id)).toBeUndefined();
+  });
 });

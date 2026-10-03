@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { GitBranch, Folder, Play, AlertCircle, ArrowDownToLine, Loader2, RotateCw, Zap } from 'lucide-react';
-import { preparedFolder } from '@/lib/executions/location';
-import { toast } from 'sonner';
+import type { WorkspaceRecord } from '@/db/types';
 import { useRetrySetup, useRetrySetupScript } from '@/hooks/use-execution';
-import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
+import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 import { formatElapsed } from '@/lib/executions/duration';
+import { preparedFolder } from '@/lib/executions/location';
 import { harnessDefinition, isKnownHarnessId } from '@/lib/harness/registry';
+import { AlertCircle, ArrowDownToLine, Folder, GitBranch, Loader2, Play, RotateCw, Zap } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { ThinkingDots } from './thinking-dots';
 
 /**

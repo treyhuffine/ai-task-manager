@@ -1,21 +1,22 @@
 'use client';
 
-import { Archive, GitBranch, Moon, Pin, PinOff } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useDiffStats, useUnpinSession } from '@/hooks/use-workspaces';
 import { useArchiveExecution } from '@/hooks/use-archive-execution';
+import { useDiffStats, useUnpinSession } from '@/hooks/use-workspaces';
+import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
+import { cn } from '@/lib/utils';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { isSessionUnread } from '@/lib/utils/session-sort';
-import { cn } from '@/lib/utils';
-import { Checkbox } from '@/components/ui/checkbox';
-import type { ChatSessionWithExecution } from '@/db/types';
-import { DiffStatsPair } from './diff-stats';
-import { SessionRowMenu } from './session-row-menu';
-import { useSessionRowHover } from './session-hover-context';
-import { useWorkspaceSelection } from './workspace-selection-context';
+import { Archive, GitBranch, Moon, Pin, PinOff } from 'lucide-react';
+
 import { executionView } from '@/lib/client/active-view';
 import { preparedFolder } from '@/lib/executions/location';
 import { BACKGROUND_DOT, BACKGROUND_LABEL, UNREAD_WITH_BACKGROUND_DOT } from './activity-style';
+import { DiffStatsPair } from './diff-stats';
+import { useSessionRowHover } from './session-hover-context';
+import { SessionRowMenu } from './session-row-menu';
+import { useWorkspaceSelection } from './workspace-selection-context';
 
 interface SessionRowProps {
   session: ChatSessionWithExecution;

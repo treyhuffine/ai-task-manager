@@ -68,22 +68,22 @@ export class ActionError extends Error {
   }
 }
 
-export interface Action<Shape extends z.ZodRawShape = z.ZodRawShape> {
-  name: string;
+export interface Action<Shape extends z.ZodRawShape = z.ZodRawShape, Name extends string = string, Result = unknown> {
+  name: Name;
   description: string;
   params: Shape;
   mutating?: boolean;
   handler: (
     ctx: ActionContext,
     input: z.infer<z.ZodObject<Shape>>,
-  ) => unknown | Promise<unknown>;
+  ) => Result | Promise<Result>;
   cli?: {
     positional?: Array<Extract<keyof Shape, string>>;
   };
 }
 
-export function defineAction<Shape extends z.ZodRawShape>(
-  action: Action<Shape>,
-): Action<z.ZodRawShape> {
-  return action as unknown as Action<z.ZodRawShape>;
+export function defineAction<const Name extends string, Shape extends z.ZodRawShape, Result>(
+  action: Action<Shape, Name, Result>,
+): Action<Shape, Name, Result> {
+  return action;
 }

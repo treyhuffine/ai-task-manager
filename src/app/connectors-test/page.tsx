@@ -1,5 +1,8 @@
 'use client';
+import { z } from 'zod/v4';
 
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
 /**
  * Connections — manage external-account integrations. Connect accounts (OAuth redirect or
  * paste-a-key), see/disconnect connected accounts, run actions, and — under "Advanced" — bring
@@ -10,9 +13,8 @@
  *   2. Your own OAuth app (Advanced → Bring your own app) — persists in the home store.
  * API-key / custom providers connect by pasting a credential.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from '@/lib/api/client';
 import { LIVE_CHECKS } from '@/lib/connectors/live-checks';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 interface LiveCheckResult {
   label: string;
@@ -106,9 +108,9 @@ export default function ConnectorsTestPage() {
 
   const refresh = useCallback(async () => {
     const [st, tk, cn] = await Promise.all([
-      api.get<Status>('/connectors/status'),
-      api.get<{ toolkits: ToolkitInfo[] }>('/connectors/toolkits'),
-      api.get<{ connections: Connection[] }>('/connectors/connections'),
+      trpcClient.connectors.statusGet.query({}),
+      trpcClient.connectors.toolkitsGet.query({}),
+      trpcClient.connectors.connectionsGet.query({}),
     ]);
     setStatus(st);
     setToolkits(tk.toolkits);
@@ -131,16 +133,16 @@ export default function ConnectorsTestPage() {
     async (p: ProviderStatus, authConfigId?: string) => {
       setBusy(true);
       try {
-        const result = await api.post<{ authorizationUrl?: string; authUrl?: string; requiresAuth?: boolean }>('/connectors/connect', {
+        const result = await trpcClient.connectors.connectPost.mutate({body: {
           providerId: p.id,
           scopes: providerScopes(p.id),
           label: p.displayName,
           ...(authConfigId ? { authConfigId } : {}), // connect through a SPECIFIC client (BYO)
-        });
-        const authorizationUrl = result.authorizationUrl ?? result.authUrl;
+        }});
+        const authorizationUrl = result.authorizationUrl ?? ('authUrl' in result ? result.authUrl : undefined);
         if (authorizationUrl) {
           window.location.href = authorizationUrl;
-        } else if (p.method === 'mcp' && result.requiresAuth === false) {
+        } else if (p.method === 'mcp' && ('requiresAuth' in result ? result.requiresAuth : undefined) === false) {
           await refresh();
           setBanner({ kind: 'ok', text: `Connected ${p.displayName}` });
           setBusy(false);
@@ -158,8 +160,8 @@ export default function ConnectorsTestPage() {
   const setDefaultByo = useCallback(async (p: ProviderStatus, id: string) => {
     setBusy(true);
     try {
-      await api.post('/connectors/auth-configs/default', { providerId: p.id, id });
-      const { configs } = await api.get<{ configs: AuthConfigSummary[] }>(`/connectors/auth-configs?providerId=${p.id}`);
+      await trpcClient.connectors.authConfigsDefaultPost.mutate({body: { providerId: p.id, id }});
+      const { configs } = await trpcClient.connectors.authConfigsGet.query({query: rpcQuery({"providerId": p.id})});
       setByoConfigs((c) => ({ ...c, [p.id]: configs }));
     } catch (e) {
       setBanner({ kind: 'err', text: e instanceof Error ? e.message : 'failed to set default' });
@@ -172,7 +174,7 @@ export default function ConnectorsTestPage() {
     async (p: ProviderStatus) => {
       setBusy(true);
       try {
-        await api.post('/connectors/connectDirect', { providerId: p.id, fields: creds[p.id] ?? {}, label: p.displayName });
+        await trpcClient.connectors.connectDirectPost.mutate({body: { providerId: p.id, fields: creds[p.id] ?? {}, label: p.displayName }});
         setBanner({ kind: 'ok', text: `Connected ${p.displayName}` });
         setCreds((c) => ({ ...c, [p.id]: {} }));
         await refresh();
@@ -193,7 +195,7 @@ export default function ConnectorsTestPage() {
       setAdvanced(next);
       if (next) {
         setByoForm((f) => ({ ...f, [p.id]: f[p.id] ?? { label: '', clientId: '', clientSecret: '', redirectUri } }));
-        const { configs } = await api.get<{ configs: AuthConfigSummary[] }>(`/connectors/auth-configs?providerId=${p.id}`);
+        const { configs } = await trpcClient.connectors.authConfigsGet.query({query: rpcQuery({"providerId": p.id})});
         setByoConfigs((c) => ({ ...c, [p.id]: configs }));
       }
     },
@@ -215,14 +217,14 @@ export default function ConnectorsTestPage() {
       }
       setBusy(true);
       try {
-        await api.post('/connectors/auth-configs', {
+        await trpcClient.connectors.authConfigsPost.mutate({body: {
           providerId: p.id,
           label: form.label,
           oauth: { clientId: form.clientId, redirectUri: form.redirectUri || redirectUri },
           clientSecret: form.clientSecret || undefined,
-        });
+        }});
         setByoForm((f) => ({ ...f, [p.id]: { label: '', clientId: '', clientSecret: '', redirectUri } }));
-        const { configs } = await api.get<{ configs: AuthConfigSummary[] }>(`/connectors/auth-configs?providerId=${p.id}`);
+        const { configs } = await trpcClient.connectors.authConfigsGet.query({query: rpcQuery({"providerId": p.id})});
         setByoConfigs((c) => ({ ...c, [p.id]: configs }));
         await refresh(); // provider may now be "configured" → enables Connect
         setBanner({ kind: 'ok', text: `Added your ${p.displayName} app` });
@@ -238,8 +240,8 @@ export default function ConnectorsTestPage() {
   const deleteByo = useCallback(async (p: ProviderStatus, id: string) => {
     setBusy(true);
     try {
-      await api.delete(`/connectors/auth-configs?id=${encodeURIComponent(id)}`);
-      const { configs } = await api.get<{ configs: AuthConfigSummary[] }>(`/connectors/auth-configs?providerId=${p.id}`);
+      await trpcClient.connectors.authConfigsDelete.mutate({query: rpcQuery({"id": id})});
+      const { configs } = await trpcClient.connectors.authConfigsGet.query({query: rpcQuery({"providerId": p.id})});
       setByoConfigs((c) => ({ ...c, [p.id]: configs }));
     } catch (e) {
       setBanner({ kind: 'err', text: e instanceof Error ? e.message : 'failed to remove (in use?)' });
@@ -252,7 +254,7 @@ export default function ConnectorsTestPage() {
     async (id: string) => {
       setBusy(true);
       try {
-        await api.post('/connectors/disconnect', { id });
+        await trpcClient.connectors.disconnectPost.mutate({body: { id }});
         await refresh();
       } finally {
         setBusy(false);
@@ -265,7 +267,7 @@ export default function ConnectorsTestPage() {
     async (id: string) => {
       setTesting(id);
       try {
-        const res = await api.post<{ ok: boolean; status: string; error?: string }>('/connectors/test', { id });
+        const res = await trpcClient.connectors.testPost.mutate({body: { id }});
         setTestResults((prev) => ({ ...prev, [id]: res }));
         await refresh(); // the probe may have healed the stored status
       } catch {
@@ -286,14 +288,11 @@ export default function ConnectorsTestPage() {
     const out: LiveCheckResult[] = [];
     for (const check of checks) {
       try {
-        const { outcome } = await api.post<{ outcome: { ok?: boolean; reason?: string; code?: string; result?: unknown } }>(
-          '/connectors/run',
-          { actionId: check.actionId, input: check.input, account },
-        );
+        const { outcome } = await trpcClient.connectors.runPost.mutate({body: { actionId: check.actionId, input: check.input, account }});
         if (outcome?.ok) {
           out.push({ label: check.label, ok: true, detail: 'ok' });
         } else {
-          out.push({ label: check.label, ok: false, detail: outcome?.reason ?? outcome?.code ?? 'failed' });
+          out.push({ label: check.label, ok: false, detail: outcome?.reason ?? 'failed' });
         }
       } catch (e) {
         out.push({ label: check.label, ok: false, detail: e instanceof Error ? e.message : String(e) });
@@ -315,11 +314,11 @@ export default function ConnectorsTestPage() {
         setRunning(false);
         return;
       }
-      const { outcome } = await api.post<{ outcome: unknown }>('/connectors/run', {
+      const { outcome } = await trpcClient.connectors.runPost.mutate({body: {
         actionId,
-        input,
+        input: z.record(z.string(), z.unknown()).parse(input),
         account: account.trim() || undefined,
-      });
+      }});
       setResult(outcome);
     } catch (e) {
       setResult({ error: e instanceof Error ? e.message : String(e) });

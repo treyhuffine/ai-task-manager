@@ -1,3 +1,5 @@
+import { operationResponse } from '@/lib/server/operation';
+import { createTerminalResult, deleteTerminalResult, getTerminalResult, listTerminalsResult, terminalInputResult, terminalResizeResult } from './operations';
 /**
  * Where a terminal runs (docs/homes-build.md, P3.5, spec §5.6), and the
  * route handlers that go there. An execution's shells run on the device
@@ -12,34 +14,27 @@
  */
 
 import {
-  chatPlacement,
-  getChatSessionWithExecution,
-  getDevice,
-  getHome,
-  getWorkspace,
-  touchSessionActivity,
+	chatPlacement,
+	getChatSessionWithExecution,
+	getDevice,
+	getHome,
+	getWorkspace,
+	touchSessionActivity,
 } from '@/lib/db/queries';
 import { agentDeviceFor } from '@/lib/setups/run-on';
-import type { TerminalRequest } from '@/lib/workers/protocol';
 import {
-  createTerminalResponse,
-  deleteTerminalResponse,
-  getTerminalResponse,
-  listTerminalsResponse,
-  terminalInputResponse,
-  terminalResizeResponse,
-  terminalStreamResponse,
+	terminalStreamResponse
 } from './http';
 import {
-  isExistingDir,
-  sessionTerminalOwner,
-  terminalOwnerId,
-  workspaceTerminalCwd,
-  workspaceTerminalOwner,
-  type TerminalCwd,
-  type TerminalOwner,
+	isExistingDir,
+	sessionTerminalOwner,
+	terminalOwnerId,
+	workspaceTerminalCwd,
+	workspaceTerminalOwner,
+	type TerminalCwd,
+	type TerminalOwner,
 } from './owner';
-import { askTerminal, remoteTerminalStream, type RemoteTerminalPlace } from './remote';
+import { remoteTerminalStream, type RemoteTerminalPlace } from './remote';
 
 /** Where the shell runs, as every terminal descriptor says it. */
 export interface TerminalLocation {
@@ -119,87 +114,18 @@ export function agentTerminalPlace(workspaceId: string): TerminalPlace {
   return { at: 'home', owner: workspaceTerminalOwner(workspaceId), cwd: () => workspaceTerminalCwd(workspaceId), location: homeLocation() };
 }
 
-function refuse(place: { error: string; status: number }): Response {
-  return Response.json({ error: place.error }, { status: place.status });
+/** Compatibility adapters for worker and public HTTP callers. */
+export async function listTerminalsAt(place: TerminalPlace) { return operationResponse(await listTerminalsResult(place)); }
+export async function createTerminalAt(request: Request, place: TerminalPlace, logTag: string) {
+  return operationResponse(await createTerminalResult(await request.json().catch(() => ({})), place, logTag));
 }
-
-/** A descriptor, or a list of them, with where the shell runs. */
-function located(body: unknown, location: TerminalLocation): unknown {
-  const add = (d: unknown) => (d && typeof d === 'object' ? { ...d, ...location } : d);
-  return Array.isArray(body) ? body.map(add) : add(body);
+export async function getTerminalAt(place: TerminalPlace, terminalId: string) { return operationResponse(await getTerminalResult(place, terminalId)); }
+export async function deleteTerminalAt(place: TerminalPlace, terminalId: string) { return operationResponse(await deleteTerminalResult(place, terminalId)); }
+export async function terminalInputAt(request: Request, place: TerminalPlace, terminalId: string, onInput?: () => void) {
+  return operationResponse(await terminalInputResult(await request.json().catch(() => ({})), place, terminalId, onInput));
 }
-
-async function relay(place: RemoteTerminalPlace & { location: TerminalLocation }, request: TerminalRequest, locate = false): Promise<Response> {
-  const answer = await askTerminal(place, request);
-  const ok = answer.status >= 200 && answer.status < 300;
-  return Response.json(ok && locate ? located(answer.body, place.location) : answer.body, { status: answer.status });
-}
-
-async function withLocation(res: Response, location: TerminalLocation): Promise<Response> {
-  if (!res.ok) return res;
-  return Response.json(located(await res.json(), location), { status: res.status });
-}
-
-async function dims(request: Request): Promise<{ cols: number; rows: number } | null> {
-  const body = (await request.json().catch(() => null)) as { cols?: number; rows?: number } | null;
-  if (!body || !Number.isFinite(body.cols) || !Number.isFinite(body.rows) || body.cols! < 1 || body.rows! < 1) return null;
-  return { cols: Math.floor(body.cols!), rows: Math.floor(body.rows!) };
-}
-
-export async function listTerminalsAt(place: TerminalPlace): Promise<Response> {
-  if (place.at === 'nowhere') return refuse(place);
-  if (place.at === 'elsewhere') return relay(place, { op: 'list', scope: place.scope }, true);
-  return withLocation(listTerminalsResponse(place.owner), place.location);
-}
-
-export async function createTerminalAt(request: Request, place: TerminalPlace, logTag: string): Promise<Response> {
-  if (place.at === 'nowhere') return refuse(place);
-  if (place.at === 'elsewhere') {
-    if (place.refuseCreate) return Response.json({ error: place.refuseCreate }, { status: 409 });
-    const size = (await dims(request)) ?? { cols: 80, rows: 24 };
-    return relay(place, { op: 'create', scope: place.scope, ...size }, true);
-  }
-  return withLocation(await createTerminalResponse(request, place.cwd(), logTag), place.location);
-}
-
-export async function getTerminalAt(place: TerminalPlace, terminalId: string): Promise<Response> {
-  if (place.at === 'nowhere') return refuse(place);
-  if (place.at === 'elsewhere') return relay(place, { op: 'get', scope: place.scope, terminalId }, true);
-  return withLocation(getTerminalResponse(place.owner, terminalId), place.location);
-}
-
-export async function deleteTerminalAt(place: TerminalPlace, terminalId: string): Promise<Response> {
-  if (place.at === 'nowhere') return refuse(place);
-  if (place.at === 'elsewhere') return relay(place, { op: 'close', scope: place.scope, terminalId });
-  return deleteTerminalResponse(place.owner, terminalId);
-}
-
-/**
- * Keystrokes. To another device they go as they're typed or not at all:
- * a device that isn't connected refuses them, and they aren't kept to
- * send later (spec §5.6).
- */
-export async function terminalInputAt(
-  request: Request,
-  place: TerminalPlace,
-  terminalId: string,
-  onInput?: () => void,
-): Promise<Response> {
-  if (place.at === 'nowhere') return refuse(place);
-  if (place.at === 'home') return terminalInputResponse(request, place.owner, terminalId, onInput);
-  const body = (await request.json().catch(() => null)) as { data?: unknown } | null;
-  if (!body || typeof body.data !== 'string') return Response.json({ error: 'data must be a string' }, { status: 400 });
-  const res = await relay(place, { op: 'input', scope: place.scope, terminalId, data: body.data });
-  if (res.ok) onInput?.();
-  return res;
-}
-
-export async function terminalResizeAt(request: Request, place: TerminalPlace, terminalId: string): Promise<Response> {
-  if (place.at === 'nowhere') return refuse(place);
-  if (place.at === 'home') return terminalResizeResponse(request, place.owner, terminalId);
-  const size = await dims(request);
-  if (!size) return Response.json({ error: 'cols and rows must be positive numbers' }, { status: 400 });
-  return relay(place, { op: 'resize', scope: place.scope, terminalId, ...size });
+export async function terminalResizeAt(request: Request, place: TerminalPlace, terminalId: string) {
+  return operationResponse(await terminalResizeResult(await request.json().catch(() => ({})), place, terminalId));
 }
 
 export function terminalStreamAt(request: Request, resolve: () => TerminalPlace, terminalId: string): Response {

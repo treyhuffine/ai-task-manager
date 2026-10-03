@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useAreas, useCreateArea } from '@/hooks/use-areas';
+import { apiErrorText } from '@/lib/api/client';
+import type { AreaSuggestion } from '@/lib/onboarding/area-suggestions';
+import { trpcClient } from '@/lib/trpc/client';
+import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, Check, Loader2, Plus } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { useAreas, useCreateArea } from '@/hooks/use-areas';
-import { api, apiErrorText } from '@/lib/api/client';
-import type { AreaSuggestion } from '@/lib/onboarding/area-suggestions';
-import { cn } from '@/lib/utils';
 import { listJoin } from './onboarding-flow';
 import { Card, PrimaryButton, QuietButton, Says } from './onboarding-ui';
 
@@ -29,7 +30,7 @@ export function useAreaSuggestions(input: { about: string; projects: string[] },
   const about = input.about.trim();
   return useQuery({
     queryKey: ['onboarding', 'area-suggestions', about, input.projects],
-    queryFn: () => api.post<{ areas: AreaSuggestion[] }>('/onboarding/area-suggestions', { about, projects: input.projects }),
+    queryFn: () => trpcClient.onboarding.areaSuggestionsPost.mutate({body: { about, projects: input.projects }}),
     enabled: enabled && (about.length > 0 || input.projects.length > 0),
     staleTime: Infinity,
     retry: false,

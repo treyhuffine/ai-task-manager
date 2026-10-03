@@ -1,18 +1,22 @@
 'use client';
+import type { FolderApiBase } from '@/lib/folders/source';
 
-import { useEffect, useRef, useState } from 'react';
-import { Terminal } from '@xterm/xterm';
+import { HOTKEYS, matchesHotkey } from '@/constants/commands';
+import { terminalsUnavailable } from '@/hooks/use-terminals';
+import { terminalsApi } from '@/lib/api/terminals';
+import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import { toast } from 'sonner';
+import type { TerminalPosition } from '@/lib/realtime/page-stream';
+import { subscribeTerminalOutput } from '@/lib/realtime/terminal-transport';
+import { createInputQueue } from '@/lib/terminal/input-queue';
+import { detectIsMac, resolveTerminalKey } from '@/lib/terminal/keymap';
+import { cn } from '@/lib/utils';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
-import { terminalsApi } from '@/lib/api/terminals';
-import { pageStream, type TerminalPosition } from '@/lib/realtime/page-stream';
-import { terminalsUnavailable } from '@/hooks/use-terminals';
-import { createInputQueue } from '@/lib/terminal/input-queue';
-import { detectIsMac, resolveTerminalKey } from '@/lib/terminal/keymap';
-import { HOTKEYS, matchesHotkey } from '@/constants/commands';
-import { cn } from '@/lib/utils';
+import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * How long the PTY is allowed to believe a stale size during a drag.
@@ -26,7 +30,7 @@ const RESIZE_SETTLE_MS = 120;
 
 interface ExecutionTerminalInstanceProps {
   /** Route base for the folder's terminal routes (`folderApiBase`). */
-  apiBase: string;
+  apiBase: FolderApiBase;
   terminalId: string;
   active: boolean;
   /**
@@ -77,6 +81,8 @@ export function ExecutionTerminalInstance({
    * meanwhile are dropped, never kept to send when it's back (spec §5.6).
    */
   const [offline, setOffline] = useState<string | null>(null);
+  const [reviewInput, setReviewInput] = useState(false);
+  const resumeInputRef = useRef<(() => void) | null>(null);
   /** Turns input off with the reason, or back on with null. Set by the terminal's setup. */
   const goOfflineRef = useRef<((message: string | null) => void) | null>(null);
   /** Where this screen is in the terminal's output: later subscriptions pick up there. */
@@ -175,7 +181,9 @@ export function ExecutionTerminalInstance({
 
     // Input is live only while the shell's device is reachable.
     let inputOff = false;
+    let pausedForReview = false;
     const goOffline = (message: string | null) => {
+      if (message === null && pausedForReview) return;
       inputOff = message !== null;
       setOffline(message);
     };
@@ -190,8 +198,21 @@ export function ExecutionTerminalInstance({
       onError: (err) => {
         const away = terminalsUnavailable(err);
         if (away) goOffline(away);
+        if (apiErrorStatus(err) === 424) {
+          queue.pause();
+          pausedForReview = true;
+          setReviewInput(true);
+          goOffline('The last input was not confirmed. Check the terminal before continuing.');
+          toast.error(apiErrorText(err), { id: `terminal-input-${terminalId}` });
+        }
       },
     });
+    resumeInputRef.current = () => {
+      pausedForReview = false;
+      setReviewInput(false);
+      queue.resume();
+      goOffline(null);
+    };
     const input = {
       push: (data: string) => {
         if (!inputOff) queue.push(data);
@@ -292,6 +313,7 @@ export function ExecutionTerminalInstance({
       dataDisp.dispose();
       resizeDisp.dispose();
       goOfflineRef.current = null;
+      resumeInputRef.current = null;
       try { term.dispose(); } catch { /* */ }
       termRef.current = null;
       fitRef.current = null;
@@ -320,7 +342,7 @@ export function ExecutionTerminalInstance({
       unsubscribe();
       onExitRef.current?.();
     };
-    unsubscribe = pageStream().subscribeTerminal(
+    unsubscribe = subscribeTerminalOutput(
       apiBaseRef.current,
       terminalId,
       positionRef.current,
@@ -396,7 +418,8 @@ export function ExecutionTerminalInstance({
           role="status"
           className="absolute inset-x-0 top-0 border-b border-zinc-800 bg-zinc-900/95 px-3 py-1.5 text-[11px] text-zinc-300"
         >
-          {offline} Typing is off until then.
+          {offline}{!reviewInput && ' Typing is off until then.'}
+          {reviewInput && <button type="button" className="ml-2 underline underline-offset-2" onClick={() => { resumeInputRef.current?.(); termRef.current?.focus(); }}>Continue typing</button>}
         </div>
       )}
     </div>

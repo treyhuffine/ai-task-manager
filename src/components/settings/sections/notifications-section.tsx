@@ -1,5 +1,7 @@
 'use client';
 
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
 /**
  * Notifications settings (docs/connectors-email-and-notifier-spec.md §2.6/§2.11).
  *
@@ -15,24 +17,34 @@
  * Telegram channels are one per chat. The remote/tunnel URL is edited in Devices;
  * here it is shown read-only with a jump to that section.
  */
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import {
-  Bell, Send, Globe, Plus, Trash2, Calendar, AlertCircle, Loader2, Info, Link2, ChevronDown,
-  CheckCircle2, ShieldCheck, Monitor,
-} from 'lucide-react';
-import { api } from '@/lib/api/client';
-import { EVENT_CATALOG } from '@/lib/notifications/events';
-import { removeDesktopWebPushSubscription } from '@/lib/notifications/web-push-client';
-import { isDesktopNotificationChannel, type DesktopNotificationStatus } from '@/lib/notifications/desktop-contract';
-import type { NotificationChannelRecord } from '@/db/types';
+import { ConnectorLogo } from '@/components/connectors/connector-logo';
+import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
+import { setSettingsSection } from '@/components/settings/settings-store';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import type { NotificationChannelRecord } from '@/db/types';
+import { isDesktopNotificationChannel, type DesktopNotificationStatus } from '@/lib/notifications/desktop-contract';
+import { EVENT_CATALOG } from '@/lib/notifications/events';
+import { removeDesktopWebPushSubscription } from '@/lib/notifications/web-push-client';
 import { cn } from '@/lib/utils';
-import { setSettingsSection } from '@/components/settings/settings-store';
-import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
-import { ConnectorLogo } from '@/components/connectors/connector-logo';
+import {
+	AlertCircle,
+	Bell,
+	Calendar,
+	CheckCircle2,
+	ChevronDown,
+	Globe,
+	Info, Link2,
+	Loader2,
+	Monitor,
+	Plus,
+	Send,
+	ShieldCheck,
+	Trash2,
+} from 'lucide-react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { BrowserNotifications } from './browser-notifications';
 import { NotificationHistory } from './notification-history';
 
@@ -92,10 +104,10 @@ export function NotificationsSection() {
 
   const refresh = useCallback(async () => {
     const [ch, cn, dg, bu] = await Promise.all([
-      api.get<{ channels: NotificationChannelRecord[] }>('/notifications/channels'),
-      api.get<{ connections: Connection[] }>('/connectors/connections'),
-      api.get<{ digests: Digest[] }>('/notifications/digests'),
-      api.get<{ tunnel: string | null; lan: string | null; local: string }>('/settings/base-url'),
+      trpcClient.notifications.channelsGet.query({}),
+      trpcClient.connectors.connectionsGet.query({}),
+      trpcClient.notifications.digestsGet.query({}),
+      trpcClient.settings.baseUrlGet.query({}),
     ]);
     setChannels(ch.channels);
     setTelegramConns(cn.connections.filter((c) => c.providerId === 'telegram'));
@@ -142,7 +154,7 @@ export function NotificationsSection() {
     run(async () => {
       const current = channel.events ?? [];
       const events = current.includes(type) ? current.filter((e) => e !== type) : [...current, type];
-      await api.patch(`/notifications/channels/${channel.id}`, { events });
+      await trpcClient.notifications.channelsPatch.mutate({params: {id: channel.id}, body: { events }});
     });
 
   const toggleEnabled = (channel: NotificationChannelRecord) =>
@@ -150,13 +162,13 @@ export function NotificationsSection() {
       if (isDesktopNotificationChannel(channel) && window.riDesktop?.notifications && channel.id === desktopStatus?.channelId) {
         if (!channel.enabled) await removeDesktopWebPushSubscription();
         setDesktopStatus(await window.riDesktop.notifications!(channel.enabled ? 'disable' : 'enable'));
-      } else await api.patch(`/notifications/channels/${channel.id}`, { enabled: !channel.enabled });
+      } else await trpcClient.notifications.channelsPatch.mutate({params: {id: channel.id}, body: { enabled: !channel.enabled }});
     });
 
-  const removeChannel = (id: string) => run(() => api.delete(`/notifications/channels/${id}`).then(() => {}));
+  const removeChannel = (id: string) => run(() => trpcClient.notifications.channelsDelete.mutate({params: {id: id}}).then(() => {}));
 
   const renameChannel = (id: string, label: string) =>
-    run(() => api.patch(`/notifications/channels/${id}`, { label }).then(() => {}));
+    run(() => trpcClient.notifications.channelsPatch.mutate({params: {id: id}, body: { label }}).then(() => {}));
 
   const sendTest = async (id: string) => {
     setTesting(id);
@@ -168,7 +180,7 @@ export function NotificationsSection() {
         setTestResults(p => ({ ...p, [id]: status.error ? { status: 'error', error: status.error } : { status: 'queued' } }));
         return;
       }
-      const r = await api.post<{ status: string; error?: string }>(`/notifications/channels/${id}/test`, {});
+      const r = await trpcClient.notifications.channelsTestPost.mutate({params: {id: id}, body: {}});
       setTestResults((p) => ({ ...p, [id]: r }));
     } catch (e) {
       setTestResults((p) => ({ ...p, [id]: { status: 'error', error: errMsg(e) } }));
@@ -182,13 +194,13 @@ export function NotificationsSection() {
 
   const addTelegram = () =>
     run(async () => {
-      await api.post('/notifications/channels', {
+      await trpcClient.notifications.channelsPost.mutate({body: {
         kind: 'connector',
         providerId: 'telegram',
         connectionId: newConnId,
         ...(newLabel.trim() ? { label: newLabel.trim() } : {}),
         config: { chatId: newChatId.trim() },
-      });
+      }});
       setNewConnId('');
       setNewChatId('');
       setNewLabel('');
@@ -199,9 +211,7 @@ export function NotificationsSection() {
   const discoverChats = () =>
     run(async () => {
       if (!newConnId) return;
-      const r = await api.get<{ chats: { chatId: string; name: string }[] }>(
-        `/notifications/telegram/chats?connectionId=${encodeURIComponent(newConnId)}`,
-      );
+      const r = await trpcClient.notifications.telegramChatsGet.query({query: rpcQuery({"connectionId": newConnId})});
       setDiscoveredChats(r.chats);
       if (r.chats.length === 1) {
         setNewChatId(r.chats[0]!.chatId);
@@ -216,8 +226,7 @@ export function NotificationsSection() {
     if (!newConnId) return;
     setLinkToken(crypto.randomUUID().replace(/-/g, '').slice(0, 24));
     let cancelled = false;
-    api
-      .get<{ username?: string }>(`/notifications/telegram/bot?connectionId=${encodeURIComponent(newConnId)}`)
+    trpcClient.notifications.telegramBotGet.query({query: rpcQuery({"connectionId": newConnId})})
       .then((r) => {
         if (!cancelled) setBotUsername(r.username ?? null);
       })
@@ -240,11 +249,8 @@ export function NotificationsSection() {
         for (let i = 0; i < 25; i += 1) {
           await new Promise((r) => setTimeout(r, 2000));
           try {
-            const res = await api.post<{ channel?: NotificationChannelRecord; found?: boolean }>(
-              '/notifications/telegram/claim',
-              { connectionId: newConnId, token: linkToken },
-            );
-            if (res.channel) {
+            const res = await trpcClient.notifications.telegramClaimPost.mutate({body: { connectionId: newConnId, token: linkToken }});
+            if ('channel' in res && res.channel) {
               await refresh();
               setNewConnId('');
               setAddTgOpen(false);
@@ -270,7 +276,7 @@ export function NotificationsSection() {
       const deliverResultTo = on
         ? [...digest.deliverResultTo, channelId]
         : digest.deliverResultTo.filter((c) => c !== channelId);
-      await api.patch(`/notifications/digests/${digestId}`, { deliverResultTo });
+      await trpcClient.notifications.digestsPatch.mutate({params: {id: digestId}, body: { deliverResultTo }});
     });
 
   // --- Display helpers -----------------------------------------------------

@@ -1,8 +1,8 @@
 'use client';
 
+import type { HostInfoResponse } from '@/lib/server/operations/system/host-info';
+import { trpcClient } from '@/lib/trpc/client';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api/client';
-import type { HostInfoResponse } from '@/app/api/system/host-info/route';
 
 /**
  * Identity of the machine running the app. Cached forever — hostname
@@ -11,7 +11,7 @@ import type { HostInfoResponse } from '@/app/api/system/host-info/route';
 export function useHostInfo() {
   return useQuery<HostInfoResponse>({
     queryKey: ['system', 'host-info'],
-    queryFn: () => api.get<HostInfoResponse>('/system/host-info'),
+    queryFn: () => trpcClient.system.hostInfoGet.query({}),
     staleTime: Infinity,
     gcTime: Infinity,
   });

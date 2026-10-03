@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import type { ChatEventRecord } from '@/db/types';
-import { buildTranscriptNodes, summarizeCounts, formatSpan, type TranscriptNode } from './transcript-grouping';
+import type { ChatEventRecord } from '@/lib/api/dto/records';
+import { describe, expect, it } from 'vitest';
+
+import { buildTranscriptNodes, formatSpan, summarizeCounts, type TranscriptNode } from './transcript-grouping';
 
 let seq = 0;
 function ev(source: string, extra: Partial<ChatEventRecord> = {}): ChatEventRecord {

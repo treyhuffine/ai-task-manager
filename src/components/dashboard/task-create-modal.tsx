@@ -1,24 +1,24 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
-import { Dialog as DialogPrimitive, VisuallyHidden } from "radix-ui";
-import {
-  Expand,
-  Paperclip,
-  Calendar,
-  Gauge,
-  Zap,
-  Loader2,
-  FolderOpen,
-} from "lucide-react";
-import { useCreateTask } from "@/hooks/use-tasks";
-import { useAreas } from "@/hooks/use-areas";
-import { useDashboard } from "@/contexts/dashboard-context";
-import { useCreateNote } from "@/hooks/use-notes";
 import { RichEditor } from "@/components/editor/rich-editor";
+import { useDashboard } from "@/contexts/dashboard-context";
+import type { Attachment, Effort, Energy } from '@/db/types';
+import { useAreas } from "@/hooks/use-areas";
 import { useAutosizeTextarea } from "@/hooks/use-autosize-textarea";
+import { useCreateNote } from "@/hooks/use-notes";
+import { useCreateTask } from "@/hooks/use-tasks";
 import { cn } from "@/lib/utils";
-import type { Effort, Energy, Attachment } from "@/db/types";
+import {
+	Calendar,
+	Expand,
+	FolderOpen,
+	Gauge,
+	Loader2,
+	Paperclip,
+	Zap,
+} from "lucide-react";
+import { Dialog as DialogPrimitive, VisuallyHidden } from "radix-ui";
+import { useCallback, useRef, useState } from "react";
 
 interface TaskCreateModalProps {
   open: boolean;

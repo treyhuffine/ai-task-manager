@@ -1,32 +1,17 @@
-import { api } from './client';
-import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
-import { fetchDiffStatsBatched } from './diff-stats-batch';
 import type {
-  ChatSessionRecord, ChatSessionWithExecution,
-  PermissionMode, EffortLevel, Attachment,
-  AgentMainChatState,
+	Attachment,
+	EffortLevel,
+	PermissionMode
 } from '@/db/types';
-import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import type { HarnessId } from '@/lib/harness/registry';
-import type { SessionRuntimeStatus } from '@/lib/executor/runtime-status';
-import type { MessageDelivery } from '@/lib/workers/delivery';
-import type { TransferView } from '@/lib/transfer/view';
-import type { WorkingState } from '@/lib/transfer/git-checkpoint';
-import type { BranchSync } from '@/lib/workspaces/branch-sync';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcOptions, rpcQuery } from '@/lib/trpc/request-options';
+import type { RouterInputs, RouterOutputs } from '@/lib/trpc/router';
+import { fetchDiffStatsBatched } from './diff-stats-batch';
 import { clientIsHost, type OpenTarget } from './fs';
 
 /** A review checkout on the viewer's device (P4.1). */
-export interface ReviewState {
-  viewer: { id: string; name: string } | null;
-  review: {
-    path: string;
-    sha: string;
-    branch: string;
-    dirty: boolean;
-    source: { deviceId: string; name: string } | null;
-    updatedAt: string;
-  } | null;
-}
+export type ReviewState = RouterOutputs['sessions']['reviewGet'];
 
 /** The home's own browser says so, as it does to open apps: the review is then on the home. */
 function hostHeaders(): Record<string, string> | undefined {
@@ -52,67 +37,21 @@ export interface AskUserQuestionItem {
   multiSelect?: boolean;
 }
 
-export interface PendingPermission {
-  kind: 'permission';
-  requestId: string;
-  sessionId: string;
-  toolUseId: string;
-  toolName: string;
-  input: Record<string, unknown>;
-  title: string | null;
-  description: string | null;
-  createdAt: string;
-}
+export type PendingPermission = Extract<RouterOutputs['sessions']['pendingInputGet'][number], { kind: 'permission' }>;
 
-export interface PendingQuestion {
-  kind: 'question';
-  requestId: string;
-  sessionId: string;
-  toolUseId: string;
-  questions: AskUserQuestionItem[];
-  originalInput: Record<string, unknown>;
-  createdAt: string;
-}
+export type PendingQuestion = Extract<RouterOutputs['sessions']['pendingInputGet'][number], { kind: 'question' }>;
 
-export type PendingInput = PendingPermission | PendingQuestion;
+export type PendingInput = RouterOutputs['sessions']['pendingInputGet'][number];
 
-export interface DiffStats {
-  files: number;
-  additions: number;
-  deletions: number;
-}
+export type DiffStats = NonNullable<RouterOutputs['sessions']['diffStatsGet']>;
 
 /** Mirrors `WorkspaceStatus` from `@agentex/workspace`, plus `sync`. */
-export interface WorktreeStatus {
-  dirty: boolean;
-  untracked: string[];
-  modified: string[];
-  staged: string[];
-  /** Commits not on the upstream. What the upstream is, `sync` says. */
-  ahead: number;
-  /** Commits on the upstream not here. */
-  behind: number;
-  /**
-   * What the upstream is and how far behind the base the branch is
-   * (`BranchSync`). Absent from a connected device on an older version, in
-   * which case ahead/behind are read the old way.
-   */
-  sync?: BranchSync;
-}
+export type WorktreeStatus = RouterOutputs['sessions']['statusGet'];
 
-export interface StructuredDiffLine { kind: 'add' | 'del' | 'ctx'; text: string }
-export interface StructuredDiffHunk {
-  oldStart: number; oldLines: number;
-  newStart: number; newLines: number;
-  lines: StructuredDiffLine[];
-}
-export interface StructuredDiffFile {
-  path: string;
-  status: 'added' | 'modified' | 'deleted' | 'renamed';
-  oldPath?: string;
-  hunks: StructuredDiffHunk[];
-}
-export interface StructuredDiff { files: StructuredDiffFile[] }
+export type StructuredDiffLine = NonNullable<RouterOutputs['sessions']['diffGet']>['files'][number]['hunks'][number]['lines'][number];
+export type StructuredDiffHunk = NonNullable<RouterOutputs['sessions']['diffGet']>['files'][number]['hunks'][number];
+export type StructuredDiffFile = NonNullable<RouterOutputs['sessions']['diffGet']>['files'][number];
+export type StructuredDiff = NonNullable<RouterOutputs['sessions']['diffGet']>;
 
 // ─── File tree wire types ─────────────────────────────────
 //
@@ -120,33 +59,11 @@ export interface StructuredDiff { files: StructuredDiffFile[] }
 // `node:fs` and `@agentex/workspace`, so we keep the wire shape local
 // to the client API barrel instead of re-exporting.
 
-export type TreeEntryStatus =
-  | 'added'
-  | 'modified'
-  | 'deleted'
-  | 'staged'
-  | 'untracked'
-  /** Unmerged: the working-tree file carries git conflict markers
-   *  (mid-merge/rebase/pull, or from a `git ls-files -u` unmerged index
-   *  entry). Renders in the tree's "Conflicts" section and opens the
-   *  conflict resolver instead of the plain diff. */
-  | 'conflict';
+export type TreeEntryStatus = NonNullable<RouterOutputs['sessions']['treeGet']['entries'][number]['status']>;
 
-export interface TreeEntry {
-  path: string;
-  name: string;
-  kind: 'file' | 'dir';
-  size?: number;
-  status?: TreeEntryStatus;
-  mtime?: string;
-  /** A `dir` shown but not expandable — its contents are intentionally not
-   *  listed (e.g. `node_modules`: present, but too big to browse here). */
-  collapsed?: boolean;
-}
+export type TreeEntry = RouterOutputs['sessions']['treeGet']['entries'][number];
 
-export interface TreeResponse {
-  entries: TreeEntry[];
-}
+export type TreeResponse = RouterOutputs['sessions']['treeGet'];
 
 // ─── File read wire types ─────────────────────────────────
 //
@@ -154,17 +71,7 @@ export interface TreeResponse {
 // imports `node:fs` and `@agentex/workspace`. The client never sees
 // `FileReadError` directly; the route maps it to HTTP status.
 
-export interface FileResponse {
-  path: string;
-  /** Null when binary or oversize. */
-  content: string | null;
-  encoding: 'utf8' | 'base64';
-  mime: string;
-  size: number;
-  isBinary: boolean;
-  /** Set when the file exceeds the server's preview cap (1 MiB). */
-  tooLarge?: boolean;
-}
+export type FileResponse = RouterOutputs['sessions']['fileGet'];
 
 // ─── PR wire types ─────────────────────────────────
 //
@@ -172,74 +79,27 @@ export interface FileResponse {
 // shape into a flatter wire type so the route stays the source of
 // truth for "what the action bar sees about a PR."
 
-export type PrState = 'OPEN' | 'CLOSED' | 'MERGED';
+export type PrState = NonNullable<RouterOutputs['sessions']['prGet']['pr']>['state'];
 
 /** GitHub-reported mergeability for an open PR. */
-export type PrMergeable = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
+export type PrMergeable = NonNullable<NonNullable<RouterOutputs['sessions']['prGet']['pr']>['mergeable']>;
 
-export interface PrInfo {
-  number: number;
-  url: string;
-  state: PrState;
-  isDraft: boolean;
-  headRefName: string;
-  baseRefName: string;
-  title: string;
-  updatedAt: string;
-  /** Populated only for OPEN PRs; closed/merged carry `null`. */
-  mergeable: PrMergeable | null;
-  /** Rolled-up CI check state for an OPEN PR; `null` when none / closed / merged. */
-  checks: PrChecks | null;
-  /** GitHub review decision for an OPEN PR; `null` when none / closed / merged. */
-  reviewDecision: PrReviewDecision | null;
-  /** Whether auto-merge ("merge when ready") is enabled on the PR. */
-  autoMergeEnabled: boolean;
-  /**
-   * GitHub requires it brought up to date with its base before merging.
-   * Absent from a connected device on an older version.
-   */
-  outOfDate?: boolean;
-}
+export type PrInfo = NonNullable<RouterOutputs['sessions']['prGet']['pr']>;
 
-export interface PrResponse {
-  pr: PrInfo | null;
-  /** Set when `gh` is missing or unauthenticated. */
-  ghStatus?: 'not_installed' | 'not_authenticated';
-}
+export type PrResponse = RouterOutputs['sessions']['prGet'];
 
 /** A linked PR's number and GitHub address, known without asking GitHub (`GET /sessions/:id/pr-link`). */
-export interface LinkedPr {
-  number: number;
-  url: string;
-}
+export type LinkedPr = NonNullable<RouterOutputs['sessions']['prLinkGet']['linked']>;
 
-export interface PrLinkResponse {
-  linked: LinkedPr | null;
-}
+export type PrLinkResponse = RouterOutputs['sessions']['prLinkGet'];
 
-export interface MergeRequestBody {
-  method?: 'merge' | 'squash' | 'rebase';
-  deleteBranch?: boolean;
-}
+export type MergeRequestBody = RouterInputs['sessions']['mergePost']['body'];
 
-export interface MergeResponse {
-  ok: true;
-  prNumber: number;
-  url: string;
-}
+export type MergeResponse = RouterOutputs['sessions']['mergePost'];
 
-export interface AutoMergeRequestBody {
-  /** `true` enables "merge when ready"; `false` disables it. */
-  enable: boolean;
-  method?: 'merge' | 'squash' | 'rebase';
-}
+export type AutoMergeRequestBody = RouterInputs['sessions']['autoMergePost']['body'];
 
-export interface AutoMergeResponse {
-  ok: true;
-  enabled: boolean;
-  prNumber: number;
-  url: string;
-}
+export type AutoMergeResponse = RouterOutputs['sessions']['autoMergePost'];
 
 export interface ResolvePendingBody {
   allow: boolean;
@@ -247,53 +107,21 @@ export interface ResolvePendingBody {
   answers?: Record<string, string>;
 }
 
-export interface ReconcileResult {
-  drift: boolean;
-  replayed: number;
-  skipped?: 'no_transcript' | 'unsupported_provider' | 'no_cwd' | 'no_external_session';
-}
+export type ReconcileResult = RouterOutputs['sessions']['reconcilePost'];
 
-export interface ResyncResult {
-  ok: true;
-  classification: 'healthy' | 'dead' | 'ambiguous';
-  replayed: number;
-  redispatched: boolean;
-  fixes: string[];
-}
+export type ResyncResult = RouterOutputs['sessions']['resyncPost'];
 
-export interface RestartResult {
-  ok: true;
-}
+export type RestartResult = RouterOutputs['sessions']['restartPost'];
 
-export interface TakeOverImportResult {
-  ok: true;
-  /** The provider session the chat will resume from here on. */
-  externalSessionId: string;
-  /** Where the agent will run. Always the workspace folder, never a worktree. */
-  cwd: string;
-}
+export type TakeOverImportResult = RouterOutputs['sessions']['takeOverImportPost'];
 
-export interface WipDetection {
-  modified: string[];
-  untracked: string[];
-}
+export type WipDetection = NonNullable<RouterOutputs['sessions']['wipGet']>;
 
-export interface WipCopyResult {
-  action: 'copy';
-  empty?: true;
-  copied?: string[];
-  skipped?: { path: string; reason: string }[];
-}
+export type WipCopyResult = Extract<RouterOutputs['sessions']['wipPost'], { action: 'copy' }>;
 
-export interface WipMoveResult {
-  action: 'move';
-  empty?: true;
-  moved?: boolean;
-  conflict?: boolean;
-  stashMessage?: string | null;
-}
+export type WipMoveResult = Extract<RouterOutputs['sessions']['wipPost'], { action: 'move' }>;
 
-export type WipApplyResult = WipCopyResult | WipMoveResult;
+export type WipApplyResult = RouterOutputs['sessions']['wipPost'];
 
 
 /**
@@ -303,29 +131,13 @@ export type WipApplyResult = WipCopyResult | WipMoveResult;
  * renderer can resolve cover images via the existing `coverAttachmentUrl`
  * helper.
  */
-export interface RailSession extends ChatSessionWithExecution {
-  workspaceName: string | null;
-  workspaceEmoji: string | null;
-  workspaceAttachments: Attachment[] | null;
-  workspaceAreaId: string | null;
-  workspaceIsGit: boolean | null;
-}
-
-export interface RailResponse {
-  sessions: RailSession[];
-  pendingSessionIds: string[];
-  runningSessionIds: string[];
-  backgroundSessionIds: string[];
-  /** Each active agent's current main chat. */
-  mainChats: RailMainChat[];
-}
+export type RailSession = RouterOutputs['sessions']['railGet']['sessions'][number];
+export type RailResponse = RouterOutputs['sessions']['railGet'];
 
 /** An agent's main chat on the rail, with what it's waiting on when it's blocked on you. */
-export type RailMainChat = AgentMainChatState & { waitingOn: string | null };
+export type RailMainChat = RouterOutputs['sessions']['railGet']['mainChats'][number];
 
-export interface HistoryResponse {
-  sessions: RailSession[];
-}
+export type HistoryResponse = RouterOutputs['sessions']['historyList'];
 
 // ─── Chat / session search ────────────────────────────────────
 
@@ -338,11 +150,7 @@ export type ChatSearchSource = 'native' | 'imported' | 'claude' | 'codex' | 'ope
  * snippet's matched terms are wrapped in the sentinels from
  * `@/lib/search/highlight` — render with `splitHighlight`.
  */
-export interface ChatSearchResult extends RailSession {
-  snippet: string;
-  matchedEventId: string;
-  score: number;
-}
+export type ChatSearchResult = RouterOutputs['sessions']['searchGet'][number];
 
 export interface SessionSearchFilters {
   status?: 'active' | 'archived';
@@ -353,37 +161,18 @@ export interface SessionSearchFilters {
 
 // ─── Picker / References / Scratchpad wire types ─────────────
 
-export interface PickerTaskItem {
-  id: string;
-  title: string;
-  status: 'active' | 'done' | 'archived';
-  areaId: string | null;
-  workspaceId: string | null;
-  updatedAt: string;
-}
+export type PickerTaskItem = RouterOutputs['sessions']['pickerGet']['tasks'][number];
 
-export interface PickerNoteItem {
-  id: string;
-  title: string | null;
-  areaId: string | null;
-  workspaceId: string | null;
-  updatedAt: string;
-}
+export type PickerNoteItem = RouterOutputs['sessions']['pickerGet']['notes'][number];
 
-export interface PickerResponse {
-  tasks: PickerTaskItem[];
-  notes: PickerNoteItem[];
-}
+export type PickerResponse = RouterOutputs['sessions']['pickerGet'];
 
 /**
  * Lookup payload for the transcript's chip rendering — every task/note
  * the session's chat_refs point at, indexed by id. One fetch per
  * session beats per-chip lookups.
  */
-export interface EntitiesResponse {
-  tasks: Array<{ id: string; title: string; status: string }>;
-  notes: Array<{ id: string; title: string | null }>;
-}
+export type EntitiesResponse = RouterOutputs['sessions']['entitiesGet'];
 
 /**
  * Wire shape for the references slide-over. `inChat` is the
@@ -391,48 +180,15 @@ export interface EntitiesResponse {
  * is everything with `workspaceId === current` not already in chat;
  * `all` is everything else when the scope filter widens.
  */
-export interface ReferenceRow {
-  kind: 'task' | 'note';
-  id: string;
-  title: string;
-  status?: string;
-  areaId: string | null;
-  workspaceId: string | null;
-  updatedAt: string;
-  /** Truthy when this row appears in chat_refs for the session. */
-  referencedAt?: string | null;
-  /** Number of child tasks. Tasks only — undefined for notes or when not computed. */
-  subtaskCount?: number;
-}
+export type ReferenceRow = RouterOutputs['sessions']['referencesGet']['inChat'][number];
 
-export interface ReferencesResponse {
-  inChat: ReferenceRow[];
-  workspace: ReferenceRow[];
-  all: ReferenceRow[];
-  scope: 'session' | 'workspace' | 'all';
-}
+export type ReferencesResponse = RouterOutputs['sessions']['referencesGet'];
 
-export interface ExecutionChatHistoryEntry {
-  id: string;
-  label: string | null;
-  status: 'active' | 'archived';
-  startedAt: string;
-  lastOutcomeEventAt: string | null;
-  unreadMarkerAt: string | null;
-  lastViewedAt: string | null;
-  /** The chat currently being viewed. */
-  isCurrent: boolean;
-  /** Executor in-memory turn state — an agent is actively working this chat. */
-  running: boolean;
-  /** Background work (a dev server, a long test) still running after the turn ended. */
-  background: boolean;
-  /** Manual chat-tab order (fractional index); null = fall back to creation order. */
-  tabSortKey: string | null;
-}
+export type ExecutionChatHistoryEntry = RouterOutputs['sessions']['historyGet']['sessions'][number];
 
 export const sessionsApi = {
-  get(id: string, opts: { signal?: AbortSignal } = {}): Promise<ChatSessionWithExecution> {
-    return api.get<ChatSessionWithExecution>(`/sessions/${id}`, { signal: opts.signal });
+  get(id: string, opts: { signal?: AbortSignal } = {}) {
+    return trpcClient.sessions.get.query({params: {id: id}}, rpcOptions({ signal: opts.signal }));
   },
 
   update(
@@ -449,223 +205,204 @@ export const sessionsApi = {
       /** Manual chat-tab order (fractional index). `null` resets to creation order. */
       tabSortKey?: string | null;
     },
-  ): Promise<ChatSessionWithExecution> {
-    return api.patch<ChatSessionWithExecution>(`/sessions/${id}`, input);
+  ) {
+    return trpcClient.sessions.update.mutate({params: {id: id}, body: input});
   },
 
-  pendingInput(id: string): Promise<PendingInput[]> {
-    return api.get<PendingInput[]>(`/sessions/${id}/pending-input`);
+  pendingInput(id: string) {
+    return trpcClient.sessions.pendingInputGet.query({params: {id: id}});
   },
 
   resolvePendingInput(
     id: string,
     requestId: string,
     body: ResolvePendingBody,
-  ): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/pending-input/${requestId}`, body);
+  ) {
+    return trpcClient.sessions.pendingInputRequestIdPost.mutate({params: {id: id, requestId: requestId}, body: body});
   },
 
   events(
     id: string,
     opts?: { limit?: number; before?: string },
-  ): Promise<ChatEventDTO[]> {
+  ) {
     // `before` (an event id) requests the page of events strictly older
     // than that anchor — the transcript's scroll-up pager. Omitting it
     // returns the most-recent `limit` events.
-    return api.get<ChatEventDTO[]>(`/sessions/${id}/events`, {
-      query: { limit: opts?.limit, before: opts?.before },
-    });
+    return trpcClient.sessions.eventsGet.query({params: {id: id}, query: rpcQuery({ limit: opts?.limit, before: opts?.before })});
   },
 
   /**
    * The events behind specific background tasks (lifecycle, launching call,
    * output), for tasks that started before the loaded transcript page.
    */
-  backgroundTaskEvents(id: string, taskIds: readonly string[]): Promise<ChatEventDTO[]> {
-    return api.get<ChatEventDTO[]>(`/sessions/${id}/background-tasks`, { query: { ids: taskIds.join(',') } });
+  backgroundTaskEvents(id: string, taskIds: readonly string[]) {
+    return trpcClient.sessions.backgroundTasksGet.query({params: {id: id}, query: rpcQuery({ ids: taskIds.join(',') })});
   },
 
-  status(id: string): Promise<WorktreeStatus | null> {
-    return api.get<WorktreeStatus | null>(`/sessions/${id}/status`);
+  status(id: string) {
+    return trpcClient.sessions.statusGet.query({params: {id: id}});
   },
 
-  diff(id: string, file?: string): Promise<StructuredDiff | null> {
-    return api.get<StructuredDiff | null>(
-      `/sessions/${id}/diff`,
-      { query: file ? { file } : undefined },
-    );
+  diff(id: string, file?: string) {
+    return trpcClient.sessions.diffGet.query({params: {id: id}, query: rpcQuery(file ? { file } : undefined)});
   },
 
-  tree(id: string): Promise<TreeResponse> {
-    return api.get<TreeResponse>(`/sessions/${id}/tree`);
+  tree(id: string) {
+    return trpcClient.sessions.treeGet.query({params: {id: id}});
   },
 
-  picker(id: string, opts?: { all?: boolean }): Promise<PickerResponse> {
-    return api.get<PickerResponse>(
-      `/sessions/${id}/picker`,
-      { query: opts?.all ? { all: '1' } : undefined },
-    );
+  picker(id: string, opts?: { all?: boolean }) {
+    return trpcClient.sessions.pickerGet.query({params: {id: id}, query: rpcQuery(opts?.all ? { all: '1' } : undefined)});
   },
 
-  entities(id: string): Promise<EntitiesResponse> {
-    return api.get<EntitiesResponse>(`/sessions/${id}/entities`);
+  entities(id: string) {
+    return trpcClient.sessions.entitiesGet.query({params: {id: id}});
   },
 
-  references(id: string, opts?: { scope?: 'session' | 'workspace' | 'all' }): Promise<ReferencesResponse> {
-    return api.get<ReferencesResponse>(
-      `/sessions/${id}/references`,
-      { query: opts?.scope ? { scope: opts.scope } : undefined },
-    );
+  references(id: string, opts?: { scope?: 'session' | 'workspace' | 'all' }) {
+    return trpcClient.sessions.referencesGet.query({params: {id: id}, query: rpcQuery(opts?.scope ? { scope: opts.scope } : undefined)});
   },
 
-  pinRef(id: string, body: { entityType: 'task' | 'note' | 'area'; entityId: string }): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/references`, body);
+  pinRef(id: string, body: { entityType: 'task' | 'note' | 'area'; entityId: string }) {
+    return trpcClient.sessions.referencesPost.mutate({params: {id: id}, body: body});
   },
 
-  unpinRef(id: string, body: { entityType: 'task' | 'note' | 'area'; entityId: string }): Promise<{ ok: true }> {
-    return api.delete<{ ok: true }>(`/sessions/${id}/references`, {
-      query: { entityType: body.entityType, entityId: body.entityId },
-    });
+  unpinRef(id: string, body: { entityType: 'task' | 'note' | 'area'; entityId: string }) {
+    return trpcClient.sessions.referencesDelete.mutate({params: {id: id}, query: rpcQuery({ entityType: body.entityType, entityId: body.entityId })});
   },
 
-  scratchpad(id: string): Promise<{ scratchPad: string | null }> {
-    return api.get<{ scratchPad: string | null }>(`/sessions/${id}/scratchpad`);
+  scratchpad(id: string) {
+    return trpcClient.sessions.scratchpadGet.query({params: {id: id}});
   },
 
-  setScratchpad(id: string, scratchPad: string | null): Promise<{ scratchPad: string | null }> {
-    return api.put<{ scratchPad: string | null }>(`/sessions/${id}/scratchpad`, { scratchPad });
+  setScratchpad(id: string, scratchPad: string | null) {
+    return trpcClient.sessions.scratchpadPut.mutate({params: {id: id}, body: { scratchPad }});
   },
 
-  file(id: string, path: string, opts?: { base?: boolean }): Promise<FileResponse> {
-    return api.get<FileResponse>(
-      `/sessions/${id}/file`,
-      { query: opts?.base ? { path, base: '1' } : { path } },
-    );
+  file(id: string, path: string, opts?: { base?: boolean }) {
+    return trpcClient.sessions.fileGet.query({params: {id: id}, query: rpcQuery(opts?.base ? { path, base: '1' } : { path })});
   },
 
-  pr(id: string): Promise<PrResponse> {
-    return api.get<PrResponse>(`/sessions/${id}/pr`);
+  pr(id: string) {
+    return trpcClient.sessions.prGet.query({params: {id: id}});
   },
 
-  prLink(id: string): Promise<PrLinkResponse> {
-    return api.get<PrLinkResponse>(`/sessions/${id}/pr-link`);
+  prLink(id: string) {
+    return trpcClient.sessions.prLinkGet.query({params: {id: id}});
   },
 
-  openPr(id: string): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/pr`);
+  openPr(id: string) {
+    return trpcClient.sessions.prPost.mutate({params: {id: id}});
   },
 
-  mergePr(id: string, body?: MergeRequestBody): Promise<MergeResponse> {
-    return api.post<MergeResponse>(`/sessions/${id}/merge`, body ?? {});
+  mergePr(id: string, body?: MergeRequestBody) {
+    return trpcClient.sessions.mergePost.mutate({params: {id: id}, body: body ?? {}});
   },
 
-  setAutoMerge(id: string, body: AutoMergeRequestBody): Promise<AutoMergeResponse> {
-    return api.post<AutoMergeResponse>(`/sessions/${id}/auto-merge`, body);
+  setAutoMerge(id: string, body: AutoMergeRequestBody) {
+    return trpcClient.sessions.autoMergePost.mutate({params: {id: id}, body: body});
   },
 
   /** Where each message sent to a device elsewhere stands, by chat event id (P3.2). */
-  deliveries(id: string, opts: { signal?: AbortSignal } = {}): Promise<Record<string, MessageDelivery>> {
-    return api.get<Record<string, MessageDelivery>>(`/sessions/${id}/deliveries`, { signal: opts.signal });
+  deliveries(id: string, opts: { signal?: AbortSignal } = {}) {
+    return trpcClient.sessions.deliveriesGet.query({params: {id: id}}, rpcOptions({ signal: opts.signal }));
   },
 
   /** Withdraw a message still waiting in its device's queue. */
-  cancelDelivery(id: string, eventId: string): Promise<MessageDelivery> {
-    return api.post<MessageDelivery>(`/sessions/${id}/deliveries/${eventId}/cancel`);
+  cancelDelivery(id: string, eventId: string) {
+    return trpcClient.sessions.deliveriesCancelEventIdPost.mutate({params: {id: id, eventId: eventId}});
   },
 
   /** The execution's latest move between devices (P4.2). */
-  transfer(id: string, opts: { signal?: AbortSignal } = {}): Promise<{ transfer: TransferView | null }> {
-    return api.get<{ transfer: TransferView | null }>(`/sessions/${id}/transfer`, { signal: opts.signal });
+  transfer(id: string, opts: { signal?: AbortSignal } = {}) {
+    return trpcClient.sessions.transferGet.query({params: {id: id}}, rpcOptions({ signal: opts.signal }));
   },
   /** What a move would take from its worktree, read where it runs. */
-  workingState(id: string, opts: { signal?: AbortSignal } = {}): Promise<WorkingState | null> {
-    return api.get<WorkingState | null>(`/sessions/${id}/transfer/working-state`, { signal: opts.signal });
+  workingState(id: string, opts: { signal?: AbortSignal } = {}) {
+    return trpcClient.sessions.transferWorkingStateGet.query({params: {id: id}}, rpcOptions({ signal: opts.signal }));
   },
-  startTransfer(id: string, body: { toDeviceId: string; includeUntracked: string[] }): Promise<{ transfer: TransferView }> {
-    return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer`, body);
+  startTransfer(id: string, body: { toDeviceId: string; includeUntracked: string[] }) {
+    return trpcClient.sessions.transferPost.mutate({params: {id: id}, body: body});
   },
-  resumeTransfer(id: string): Promise<{ transfer: TransferView }> {
-    return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer/resume`);
+  resumeTransfer(id: string) {
+    return trpcClient.sessions.transferResumePost.mutate({params: {id: id}});
   },
-  finishTransfer(id: string): Promise<{ transfer: TransferView }> {
-    return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer/finish`);
+  finishTransfer(id: string) {
+    return trpcClient.sessions.transferFinishPost.mutate({params: {id: id}});
   },
   /** Send them again: held messages whose delivery stopped short. */
-  deliverHeld(id: string): Promise<{ transfer: TransferView }> {
-    return api.post<{ transfer: TransferView }>(`/sessions/${id}/transfer/deliver`);
+  deliverHeld(id: string) {
+    return trpcClient.sessions.transferDeliverPost.mutate({params: {id: id}});
   },
 
   /** Open code here (P4.1): this device's review checkout of the execution, if any. */
-  review(id: string, opts: { signal?: AbortSignal; deviceId?: string } = {}): Promise<ReviewState> {
-    const on = opts.deviceId ? `?device=${encodeURIComponent(opts.deviceId)}` : '';
-    return api.get<ReviewState>(`/sessions/${id}/review${on}`, { signal: opts.signal, headers: hostHeaders() });
+  review(id: string, opts: { signal?: AbortSignal; deviceId?: string } = {}) {
+    return trpcClient.sessions.reviewGet.query({ params: { id }, query: { device: opts.deviceId } }, rpcOptions({ signal: opts.signal, headers: hostHeaders() }));
   },
   /** Make or refresh it: refreshed only while it has no edits. */
-  openCodeHere(id: string): Promise<ReviewState & { created: boolean; refreshed: boolean; inTheWay?: string[] }> {
-    return api.post<ReviewState & { created: boolean; refreshed: boolean; inTheWay?: string[] }>(`/sessions/${id}/review`, {}, { headers: hostHeaders() });
+  openCodeHere(id: string) {
+    return trpcClient.sessions.reviewPost.mutate({params: {id: id}, body: {}}, rpcOptions({ headers: hostHeaders() }));
   },
   /** Open it in an app on this device, through its worker. */
-  openReview(id: string, target: OpenTarget): Promise<{ ok: boolean; reason?: string; message?: string }> {
-    return api.post(`/sessions/${id}/review/open`, { op: 'open', path: null, target });
+  openReview(id: string, target: OpenTarget) {
+    return trpcClient.sessions.reviewOpenPost.mutate({params: {id: id}, body: { path: null, target }});
   },
 
-  needsReview(opts: { signal?: AbortSignal } = {}): Promise<ChatSessionWithExecution[]> {
-    return api.get<ChatSessionWithExecution[]>('/sessions/needs-review', { signal: opts.signal });
+  needsReview(opts: { signal?: AbortSignal } = {}) {
+    return trpcClient.sessions.needsReviewGet.query({}, rpcOptions({ signal: opts.signal }));
   },
 
   /**
    * @deprecated use markRead — `view` is the legacy endpoint, kept so
    *   older callers compile until they migrate.
    */
-  markViewed(id: string): Promise<ChatSessionRecord> {
-    return api.post<ChatSessionRecord>(`/sessions/${id}/view`);
+  markViewed(id: string) {
+    return trpcClient.sessions.viewPost.mutate({params: {id: id}});
   },
 
-  markRead(id: string): Promise<ChatSessionRecord> {
-    return api.post<ChatSessionRecord>(`/sessions/${id}/read`);
+  markRead(id: string) {
+    return trpcClient.sessions.readPost.mutate({params: {id: id}});
   },
 
-  markUnread(id: string): Promise<ChatSessionRecord> {
-    return api.post<ChatSessionRecord>(`/sessions/${id}/unread`);
+  markUnread(id: string) {
+    return trpcClient.sessions.unreadPost.mutate({params: {id: id}});
   },
 
   /** Pin this session's execution to the rail's "Pinned" group. Returns the
    *  session flattened with the updated `execution.pinnedAt`. */
-  pin(id: string): Promise<ChatSessionWithExecution> {
-    return api.post<ChatSessionWithExecution>(`/sessions/${id}/pin`);
+  pin(id: string) {
+    return trpcClient.sessions.pinPost.mutate({params: {id: id}});
   },
 
   /** Unpin this session's execution (clears `execution.pinnedAt`). */
-  unpin(id: string): Promise<ChatSessionWithExecution> {
-    return api.post<ChatSessionWithExecution>(`/sessions/${id}/unpin`);
+  unpin(id: string) {
+    return trpcClient.sessions.unpinPost.mutate({params: {id: id}});
   },
 
-  rail(opts: { signal?: AbortSignal } = {}): Promise<RailResponse> {
-    return api.get<RailResponse>('/sessions/rail', { signal: opts.signal });
+  rail(opts: { signal?: AbortSignal } = {}) {
+    return trpcClient.sessions.railGet.query({}, rpcOptions({ signal: opts.signal }));
   },
 
-  history(): Promise<HistoryResponse> {
-    return api.get<HistoryResponse>('/sessions/history');
+  history() {
+    return trpcClient.sessions.historyList.query({});
   },
 
   /**
    * Full-text search across chat/execution transcripts. Ranked, one result
    * per session, with a highlighted snippet. Blank query returns [].
    */
-  search(query: string, filters?: SessionSearchFilters): Promise<ChatSearchResult[]> {
-    return api.get<ChatSearchResult[]>('/sessions/search', {
-      query: {
+  search(query: string, filters?: SessionSearchFilters) {
+    return trpcClient.sessions.searchGet.query({query: rpcQuery({
         q: query,
         status: filters?.status,
         workspaceId: filters?.workspaceId,
         source: filters?.source,
         limit: filters?.limit,
-      },
-    });
+      })});
   },
 
-  pendingInputGlobal(): Promise<{ sessionIds: string[] }> {
-    return api.get<{ sessionIds: string[] }>('/sessions/pending-input');
+  pendingInputGlobal() {
+    return trpcClient.sessions.pendingInputList.query({});
   },
 
   /**
@@ -677,8 +414,8 @@ export const sessionsApi = {
     return fetchDiffStatsBatched(id);
   },
 
-  archive(id: string, opts?: { force?: boolean }): Promise<ChatSessionWithExecution> {
-    return api.post<ChatSessionWithExecution>(`/sessions/${id}/archive`, { force: opts?.force ?? false });
+  archive(id: string, opts?: { force?: boolean }) {
+    return trpcClient.sessions.archivePost.mutate({params: {id: id}, body: { force: opts?.force ?? false }});
   },
 
   /**
@@ -690,13 +427,13 @@ export const sessionsApi = {
   newChat(
     id: string,
     opts?: { providerId?: HarnessId; model?: string; variant?: string; effort?: EffortLevel },
-  ): Promise<{ session: ChatSessionWithExecution }> {
-    return api.post<{ session: ChatSessionWithExecution }>(`/sessions/${id}/new-chat`, opts ?? {});
+  ) {
+    return trpcClient.sessions.newChatPost.mutate({params: {id: id}, body: opts ?? {}});
   },
 
   /** Past + current chats for this execution, newest first. */
-  chatHistory(id: string): Promise<{ sessions: ExecutionChatHistoryEntry[] }> {
-    return api.get<{ sessions: ExecutionChatHistoryEntry[] }>(`/sessions/${id}/history`);
+  chatHistory(id: string) {
+    return trpcClient.sessions.historyGet.query({params: {id: id}});
   },
 
   /**
@@ -704,8 +441,8 @@ export const sessionsApi = {
    * execution, its worktree, or sibling chats. Powers the X on the chat
    * tab strip. 409s when it's the execution's last open chat.
    */
-  closeChat(id: string): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/close-chat`, {});
+  closeChat(id: string) {
+    return trpcClient.sessions.closeChatPost.mutate({params: {id: id}, body: {}});
   },
 
   /**
@@ -718,32 +455,32 @@ export const sessionsApi = {
   continueWork(
     id: string,
     opts?: { baseBranch?: string | null },
-  ): Promise<ChatSessionWithExecution> {
-    return api.post<ChatSessionWithExecution>(`/sessions/${id}/continue`, opts ?? {});
+  ) {
+    return trpcClient.sessions.continuePost.mutate({params: {id: id}, body: opts ?? {}});
   },
 
-  commit(id: string, opts?: { andPush?: boolean }): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/commit`, opts ?? {});
+  commit(id: string, opts?: { andPush?: boolean }) {
+    return trpcClient.sessions.commitPost.mutate({params: {id: id}, body: opts ?? {}});
   },
 
-  push(id: string): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/push`);
+  push(id: string) {
+    return trpcClient.sessions.pushPost.mutate({params: {id: id}});
   },
 
-  pullBase(id: string, strategy: 'merge' | 'rebase' = 'merge'): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/pull-base`, { strategy });
+  pullBase(id: string, strategy: 'merge' | 'rebase' = 'merge') {
+    return trpcClient.sessions.pullBasePost.mutate({params: {id: id}, body: { strategy }});
   },
 
   /** Bring in what was pushed to the branch's own remote copy from elsewhere. */
-  pullUpstream(id: string, strategy: 'merge' | 'rebase' = 'merge'): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/pull-upstream`, { strategy });
+  pullUpstream(id: string, strategy: 'merge' | 'rebase' = 'merge') {
+    return trpcClient.sessions.pullUpstreamPost.mutate({params: {id: id}, body: { strategy }});
   },
 
   resolveConflicts(
     id: string,
     scenario: 'pr_vs_base' | 'local_vs_remote',
-  ): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/resolve-conflicts`, { scenario });
+  ) {
+    return trpcClient.sessions.resolveConflictsPost.mutate({params: {id: id}, body: { scenario }});
   },
 
   helpWithError(
@@ -753,65 +490,63 @@ export const sessionsApi = {
       error: string;
       context?: ReadonlyArray<{ label: string; value: string }>;
     },
-  ): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/help-with-error`, input);
+  ) {
+    return trpcClient.sessions.helpWithErrorPost.mutate({params: {id: id}, body: { ...input, context: input.context ? [...input.context] : undefined }});
   },
 
-  retrySetup(id: string): Promise<ChatSessionWithExecution> {
-    return api.post<ChatSessionWithExecution>(`/sessions/${id}/retry-setup`);
+  retrySetup(id: string) {
+    return trpcClient.sessions.retrySetupPost.mutate({params: {id: id}});
   },
 
-  retrySetupScript(id: string): Promise<ChatSessionWithExecution> {
-    return api.post<ChatSessionWithExecution>(`/sessions/${id}/retry-setup-script`);
+  retrySetupScript(id: string) {
+    return trpcClient.sessions.retrySetupScriptPost.mutate({params: {id: id}});
   },
 
   sendMessage(
     id: string,
     content: string,
     opts?: { attachments?: Attachment[]; eventId?: string },
-  ): Promise<ChatEventDTO> {
-    return api.post<ChatEventDTO>(`/sessions/${id}/messages`, {
+  ) {
+    return trpcClient.sessions.messagesPost.mutate({params: {id: id}, body: {
       content,
       attachments: opts?.attachments,
       id: opts?.eventId,
-    });
+    }});
   },
 
-  runtimeStatus(id: string, opts: { signal?: AbortSignal } = {}): Promise<SessionRuntimeStatus> {
-    return api.get<SessionRuntimeStatus>(`/sessions/${id}/runtime-status`, { signal: opts.signal });
+  runtimeStatus(id: string, opts: { signal?: AbortSignal } = {}) {
+    return trpcClient.sessions.runtimeStatusGet.query({params: {id: id}}, rpcOptions({ signal: opts.signal }));
   },
 
-  interrupt(id: string): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(`/sessions/${id}/interrupt`);
+  interrupt(id: string) {
+    return trpcClient.sessions.interruptPost.mutate({params: {id: id}});
   },
 
-  stopTask(id: string, taskId: string): Promise<{ stopped: boolean }> {
-    return api.post<{ stopped: boolean }>(
-      `/sessions/${id}/tasks/${encodeURIComponent(taskId)}/stop`,
-    );
+  stopTask(id: string, taskId: string) {
+    return trpcClient.sessions.tasksStopTaskIdPost.mutate({params: {id: id, taskId: taskId}});
   },
 
-  reconcile(id: string): Promise<ReconcileResult> {
-    return api.post<ReconcileResult>(`/sessions/${id}/reconcile`);
+  reconcile(id: string) {
+    return trpcClient.sessions.reconcilePost.mutate({params: {id: id}});
   },
 
-  resync(id: string): Promise<ResyncResult> {
-    return api.post<ResyncResult>(`/sessions/${id}/resync`);
+  resync(id: string) {
+    return trpcClient.sessions.resyncPost.mutate({params: {id: id}});
   },
 
-  restart(id: string): Promise<RestartResult> {
-    return api.post<RestartResult>(`/sessions/${id}/restart`);
+  restart(id: string) {
+    return trpcClient.sessions.restartPost.mutate({params: {id: id}});
   },
 
-  takeOverImport(id: string): Promise<TakeOverImportResult> {
-    return api.post<TakeOverImportResult>(`/sessions/${id}/take-over-import`);
+  takeOverImport(id: string) {
+    return trpcClient.sessions.takeOverImportPost.mutate({params: {id: id}});
   },
 
-  wip(id: string): Promise<WipDetection | null> {
-    return api.get<WipDetection | null>(`/sessions/${id}/wip`);
+  wip(id: string) {
+    return trpcClient.sessions.wipGet.query({params: {id: id}});
   },
 
-  applyWip(id: string, action: 'copy' | 'move'): Promise<WipApplyResult> {
-    return api.post<WipApplyResult>(`/sessions/${id}/wip`, { action });
+  applyWip(id: string, action: 'copy' | 'move') {
+    return trpcClient.sessions.wipPost.mutate({params: {id: id}, body: { action }});
   },
 };

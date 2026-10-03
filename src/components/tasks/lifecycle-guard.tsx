@@ -1,5 +1,7 @@
 'use client';
 
+import { entityKeys } from '@/lib/query/entity-keys';
+
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import { Dialog } from 'radix-ui';
 import { useQueryClient } from '@tanstack/react-query';
@@ -99,7 +101,7 @@ export function LifecycleGuardProvider({ children }: { children: ReactNode }) {
           } else {
             await tasksApi.transition(cmd.taskId, cmd.command, { ...acks, idempotencyKey: key });
           }
-          qc.invalidateQueries({ queryKey: ['tasks'] });
+          qc.invalidateQueries({ queryKey: entityKeys.tasks.all });
           qc.invalidateQueries({ queryKey: ['sessions'] });
           qc.invalidateQueries({ queryKey: ['executions'] });
           toast.success(

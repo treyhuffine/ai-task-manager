@@ -1,17 +1,18 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Bot, Folder, User } from 'lucide-react';
+import { MessageResponse } from '@/components/ai-elements/message';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { AreaRecord, WorkspaceRecord } from '@/db/types';
+import { useAreas } from '@/hooks/use-areas';
 import { useSession, useSessionEvents } from '@/hooks/use-execution';
 import { useWorkspaces } from '@/hooks/use-workspaces';
-import { useAreas } from '@/hooks/use-areas';
-import { Skeleton } from '@/components/ui/skeleton';
-import { MessageResponse } from '@/components/ai-elements/message';
+import type { ChatEventRecord, ChatSessionRecord } from '@/lib/api/dto/records';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { conversationText, pickConversationMessages } from '@/lib/executions/conversation';
 import { cn } from '@/lib/utils';
-import type { ChatEventRecord, ChatSessionRecord, WorkspaceRecord, AreaRecord } from '@/db/types';
+import { Bot, Folder, User } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSessionHover } from './session-hover-context';
 
 const PANEL_WIDTH = 360;

@@ -1,8 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getDb } from '@/lib/db';
-import { notes } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
-import { getNote, updateNote, deleteNote } from '@/lib/db/queries';
+import { getNote, updateNote, deleteNote, markNoteViewed } from '@/lib/db/queries';
 import type { UpdateNoteInput } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
 
@@ -22,12 +19,7 @@ async function handleGET(
       return Response.json({ error: 'Note not found' }, { status: 404 });
     }
 
-    // Fire-and-forget: mark as viewed
-    const db = getDb();
-    db.update(notes)
-      .set({ lastViewedAt: new Date().toISOString() })
-      .where(eq(notes.id, id))
-      .run();
+    markNoteViewed(id);
 
     return Response.json(row);
   } catch (err) {

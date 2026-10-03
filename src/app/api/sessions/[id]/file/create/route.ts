@@ -1,42 +1,6 @@
-import type { NextRequest } from 'next/server';
-import { writeOnOwner } from '@/lib/executor/owner-files';
-import { whileAdmitted } from '@/lib/transfer/moving';
-import { createWorkspaceFile } from '@/lib/workspaces/write-file';
-import { openSessionWorktree, mapFileError } from '../../_helpers';
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/sessions/[id]/file/create';
 
-/**
- * Create an empty file at the given path. Distinct from PUT (upsert):
- * this one refuses to overwrite, so the tree's "New File" affordance
- * can surface a name-collision error instead of silently clobbering an
- * existing file the user forgot about.
- *
- * POST body: `{ path: string }`.
- */
-async function handlePOST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    const body = (await request.json().catch(() => null)) as { path?: unknown } | null;
-    if (!body || typeof body.path !== 'string') {
-      return Response.json({ error: 'Body must be { path: string }' }, { status: 400 });
-    }
 
-    const owner = await writeOnOwner(id, { kind: 'create_file', path: body.path });
-    if (owner) return owner;
-    const resolved = await openSessionWorktree(id);
-    if (!resolved.ok) return resolved.response;
-
-    const result = await createWorkspaceFile(resolved.handle, body.path);
-    return Response.json({ ok: true, ...result });
-  } catch (err) {
-    return mapFileError(err, '[POST /api/sessions/:id/file/create]');
-  }
-}
-
-/** A change to its files, counted while it runs: never under a move (P4 review). */
-export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
-  const { id } = await context.params;
-  return whileAdmitted(id, 'changing its files', () => handlePOST(request, context));
-}
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));

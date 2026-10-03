@@ -1,8 +1,8 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api/client';
 import type { ClaudeAuthStatus } from '@/lib/auth/claude';
+import { trpcClient } from '@/lib/trpc/client';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 interface ClaudeLoginResponse {
   ok: boolean;
@@ -27,7 +27,7 @@ const STATUS_KEY = ['claude-auth-status'] as const;
 export function useClaudeAuthStatus() {
   return useQuery<ClaudeAuthStatus>({
     queryKey: STATUS_KEY,
-    queryFn: () => api.get<ClaudeAuthStatus>('/claude-auth/status'),
+    queryFn: () => trpcClient.claudeAuth.statusGet.query({}),
     // Polling cadence. Costs one cheap subprocess spawn per tick
     // (`claude auth status` returns instantly from the credential
     // file/keychain). 10s is the sweet spot — out-of-band logins from
@@ -57,7 +57,7 @@ export function useClaudeAuthStatus() {
 export function useClaudeLogin() {
   const qc = useQueryClient();
   return useMutation<ClaudeLoginResponse, Error>({
-    mutationFn: () => api.post<ClaudeLoginResponse>('/claude-auth/login'),
+    mutationFn: () => trpcClient.claudeAuth.loginPost.mutate({}),
     onSuccess: (data) => {
       qc.setQueryData<ClaudeAuthStatus>(STATUS_KEY, data.status);
     },

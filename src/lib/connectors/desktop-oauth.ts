@@ -21,7 +21,7 @@ export function desktopEnabled() { return process.env.RI_DESKTOP === '1' || !!pr
 
 /** The local controller gives this capability only over its private OS socket.
  * A phone's ordinary owner token does not accidentally select a Mac callback. */
-export function isDesktopRequest(request: Request) {
+export function isDesktopRequest(request: Pick<Request, 'headers' | 'url'>) {
   const expected = process.env.RI_DESKTOP_CLIENT_SECRET;
   const supplied = request.headers.get('x-ri-desktop-client');
   return !!expected && !!supplied && sameState(expected, supplied);

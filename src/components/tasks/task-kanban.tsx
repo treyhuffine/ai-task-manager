@@ -1,5 +1,7 @@
 'use client';
 
+import { entityKeys } from '@/lib/query/entity-keys';
+
 import { useMemo, useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import {
   DndContext,
@@ -365,7 +367,7 @@ export function TaskKanban({
       const nextId = idx < orderedIds.length - 1 ? orderedIds[idx + 1] : null;
       // Optimistic: show the dropped order immediately (the server's canonical
       // keys land on the settle invalidate below).
-      const qkey = ['tasks', { status: laneStatus(lane), orderBy: 'sortKey' }];
+      const qkey = entityKeys.tasks.list({ status: laneStatus(lane), orderBy: 'sortKey' });
       qc.setQueryData<TaskListDTO[]>(qkey, (rows) => {
         if (!rows) return rows;
         const byId = new Map(rows.map((r) => [r.id, r]));
@@ -378,7 +380,7 @@ export function TaskKanban({
       } catch {
         // fall through to reconcile
       }
-      qc.invalidateQueries({ queryKey: ['tasks'] });
+      qc.invalidateQueries({ queryKey: entityKeys.tasks.all });
     },
     [qc],
   );

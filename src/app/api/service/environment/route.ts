@@ -1,13 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { isInstallationOwner } from '@/lib/service/owner-auth';
-import { environmentStatus, saveEnvironment } from '@/lib/service/environment';
-import { readLimitedJson } from '@/lib/api/limited-body';
-export function GET(request: NextRequest) {
-  if (!isInstallationOwner(request)) return NextResponse.json({ error: 'Installation owner access required' }, { status: 403 });
-  return NextResponse.json(environmentStatus());
-}
-export async function PATCH(request: NextRequest) {
-  if (!isInstallationOwner(request)) return NextResponse.json({ error: 'Installation owner access required' }, { status: 403 });
-  try { return NextResponse.json({ ...saveEnvironment(await readLimitedJson(request, 32 * 1024)), restartRequired: true }); }
-  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Configuration could not be saved' }, { status: 400 }); }
-}
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/service/environment';
+
+
+export const GET = withCompression(serveOperation(operation.GETInput, operation.GET));
+export const PATCH = withCompression(serveOperation(operation.PATCHInput, operation.PATCH));

@@ -1,21 +1,22 @@
 'use client';
 
-import { useState } from 'react';
-import { ArrowUpToLine, ArrowDownToLine, ArrowUpRight, CheckCircle2, XCircle, Clock, AlertCircle, Archive, GitMerge, RotateCw } from 'lucide-react';
-import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState, type BaseInfo, type OpenablePr } from '@/hooks/use-execution-actions';
-import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
-import { useArchiveExecution } from '@/hooks/use-archive-execution';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { ApiError } from '@/lib/api/client';
+import type { WorkspaceRecord } from '@/db/types';
+import { useArchiveExecution } from '@/hooks/use-archive-execution';
+import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState, type BaseInfo, type OpenablePr } from '@/hooks/use-execution-actions';
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
+import { HOME_VIEW } from '@/lib/client/active-view';
+import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
+import { cn } from '@/lib/utils';
+import { AlertCircle, Archive, ArrowDownToLine, ArrowUpRight, ArrowUpToLine, CheckCircle2, Clock, GitMerge, RotateCw, XCircle } from 'lucide-react';
+import { useState } from 'react';
+import { ErrorModal } from '../error-modal';
 import { ActionButton } from './action-button';
 import { CommitButton } from './commit-button';
-import { OpenPrButton } from './open-pr-button';
 import { MergeButton } from './merge-button';
-import { ErrorModal } from '../error-modal';
 import { narrativePr } from './narrative-pr';
-import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
-import { HOME_VIEW } from '@/lib/client/active-view';
-import { cn } from '@/lib/utils';
+import { OpenPrButton } from './open-pr-button';
 
 interface ExecutionActionBarProps {
   session: ChatSessionWithExecution;
@@ -59,12 +60,12 @@ export function ExecutionActionBar({ session, workspace, fit = false }: Executio
 
   /** Pulls the most useful free-text out of either an ApiError body or a generic Error. */
   const errorText = (err: unknown): string => {
-    if (err instanceof ApiError) {
-      const body = err.body as { message?: string; error?: string } | null;
+    if (apiErrorStatus(err) !== undefined) {
+      const body = apiErrorBody(err) as { message?: string; error?: string } | null;
       const msg = body?.message ?? body?.error;
-      return msg ?? `HTTP ${err.status}`;
+      return msg ?? `HTTP ${apiErrorStatus(err)}`;
     }
-    if (err instanceof Error) return err.message;
+    if (err instanceof Error) return apiErrorText(err);
     return String(err);
   };
 
@@ -106,8 +107,8 @@ export function ExecutionActionBar({ session, workspace, fit = false }: Executio
         // machine reads `push.error` directly and flips to
         // `localDiverged`. No modal needed; the user gets a Resolve
         // Conflicts button on the bar itself.
-        if (err instanceof ApiError && err.status === 409) {
-          const body = err.body as { code?: string } | null;
+        if (apiErrorStatus(err) !== undefined && apiErrorStatus(err) === 409) {
+          const body = apiErrorBody(err) as { code?: string } | null;
           if (body?.code === 'non_fast_forward') return;
         }
         setActionError({
@@ -125,8 +126,8 @@ export function ExecutionActionBar({ session, workspace, fit = false }: Executio
       onError: (err) => {
         // 409 + `merge_conflict` is the expected conflict path —
         // auto-dispatch resolve-conflicts and skip the modal.
-        if (err instanceof ApiError && err.status === 409) {
-          const body = err.body as { code?: string } | null;
+        if (apiErrorStatus(err) !== undefined && apiErrorStatus(err) === 409) {
+          const body = apiErrorBody(err) as { code?: string } | null;
           if (body?.code === 'merge_conflict') {
             resolveConflicts.mutate('pr_vs_base');
             return;
@@ -148,8 +149,8 @@ export function ExecutionActionBar({ session, workspace, fit = false }: Executio
       // The branch now has what its remote had, so a refused push is settled.
       onSuccess: () => push.reset(),
       onError: (err) => {
-        if (err instanceof ApiError && err.status === 409) {
-          const body = err.body as { code?: string } | null;
+        if (apiErrorStatus(err) !== undefined && apiErrorStatus(err) === 409) {
+          const body = apiErrorBody(err) as { code?: string } | null;
           if (body?.code === 'merge_conflict') {
             handleResolveConflicts('local_vs_remote');
             return;

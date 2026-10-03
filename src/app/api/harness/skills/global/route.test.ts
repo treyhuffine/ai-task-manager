@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   configureGlobalSkill: vi.fn(),
@@ -35,15 +35,17 @@ beforeEach(() => {
 describe('global agent skill settings', () => {
   it('reports whether the user made an explicit choice', async () => {
     mocks.getGlobalSkillPreference.mockReturnValue(null);
-    expect(await GET().json()).toEqual({
+    expect(await (await GET(new Request('http://localhost/api/test'))).json()).toEqual({
       enabled: false,
       configured: false,
+      appOnly: false,
     });
 
     mocks.getGlobalSkillPreference.mockReturnValue(true);
-    expect(await GET().json()).toEqual({
+    expect(await (await GET(new Request('http://localhost/api/test'))).json()).toEqual({
       enabled: true,
       configured: true,
+      appOnly: false,
     });
   });
 
@@ -91,7 +93,7 @@ describe('global agent skill settings', () => {
 it('keeps desktop onboarding away from global skills and project cleanup', async () => {
   vi.stubEnv('RI_DESKTOP', '1');
   mocks.installAppRootSkills.mockResolvedValue({ installed: 2, errors: 0 });
-  expect(await GET().json()).toEqual({ enabled: false, configured: true, appOnly: true });
+  expect(await (await GET(new Request('http://localhost/api/test'))).json()).toEqual({ enabled: false, configured: true, appOnly: true });
   const response = await PUT(new NextRequest('http://localhost/api/harness/skills/global', { method: 'PUT', body: JSON.stringify({ enabled: true }) }));
   expect(response.status).toBe(200);
   expect(mocks.installAppRootSkills).toHaveBeenCalledOnce();

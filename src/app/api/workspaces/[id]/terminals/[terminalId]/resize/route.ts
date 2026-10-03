@@ -1,18 +1,8 @@
-import type { NextRequest } from 'next/server';
-import { agentTerminalPlace, terminalResizeAt } from '@/lib/terminal/place';
-
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/workspaces/[id]/terminals/[terminalId]/resize';
 export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string; terminalId: string }> },
-) {
-  try {
-    const { id, terminalId } = await params;
-    return await terminalResizeAt(request, agentTerminalPlace(id), terminalId);
-  } catch (err) {
-    console.error('[POST /api/workspaces/:id/terminals/:terminalId/resize]', err);
-    return Response.json({ error: String(err) }, { status: 500 });
-  }
-}
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));
+
+export const dynamic = 'force-dynamic';

@@ -167,7 +167,7 @@ export function NoteList() {
 interface VirtualNoteListProps {
   notes: NoteListDTO[] | undefined;
   isLoading: boolean;
-  error: Error | null;
+  error: { message: string } | null;
   onUpdate: (id: string, field: string, value: unknown) => void;
   onArchive: (id: string) => void;
   onOpen: (id: string) => void;

@@ -1,11 +1,11 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { api, apiErrorText } from '@/lib/api/client';
-import { HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
-import type { HarnessVerifyResponse } from '@/app/api/harness/verify/route';
-import type { HarnessAuthReport } from '@/components/onboarding/harness-setup';
 import { autoHarness, suggestedHarness, type HarnessReports } from '@/components/onboarding/harness-pick';
+import type { HarnessAuthReport } from '@/components/onboarding/harness-setup';
+import { apiErrorText } from '@/lib/api/client';
+import { HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
+import { trpcClient } from '@/lib/trpc/client';
+import { useQuery } from '@tanstack/react-query';
 
 export type HarnessCheck =
   | { status: 'ready'; harness: HarnessId; report: HarnessAuthReport }
@@ -36,7 +36,7 @@ export function useHarnessCheck(enabled: boolean) {
 async function runHarnessCheck(): Promise<HarnessCheck> {
   const entries = await Promise.all(
     HARNESS_IDS.map(async (id) => {
-      const report = await api.post<HarnessAuthReport>('/harness/auth', { harness: id }).catch(() => null);
+      const report = await trpcClient.harness.authPost.mutate({body: { harness: id }}).catch(() => null);
       return [id, report] as const;
     }),
   );
@@ -44,7 +44,7 @@ async function runHarnessCheck(): Promise<HarnessCheck> {
   const harness = autoHarness(reports);
   if (!harness) return { status: 'attention', suggested: suggestedHarness(reports), reports, problem: null };
   try {
-    const verify = await api.post<HarnessVerifyResponse>('/harness/verify', { harness });
+    const verify = await trpcClient.harness.verifyPost.mutate({body: { harness }});
     if (verify.ok) return { status: 'ready', harness, report: reports[harness]! };
     return { status: 'attention', suggested: harness, reports, problem: verify.errorMessage ?? null };
   } catch (err) {

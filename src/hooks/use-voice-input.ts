@@ -1,11 +1,12 @@
 'use client';
+import { trpcClient } from '@/lib/trpc/client';
 
-import { retainActiveInput } from '@/lib/client/active-input';
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { getVoiceProvider, DEFAULT_VOICE_MODEL } from '@/constants/voice-models';
+import { DEFAULT_VOICE_MODEL, getVoiceProvider } from '@/constants/voice-models';
 import { useUserState } from '@/hooks/use-user-state';
-import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api/client';
+import { retainActiveInput } from '@/lib/client/active-input';
+import { useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 type VoiceProvider = 'local' | 'groq' | 'web' | null;
 
@@ -198,7 +199,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
       try {
         const data = await queryClient.fetchQuery({
           queryKey: PROVIDERS_KEY,
-          queryFn: () => api.get<{ providers: ProviderStatus }>('/transcribe'),
+          queryFn: () => trpcClient.transcribe.status.query({}),
           // Cached across mounts, and fresh when the providers just changed.
           staleTime: fresh ? 0 : PROVIDERS_FRESH_MS,
         });

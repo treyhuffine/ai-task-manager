@@ -1,3 +1,6 @@
+import { trpc } from '@/lib/trpc/client';
+import { entityKeys } from '@/lib/query/entity-keys';
+import type { RouterInputs } from '@/lib/trpc/router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { areasApi } from '@/lib/api/areas';
@@ -6,42 +9,36 @@ import {
   rollbackOptimistic,
   settleEntity,
 } from '@/lib/query/optimistic-entity';
-import type { CreateAreaInput, AreaFilter, UpdateAreaInput } from '@/db/types';
-
-const AREAS_KEY = ['areas'] as const;
+import type { AreaFilter } from '@/db/types';
 
 export function useAreas(filter?: AreaFilter) {
   return useQuery({
-    queryKey: [...AREAS_KEY, filter],
-    queryFn: () => areasApi.list(filter),
+    ...trpc.areas.list.queryOptions(filter),
   });
 }
 
 export function useArea(id: string | null) {
   return useQuery({
-    queryKey: [...AREAS_KEY, id],
-    queryFn: () => areasApi.get(id!),
+    ...trpc.areas.get.queryOptions({ id: id ?? '' }),
     enabled: !!id,
   });
 }
 
 export function useCreateArea() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationKey: AREAS_KEY,
+  return useMutation(trpc.areas.create.mutationOptions({
     meta: { carriesInput: true },
-    mutationFn: (input: CreateAreaInput) => areasApi.create(input),
-    onSuccess: (record) => qc.setQueryData([...AREAS_KEY, record.id], record),
+    onSuccess: (record) => qc.setQueryData(entityKeys.areas.detail(record.id), record),
     onSettled: () => settleEntity(qc, 'areas'),
-  });
+  }));
 }
 
 export function useUpdateArea() {
   const qc = useQueryClient();
   return useMutation({
-    mutationKey: AREAS_KEY,
+    mutationKey: trpc.areas.update.mutationKey(),
     meta: { carriesInput: true },
-    mutationFn: ({ id, ...input }: UpdateAreaInput & { id: string }) =>
+    mutationFn: ({ id, ...input }: RouterInputs['areas']['update']['patch'] & { id: string }) =>
       areasApi.update(id, input),
     onMutate: async ({ id, ...input }) => ({
       snapshot: await optimisticPatch(qc, 'areas', id, input),

@@ -1,3 +1,4 @@
+import { entityKeys } from '@/lib/query/entity-keys';
 import type { QueryClient } from '@tanstack/react-query';
 import { uuidv7 } from 'uuidv7';
 import { toast } from 'sonner';
@@ -84,7 +85,7 @@ export function startExecution(qc: QueryClient, args: StartExecutionArgs): Start
       qc.invalidateQueries({ queryKey: ['workspaces'] });
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
       // Start-with-agent moved the task to In progress + recorded ownership.
-      if (args.taskId) qc.invalidateQueries({ queryKey: ['tasks'] });
+      if (args.taskId) qc.invalidateQueries({ queryKey: entityKeys.tasks.all });
 
       const content = args.message?.content?.trim();
       if (content) {

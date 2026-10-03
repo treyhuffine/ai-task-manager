@@ -1,24 +1,25 @@
 'use client';
 
-import { useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { sessionsApi, type MergeRequestBody, type AutoMergeRequestBody, type PrInfo, type WorktreeStatus, type DiffStats } from '@/lib/api/sessions';
-import type { BranchSync } from '@/lib/workspaces/branch-sync';
 import {
-  useCommit,
-  usePush,
-  usePullBase,
-  usePullUpstream,
-  useRetrySetup,
-  useSessionStatus,
-  useTransfer,
-  useWorktreeScope,
-  worktreeScopeFromCache,
+	useCommit,
+	usePullBase,
+	usePullUpstream,
+	usePush,
+	useRetrySetup,
+	useSessionStatus,
+	useTransfer,
+	useWorktreeScope,
+	worktreeScopeFromCache,
 } from '@/hooks/use-execution';
 import { useDiffStats } from '@/hooks/use-workspaces';
-import type { ChatSessionWithExecution } from '@/db/types';
-import type { TransferView } from '@/lib/transfer/view';
+import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
+import { sessionsApi, type AutoMergeRequestBody, type DiffStats, type MergeRequestBody, type PrInfo, type WorktreeStatus } from '@/lib/api/sessions';
+import type { BranchSync } from '@/lib/workspaces/branch-sync';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
+
 import { preparedFolder } from '@/lib/executions/location';
+import type { TransferView } from '@/lib/transfer/view';
 
 /** PR context that travels with worktree-state variants when present. */
 export interface PrContext {
@@ -342,7 +343,7 @@ export function deriveActionState({ session, workspaceIsGit, transfer, pushNonFa
 }
 
 /** The clean-worktree states as read before `BranchSync`, for older devices. */
-function legacyCleanState(status: WorktreeStatus, pr: PrInfo | null | undefined, diffStats: DiffStats | null | undefined): ActionState {
+function legacyCleanState(status: NonNullable<WorktreeStatus>, pr: PrInfo | null | undefined, diffStats: DiffStats | null | undefined): ActionState {
   const ahead = status.ahead;
   const behind = status.behind;
   if (pr) {
@@ -407,7 +408,7 @@ function legacyCleanState(status: WorktreeStatus, pr: PrInfo | null | undefined,
  * the step (`baseInfo`) unless GitHub itself requires the update.
  */
 function cleanState(
-  status: WorktreeStatus,
+  status: NonNullable<WorktreeStatus>,
   sync: BranchSync,
   pr: PrInfo | null | undefined,
   diffStats: DiffStats | null | undefined,

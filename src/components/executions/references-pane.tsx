@@ -1,5 +1,8 @@
 'use client';
 
+import { tasksApi } from '@/lib/api/tasks';
+import { notesApi } from '@/lib/api/notes';
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -16,7 +19,6 @@ import { cn } from '@/lib/utils';
 import { useSessionReferences } from '@/hooks/use-execution';
 import { useTasks } from '@/hooks/use-tasks';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { api } from '@/lib/api/client';
 import type { ReferenceRow } from '@/lib/api/sessions';
 
 export interface EntityChipInsert {
@@ -373,15 +375,16 @@ function CreateRow({
   const qc = useQueryClient();
 
   const createMutation = useMutation({
+    meta: { carriesInput: true },
     mutationFn: async (input: { kind: 'task' | 'note'; title: string }) => {
       if (input.kind === 'task') {
-        return api.post<{ id: string; title: string }>('/tasks', {
+        return tasksApi.create( {
           title: input.title,
           workspaceId: workspaceId,
           rawInput: input.title,
         });
       }
-      return api.post<{ id: string; title: string }>('/notes', {
+      return notesApi.create( {
         title: input.title,
         body: input.title,
         workspaceId: workspaceId,

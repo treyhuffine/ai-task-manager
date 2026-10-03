@@ -1,31 +1,46 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useDeferredValue } from 'react';
-import { Command } from 'cmdk';
-import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
-import {
-  Search, Target, FileText, MessageSquare, X, Loader2,
-  Plus, Sun, Moon, LayoutDashboard, ListTodo, StickyNote,
-  Radio, MessagesSquare, Mic, Settings, Calendar, TextSearch, SquareKanban,
-  type LucideIcon,
-} from 'lucide-react';
+import { openSettings } from '@/components/settings/settings-store';
 import { NoteIcon } from '@/components/shared/note-icon';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useSearch } from '@/hooks/use-search';
+import { openChatSearch } from '@/components/workspaces/chat-search-store';
+import {
+	HOTKEYS, matchesHotkey,
+	PALETTE_COMMANDS, TYPE_PREFIXES,
+	type EntityTypeFilter,
+	type PaletteCommand,
+} from '@/constants/commands';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useCreateTask } from '@/hooks/use-tasks';
 import { useCreateNote } from '@/hooks/use-notes';
 import { useRecents } from '@/hooks/use-recents';
-import {
-  HOTKEYS, matchesHotkey,
-  PALETTE_COMMANDS, TYPE_PREFIXES,
-  type PaletteCommand, type EntityTypeFilter,
-} from '@/constants/commands';
-import { openSettings } from '@/components/settings/settings-store';
-import { openChatSearch } from '@/components/workspaces/chat-search-store';
-import { closeTaskBoard, openTaskBoard } from '@/lib/client/task-board';
+import { useSearch } from '@/hooks/use-search';
+import { useCreateTask } from '@/hooks/use-tasks';
 import type { SearchResult } from '@/lib/api/search';
+import { closeTaskBoard, openTaskBoard } from '@/lib/client/task-board';
 import type { AnyPanelTab } from '@/types/dashboard';
+import { Command } from 'cmdk';
+import {
+	Calendar,
+	FileText,
+	LayoutDashboard, ListTodo,
+	Loader2,
+	MessageSquare,
+	MessagesSquare, Mic,
+	Moon,
+	Plus,
+	Radio,
+	Search,
+	Settings,
+	SquareKanban,
+	StickyNote,
+	Sun,
+	Target,
+	TextSearch,
+	X,
+	type LucideIcon,
+} from 'lucide-react';
+import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 
 // ── Icon lookup for palette commands ─────────────────────────
 
@@ -373,7 +388,9 @@ function SearchResultItem({
   result: SearchResult;
   onSelect: (entityType: string, id: string) => void;
 }) {
-  const title = result.title || result.body || '(untitled)';
+  const body = 'body' in result ? result.body : result.rawText;
+  const description = 'description' in result ? result.description : undefined;
+  const title = ('title' in result ? result.title : undefined) || body || '(untitled)';
 
   return (
     <Command.Item
@@ -382,13 +399,13 @@ function SearchResultItem({
       className="flex items-start gap-3 px-2 py-2 rounded-md text-left cursor-pointer data-[selected=true]:bg-muted/50"
     >
       <div className="mt-0.5 flex-shrink-0">
-        <EntityIcon type={result.entityType} hasBody={!!result.body?.trim()} className="text-primary/60" />
+        <EntityIcon type={result.entityType} hasBody={!!body?.trim()} className="text-primary/60" />
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-[12px] font-medium leading-tight line-clamp-1">{title}</p>
-        {result.description && (
+        {description && (
           <p className="mt-0.5 text-[10.5px] text-muted-foreground leading-snug line-clamp-2">
-            {result.description}
+            {description}
           </p>
         )}
         <div className="mt-0.5 flex items-center gap-2">

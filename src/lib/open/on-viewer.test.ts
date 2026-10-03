@@ -5,10 +5,10 @@
  * apps only. Everyone else is told where the files are.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { API_KEY_ID_HEADER } from '@/lib/auth/request-key';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { setUpAgentOn } from '@/test/fixtures/setups';
-import { API_KEY_ID_HEADER } from '@/lib/auth/request-key';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const requestWorker = vi.fn();
 vi.mock('@/lib/workers/hub', async (importOriginal) => ({
@@ -79,6 +79,7 @@ describe('opening files on the viewer’s own device', () => {
     expect(requestWorker).toHaveBeenCalledWith(laptopId, 'open_here', {
       op: 'open', folder: { kind: 'execution', executionId, generation: 1 }, path: 'src/app.ts', target: 'vscode', line: 4,
     });
+    requestWorker.mockResolvedValueOnce({ status: 200, body: { platform: 'darwin', apps: [] } });
     await open('workspaces', agentId, onLaptop, { op: 'apps' });
     expect(requestWorker).toHaveBeenLastCalledWith(laptopId, 'open_here', { op: 'apps' });
   });

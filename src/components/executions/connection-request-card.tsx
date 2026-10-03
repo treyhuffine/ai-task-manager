@@ -1,24 +1,25 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bot, Check, Copy, ExternalLink, KeyRound, Loader2, Plug, RefreshCw, ShieldCheck, X } from 'lucide-react';
-import { toast } from 'sonner';
 import { ConnectorLogo } from '@/components/connectors/connector-logo';
-import { Checkbox } from '@/components/ui/checkbox';
 import { openSettings } from '@/components/settings/settings-store';
-import { useSessionEvents } from '@/hooks/use-execution';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useConnectionCardAction, useConnectorStatus, useSaveSignInApp } from '@/hooks/use-connection-requests';
+import { useSessionEvents } from '@/hooks/use-execution';
 import { apiErrorText } from '@/lib/api/client';
+import type { ChatEventRecord } from '@/lib/api/dto/records';
 import { openConnectorAuthorization } from '@/lib/client/desktop';
 import {
-  DEVELOPER_CONSOLES,
-  describeAccounts,
-  looksLikeEmail,
-  type ConnectionRequestView,
-  type ConnectionResponseView,
+	DEVELOPER_CONSOLES,
+	describeAccounts,
+	looksLikeEmail,
+	type ConnectionRequestView,
+	type ConnectionResponseView,
 } from '@/lib/connectors/connection-catalog';
 import { cn } from '@/lib/utils';
-import type { ChatEventRecord } from '@/db/types';
+import { Bot, Check, Copy, ExternalLink, KeyRound, Loader2, Plug, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
+
 
 /** The card a sign-in started from, so its result (or error) shows on it when the page returns. */
 const PENDING_SIGN_IN_KEY = 'ri.connectCard.signIn';

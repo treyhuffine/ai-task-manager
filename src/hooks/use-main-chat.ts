@@ -1,8 +1,8 @@
+import { apiErrorText } from '@/lib/api/client';
+import { trpcClient } from '@/lib/trpc/client';
+import type { RouterInputs, RouterOutputs } from '@/lib/trpc/router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, apiErrorText } from '@/lib/api/client';
 import { toast } from 'sonner';
-import type { ChatSessionRecord, EffortLevel } from '@/db/types';
-import type { HarnessId } from '@/lib/harness/registry';
 
 /**
  * Main chats (docs/agents-view-spec.md §4): the app's main chat (scope
@@ -13,30 +13,10 @@ import type { HarnessId } from '@/lib/harness/registry';
  */
 export type MainChatScope = string | null;
 
-interface MainChatResponse {
-  session: ChatSessionRecord;
-}
-
-export interface MainChatHistoryEntry {
-  id: string;
-  /** Retrospective summary, written when the chat is archived. Null while live. */
-  label: string | null;
-  /** Last user message, truncated: the live fallback until the summary lands. */
-  snippet: string | null;
-  status: 'active' | 'archived';
-  startedAt: string;
-  lastOutcomeEventAt: string | null;
-  /** Rail sort key: anything that happened, human or agent. */
-  lastActivityAt: string | null;
-}
+export type MainChatHistoryEntry = RouterOutputs['orchestratorChat']['historyGet']['sessions'][number];
 
 /** Optional provider/model for a fresh chat: the composer's "switch provider". */
-export interface NewMainChatOptions {
-  providerId?: HarnessId;
-  model?: string;
-  variant?: string;
-  effort?: EffortLevel;
-}
+export type NewMainChatOptions = NonNullable<RouterInputs['orchestratorChat']['create']['body']>;
 
 export const mainChatKey = (scope: MainChatScope) =>
   scope === null ? (['orchestrator-chat'] as const) : (['agent-chat', scope] as const);
@@ -44,13 +24,11 @@ export const mainChatKey = (scope: MainChatScope) =>
 export const mainChatHistoryKey = (scope: MainChatScope) =>
   scope === null ? (['orchestrator-chat', 'history'] as const) : (['agent-chat', scope, 'history'] as const);
 
-const basePath = (scope: MainChatScope) => (scope === null ? '/orchestrator-chat' : `/workspaces/${scope}/chat`);
-
 /** The scope's current chat, created on first load. */
 export function useMainChat(scope: MainChatScope, enabled = true) {
   return useQuery({
     queryKey: mainChatKey(scope),
-    queryFn: () => api.get<MainChatResponse>(basePath(scope)),
+    queryFn: () => scope === null ? trpcClient.orchestratorChat.list.query({}) : trpcClient.workspaces.chatGet.query({ params: { id: scope } }),
     enabled,
     staleTime: 30_000,
   });
@@ -65,7 +43,7 @@ export function useNewMainChat(scope: MainChatScope) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (opts: NewMainChatOptions | void) =>
-      api.post<MainChatResponse>(scope === null ? basePath(scope) : `${basePath(scope)}/new`, opts ?? {}),
+      scope === null ? trpcClient.orchestratorChat.create.mutate({ body: opts ?? {} }) : trpcClient.workspaces.chatNewPost.mutate({ params: { id: scope }, body: opts ?? {} }),
     onError: (error) => toast.error('Could not start a new chat', { description: apiErrorText(error) }),
     onSuccess: (data) => {
       qc.setQueryData(mainChatKey(scope), data);
@@ -78,7 +56,7 @@ export function useNewMainChat(scope: MainChatScope) {
 export function useMainChatHistory(scope: MainChatScope, enabled: boolean) {
   return useQuery({
     queryKey: mainChatHistoryKey(scope),
-    queryFn: () => api.get<{ sessions: MainChatHistoryEntry[] }>(`${basePath(scope)}/history`),
+    queryFn: () => scope === null ? trpcClient.orchestratorChat.historyGet.query({}) : trpcClient.workspaces.chatHistoryGet.query({ params: { id: scope } }),
     enabled,
   });
 }
@@ -91,7 +69,7 @@ export function useResumeMainChat(scope: MainChatScope) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (sessionId: string) =>
-      api.post<MainChatResponse>(`${basePath(scope)}/resume`, { sessionId }),
+      scope === null ? trpcClient.orchestratorChat.resumePost.mutate({ body: { sessionId } }) : trpcClient.workspaces.chatResumePost.mutate({ params: { id: scope }, body: { sessionId } }),
     onSuccess: (data) => {
       qc.setQueryData(mainChatKey(scope), data);
       qc.invalidateQueries({ queryKey: mainChatHistoryKey(scope) });

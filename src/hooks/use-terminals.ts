@@ -1,8 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { terminalsApi, type TerminalDescriptor } from '@/lib/api/terminals';
-import { ApiError } from '@/lib/api/client';
 import { useFolderScope } from '@/hooks/use-folder';
+import { apiErrorBody, apiErrorStatus } from '@/lib/api/client';
+import { terminalsApi, type TerminalDescriptor } from '@/lib/api/terminals';
 import { folderApiBase, type FolderSource } from '@/lib/folders/source';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 /**
  * Terminals for a folder: an execution's worktree or an agent's own folder
@@ -27,8 +27,8 @@ function keyFor(scope: readonly string[] | null, source: FolderSource | null) {
  * reach until it's back. Says why, for the panel to show instead of a shell.
  */
 export function terminalsUnavailable(err: unknown): string | null {
-  if (!(err instanceof ApiError) || err.status !== 409) return null;
-  const body = err.body as { error?: string; message?: string } | null;
+  if (!(apiErrorStatus(err) !== undefined) || apiErrorStatus(err) !== 409) return null;
+  const body = apiErrorBody(err) as { error?: string; message?: string } | null;
   return body?.error === 'unavailable' ? (body.message ?? 'Its device is not connected.') : null;
 }
 

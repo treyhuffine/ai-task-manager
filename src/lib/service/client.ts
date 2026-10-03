@@ -1,7 +1,7 @@
-import http from 'node:http';
-import fs from 'node:fs';
-import path from 'node:path';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
 import { serviceIdentity, servicePaths } from './paths';
 
 export interface ServiceStatus {
@@ -17,6 +17,8 @@ export interface ServiceStatus {
   node?: string;
   origin?: string;
   error?: string;
+  update?: ReturnType<import('./update').UpdateCoordinator['status']>;
+  awake?: import('./awake-settings').AwakeStatus;
   /**
    * What this device is for (src/lib/service/role.ts). A device connected
    * to a home elsewhere doesn't run a home: `home` is where its window goes.

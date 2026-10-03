@@ -20,12 +20,12 @@
  * user has told us never to modify.
  */
 
+import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
+import type { TreeEntry } from '@/lib/workspaces/file-contracts';
 import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
-import type { TreeEntry } from '@/lib/api/sessions';
 
 const execFileAsync = promisify(execFile);
 

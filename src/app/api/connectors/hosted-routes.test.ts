@@ -1,12 +1,12 @@
+import { ensureHostedMcpServer } from '@/lib/connectors/hosted-mcp';
+import { mcpServerStore, type McpServerStore } from '@/lib/connectors/mcp-servers';
+import { AuthConfigRequiredError, ConnectorError, fileLock, type Connection, type ConnectionStore, type ResolvedAuthConfig, type StoredConnection } from '@connectors/engine';
+import { getHostedMcpProvider, HOSTED_MCP_PROVIDERS } from '@connectors/engine/providers';
+import { NextRequest } from 'next/server';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NextRequest } from 'next/server';
-import { AuthConfigRequiredError, ConnectorError, fileLock, type Connection, type ConnectionStore, type ResolvedAuthConfig, type StoredConnection } from '@connectors/engine';
-import { getHostedMcpProvider, HOSTED_MCP_PROVIDERS } from '@connectors/engine/providers';
-import { mcpServerStore, type McpServerStore } from '@/lib/connectors/mcp-servers';
-import { ensureHostedMcpServer } from '@/lib/connectors/hosted-mcp';
 
 const mocked = vi.hoisted(() => ({
   runtime: vi.fn(), connectionStore: vi.fn(), serverStore: vi.fn(), invalidate: vi.fn(),
@@ -145,7 +145,7 @@ describe('hosted connect route', () => {
       expect(mocked.selectConfig).not.toHaveBeenCalled();
       expect(mocked.configLock).not.toHaveBeenCalled();
     }
-    expect(mocked.begin).toHaveBeenCalledExactlyOnceWith(servers.list()[0], req, undefined);
+    expect(mocked.begin).toHaveBeenCalledExactlyOnceWith(servers.list()[0], expect.objectContaining({ headers: req.headers, url: req.url }), undefined);
     expect(mocked.runtime).not.toHaveBeenCalled();
   });
 
@@ -336,7 +336,7 @@ describe('hosted connect route', () => {
     });
     const entry = servers.list()[0];
     expect(entry).toMatchObject({ providerId: 'todoist', connectionId: old.id, accountId: old.accountId, url: definition.url, auth: { kind: 'oauth' } });
-    expect(mocked.begin).toHaveBeenCalledExactlyOnceWith(entry, req, '/welcome?step=connect');
+    expect(mocked.begin).toHaveBeenCalledExactlyOnceWith(entry, expect.objectContaining({ headers: req.headers, url: req.url }), '/welcome?step=connect');
     expect(mocked.runtime).not.toHaveBeenCalled();
     expect(mocked.invalidate).toHaveBeenCalledOnce();
   });
@@ -678,7 +678,7 @@ describe('hosted account selection routes', () => {
     expect(testAccount).toMatchObject({ url: otherUrl, displayName: 'Test', ...(registered ? { authConfigId } : {}) });
     expect(testAccount.connectionId).not.toBe(production.connectionId);
     expect(testAccount.accountId).not.toBe(production.accountId);
-    expect(mocked.begin).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: testAccount.id, url: otherUrl }), expect.any(NextRequest), undefined);
+    expect(mocked.begin).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: testAccount.id, url: otherUrl }), expect.objectContaining({ headers: expect.any(Headers), url: expect.stringContaining('/api/connectors/connect') }), undefined);
     expect(await servers.getOAuthState(production.id)).toEqual(productionOAuth);
     expect(await servers.getOAuthState(testAccount.id)).toBeNull();
 
@@ -689,7 +689,7 @@ describe('hosted account selection routes', () => {
     expect((await connect(request('connect', { providerId, serverId: testAccount.id }))).status).toBe(200);
     expect(mocked.begin).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       id: testAccount.id, url: otherUrl, ...(registered ? { authConfigId } : {}),
-    }), expect.any(NextRequest), undefined);
+    }), expect.objectContaining({ headers: expect.any(Headers), url: expect.stringContaining('/api/connectors/connect') }), undefined);
     if (registered) expect(mocked.selectConfig).toHaveBeenNthCalledWith(1, providerId, authConfigId);
     else expect(mocked.selectConfig).not.toHaveBeenCalled();
 
@@ -722,7 +722,7 @@ describe('hosted account selection routes', () => {
     }));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ serverId: work.id });
-    expect(mocked.begin).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: work.id, connectionId: work.connectionId }), expect.any(NextRequest), undefined);
+    expect(mocked.begin).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: work.id, connectionId: work.connectionId }), expect.objectContaining({ headers: expect.any(Headers), url: expect.stringContaining('/api/connectors/connect') }), undefined);
     expect(servers.list()).toHaveLength(2);
     expect(await servers.getOAuthState(personal.id)).toMatchObject({ tokens: { access_token: 'personal-account-token' } });
   });

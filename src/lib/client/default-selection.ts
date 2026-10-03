@@ -1,11 +1,7 @@
-import { api } from '@/lib/api/client';
+import type { EffortLevel } from '@/db/types';
 import { DEFAULT_EFFORT, defaultModelFor, harnessSupportsEffort } from '@/lib/harness/options';
 import type { HarnessId } from '@/lib/harness/registry';
-import type { EffortLevel } from '@/db/types';
-
-interface HarnessListing {
-  harnesses: { id: HarnessId; settings: { enabledModels: string[]; defaultModel: string | null } }[];
-}
+import { trpcClient } from '@/lib/trpc/client';
 
 export interface DefaultSelection {
   harness: HarnessId;
@@ -31,7 +27,7 @@ export async function setDefaultSelection(input: {
   variant?: string | null;
   effort?: EffortLevel | null;
 }): Promise<DefaultSelection> {
-  const { harnesses } = await api.get<HarnessListing>('/harness/harnesses');
+  const { harnesses } = await trpcClient.harness.harnessesGet.query({});
   const settings = harnesses.find((h) => h.id === input.harness)?.settings;
   const model = input.model ?? settings?.defaultModel ?? defaultModelFor(input.harness);
   const enabled = settings?.enabledModels ?? [];
@@ -39,13 +35,13 @@ export async function setDefaultSelection(input: {
     input.effort !== undefined ? input.effort : harnessSupportsEffort(input.harness) ? DEFAULT_EFFORT : null;
   const variant = input.variant ?? null;
 
-  await api.put('/harness/models/enabled', {
+  await trpcClient.harness.modelsEnabledPut.mutate({body: {
     harness: input.harness,
     enabledModelIds: enabled.includes(model) ? enabled : [model, ...enabled],
     defaultModel: model,
     defaultVariant: variant,
     defaultEffort: effort,
     makeActive: true,
-  });
+  }});
   return { harness: input.harness, model, variant, effort };
 }

@@ -30,6 +30,7 @@ code-archive
 # next.js
 /.next/
 /.next-verify/
+/.next-ws-dev/
 /.next-smoke/
 /.next-bundle-audit/
 /.next-desktop/

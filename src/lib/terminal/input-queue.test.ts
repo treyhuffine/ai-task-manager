@@ -1,6 +1,25 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createInputQueue } from './input-queue';
 
+it('drops queued and new bytes after an unconfirmed write until explicitly resumed', async () => {
+  let reject: (error: Error) => void = () => {};
+  const first = new Promise<void>((_resolve, fail) => { reject = fail; });
+  const send = vi.fn().mockReturnValueOnce(first).mockResolvedValue(undefined);
+  const queue = createInputQueue({ send, onError: () => queue.pause() });
+  queue.push('first');
+  queue.push('queued');
+  reject(new Error('unconfirmed'));
+  await Promise.resolve();
+  await Promise.resolve();
+  queue.push('while paused');
+  expect(send).toHaveBeenCalledTimes(1);
+  queue.resume();
+  queue.push('new input');
+  await Promise.resolve();
+  expect(send).toHaveBeenNthCalledWith(2, 'new input');
+  queue.dispose();
+});
+
 /** A `send` whose resolution the test controls, recording every batch. */
 function controllableSend() {
   const batches: string[] = [];

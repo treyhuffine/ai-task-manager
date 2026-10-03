@@ -1,27 +1,27 @@
-import { useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { uuidv7 } from 'uuidv7';
-import {
-  sessionsApi,
-  type ResolvePendingBody,
-  type WipApplyResult,
-  type ExecutionChatHistoryEntry,
-} from '@/lib/api/sessions';
-import { ApiError, apiErrorText } from '@/lib/api/client';
-import { toast } from 'sonner';
-import { isLaunchPending } from '@/lib/executions/pending-launch';
-import type { HarnessId } from '@/lib/harness/registry';
-import type { PermissionMode, EffortLevel, Attachment } from '@/db/types';
-import { isNewerRevision, type ChatEventDTO } from '@/lib/api/dto/chat-event';
-import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
+import type { Attachment, EffortLevel, PermissionMode } from '@/db/types';
+import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import { isNewerRevision, type ChatEventDTO } from '@/lib/api/dto/chat-event';
 import {
-  hasRuntimeActivity,
-  withRunningStatus,
-  type SessionRuntimeStatus,
+	sessionsApi,
+	type ExecutionChatHistoryEntry,
+	type ResolvePendingBody,
+	type WipApplyResult,
+} from '@/lib/api/sessions';
+import { isLaunchPending } from '@/lib/executions/pending-launch';
+import { resolveModelInfo, type ModelInfo } from '@/lib/executor/context-window';
+import {
+	hasRuntimeActivity,
+	withRunningStatus,
+	type SessionRuntimeStatus,
 } from '@/lib/executor/runtime-status';
-import type { MessageDelivery } from '@/lib/workers/delivery';
+import type { HarnessId } from '@/lib/harness/registry';
 import { deliveryClock, mergeDeliverySnapshot, noteDeliveryUpdate, streamedSince } from '@/lib/query/delivery-fence';
+import type { MessageDelivery } from '@/lib/workers/delivery';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { toast } from 'sonner';
+import { uuidv7 } from 'uuidv7';
 
 const SESSION_KEY = (id: string) => ['session', id] as const;
 
@@ -146,7 +146,7 @@ export function useSession(id: string | null) {
       // wall-clock ceiling, so a second failureCount limit could only ever
       // disagree with it — and would, since creates have been measured well
       // past what a small retry budget covers.
-      if (error instanceof ApiError && error.status === 404) {
+      if (apiErrorStatus(error) !== undefined && apiErrorStatus(error) === 404) {
         return isLaunchPending(id);
       }
       return failureCount < 3;
@@ -156,7 +156,7 @@ export function useSession(id: string | null) {
     // else keeps React Query's default exponential backoff, spelled out here
     // because supplying `retryDelay` at all replaces it.
     retryDelay: (attempt, error) =>
-      error instanceof ApiError && error.status === 404
+      apiErrorStatus(error) !== undefined && apiErrorStatus(error) === 404
         ? 300
         : Math.min(1000 * 2 ** attempt, 30_000),
   });

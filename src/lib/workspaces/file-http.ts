@@ -1,3 +1,4 @@
+import { operationResponse, reply } from '@/lib/server/operation';
 /**
  * HTTP answers for the file viewer, shared by every surface that shows a
  * folder: an execution's worktree (`/api/sessions/:id/file`) and an agent's
@@ -14,19 +15,19 @@ import { FileWriteError } from './write-file';
  * Read one file. `wantBase` returns the diff "old" side (the content at the
  * base commit, empty for non-git folders).
  */
-export async function fileReadResponse(handle: Workspace, relPath: string, wantBase: boolean): Promise<Response> {
+export async function fileReadResult(handle: Workspace, relPath: string, wantBase: boolean) {
   if (wantBase) {
     const content = await readBaseFile(handle, relPath);
-    return Response.json({
+    return reply({
       path: relPath,
       content,
       encoding: 'utf8',
       mime: 'text/plain',
       size: content.length,
-      isBinary: false,
+      isBinary: false, tooLarge: false,
     });
   }
-  return Response.json(await readWorkspaceFile(handle, relPath));
+  return reply(await readWorkspaceFile(handle, relPath));
 }
 
 /**
@@ -65,4 +66,8 @@ export function fileErrorAnswer(err: unknown): { status: number; body: { error: 
     return { status, body: { error: err.message, code: err.code } };
   }
   return null;
+}
+
+export async function fileReadResponse(handle: Workspace, relPath: string, wantBase: boolean) {
+ return operationResponse(await fileReadResult(handle, relPath, wantBase));
 }

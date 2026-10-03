@@ -1,10 +1,10 @@
+import { HOSTED_MCP_PROVIDERS } from '@connectors/engine/providers';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { HOSTED_MCP_PROVIDERS } from '@connectors/engine/providers';
-import { requestConnection, selectRequestAccount } from './request-connection';
 import { ConnectionRequest } from './connection-request';
 import ConnectPage from './page';
+import { requestConnection, selectRequestAccount } from './request-connection';
 
 const savedServers = vi.hoisted(() => ({ entries: [] as Array<Record<string, unknown>>, statuses: [] as Array<Record<string, unknown>>, previous: [] as Array<Record<string, unknown>> }));
 vi.mock('@/lib/connectors/runtime', () => ({ getMcpServerStore: () => ({ list: () => savedServers.entries }), getProviderStatuses: async () => savedServers.statuses,
@@ -133,7 +133,7 @@ describe('connection requests from agent conversations', () => {
     const html = renderToStaticMarkup(createElement(ConnectionRequest, options));
     expect(html).toContain('No account or token is required');
     expect(html).not.toContain('type="password"');
-    const post = vi.fn(async () => ({ connection: {} }));
+    const post = vi.fn(async () => ({ connection: { id: 'verified' } }));
     const openAuthorization = vi.fn();
     await requestConnection({ ...options, token: 'must-not-be-forwarded' }, { post, openAuthorization });
     expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connectDirect', { providerId: 'public-fixture', fields: {} });

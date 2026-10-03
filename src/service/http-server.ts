@@ -3,10 +3,23 @@ import http from 'node:http';
 import next from 'next';
 import { beginActivity, readMaintenance } from '@/lib/service/maintenance';
 import './watchdog';
+import { isTrpcDrainSave } from '@/lib/trpc/admission';
 import { listRunningSessions, listBackgroundTaskSessions, listSessionsWithPending } from '@/lib/executor/status-snapshot';
+import { TRPC_WS_PATH } from '@/lib/trpc/ws-runtime';
+import { DEFAULT_PORT } from '@/lib/auth/port';
 
-const port = Number(process.env.PORT);
-const application = next({ dev: process.env.RI_DESKTOP_MODE === 'development', hostname: '127.0.0.1', port, dir: process.cwd() });
+process.env.RI_TRPC_WS_HOST = '1';
+Object.assign(process.env, { NODE_ENV: process.env.RI_DESKTOP_MODE === 'development' ? 'development' : 'production' });
+const port = Number(process.env.PORT || DEFAULT_PORT);
+const hostname = process.env.RI_HTTP_HOST || '127.0.0.1';
+// Next attaches its own router/HMR upgrade listener on the first HTTP request.
+// Give it an unbound server as its registration target, then dispatch explicitly.
+// Registering it on our listening server would handle a socket twice and let
+// Next consume tRPC upgrades or bypass the maintenance gate.
+const nextUpgrades = http.createServer();
+const application = next({ dev: process.env.RI_DESKTOP_MODE === 'development', hostname, port, dir: process.cwd(), httpServer: nextUpgrades,
+  ...(process.env.RI_NEXT_BUNDLER === 'webpack' ? { webpack: true } : process.env.RI_NEXT_BUNDLER === 'turbopack' ? { turbopack: true } : {}),
+});
 const handle = application.getRequestHandler();
 
 async function start() {
@@ -52,7 +65,7 @@ async function start() {
       return;
     }
     const workerCompletion = request.method === 'POST' && /^\/api\/workers\/me\/(?:heartbeat|events|commands\/[^/]+\/ack|requests\/[^/]+\/result)$/.test(pathname);
-    const saving = workerCompletion || request.method === 'PATCH' && /^\/api\/(tasks|notes|areas)\/[^/]+$/.test(pathname);
+    const saving = workerCompletion || isTrpcDrainSave(request.method, pathname) || request.method === 'PATCH' && /^\/api\/(tasks|notes|areas)\/[^/]+$/.test(pathname);
     const safeRead = request.method === 'GET' || request.method === 'HEAD';
     if (process.env.RI_SERVICE_VALIDATING === '1' || gate?.phase === 'offline' || (gate && !saving && !safeRead)) {
       response.writeHead(503, { 'Retry-After': '5', 'Cache-Control': 'no-store', 'Content-Type': 'application/json' });
@@ -88,13 +101,30 @@ async function start() {
     });
   });
   server.on('upgrade', (request, socket, head) => {
+    let pathname: string;
+    try { pathname = new URL(request.url ?? '/', 'http://localhost').pathname; } catch { socket.destroy(); return; }
+    if (pathname === TRPC_WS_PATH) {
+      const runtime = globalThis.__riTRPCWebSocket;
+      if (runtime) runtime.upgrade(request, socket, head);
+      else socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+      return;
+    }
     if (readMaintenance()) { socket.destroy(); return; }
-    void application.getUpgradeHandler()(request, socket, head);
+    if (process.env.RI_DESKTOP_MODE === 'development' && pathname === '/_next/webpack-hmr' && nextUpgrades.listenerCount('upgrade') > 0) {
+      nextUpgrades.emit('upgrade', request, socket, head);
+    } else socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
   });
-  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
-  const stop = () => { server.close(); void application.close().finally(() => process.exit(0)); };
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, hostname, resolve); });
+  let stopping = false;
+  const stop = () => {
+    if (stopping) return;
+    stopping = true;
+    server.close();
+    void (async () => { await globalThis.__riTRPCWebSocket?.close(); await application.close(); })().finally(() => process.exit(0));
+  };
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
   process.send?.({ type: 'listening', port });
+  if (!process.send) console.info(`[server] ready on http://${hostname}:${port}`);
 }
 void start().catch(error => { console.error('[service] HTTP startup failed', error); process.exit(1); });

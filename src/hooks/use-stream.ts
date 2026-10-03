@@ -1,3 +1,4 @@
+import { entityKeys } from '@/lib/query/entity-keys';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   streamApi,
@@ -17,8 +18,8 @@ function useInvalidateTriage() {
   const qc = useQueryClient();
   return () => {
     void qc.invalidateQueries({ queryKey: STREAM_KEY });
-    void qc.invalidateQueries({ queryKey: ['tasks'] });
-    void qc.invalidateQueries({ queryKey: ['notes'] });
+    void qc.invalidateQueries({ queryKey: entityKeys.tasks.all });
+    void qc.invalidateQueries({ queryKey: entityKeys.notes.all });
   };
 }
 

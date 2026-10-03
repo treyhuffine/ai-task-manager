@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import type { RailSession } from '@/lib/api/sessions';
+import { describe, expect, it } from 'vitest';
 import { groupByDateBucket } from './history-view';
 
 // Synthetic RailSession factory — only the timestamp matters for the
@@ -17,7 +17,7 @@ function s(id: string, iso: string): RailSession {
     surfaceRef: null,
     status: 'active',
     label: 'Test',
-    scratchPad: null,
+
     workspaceId: 'ws-1',
     executionId: null,
     deviceId: null,
@@ -38,7 +38,7 @@ function s(id: string, iso: string): RailSession {
     unreadMarkerAt: null,
     externalSessionId: null,
     externalProviderType: null,
-    externalTranscriptPath: null,
+
     externalSyncOffset: null,
     externalSyncLastEventId: null,
     externalHistoryCheckpoint: null,

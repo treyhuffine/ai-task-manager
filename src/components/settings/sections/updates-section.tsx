@@ -1,19 +1,20 @@
 'use client';
 
-import { useId, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { RuntimeSetup } from '@/components/desktop/runtime-setup';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { api, apiErrorText } from '@/lib/api/client';
+import { apiErrorText } from '@/lib/api/client';
 import { documentSaves } from '@/lib/client/document-saves';
 import type { UpdateRecord } from '@/lib/service/update';
-import { MaintenanceWindowSchema, type ReleasePreferences, type UpdateAction, type UpdatePreferences } from '@/lib/service/update-settings';
 import { maintenanceWindowText, updateProgress, updateStatusText } from '@/lib/service/update-presentation';
+import { MaintenanceWindowSchema, type ReleasePreferences, type UpdateAction, type UpdatePreferences } from '@/lib/service/update-settings';
+import { trpcClient } from '@/lib/trpc/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useId, useState } from 'react';
+import { toast } from 'sonner';
 
 interface Status {
   phase: string;
@@ -83,14 +84,14 @@ export function UpdatesSection() {
   const id = useId();
   const client = useQueryClient();
   const [working, setWorking] = useState(false);
-  const status = useQuery({ queryKey: ['local-service'], queryFn: () => api.get<Status>('/service'), refetchInterval: 2000, retry: false });
+  const status = useQuery({ queryKey: ['local-service'], queryFn: () => trpcClient.service.list.query({}), refetchInterval: 2000, retry: false });
   const data = status.data;
-  const update = data?.update;
+  const update = data && 'update' in data ? data.update : undefined;
   const action = async (input: UpdateAction) => {
     setWorking(true);
     try {
       if (input.action === 'apply' || input.action === 'when-idle') await documentSaves.flushAll();
-      await api.post('/service/update', input);
+      await trpcClient.service.updatePost.mutate({body: input});
       await client.invalidateQueries({ queryKey: ['local-service'] });
     } catch (error) { toast.error(apiErrorText(error)); }
     finally { setWorking(false); }
@@ -98,7 +99,7 @@ export function UpdatesSection() {
   const savePreferences = async (preferences: UpdatePreferences) => {
     setWorking(true);
     try {
-      await api.patch('/service/update/policy', preferences);
+      await trpcClient.service.updatePolicyPatch.mutate({body: preferences});
       await client.invalidateQueries({ queryKey: ['local-service'] });
     } catch (error) { toast.error(apiErrorText(error)); }
     finally { setWorking(false); }

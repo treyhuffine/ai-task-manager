@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('next', () => ({ default: () => ({ prepare: async () => {}, getRequestHandler: () => mocks.handle, close: async () => {} }) }));
 vi.mock('node:http', () => ({ default: { createServer: (listener: typeof mocks.listener) => {
+  if (!listener) return new EventEmitter();
   mocks.listener = listener;
   return { on: vi.fn(), once: vi.fn(), listen: (_port: number, _host: string, ready: () => void) => ready() };
 } } }));
@@ -18,13 +19,15 @@ vi.mock('@/lib/executor/status-snapshot', () => ({ listRunningSessions: () => []
 vi.mock('./watchdog', () => ({}));
 
 beforeAll(async () => {
+  vi.stubEnv('NODE_ENV', process.env.NODE_ENV);
+  vi.stubEnv('RI_TRPC_WS_HOST', process.env.RI_TRPC_WS_HOST);
   vi.spyOn(process, 'once').mockReturnValue(process);
   if (process.send) vi.spyOn(process, 'send').mockReturnValue(true);
   await import('./http-server');
   await vi.waitFor(() => expect(mocks.listener).toBeTypeOf('function'));
 });
 beforeEach(() => { mocks.handle.mockClear(); mocks.activity.mockClear(); });
-afterAll(() => { vi.restoreAllMocks(); });
+afterAll(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 function request(url: string) {
   const response = Object.assign(new EventEmitter(), { writeHead: vi.fn().mockReturnThis(), end: vi.fn().mockReturnThis() });
   mocks.listener!({ url, method: 'GET', headers: {} } as IncomingMessage, response as unknown as ServerResponse);

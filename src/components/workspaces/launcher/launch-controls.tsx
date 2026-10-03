@@ -1,31 +1,31 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { GitBranch, Gauge, Laptop, Loader2, RefreshCw, Search, Cpu, Zap, Check, X } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { workspacesApi } from '@/lib/api/workspaces';
-import { ApiError } from '@/lib/api/client';
-import { Popover, PopoverTrigger } from '@/components/ui/popover';
-import { LauncherPopoverContent } from './launcher-popover';
-import { ModelList, type ModelSelection } from '@/components/settings/model-list';
-import { useWorkspaceBranches } from '@/hooks/use-workspaces';
-import {
-  effortOptionsForModel,
-  explicitEffortForModel,
-  explicitVariantForModel,
-  harnessSupportsEffort,
-  type ModelOption,
-  type ProviderId,
-} from '@/lib/harness/options';
-import type { EffortLevel } from '@/db/types';
-import type { LaunchBase, LaunchMode } from '@/lib/executions/launch-draft';
-import type { RunOn } from '@/lib/setups/run-on';
 import { SetupAgentDialog } from '@/components/agents/setup-agent-dialog';
-import { START_RI } from '@/lib/executions/location';
-import { cn } from '@/lib/utils';
 import { MakeDefaultRow } from '@/components/settings/make-default-row';
+import { ModelList, type ModelSelection } from '@/components/settings/model-list';
+import { Popover, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import type { EffortLevel } from '@/db/types';
 import { useDefaultSelection } from '@/hooks/use-default-selection';
+import { useWorkspaceBranches } from '@/hooks/use-workspaces';
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import { workspacesApi } from '@/lib/api/workspaces';
+import type { LaunchBase, LaunchMode } from '@/lib/executions/launch-draft';
+import { START_RI } from '@/lib/executions/location';
+import {
+	effortOptionsForModel,
+	explicitEffortForModel,
+	explicitVariantForModel,
+	harnessSupportsEffort,
+	type ModelOption,
+	type ProviderId,
+} from '@/lib/harness/options';
+import type { RunOn } from '@/lib/setups/run-on';
+import { cn } from '@/lib/utils';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Cpu, Gauge, GitBranch, Laptop, Loader2, RefreshCw, Search, X, Zap } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { LauncherPopoverContent } from './launcher-popover';
 
 const TRIGGER_CLASS =
   'inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-40 disabled:pointer-events-none';
@@ -575,8 +575,8 @@ export function LiveFreshnessControl({
       void qc.invalidateQueries({ queryKey: key });
     },
     onError: (err) => {
-      const body = err instanceof ApiError ? (err.body as { message?: string } | null) : null;
-      setError(body?.message ?? (err instanceof Error ? err.message : String(err)));
+      const body = apiErrorStatus(err) !== undefined ? (apiErrorBody(err) as { message?: string } | null) : null;
+      setError(body?.message ?? (err instanceof Error ? apiErrorText(err) : String(err)));
     },
   });
 

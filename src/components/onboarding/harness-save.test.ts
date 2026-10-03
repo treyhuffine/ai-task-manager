@@ -8,24 +8,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 let skillStatus: { enabled: boolean; configured: boolean; appOnly?: boolean } = { enabled: false, configured: false };
 const calls: string[] = [];
-vi.mock('@/lib/api/client', () => ({
-  api: {
-    get: vi.fn(async (path: string) => {
-      calls.push(`GET ${path}`);
-      if (path === '/harness/harnesses') return { harnesses: [{ id: 'claude', settings: { enabledModels: ['opus', 'sonnet'], defaultModel: 'opus' } }] };
-      if (path === '/harness/skills/global') return skillStatus;
-      throw new Error(`unexpected GET ${path}`);
-    }),
-    put: vi.fn(async (path: string, body: unknown) => {
-      calls.push(`PUT ${path} ${JSON.stringify(body)}`);
-      return {};
-    }),
-    patch: vi.fn(async (path: string) => {
-      calls.push(`PATCH ${path}`);
-      return {};
-    }),
-  },
-}));
+vi.mock('@/lib/trpc/client', () => ({ trpcClient: { harness: {
+  harnessesGet: { query: vi.fn(async () => ({ harnesses: [{ id: 'claude', settings: { enabledModels: ['opus', 'sonnet'], defaultModel: 'opus' } }] })) },
+  skillsGlobalGet: { query: vi.fn(async () => skillStatus) },
+  modelsEnabledPut: { mutate: vi.fn(async ({ body }: { body: unknown }) => { calls.push(`modelsEnabledPut ${JSON.stringify(body)}`); return {}; }) },
+  skillsGlobalPut: { mutate: vi.fn(async ({ body }: { body: unknown }) => { calls.push(`skillsGlobalPut ${JSON.stringify(body)}`); return {}; }) },
+} } }));
 
 const { saveHarnessSetup } = await import('./harness-save');
 
@@ -39,25 +27,25 @@ describe('saveHarnessSetup', () => {
     const saved = await saveHarnessSetup({ harness: 'claude' });
     expect(saved.model).toBe('opus');
     expect(calls).toContain(
-      `PUT /harness/models/enabled ${JSON.stringify({ harness: 'claude', enabledModelIds: ['opus', 'sonnet'], defaultModel: 'opus', defaultVariant: null, defaultEffort: 'medium', makeActive: true })}`,
+      `modelsEnabledPut ${JSON.stringify({ harness: 'claude', enabledModelIds: ['opus', 'sonnet'], defaultModel: 'opus', defaultVariant: null, defaultEffort: 'medium', makeActive: true })}`,
     );
   });
 
   it('installs the agent skill for a home that never chose', async () => {
     skillStatus = { enabled: false, configured: false };
     await saveHarnessSetup({ harness: 'claude' });
-    expect(calls).toContain('PUT /harness/skills/global {"enabled":true}');
+    expect(calls).toContain('skillsGlobalPut {"enabled":true}');
   });
 
   it("leaves the machine-wide skill alone for a home seeded not to install it", async () => {
     skillStatus = { enabled: false, configured: true };
     await saveHarnessSetup({ harness: 'claude' });
-    expect(calls.some((c) => c.startsWith('PUT /harness/skills/global'))).toBe(false);
+    expect(calls.some((c) => c.startsWith('skillsGlobalPut'))).toBe(false);
   });
 
   it("installs the desktop app's own copy", async () => {
     skillStatus = { enabled: false, configured: true, appOnly: true };
     await saveHarnessSetup({ harness: 'claude' });
-    expect(calls).toContain('PUT /harness/skills/global {"enabled":true}');
+    expect(calls).toContain('skillsGlobalPut {"enabled":true}');
   });
 });

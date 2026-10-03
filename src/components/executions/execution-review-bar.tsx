@@ -1,12 +1,15 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { Check, CheckCheck, MessageSquareDashed, EyeOff, Loader2 } from 'lucide-react';
-import { api, apiErrorText } from '@/lib/api/client';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
-import type { ExecutionReviewContext, ReviewDisposition } from '@/db/types';
+import { entityKeys } from '@/lib/query/entity-keys';
+import { trpcClient } from '@/lib/trpc/client';
+
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import type { ReviewDisposition } from '@/db/types';
+import { apiErrorText } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, CheckCheck, EyeOff, Loader2, MessageSquareDashed } from 'lucide-react';
+import { toast } from 'sonner';
 
 const DISPOSITION_LABEL: Record<ReviewDisposition, string> = {
   accepted: 'Accepted',
@@ -25,7 +28,7 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
 
   const { data: ctx } = useQuery({
     queryKey: ['executions', executionId, 'review-context'],
-    queryFn: () => api.get<ExecutionReviewContext>(`/executions/${executionId}/review-context`),
+    queryFn: () => trpcClient.executions.reviewContextGet.query({params: {id: executionId}}),
     refetchInterval: 15_000,
     staleTime: 8_000,
   });
@@ -34,7 +37,7 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
   // when several are associated instead of hiding the action.
   const { data: linkedTasks } = useQuery({
     queryKey: ['executions', executionId, 'tasks'],
-    queryFn: () => api.get<{ id: string; title: string; status: string }[]>(`/executions/${executionId}/tasks`),
+    queryFn: () => trpcClient.executions.tasksGet.query({params: {id: executionId}}),
     staleTime: 8_000,
   });
   const eligible = (linkedTasks ?? []).filter((t) => t.status !== 'done' && t.status !== 'archived');
@@ -44,11 +47,11 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
       // Send the exact output event this bar is showing, not "whatever is latest
       // at click time" — otherwise output arriving between render and click would
       // be dispositioned instead of the one the human actually reviewed.
-      api.post(`/executions/${executionId}/review`, { ...input, outputEventId: ctx?.latestOutputEventId }),
+      trpcClient.executions.reviewPost.mutate({params: {id: executionId}, body: { ...input, outputEventId: ctx?.latestOutputEventId }}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['executions', executionId, 'review-context'] });
       qc.invalidateQueries({ queryKey: ['executions', executionId, 'tasks'] });
-      qc.invalidateQueries({ queryKey: ['tasks'] });
+      qc.invalidateQueries({ queryKey: entityKeys.tasks.all });
     },
     onError: (e) => toast.error(apiErrorText(e)),
   });

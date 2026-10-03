@@ -29,6 +29,10 @@ const nextConfig: NextConfig = {
     "better-sqlite3",
     "sqlite-vec",
     "node-pty",
+    "ws",
+    // Tracked subscription envelopes carry a module-local symbol. HTTP and
+    // instrumentation must use one Node instance, including after hot reload.
+    "@trpc/server",
     "@beamd/cli",
     "@agentex/agent",
     "@agentex/workspace",
@@ -64,6 +68,8 @@ const nextConfig: NextConfig = {
   // rejects the connection and HMR silently dies. Production builds
   // ignore this option.
   allowedDevOrigins: [
+    "127.0.0.1",
+    "[::1]",
     "*.beamd.run",
     "*.ngrok.io",
     "*.ngrok-free.app",

@@ -1,22 +1,8 @@
-import type { NextRequest } from 'next/server';
-import { refreshExternalAgentSessions } from '@/lib/import/external-agents';
-import type { ExternalAgentRefreshRequest } from '@/lib/import/types';
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/imports/agents/refresh';
+
+
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));
 
 export const dynamic = 'force-dynamic';
-
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json() as Partial<ExternalAgentRefreshRequest>;
-    if (!Array.isArray(body.chatSessionIds)
-      || !body.chatSessionIds.every((id) => typeof id === 'string')) {
-      return Response.json({ error: 'chatSessionIds must be an array of strings' }, { status: 400 });
-    }
-    return Response.json(await refreshExternalAgentSessions(body.chatSessionIds));
-  } catch (error) {
-    console.error('[POST /api/imports/agents/refresh]', error);
-    return Response.json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 400 },
-    );
-  }
-}

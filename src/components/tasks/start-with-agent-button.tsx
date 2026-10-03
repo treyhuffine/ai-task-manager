@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Bot, Loader2 } from 'lucide-react';
-import { Dialog } from 'radix-ui';
 import { openLauncher } from '@/components/workspaces/launcher/launcher-store';
-import { api } from '@/lib/api/client';
+import { trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
+import { Bot, Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Dialog } from 'radix-ui';
+import { useState } from 'react';
 
 interface TaskLike {
   id: string;
@@ -65,7 +65,7 @@ export function StartWithAgentButton({
     // Continue (In progress): reuse the associated workstream.
     setBusy(true);
     try {
-      const targets = await api.get<ContinueTarget[]>(`/tasks/${task.id}/continue-targets`);
+      const targets = await trpcClient.tasks.continueTargetsGet.query({params: {id: task.id}});
       if (targets.length === 0) launchNew();
       else if (targets.length === 1) openExecution(targets[0].sessionId);
       else setChooser(targets);

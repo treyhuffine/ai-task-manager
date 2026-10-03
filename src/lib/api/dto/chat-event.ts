@@ -1,3 +1,4 @@
+import type { Serialize } from '@trpc/server/unstable-core-do-not-import';
 /**
  * Wire shape for a chat event.
  *
@@ -29,7 +30,7 @@
 import type { ChatEventRecord } from '@/db/types';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 
-export type ChatEventDTO = Omit<ChatEventRecord, 'raw'> & {
+export type ChatEventDTO = Serialize<Omit<ChatEventRecord, 'raw'> & {
   /** Provider payload, present only when it is actually decodable. */
   raw: ChatEventRecord['raw'] | null;
   /** `raw.subtype`, lifted so the transcript never needs the full object. */
@@ -37,8 +38,8 @@ export type ChatEventDTO = Omit<ChatEventRecord, 'raw'> & {
   /** `raw.model` — the active model id, read off `system` rows by the HUD. */
   rawModel: string | null;
   /** `raw.usage` — token counts, read off `result` rows by the HUD. */
-  rawUsage: unknown;
-};
+  rawUsage?: unknown;
+}>;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)

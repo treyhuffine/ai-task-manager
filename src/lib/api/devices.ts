@@ -1,110 +1,44 @@
-import type { PeerRelease } from '@/lib/releases/compatibility';
-import { api } from './client';
-import type { ApiKeyRole, DeviceKind } from '@/db/types';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
+import type { RouterInputs, RouterOutputs } from '@/lib/trpc/router';
 
 /** A key a device signs in with, without its secret. */
-export interface DeviceKeyView {
-  id: string;
-  name: string;
-  prefix: string;
-  suffix: string;
-  env: 'live' | 'test';
-  createdAt: string;
-  lastUsedAt: string | null;
-  expiresAt: string | null;
-  revokedAt: string | null;
-  /**
-   * `home`: the home's own key, which Ri itself uses on the home's device.
-   * Otherwise its role (`api_keys.role`): `worker`, the key the device's
-   * worker runs agents with, or `sign_in`, a browser, the phone app or a CLI.
-   */
-  role: 'home' | ApiKeyRole;
-  /** The key this request was made with. */
-  current: boolean;
-}
+export type DeviceKeyView = RouterOutputs['devices']['list'][number]['keys'][number];
 
 /** A device of this home, as `GET /api/devices` gives it. */
-export interface DeviceView {
-  id: string;
-  name: string;
-  kind: DeviceKind;
-  platform: string | null;
-  hostname: string | null;
-  status: 'active' | 'revoked';
-  /** Where the home runs. */
-  isHome: boolean;
-  /** Set on the home's own device: whether it's a laptop, so schedules run only while it's awake. */
-  portable?: boolean;
-  /** The device this browser signs in from. */
-  isThisDevice: boolean;
-  /** Whether it runs agents: the home always does, another device while its worker key is active. */
-  runsAgents: boolean;
-  /** When it was last heard from. */
-  lastSeenAt: string | null;
-  /** Its worker, for any device but the home's own. */
-  /** The Home's running build. Does not grant installation authority. */
-  release?: PeerRelease['release'];
-  worker: {
-    enrolled: boolean;
-    connected: boolean;
-    protocol: number | null;
-    version: string | null;
-    /** What it last said about itself. Asleep only when it said so: silence is unavailable, not asleep. */
-    reportedState: 'awake' | 'asleep' | 'stopped' | null;
-    compatibility?: {
-      state: 'compatible' | 'update-required' | 'unknown'; release?: PeerRelease['release'];
-      protocol?: number; capabilities: string[]; update?: 'home' | 'worker' | 'both'; reason?: string;
-      reportedAt?: string; pendingEvents?: number; pendingCommands?: number; openTurns?: number;
-    };
-  } | null;
-  keys: DeviceKeyView[];
-}
+export type DeviceView = RouterOutputs['devices']['list'][number];
 
-export interface PairDeviceBody {
-  name: string;
-  kind?: DeviceKind;
-  description?: string | null;
-  expiresAt?: string | null;
-}
+export type PairDeviceBody = RouterInputs['devices']['create']['body'];
 
 /** A new pairing: the device and the key's token, shown once. */
-export interface PairDeviceResponse {
-  device: DeviceView;
-  key: DeviceKeyView;
-  plaintext: string;
-}
+export type PairDeviceResponse = RouterOutputs['devices']['create'];
 
-export interface UpdateDeviceBody {
-  name?: string;
-  kind?: DeviceKind;
-}
+export type UpdateDeviceBody = RouterInputs['devices']['update']['body'];
 
 export const devicesApi = {
-  list(opts?: { includeRevoked?: boolean }): Promise<DeviceView[]> {
-    return api.get<DeviceView[]>('/devices', {
-      query: opts?.includeRevoked ? { includeRevoked: 1 } : undefined,
-    });
+  list(opts?: { includeRevoked?: boolean }) {
+    return trpcClient.devices.list.query({query: rpcQuery(opts?.includeRevoked ? { includeRevoked: 1 } : undefined)});
   },
 
-  pair(input: PairDeviceBody): Promise<PairDeviceResponse> {
-    return api.post<PairDeviceResponse>('/devices', input);
+  pair(input: PairDeviceBody) {
+    return trpcClient.devices.create.mutate({body: input});
   },
 
-  update(id: string, input: UpdateDeviceBody): Promise<DeviceView> {
-    return api.patch<DeviceView>(`/devices/${id}`, input);
+  update(id: string, input: UpdateDeviceBody) {
+    return trpcClient.devices.update.mutate({params: {id: id}, body: input});
   },
 
   /** Remove a device: every key it has stops working, and its worker with them. */
-  remove(id: string): Promise<void> {
-    return api.delete(`/devices/${id}`);
+  remove(id: string) {
+    return trpcClient.devices.delete.mutate({params: {id: id}});
   },
 
   /** A new pairing link for a device already here. */
-  addKey(id: string): Promise<PairDeviceResponse> {
-    return api.post<PairDeviceResponse>(`/devices/${id}/keys`, {});
+  addKey(id: string) {
+    return trpcClient.devices.keysPost.mutate({params: {id: id}, body: {}});
   },
 
-  revokeKey(id: string, keyId: string): Promise<void> {
-    return api.delete(`/devices/${id}/keys/${keyId}`);
+  revokeKey(id: string, keyId: string) {
+    return trpcClient.devices.keysKeyIdDelete.mutate({params: {id: id, keyId: keyId}});
   },
 };

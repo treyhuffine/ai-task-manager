@@ -1,11 +1,11 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { api } from '@/lib/api/client';
 import type { ManagedSpeechStatus } from '@/lib/stt/managed/manager';
+import { trpcClient } from '@/lib/trpc/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 const labels: Record<ManagedSpeechStatus['phase'], string> = {
   'not-installed': 'Not installed', downloading: 'Downloading model', verifying: 'Verifying model', installed: 'Ready to start when needed',
@@ -13,15 +13,15 @@ const labels: Record<ManagedSpeechStatus['phase'], string> = {
 };
 export function ManagedSpeechSettings() {
   const client = useQueryClient();
-  const { data, error } = useQuery({ queryKey: ['managed-speech'], queryFn: () => api.get<ManagedSpeechStatus>('/service/speech'), refetchInterval: 2000, retry: false });
+  const { data, error } = useQuery({ queryKey: ['managed-speech'], queryFn: () => trpcClient.service.speechGet.query({}), refetchInterval: 2000, retry: false });
   const [pending, setPending] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const providerState = data ? `${data.installed}:${data.enabled}:${data.helperAvailable}:${data.phase === 'error'}:${data.cloudFallback}` : '';
   useEffect(() => { if (providerState) window.dispatchEvent(new Event('ri:voice-providers-changed')); }, [providerState]);
   useEffect(() => { if (!data?.installed) setConfirmRemove(false); }, [data?.installed]);
-  async function action(value: object) {
+  async function action(value: import('@/lib/trpc/router').RouterInputs['service']['speechPost']['body']) {
     setPending(true);
-    try { client.setQueryData(['managed-speech'], await api.post<ManagedSpeechStatus>('/service/speech', value)); }
+    try { client.setQueryData(['managed-speech'], await trpcClient.service.speechPost.mutate({body: value})); }
     catch (cause) { toast.error(cause instanceof Error ? cause.message : 'Local speech could not be changed'); }
     finally { setPending(false); }
   }

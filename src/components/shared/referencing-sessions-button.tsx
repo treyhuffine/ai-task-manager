@@ -1,13 +1,14 @@
 'use client';
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Popover as PopoverPrimitive } from 'radix-ui';
-import { Link as LinkIcon, MessageSquare, ChevronRight } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { api } from '@/lib/api/client';
-import { cn } from '@/lib/utils';
 import { executionView } from '@/lib/client/active-view';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
+import { cn } from '@/lib/utils';
+import { useQuery } from '@tanstack/react-query';
+import { ChevronRight, Link as LinkIcon, MessageSquare } from 'lucide-react';
+import { Popover as PopoverPrimitive } from 'radix-ui';
+import { useState } from 'react';
 
 interface ReferencingSession {
   id: string;
@@ -17,10 +18,6 @@ interface ReferencingSession {
   status: string;
   startedAt: string;
   lastOutcomeEventAt: string | null;
-}
-
-interface ReferencingSessionsResponse {
-  sessions: ReferencingSession[];
 }
 
 interface ReferencingSessionsButtonProps {
@@ -45,9 +42,7 @@ export function ReferencingSessionsButton({ entityType, entityId }: ReferencingS
   const query = useQuery({
     queryKey: ['entity-sessions', entityType, entityId] as const,
     queryFn: () =>
-      api.get<ReferencingSessionsResponse>('/entities/sessions', {
-        query: { type: entityType, id: entityId },
-      }),
+      trpcClient.entities.sessionsGet.query({query: rpcQuery({ type: entityType, id: entityId })}),
     enabled: !!entityId,
     staleTime: 30_000,
   });

@@ -1,25 +1,27 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { X, MessageSquare, MessageSquarePlus, Loader2, RefreshCw } from 'lucide-react'
-import { api, ApiError, apiErrorText } from '@/lib/api/client'
-import { toast } from 'sonner'
-import { useRuntimeStatus } from '@/hooks/use-execution'
-import { HarnessChatSession } from '@/components/chat/harness-chat'
-import { cn } from '@/lib/utils'
-import { hasRuntimeActivity } from '@/lib/executor/runtime-status'
-import type { TaskRecord, NoteRecord, ChatSessionRecord, EffortLevel } from '@/db/types'
-import type { ProviderId } from '@/lib/harness/options'
+import { apiErrorStatus } from '@/lib/api/client';
+
+import { entityKeys } from '@/lib/query/entity-keys';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
+
+import { HarnessChatSession } from '@/components/chat/harness-chat';
+import type { EffortLevel, NoteRecord, TaskRecord } from '@/db/types';
+import { useRuntimeStatus } from '@/hooks/use-execution';
+import { apiErrorText } from '@/lib/api/client';
+import { hasRuntimeActivity } from '@/lib/executor/runtime-status';
+import type { ProviderId } from '@/lib/harness/options';
+import { cn } from '@/lib/utils';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Loader2, MessageSquare, MessageSquarePlus, RefreshCw, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 const CHAT_PANEL_MIN_WIDTH = 420
 
 type DocumentType = 'task' | 'note'
 type DocumentData = TaskRecord | NoteRecord
-
-interface DocumentChatResponse {
-  session: ChatSessionRecord
-}
 
 // ─── Hook ─────────────────────────────────────────────────────
 
@@ -43,9 +45,7 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
   const query = useQuery({
     queryKey,
     queryFn: () =>
-      api.get<DocumentChatResponse>(
-        `/document-chat?entityType=${documentType}&entityId=${entityId}`,
-      ),
+      trpcClient.documentChat.list.query({query: rpcQuery({"entityType": documentType, "entityId": entityId})}),
     enabled: !!entityId,
     staleTime: 30_000,
   })
@@ -60,8 +60,8 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
   const prevActive = useRef(isActive)
   useEffect(() => {
     if (prevActive.current && !isActive) {
-      qc.invalidateQueries({ queryKey: ['tasks'] })
-      qc.invalidateQueries({ queryKey: ['notes'] })
+      qc.invalidateQueries({ queryKey: entityKeys.tasks.all })
+      qc.invalidateQueries({ queryKey: entityKeys.notes.all })
       if (entityId) {
         qc.invalidateQueries({ queryKey: [documentType, entityId] })
         qc.invalidateQueries({ queryKey: ['deck'] })
@@ -78,11 +78,11 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
     // Optional provider/model = the composer's "switch provider" → fresh chat
     // on the chosen provider. No args (void) = a plain new chat on the default.
     mutationFn: (opts: { providerId?: ProviderId; model?: string; variant?: string; effort?: EffortLevel } | void) =>
-      api.post<DocumentChatResponse>('/document-chat', {
+      trpcClient.documentChat.create.mutate({body: {
         entityType: documentType,
-        entityId,
+        entityId: entityId ?? '',
         ...(opts ?? {}),
-      }),
+      }}),
     onError: (error) => toast.error('Could not start a new chat', { description: apiErrorText(error) }),
     onSuccess: (data) => qc.setQueryData(queryKey, data),
   })
@@ -273,7 +273,7 @@ function ChatBody({
         <div>
           <p className="text-[12px] font-semibold text-foreground">Couldn&apos;t start the chat.</p>
           <p className="text-[11px] text-muted-foreground/80 mt-1">
-            {chat.error instanceof ApiError ? chat.error.message : 'The agent may not be set up yet.'}
+            {apiErrorStatus(chat.error) !== undefined ? apiErrorText(chat.error) : 'The agent may not be set up yet.'}
           </p>
           <button
             onClick={() => chat.refetch()}

@@ -1,23 +1,23 @@
 'use client';
 
-import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { api, apiErrorText } from '@/lib/api/client';
-import type { AwakeStatus } from '@/lib/service/awake-settings';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { apiErrorText } from '@/lib/api/client';
+import { trpcClient } from '@/lib/trpc/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { toast } from 'sonner';
 
 export function HostAvailability() {
   const client = useQueryClient(); const [busy, setBusy] = useState(false);
-  const service = useQuery({ queryKey: ['local-service'], queryFn: () => api.get<{ phase: string; canManage: boolean }>('/service'), refetchInterval: 10_000, retry: false });
+  const service = useQuery({ queryKey: ['local-service'], queryFn: () => trpcClient.service.list.query({}), refetchInterval: 10_000, retry: false });
   const managed = !!service.data && !['unmanaged', 'stopping'].includes(service.data.phase);
   const owner = !!service.data?.canManage;
-  const query = useQuery({ queryKey: ['host-availability'], queryFn: () => api.get<{ awake: AwakeStatus }>('/service/awake'), enabled: managed && owner, refetchInterval: 10_000, retry: false });
+  const query = useQuery({ queryKey: ['host-availability'], queryFn: () => trpcClient.service.awakeGet.query({}), enabled: managed && owner, refetchInterval: 10_000, retry: false });
   const status = query.data?.awake;
   const change = async (enabled: boolean) => {
     setBusy(true);
-    try { client.setQueryData(['host-availability'], await api.patch('/service/awake', { enabled })); }
+    try { client.setQueryData(['host-availability'], await trpcClient.service.awakePatch.mutate({body: { enabled }})); }
     catch (error) { toast.error(apiErrorText(error)); }
     finally { setBusy(false); }
   };

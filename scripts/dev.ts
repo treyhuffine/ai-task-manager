@@ -1,14 +1,15 @@
 /**
- * `pnpm dev`: `next dev` on the dev home (`~/ri-dev`, or `RI_ROOT`), as that
+ * `pnpm dev`: Next development mode on the dev home (`~/ri-dev`, or `RI_ROOT`), as that
  * home's one owner. The desktop app in development (`pnpm desktop:dev`) and
  * `ri start --dev` open the same home and take the same lock
  * (`src/lib/service/owner.ts`), so two servers never run one database, its
  * scheduler, heartbeat and deck, twice. Whichever starts second says so and
- * stops. Extra arguments go to `next dev`.
+ * stops. Extra arguments select the port, hostname or bundler.
  */
 
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
 import { DEV_PORT } from '@/lib/auth/port';
 import { acquireServiceOwner } from '@/lib/service/owner';
@@ -27,8 +28,8 @@ try {
   process.exit(1);
 }
 
-const next = createRequire(import.meta.url).resolve('next/dist/bin/next');
-const child = spawn(process.execPath, [next, 'dev', '--port', process.env.PORT || String(DEV_PORT), ...process.argv.slice(2)], {
+const tsx = createRequire(import.meta.url).resolve('tsx/cli');
+const child = spawn(process.execPath, [tsx, path.resolve('scripts/serve.ts'), 'dev', '--port', process.env.PORT || String(DEV_PORT), ...process.argv.slice(2)], {
   env: process.env,
   stdio: 'inherit',
 });

@@ -1,15 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, RefreshCw, X, Loader2 } from 'lucide-react';
-import { api } from '@/lib/api/client';
-import { sessionsApi } from '@/lib/api/sessions';
-import { useClaudeAuthStatus } from '@/hooks/use-claude-login';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { cn } from '@/lib/utils';
-import type { StuckSession } from '@/app/api/claude-auth/stuck-sessions/route';
+import { useClaudeAuthStatus } from '@/hooks/use-claude-login';
+import { sessionsApi } from '@/lib/api/sessions';
 import { executionView } from '@/lib/client/active-view';
+import type { StuckSession } from '@/lib/server/operations/claude-auth/stuck-sessions';
+import { trpcClient } from '@/lib/trpc/client';
+import { cn } from '@/lib/utils';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronRight, Loader2, RefreshCw, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 const STUCK_KEY = ['claude-auth-stuck-sessions'] as const;
 
@@ -35,7 +35,7 @@ export function AuthRecoveryCard() {
 
   const { data, refetch } = useQuery({
     queryKey: STUCK_KEY,
-    queryFn: () => api.get<{ sessions: StuckSession[] }>('/claude-auth/stuck-sessions'),
+    queryFn: () => trpcClient.claudeAuth.stuckSessionsGet.query({}),
     refetchOnWindowFocus: true,
     refetchInterval: 30_000,
     staleTime: 10_000,

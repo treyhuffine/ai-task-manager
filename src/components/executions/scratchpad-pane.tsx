@@ -1,5 +1,8 @@
 'use client';
 
+import { tasksApi } from '@/lib/api/tasks';
+import { notesApi } from '@/lib/api/notes';
+
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -10,7 +13,6 @@ import { Plus, Loader2, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { hot } from '@/lib/_debug/hot-path';
 import { useScratchpad, useSetScratchpad } from '@/hooks/use-execution';
-import { api } from '@/lib/api/client';
 
 interface ScratchpadPaneProps {
   sessionId: string;
@@ -265,11 +267,12 @@ function PromotionBar({
   const [pendingKind, setPendingKind] = useState<'task' | 'note' | null>(null);
 
   const promoteMutation = useMutation({
+    meta: { carriesInput: true },
     mutationFn: async (input: { kind: 'task' | 'note'; text: string }) => {
       if (input.kind === 'task') {
         const firstLine = input.text.split('\n')[0]?.trim() ?? '';
         const title = firstLine.length > 0 ? firstLine.slice(0, 200) : 'Untitled task';
-        return api.post<{ id: string; title: string }>('/tasks', {
+        return tasksApi.create( {
           title,
           body: input.text,
           workspaceId: workspaceId,
@@ -278,7 +281,7 @@ function PromotionBar({
       }
       const firstLine = input.text.split('\n')[0]?.trim() ?? '';
       const title = firstLine.length > 0 ? firstLine.slice(0, 200) : 'Untitled note';
-      return api.post<{ id: string; title: string }>('/notes', {
+      return notesApi.create( {
         title,
         body: input.text,
         workspaceId: workspaceId,

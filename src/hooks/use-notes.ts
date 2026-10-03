@@ -1,54 +1,47 @@
-import { documentSaves } from '@/lib/client/document-saves';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import type { NoteFilter } from '@/db/types';
 import { notesApi } from '@/lib/api/notes';
+import { documentSaves } from '@/lib/client/document-saves';
+import { entityKeys } from '@/lib/query/entity-keys';
 import {
-  optimisticPatch,
-  optimisticRemove,
-  rollbackOptimistic,
-  settleEntity,
+	optimisticPatch,
+	optimisticRemove,
+	rollbackOptimistic,
+	settleEntity,
 } from '@/lib/query/optimistic-entity';
-import type {
-  CreateNoteInput,
-  UpdateNoteInput,
-  NoteFilter,
-} from '@/db/types';
-
-const NOTES_KEY = ['notes'] as const;
+import { trpc } from '@/lib/trpc/client';
+import type { RouterInputs } from '@/lib/trpc/router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 export function useNotes(filter?: NoteFilter) {
   return useQuery({
-    queryKey: [...NOTES_KEY, filter],
-    queryFn: () => notesApi.list(filter),
+    ...trpc.notes.list.queryOptions(filter),
   });
 }
 
 export function useNote(id: string | null) {
   return useQuery({
-    queryKey: [...NOTES_KEY, id],
-    queryFn: () => notesApi.get(id!),
+    ...trpc.notes.get.queryOptions({ id: id ?? '' }),
     enabled: !!id,
   });
 }
 
 export function useCreateNote() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationKey: NOTES_KEY,
+  return useMutation(trpc.notes.create.mutationOptions({
     meta: { carriesInput: true },
-    mutationFn: (input: CreateNoteInput) => notesApi.create(input),
     // See useCreateTask: seed the detail cache, leave list placement to settle.
-    onSuccess: (record) => qc.setQueryData([...NOTES_KEY, record.id], record),
+    onSuccess: (record) => qc.setQueryData(entityKeys.notes.detail(record.id), record),
     onSettled: () => settleEntity(qc, 'notes'),
-  });
+  }));
 }
 
 export function useUpdateNote() {
   const qc = useQueryClient();
   return useMutation({
-    mutationKey: NOTES_KEY,
+    mutationKey: trpc.notes.update.mutationKey(),
     meta: { carriesInput: true },
-    mutationFn: ({ id, ...input }: UpdateNoteInput & { id: string }) =>
+    mutationFn: ({ id, ...input }: RouterInputs['notes']['update']['patch'] & { id: string }) =>
       notesApi.update(id, input),
     onMutate: async ({ id, ...input }) => ({
       snapshot: await optimisticPatch(qc, 'notes', id, input),
@@ -64,7 +57,7 @@ export function useUpdateNote() {
 export function useDeleteNote() {
   const qc = useQueryClient();
   return useMutation({
-    mutationKey: NOTES_KEY,
+    mutationKey: trpc.notes.delete.mutationKey(),
     mutationFn: async (id: string) => {
       await documentSaves.flush(`notes:${id}`);
       return notesApi.delete(id);

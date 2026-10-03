@@ -1,22 +1,20 @@
 'use client';
 
-import { useMemo } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
-  useWorkspacePRs,
-  useWorkspaceIssues,
-  useWorkspaceBranches,
-  useWorkspaceSessions,
+	useWorkspaceBranches,
+	useWorkspaceIssues,
+	useWorkspacePRs,
+	useWorkspaceSessions,
 } from '@/hooks/use-workspaces';
 import { sessionsApi } from '@/lib/api/sessions';
-import { tasksApi } from '@/lib/api/tasks';
-import { api } from '@/lib/api/client';
-import { stripHighlight } from '@/lib/search/highlight';
 import type { LaunchSourceItem, LaunchSourceKind } from '@/lib/executions/launch-draft';
-import type { ExternalAgentDiscovery } from '@/lib/import/types';
-import type { ConnectorTaskResult } from '@/lib/connectors/task-sources';
+import { stripHighlight } from '@/lib/search/highlight';
+import { trpc, trpcClient } from '@/lib/trpc/client';
+import { rpcOptions, rpcQuery } from '@/lib/trpc/request-options';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { connectorProviderScopes, connectorTaskGroups } from './launch-connector-sources';
 import { BASE_FETCH_LIMIT } from './launch-paging';
-import { connectorTaskGroups, connectorProviderScopes } from './launch-connector-sources';
 
 /** Shared with the settings Imports panel so the two never double-scan. */
 const DISCOVERY_KEY = ['imports', 'external-agents'] as const;
@@ -41,8 +39,7 @@ export function useLaunchSuggestions({
 }): LaunchSourceItem[] {
   const prs = useWorkspacePRs(enabled && isGit ? workspaceId : null);
   const tasks = useQuery({
-    queryKey: ['launcher', 'suggested-tasks', workspaceId],
-    queryFn: () => tasksApi.list({ status: 'active', workspaceId: workspaceId ?? undefined, limit: 2 }),
+    ...trpc.tasks.list.queryOptions({ status: 'active', workspaceId: workspaceId ?? undefined, limit: 2 }),
     enabled,
     staleTime: 30_000,
   });
@@ -190,15 +187,13 @@ export function useLaunchSources({
   const branches = useWorkspaceBranches(gitEnabled ? workspaceId : null);
 
   const tasks = useQuery({
-    queryKey: ['launcher', 'tasks', trimmed, taskLimit],
-    queryFn: () =>
-      tasksApi.list({
-        status: 'active',
-        q: trimmed || undefined,
-        limit: taskLimit,
-        // Explicit: the user's drag order is the ordering here.
-        orderBy: 'sortKey',
-      }),
+    ...trpc.tasks.list.queryOptions({
+      status: 'active',
+      q: trimmed || undefined,
+      limit: taskLimit,
+      // Explicit: the user's drag order is the ordering here.
+      orderBy: 'sortKey',
+    }),
     enabled,
     staleTime: 15_000,
     // The limit is part of the key, so revealing another page is a cache miss.
@@ -229,7 +224,7 @@ export function useLaunchSources({
 
   const discovery = useQuery({
     queryKey: DISCOVERY_KEY,
-    queryFn: () => api.get<ExternalAgentDiscovery>('/imports/agents', { timeoutMs: 120_000 }),
+    queryFn: () => trpcClient.imports.agentsGet.query({}, rpcOptions({ timeoutMs: 120_000 })),
     enabled,
     // The scan walks every provider's history directory — ~4s in production,
     // but 50s+ against a loaded dev server. A 30s stale window meant refetching
@@ -246,10 +241,7 @@ export function useLaunchSources({
   const connectorTasks = useQuery({
     queryKey: ['launcher', 'connector-tasks', trimmed, connectorLimit],
     queryFn: () =>
-      api.get<ConnectorTaskResult>('/connectors/tasks', {
-        query: { ...(trimmed ? { q: trimmed } : {}), limit: String(connectorLimit) },
-        timeoutMs: 20_000,
-      }),
+      trpcClient.connectors.tasksGet.query({query: rpcQuery({ ...(trimmed ? { q: trimmed } : {}), limit: String(connectorLimit) })}, rpcOptions({ timeoutMs: 20_000 })),
     enabled,
     staleTime: 30_000,
     placeholderData: keepPreviousData,

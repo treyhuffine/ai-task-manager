@@ -1,85 +1,86 @@
 'use client';
 
-import { DEFAULT_HARNESS } from '@/lib/harness/registry';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
-import { Command } from 'cmdk';
-import { Popover, PopoverTrigger } from '@/components/ui/popover';
-import { LauncherPopoverContent } from './launcher-popover';
-import { useQueryClient } from '@tanstack/react-query';
-import { uuidv7 } from 'uuidv7';
-import {
-  ArrowDownToLine,
-  ChevronDown,
-  CircleDot,
-  Folder,
-  GitBranch,
-  GitPullRequest,
-  Loader2,
-  MessageSquare,
-  Plug,
-  Search,
-  SquareCheckBig,
-  X,
-} from 'lucide-react';
-import { useRunOn, useSetDefaultDevice, useWorkspaces, useWorkspacePRs } from '@/hooks/use-workspaces';
-import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
-import { useUserState } from '@/hooks/use-user-state';
-import { useHarnessModels } from '@/hooks/use-harness-models';
-import { useDashboard } from '@/contexts/dashboard-context';
-import { sessionsApi } from '@/lib/api/sessions';
-import { workspacesApi } from '@/lib/api/workspaces';
-import { tasksApi } from '@/lib/api/tasks';
-import { api, apiErrorText } from '@/lib/api/client';
-import {
-  defaultModelFor,
-  explicitEffortForModel,
-  type ProviderId,
-} from '@/lib/harness/options';
-import {
-  applyPick,
-  canLaunch,
-  composePrompt,
-  continuationOf,
-  readLaunchPrefs,
-  removeChip,
-  resolveBase,
-  writeLaunchPrefs,
-  type LaunchChip,
-  type LaunchMode,
-  type LaunchSourceItem,
-  type LaunchSourceKind,
-} from '@/lib/executions/launch-draft';
-import type { EffortLevel } from '@/db/types';
-import {
-  readProviderEffort,
-  readProviderEfforts,
-  writeProviderEffort,
-} from '@/lib/executions/provider-effort';
-import type { ExternalAgentImportResult } from '@/lib/import/types';
-import { cn } from '@/lib/utils';
-import {
-  ChatInputEditor,
-  type ChatInputEditorHandle,
-} from '@/components/chat/editor/chat-input-editor';
 import { AttachButton } from '@/components/chat/editor/attach-button';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
+import {
+	ChatInputEditor,
+	type ChatInputEditorHandle,
+} from '@/components/chat/editor/chat-input-editor';
+import { Popover, PopoverTrigger } from '@/components/ui/popover';
+import { useDashboard } from '@/contexts/dashboard-context';
+import type { EffortLevel } from '@/db/types';
+import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
+import { useHarnessModels } from '@/hooks/use-harness-models';
+import { useUserState } from '@/hooks/use-user-state';
+import { useRunOn, useSetDefaultDevice, useWorkspacePRs, useWorkspaces } from '@/hooks/use-workspaces';
+import { apiErrorText } from '@/lib/api/client';
+import { sessionsApi } from '@/lib/api/sessions';
+import { tasksApi } from '@/lib/api/tasks';
+import { workspacesApi } from '@/lib/api/workspaces';
+import { executionView } from '@/lib/client/active-view';
+import {
+	applyPick,
+	canLaunch,
+	composePrompt,
+	continuationOf,
+	readLaunchPrefs,
+	removeChip,
+	resolveBase,
+	writeLaunchPrefs,
+	type LaunchChip,
+	type LaunchMode,
+	type LaunchSourceItem,
+	type LaunchSourceKind,
+} from '@/lib/executions/launch-draft';
+import {
+	readProviderEffort,
+	readProviderEfforts,
+	writeProviderEffort,
+} from '@/lib/executions/provider-effort';
+import { startExecution } from '@/lib/executions/start-execution';
+import {
+	defaultModelFor,
+	explicitEffortForModel,
+	type ProviderId,
+} from '@/lib/harness/options';
+import { DEFAULT_HARNESS } from '@/lib/harness/registry';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcOptions } from '@/lib/trpc/request-options';
+import { cn } from '@/lib/utils';
+import { useQueryClient } from '@tanstack/react-query';
+import { Command } from 'cmdk';
+import {
+	ArrowDownToLine,
+	ChevronDown,
+	CircleDot,
+	Folder,
+	GitBranch,
+	GitPullRequest,
+	Loader2,
+	MessageSquare,
+	Plug,
+	Search,
+	SquareCheckBig,
+	X,
+} from 'lucide-react';
+import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { uuidv7 } from 'uuidv7';
 import { LaunchBrowse } from './launch-browse';
 import {
-  BaseControl,
-  EffortControl,
-  LiveFreshnessControl,
-  LiveModeNotice,
-  ModeControl,
-  ModelControl,
-  RunOnControl,
-  type LaunchHarnessSelection,
+	BaseControl,
+	EffortControl,
+	LiveFreshnessControl,
+	LiveModeNotice,
+	ModeControl,
+	ModelControl,
+	RunOnControl,
+	type LaunchHarnessSelection,
 } from './launch-controls';
-import { useLaunchSuggestions } from './use-launch-sources';
+import { LauncherPopoverContent } from './launcher-popover';
 import { closeLauncher, useLauncherStore, type LauncherSeed } from './launcher-store';
-import { startExecution } from '@/lib/executions/start-execution';
-import { toast } from 'sonner';
-import { executionView } from '@/lib/client/active-view';
+import { useLaunchSuggestions } from './use-launch-sources';
 
 const CHIP_ICON: Record<LaunchSourceKind, React.ComponentType<{ size?: number; className?: string }>> = {
   pr: GitPullRequest,
@@ -455,11 +456,7 @@ function LaunchModalInner({
         if (continuation.sessionId) {
           targetSessionId = continuation.sessionId;
         } else if (continuation.externalKey) {
-          const result = await api.post<ExternalAgentImportResult>(
-            '/imports/agents',
-            { sessionKeys: [continuation.externalKey] },
-            { timeoutMs: 10 * 60_000 },
-          );
+          const result = await trpcClient.imports.agentsPost.mutate({body: { sessionKeys: [continuation.externalKey] }}, rpcOptions({ timeoutMs: 10 * 60_000 }));
           const landed = result.sessions.find((s) => s.key === continuation.externalKey);
           if (!landed) {
             throw new Error(

@@ -14,8 +14,8 @@
  * always a partial merge, never a record replace.
  *
  * Two shapes live under each root key:
- *   - single-entity cache `[root, id]`  → the full record (WITH `body`)
- *   - list caches `[root, filter]`       → an array of list DTOs. Lists OMIT
+ *   - `entityKeys[root].detail(id)` → the full record (WITH `body`)
+ *   - `entityKeys[root].list(filter)` → an array of list DTOs. Task/note lists OMIT
  *     `body` and carry `bodyExcerpt` + `bodyLen` instead (see
  *     `@/lib/api/dto/entity-list`), so a body edit is projected to the excerpt
  *     shape before it is written into a list.
@@ -32,8 +32,8 @@
 
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { LIST_BODY_EXCERPT_CHARS } from '@/lib/api/dto/entity-list';
-
-export type EntityRoot = 'tasks' | 'notes' | 'areas';
+import { entityKeys, entityQueryFilter, taskListFilter, type EntityRoot } from './entity-keys';
+export type { EntityRoot } from './entity-keys';
 
 /** Every cache entry we touched, captured before mutating, for rollback. */
 export type OptimisticSnapshot = Array<[QueryKey, unknown]>;
@@ -65,7 +65,7 @@ export function projectPatchToList(patch: EntityPatch): EntityPatch {
 }
 
 /**
- * Merge `patch` into the row matching `id` across every cache under `[root]` —
+ * Merge `patch` into the row matching `id` across the root's entity caches —
  * the single-entity record and each filtered list. Cancels in-flight refetches
  * first so a late-landing GET can't clobber the optimistic write, and returns a
  * snapshot for {@link rollbackOptimistic}.
@@ -76,12 +76,13 @@ export async function optimisticPatch(
   id: string,
   patch: EntityPatch,
 ): Promise<OptimisticSnapshot> {
-  await qc.cancelQueries({ queryKey: [root] });
-  const snapshot = qc.getQueriesData({ queryKey: [root] }) as OptimisticSnapshot;
+  const filter = entityQueryFilter(root);
+  await qc.cancelQueries(filter);
+  const snapshot = qc.getQueriesData(filter) as OptimisticSnapshot;
 
   const listPatch = projectPatchToList(patch);
 
-  qc.setQueriesData<unknown>({ queryKey: [root] }, (data: unknown) => {
+  qc.setQueriesData<unknown>(filter, (data: unknown) => {
     if (data == null) return data;
     // Single-entity cache: the record itself, full shape (with body).
     if (hasId(data, id)) return { ...data, ...patch };
@@ -96,7 +97,7 @@ export async function optimisticPatch(
 }
 
 /**
- * Remove the row matching `id` from every list cache under `[root]` and drop
+ * Remove the row matching `id` from every entity list cache and drop
  * its single-entity cache. Returns a snapshot for rollback.
  */
 export async function optimisticRemove(
@@ -104,14 +105,15 @@ export async function optimisticRemove(
   root: EntityRoot,
   id: string,
 ): Promise<OptimisticSnapshot> {
-  await qc.cancelQueries({ queryKey: [root] });
-  const snapshot = qc.getQueriesData({ queryKey: [root] }) as OptimisticSnapshot;
+  const filter = entityQueryFilter(root);
+  await qc.cancelQueries(filter);
+  const snapshot = qc.getQueriesData(filter) as OptimisticSnapshot;
 
-  qc.setQueriesData<unknown>({ queryKey: [root] }, (data: unknown) => {
+  qc.setQueriesData<unknown>(filter, (data: unknown) => {
     if (Array.isArray(data)) return data.filter((row) => !hasId(row, id));
     return data;
   });
-  qc.removeQueries({ queryKey: [root, id] });
+  qc.removeQueries({ queryKey: entityKeys[root].detail(id), exact: true });
 
   return snapshot;
 }
@@ -153,15 +155,16 @@ export async function optimisticTransition(
   toStatus: string,
   extraPatch: EntityPatch = {},
 ): Promise<OptimisticSnapshot> {
-  await qc.cancelQueries({ queryKey: ['tasks'] });
-  const snapshot = qc.getQueriesData({ queryKey: ['tasks'] }) as OptimisticSnapshot;
+  const queryFilter = entityQueryFilter('tasks');
+  await qc.cancelQueries(queryFilter);
+  const snapshot = qc.getQueriesData(queryFilter) as OptimisticSnapshot;
   const patch = { status: toStatus, ...extraPatch };
 
   // The row being moved, from wherever it currently lives, so it can be INSERTED
   // into the lane it now belongs to (not just dropped from the old one) — which
   // is what stops a Kanban card from vanishing between drop and refetch.
   let movingRow: Record<string, unknown> | undefined;
-  for (const [, data] of qc.getQueriesData({ queryKey: ['tasks'] })) {
+  for (const [, data] of snapshot) {
     if (Array.isArray(data)) {
       const hit = data.find((r) => hasId(r, id));
       if (hit) { movingRow = { ...(hit as Record<string, unknown>) }; break; }
@@ -170,14 +173,14 @@ export async function optimisticTransition(
     }
   }
 
-  for (const [key, data] of qc.getQueriesData({ queryKey: ['tasks'] })) {
+  for (const [key, data] of snapshot) {
     if (data == null) continue;
     if (hasId(data, id)) {
       qc.setQueryData(key, { ...data, ...patch });
       continue;
     }
     if (Array.isArray(data)) {
-      const filter = (key as unknown[])[1] as { status?: unknown } | undefined;
+      const filter = taskListFilter(key);
       const stays = statusMatchesFilter(toStatus, filter?.status);
       const had = data.some((row) => hasId(row, id));
       const next = data.reduce<unknown[]>((acc, row) => {
@@ -193,7 +196,8 @@ export async function optimisticTransition(
       // status lanes (e.g. the Kanban's per-status queries) so we never wrongly
       // insert into an area/parent/search-filtered list the row may not match.
       if (stays && !had && movingRow && isPureStatusLane(filter)) {
-        next.push({ ...movingRow, ...patch });
+        const { body, ...listRow } = movingRow;
+        next.push({ ...listRow, ...('body' in movingRow ? projectPatchToList({ body }) : {}), ...projectPatchToList(patch) });
       }
       qc.setQueryData(key, next);
     }
@@ -207,7 +211,7 @@ export async function optimisticTransition(
 function isPureStatusLane(filter: unknown): boolean {
   if (!filter || typeof filter !== 'object') return false;
   const f = filter as Record<string, unknown>;
-  const constraining = ['areaId', 'parentId', 'workspaceId', 'q', 'search', 'taskId'];
+  const constraining = ['areaId', 'parentId', 'workspaceId', 'q', 'search', 'taskId', 'energy', 'limit', 'offset'];
   return constraining.every((k) => f[k] == null);
 }
 
@@ -227,7 +231,7 @@ export function rollbackOptimistic(qc: QueryClient, snapshot: OptimisticSnapshot
  * a body refetch cannot disturb an open document.
  */
 export function settleEntity(qc: QueryClient, root: EntityRoot) {
-  qc.invalidateQueries({ queryKey: [root] });
+  qc.invalidateQueries({ queryKey: entityKeys[root].all });
   // Backlinks point at *targets*, so editing/renaming this entity changes the
   // backlink views of the entities it links to. And a rename changes this
   // entity's title everywhere it is referenced as a chip. Invalidate both

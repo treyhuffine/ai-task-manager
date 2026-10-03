@@ -1,6 +1,8 @@
-import { api, ApiError } from './client';
 import { isHostnameClaimed } from '@/hooks/use-client-location';
-import type { Attachment } from '@/db/types';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcOptions, rpcQuery } from '@/lib/trpc/request-options';
+import type { RouterInputs, RouterOutputs } from '@/lib/trpc/router';
+import { apiErrorBody, apiErrorStatus } from './client';
 
 /** Loopback hostnames that imply the browser is on the host machine. */
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
@@ -19,19 +21,9 @@ export function clientIsHost(): boolean {
   return LOOPBACK_HOSTS.has(h) || isHostnameClaimed(h);
 }
 
-export interface FsBrowseEntry {
-  name: string;
-  path: string;
-  kind: 'dir' | 'file';
-}
+export type FsBrowseEntry = RouterOutputs['fs']['browseGet']['entries'][number];
 
-export interface FsBrowseResponse {
-  path: string;
-  parent: string | null;
-  /** Realpath of the home directory — the picker's sandbox root. */
-  home?: string;
-  entries: FsBrowseEntry[];
-}
+export type FsBrowseResponse = RouterOutputs['fs']['browseGet'];
 
 export interface FsBrowseOptions {
   showHidden?: boolean;
@@ -43,9 +35,7 @@ export type PickFolderResult =
   | { kind: 'cancelled' }
   | { kind: 'unsupported'; reason: string };
 
-export type DetectFaviconResult =
-  | { kind: 'found'; attachment: Attachment; source: string }
-  | { kind: 'none' };
+export type DetectFaviconResult = RouterOutputs['fs']['faviconPost'];
 
 /** Apps the local server can hand a folder off to. Mirrors the
  *  `OpenTarget` union on the server. */
@@ -60,9 +50,7 @@ export type OpenTarget =
   | 'sublime'
   | 'webstorm';
 
-export type OpenInResult =
-  | { ok: true }
-  | { ok: false; reason: 'not_installed' | 'unsupported' | 'failed'; message?: string };
+export type OpenInResult = RouterOutputs['sessions']['openPost'];
 
 export interface OpenInClientOptions {
   /** 1-based line to jump to (editors that support it). */
@@ -75,36 +63,22 @@ export interface OpenInClientOptions {
   projectDir?: string;
 }
 
-export interface InstalledApp {
-  target: OpenTarget;
-  label: string;
-  /** Inline icon as a data URL (macOS only — extracted from the `.app`
-   *  bundle). Null on other platforms or when extraction fails — caller
-   *  falls back to a lucide icon. */
-  iconDataUrl: string | null;
-}
+export type InstalledApp = RouterOutputs['fs']['installedAppsGet']['apps'][number];
 
-export interface InstalledAppsResponse {
-  platform: NodeJS.Platform;
-  apps: InstalledApp[];
-}
+export type InstalledAppsResponse = RouterOutputs['fs']['installedAppsGet'];
 
 /**
  * POST to `/fs/open`, mapping the structured 422 "couldn't open" body
  * (`{ reason, message }`) into an `OpenInResult` instead of throwing. Any
  * other failure (403 remote-forbidden, 404, 500) still throws.
  */
-async function postOpen(body: Record<string, unknown>): Promise<OpenInResult> {
+async function postOpen(body: RouterInputs['fs']['openPost']['body']): Promise<OpenInResult> {
   try {
-    await api.post<{ ok: true }>(
-      '/fs/open',
-      body,
-      clientIsHost() ? { headers: { 'x-ri-host': '1' } } : undefined,
-    );
+    await trpcClient.fs.openPost.mutate({body: body}, rpcOptions(clientIsHost() ? { headers: { 'x-ri-host': '1' } } : undefined));
     return { ok: true };
   } catch (err) {
-    if (err instanceof ApiError && err.status === 422) {
-      const b = err.body as { reason?: string; message?: string } | null;
+    if (apiErrorStatus(err) === 422) {
+      const b = apiErrorBody<{ reason?: string; message?: string }>(err);
       const reason = b?.reason;
       if (reason === 'not_installed' || reason === 'unsupported' || reason === 'failed') {
         return { ok: false, reason, message: b?.message };
@@ -115,42 +89,28 @@ async function postOpen(body: Record<string, unknown>): Promise<OpenInResult> {
 }
 
 export const fsApi = {
-  browse(p?: string, opts?: FsBrowseOptions): Promise<FsBrowseResponse> {
+  browse(p?: string, opts?: FsBrowseOptions) {
     const query: Record<string, string> = {};
     if (p) query.path = p;
     if (opts?.showHidden) query.showHidden = '1';
     if (opts?.includeFiles) query.includeFiles = '1';
-    return api.get<FsBrowseResponse>('/fs/browse', {
-      query: Object.keys(query).length ? query : undefined,
-    });
+    return trpcClient.fs.browseGet.query({query: rpcQuery(Object.keys(query).length ? query : undefined)});
   },
 
   /**
    * Create a single subdirectory under `parent`. Name must be a single
    * path segment; server rejects slashes, `..`, and leading dots.
    */
-  mkdir(parent: string, name: string): Promise<{ path: string }> {
-    return api.post<{ path: string }>('/fs/mkdir', { parent, name });
+  mkdir(parent: string, name: string) {
+    return trpcClient.fs.mkdirPost.mutate({body: { parent, name }});
   },
 
   /**
    * Open the OS native folder picker. The dialog opens on the same machine
    * the server runs on — i.e. the user's machine in a local-first setup.
    */
-  async pickFolder(prompt?: string): Promise<PickFolderResult> {
-    const res = await api.raw('/fs/pick-folder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    });
-    if (res.status === 204) return { kind: 'cancelled' };
-    if (res.status === 501) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      return { kind: 'unsupported', reason: body.error ?? 'No native picker available' };
-    }
-    if (!res.ok) throw new Error(`pick-folder failed: ${res.status}`);
-    const body = (await res.json()) as { path: string };
-    return { kind: 'picked', path: body.path };
+  async pickFolder(prompt?: string) {
+    return trpcClient.fs.pickFolderPost.mutate({ body: { prompt } });
   },
 
   /**
@@ -158,8 +118,8 @@ export const fsApi = {
    * On hit, the bytes are copied into the attachments dir and the resulting
    * `Attachment` record is returned.
    */
-  detectFavicon(folderPath: string): Promise<DetectFaviconResult> {
-    return api.post<DetectFaviconResult>('/fs/favicon', { path: folderPath });
+  detectFavicon(folderPath: string) {
+    return trpcClient.fs.faviconPost.mutate({body: { path: folderPath }});
   },
 
   /**
@@ -167,8 +127,8 @@ export const fsApi = {
    * an inline data-URL icon for each app on macOS (extracted from the
    * `.app` bundle's `.icns`).
    */
-  installedApps(): Promise<InstalledAppsResponse> {
-    return api.get<InstalledAppsResponse>('/fs/installed-apps');
+  installedApps() {
+    return trpcClient.fs.installedAppsGet.query({});
   },
 
   /**

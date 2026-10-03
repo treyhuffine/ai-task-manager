@@ -23,9 +23,11 @@
  * client prevents that.
  */
 
-import { API_PROTOCOL, API_PROTOCOL_HEADER } from '@/lib/releases/api-contract';
-import { reportApiCompatibility } from '@/lib/client/api-compatibility';
 import { APP_SHORT_ID, PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
+import { reportApiCompatibility } from '@/lib/client/api-compatibility';
+import { API_PROTOCOL, API_PROTOCOL_HEADER } from '@/lib/releases/api-contract';
+import type { AppRouter } from '@/lib/trpc/router';
+import { TRPCClientError } from '@trpc/client';
 import { isGatewayFailure, isNetworkFailure, reportNetworkFailure, reportReachable } from './connectivity';
 
 export const AUTH_TOKEN_STORAGE_KEY = `${APP_SHORT_ID}.token`;
@@ -56,6 +58,7 @@ export function apiErrorText(err: unknown): string {
     const body = err.body as { error?: string; message?: string } | null;
     return body?.message ?? body?.error ?? `Request failed (${err.status})`;
   }
+  if (err instanceof TRPCClientError && err.cause instanceof ApiError) return apiErrorText(err.cause);
   return err instanceof Error ? err.message : String(err);
 }
 
@@ -67,6 +70,10 @@ export function apiErrorDetails<T = unknown>(err: unknown): T | undefined {
     const body = err.body as { details?: T } | null;
     return body?.details;
   }
+  if (err instanceof TRPCClientError) {
+    if (err.cause instanceof ApiError) return apiErrorDetails<T>(err.cause);
+    return (err as TRPCClientError<AppRouter>).data?.details as T | undefined;
+  }
   return undefined;
 }
 
@@ -75,7 +82,18 @@ export function apiErrorCode(err: unknown): string | undefined {
     const body = err.body as { code?: string } | null;
     return body?.code;
   }
+  if (err instanceof TRPCClientError) {
+    if (err.cause instanceof ApiError) return apiErrorCode(err.cause);
+    return (err as TRPCClientError<AppRouter>).data?.domainCode ?? undefined;
+  }
   return undefined;
+}
+
+/** Original refusal status and body across HTTP and tRPC transports. */
+export { apiErrorStatus } from './error-status';
+export function apiErrorBody<T = unknown>(err: unknown): T | undefined {
+  if (err instanceof ApiError) return err.body as T;
+  if (err instanceof TRPCClientError) return err.cause instanceof ApiError ? err.cause.body as T : (err as TRPCClientError<AppRouter>).data?.body as T | undefined;
 }
 
 /** Primitive values allowed as query params; arrays are comma-joined. */
@@ -169,6 +187,14 @@ export class ApiClient {
     this.onUnauthorized = opts.onUnauthorized ?? defaultOnUnauthorized;
   }
 
+  /** WebSocket credentials travel in tRPC's first message, never in a URL.
+   * The token source and unauthorized recovery are shared with HTTP. */
+  connectionParams(): Record<string, string> {
+    const token = this.getToken();
+    return { protocol: String(API_PROTOCOL), ...(token ? { token } : {}) };
+  }
+  unauthorized(): void { this.onUnauthorized(); }
+
   get<T>(path: string, opts?: RequestOptions): Promise<T> {
     return this.request<T>('GET', path, undefined, opts);
   }
@@ -261,7 +287,8 @@ export class ApiClient {
   private buildUrl(path: string, query?: RequestOptions['query']): string {
     const origin =
       typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
-    const full = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
+    const full = path.startsWith('http') || path === this.baseUrl || path.startsWith(`${this.baseUrl}/`)
+      ? path : `${this.baseUrl}${path}`;
     const url = new URL(full, origin);
 
     if (query) {

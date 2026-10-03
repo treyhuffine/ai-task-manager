@@ -1,21 +1,23 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Undo2, Loader2, ChevronLeft, ChevronRight, History } from 'lucide-react';
-import { api } from '@/lib/api/client';
-import { lineDiff, splitDiff, type SplitRow } from '@/lib/executions/edit-diff';
+import { entityKeys } from '@/lib/query/entity-keys';
+import { trpcClient } from '@/lib/trpc/client';
+
 import { DiffLines } from '@/components/executions/file-chip';
-import {
-  useEntityVersions,
-  groupVersions,
-  EMPTY_SNAPSHOT,
-  type ChangeGroup,
-} from '@/hooks/use-entity-versions';
-import { cn } from '@/lib/utils';
-import { useAreas } from '@/hooks/use-areas';
 import type { EntityVersionSnapshot } from '@/db/types';
+import { useAreas } from '@/hooks/use-areas';
+import {
+	EMPTY_SNAPSHOT,
+	groupVersions,
+	useEntityVersions,
+	type ChangeGroup,
+} from '@/hooks/use-entity-versions';
+import { lineDiff, splitDiff, type SplitRow } from '@/lib/executions/edit-diff';
+import { cn } from '@/lib/utils';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ChevronLeft, ChevronRight, History, Loader2, Undo2, X } from 'lucide-react';
+import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
+import { useMemo, useState } from 'react';
 
 type EntityType = 'task' | 'note';
 
@@ -102,11 +104,10 @@ export function EntityDiffModal({ open, onClose, entityType, entityId }: EntityD
   const canUndo = !!group?.before;
 
   const revert = useMutation({
-    mutationFn: (versionId: string) => api.post(`/entity-versions/${versionId}/revert`, {}),
+    mutationFn: (versionId: string) => trpcClient.entityVersions.revertPost.mutate({params: {id: versionId}, body: {}}),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tasks'] });
-      qc.invalidateQueries({ queryKey: ['notes'] });
-      qc.invalidateQueries({ queryKey: [entityType, entityId] });
+      qc.invalidateQueries({ queryKey: entityKeys.tasks.all });
+      qc.invalidateQueries({ queryKey: entityKeys.notes.all });
       qc.invalidateQueries({ queryKey: versionsKey });
       qc.invalidateQueries({ queryKey: ['deck'] });
       onClose();

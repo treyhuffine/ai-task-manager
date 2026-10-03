@@ -1,13 +1,16 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, apiErrorText } from '@/lib/api/client';
-import { toast } from 'sonner';
 import { useRuntimeStatus } from '@/hooks/use-execution';
-import { hasRuntimeActivity } from '@/lib/executor/runtime-status';
 import { SKILLS_KEY } from '@/hooks/use-skills';
-import type { ChatSessionRecord } from '@/db/types';
+import { apiErrorText } from '@/lib/api/client';
+import type { ChatSessionRecord } from '@/lib/api/dto/records';
+import { hasRuntimeActivity } from '@/lib/executor/runtime-status';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
+import { toast } from 'sonner';
+
 
 /** 'build' is the skill's builder chat, 'try' the chat that tries it. */
 export type SkillChatKind = 'build' | 'try';
@@ -20,9 +23,7 @@ export function skillChatQueryKey(ref: string, kind: SkillChatKind) {
 
 /** Ensure the skill's builder or try chat (by the skill's ref) and return its session. */
 export async function ensureSkillChat(ref: string, kind: SkillChatKind): Promise<ChatSessionRecord> {
-  const { session } = await api.get<{ session: ChatSessionRecord }>('/document-chat', {
-    query: { entityType: ENTITY_TYPE[kind], entityId: ref },
-  });
+  const { session } = await trpcClient.documentChat.list.query({query: rpcQuery({ entityType: ENTITY_TYPE[kind], entityId: ref })});
   return session;
 }
 
@@ -53,7 +54,7 @@ export function useSkillChat(ref: string, kind: SkillChatKind, opts: { enabled?:
 
   const newChat = useMutation({
     mutationFn: () =>
-      api.post<{ session: ChatSessionRecord }>('/document-chat', { entityType: ENTITY_TYPE[kind], entityId: ref }),
+      trpcClient.documentChat.create.mutate({body: { entityType: ENTITY_TYPE[kind], entityId: ref }}),
     onError: (error) => toast.error('Could not start a new chat', { description: apiErrorText(error) }),
     onSuccess: (data) => qc.setQueryData(queryKey, data.session),
   });

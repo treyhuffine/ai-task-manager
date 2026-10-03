@@ -1,9 +1,9 @@
+import { API_KEY_ID_HEADER, API_KEY_SCOPE_HEADER, CALLER_LOCATION_HEADER } from '@/lib/auth/request-key';
+import { NextRequest } from 'next/server';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { NextRequest } from 'next/server';
-import { API_KEY_ID_HEADER, API_KEY_SCOPE_HEADER, CALLER_LOCATION_HEADER } from '@/lib/auth/request-key';
 const host = vi.hoisted(() => ({ hash: '' }));
 vi.mock('@/lib/auth/host-key', () => ({ isHostKeyHash: (hash: string) => hash === host.hash }));
 let root: string;
@@ -33,8 +33,8 @@ it('uses the existing claim and acknowledgement pipeline in a fixed per-device c
   expect(claim.notification.url).toBe('/?settings=notifications');
   expect(await (await route.POST(req({ action: 'claim' }))).json()).toEqual({ claim: null });
   expect(await (await route.POST(req({ action: 'ack', id: claim.id, receipt: claim.receipt, status: 'sent' }))).json()).toEqual({ acknowledged: true });
-  expect((await route.GET(req()).json()).history).toMatchObject([{ id: claim.id, status: 'sent' }]);
-  expect(route.GET(req()).headers.get('cache-control')).toBe('no-store');
+  expect((await (await route.GET(req())).json()).history).toMatchObject([{ id: claim.id, status: 'sent' }]);
+  expect((await route.GET(req())).headers.get('cache-control')).toBe('no-store');
 });
 it('cannot select, claim, or acknowledge another computer’s channel', async () => {
   await route.POST(req({ action: 'enable' })); await route.POST(req({ action: 'test' }));
@@ -52,33 +52,33 @@ it.each(['worker', 'session'])('rejects %s credentials and host authority before
   expect(q.getNotificationChannel(`desktop:device:${paired.device.id}`)).toBeUndefined();
 });
 it('rejects missing context, mismatched bearer keys, and a worker key even with forged viewer scope', async () => {
-  expect(route.GET(new NextRequest('https://home.example/api/devices/me/desktop-notifications')).status).toBe(403);
-  expect(route.GET(req(undefined, { token: 'wrong' })).status).toBe(403);
+  expect((await route.GET(new NextRequest('https://home.example/api/devices/me/desktop-notifications'))).status).toBe(403);
+  expect((await route.GET(req(undefined, { token: 'wrong' }))).status).toBe(403);
   const worker = q.createApiKey({ deviceId: paired.device.id, role: 'worker', name: 'worker' });
-  expect(route.GET(req(undefined, { keyId: worker.key.id, token: worker.token.plaintext })).status).toBe(403);
+  expect((await route.GET(req(undefined, { keyId: worker.key.id, token: worker.token.plaintext }))).status).toBe(403);
 });
 it('revocation or expiry immediately denies polling and acknowledgements', async () => {
   await route.POST(req({ action: 'enable' }));
   q.revokeApiKey(paired.key.id);
-  expect(route.GET(req()).status).toBe(403);
+  expect((await route.GET(req())).status).toBe(403);
   expect((await route.POST(req({ action: 'claim' }))).status).toBe(403);
   paired = q.pairDevice({ name: 'Expired Mac', kind: 'computer', expiresAt: '2000-01-01T00:00:00.000Z' });
-  expect(route.GET(req()).status).toBe(403);
+  expect((await route.GET(req())).status).toBe(403);
 });
-it('rejects a retired device even when its sign-in key itself remains unrevoked', () => {
+it('rejects a retired device even when its sign-in key itself remains unrevoked', async () => {
   q.removeDevice(paired.device.id, 'Removed');
   const key = q.createApiKey({ name: 'stale sign in', deviceId: paired.device.id, role: 'sign_in' });
-  expect(route.GET(req(undefined, { token: key.token.plaintext, keyId: key.key.id })).status).toBe(403);
+  expect((await route.GET(req(undefined, { token: key.token.plaintext, keyId: key.key.id }))).status).toBe(403);
 });
 
-it('rejects the Home host credential even with forged remote caller context', () => {
+it('rejects the Home host credential even with forged remote caller context', async () => {
   host.hash = paired.key.hash;
-  expect(route.GET(req()).status).toBe(403);
+  expect((await route.GET(req())).status).toBe(403);
 });
 
 it('rejects phone sign-in credentials without creating a desktop channel', async () => {
   paired = q.pairDevice({ name: 'Phone', kind: 'phone' });
-  expect(route.GET(req()).status).toBe(403);
+  expect((await route.GET(req())).status).toBe(403);
   expect((await route.POST(req({ action: 'enable' }))).status).toBe(403);
   expect(q.getNotificationChannel(`desktop:device:${paired.device.id}`)).toBeUndefined();
 });

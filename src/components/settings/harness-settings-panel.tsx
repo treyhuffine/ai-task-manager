@@ -1,43 +1,43 @@
 'use client';
 
+import { trpcClient } from '@/lib/trpc/client';
 import { HarnessPermissionNotice } from './harness-permission-notice';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
-import { Bot, Globe2, Loader2, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
-import { toast } from 'sonner';
-import { api } from '@/lib/api/client';
-import { useUserState } from '@/hooks/use-user-state';
-import { useHarnessModels } from '@/hooks/use-harness-models';
-import {
-  useHarnesses,
-  useRemoveCustomModel,
-  useSaveHarnessModels,
-  type HarnessSettingsView,
-} from '@/hooks/use-harnesses';
-import { ProviderIcon, ConnectionBadge, ConnectionPanel } from './harness-connection-ui';
-import { PinModelInput } from './pin-model-input';
-import { CursorCredentialPanel } from './cursor-credential-panel';
-import { OpenCodeProviderPanel } from './opencode-provider-panel';
-import { Checkbox } from '@/components/ui/checkbox';
+import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
 } from '@/components/ui/select';
-import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
-import {
-  effortOptionsForModel,
-  type ModelOption,
-} from '@/lib/harness/options';
 import type { EffortLevel } from '@/db/types';
+import { useHarnessModels } from '@/hooks/use-harness-models';
+import {
+	useHarnesses,
+	useRemoveCustomModel,
+	useSaveHarnessModels,
+	type HarnessSettingsView,
+} from '@/hooks/use-harnesses';
+import { useUserState } from '@/hooks/use-user-state';
+import {
+	effortOptionsForModel,
+	type ModelOption,
+} from '@/lib/harness/options';
 import { DEFAULT_HARNESS, HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
 import { cn } from '@/lib/utils';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { Bot, Globe2, Loader2, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { CursorCredentialPanel } from './cursor-credential-panel';
+import { ConnectionBadge, ConnectionPanel, ProviderIcon } from './harness-connection-ui';
 import { HarnessPicker } from './harness-picker';
+import { OpenCodeProviderPanel } from './opencode-provider-panel';
+import { PinModelInput } from './pin-model-input';
 
 export function HarnessSettingsPanel() {
   const { data: userState } = useUserState();
@@ -90,8 +90,7 @@ function GlobalSkillSetting() {
 
   useEffect(() => {
     let active = true;
-    api
-      .get<{ enabled: boolean; configured: boolean; appOnly?: boolean }>('/harness/skills/global')
+    trpcClient.harness.skillsGlobalGet.query({})
       .then((res) => {
         if (active) { setEnabled(res.enabled); setAppOnly(res.appOnly === true); }
       })
@@ -108,7 +107,7 @@ function GlobalSkillSetting() {
     setEnabled(next);
     setSaving(true);
     try {
-      await api.put('/harness/skills/global', { enabled: next });
+      await trpcClient.harness.skillsGlobalPut.mutate({body: { enabled: next }});
       toast.success(
         next
           ? 'Agents can manage tasks and notes in every project'

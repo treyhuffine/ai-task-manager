@@ -86,11 +86,15 @@ export async function runTerminalFeed(
       // Cancelled, or the stream failed: treated as ended below.
     } finally {
       signal.removeEventListener('abort', stop);
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
     }
     if (ended || signal.aborted) return;
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, retryMs);
-      signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+      const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve(); };
+      const timer = setTimeout(finish, retryMs);
+      signal.addEventListener('abort', finish, { once: true });
+      if (signal.aborted) finish();
     });
   }
 }

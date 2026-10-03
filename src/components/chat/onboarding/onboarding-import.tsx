@@ -1,16 +1,17 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Check, Folder, Loader2 } from 'lucide-react';
-import { api } from '@/lib/api/client';
 import { DISCOVERY_KEY } from '@/components/settings/sections/imports-section';
 import { openSettings } from '@/components/settings/settings-store';
 import type { ExternalAgentDiscovery, ExternalAgentSource } from '@/lib/import/types';
-import { formatCompactRelative } from '@/lib/utils/relative-time';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcOptions } from '@/lib/trpc/request-options';
 import { cn } from '@/lib/utils';
-import { listJoin } from './onboarding-flow';
+import { formatCompactRelative } from '@/lib/utils/relative-time';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowRight, Check, Folder, Loader2 } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { startImport, useImportRun } from './import-runner';
+import { listJoin } from './onboarding-flow';
 import { Card, PrimaryButton, QuietButton, Says } from './onboarding-ui';
 
 const SOURCE_NAMES: Record<ExternalAgentSource, string> = {
@@ -102,7 +103,7 @@ export function preselectedProjects(projects: RecentProject[], now = Date.now())
 export function useImportDiscovery(enabled: boolean) {
   return useQuery({
     queryKey: [...DISCOVERY_KEY, 'here'],
-    queryFn: () => api.get<ExternalAgentDiscovery>('/imports/agents', { timeoutMs: 90_000 }),
+    queryFn: () => trpcClient.imports.agentsGet.query({}, rpcOptions({ timeoutMs: 90_000 })),
     enabled,
     staleTime: 30_000,
     retry: false,

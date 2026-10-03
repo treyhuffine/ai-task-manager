@@ -1,4 +1,6 @@
 'use client';
+
+import { entityKeys } from '@/lib/query/entity-keys';
 import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave';
 
 import { useEffect, useCallback, useRef, useState } from 'react';
@@ -184,14 +186,14 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
       const placement = computeBucketPlacement(priorityList, taskId, bucket);
       if (!placement) return;
 
-      const priorityKey = ['tasks', priorityFilter];
+      const priorityKey = entityKeys.tasks.list(priorityFilter);
       const previousData = queryClient.getQueryData(priorityKey);
       queryClient.setQueryData(priorityKey, placement.reordered);
 
       const allPatches = [...placement.normalizationPatches, placement.movedPatch];
       Promise.all(allPatches.map((p) => tasksApi.update(p.id, { sortKey: p.sortKey })))
         .then(() => {
-          queryClient.invalidateQueries({ queryKey: ['tasks'] });
+          queryClient.invalidateQueries({ queryKey: entityKeys.tasks.all });
         })
         .catch(() => {
           queryClient.setQueryData(priorityKey, previousData);

@@ -9,9 +9,9 @@
  * then finds the account connected.
  */
 import type { Connection } from '@connectors/engine';
-import { getConnectorRuntime } from './runtime';
-import { isDesktopRequest, desktopOAuth, desktopRelayFor, type DesktopOAuthFlow } from './desktop-oauth';
+import { desktopOAuth, desktopRelayFor, isDesktopRequest, type DesktopOAuthFlow } from './desktop-oauth';
 import { rememberOAuthReturn } from './oauth-return';
+import { getConnectorRuntime } from './runtime';
 
 export interface BeginConnectOptions {
   providerId: string;
@@ -53,7 +53,7 @@ export async function runAuthCompleted(requestId: string | null, connection: Con
   }
 }
 
-export async function beginConnect(request: Request, opts: BeginConnectOptions): Promise<BeginConnectResult> {
+export async function beginConnect(request: Pick<Request, 'headers' | 'url'>, opts: BeginConnectOptions): Promise<BeginConnectResult> {
   const now = Date.now();
   for (const [id, h] of hooks) if (h.expires < now) hooks.delete(id);
 

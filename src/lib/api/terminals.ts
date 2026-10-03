@@ -1,19 +1,9 @@
-import { api } from './client';
+import { folderSourceFromBase, type FolderApiBase } from '@/lib/folders/source';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcOptions } from '@/lib/trpc/request-options';
+import type { RouterOutputs } from '@/lib/trpc/router';
 
-export interface TerminalDescriptor {
-  id: string;
-  sessionId: string;
-  cwd: string;
-  shell: string;
-  cols: number;
-  rows: number;
-  exited: boolean;
-  exitCode: number | null;
-  createdAt: string;
-  /** Where the shell runs (P3.5): its device's name, and whether that's the home's. */
-  deviceName: string | null;
-  isHome: boolean;
-}
+export type TerminalDescriptor = RouterOutputs['sessions']['terminalsPost'];
 
 /**
  * Every terminal call is bounded.
@@ -38,45 +28,25 @@ const WRITE_TIMEOUT_MS = 30_000;
  * agent's own folder. Both expose the same terminal routes.
  */
 export const terminalsApi = {
-  list(base: string, signal?: AbortSignal): Promise<TerminalDescriptor[]> {
-    return api.get<TerminalDescriptor[]>(`${base}/terminals`, { signal });
+  list(base: FolderApiBase, signal?: AbortSignal) {
+    const source = folderSourceFromBase(base);
+    return source.kind === 'session' ? trpcClient.sessions.terminalsGet.query({ params: { id: source.sessionId } }, { signal }) : trpcClient.workspaces.terminalsGet.query({ params: { id: source.workspaceId } }, { signal });
   },
-
-  create(
-    base: string,
-    dims: { cols: number; rows: number },
-  ): Promise<TerminalDescriptor> {
-    return api.post<TerminalDescriptor>(`${base}/terminals`, dims, {
-      timeoutMs: CREATE_TIMEOUT_MS,
-    });
+  create(base: FolderApiBase, dims: { cols: number; rows: number }) {
+    const source = folderSourceFromBase(base), options = rpcOptions({ timeoutMs: CREATE_TIMEOUT_MS });
+    return source.kind === 'session' ? trpcClient.sessions.terminalsPost.mutate({ params: { id: source.sessionId }, body: dims }, options) : trpcClient.workspaces.terminalsPost.mutate({ params: { id: source.workspaceId }, body: dims }, options);
   },
-
-  kill(base: string, terminalId: string): Promise<{ ok: true }> {
-    return api.delete<{ ok: true }>(`${base}/terminals/${terminalId}`);
+  kill(base: FolderApiBase, terminalId: string) {
+    const source = folderSourceFromBase(base);
+    return source.kind === 'session' ? trpcClient.sessions.terminalsTerminalIdDelete.mutate({ params: { id: source.sessionId, terminalId } }) : trpcClient.workspaces.terminalsTerminalIdDelete.mutate({ params: { id: source.workspaceId, terminalId } });
   },
-
-  input(base: string, terminalId: string, data: string): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(
-      `${base}/terminals/${terminalId}/input`,
-      { data },
-      { timeoutMs: WRITE_TIMEOUT_MS },
-    );
+  input(base: FolderApiBase, terminalId: string, data: string) {
+    const source = folderSourceFromBase(base), options = rpcOptions({ timeoutMs: WRITE_TIMEOUT_MS });
+    return source.kind === 'session' ? trpcClient.sessions.terminalsInputTerminalIdPost.mutate({ params: { id: source.sessionId, terminalId }, body: { data } }, options) : trpcClient.workspaces.terminalsInputTerminalIdPost.mutate({ params: { id: source.workspaceId, terminalId }, body: { data } }, options);
   },
-
-  resize(
-    base: string,
-    terminalId: string,
-    dims: { cols: number; rows: number },
-  ): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>(
-      `${base}/terminals/${terminalId}/resize`,
-      dims,
-      { timeoutMs: WRITE_TIMEOUT_MS },
-    );
+  resize(base: FolderApiBase, terminalId: string, dims: { cols: number; rows: number }) {
+    const source = folderSourceFromBase(base), options = rpcOptions({ timeoutMs: WRITE_TIMEOUT_MS });
+    return source.kind === 'session' ? trpcClient.sessions.terminalsResizeTerminalIdPost.mutate({ params: { id: source.sessionId, terminalId }, body: dims }, options) : trpcClient.workspaces.terminalsResizeTerminalIdPost.mutate({ params: { id: source.workspaceId, terminalId }, body: dims }, options);
   },
-
-  /** Path used by `EventSource` for the SSE output stream. */
-  streamUrl(base: string, terminalId: string): string {
-    return `/api${base}/terminals/${terminalId}/stream`;
-  },
+  streamUrl(base: FolderApiBase, terminalId: string) { return `/api${base}/terminals/${terminalId}/stream`; },
 };

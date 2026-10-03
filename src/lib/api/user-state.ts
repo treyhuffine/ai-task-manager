@@ -1,12 +1,12 @@
-import { api } from './client';
-import type { UserStateRecord, UpdateUserStateInput } from '@/db/types';
+import type { UpdateUserStateInput } from '@/db/types';
+import { trpcClient } from '@/lib/trpc/client';
 
 export const userStateApi = {
-  get(): Promise<UserStateRecord> {
-    return api.get<UserStateRecord>('/user-state');
+  get() {
+    return trpcClient.userState.list.query({});
   },
 
-  update(input: UpdateUserStateInput): Promise<UserStateRecord> {
-    return api.patch<UserStateRecord>('/user-state', input);
+  update(input: UpdateUserStateInput) {
+    return trpcClient.userState.update.mutate({body: input});
   },
 };

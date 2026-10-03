@@ -25,8 +25,8 @@ page, deck) gets it for free.
 The hooks share one helper, `src/lib/query/optimistic-entity.ts`:
 
 - **`onMutate` → `optimisticPatch` / `optimisticRemove`** patches the cache
-  immediately (single-entity cache `[root, id]` and every filtered list
-  `[root, filter]`) and returns a snapshot.
+  immediately (single-entity cache `entityKeys[root].detail(id)` and every filtered
+  list `entityKeys[root].list(filter)`) and returns a snapshot.
 - **`onError` → `rollbackOptimistic`** restores the snapshot and shows a toast.
 - **`onSettled` → `settleEntity`** invalidates in the background to converge on
   server-derived fields. This is fire-and-forget: the UI already shows the
@@ -39,11 +39,16 @@ This mirrors the pattern already proven in `useMarkSessionRead`
 
 Under each root key there are two shapes, and the helper handles both:
 
-- **`[root, id]`** — the full record, *with* `body`.
-- **`[root, filter]`** — an array of list DTOs. Lists omit `body` and carry
+- **`entityKeys[root].detail(id)`** — the full record, *with* `body`.
+- **`entityKeys[root].list(filter)`** — an array of task/note list DTOs. These omit `body` and carry
   `bodyExcerpt` + `bodyLen` instead (`src/lib/api/dto/entity-list.ts`). So a body
   edit is projected to the excerpt shape (`projectPatchToList`) before it is
   written into a list, and the raw `body` is never left on a list row.
+
+These helpers delegate to tRPC's key factories. Areas retain their normal
+record shape in lists. Aggregate queries such as deadlines and attention live
+under the same router prefix, but optimistic entity surgery excludes them.
+See `docs/trpc-migration.md` for the transport and migration coverage.
 
 The patch is always a **partial merge**, never a record replace, because the same
 update hook carries many fields (`title`, `energy`, `areaId`, `dueAt`, `body`,
@@ -120,7 +125,7 @@ watches for:
   `task-kanban.tsx`), for a move in the middle of a long turn, a CLI call from
   a terminal, or another device. TanStack pauses it while the tab is hidden.
 
-Neither touches a single task (`['tasks', <id>]`, the one that carries
+Neither touches a single task (`entityKeys.tasks.detail(id)`, which carries
 `body`). A background refresh never refetches a document someone may have
 open. That still converges on focus and on settle, as above.
 

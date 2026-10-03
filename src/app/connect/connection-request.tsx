@@ -1,15 +1,16 @@
 'use client';
+import { trpcClient } from '@/lib/trpc/client';
 
-import { useState, type FormEvent } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { connectorMeta } from '@/components/connectors/connector-meta';
 import { HostedEndpointFields } from '@/components/connectors/hosted-endpoint-fields';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { apiErrorText } from '@/lib/api/client';
 import { connectorEndpointReady, type HostedEndpointSelection } from '@/lib/client/connector-endpoint';
-import { api, apiErrorText } from '@/lib/api/client';
 import { openConnectorAuthorization } from '@/lib/client/desktop';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useState, type FormEvent } from 'react';
 import { requestConnection, selectRequestAccount, type ConnectionRequestOptions } from './request-connection';
 
 export interface ConnectionRequestProps extends Omit<ConnectionRequestOptions, 'token'> {
@@ -42,7 +43,7 @@ export function ConnectionRequest(props: ConnectionRequestProps) {
     setMessage('');
     try {
       const result = await requestConnection({ ...selectRequestAccount(props, selectedAccountId || undefined), ...endpointSelection, token }, {
-        post: (url, body) => api.post(url, body), openAuthorization: openConnectorAuthorization,
+        post: (...[path, body]) => path === '/connectors/connect' ? trpcClient.connectors.connectPost.mutate({ body }) : trpcClient.connectors.connectDirectPost.mutate({ body }), openAuthorization: openConnectorAuthorization,
       });
       setToken('');
       setMessage(result);

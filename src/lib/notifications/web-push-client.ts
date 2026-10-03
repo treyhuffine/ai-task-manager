@@ -1,9 +1,10 @@
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcOptions } from '@/lib/trpc/request-options';
 /**
  * Browser-side web-push subscribe/unsubscribe helpers for the Notifications settings UI. Client-safe
  * (no server imports) — registers the service worker, fetches the VAPID public key, subscribes, and
  * stores the subscription via the authed API client.
  */
-import { api } from '@/lib/api/client';
 import type { WebPushServerStatus, WebPushSubscriptionPayload } from './web-push-contract';
 
 const SW_URL = '/notifications-sw.js';
@@ -55,7 +56,7 @@ export async function removeDesktopWebPushSubscription(): Promise<void> {
   const reg = await navigator.serviceWorker.getRegistration(SW_URL);
   const sub = await reg?.pushManager.getSubscription();
   if (!sub) return;
-  await api.post('/notifications/web-push/unsubscribe', { endpoint: sub.endpoint });
+  await trpcClient.notifications.webPushUnsubscribePost.mutate({body: { endpoint: sub.endpoint }});
   if (!(await sub.unsubscribe())) throw new Error('Could not remove the old browser notification subscription. Retry enabling desktop notifications.');
 }
 
@@ -83,7 +84,7 @@ export async function getBrowserPushStatus(): Promise<BrowserPushStatus> {
   catch (error) { if (Notification.permission !== 'denied') throw error; }
   let body: WebPushSubscriptionPayload | Record<string, never> = {};
   if (sub) { try { body = payload(sub); } catch { /* An incomplete local record needs explicit repair or removal. */ } }
-  const server = await api.post<WebPushServerStatus>('/notifications/web-push/status', body, { timeoutMs: 15_000 });
+  const server = await trpcClient.notifications.webPushStatusPost.mutate({body: body}, rpcOptions({ timeoutMs: 15_000 }));
   return {
     ...server, supported: true, permission: Notification.permission,
     localSubscription: !!sub, expired: !!sub?.expirationTime && sub.expirationTime <= Date.now(),
@@ -111,13 +112,13 @@ export async function subscribeToWebPush(): Promise<void> {
     sub = null;
   }
   if (!sub) {
-    const { publicKey } = await api.get<{ publicKey: string }>('/notifications/web-push/public-key', { timeoutMs: 15_000 });
+    const { publicKey } = await trpcClient.notifications.webPushPublicKeyGet.query({}, rpcOptions({ timeoutMs: 15_000 }));
     sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
   }
   // Keep an unacknowledged local subscription available for explicit repair.
   // The status reader will never report it as registered until the server agrees.
   const registration = payload(sub);
-  try { await api.post('/notifications/web-push/subscribe', registration, { timeoutMs: 15_000 }); }
+  try { await trpcClient.notifications.webPushSubscribePost.mutate({body: registration}, rpcOptions({ timeoutMs: 15_000 })); }
   catch { throw new Error('Ri could not confirm this browser registration. Reconnect to Ri and choose Repair browser notifications.'); }
 }
 
@@ -127,7 +128,7 @@ export async function unsubscribeFromWebPush(): Promise<void> {
   const reg = await navigator.serviceWorker.getRegistration(SW_URL);
   const sub = await reg?.pushManager.getSubscription();
   if (!sub) return;
-  try { await api.post('/notifications/web-push/unsubscribe', { endpoint: sub.endpoint }, { timeoutMs: 15_000 }); }
+  try { await trpcClient.notifications.webPushUnsubscribePost.mutate({body: { endpoint: sub.endpoint }}, rpcOptions({ timeoutMs: 15_000 })); }
   catch { throw new Error('Ri could not turn off notifications for this browser. Reconnect and retry Turn off here.'); }
   try {
     if (!(await sub.unsubscribe())) throw new Error('Browser refused to remove the subscription');

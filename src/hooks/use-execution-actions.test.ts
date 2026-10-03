@@ -1,5 +1,6 @@
+import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 import { describe, expect, it } from 'vitest';
-import type { ChatSessionWithExecution } from '@/db/types';
+
 import type { DiffStats, PrInfo, WorktreeStatus } from '@/lib/api/sessions';
 import type { BranchSync } from '@/lib/workspaces/branch-sync';
 import { baseInfo, deriveActionState } from './use-execution-actions';

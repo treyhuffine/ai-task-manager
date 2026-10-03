@@ -1,4 +1,6 @@
 'use client';
+import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import { trpcClient } from '@/lib/trpc/client';
 
 /**
  * /dev/execution-chat — playground for the execution-chat surface.
@@ -15,23 +17,15 @@
  * "Live" button sends a real prompt for end-to-end coverage.
  */
 
-import { Suspense, useMemo, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, RotateCcw, Beaker, Zap, RefreshCw } from 'lucide-react';
-import { DashboardProvider } from '@/contexts/dashboard-context';
-import { api, ApiError } from '@/lib/api/client';
-import { sessionsApi } from '@/lib/api/sessions';
-import type { ChatSessionWithExecution } from '@/db/types';
 import { ExecutionView } from '@/components/executions/execution-view';
+import { DashboardProvider } from '@/contexts/dashboard-context';
+import { sessionsApi } from '@/lib/api/sessions';
+import { SCENARIOS, SCENARIO_CATEGORIES, type InjectBody, type Scenario } from '@/lib/dev/scenarios';
 import { PERMISSION_MODE_META } from '@/lib/permission-modes';
-import { SCENARIOS, SCENARIO_CATEGORIES, type Scenario, type InjectBody } from '@/lib/dev/scenarios';
-import type { WorkspaceRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
-
-interface ScratchResponse {
-  session: ChatSessionWithExecution;
-  workspace: WorkspaceRecord;
-}
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Beaker, Loader2, RefreshCw, RotateCcw, Zap } from 'lucide-react';
+import { Suspense, useMemo, useState } from 'react';
 
 export default function DevExecutionChatPage() {
   // Suspense boundary required: DashboardProvider reads useSearchParams.
@@ -48,7 +42,7 @@ function DevExecutionChatInner() {
   const qc = useQueryClient();
   const { data: scratch, isLoading, error, refetch } = useQuery({
     queryKey: ['dev', 'scratch-session'],
-    queryFn: () => api.get<ScratchResponse>('/dev/sessions/scratch'),
+    queryFn: () => trpcClient.dev.scratch.query({}),
     staleTime: Infinity,
   });
 
@@ -56,7 +50,7 @@ function DevExecutionChatInner() {
 
   const inject = useMutation({
     mutationFn: ({ id, body }: { id: string; body: InjectBody }) =>
-      api.post<{ ok: true }>(`/dev/sessions/${id}/inject`, body),
+      trpcClient.dev.inject.mutate({ params: { id }, body }),
     onSuccess: () => {
       if (!sessionId) return;
       // Both event and pending-input change on inject — tickle both.
@@ -84,7 +78,7 @@ function DevExecutionChatInner() {
 
   const reset = useMutation({
     mutationFn: (id: string) =>
-      api.post<{ ok: true }>(`/dev/sessions/${id}/inject`, { kind: 'reset_session' }),
+      trpcClient.dev.inject.mutate({ params: { id }, body: { kind: 'reset_session' } }),
     onSuccess: () => {
       if (!sessionId) return;
       qc.invalidateQueries({ queryKey: ['session', sessionId] });
@@ -121,7 +115,7 @@ function DevExecutionChatInner() {
             Couldn&apos;t load the scratch session.
           </p>
           <p className="text-[11px] text-muted-foreground/80 mt-1">
-            {error instanceof ApiError ? error.message : 'Unknown error.'}
+            {apiErrorStatus(error) !== undefined ? apiErrorText(error) : 'Unknown error.'}
           </p>
           <button
             onClick={() => refetch()}

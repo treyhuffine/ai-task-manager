@@ -1,3 +1,6 @@
+import { answerResult, failure, operationResponse } from '@/lib/server/operation';
+import { installedAppsResponseSchema, openInResultSchema } from '@/lib/server/remote-contracts';
+import { z } from 'zod/v4';
 /**
  * Opening an execution's or an agent's folder in an app on the viewer's own
  * device (docs/homes-build.md, P3.5, spec §3.3). The files are on the
@@ -8,8 +11,8 @@
  * browser, as before.
  */
 
-import { chatPlacement, getDevice, getDeviceForApiKey, getWorkspace } from '@/lib/db/queries';
 import { getRequestKey } from '@/lib/auth/request-key';
+import { chatPlacement, getDevice, getDeviceForApiKey, getWorkspace } from '@/lib/db/queries';
 import { agentDeviceFor } from '@/lib/setups/run-on';
 import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
 import type { OpenHereRequest } from '@/lib/workers/protocol';
@@ -52,54 +55,68 @@ const TARGETS = new Set(['finder', 'terminal', 'iterm', 'vscode', 'cursor', 'ant
  * `{ op: 'apps' }` lists the apps installed there. `{ op: 'open', path,
  * target, line?, column?, reveal? }` opens a path inside the folder.
  */
-export async function openOnViewerDevice(request: Request, place: OpenPlace): Promise<Response> {
-  if (place.at === 'nowhere') return Response.json({ error: place.error }, { status: place.status });
+async function askOpen<T>(request: Pick<Request, 'headers'>, place: OpenPlace, body: unknown, schema: z.ZodType<T>) {
+  if (place.at === 'nowhere') return failure({ error: place.error }, place.status);
   if (place.at === 'home') {
-    return Response.json(
+    return failure(
       { error: 'at_home', message: 'These files are on this home. Open them from a browser on it.' },
-      { status: 409 },
+      409,
     );
   }
   // Only a browser on that device: its viewing key, linked to it.
   const key = getRequestKey(request.headers);
   const viewerDevice = key?.scope === 'viewer' ? getDeviceForApiKey(key.apiKeyId) : null;
   if (!viewerDevice || viewerDevice.id !== place.deviceId) {
-    return Response.json(
+    return failure(
       { error: 'not_here', message: `The files are on ${place.deviceName}. Open them from a browser on ${place.deviceName}.` },
-      { status: 409 },
+      409,
     );
   }
 
-  const body = (await request.json().catch(() => null)) as
-    | { op?: unknown; path?: unknown; target?: unknown; line?: unknown; column?: unknown; reveal?: unknown }
-    | null;
+  const parsedBody = body as { op?: unknown; path?: unknown; target?: unknown; line?: unknown; column?: unknown; reveal?: unknown } | null;
   let ask: OpenHereRequest;
-  if (body?.op === 'apps') ask = { op: 'apps' };
-  else if (body?.op === 'open' && typeof body.target === 'string' && TARGETS.has(body.target)) {
+  if (parsedBody?.op === 'apps') ask = { op: 'apps' };
+  else if (parsedBody?.op === 'open' && typeof parsedBody.target === 'string' && TARGETS.has(parsedBody.target)) {
     ask = {
       op: 'open',
       folder: place.folder,
-      path: typeof body.path === 'string' && body.path ? body.path : null,
-      target: body.target as Extract<OpenHereRequest, { op: 'open' }>['target'],
-      ...(Number.isInteger(body.line) ? { line: body.line as number } : {}),
-      ...(Number.isInteger(body.column) ? { column: body.column as number } : {}),
-      ...(body.reveal === true ? { reveal: true } : {}),
+      path: typeof parsedBody.path === 'string' && parsedBody.path ? parsedBody.path : null,
+      target: parsedBody.target as Extract<OpenHereRequest, { op: 'open' }>['target'],
+      ...(Number.isInteger(parsedBody.line) ? { line: parsedBody.line as number } : {}),
+      ...(Number.isInteger(parsedBody.column) ? { column: parsedBody.column as number } : {}),
+      ...(parsedBody.reveal === true ? { reveal: true } : {}),
     };
   } else {
-    return Response.json({ error: 'invalid_params', message: 'Ask for { op: "apps" } or { op: "open", target }.' }, { status: 400 });
+    return failure({ error: 'invalid_params', message: 'Ask for { op: "apps" } or { op: "open", target }.' }, 400);
   }
 
   try {
     const answer = (await requestWorker(place.deviceId, 'open_here', ask)) as { status: number; body: unknown };
-    return Response.json(answer.body, { status: answer.status });
+    return answerResult(answer, schema);
   } catch (err) {
     if (err instanceof WorkerUnavailableError) {
-      return Response.json({ error: 'unavailable', message: `${place.deviceName} is not connected right now.` }, { status: 409 });
+      return failure({ error: 'unavailable', message: `${place.deviceName} is not connected right now.` }, 409);
     }
     if (err instanceof WorkerRequestError) {
       const message = err.unsupported ? `${place.deviceName} runs an older Ri that can't open apps from here. Update Ri there.` : err.message;
-      return Response.json({ error: 'worker_error', message }, { status: 424 });
+      return failure({ error: 'worker_error', message }, 424);
     }
     throw err;
   }
+}
+
+export const openInputSchema = z.object({
+  path: z.string().nullable().optional(), target: z.enum(['finder','terminal','iterm','vscode','cursor','antigravity','zed','sublime','webstorm']),
+  line: z.number().int().positive().optional(), column: z.number().int().positive().optional(), reveal: z.boolean().optional(),
+}).strict();
+export function openAppsOnViewer(request: Pick<Request, 'headers'>, place: OpenPlace) { return askOpen(request, place, { op: 'apps' }, installedAppsResponseSchema); }
+export function openOnViewer(request: Pick<Request, 'headers'>, place: OpenPlace, body: z.infer<typeof openInputSchema>) {
+  return askOpen(request, place, { ...body, op: 'open' }, openInResultSchema);
+}
+export async function openOnViewerDevice(request: Request, place: OpenPlace): Promise<Response> {
+  const body: unknown = await request.json().catch(() => null);
+  if (body && typeof body === 'object' && 'op' in body && body.op === 'apps') return operationResponse(await openAppsOnViewer(request, place));
+  const parsed = openInputSchema.safeParse(body && typeof body === 'object' ? Object.fromEntries(Object.entries(body).filter(([key]) => key !== 'op')) : body);
+  if (!parsed.success || !body || typeof body !== 'object' || !('op' in body) || body.op !== 'open') return operationResponse(failure({ error: 'invalid_params', message: 'Ask for { op: "apps" } or { op: "open", target }.' }, 400));
+  return operationResponse(await openOnViewer(request, place, parsed.data));
 }

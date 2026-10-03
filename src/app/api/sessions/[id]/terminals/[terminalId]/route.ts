@@ -1,24 +1,7 @@
-import type { NextRequest } from 'next/server';
-import { deleteTerminalAt, getTerminalAt, sessionTerminalPlace } from '@/lib/terminal/place';
 import { withCompression } from '@/lib/api/compression';
-
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/sessions/[id]/terminals/[terminalId]';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-export const GET = withCompression(handleGET);
-
-async function handleGET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string; terminalId: string }> },
-) {
-  const { id, terminalId } = await params;
-  return getTerminalAt(sessionTerminalPlace(id), terminalId);
-}
-
-export async function DELETE(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string; terminalId: string }> },
-) {
-  const { id, terminalId } = await params;
-  return deleteTerminalAt(sessionTerminalPlace(id), terminalId);
-}
+export const GET = withCompression(serveOperation(operation.GETInput, operation.GET));
+export const DELETE = serveOperation(operation.DELETEInput, operation.DELETE);

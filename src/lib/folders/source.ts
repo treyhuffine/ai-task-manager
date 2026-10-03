@@ -21,7 +21,8 @@ export const workspaceFolder = (workspaceId: string, opts: { readOnly?: boolean 
 });
 
 /** Route prefix under `/api` for the source's folder routes. */
-export function folderApiBase(source: FolderSource): string {
+export type FolderApiBase = `/sessions/${string}` | `/workspaces/${string}`;
+export function folderApiBase(source: FolderSource): FolderApiBase {
   return source.kind === 'session' ? `/sessions/${source.sessionId}` : `/workspaces/${source.workspaceId}`;
 }
 
@@ -38,4 +39,9 @@ export function folderIsWritable(source: FolderSource): boolean {
 /** Stable id for per-folder client state (expanded dirs, view mode). */
 export function folderStateId(source: FolderSource, executionId?: string | null): string {
   return source.kind === 'session' ? (executionId ?? source.sessionId) : `workspace-${source.workspaceId}`;
+}
+
+/** Scope of the viewer's folder controls. Never accepts an arbitrary endpoint. */
+export function folderSourceFromBase(base: FolderApiBase): FolderSource {
+  return base.startsWith('/sessions/') ? { kind: 'session', sessionId: base.slice('/sessions/'.length) } : { kind: 'workspace', workspaceId: base.slice('/workspaces/'.length) };
 }

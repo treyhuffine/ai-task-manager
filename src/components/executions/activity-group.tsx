@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import type { ChatEventRecord } from '@/lib/api/dto/records';
 import { cn } from '@/lib/utils';
-import type { ChatEventRecord } from '@/db/types';
+import { ChevronRight } from 'lucide-react';
+import { useState } from 'react';
+
 import { ExecutionEvent } from './execution-event';
-import { summarizeCounts, formatSpan, type TranscriptNode } from './transcript-grouping';
+import { formatSpan, summarizeCounts, type TranscriptNode } from './transcript-grouping';
 
 type GroupNode = Extract<TranscriptNode, { kind: 'group' }>;
 

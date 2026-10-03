@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Globe, LogIn, Power, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
-import { api, apiErrorText } from '@/lib/api/client';
+import { apiErrorText } from '@/lib/api/client';
+import { trpcClient } from '@/lib/trpc/client';
+import { AlertCircle, CheckCircle2, Globe, LogIn, Power, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 
 interface DetectedBrowser {
   flavor: string;
@@ -47,7 +48,7 @@ export function BrowserSection() {
 
   const load = useCallback(async () => {
     try {
-      setStatus(await api.get<BrowserStatus>('/browser'));
+      setStatus(await trpcClient.browser.list.query({}));
       setError(null);
     } catch (e) {
       setError(apiErrorText(e));
@@ -65,7 +66,7 @@ export function BrowserSection() {
       setBusy('patch');
       setError(null);
       try {
-        setStatus(await api.patch<BrowserStatus>('/browser', body));
+        setStatus(await trpcClient.browser.update.mutate({body: body}));
       } catch (e) {
         setError(apiErrorText(e));
       } finally {
@@ -93,7 +94,7 @@ export function BrowserSection() {
       setBusy(action);
       setError(null);
       try {
-        await api.post('/browser', { action });
+        await trpcClient.browser.create.mutate({body: { action }});
         await load();
       } catch (e) {
         setError(apiErrorText(e));

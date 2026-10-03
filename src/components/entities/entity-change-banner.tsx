@@ -1,10 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { entityKeys } from '@/lib/query/entity-keys';
+import { trpcClient } from '@/lib/trpc/client';
+
+import { groupVersions, useEntityVersions, type VersionedEntityType } from '@/hooks/use-entity-versions';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { FilePenLine, Undo2, X, Loader2, Eye } from 'lucide-react';
-import { api } from '@/lib/api/client';
-import { useEntityVersions, groupVersions, type VersionedEntityType } from '@/hooks/use-entity-versions';
+import { Eye, FilePenLine, Loader2, Undo2, X } from 'lucide-react';
+import { useState } from 'react';
 import { EntityDiffModal } from './entity-diff-modal';
 
 /**
@@ -29,11 +31,10 @@ export function EntityChangeBanner({
   const [modalOpen, setModalOpen] = useState(false);
 
   const revert = useMutation({
-    mutationFn: (versionId: string) => api.post(`/entity-versions/${versionId}/revert`, {}),
+    mutationFn: (versionId: string) => trpcClient.entityVersions.revertPost.mutate({params: {id: versionId}, body: {}}),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tasks'] });
-      qc.invalidateQueries({ queryKey: ['notes'] });
-      qc.invalidateQueries({ queryKey: [entityType, entityId] });
+      qc.invalidateQueries({ queryKey: entityKeys.tasks.all });
+      qc.invalidateQueries({ queryKey: entityKeys.notes.all });
       qc.invalidateQueries({ queryKey: ['entity-versions', entityType, entityId] });
       qc.invalidateQueries({ queryKey: ['deck'] });
     },

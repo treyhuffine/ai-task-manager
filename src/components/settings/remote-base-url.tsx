@@ -1,28 +1,28 @@
 'use client';
 
-import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { Switch } from '@/components/ui/switch';
+import { APP_SHORT_ID } from '@/constants/app';
+import { usePreviewSettings } from '@/hooks/use-preview';
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import { settingsApi, type PairBaseUrls } from '@/lib/api/settings';
+import { tunnelHostPreview } from '@/lib/auth/tunnel-host';
+import { isValidPreviewLabel, MAX_LABEL_LENGTH } from '@/lib/preview/preview-name';
+import { cn } from '@/lib/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Globe,
-  Check,
-  Loader2,
-  Trash2,
-  CheckCircle2,
-  AlertCircle,
-  Link,
-  RefreshCw,
-  ChevronRight,
+	AlertCircle,
+	Check,
+	CheckCircle2,
+	ChevronRight,
+	Globe,
+	Link,
+	Loader2,
+	RefreshCw,
+	Trash2,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { useConfirm } from '@/components/ui/confirm-dialog';
-import { usePreviewSettings } from '@/hooks/use-preview';
-import { ApiError } from '@/lib/api/client';
-import { settingsApi, type PairBaseUrls } from '@/lib/api/settings';
-import { isValidPreviewLabel, MAX_LABEL_LENGTH } from '@/lib/preview/preview-name';
-import { tunnelHostPreview } from '@/lib/auth/tunnel-host';
-import { APP_SHORT_ID } from '@/constants/app';
-import { cn } from '@/lib/utils';
+import { useState } from 'react';
 import { setSettingsSection } from './settings-store';
 
 /**
@@ -571,17 +571,17 @@ export function RemoteBaseUrlSection() {
 
 /** Stable error code from an API error body, for branching on failure kind. */
 function beamdErrorCode(err: unknown): string | null {
-  if (err instanceof ApiError && err.body && typeof err.body === 'object') {
-    const body = err.body as { error?: unknown };
+  if (apiErrorStatus(err) !== undefined && apiErrorBody(err) && typeof apiErrorBody(err) === 'object') {
+    const body = apiErrorBody(err) as { error?: unknown };
     if (typeof body.error === 'string') return body.error;
   }
   return null;
 }
 
 function beamdErrorMessage(err: unknown): string {
-  if (err instanceof ApiError && err.body && typeof err.body === 'object') {
-    const body = err.body as { message?: unknown };
+  if (apiErrorStatus(err) !== undefined && apiErrorBody(err) && typeof apiErrorBody(err) === 'object') {
+    const body = apiErrorBody(err) as { message?: unknown };
     if (typeof body.message === 'string' && body.message.trim()) return body.message;
   }
-  return err instanceof Error ? err.message : 'Beamd could not create a remote URL.';
+  return err instanceof Error ? apiErrorText(err) : 'Beamd could not create a remote URL.';
 }

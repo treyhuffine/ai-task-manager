@@ -1,28 +1,6 @@
-import { z } from 'zod';
-import { moveSkill } from '@/lib/skills/manage';
-import { locationFrom, moveSkillShape } from '@/lib/skills/params';
-import { readJson, skillErrorResponse } from '@/lib/skills/http';
-
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/skills/[ref]/move';
 export const runtime = 'nodejs';
 
-type Context = { params: Promise<{ ref: string }> };
-
-/**
- * Install a draft in Ri, global or a project, move an installed skill, or
- * uninstall it back to the drafts (`to: "draft"`). `copy` keeps the
- * original (sharing a skill with a project's team).
- * POST { to, workspaceId?, copy? } → { skill } at its new place.
- */
-export async function POST(request: Request, { params }: Context) {
-  const { ref } = await params;
-  const body = await readJson(request);
-  if (body instanceof Response) return body;
-  const parsed = z.object(moveSkillShape).safeParse(body);
-  if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? 'Say where it goes.' }, { status: 400 });
-  try {
-    const to = locationFrom(parsed.data.to, parsed.data.workspaceId);
-    return Response.json({ skill: await moveSkill(ref, to, { copy: parsed.data.copy }) });
-  } catch (err) {
-    return skillErrorResponse(err, `POST /api/skills/${ref}/move`);
-  }
-}
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));

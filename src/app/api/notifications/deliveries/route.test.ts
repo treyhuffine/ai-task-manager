@@ -1,8 +1,8 @@
+import type { NotificationHistoryResponse } from '@/lib/notifications/history';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { NotificationHistoryResponse } from '@/lib/notifications/history';
 
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-notification-history-test-'));
 let queries: typeof import('@/lib/db/queries');
@@ -28,7 +28,7 @@ it('returns only the current user’s latest 100 deliveries in stable order, wit
   for (let i = 0; i < 105; i++) insert('own', `delivery-${String(i).padStart(3, '0')}`);
   insert('other', 'other-delivery-secret', 'other-owner', '2026-09-27T00:00:00.000Z');
   queries.markDeliveryFailed('delivery-104', '403 endpoint-secret token-secret Authorization: Bearer provider-secret');
-  const response = Reflect.apply(route.GET, undefined, [new Request('https://localhost/api/notifications/deliveries?userId=other-owner&limit=999999')]);
+  const response = await Reflect.apply(route.GET, undefined, [new Request('https://localhost/api/notifications/deliveries?userId=other-owner&limit=999999')]);
   expect(response.headers.get('Cache-Control')).toBe('no-store');
   const body: NotificationHistoryResponse = await response.json();
   expect(body.limit).toBe(100); expect(body.deliveries).toHaveLength(100);
@@ -41,28 +41,28 @@ it('reads desktop queued, uncertain, expired and acknowledged states without con
   const channel = queries.enableDesktopNotificationChannel('desktop:history', 'history-owner', ['execution.finished']);
   insert(channel.id, 'expired', 'history-owner', '2020-01-01T00:00:00.000Z');
   insert(channel.id, 'claim', 'history-owner', new Date().toISOString());
-  const before: NotificationHistoryResponse = await route.GET().json();
+  const before: NotificationHistoryResponse = await (await route.GET(new Request('http://localhost/api/test'))).json();
   expect(before.deliveries.every(item => item.status === 'queued')).toBe(true);
   const claimed = queries.claimDesktopNotificationDelivery(channel.id, 'history-owner', new Date(Date.now() - 86400000).toISOString())!;
   expect(claimed.id).toBe('claim');
-  const history: NotificationHistoryResponse = await route.GET().json();
+  const history: NotificationHistoryResponse = await (await route.GET(new Request('http://localhost/api/test'))).json();
   expect(history.deliveries.find(item => item.id === 'claim')?.status).toBe('uncertain');
   expect(history.deliveries.find(item => item.id === 'expired')?.status).toBe('expired');
   expect(queries.getDelivery('claim', channel.id)?.attempts).toBe(1);
   queries.acknowledgeDesktopNotificationDelivery({ id: claimed.id, channelId: channel.id, userId: 'history-owner', receipt: claimed.providerMessageId!, status: 'sent' });
-  const final: NotificationHistoryResponse = await route.GET().json();
+  const final: NotificationHistoryResponse = await (await route.GET(new Request('http://localhost/api/test'))).json();
   expect(final.deliveries.find(item => item.id === 'claim')).toMatchObject({ status: 'sent', attempts: 1 });
 });
 
 it('retains the existing channel-deletion cascade instead of creating a permanent inbox', async () => {
   const channel = queries.createNotificationChannel({ id: 'removed', userId: 'history-owner', kind: 'web_push' });
-  insert(channel.id, 'delivery'); expect((await route.GET().json()).deliveries).toHaveLength(1);
-  queries.deleteNotificationChannel(channel.id); expect((await route.GET().json()).deliveries).toEqual([]);
+  insert(channel.id, 'delivery'); expect((await (await route.GET(new Request('http://localhost/api/test'))).json()).deliveries).toHaveLength(1);
+  queries.deleteNotificationChannel(channel.id); expect((await (await route.GET(new Request('http://localhost/api/test'))).json()).deliveries).toEqual([]);
 });
 
 it('returns a private generic failure without disclosing internal database or credential errors', async () => {
   vi.spyOn(queries, 'listNotificationDeliveries').mockImplementationOnce(() => { throw new Error('SQLite /private/account api_key=private-secret'); });
-  const response = route.GET();
+  const response = (await route.GET(new Request('http://localhost/api/test')));
   expect(response.status).toBe(500); expect(response.headers.get('Cache-Control')).toBe('no-store');
   expect(await response.json()).toEqual({ error: 'Notification history is unavailable. Try refreshing shortly.' });
 });

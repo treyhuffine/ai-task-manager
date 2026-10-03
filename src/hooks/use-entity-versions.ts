@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api/client';
 import type { EntityVersionRecord, EntityVersionSnapshot } from '@/db/types';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
+import { useQuery } from '@tanstack/react-query';
 
 export type VersionedEntityType = 'task' | 'note';
 
@@ -12,9 +13,7 @@ export function useEntityVersions(entityType: VersionedEntityType, entityId: str
   return useQuery({
     queryKey: ['entity-versions', entityType, entityId],
     queryFn: () =>
-      api.get<{ versions: EntityVersionRecord[] }>(
-        `/entity-versions?entityType=${entityType}&entityId=${entityId}`,
-      ),
+      trpcClient.entityVersions.list.query({query: rpcQuery({"entityType": entityType, "entityId": entityId})}),
     enabled: enabled && !!entityId,
     staleTime: 15_000,
   });

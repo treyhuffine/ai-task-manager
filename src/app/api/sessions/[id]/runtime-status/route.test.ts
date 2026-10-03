@@ -22,7 +22,7 @@ describe('GET /api/sessions/:id/runtime-status', () => {
     hasBackgroundTasks.mockReturnValue(true);
     listBackgroundTaskIds.mockReturnValue(['child-1']);
 
-    const response = await GET({} as never, {
+    const response = await GET(new Request('http://localhost/api') as never, {
       params: Promise.resolve({ id: 'session-1' }),
     });
 

@@ -1,44 +1,45 @@
 "use client";
 
-import { RunOnSheet } from './run-on-sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import type { AgentTab } from '@/types/dashboard';
-import { useMemo, useState } from 'react';
-import {
-  ChevronRight,
-  FileText,
-  Folder,
-  FolderPlus,
-  GitBranch,
-  Inbox,
-  Laptop,
-  Moon,
-  MoreHorizontal,
-  Plus,
-  Settings,
-  SquareTerminal,
-} from 'lucide-react';
-import { useDashboard } from '@/contexts/dashboard-context';
-import { useInactivity } from '@/hooks/use-inactivity';
-import { InactiveFold } from '@/components/workspaces/inactive-fold';
-import {
-  useWorkspaces,
-  useNeedsReviewSessions,
-  useWorkspaceSessions,
-  useUpdateWorkspace,
-} from '@/hooks/use-workspaces';
-import { WorkspaceCreateModal } from '@/components/workspaces/workspace-create-modal';
-import { coverAttachmentUrl } from '@/lib/attachments/view';
-import { useAreas } from '@/hooks/use-areas';
-import { useQueryClient } from '@tanstack/react-query';
-import { startExecution } from '@/lib/executions/start-execution';
-import { formatCompactRelative } from '@/lib/utils/relative-time';
-import { isSessionUnread } from '@/lib/utils/session-sort';
-import { cn } from '@/lib/utils';
 import { BACKGROUND_DOT, BACKGROUND_LABEL } from '@/components/workspaces/activity-style';
-import type { ChatSessionWithExecution, WorkspaceWithCounts } from '@/db/types';
+import { InactiveFold } from '@/components/workspaces/inactive-fold';
+import { WorkspaceCreateModal } from '@/components/workspaces/workspace-create-modal';
+import { useDashboard } from '@/contexts/dashboard-context';
+import type { WorkspaceWithCounts } from '@/db/types';
+import { useAreas } from '@/hooks/use-areas';
+import { useInactivity } from '@/hooks/use-inactivity';
+import {
+	useNeedsReviewSessions,
+	useUpdateWorkspace,
+	useWorkspaces,
+	useWorkspaceSessions,
+} from '@/hooks/use-workspaces';
+import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
+import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { executionView } from '@/lib/client/active-view';
 import { useAgentViewMode } from '@/lib/client/agent-view-mode';
+import { startExecution } from '@/lib/executions/start-execution';
+import { cn } from '@/lib/utils';
+import { formatCompactRelative } from '@/lib/utils/relative-time';
+import { isSessionUnread } from '@/lib/utils/session-sort';
+import type { AgentTab } from '@/types/dashboard';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+	ChevronRight,
+	FileText,
+	Folder,
+	FolderPlus,
+	GitBranch,
+	Inbox,
+	Laptop,
+	Moon,
+	MoreHorizontal,
+	Plus,
+	Settings,
+	SquareTerminal,
+} from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { RunOnSheet } from './run-on-sheet';
 
 /**
  * Mobile-tab "Agents" surface. Mirrors the desktop rail's structure

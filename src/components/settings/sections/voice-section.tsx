@@ -1,12 +1,12 @@
 'use client';
+import { trpcClient } from '@/lib/trpc/client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Mic, Globe, Server, Cloud, CheckCircle2, AlertCircle, ChevronDown } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
-import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
-import { VOICE_MODELS, VOICE_MODEL_MAP, DEFAULT_VOICE_MODEL, type VoiceModel } from '@/constants/voice-models';
+import { DEFAULT_VOICE_MODEL, VOICE_MODELS, VOICE_MODEL_MAP, type VoiceModel } from '@/constants/voice-models';
+import { useUpdateUserState, useUserState } from '@/hooks/use-user-state';
 import type { ProviderStatus } from '@/hooks/use-voice-input';
-import { api } from '@/lib/api/client';
+import { AlertCircle, CheckCircle2, ChevronDown, Cloud, Globe, Mic, Server } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { ManagedSpeechSettings } from './managed-speech-settings';
 
 const PROVIDER_LABELS: Record<string, { label: string; icon: typeof Server }> = {
@@ -126,8 +126,7 @@ export function VoiceSection() {
 
   useEffect(() => {
     let cancelled = false;
-    const probe = () => { void api
-      .get<{ providers: ProviderStatus }>('/transcribe')
+    const probe = () => { void trpcClient.transcribe.status.query({})
       .then((data) => {
         if (!cancelled) setProviderStatus({ ...data.providers, web: { available: !!(window.SpeechRecognition || window.webkitSpeechRecognition), configured: !!(window.SpeechRecognition || window.webkitSpeechRecognition) } });
       })

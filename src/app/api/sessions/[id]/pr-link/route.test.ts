@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextRequest } from 'next/server';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getChatSessionWithExecution = vi.fn();
 const getWorkspace = vi.fn();
@@ -17,7 +17,7 @@ vi.mock('@/lib/github/remote', () => ({
 import { GET } from './route';
 
 const call = async (id = 'session-1') => {
-  const res = await GET({} as NextRequest, { params: Promise.resolve({ id }) });
+  const res = await GET(new Request('http://localhost/api') as NextRequest, { params: Promise.resolve({ id }) });
   return { status: res.status, body: await res.json() };
 };
 

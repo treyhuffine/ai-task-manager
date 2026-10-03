@@ -1,7 +1,7 @@
-import { api } from '@/lib/api/client';
+import type { EffortLevel } from '@/db/types';
 import { setDefaultSelection, type DefaultSelection } from '@/lib/client/default-selection';
 import type { HarnessId } from '@/lib/harness/registry';
-import type { EffortLevel } from '@/db/types';
+import { trpcClient } from '@/lib/trpc/client';
 
 /**
  * Make a harness the one Ri runs on, from first-run setup: its default model
@@ -35,9 +35,9 @@ export async function saveHarnessSetup(input: {
  */
 async function installAgentSkill(): Promise<void> {
   try {
-    const skill = await api.get<{ configured: boolean; appOnly?: boolean }>('/harness/skills/global');
+    const skill = await trpcClient.harness.skillsGlobalGet.query({});
     if (skill.configured && !skill.appOnly) return;
-    await api.put('/harness/skills/global', { enabled: true });
+    await trpcClient.harness.skillsGlobalPut.mutate({body: { enabled: true }});
   } catch (err) {
     console.warn('[onboarding] the agent skill was not installed', err);
   }

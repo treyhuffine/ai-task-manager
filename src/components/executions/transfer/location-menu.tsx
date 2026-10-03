@@ -1,5 +1,6 @@
 'use client';
 
+import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 /**
  * Where an execution runs, and moving it (docs/homes-model.md, spec §3.4):
  * Move to MacBook, Move to Mac Mini, one for each of the person's other
@@ -11,23 +12,22 @@
  * off the menu: moving is the one way to bring work to a device.
  */
 
-import { useState } from 'react';
-import { ArrowRightLeft, Laptop } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { useDevices } from '@/hooks/use-devices';
-import { useThisDevice } from '@/hooks/use-devices';
-import { useRunOn } from '@/hooks/use-workspaces';
-import { useTransfer } from '@/hooks/use-execution';
-import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
 import { SetupAgentDialog } from '@/components/agents/setup-agent-dialog';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import type { WorkspaceRecord } from '@/db/types';
+import { useDevices, useThisDevice } from '@/hooks/use-devices';
+import { useTransfer } from '@/hooks/use-execution';
+import { useRunOn } from '@/hooks/use-workspaces';
 import { START_RI } from '@/lib/executions/location';
+import { ArrowRightLeft, Laptop } from 'lucide-react';
+import { useState } from 'react';
 import { ContinueDialog } from './continue-dialog';
 
 export interface Move {

@@ -1,28 +1,29 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ChevronDown,
-  Download,
-  Folder,
-  MessageSquare,
-  RefreshCw,
-} from 'lucide-react';
-import { api } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { cn } from '@/lib/utils';
 import type {
-  ExternalAgentDiscovery,
-  ExternalAgentImportResult,
-  ExternalAgentProjectCandidate,
-  ExternalAgentSessionCandidate,
-  ExternalAgentSource,
+	ExternalAgentDiscovery,
+	ExternalAgentImportResult,
+	ExternalAgentProjectCandidate,
+	ExternalAgentSessionCandidate,
+	ExternalAgentSource,
 } from '@/lib/import/types';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcOptions } from '@/lib/trpc/request-options';
+import { cn } from '@/lib/utils';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+	AlertTriangle,
+	CheckCircle2,
+	ChevronDown,
+	Download,
+	Folder,
+	MessageSquare,
+	RefreshCw,
+} from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 /** Shared with the main chat's first run, which looks for history ahead of asking. */
 export const DISCOVERY_KEY = ['imports', 'external-agents'] as const;
@@ -71,14 +72,6 @@ function formatDate(value: string): string {
 
 function selectableSessions(project: ExternalAgentProjectCandidate): ExternalAgentSessionCandidate[] {
   return project.sessions.filter((session) => session.importable !== false);
-}
-
-/** A device history can be read from: this one, or a connected device's worker (P2.9). */
-interface HistoryDevice {
-  id: string;
-  name: string;
-  isHome: boolean;
-  worker: { enrolled: boolean; connected: boolean } | null;
 }
 
 const THIS_DEVICE = 'this-device';
@@ -133,7 +126,7 @@ export function ExternalAgentImportPanel() {
   const [source, setSource] = useState<string>(THIS_DEVICE);
   const devices = useQuery({
     queryKey: ['devices'],
-    queryFn: () => api.get<HistoryDevice[]>('/devices'),
+    queryFn: () => trpcClient.devices.list.query({}),
     staleTime: 30_000,
   });
   const elsewhere = (devices.data ?? []).filter((c) => !c.isHome && c.worker?.enrolled);
@@ -141,19 +134,12 @@ export function ExternalAgentImportPanel() {
   const deviceName = elsewhere.find((c) => c.id === deviceId)?.name ?? null;
   const discovery = useQuery({
     queryKey: [...DISCOVERY_KEY, deviceId ?? 'here'],
-    queryFn: () => api.get<ExternalAgentDiscovery>(
-      deviceId ? `/imports/agents?deviceId=${encodeURIComponent(deviceId)}` : '/imports/agents',
-      { timeoutMs: 90_000 },
-    ),
+    queryFn: () => trpcClient.imports.agentsGet.query({ query: { deviceId: deviceId ?? undefined } }, rpcOptions({ timeoutMs: 90_000 })),
     staleTime: 30_000,
     retry: false,
   });
   const importMutation = useMutation({
-    mutationFn: (sessionKeys: string[]) => api.post<ExternalAgentImportResult>(
-      '/imports/agents',
-      { sessionKeys, deviceId },
-      { timeoutMs: 10 * 60_000 },
-    ),
+    mutationFn: (sessionKeys: string[]) => trpcClient.imports.agentsPost.mutate({body: { sessionKeys, deviceId }}, rpcOptions({ timeoutMs: 10 * 60_000 })),
     onMutate: () => setLastResult(null),
     onSuccess: async (result) => {
       setLastResult(result);

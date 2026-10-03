@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api/client';
-import { settingsApi } from '@/lib/api/settings';
 import { useUserState } from '@/hooks/use-user-state';
+import { settingsApi } from '@/lib/api/settings';
+import { trpcClient } from '@/lib/trpc/client';
+import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SectionId } from './settings-sections';
 
 /**
@@ -61,17 +61,17 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
   const baseUrls = useQuery({ queryKey: ['settings', 'base-url'], queryFn: () => settingsApi.getBaseUrls(), enabled });
   const channels = useQuery({
     queryKey: ['notifications', 'channels'],
-    queryFn: () => api.get<{ channels: unknown[] }>('/notifications/channels'),
+    queryFn: () => trpcClient.notifications.channelsGet.query({}),
     enabled,
   });
   const connections = useQuery({
     queryKey: ['connectors', 'connections'],
-    queryFn: () => api.get<{ connections: unknown[] }>('/connectors/connections'),
+    queryFn: () => trpcClient.connectors.connectionsGet.query({}),
     enabled,
   });
   const browser = useQuery({
     queryKey: ['browser', 'status'],
-    queryFn: () => api.get<{ enabled: boolean; config: { detected: unknown[] } }>('/browser'),
+    queryFn: () => trpcClient.browser.list.query({}),
     enabled,
   });
 

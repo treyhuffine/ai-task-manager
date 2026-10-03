@@ -1,14 +1,14 @@
-import { createHash } from 'node:crypto';
-import { beginMcpOAuth, connectMcpClient, finishMcpOAuth } from '@connectors/engine/mcp';
 import { ConnectorError, createRedactor, isConnectorError } from '@connectors/engine';
-import type { McpServerEntry } from './mcp-servers';
-import { isDesktopRequest, desktopOAuth, desktopRelayFor, type DesktopOAuthFlow } from './desktop-oauth';
-import { rememberOAuthReturn } from './oauth-return';
+import { beginMcpOAuth, connectMcpClient, finishMcpOAuth } from '@connectors/engine/mcp';
 import { getHostedMcpProvider } from '@connectors/engine/providers';
+import { createHash } from 'node:crypto';
+import { desktopOAuth, desktopRelayFor, isDesktopRequest, type DesktopOAuthFlow } from './desktop-oauth';
 import { usesRegisteredOAuth } from './hosted-oauth-config';
-import { registerMcpSecrets } from './mcp-secrets';
 import { finalizeMcpServer } from './mcp-lifecycle';
-import { getConnectorRuntime, getMcpServerStore, invalidateConnectorRuntime, mcpOAuthProviderFor, MCP_TIMEOUT_MS, withTimeout } from './runtime';
+import { registerMcpSecrets } from './mcp-secrets';
+import type { McpServerEntry } from './mcp-servers';
+import { rememberOAuthReturn } from './oauth-return';
+import { getConnectorRuntime, getMcpServerStore, invalidateConnectorRuntime, MCP_TIMEOUT_MS, mcpOAuthProviderFor, withTimeout } from './runtime';
 
 export async function completeMcpAuthorization(entry: McpServerEntry, code: string, state: string, provider = mcpOAuthProviderFor(entry)) {
   if (!await getMcpServerStore().consumeOAuthState(entry.id, state)) throw new Error('Invalid or expired authorization state');
@@ -36,7 +36,7 @@ function authorizationId(state: string): string {
 }
 
 /** `request` is the browser call that started the add, so the callback can return to its origin. */
-export async function beginMcpAuthorization(entry: McpServerEntry, request?: Request, returnTo?: string) {
+export async function beginMcpAuthorization(entry: McpServerEntry, request?: Pick<Request, 'headers' | 'url'>, returnTo?: string) {
   let flow: DesktopOAuthFlow | undefined;
   let authUrl: string | undefined;
   const redactor = createRedactor();

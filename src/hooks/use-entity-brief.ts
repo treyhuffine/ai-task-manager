@@ -1,13 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import type { BriefEntityType } from '@/lib/briefs/types';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api/client';
-import type { BriefEntityType, BriefState } from '@/lib/briefs/types';
-
-interface BriefResponse {
-  state: BriefState;
-}
+import { useCallback, useEffect, useRef } from 'react';
 
 /**
  * The agent's brief of a note/task for the agent-first view.
@@ -30,13 +27,13 @@ export function useEntityBrief(entityType: BriefEntityType, entityId: string | n
 
   const query = useQuery({
     queryKey,
-    queryFn: () => api.get<BriefResponse>(`/entity-brief?entityType=${entityType}&entityId=${entityId}`),
+    queryFn: () => trpcClient.entityBrief.list.query({query: rpcQuery({"entityType": entityType, "entityId": entityId})}),
     enabled: !!entityId,
     staleTime: 10_000,
   });
 
   const generate = useMutation({
-    mutationFn: () => api.post<BriefResponse>('/entity-brief', { entityType, entityId }),
+    mutationFn: () => trpcClient.entityBrief.create.mutate({body: { entityType, entityId }}),
     onSuccess: (data) => qc.setQueryData(queryKey, data),
   });
 

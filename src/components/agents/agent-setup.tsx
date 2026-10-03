@@ -1,26 +1,27 @@
 'use client';
 
-import { useRef, useState, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Archive, ChevronDown, ImagePlus, Loader2, SmilePlus, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { EmojiPicker } from '@/components/shared/emoji-picker';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { Switch } from '@/components/ui/switch';
+import { FilesToCopySection } from '@/components/workspaces/files-to-copy-section';
+import { WorkspaceConnectorsSection } from '@/components/workspaces/workspace-connectors-section';
+import { WorktreeScriptsSection } from '@/components/workspaces/worktree-scripts-section';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useArchiveWorkspace, useUpdateWorkspace } from '@/hooks/use-workspaces';
+import type { Attachment, UpdateWorkspaceInput, WorkspaceRecord } from '@/db/types';
 import { useAreas } from '@/hooks/use-areas';
 import { useDevices } from '@/hooks/use-devices';
-import { api, ApiError } from '@/lib/api/client';
+import { useArchiveWorkspace, useUpdateWorkspace } from '@/hooks/use-workspaces';
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { uploadAttachment } from '@/lib/attachments/client';
-import { EmojiPicker } from '@/components/shared/emoji-picker';
-import { Switch } from '@/components/ui/switch';
-import { useConfirm } from '@/components/ui/confirm-dialog';
-import { FilesToCopySection } from '@/components/workspaces/files-to-copy-section';
-import { WorktreeScriptsSection } from '@/components/workspaces/worktree-scripts-section';
-import { WorkspaceConnectorsSection } from '@/components/workspaces/workspace-connectors-section';
-import { AgentSkillsSection } from './agent-skills-section';
-import { AgentFoldersSection } from './agent-folders';
-import type { GhStatus } from '@/lib/workspaces/gh';
-import type { Attachment, UpdateWorkspaceInput, WorkspaceRecord } from '@/db/types';
+import { trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
+import type { GhStatus } from '@/lib/workspaces/gh';
+import { useQuery } from '@tanstack/react-query';
+import { Archive, ChevronDown, ImagePlus, Loader2, SmilePlus, Trash2 } from 'lucide-react';
+import { useRef, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
+import { AgentFoldersSection } from './agent-folders';
+import { AgentSkillsSection } from './agent-skills-section';
 
 /** Caps enforced by the query layer (`WORKSPACE_PURPOSE_MAX`, `WORKSPACE_INSTRUCTIONS_MAX`). */
 const PURPOSE_MAX = 500;
@@ -106,7 +107,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
   const confirm = useConfirm();
   const { data: gh } = useQuery({
     queryKey: ['gh', 'status'],
-    queryFn: () => api.get<GhStatus>('/gh/status'),
+    queryFn: () => trpcClient.gh.statusGet.query({}),
     staleTime: 60_000,
     retry: false,
   });
@@ -136,7 +137,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
       const uploaded = await uploadAttachment(file);
       setForm((f) => ({ ...f, attachment: uploaded, emoji: null }));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed');
+      toast.error(err instanceof Error ? apiErrorText(err) : 'Upload failed');
     } finally {
       setUploading(false);
     }
@@ -156,7 +157,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
         },
         onError: (err) => {
           const message =
-            err instanceof ApiError ? ((err.body as { error?: string } | null)?.error ?? err.message) : String(err);
+            apiErrorStatus(err) !== undefined ? ((apiErrorBody(err) as { error?: string } | null)?.error ?? apiErrorText(err)) : String(err);
           toast.error(message);
         },
       },

@@ -1,11 +1,12 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
-import type { QueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { api, apiErrorText } from '@/lib/api/client';
 import { DISCOVERY_KEY } from '@/components/settings/sections/imports-section';
-import type { ExternalAgentImportResult } from '@/lib/import/types';
+import { apiErrorText } from '@/lib/api/client';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcOptions } from '@/lib/trpc/request-options';
+import type { QueryClient } from '@tanstack/react-query';
+import { useSyncExternalStore } from 'react';
+import { toast } from 'sonner';
 import { listJoin } from './onboarding-flow';
 
 /**
@@ -39,8 +40,7 @@ const plural = (n: number, one: string) => `${n.toLocaleString()} ${n === 1 ? on
 export function startImport(qc: QueryClient, input: { sessionKeys: string[]; projects: string[] }): void {
   if (run?.status === 'running' || input.sessionKeys.length === 0) return;
   set({ status: 'running', projects: input.projects, chats: input.sessionKeys.length });
-  api
-    .post<ExternalAgentImportResult>('/imports/agents', { sessionKeys: input.sessionKeys }, { timeoutMs: 30 * 60_000 })
+  trpcClient.imports.agentsPost.mutate({body: { sessionKeys: input.sessionKeys }}, rpcOptions({ timeoutMs: 30 * 60_000 }))
     .then(async (result) => {
       const imported = result.importedSessions + result.syncedSessions;
       set({ status: 'done', projects: input.projects, chats: input.sessionKeys.length, imported });

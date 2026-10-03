@@ -19,6 +19,7 @@
  */
 
 import { getActiveTransfer, getChatSession, getDevice } from '@/lib/db/queries';
+import { failure } from '@/lib/server/operation';
 
 /** The device the execution is moving to, while its source still has it. */
 export function movingTo(executionId: string | null | undefined): string | null {
@@ -107,6 +108,18 @@ export async function whileAdmitted(chatSessionId: string, what: string, run: ()
   } finally {
     release();
   }
+}
+
+/** The same admission lease for a typed operation, without an HTTP response. */
+export async function whileOperationAdmitted<T>(chatSessionId: string, what: string, run: () => Promise<T>) {
+  let release: () => void;
+  try {
+    release = admitChange(getChatSession(chatSessionId)?.executionId, what);
+  } catch (err) {
+    if (err instanceof ExecutionMovingError) return failure({ error: 'moving', code: 'moving', message: err.message }, 409);
+    throw err;
+  }
+  try { return await run(); } finally { release(); }
 }
 
 /**

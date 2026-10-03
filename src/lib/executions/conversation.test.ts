@@ -1,9 +1,10 @@
+import type { ChatEventRecord } from '@/lib/api/dto/records';
 import { describe, expect, it } from 'vitest';
-import type { ChatEventRecord } from '@/db/types';
+
 import {
-  NO_RESPONSE_REQUESTED,
-  conversationText,
-  pickConversationMessages,
+	NO_RESPONSE_REQUESTED,
+	conversationText,
+	pickConversationMessages,
 } from './conversation';
 
 let seq = 0;

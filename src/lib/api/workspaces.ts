@@ -1,53 +1,44 @@
-import { api } from './client';
-import type { RunOn } from '@/lib/setups/run-on';
-import type { SetupAgentInput, SetupAgentPlan, SetupOutcome } from '@/lib/setups/set-up-agent';
-import type { AgentFoldersOn } from '@/lib/setups/folders';
-import type { FolderListing } from '@/lib/setups/folders-here';
 import type {
-  WorkspaceRecord,
-  WorkspaceWithCounts,
-  CreateWorkspaceInput,
-  UpdateWorkspaceInput,
-  ChatSessionWithExecution,
-  WorkspaceStatus,
-  EffortLevel,
+	CreateWorkspaceInput,
+	EffortLevel,
+	UpdateWorkspaceInput,
+	WorkspaceStatus
 } from '@/db/types';
+import type { SetupAgentInput } from '@/lib/setups/set-up-agent';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcOptions, rpcQuery } from '@/lib/trpc/request-options';
+import type { RouterOutputs } from '@/lib/trpc/router';
 
-export type AgentFolders = { devices: AgentFoldersOn[] };
+export type AgentFolders = RouterOutputs['workspaces']['foldersGet'];
 
 export const workspacesApi = {
-  list(filter?: { status?: WorkspaceStatus }, opts: { signal?: AbortSignal } = {}): Promise<WorkspaceWithCounts[]> {
-    return api.get<WorkspaceWithCounts[]>('/workspaces', {
-      query: filter as Record<string, string>,
-      signal: opts.signal,
-    });
+  list(filter?: { status?: WorkspaceStatus }, opts: { signal?: AbortSignal } = {}) {
+    return trpcClient.workspaces.list.query({query: rpcQuery(filter as Record<string, string>)}, rpcOptions({ signal: opts.signal }));
   },
 
-  get(id: string): Promise<WorkspaceRecord> {
-    return api.get<WorkspaceRecord>(`/workspaces/${id}`);
+  get(id: string) {
+    return trpcClient.workspaces.get.query({params: {id: id}});
   },
 
-  create(input: Partial<CreateWorkspaceInput> & { name: string; cwd: string }): Promise<WorkspaceRecord> {
-    return api.post<WorkspaceRecord>('/workspaces', input);
+  create(input: Partial<CreateWorkspaceInput> & { name: string; cwd: string }) {
+    return trpcClient.workspaces.create.mutate({body: input});
   },
 
-  update(id: string, input: UpdateWorkspaceInput): Promise<WorkspaceRecord> {
-    return api.patch<WorkspaceRecord>(`/workspaces/${id}`, input);
+  update(id: string, input: UpdateWorkspaceInput) {
+    return trpcClient.workspaces.update.mutate({params: {id: id}, body: input});
   },
 
-  archive(id: string): Promise<WorkspaceRecord> {
-    return api.post<WorkspaceRecord>(`/workspaces/${id}/archive`);
+  archive(id: string) {
+    return trpcClient.workspaces.archivePost.mutate({params: {id: id}});
   },
 
-  reorder(ids: string[]): Promise<{ ok: true }> {
-    return api.post<{ ok: true }>('/workspaces/reorder', { ids });
+  reorder(ids: string[]) {
+    return trpcClient.workspaces.reorderPost.mutate({body: { ids }});
   },
 
   /** One row per execution. `includeArchived` adds finished work (launcher only). */
-  sessions(id: string, opts: { includeArchived?: boolean } = {}): Promise<ChatSessionWithExecution[]> {
-    return api.get<ChatSessionWithExecution[]>(`/workspaces/${id}/sessions`, {
-      query: opts.includeArchived ? { includeArchived: true } : undefined,
-    });
+  sessions(id: string, opts: { includeArchived?: boolean } = {}) {
+    return trpcClient.workspaces.sessionsGet.query({params: {id: id}, query: rpcQuery(opts.includeArchived ? { includeArchived: true } : undefined)});
   },
 
   createSession(
@@ -77,11 +68,11 @@ export const workspacesApi = {
       /** Run on this device. Omitted: the agent's default (P3.1). */
       deviceId?: string | null;
     } = {},
-  ): Promise<ChatSessionWithExecution> {
-    return api.post<ChatSessionWithExecution>(`/workspaces/${id}/sessions`, {
+  ) {
+    return trpcClient.workspaces.sessionsPost.mutate({params: {id: id}, body: {
       sessionId: options.sessionId ?? undefined,
-      label: options.label ?? null,
-      baseBranch: options.baseBranch ?? null,
+      label: options.label ?? undefined,
+      baseBranch: options.baseBranch ?? undefined,
       prNumber: options.prNumber ?? null,
       liveMode: options.liveMode ?? false,
       harness: options.harness ?? undefined,
@@ -90,105 +81,105 @@ export const workspacesApi = {
       effort: options.effort ?? null,
       taskId: options.taskId ?? null,
       deviceId: options.deviceId ?? undefined,
-    });
+    }});
   },
 
   /** Where the agent's new executions can run, and where they run by default (P3.1). */
-  runOn(id: string): Promise<RunOn> {
-    return api.get<RunOn>(`/workspaces/${id}/run-on`);
+  runOn(id: string) {
+    return trpcClient.workspaces.runOnGet.query({params: {id: id}});
   },
 
   /** "Make this the default", or null to go back to the automatic choice. */
-  setDefaultDevice(id: string, deviceId: string | null): Promise<RunOn> {
-    return api.put<RunOn>(`/workspaces/${id}/run-on`, { defaultDeviceId: deviceId });
+  setDefaultDevice(id: string, deviceId: string | null) {
+    return trpcClient.workspaces.runOnPut.mutate({params: {id: id}, body: { defaultDeviceId: deviceId }});
   },
 
   /** What setting the agent up on that device would do (docs/homes-model.md). */
-  setupPlan(id: string, deviceId: string, opts: { signal?: AbortSignal } = {}): Promise<SetupAgentPlan> {
-    return api.get<SetupAgentPlan>(`/workspaces/${id}/setups`, { query: { deviceId }, signal: opts.signal });
+  setupPlan(id: string, deviceId: string, opts: { signal?: AbortSignal } = {}) {
+    return trpcClient.workspaces.setupsGet.query({params: {id: id}, query: rpcQuery({ deviceId })}, rpcOptions({ signal: opts.signal }));
   },
 
   /** Set the agent up on that device: its project copied down, or a folder already there. */
-  setUp(id: string, body: SetupAgentInput & { deviceId: string }): Promise<SetupOutcome> {
-    return api.post<SetupOutcome>(`/workspaces/${id}/setups`, body);
+  setUp(id: string, body: SetupAgentInput & { deviceId: string }) {
+    return trpcClient.workspaces.setupsPost.mutate({params: {id: id}, body: body});
   },
 
   /** The agent's folders on each of the person's devices (docs/homes-spec.md §4.1). */
-  folders(id: string, opts: { signal?: AbortSignal } = {}): Promise<AgentFolders> {
-    return api.get<AgentFolders>(`/workspaces/${id}/folders`, { signal: opts.signal });
+  folders(id: string, opts: { signal?: AbortSignal } = {}) {
+    return trpcClient.workspaces.foldersGet.query({params: {id: id}}, rpcOptions({ signal: opts.signal }));
   },
 
   /** The agent's project folder on a device. */
-  setProjectFolder(id: string, deviceId: string, folder: string): Promise<AgentFolders> {
-    return api.put<AgentFolders>(`/workspaces/${id}/folders/${deviceId}`, { folder });
+  setProjectFolder(id: string, deviceId: string, folder: string) {
+    return trpcClient.workspaces.foldersDeviceIdPut.mutate({params: {id: id, deviceId: deviceId}, body: { folder }});
   },
 
   /** Where a linked folder is on a device, or null to go without it there. */
-  setLinkedFolder(id: string, deviceId: string, referenceFolderId: string, folder: string | null): Promise<AgentFolders> {
-    return api.put<AgentFolders>(`/workspaces/${id}/folders/${deviceId}/linked/${referenceFolderId}`, { folder });
+  setLinkedFolder(id: string, deviceId: string, referenceFolderId: string, folder: string | null) {
+    return trpcClient.workspaces.foldersLinkedDeviceIdReferenceFolderIdPut.mutate({params: {id: id, deviceId: deviceId, referenceFolderId: referenceFolderId}, body: { folder }});
   },
 
   /** A new linked folder, placed on the device it's added from. */
-  addLinkedFolder(id: string, body: { alias: string; description: string | null; forEveryAgent: boolean; deviceId: string; folder: string }): Promise<AgentFolders> {
-    return api.post<AgentFolders>(`/workspaces/${id}/folders`, body);
+  addLinkedFolder(id: string, body: { alias: string; description: string | null; forEveryAgent: boolean; deviceId: string; folder: string }) {
+    return trpcClient.workspaces.foldersPost.mutate({params: {id: id}, body: body});
   },
 
   /** Take the agent off a device. Nothing there is deleted. */
-  removeFromDevice(id: string, deviceId: string): Promise<AgentFolders> {
-    return api.delete<AgentFolders>(`/workspaces/${id}/folders/${deviceId}`);
+  removeFromDevice(id: string, deviceId: string) {
+    return trpcClient.workspaces.foldersDeviceIdDelete.mutate({params: {id: id, deviceId: deviceId}});
   },
 
   /** A folder's folders on a device, for choosing one. */
-  deviceFolders(deviceId: string, at: string | null, opts: { signal?: AbortSignal } = {}): Promise<FolderListing> {
-    return api.get<FolderListing>(`/devices/${deviceId}/folders`, { query: at ? { path: at } : undefined, signal: opts.signal });
+  deviceFolders(deviceId: string, at: string | null, opts: { signal?: AbortSignal } = {}) {
+    return trpcClient.devices.foldersGet.query({params: {id: deviceId}, query: rpcQuery(at ? { path: at } : undefined)}, rpcOptions({ signal: opts.signal }));
   },
 
-  listPRs(id: string): Promise<PRSummary[]> {
-    return api.get<PRSummary[]>(`/workspaces/${id}/github/prs`);
+  listPRs(id: string) {
+    return trpcClient.workspaces.githubPrsGet.query({params: {id: id}});
   },
 
-  listIssues(id: string): Promise<IssueSummary[]> {
-    return api.get<IssueSummary[]>(`/workspaces/${id}/github/issues`);
+  listIssues(id: string) {
+    return trpcClient.workspaces.githubIssuesGet.query({params: {id: id}});
   },
 
-  listBranches(id: string): Promise<string[]> {
-    return api.get<string[]>(`/workspaces/${id}/branches`);
+  listBranches(id: string) {
+    return trpcClient.workspaces.branchesGet.query({params: {id: id}});
   },
 
   /** How far the workspace's own checkout is behind its base. Fetches first. */
-  baseStatus(id: string): Promise<WorkspaceBaseStatus | null> {
-    return api.get<WorkspaceBaseStatus | null>(`/workspaces/${id}/base-status`, {
+  baseStatus(id: string) {
+    return trpcClient.workspaces.baseStatusGet.query({params: {id: id}}, rpcOptions({
       timeoutMs: 30_000,
-    });
+    }));
   },
 
   /** Merge the base branch into the workspace's own checkout (Live mode). */
-  pullBase(id: string, strategy: 'merge' | 'rebase' = 'merge'): Promise<{ ok: true; behind: number }> {
-    return api.post<{ ok: true; behind: number }>(`/workspaces/${id}/pull-base`, { strategy }, {
+  pullBase(id: string, strategy: 'merge' | 'rebase' = 'merge') {
+    return trpcClient.workspaces.pullBasePost.mutate({params: {id: id}, body: { strategy }}, rpcOptions({
       timeoutMs: 60_000,
-    });
+    }));
   },
 
   /** Full PR detail including `body`. Fetched on demand by the launcher. */
-  getPR(id: string, number: number): Promise<PRDetail> {
-    return api.get<PRDetail>(`/workspaces/${id}/github/prs/${number}`);
+  getPR(id: string, number: number) {
+    return trpcClient.workspaces.githubPrsNumberGet.query({params: {id: id, number: String(number)}});
   },
 
   /** Full issue detail including `body`. Fetched on demand by the launcher. */
-  getIssue(id: string, number: number): Promise<IssueDetail> {
-    return api.get<IssueDetail>(`/workspaces/${id}/github/issues/${number}`);
+  getIssue(id: string, number: number) {
+    return trpcClient.workspaces.githubIssuesNumberGet.query({params: {id: id, number: String(number)}});
   },
 
-  previewFilesToCopy(cwd: string, globs: string[]): Promise<PreviewFilesToCopyResponse> {
-    return api.post<PreviewFilesToCopyResponse>('/workspaces/preview-files', {
+  previewFilesToCopy(cwd: string, globs: string[]) {
+    return trpcClient.workspaces.previewFilesPost.mutate({body: {
       cwd,
       globs,
-    });
+    }});
   },
 
   /** Suggest setup/start commands from the files in a checkout (placeholders only). */
-  detectStack(cwd: string): Promise<StackSuggestion> {
-    return api.post<StackSuggestion>('/workspaces/detect-stack', { cwd });
+  detectStack(cwd: string) {
+    return trpcClient.workspaces.detectStackPost.mutate({body: { cwd }});
   },
 
   // NOTE: the app preview pane (iframe) is per-execution now — see
@@ -196,57 +187,19 @@ export const workspacesApi = {
   // the unrelated `previewFilesToCopy` (worktree seed-file preview).
 };
 
-export interface PreviewFilesToCopyResponse {
-  files: string[];
-  truncated: boolean;
-  root: string;
-}
+export type PreviewFilesToCopyResponse = RouterOutputs['workspaces']['previewFilesPost'];
 
-export interface StackSuggestion {
-  setup: string;
-  start: string;
-}
+export type StackSuggestion = RouterOutputs['workspaces']['detectStackPost'];
 
 /** Subset of @agentex/github's PRSummary — kept inline so the client
  *  bundle doesn't pull the full library. */
-export interface PRSummary {
-  number: number;
-  title: string;
-  state: 'OPEN' | 'CLOSED' | 'MERGED';
-  url: string;
-  isDraft: boolean;
-  headRefName: string;
-  baseRefName: string;
-  author: { login: string };
-  createdAt: string;
-  updatedAt: string;
-}
+export type PRSummary = RouterOutputs['workspaces']['githubPrsGet'][number];
 
-export interface IssueSummary {
-  number: number;
-  title: string;
-  state: 'OPEN' | 'CLOSED';
-  url: string;
-  author: { login: string };
-  labels: Array<{ name: string }>;
-  assignees: Array<{ login: string }>;
-  createdAt: string;
-  updatedAt: string;
-}
+export type IssueSummary = RouterOutputs['workspaces']['githubIssuesGet'][number];
 
 /** List rows omit `body` (it would bloat every row); the per-item routes add it. */
-export interface WorkspaceBaseStatus {
-  branch: string | null;
-  base: string;
-  behind: number;
-  dirty: boolean;
-  warning: string | null;
-}
+export type WorkspaceBaseStatus = RouterOutputs['workspaces']['baseStatusGet'];
 
-export interface PRDetail extends PRSummary {
-  body: string;
-}
+export type PRDetail = RouterOutputs['workspaces']['githubPrsNumberGet'];
 
-export interface IssueDetail extends IssueSummary {
-  body: string;
-}
+export type IssueDetail = RouterOutputs['workspaces']['githubIssuesNumberGet'];

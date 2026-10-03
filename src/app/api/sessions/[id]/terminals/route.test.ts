@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import fs from 'node:fs';
-import path from 'node:path';
 import os from 'node:os';
+import path from 'node:path';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The in-app terminal must never spawn in a git workspace's source
@@ -79,7 +79,7 @@ beforeEach(() => {
 });
 
 function call(id = 's1') {
-  const req = { json: async () => ({ cols: 80, rows: 24 }), clone() { return this; } } as never;
+  const req = new Request('http://localhost/api', { method: 'POST', body: JSON.stringify({ cols: 80, rows: 24 }) }) as never;
   return POST(req, { params: Promise.resolve({ id }) });
 }
 
@@ -148,7 +148,7 @@ describe('POST /api/sessions/:id/terminals — cwd resolution', () => {
     });
     getWorkspace.mockReturnValue({ id: 'ws2', cwd: sourceCheckout, isGit: false });
     chatPlacement.mockReturnValue({ deviceId: 'laptop', isHome: false, executionId: 'e1', generation: 3, worktreePath: worktreeDir });
-    requestWorker.mockResolvedValue({ status: 201, body: { id: 'r1', cwd: '/Users/trey/code/ri', shell: '/bin/zsh' } });
+    requestWorker.mockResolvedValue({ status: 201, body: { id: 'r1', ownerId: 'e1', cwd: '/Users/trey/code/ri', shell: '/bin/zsh', cols: 80, rows: 24, exited: false, exitCode: null, createdAt: '2026-10-03' } });
 
     const res = await call();
     expect(res.status).toBe(201);
@@ -213,7 +213,7 @@ describe('GET /api/sessions/:id/terminals — ownership', () => {
       id: 's2', executionId: 'e1', worktreePath: worktreeDir, workspaceId: 'ws1',
     });
 
-    const res = await GET({} as never, { params: Promise.resolve({ id: 's2' }) });
+    const res = await GET(new Request('http://localhost/api') as never, { params: Promise.resolve({ id: 's2' }) });
     expect(res.status).toBe(200);
     expect(listTerminals).toHaveBeenCalledWith('e1');
   });

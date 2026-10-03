@@ -1,15 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Plus, Terminal as TerminalIcon, X } from 'lucide-react';
-import { terminalsUnavailable, useTerminals, useCreateTerminal, useKillTerminal } from '@/hooks/use-terminals';
 import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
-import type { TerminalDescriptor } from '@/lib/api/terminals';
 import { useFolderRoot, useFolderScope } from '@/hooks/use-folder';
+import { terminalsUnavailable, useCreateTerminal, useKillTerminal, useTerminals } from '@/hooks/use-terminals';
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import type { TerminalDescriptor } from '@/lib/api/terminals';
 import { folderApiBase, type FolderSource } from '@/lib/folders/source';
-import { ExecutionTerminalInstance } from './execution-terminal-instance';
-import { ApiError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
+import { ChevronDown, ChevronUp, Plus, Terminal as TerminalIcon, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ExecutionTerminalInstance } from './execution-terminal-instance';
 
 interface ExecutionTerminalPanelProps {
   /** The folder the shells run in: an execution's worktree, or an agent's own folder. */
@@ -121,11 +121,11 @@ export function ExecutionTerminalPanel({
   const createErrorMessage = (() => {
     const err = createTerminal.error;
     if (!err) return null;
-    if (err instanceof ApiError) {
-      const body = err.body as { error?: string } | null;
-      return body?.error ?? `Couldn't start terminal (HTTP ${err.status}).`;
+    if (apiErrorStatus(err) !== undefined) {
+      const body = apiErrorBody(err) as { error?: string } | null;
+      return body?.error ?? `Couldn't start terminal (HTTP ${apiErrorStatus(err)}).`;
     }
-    return err instanceof Error ? err.message : String(err);
+    return err instanceof Error ? apiErrorText(err) : String(err);
   })();
 
   const handleClose = (id: string) => {

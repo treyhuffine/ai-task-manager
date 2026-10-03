@@ -18,47 +18,47 @@
  * in-flight sign-in and its card is in memory (begin-connect.ts); if that's lost, the next click
  * finds the account connected and resolves the card.
  */
-import type { ActionOutcome, Connection, ConnectorRuntime } from '@connectors/engine';
-import { PROVIDER_CATALOG } from '@connectors/engine/providers';
 import type { ChatEventRecord, ChatEventSource, WorkspaceConnectorScopeAccount, WorkspaceRecord } from '@/db/types';
 import {
-  getChatEventById,
-  getChatSessionWithExecution,
-  getWorkspace,
-  insertChatEvent,
-  listSessionEventsBySource,
-  listWorkspaces,
-  setWorkspaceConnectorScopes,
+	getChatEventById,
+	getChatSessionWithExecution,
+	getWorkspace,
+	insertChatEvent,
+	listSessionEventsBySource,
+	listWorkspaces,
+	setWorkspaceConnectorScopes,
 } from '@/lib/db/queries';
 import * as executor from '@/lib/executor/adapter';
 import { healthCheckSession } from '@/lib/executor/health';
 import { isImportMirror } from '@/lib/import/mirror';
 import { dispatchSessionTurn } from '@/lib/sessions/deliver';
+import type { ActionOutcome, Connection, ConnectorRuntime } from '@connectors/engine';
+import { PROVIDER_CATALOG } from '@connectors/engine/providers';
 import { beginConnect, type BeginConnectResult } from './begin-connect';
 import {
-  connectionNote,
-  describeAccounts,
-  looksLikeEmail,
-  matchAccounts,
-  namesAccount,
-  resolveService,
-  type CardAccount,
-  type CatalogProvider,
-  type CatalogToolkit,
-  type ConnectionOutcome,
-  type ConnectionRequestKind,
-  type ConnectionRequestView,
-  type ConnectionResponseView,
+	connectionNote,
+	describeAccounts,
+	looksLikeEmail,
+	matchAccounts,
+	namesAccount,
+	resolveService,
+	type CardAccount,
+	type CatalogProvider,
+	type CatalogToolkit,
+	type ConnectionOutcome,
+	type ConnectionRequestKind,
+	type ConnectionRequestView,
+	type ConnectionResponseView,
 } from './connection-catalog';
 import {
-  buildCredential,
-  getConnectorOwnerId,
-  getConnectorRuntime,
-  getMcpServerStore,
-  resolveWorkspaceConnectorFilter,
+	buildCredential,
+	getConnectorOwnerId,
+	getConnectorRuntime,
+	getMcpServerStore,
+	resolveWorkspaceConnectorFilter,
 } from './runtime';
-import { validateConnectorScopes } from './scopes';
 import { pinKey, pinOfConnection, scopePins } from './scope-pins';
+import { validateConnectorScopes } from './scopes';
 
 /** A connector call's non-ok outcome, as the MCP pause hook hands it over. */
 type FailedOutcome = Extract<ActionOutcome, { ok: false }>;
@@ -537,7 +537,7 @@ function openCard(eventId: string): { row: ChatEventRecord; view: ConnectionRequ
  * resolves right away instead.
  */
 export async function startCardSignIn(
-  request: Request,
+  request: Pick<Request, 'headers' | 'url'>,
   eventId: string,
   returnTo: string | null,
 ): Promise<{ done: true } | BeginConnectResult> {

@@ -1,17 +1,6 @@
-import { markTriagePassDigestSeen } from '@/lib/db/queries';
-import { triageErrorResponse } from '@/lib/stream-triage/http';
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/stream/passes/[id]/seen';
 
-/** POST /api/stream/passes/:id/seen — calm unread handling for the digest. */
-export async function POST(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    const pass = markTriagePassDigestSeen(id);
-    if (!pass) return Response.json({ error: 'Pass not found' }, { status: 404 });
-    return Response.json(pass);
-  } catch (err) {
-    return triageErrorResponse('POST /api/stream/passes/:id/seen', err);
-  }
-}
+
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));

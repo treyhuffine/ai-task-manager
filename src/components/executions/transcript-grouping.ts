@@ -1,9 +1,10 @@
-import type { ChatEventRecord } from '@/db/types';
-import { isSubagentTool, isPlumbingTool, fileTargetPath } from '@/lib/executions/tool-display';
-import { isSubagentEvent, isSubagentLaunch, collectNestedEvents } from '@/lib/executions/subagent';
-import { computeEditDiff } from '@/lib/executions/edit-diff';
-import { formatSpanSeconds } from '@/lib/executions/duration';
+import type { ChatEventRecord } from '@/lib/api/dto/records';
+
 import type { TranscriptDensity } from '@/lib/client/transcript-density';
+import { formatSpanSeconds } from '@/lib/executions/duration';
+import { computeEditDiff } from '@/lib/executions/edit-diff';
+import { collectNestedEvents, isSubagentEvent, isSubagentLaunch } from '@/lib/executions/subagent';
+import { fileTargetPath, isPlumbingTool, isSubagentTool } from '@/lib/executions/tool-display';
 
 /** A file written/edited during a turn, with cumulative +/− across the turn. */
 export interface TurnFileEdit {

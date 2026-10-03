@@ -1,25 +1,10 @@
-import { api } from './client';
-import type {
-  AreaRecord,
-  CreateAreaInput,
-  UpdateAreaInput,
-  AreaFilter,
-} from '@/db/types';
+import { trpcClient } from '@/lib/trpc/client';
+import type { RouterInputs } from '@/lib/trpc/router';
+type Input = RouterInputs['areas'];
 
 export const areasApi = {
-  list(filter?: AreaFilter): Promise<AreaRecord[]> {
-    return api.get<AreaRecord[]>('/areas', { query: filter as Record<string, string> });
-  },
-
-  get(id: string): Promise<AreaRecord> {
-    return api.get<AreaRecord>(`/areas/${id}`);
-  },
-
-  create(input: CreateAreaInput): Promise<AreaRecord> {
-    return api.post<AreaRecord>('/areas', input);
-  },
-
-  update(id: string, input: UpdateAreaInput): Promise<AreaRecord> {
-    return api.patch<AreaRecord>(`/areas/${id}`, input);
-  },
+  list: (filter?: Input['list']) => trpcClient.areas.list.query(filter),
+  get: (id: string) => trpcClient.areas.get.query({ id }),
+  create: (input: Input['create']) => trpcClient.areas.create.mutate(input),
+  update: (id: string, patch: Input['update']['patch']) => trpcClient.areas.update.mutate({ id, patch }),
 };

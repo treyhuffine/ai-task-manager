@@ -1,40 +1,7 @@
-import type { NextRequest } from 'next/server';
-import { mapFileError } from '@/lib/workspaces/file-http';
-import { agentFolderWrite } from '../_folder';
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/workspaces/[id]/dir';
 
-/**
- * Directory create and delete for the agent folder's tree. Mirrors
- * `/api/sessions/:id/dir`.
- *
- * POST `{ path: string }`: `mkdir -p`, fine if it already exists.
- * DELETE `?path=`: recursive remove.
- */
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    const body = (await request.json().catch(() => null)) as { path?: unknown } | null;
-    if (!body || typeof body.path !== 'string') {
-      return Response.json({ error: 'Body must be { path: string }' }, { status: 400 });
-    }
-    return await agentFolderWrite(id, { kind: 'create_dir', path: body.path });
-  } catch (err) {
-    return mapFileError(err, '[POST /api/workspaces/:id/dir]');
-  }
-}
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    const relPath = request.nextUrl.searchParams.get('path');
-    if (!relPath) return Response.json({ error: 'Missing path parameter' }, { status: 400 });
-    return await agentFolderWrite(id, { kind: 'delete', path: relPath });
-  } catch (err) {
-    return mapFileError(err, '[DELETE /api/workspaces/:id/dir]');
-  }
-}
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));
+export const DELETE = withCompression(serveOperation(operation.DELETEInput, operation.DELETE));

@@ -10,124 +10,121 @@
  * markdown-mirror sync, attachment derivation).
  */
 
-import crypto from 'node:crypto';
-import fs from 'node:fs';
-import { z } from 'zod';
-import { uuidv7 } from 'uuidv7';
-import { defineAction, ActionError, type ActionContext } from './types';
-import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
-import { runOnFor } from '@/lib/setups/run-on';
-import { browserActions } from './browser-actions';
-import {
-  TASK_STATUSES,
-  TRANSITION_COMMANDS,
-  isTaskLifecycleError,
-  LIFECYCLE_ERROR_ACTION_CODE,
-} from '@/lib/tasks/lifecycle';
-import {
-  listTasks,
-  getDeadlineTasks,
-  getTask,
-  createTask,
-  updateTask,
-  reorderTasksToTop,
-  TaskReorderError,
-  MAX_REORDER_TASKS,
-  completeTask,
-  transitionTask,
-  lifecyclePreflight,
-  attachExecutionToTask,
-  detachExecutionFromTask,
-  getTaskExecutions,
-  reviewExecutionOutput,
-  type LifecycleActorMeta,
-  listNotes,
-  getNote,
-  createNote,
-  updateNote,
-  repairNoteAttachmentMetadata,
-  listStream,
-  getStream,
-  createStream,
-  updateStream,
-  dismissStream,
-  listAreas,
-  getArea,
-  createArea,
-  updateArea,
-  getLatestDeck,
-  getDeck,
-  updateDeck,
-  getUserState,
-  updateUserState,
-  listWorkspaces,
-  getWorkspace,
-  createWorkspace,
-  archiveWorkspace,
-  createReferenceFolder,
-  updateReferenceFolder,
-  archiveReferenceFolder,
-  getReferenceFolder,
-  ReferenceFolderError,
-  listChatSessions,
-  searchChatSessions,
-  listRailSessions,
-  getChatSession,
-  listChatEvents,
-  listTriggersWithLastRun,
-  getTrigger,
-  findTriggerByName,
-  createTrigger,
-  updateTrigger,
-  deleteTrigger,
-  listRuns,
-  getRun,
-  markRunFailed,
-  markRunCancelled,
-  resetTriggerFailures,
-  listNotificationChannels,
-  getNotificationChannel,
-  defaultTriggerHarness,
-  withTriggerProvider,
-  getHarnessSettings,
-  getStreamAutonomy,
-  effectiveAutonomyLevel,
-  proposeTriageDecisions,
-  recordTriageDecisionAndApply,
-  undoTriageDecision,
-  firstLineTitle,
-  TriageError,
-  listBacklinks,
-  listOutgoingLinks,
-  WorkspaceFieldError,
-  type TriageDecisionInput,
-} from '@/lib/db/queries';
-import { stripHighlight } from '@/lib/search/highlight';
-import { actorFromAction } from '@/lib/auth/actor';
 import { AttachmentMetadataRepairError, MAX_ATTACHMENT_METADATA_REPAIRS, REPAIR_ATTACHMENT_FILE_NAME } from '@/lib/attachments/repair-metadata';
-import { beginSweep, finishSweep } from '@/lib/stream-triage/sweep';
-import { triageProposalSchema } from '@/lib/stream-triage/schema';
-import { getTriageMetrics } from '@/lib/stream-triage/metrics';
-import { onStreamCaptured } from '@/lib/stream-triage/triggers';
-import { getNotifierUserId } from '@/lib/notifications/user';
-import { detectIsGit, detectBaseBranch } from '@/lib/workspaces';
-import { describeUncommittedFiles, type DirtyWorktreeBody } from '@/lib/workspaces/uncommitted-files';
-import { validateCronExpression, computeNextRun } from '@/lib/scheduler/cron';
-import { generateWebhookCredentials } from '@/lib/triggers/webhook';
-import { isReservedTrigger, lockedFieldsFor } from '@/lib/triggers/reserved';
-import { getHeartbeatConfig, getHeartbeatTrigger, ensureHeartbeatTrigger, updateHeartbeat } from '@/lib/heartbeat/trigger';
+import { actorFromAction } from '@/lib/auth/actor';
 import {
-  DEFAULT_HEARTBEAT_INSTRUCTIONS,
-  HEARTBEAT_INTERVALS,
-  isHeartbeatInterval,
-} from '@/lib/heartbeat/constants';
-import type { HeartbeatPatch } from '@/lib/heartbeat/types';
+	archiveReferenceFolder,
+	archiveWorkspace,
+	attachExecutionToTask,
+	completeTask,
+	createArea,
+	createNote,
+	createReferenceFolder,
+	createStream,
+	createTask,
+	createTrigger,
+	createWorkspace,
+	defaultTriggerHarness,
+	deleteTrigger,
+	detachExecutionFromTask,
+	effectiveAutonomyLevel,
+	findTriggerByName,
+	firstLineTitle,
+	getArea,
+	getChatSession,
+	getDeadlineTasks,
+	getDeck,
+	getHarnessSettings,
+	getLatestDeck,
+	getNote,
+	getNotificationChannel,
+	getReferenceFolder,
+	getRun,
+	getStream,
+	getStreamAutonomy,
+	getTask,
+	getTaskExecutions,
+	getTrigger,
+	getUserState,
+	getWorkspace,
+	lifecyclePreflight,
+	listAreas,
+	listBacklinks,
+	listChatEvents,
+	listChatSessions,
+	listNotes,
+	listNotificationChannels,
+	listOutgoingLinks,
+	listRailSessions,
+	listRuns,
+	listStream,
+	listTasks,
+	listTriggersWithLastRun,
+	listWorkspaces,
+	markRunCancelled,
+	MAX_REORDER_TASKS,
+	proposeTriageDecisions,
+	recordTriageDecisionAndApply,
+	ReferenceFolderError,
+	reorderTasksToTop,
+	repairNoteAttachmentMetadata,
+	resetTriggerFailures,
+	reviewExecutionOutput,
+	searchChatSessions,
+	TaskReorderError,
+	transitionTask,
+	TriageError,
+	undoTriageDecision,
+	updateArea,
+	updateDeck,
+	updateNote,
+	updateReferenceFolder,
+	updateTask,
+	updateTrigger,
+	updateUserState,
+	withTriggerProvider,
+	WorkspaceFieldError,
+	type LifecycleActorMeta,
+	type TriageDecisionInput
+} from '@/lib/db/queries';
+import {
+	customModelOption,
+	modelBelongsToProvider,
+	modelsForProvider,
+} from '@/lib/harness/options';
 import { HARNESS_IDS, HARNESS_REGISTRY, resumeCommandForHarness, type HarnessId } from '@/lib/harness/registry';
 import {
-  customModelOption,
-  modelBelongsToProvider,
-  modelsForProvider,
-} from '@/lib/harness/options';
+	DEFAULT_HEARTBEAT_INSTRUCTIONS,
+	HEARTBEAT_INTERVALS,
+	isHeartbeatInterval,
+} from '@/lib/heartbeat/constants';
+import { ensureHeartbeatTrigger, getHeartbeatConfig, getHeartbeatTrigger, updateHeartbeat } from '@/lib/heartbeat/trigger';
+import type { HeartbeatPatch } from '@/lib/heartbeat/types';
+import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
+import { getNotifierUserId } from '@/lib/notifications/user';
+import { computeNextRun, validateCronExpression } from '@/lib/scheduler/cron';
+import { stripHighlight } from '@/lib/search/highlight';
+import { runOnFor } from '@/lib/setups/run-on';
+import { getTriageMetrics } from '@/lib/stream-triage/metrics';
+import { triageProposalSchema } from '@/lib/stream-triage/schema';
+import { beginSweep, finishSweep } from '@/lib/stream-triage/sweep';
+import { onStreamCaptured } from '@/lib/stream-triage/triggers';
+import {
+	isTaskLifecycleError,
+	LIFECYCLE_ERROR_ACTION_CODE,
+	TASK_STATUSES,
+	TRANSITION_COMMANDS,
+} from '@/lib/tasks/lifecycle';
+import { isReservedTrigger, lockedFieldsFor } from '@/lib/triggers/reserved';
+import { generateWebhookCredentials } from '@/lib/triggers/webhook';
+import { detectBaseBranch, detectIsGit } from '@/lib/workspaces';
+import { describeUncommittedFiles, type DirtyWorktreeBody } from '@/lib/workspaces/uncommitted-files';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import { uuidv7 } from 'uuidv7';
+import { z } from 'zod';
+import { browserActions } from './browser-actions';
+import { ActionError, defineAction, type Action, type ActionContext } from './types';
 // `dispatchRun` and the executor `abort` transitively load `@agentex/agent`,
 // which has no `require` condition in its package exports. Top-level imports
 // here would crash `tsx src/cli/index.ts` (CJS resolution) on every CLI
@@ -135,28 +132,28 @@ import {
 // Loading them lazily inside the two action handlers that use them lets the
 // dev CLI boot under tsx and matches the actual call graph: `run_trigger`
 // and `cancel_run` are the only paths that touch the executor.
-import { getSkillView, newSkill, skillsOverview } from '@/lib/skills/manage';
+import { APP_SHORT_ID } from '@/constants/app';
+import {
+	getAppRoot,
+	getAttachmentsDir,
+	getBrainDir,
+	getConfigPath,
+	getDbPath,
+	getTmpDir,
+} from '@/lib/config/paths';
+import { assertSupportedPermissionMode, UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
+import { PERMISSION_MODES } from '@/lib/permissions/modes';
+import { listResolvedReferenceFolders } from '@/lib/reference-folders/resolve';
+import { isSessionInactive, resolveInactiveAfterDays } from '@/lib/sessions/inactive';
 import { SkillError } from '@/lib/skills/library';
 import { parseSkillRef, skillRef } from '@/lib/skills/locations';
+import { getSkillView, newSkill, skillsOverview } from '@/lib/skills/manage';
 import { createSkillShape, locationFrom, moveSkillShape, saveSkillShape } from '@/lib/skills/params';
+import { isSessionUnread } from '@/lib/utils/session-sort';
+import path from 'node:path';
 import { fetchLiveSignals, serverFetch, ServerResponseError } from './server-client';
 import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } from './session-credential';
-import { PERMISSION_MODES } from '@/lib/permissions/modes';
-import { assertSupportedPermissionMode, UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
-import { APP_SHORT_ID } from '@/constants/app';
 import { condenseEvents, derivePendingFromEvents } from './session-oversight';
-import { isSessionUnread } from '@/lib/utils/session-sort';
-import { isSessionInactive, resolveInactiveAfterDays } from '@/lib/sessions/inactive';
-import { listResolvedReferenceFolders } from '@/lib/reference-folders/resolve';
-import path from 'node:path';
-import {
-  getAppRoot,
-  getBrainDir,
-  getDbPath,
-  getConfigPath,
-  getAttachmentsDir,
-  getTmpDir,
-} from '@/lib/config/paths';
 
 // ── Schema fragments ─────────────────────────────────────────────
 
@@ -2465,7 +2462,7 @@ const run_trigger_action = defineAction({
   cli: { positional: ['id'] },
   handler: async (ctx, { id, triggerPayload }) => {
     // The run's harness belongs in the server, where it can be watched and cancelled.
-    const served = await inServer<{ run: unknown; chatSessionId: string | null }>(ctx, 'run_trigger', { id, triggerPayload });
+    const served = await inServer<{ run: NonNullable<ReturnType<typeof getRun>>; chatSessionId: string | null }>(ctx, 'run_trigger', { id, triggerPayload });
     if (served) return served.result;
     const trigger = getTrigger(id);
     if (!trigger) throw new ActionError('not_found', `Trigger not found: ${id}`);
@@ -3248,7 +3245,7 @@ const move_skill_action = defineAction({
   },
 });
 
-export const actions = [
+export const typedActions = [
   register_device_action,
   rename_device_action,
   list_devices_action,
@@ -3345,3 +3342,10 @@ export const actions = [
   move_skill_action,
   ...browserActions,
 ];
+
+/** Dynamic CLI/MCP dispatch validates the selected shape before invoking it.
+ * Keep the concrete definitions for callers that know their action name. */
+export const actions = typedActions as unknown as Action[];
+export type ActionDefinition = typeof typedActions[number];
+export type ActionName = ActionDefinition['name'];
+export type ActionOutput<Name extends ActionName> = Awaited<ReturnType<Extract<ActionDefinition, { name: Name }>['handler']>>;

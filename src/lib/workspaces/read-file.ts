@@ -12,10 +12,10 @@
  * surface and we don't want a misbehaving agent to read arbitrary disk.
  */
 
+import type { FileResponse } from '@/lib/workspaces/file-contracts';
+import type { Workspace } from '@agentex/workspace';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { Workspace } from '@agentex/workspace';
-import type { FileResponse } from '@/lib/api/sessions';
 
 export type { FileResponse };
 

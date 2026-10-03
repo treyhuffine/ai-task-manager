@@ -1,22 +1,13 @@
-import { api } from './client';
-import type { InstalledAppsResponse, OpenInClientOptions, OpenInResult, OpenTarget } from './fs';
-
-/**
- * Opening a folder in an app on the device it's on, through that
- * device's worker, for a browser on that device (P3.5). Every call takes
- * the folder's route base (`folderApiBase`) and a path inside the folder.
- */
+import { folderSourceFromBase, type FolderApiBase } from '@/lib/folders/source';
+import { trpcClient } from '@/lib/trpc/client';
+import type { OpenInClientOptions, OpenTarget } from './fs';
 export const openApi = {
-  apps(base: string): Promise<InstalledAppsResponse> {
-    return api.post<InstalledAppsResponse>(`${base}/open`, { op: 'apps' });
+  apps(base: FolderApiBase) {
+    const source = folderSourceFromBase(base);
+    return source.kind === 'session' ? trpcClient.sessions.openGet.query({ params: { id: source.sessionId } }) : trpcClient.workspaces.openGet.query({ params: { id: source.workspaceId } });
   },
-  async open(base: string, relPath: string | null, target: OpenTarget, opts: Omit<OpenInClientOptions, 'projectDir'> = {}): Promise<OpenInResult> {
-    const res = await api.post<{ ok: boolean; reason?: 'not_installed' | 'unsupported' | 'failed'; message?: string }>(`${base}/open`, {
-      op: 'open',
-      path: relPath,
-      target,
-      ...opts,
-    });
-    return res.ok ? { ok: true } : { ok: false, reason: res.reason ?? 'failed', message: res.message };
+  open(base: FolderApiBase, path: string | null, target: OpenTarget, opts: Omit<OpenInClientOptions, 'projectDir'> = {}) {
+    const source = folderSourceFromBase(base), body = { path, target, ...opts };
+    return source.kind === 'session' ? trpcClient.sessions.openPost.mutate({ params: { id: source.sessionId }, body }) : trpcClient.workspaces.openPost.mutate({ params: { id: source.workspaceId }, body });
   },
 };

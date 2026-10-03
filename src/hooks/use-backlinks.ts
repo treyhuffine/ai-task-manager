@@ -1,5 +1,6 @@
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api/client';
 
 export type LinkEntityType = 'task' | 'note';
 
@@ -41,7 +42,7 @@ export interface EntityTitle {
 export function useBacklinks(type: LinkEntityType, id: string | null | undefined) {
   return useQuery({
     queryKey: ['entity-backlinks', type, id],
-    queryFn: () => api.get<BacklinksResponse>(`/entities/${type}/${id}/backlinks`),
+    queryFn: () => trpcClient.entities.backlinksTypeGet.query({params: {type: type, id: id ?? ''}}),
     enabled: !!id,
     staleTime: 30_000,
     refetchOnMount: 'always',
@@ -57,9 +58,7 @@ export function useEntityTitle(type: LinkEntityType, id: string | null | undefin
   return useQuery({
     queryKey: ['entity-title', type, id],
     queryFn: async () => {
-      const res = await api.get<{ titles: EntityTitle[] }>('/entities/titles', {
-        query: { refs: `${type}:${id}` },
-      });
+      const res = await trpcClient.entities.titlesGet.query({query: rpcQuery({ refs: `${type}:${id}` })});
       return res.titles[0] ?? null;
     },
     enabled: !!id,

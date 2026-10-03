@@ -17,6 +17,7 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
   const fixture = `
     const workspace={id:'agent',name:'Review agent',collapsed:true,sessionCount:0,needsReviewCandidateCount:0,attachments:[]};
     const record=(kind,value)=>window.actions.push({kind,value});
+    export const trpcClient=new Proxy({}, {get:()=>new Proxy({}, {get:()=>({query:async()=>({}),mutate:async()=>({})})})});
     export const useWorkspaces=()=>({data:[workspace],isLoading:false});
     export const useNeedsReviewSessions=()=>({data:[]});
     export const useWorkspaceSessions=()=>({data:[]});
@@ -44,7 +45,7 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
       onResolve(opts:{filter:RegExp},fn:()=>{path:string;namespace:string}):void;
       onLoad(opts:{filter:RegExp;namespace:string},fn:()=>{contents:string;loader:string}):void;
     }){
-      api.onResolve({filter:/^(?:@\/hooks\/use-(?:workspaces|areas|inactivity)|@\/contexts\/dashboard-context|@\/lib\/executions\/start-execution|@\/lib\/client\/agent-view-mode|@\/components\/workspaces\/workspace-create-modal|@tanstack\/react-query)$/},()=>({path:'data-hooks',namespace:'fixture'}));
+      api.onResolve({filter:/^(?:@\/hooks\/use-(?:workspaces|areas|inactivity)|@\/contexts\/dashboard-context|@\/lib\/executions\/start-execution|@\/lib\/client\/agent-view-mode|@\/components\/workspaces\/workspace-create-modal|@\/lib\/trpc\/client|@tanstack\/react-query)$/},()=>({path:'data-hooks',namespace:'fixture'}));
       api.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:fixture,loader:'js'}));
     }}],
   });

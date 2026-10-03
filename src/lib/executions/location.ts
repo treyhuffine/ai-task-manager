@@ -1,4 +1,5 @@
-import type { ChatSessionWithExecution } from '@/db/types';
+import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
+
 
 /**
  * The folder an execution works in, wherever it runs (P3.1): its worktree at

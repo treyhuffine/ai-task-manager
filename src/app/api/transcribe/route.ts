@@ -1,7 +1,9 @@
-import { NextRequest } from 'next/server';
-import { transcribe, getProviderStatus } from '@/lib/stt/transcribe';
 import { withCompression } from '@/lib/api/compression';
 import { readLimitedFormData, RequestBodyTooLargeError } from '@/lib/api/limited-body';
+import { operationContext, operationResponse } from '@/lib/server/operation';
+import * as providerStatus from '@/lib/server/operations/transcribe';
+import { transcribe } from '@/lib/stt/transcribe';
+import { NextRequest } from 'next/server';
 
 /**
  * POST /api/transcribe
@@ -43,5 +45,5 @@ export async function POST(request: NextRequest) {
 export const GET = withCompression(handleGET);
 
 async function handleGET() {
-  return Response.json({ providers: await getProviderStatus() });
+  return operationResponse(await providerStatus.GET({}, operationContext(new Request('http://localhost/api/transcribe'), {}, '/transcribe')));
 }

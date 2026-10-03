@@ -1,8 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getDb } from '@/lib/db';
-import { tasks } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
-import { getTask, updateTask, deleteTask } from '@/lib/db/queries';
+import { getTask, updateTask, deleteTask, markTaskViewed } from '@/lib/db/queries';
 import type { UpdateTaskInput } from '@/db/types';
 import { isTaskLifecycleError, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 import { withCompression } from '@/lib/api/compression';
@@ -23,12 +20,7 @@ async function handleGET(
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // Fire-and-forget: mark as viewed
-    const db = getDb();
-    db.update(tasks)
-      .set({ lastViewedAt: new Date().toISOString() })
-      .where(eq(tasks.id, id))
-      .run();
+    markTaskViewed(id);
 
     return Response.json(row);
   } catch (err) {

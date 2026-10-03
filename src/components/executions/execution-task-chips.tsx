@@ -1,12 +1,10 @@
 'use client';
 
+import { useDashboard } from '@/contexts/dashboard-context';
+import { trpcClient } from '@/lib/trpc/client';
+import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { ListTodo } from 'lucide-react';
-import { api } from '@/lib/api/client';
-import { useDashboard } from '@/contexts/dashboard-context';
-import { cn } from '@/lib/utils';
-
-type LinkedTask = { id: string; title: string; status: string };
 
 /**
  * "Working on" — the tasks an execution is associated with, shown in the header
@@ -19,7 +17,7 @@ export function ExecutionTaskChips({ executionId }: { executionId: string }) {
   const { openTask } = useDashboard();
   const { data } = useQuery({
     queryKey: ['executions', executionId, 'tasks'],
-    queryFn: () => api.get<LinkedTask[]>(`/executions/${executionId}/tasks`),
+    queryFn: () => trpcClient.executions.tasksGet.query({params: {id: executionId}}),
     staleTime: 10_000,
     refetchInterval: 20_000,
   });

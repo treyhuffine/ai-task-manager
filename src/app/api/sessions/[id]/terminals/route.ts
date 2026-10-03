@@ -1,49 +1,9 @@
-import type { NextRequest } from 'next/server';
-import { createTerminalAt, listTerminalsAt, sessionTerminalPlace } from '@/lib/terminal/place';
 import { withCompression } from '@/lib/api/compression';
-import { whileAdmitted } from '@/lib/transfer/moving';
-
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/sessions/[id]/terminals';
 export const runtime = 'nodejs';
+
+export const GET = withCompression(serveOperation(operation.GETInput, operation.GET));
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));
+
 export const dynamic = 'force-dynamic';
-
-/**
- * An execution's terminals, on the device it runs on, in its working folder
- * (`src/lib/terminal/place.ts`). Owned by the execution, so every chat on it
- * shares them.
- */
-// Compressed when the body is JSON and over ~1KiB; a streamed or
-// non-JSON response passes through untouched. See lib/api/compression.ts.
-export const GET = withCompression(handleGET);
-
-async function handleGET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    return await listTerminalsAt(sessionTerminalPlace(id));
-  } catch (err) {
-    console.error('[GET /api/sessions/:id/terminals]', err);
-    return Response.json({ error: String(err) }, { status: 500 });
-  }
-}
-
-async function handlePOST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    return await createTerminalAt(request, sessionTerminalPlace(id), '[POST /api/sessions/:id/terminals]');
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('[POST /api/sessions/:id/terminals]', err);
-    return Response.json({ error: message }, { status: 500 });
-  }
-}
-
-/** Counted while it runs, and refused while the work moves (P4 review). */
-export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
-  const { id } = await context.params;
-  return whileAdmitted(id, 'opening a terminal', () => handlePOST(request, context));
-}

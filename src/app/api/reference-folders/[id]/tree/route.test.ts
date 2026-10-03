@@ -1,9 +1,9 @@
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
-import { execFileSync } from 'node:child_process';
 import type { NextRequest } from 'next/server';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -24,7 +24,7 @@ vi.mock('@/lib/db/queries', () => ({
 import { GET } from './route';
 
 function req(): NextRequest {
-  return {} as NextRequest;
+  return new Request('http://localhost/api') as NextRequest;
 }
 
 function params(id: string) {

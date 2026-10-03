@@ -1,38 +1,27 @@
-import { api } from './client';
-import type { ProviderStatus } from '@/components/settings/sections/connectors/types';
+import { trpcClient } from '@/lib/trpc/client';
+import type { RouterInputs, RouterOutputs } from '@/lib/trpc/router';
 
 export type ConnectionCardAction = 'sign_in' | 'key' | 'allow' | 'decline';
 
-export interface ConnectionCardBody {
-  action: ConnectionCardAction;
-  fields?: Record<string, string>;
-  returnTo?: string;
-  /** For `allow`: exactly the account ids checked on the card. */
-  accounts?: string[];
-}
+export type ConnectionCardBody = RouterInputs['connectors']['requestsEventIdPost']['body'];
 
-export type ConnectionCardResult =
-  | { done: true }
-  | { requestId: string; authorizationUrl: string; desktopFlowId?: string };
+export type ConnectionCardResult = RouterOutputs['connectors']['requestsEventIdPost'];
 
-export interface ConnectorStatusResponse {
-  redirectUri: string;
-  providers: ProviderStatus[];
-}
+export type ConnectorStatusResponse = RouterOutputs['connectors']['statusGet'];
 
 export const connectionRequestsApi = {
   /** Answer a Connect card: start a sign-in, submit a key, allow an agent, or say not now. */
   act: (eventId: string, body: ConnectionCardBody) =>
-    api.post<ConnectionCardResult>(`/connectors/requests/${encodeURIComponent(eventId)}`, body),
+    trpcClient.connectors.requestsEventIdPost.mutate({params: {eventId: eventId}, body: body}),
 
   /** Which providers can connect in one click, and the redirect URI a new sign-in app registers. */
-  status: () => api.get<ConnectorStatusResponse>('/connectors/status'),
+  status: () => trpcClient.connectors.statusGet.query({}),
 
   /** Save a sign-in app for a provider, the same way Settings does. */
   addSignInApp: (body: { providerId: string; label: string; oauth: { clientId: string; redirectUri: string }; clientSecret?: string }) =>
-    api.post('/connectors/auth-configs', body),
+    trpcClient.connectors.authConfigsPost.mutate({body: body}),
 
-  settings: () => api.get<{ requestsEnabled: boolean }>('/connectors/request-settings'),
+  settings: () => trpcClient.connectors.requestSettingsGet.query({}),
   setRequestsEnabled: (requestsEnabled: boolean) =>
-    api.patch<{ requestsEnabled: boolean }>('/connectors/request-settings', { requestsEnabled }),
+    trpcClient.connectors.requestSettingsPatch.mutate({body: { requestsEnabled }}),
 };

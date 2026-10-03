@@ -1,8 +1,8 @@
 import { API_PROTOCOL_HEADER, apiCompatibilityIssue, hasIndependentProtocol } from '@/lib/releases/api-contract';
 import { CURRENT_COMPATIBILITY } from '@/lib/releases/compatibility';
 import { NextResponse, type NextRequest } from 'next/server';
-import { hashToken } from '@/lib/auth/tokens';
-import { findApiKeyByHash, getWorkerDevice, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
+import { lookupApiToken } from '@/lib/auth/api-token';
+import { getWorkerDevice, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
 import { isHomeActive } from '@/lib/home/identity';
 import {
@@ -163,13 +163,9 @@ export function proxy(request: NextRequest) {
   }
 
 
-  const tokenHash = hashToken(token);
-  const key = findApiKeyByHash(tokenHash);
-  if (!key || key.revokedAt) return unauthorized();
-
-  if (key.expiresAt && new Date(key.expiresAt) < new Date()) {
-    return unauthorized();
-  }
+  const found = lookupApiToken(token);
+  if (!found) return unauthorized();
+  const { key, tokenHash } = found;
 
   // An authenticated stale view is refused before route writes or effects.
   // Worker and MCP transports retain their own authenticated negotiation.

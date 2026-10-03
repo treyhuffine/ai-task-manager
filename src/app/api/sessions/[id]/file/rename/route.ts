@@ -1,45 +1,6 @@
-import type { NextRequest } from 'next/server';
-import { writeOnOwner } from '@/lib/executor/owner-files';
-import { whileAdmitted } from '@/lib/transfer/moving';
-import { renameWorkspacePath } from '@/lib/workspaces/write-file';
-import { openSessionWorktree, mapFileError } from '../../_helpers';
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/sessions/[id]/file/rename';
 
-/**
- * Move/rename a file or directory inside the worktree.
- * POST body: `{ from: string, to: string }`. Refuses to overwrite an
- * existing target — `write-file.ts` raises `exists` (409) so the UI
- * can prompt the user to pick a different name.
- */
-async function handlePOST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    const body = (await request.json().catch(() => null)) as
-      | { from?: unknown; to?: unknown }
-      | null;
-    if (!body || typeof body.from !== 'string' || typeof body.to !== 'string') {
-      return Response.json(
-        { error: 'Body must be { from: string, to: string }' },
-        { status: 400 },
-      );
-    }
 
-    const owner = await writeOnOwner(id, { kind: 'rename', from: body.from, to: body.to });
-    if (owner) return owner;
-    const resolved = await openSessionWorktree(id);
-    if (!resolved.ok) return resolved.response;
-
-    const result = await renameWorkspacePath(resolved.handle, body.from, body.to);
-    return Response.json({ ok: true, ...result });
-  } catch (err) {
-    return mapFileError(err, '[POST /api/sessions/:id/file/rename]');
-  }
-}
-
-/** A change to its files, counted while it runs: never under a move (P4 review). */
-export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
-  const { id } = await context.params;
-  return whileAdmitted(id, 'changing its files', () => handlePOST(request, context));
-}
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));

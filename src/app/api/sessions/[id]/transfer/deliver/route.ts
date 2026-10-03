@@ -1,20 +1,6 @@
-import type { NextRequest } from 'next/server';
-import { getChatSessionWithExecution } from '@/lib/db/queries';
-import { actorFromRequest } from '@/lib/auth/actor';
-import { retryHeldDelivery, TransferError, viewOf } from '@/lib/transfer/continue';
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/sessions/[id]/transfer/deliver';
 
-/**
- * Send them again (P4 re-check): the delivery of what a move held stopped
- * short at a message nothing took. Pick it up from that message, in order.
- */
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const session = getChatSessionWithExecution(id);
-  if (!session?.executionId) return Response.json({ error: 'Session not found' }, { status: 404 });
-  try {
-    return Response.json({ transfer: viewOf(await retryHeldDelivery(session.executionId, actorFromRequest(request.headers))) });
-  } catch (err) {
-    if (err instanceof TransferError) return Response.json({ error: err.code, message: err.message }, { status: err.status });
-    throw err;
-  }
-}
+
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));

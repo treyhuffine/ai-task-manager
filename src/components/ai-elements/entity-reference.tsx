@@ -1,18 +1,23 @@
 'use client'
 
-import { type ReactNode } from 'react'
-import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
-import { useOptionalDashboard } from '@/contexts/dashboard-context'
-import { cn } from '@/lib/utils'
-import { calendarDaysUntil, formatLocalDate, isPastDate } from '@/lib/dates'
-import { Target, FileText, Layers, Loader2, AlertCircle, Clock, Flame, Zap, LayoutList, SquareTerminal } from 'lucide-react'
-import { NoteIcon } from '@/components/shared/note-icon'
-import type { TaskRecord, NoteRecord, AreaRecord, ChatSessionWithExecution, WorkspaceRecord } from '@/db/types'
-import { api } from '@/lib/api/client'
-import { coverAttachmentUrl } from '@/lib/attachments/view'
-import { isSessionUnread } from '@/lib/utils/session-sort'
+import { areasApi } from '@/lib/api/areas';
+import { notesApi } from '@/lib/api/notes';
+import { tasksApi } from '@/lib/api/tasks';
+import { entityKeys } from '@/lib/query/entity-keys';
+import { trpcClient } from '@/lib/trpc/client';
+
+import { NoteIcon } from '@/components/shared/note-icon';
+import { useOptionalDashboard } from '@/contexts/dashboard-context';
+import type { AreaRecord, ChatSessionWithExecution, NoteRecord, TaskRecord } from '@/db/types';
+import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { executionView } from '@/lib/client/active-view';
+import { calendarDaysUntil, formatLocalDate, isPastDate } from '@/lib/dates';
+import { cn } from '@/lib/utils';
+import { isSessionUnread } from '@/lib/utils/session-sort';
+import { useQuery } from '@tanstack/react-query';
+import { AlertCircle, Clock, FileText, Flame, Layers, LayoutList, Loader2, SquareTerminal, Target, Zap } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { type ReactNode } from 'react';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -61,35 +66,40 @@ const ENTITY_CONFIG: Record<EntityType, {
   label: string
   borderColor: string
   iconColor: string
-  fetchUrl: (id: string) => string
+  fetch: (id: string) => Promise<unknown>
+  queryKey: (id: string) => readonly unknown[]
 }> = {
   task: {
     icon: Target,
     label: 'Task',
     borderColor: 'border-l-blue-500',
     iconColor: 'text-blue-500',
-    fetchUrl: (id) => `/tasks/${id}`,
+    fetch: (id) => tasksApi.get(id),
+    queryKey: entityKeys.tasks.detail,
   },
   note: {
     icon: FileText,
     label: 'Note',
     borderColor: 'border-l-amber-500',
     iconColor: 'text-amber-500',
-    fetchUrl: (id) => `/notes/${id}`,
+    fetch: (id) => notesApi.get(id),
+    queryKey: entityKeys.notes.detail,
   },
   area: {
     icon: Layers,
     label: 'Area',
     borderColor: 'border-l-emerald-500',
     iconColor: 'text-emerald-500',
-    fetchUrl: (id) => `/areas/${id}`,
+    fetch: (id) => areasApi.get(id),
+    queryKey: entityKeys.areas.detail,
   },
   deck: {
     icon: LayoutList,
     label: 'Deck',
     borderColor: 'border-l-foreground',
     iconColor: 'text-foreground',
-    fetchUrl: (id) => `/deck/${id}`,
+    fetch: (id) => trpcClient.deck.get.query({params: {id: id}}),
+    queryKey: (id) => ['entity', 'deck', id],
   },
   execution: {
     icon: SquareTerminal,
@@ -98,7 +108,8 @@ const ENTITY_CONFIG: Record<EntityType, {
     iconColor: 'text-violet-500',
     // The marker id is the chat session id — the same handle the
     // orchestrator's oversight actions deal in.
-    fetchUrl: (id) => `/sessions/${id}`,
+    fetch: (id) => trpcClient.sessions.get.query({params: {id: id}}),
+    queryKey: (id) => ['entity', 'execution', id],
   },
 }
 
@@ -302,7 +313,7 @@ function ExecutionCard({ data, onClick }: { data: ChatSessionWithExecution; onCl
   // across every execution card on screen — one fetch, many chips.
   const { data: workspaces } = useQuery({
     queryKey: ['workspaces', 'entity-chip'],
-    queryFn: () => api.get<WorkspaceRecord[]>('/workspaces'),
+    queryFn: () => trpcClient.workspaces.list.query({}),
     enabled: !!data.workspaceId,
     staleTime: 60_000,
   })
@@ -381,8 +392,8 @@ function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId
   const validId = isPlausibleEntityId(entityId)
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: [entityType, entityId],
-    queryFn: () => api.get<unknown>(config.fetchUrl(entityId)),
+    queryKey: config.queryKey(entityId),
+    queryFn: () => config.fetch(entityId),
     enabled: validId,
     retry: false,
     staleTime: 30_000,

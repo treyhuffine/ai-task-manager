@@ -1,20 +1,21 @@
 'use client';
 
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, ExternalLink, KeyRound, Loader2, LogOut, PlugZap, Search } from 'lucide-react';
-import { toast } from 'sonner';
-import type { ProviderAuthFlow, ProviderAuthMethod, UpstreamProvider } from '@agentex/agent';
-import { api, ApiError } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { apiErrorStatus } from '@/lib/api/client';
+import { trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
+import type { ProviderAuthFlow, UpstreamProvider } from '@agentex/agent';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CheckCircle2, ExternalLink, KeyRound, Loader2, LogOut, PlugZap, Search } from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
 
 export function OpenCodeProviderPanel() {
   const queryClient = useQueryClient();
   const providers = useQuery({
     queryKey: ['opencode-providers'],
-    queryFn: () => api.get<{ providers: UpstreamProvider[] }>('/harness/opencode/providers'),
+    queryFn: () => trpcClient.harness.opencodeProvidersGet.query({}),
     staleTime: 30_000,
   });
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -90,9 +91,7 @@ export function OpenCodeProviderPanel() {
 function ProviderSetup({ provider, onChanged }: { provider: UpstreamProvider; onChanged: () => void }) {
   const methods = useQuery({
     queryKey: ['opencode-provider-methods', provider.id],
-    queryFn: () => api.get<{ methods: ProviderAuthMethod[]; canDisconnect: boolean }>(
-      `/harness/opencode/providers/${encodeURIComponent(provider.id)}`,
-    ),
+    queryFn: () => trpcClient.harness.opencodeProvidersProviderIdGet.query({params: {providerId: provider.id}}),
   });
   const [methodId, setMethodId] = useState<string | null>(null);
   const method = methods.data?.methods.find((entry) => entry.id === methodId) ?? methods.data?.methods[0] ?? null;
@@ -102,7 +101,7 @@ function ProviderSetup({ provider, onChanged }: { provider: UpstreamProvider; on
   const [code, setCode] = useState('');
 
   const setKey = useMutation({
-    mutationFn: () => api.put(`/harness/opencode/providers/${encodeURIComponent(provider.id)}`, { apiKey }),
+    mutationFn: () => trpcClient.harness.opencodeProvidersProviderIdPut.mutate({params: {providerId: provider.id}, body: { apiKey }}),
     onSuccess: () => {
       setApiKey('');
       toast.success(`${provider.name} connected`);
@@ -110,23 +109,24 @@ function ProviderSetup({ provider, onChanged }: { provider: UpstreamProvider; on
     },
   });
   const beginOAuth = useMutation({
-    mutationFn: () => api.post<ProviderAuthFlow>('/harness/opencode/oauth', {
+    mutationFn: () => trpcClient.harness.opencodeOauthPost.mutate({body: {
       action: 'begin',
       providerId: provider.id,
       methodId: method?.id,
       inputs,
-    }),
+    }}),
     onSuccess: (nextFlow) => {
+      if (!('id' in nextFlow)) throw new Error('No sign-in flow was returned');
       setFlow(nextFlow);
       if (nextFlow.url) window.open(nextFlow.url, '_blank', 'noopener,noreferrer');
     },
   });
   const completeOAuth = useMutation({
-    mutationFn: () => api.post('/harness/opencode/oauth', {
+    mutationFn: () => trpcClient.harness.opencodeOauthPost.mutate({body: {
       action: 'complete',
       flowId: flow?.id,
       ...(code.trim() ? { code: code.trim() } : {}),
-    }),
+    }}),
     onSuccess: () => {
       setFlow(null);
       setCode('');
@@ -135,22 +135,13 @@ function ProviderSetup({ provider, onChanged }: { provider: UpstreamProvider; on
     },
   });
   const disconnect = useMutation({
-    mutationFn: async () => {
-      const response = await api.raw(`/harness/opencode/providers/${encodeURIComponent(provider.id)}`, {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new ApiError(response.status, body, response.url);
-      return body;
-    },
+    mutationFn: () => trpcClient.harness.opencodeProvidersProviderIdDelete.mutate({ params: { providerId: provider.id }, body: {} }),
     onSuccess: () => {
       toast.success(`${provider.name} disconnected`);
       onChanged();
     },
     onError: (error) => {
-      const needsReplacement = error instanceof ApiError && error.status === 409;
+      const needsReplacement = apiErrorStatus(error) === 409;
       toast.error('Could not disconnect provider', {
         description: needsReplacement
           ? 'Choose a different default model first, then try again.'

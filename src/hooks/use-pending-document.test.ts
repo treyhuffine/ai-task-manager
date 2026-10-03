@@ -1,3 +1,5 @@
+import type { QueryKey } from '@tanstack/react-query';
+import { entityKeys } from '@/lib/query/entity-keys';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
@@ -6,6 +8,10 @@ import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest';
 import { documentSaves } from '@/lib/client/document-saves';
 import { optimisticPatch, rollbackOptimistic, type EntityRoot } from '@/lib/query/optimistic-entity';
 import { useDocumentAutosave, usePendingDocument } from './use-document-autosave';
+
+// These cache tests deliberately use partial records. Erase only the data tag
+// on fixture keys, while exercising the production tRPC key shape.
+const fixtureKey = (key: QueryKey): QueryKey => key;
 
 const notices = vi.hoisted(() => ({ warning: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast: notices }));
@@ -22,7 +28,7 @@ const titleField = () => kind === 'areas' ? 'name' : 'title';
 const bodyField = () => kind === 'areas' ? 'description' : 'body';
 
 function Editor({ documentId }: { documentId: string }) {
-  const { data: saved } = useQuery({ queryKey: [kind, documentId], queryFn: async () => original, enabled: false });
+  const { data: saved } = useQuery({ queryKey: fixtureKey(entityKeys[kind].detail(documentId)), queryFn: async () => original, enabled: false });
   const view = usePendingDocument(kind, documentId, saved);
   const autosave = useDocumentAutosave(kind, documentId, saved, async ({ id: entityId, ...patch }: { id: string } & Record<string, unknown>) => {
     const snapshot = await optimisticPatch(client, kind, entityId, patch);
@@ -65,23 +71,23 @@ afterEach(async () => {
 });
 
 it.each(['notes', 'tasks', 'areas'] as const)('keeps unsaved %s text visible after failed write, blur and refetch while the shared cache rolls back', async documentKind => {
-  kind = documentKind; client.setQueryData([kind, id], original); await mount();
+  kind = documentKind; client.setQueryData(fixtureKey(entityKeys[kind].detail(id)), original); await mount();
   await type('Unsaved edit');
   expect(visible()).toBe('Unsaved edit');
   await act(async () => { await expect(documentSaves.flush(`${kind}:${id}`)).rejects.toThrow('426'); });
-  expect(client.getQueryData([kind, id])).toEqual(original);
+  expect(client.getQueryData(fixtureKey(entityKeys[kind].detail(id)))).toEqual(original);
   await act(async () => {
     container.querySelector('input')!.dispatchEvent(new window.Event('blur', { bubbles: true }));
-    client.setQueryData([kind, id], { ...original, [titleField()]: 'Server title after refetch', [bodyField()]: 'New server detail' });
+    client.setQueryData(fixtureKey(entityKeys[kind].detail(id)), { ...original, [titleField()]: 'Server title after refetch', [bodyField()]: 'New server detail' });
     await vi.advanceTimersByTimeAsync(1);
   });
   expect(visible()).toBe('Unsaved edit');
   expect(container.querySelector('output')!.textContent).toBe('New server detail');
-  expect((client.getQueryData([kind, id]) as typeof original)[titleField()]).toBe('Server title after refetch');
+  expect((client.getQueryData(fixtureKey(entityKeys[kind].detail(id))) as typeof original)[titleField()]).toBe('Server title after refetch');
 });
 
 it('keeps newer typing ahead of a failed in-flight save and clears the overlay only after retry acknowledgement', async () => {
-  client.setQueryData([kind, id], original); await mount();
+  client.setQueryData(fixtureKey(entityKeys[kind].detail(id)), original); await mount();
   let reject!: (error: Error) => void;
   writer.mockImplementationOnce(() => new Promise<void>((_resolve, failure) => { reject = failure; }));
   await type('First edit');
@@ -91,19 +97,19 @@ it('keeps newer typing ahead of a failed in-flight save and clears the overlay o
   await act(async () => {
     reject(new Error('API version changed (426)'));
     await expect(flushing).rejects.toThrow('426');
-    client.setQueryData([kind, id], original); await vi.advanceTimersByTimeAsync(1);
+    client.setQueryData(fixtureKey(entityKeys[kind].detail(id)), original); await vi.advanceTimersByTimeAsync(1);
   });
   expect(visible()).toBe('Newer edit'); expect(documentSaves.pendingPatch(`${kind}:${id}`)).toEqual({ title: 'Newer edit' });
   fail = false;
   await act(async () => { await documentSaves.flush(`${kind}:${id}`); await vi.advanceTimersByTimeAsync(1); });
   expect(visible()).toBe('Newer edit'); expect(documentSaves.pendingPatch(`${kind}:${id}`)).toBeUndefined();
   expect(writer.mock.calls.map(([patch]) => patch)).toEqual([{ title: 'First edit' }, { title: 'Newer edit' }]);
-  await act(async () => { client.setQueryData([kind, id], { ...original, title: 'Later server edit' }); await vi.advanceTimersByTimeAsync(1); });
+  await act(async () => { client.setQueryData(fixtureKey(entityKeys[kind].detail(id)), { ...original, title: 'Later server edit' }); await vi.advanceTimersByTimeAsync(1); });
   expect(visible()).toBe('Later server edit');
 });
 
 it('shares active edits across editor remounts but never overlays another document or an older stored draft', async () => {
-  client.setQueryData([kind, id], original); client.setQueryData([kind, 'two'], { ...original, id: 'two', title: 'Second note' }); await mount();
+  client.setQueryData(fixtureKey(entityKeys[kind].detail(id)), original); client.setQueryData(fixtureKey(entityKeys[kind].detail('two')), { ...original, id: 'two', title: 'Second note' }); await mount();
   await type('Current session edit');
   await mount('two'); expect(visible()).toBe('Second note');
   await mount(); expect(visible()).toBe('Current session edit');

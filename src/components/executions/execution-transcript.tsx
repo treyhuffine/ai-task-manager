@@ -1,34 +1,35 @@
 'use client';
 
+import {
+	Conversation,
+	ConversationContent,
+	ConversationScrollButton,
+} from '@/components/ai-elements/conversation';
+import type { WorkspaceRecord } from '@/db/types';
+import { useClientEventStatus, useLoadOlderEvents, useSessionEvents } from '@/hooks/use-execution';
+import { hot } from '@/lib/_debug/hot-path';
+import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
+import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
+import { useTranscriptDensity } from '@/lib/client/transcript-density';
+import { coalesceApprovalRequests } from '@/lib/executions/connector-approvals';
+import { NO_RESPONSE_REQUESTED } from '@/lib/executions/conversation';
+import { partitionSubagentEvents } from '@/lib/executions/subagent';
+import { isPlumbingTool } from '@/lib/executions/tool-display';
+import { cn } from '@/lib/utils';
+import { Loader2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
+import { ActivityGroup } from './activity-group';
+import { ExecutionEvent } from './execution-event';
+import { TurnFilesFooter } from './file-chip';
+import { SetupCard } from './setup-card';
+import { ThinkingState } from './thinking-state';
+import { buildTranscriptNodes } from './transcript-grouping';
 
 // Layout effect that no-ops to a passive effect during SSR — the
 // transcript is a client component but still renders once on the server,
 // where useLayoutEffect would warn.
 const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
-import { Loader2 } from 'lucide-react';
-import { useSessionEvents, useClientEventStatus, useLoadOlderEvents } from '@/hooks/use-execution';
-import { hot } from '@/lib/_debug/hot-path';
-import {
-  Conversation,
-  ConversationContent,
-  ConversationScrollButton,
-} from '@/components/ai-elements/conversation';
-import type { ChatSessionWithExecution, WorkspaceRecord } from '@/db/types';
-import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
-import { ExecutionEvent } from './execution-event';
-import { cn } from '@/lib/utils';
-import { ActivityGroup } from './activity-group';
-import { TurnFilesFooter } from './file-chip';
-import { buildTranscriptNodes } from './transcript-grouping';
-import { useTranscriptDensity } from '@/lib/client/transcript-density';
-import { isPlumbingTool } from '@/lib/executions/tool-display';
-import { partitionSubagentEvents } from '@/lib/executions/subagent';
-import { coalesceApprovalRequests } from '@/lib/executions/connector-approvals';
-import { NO_RESPONSE_REQUESTED } from '@/lib/executions/conversation';
-import { SetupCard } from './setup-card';
-import { ThinkingState } from './thinking-state';
 
 interface ExecutionTranscriptProps {
   session: ChatSessionWithExecution;

@@ -1,64 +1,7 @@
-import type { NextRequest } from 'next/server';
-import { AGENT_SKILL_NAME } from '@/constants/app';
-import {
-  configureGlobalSkill,
-  installAppRootSkills,
-  getGlobalSkillPreference,
-} from '@/lib/agent-skills/shipped';
-import { cleanupKnownProjectSkillLinks } from '@/lib/agent-skills/project-cleanup';
-
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/harness/skills/global';
 export const runtime = 'nodejs';
 
-export function GET() {
-  if (process.env.RI_DESKTOP === '1') return Response.json({ enabled: false, configured: true, appOnly: true });
-  const preference = getGlobalSkillPreference();
-  return Response.json({
-    enabled: preference === true,
-    configured: preference !== null,
-  });
-}
-
-export async function PUT(request: NextRequest) {
-  try {
-    const body = (await request.json()) as { enabled?: unknown };
-    if (typeof body.enabled !== 'boolean') {
-      return Response.json({ error: 'enabled must be a boolean' }, { status: 400 });
-    }
-
-    if (process.env.RI_DESKTOP === '1') {
-      const install = await installAppRootSkills();
-      return Response.json({ enabled: false, appOnly: true, install }, { status: install.errors ? 500 : 200 });
-    }
-    const result = await configureGlobalSkill(body.enabled);
-    const projectCleanup = await cleanupKnownProjectSkillLinks();
-
-    if (result.enabled && result.install.errors > 0) {
-      return Response.json(
-        {
-          error: 'The user-level skill could not be installed',
-          result,
-          projectCleanup,
-        },
-        { status: 500 },
-      );
-    }
-
-    if (result.enabled && result.install.conflicts > 0) {
-      return Response.json(
-        {
-          error: `A user-level skill named ${AGENT_SKILL_NAME} already exists and was left unchanged`,
-          result,
-          projectCleanup,
-        },
-        { status: 409 },
-      );
-    }
-
-    return Response.json({ ...result, projectCleanup });
-  } catch (err) {
-    return Response.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
-  }
-}
+export const GET = withCompression(serveOperation(operation.GETInput, operation.GET));
+export const PUT = withCompression(serveOperation(operation.PUTInput, operation.PUT));

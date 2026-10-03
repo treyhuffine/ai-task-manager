@@ -130,6 +130,32 @@ it('keeps a refused save pending for recovery instead of retrying it', async () 
   expect(saves.draft('notes:1')?.patch).toEqual({ body: 'draft' });
 });
 
+it.each([
+  { data: { httpStatus: 400 } },
+  { data: { httpStatus: 409 } },
+  { meta: { response: { status: 426 } } },
+  { cause: { status: 403 } },
+  { cause: { status: 424 } },
+])('retains refused tRPC/proxy saves without an automatic retry: %j', async failure => {
+  vi.useFakeTimers();
+  const saves = queue();
+  const writer = vi.fn().mockRejectedValue(Object.assign(new Error('refused'), failure));
+  saves.schedule('notes:1', { body: 'draft' }, { body: '' }, writer);
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(writer).toHaveBeenCalledTimes(1);
+  expect(saves.draft('notes:1')?.patch).toEqual({ body: 'draft' });
+});
+
+it('retries a tRPC maintenance failure and clears the draft after acknowledgement', async () => {
+  vi.useFakeTimers();
+  const saves = queue();
+  const writer = vi.fn().mockRejectedValueOnce({ data: { httpStatus: 503 } }).mockResolvedValue(undefined);
+  saves.schedule('notes:1', { body: 'draft' }, { body: '' }, writer);
+  await vi.advanceTimersByTimeAsync(500 + 2_000);
+  expect(writer).toHaveBeenCalledTimes(2);
+  expect(saves.has()).toBe(false);
+});
+
 it('backs off retries and lets a new edit restart the debounce', async () => {
   vi.useFakeTimers();
   const saves = queue();

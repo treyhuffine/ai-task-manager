@@ -6,14 +6,14 @@
  * available while the home answers.
  */
 
-import { runtimeReleaseIdentity } from '@/lib/releases/runtime-identity';
-import { workerCompatibilityView } from '@/lib/workers/update-compatibility';
 import type { ApiKeyRecord } from '@/db/types';
-import type { DeviceKeyView, DeviceView } from '@/lib/api/devices';
 import { isHostKeyHash } from '@/lib/auth/host-key';
 import { getHome, listApiKeys, listDevices, listEnrolledDeviceIds } from '@/lib/db/queries';
 import { hostIsPortable } from '@/lib/home/portable';
+import { runtimeReleaseIdentity } from '@/lib/releases/runtime-identity';
 import { isDeviceConnected } from '@/lib/workers/hub';
+import { workerCompatibilityView } from '@/lib/workers/update-compatibility';
+import type { DeviceKeyView, DeviceView } from './contracts';
 
 function keyView(key: ApiKeyRecord, callerKeyId: string | null): DeviceKeyView {
   return {

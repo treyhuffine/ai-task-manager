@@ -7,31 +7,25 @@
  * stable JSON envelope so CLI and MCP can render them the same way.
  */
 
+import { recordRunArtifacts } from '@/lib/runs/artifact-refs';
 import { z } from 'zod';
+import { actions, type ActionName, type ActionOutput } from './registry';
 import type { Action, ActionContext } from './types';
 import { ActionError } from './types';
-import { actions } from './registry';
-import { recordRunArtifacts } from '@/lib/runs/artifact-refs';
 
 export function findAction(name: string): Action | undefined {
   return actions.find((a) => a.name === name);
 }
 
-export interface DispatchEnvelope<T = unknown> {
-  ok: boolean;
-  action: string;
-  result?: T;
-  error?: {
-    code: string;
-    message: string;
-    suggestion?: string;
-    issues?: z.ZodIssue[];
-    /** Structured recovery data (e.g. running workstreams to choose between, or
-     * open children to acknowledge). */
-    details?: unknown;
-  };
-}
+export type DispatchEnvelope<T = unknown> =
+  | { ok: true; action: string; result: T; error?: never }
+  | { ok: false; action: string; result?: never; error: {
+    code: string; message: string; suggestion?: string;
+    issues?: z.ZodIssue[]; details?: unknown;
+  } };
 
+export function runAction<Name extends ActionName>(name: Name, rawInput: unknown, ctx: ActionContext): Promise<DispatchEnvelope<ActionOutput<Name>>>;
+export function runAction(name: string, rawInput: unknown, ctx: ActionContext): Promise<DispatchEnvelope>;
 export async function runAction(
   name: string,
   rawInput: unknown,

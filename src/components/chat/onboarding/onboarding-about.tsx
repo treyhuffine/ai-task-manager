@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useUpdateUserState } from '@/hooks/use-user-state';
+import { apiErrorText } from '@/lib/api/client';
+import type { ProjectSummary } from '@/lib/onboarding/about-suggestion';
+import { trpcClient } from '@/lib/trpc/client';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, Loader2 } from 'lucide-react';
+import { useState } from 'react';
 import { toast } from 'sonner';
-import { useUpdateUserState } from '@/hooks/use-user-state';
-import { api, apiErrorText } from '@/lib/api/client';
-import type { ProjectSummary } from '@/lib/onboarding/about-suggestion';
 import { Card, PrimaryButton, QuietButton, Says } from './onboarding-ui';
 
 /** The reply when the person passes on it. */
@@ -20,7 +21,7 @@ export const ABOUT_SKIPPED = 'Skip for now';
 export function useAboutDraft(input: { userName: string | null; projects: ProjectSummary[] }, enabled: boolean) {
   return useQuery({
     queryKey: ['onboarding', 'about-draft', input.projects.map((p) => p.name)],
-    queryFn: () => api.post<{ about: string }>('/onboarding/about-suggestion', input),
+    queryFn: () => trpcClient.onboarding.aboutSuggestionPost.mutate({body: input}),
     enabled: enabled && input.projects.length > 0,
     staleTime: Infinity,
     retry: false,

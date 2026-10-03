@@ -1,16 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
-import { useDefaultLayout, type Layout, type LayoutStorage } from 'react-resizable-panels';
-import { useDashboard } from '@/contexts/dashboard-context';
-import { useSkill } from '@/hooks/use-skills';
-import { ApiError } from '@/lib/api/client';
-import { sessionsApi } from '@/lib/api/sessions';
-import { useElementWidth } from '@/hooks/use-element-width';
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { openSettings } from '@/components/settings/settings-store';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import { useDashboard } from '@/contexts/dashboard-context';
+import { useElementWidth } from '@/hooks/use-element-width';
+import { useSkill } from '@/hooks/use-skills';
+import { apiErrorStatus } from '@/lib/api/client';
+import { sessionsApi } from '@/lib/api/sessions';
 import { cn } from '@/lib/utils';
+import { Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useDefaultLayout, type Layout, type LayoutStorage } from 'react-resizable-panels';
 import { SkillChatPanel } from './skill-chat-panel';
 import { SkillEditor } from './skill-editor';
 import { SkillHeader, type SkillPane } from './skill-header';
@@ -53,7 +53,7 @@ export function SkillView({
 
   // Renamed elsewhere (the builder AI names a new draft, or another tab):
   // the skill's chats move with it, so the builder chat knows where it went.
-  const gone = error instanceof ApiError && error.status === 404;
+  const gone = apiErrorStatus(error) !== undefined && apiErrorStatus(error) === 404;
   const buildSessionId = build.sessionId;
   useEffect(() => {
     if (!gone || !buildSessionId) return;
@@ -93,10 +93,10 @@ export function SkillView({
       <div className="flex flex-1 items-center justify-center px-8 text-center">
         <div>
           <p className="text-[13px] font-semibold text-foreground">
-            {error instanceof ApiError && error.status === 404 ? 'This skill isn’t here anymore.' : 'Couldn’t load this skill.'}
+            {apiErrorStatus(error) !== undefined && apiErrorStatus(error) === 404 ? 'This skill isn’t here anymore.' : 'Couldn’t load this skill.'}
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground/80">
-            {error instanceof ApiError && error.status === 404 ? 'It may have been renamed or archived.' : 'Try again in a moment.'}
+            {apiErrorStatus(error) !== undefined && apiErrorStatus(error) === 404 ? 'It may have been renamed or archived.' : 'Try again in a moment.'}
           </p>
           <div className="mt-3 flex justify-center gap-1">
             <button

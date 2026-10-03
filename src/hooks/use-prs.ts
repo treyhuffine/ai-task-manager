@@ -1,3 +1,4 @@
+import { trpcClient } from '@/lib/trpc/client';
 /**
  * Fetches the open/closed/merged PR list for a session's workspace so
  * the chat composer's `#` mention popup can offer them. The `pr` query
@@ -8,12 +9,10 @@
  * from thrashing GitHub.
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api/client';
 import { useWorktreeScope } from '@/hooks/use-execution';
-import type { PrListResponse } from '@/app/api/sessions/[id]/prs/route';
+import { useQuery } from '@tanstack/react-query';
 
-export type { PrListItem, PrListResponse } from '@/app/api/sessions/[id]/prs/route';
+export type { PrListItem, PrListResponse } from '@/lib/server/operations/sessions/[id]/prs';
 
 export function usePrList(sessionId: string | null | undefined) {
   // Scoped to the execution, not the chat: this hits GitHub, and keying it
@@ -22,7 +21,7 @@ export function usePrList(sessionId: string | null | undefined) {
   const scope = useWorktreeScope(sessionId ?? null);
   return useQuery({
     queryKey: [...(scope ?? ['session', sessionId ?? '__none__']), 'prs'],
-    queryFn: () => api.get<PrListResponse>(`/sessions/${sessionId}/prs`),
+    queryFn: () => trpcClient.sessions.prsGet.query({params: {id: sessionId ?? ''}}),
     enabled: !!sessionId && !!scope,
     refetchOnWindowFocus: true,
     staleTime: 60_000,

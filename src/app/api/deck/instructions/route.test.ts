@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
-import type { NextRequest } from 'next/server';
 import { APP_ROOT_ENV } from '@/lib/config/paths';
 import { DECK_INSTRUCTIONS_FILENAME } from '@/lib/deck/instructions';
+import type { NextRequest } from 'next/server';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { GET, PUT } from './route';
 
 const ROOT = path.join(os.tmpdir(), `ri-deck-instr-route-${process.pid}`);
@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 function putReq(body: unknown): NextRequest {
-  return { json: async () => body } as unknown as NextRequest;
+  return new Request('http://localhost/api/deck/instructions', { method: 'PUT', body: JSON.stringify(body) }) as NextRequest;
 }
 
 describe('/api/deck/instructions route', () => {
@@ -54,7 +54,7 @@ describe('/api/deck/instructions route', () => {
   });
 
   it('PUT with a malformed body (no JSON) is a 400, not a crash', async () => {
-    const badReq = { json: async () => { throw new Error('bad json'); } } as unknown as NextRequest;
+    const badReq = new Request('http://localhost/api/deck/instructions', { method: 'PUT', body: 'not json' }) as NextRequest;
     const res = await PUT(badReq);
     expect(res.status).toBe(400); // body?.content is undefined → not a string → 400
   });

@@ -1,25 +1,26 @@
 'use client';
 
-import { useMemo, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
-import { Check, ChevronRight, Clock, Loader2, RotateCcw, ShieldAlert, ShieldCheck, X } from 'lucide-react';
-import { toast } from 'sonner';
-import { useMutation } from '@tanstack/react-query';
 import { ConnectorLogo } from '@/components/connectors/connector-logo';
-import { useSessionEvents } from '@/hooks/use-execution';
 import { useLiveConnectorApprovals, useResolveConnectorApprovals } from '@/hooks/use-connector-approvals';
+import { useSessionEvents } from '@/hooks/use-execution';
 import { apiErrorText } from '@/lib/api/client';
-import { sessionsApi } from '@/lib/api/sessions';
 import type { ConnectorApprovalDecision } from '@/lib/api/connector-approvals';
+import type { ChatEventRecord } from '@/lib/api/dto/records';
+import { sessionsApi } from '@/lib/api/sessions';
 import type { ApprovalOutcome, ApprovalRequestView } from '@/lib/connectors/approval-describe';
 import {
-  approvalDecisions,
-  approvalItemState,
-  approvalRequestView,
-  countStates,
-  type ApprovalItemState,
+	approvalDecisions,
+	approvalItemState,
+	approvalRequestView,
+	countStates,
+	type ApprovalItemState,
 } from '@/lib/executions/connector-approvals';
 import { cn } from '@/lib/utils';
-import type { ChatEventRecord } from '@/db/types';
+import { useMutation } from '@tanstack/react-query';
+import { Check, ChevronRight, Clock, Loader2, RotateCcw, ShieldAlert, ShieldCheck, X } from 'lucide-react';
+import { useMemo, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { toast } from 'sonner';
+
 
 /** Items shown before "Show N more" on a large batch. */
 const VISIBLE_ITEMS = 5;

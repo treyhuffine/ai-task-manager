@@ -1,12 +1,13 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { NOTIFICATION_HISTORY_CHANNEL_LABELS, NOTIFICATION_HISTORY_STATUS_LABELS, type NotificationHistoryStatus } from '@/lib/notifications/history';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcOptions } from '@/lib/trpc/request-options';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, RefreshCw } from 'lucide-react';
-import { api } from '@/lib/api/client';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { NOTIFICATION_HISTORY_CHANNEL_LABELS, NOTIFICATION_HISTORY_STATUS_LABELS, type NotificationHistoryResponse, type NotificationHistoryStatus } from '@/lib/notifications/history';
+import { useId, useState } from 'react';
 
 function displayTime(raw: string) {
   const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw) ? `${raw.replace(' ', 'T')}Z` : raw;
@@ -21,7 +22,7 @@ export function NotificationHistory({ refreshKey = 0 }: { refreshKey?: number })
   const [channelId, setChannelId] = useState('all');
   const query = useQuery({
     queryKey: ['notification-delivery-history', refreshKey],
-    queryFn: ({ signal }) => api.get<NotificationHistoryResponse>('/notifications/deliveries', { signal, timeoutMs: 10_000 }),
+    queryFn: ({ signal }) => trpcClient.notifications.deliveriesGet.query({}, rpcOptions({ signal, timeoutMs: 10_000 })),
     staleTime: 10_000, gcTime: 0, refetchInterval: 15_000, refetchIntervalInBackground: false, refetchOnWindowFocus: true, retry: false,
   });
   const deliveries = query.data?.deliveries ?? [];

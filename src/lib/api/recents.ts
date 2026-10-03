@@ -1,15 +1,10 @@
-import { api } from './client';
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
 
-export interface RecentItem {
-  id: string;
-  title: string;
-  entityType: 'task' | 'note';
-  lastViewedAt: string;
-  hasBody?: boolean;
-}
+export type RecentItem = import('@/lib/trpc/router').RouterOutputs['recents']['list'][number];
 
 export const recentsApi = {
-  list(limit = 10): Promise<RecentItem[]> {
-    return api.get<RecentItem[]>('/recents', { query: { limit } });
+  list(limit = 10) {
+    return trpcClient.recents.list.query({query: rpcQuery({ limit })});
   },
 };

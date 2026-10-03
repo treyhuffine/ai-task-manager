@@ -1,26 +1,6 @@
-/**
- * Pin / unpin a preview for eager bring-up (the restore-set). Pinned
- * previews are kept warm (skipped by idle-evict) and brought up together by
- * the per-workspace restore-set action.
- */
-
-import type { NextRequest } from 'next/server';
-import { setPreviewPinned, getPreviewState } from '@/lib/preview/service';
-import { previewErrorResponse } from '@/lib/preview/route-helpers';
-
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/executions/[id]/preview/pin';
 export const runtime = 'nodejs';
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    const body = (await request.json().catch(() => ({}))) as { pinned?: boolean; service?: string | null };
-    const service = body.service ?? null;
-    setPreviewPinned(id, service, body.pinned ?? false);
-    return Response.json(getPreviewState(id, service));
-  } catch (err) {
-    return previewErrorResponse(err, 'POST /api/executions/:id/preview/pin');
-  }
-}
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));

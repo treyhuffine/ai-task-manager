@@ -1,5 +1,7 @@
 'use client';
 
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
 /**
  * The Connectors tab of Plugins (./plugins-section.tsx): connect external
  * services so agents can act on your behalf. Two levels, like an app store:
@@ -19,44 +21,43 @@
  * (connector-meta.ts). State and API calls live here; the views under
  * `./connectors/` are presentational.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertCircle, CheckCircle2, Loader2, Plug, Plus, Search } from 'lucide-react';
-import { api } from '@/lib/api/client';
+import { ConnectorLogo } from '@/components/connectors/connector-logo';
+import { CATEGORY_ORDER, connectorMeta, type ConnectorCategory } from '@/components/connectors/connector-meta';
+import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
+import { useSettingsStore } from '@/components/settings/settings-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
-import { openConnectorAuthorization } from '@/lib/client/desktop';
 import { type HostedEndpointSelection } from '@/lib/client/connector-endpoint';
-import { ConnectorLogo } from '@/components/connectors/connector-logo';
-import { connectorMeta, CATEGORY_ORDER, type ConnectorCategory } from '@/components/connectors/connector-meta';
-import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
-import { useSettingsStore } from '@/components/settings/settings-store';
-import { CatalogTile, GroupHeading, McpLogo } from './connectors/parts';
+import { openConnectorAuthorization } from '@/lib/client/desktop';
+import { AlertCircle, CheckCircle2, Loader2, Plug, Plus, Search } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ConnectionRequestsSetting } from './connectors/connection-requests-setting';
-import { ProviderDetail } from './connectors/provider-detail';
-import { PreviousConnections } from './connectors/previous-connections';
-import { watchOAuthReturn } from './connectors/oauth-focus-refresh';
 import { hostedAccountRequestFields, hostedAccountSignedIn } from './connectors/hosted-account-request';
 import { McpServerDetail, McpServerForm, mcpTone } from './connectors/mcp-server-detail';
+import { watchOAuthReturn } from './connectors/oauth-focus-refresh';
+import { CatalogTile, GroupHeading, McpLogo } from './connectors/parts';
+import { PreviousConnections } from './connectors/previous-connections';
+import { ProviderDetail } from './connectors/provider-detail';
 import {
-  connectionIdentity,
-  isRegisteredMcp,
-  oauthAppRedirectUri,
-  EMPTY_BYO_FORM,
-  EMPTY_MCP_FORM,
-  errMsg,
-  type ApprovalMode,
-  type AuthConfigSummary,
-  type ByoForm,
-  type Connection,
-  type HostedConnectIntent,
-  type McpForm,
-  type McpServerEntry,
-  type McpToolOverride,
-  type ProviderStatus,
-  type TestResult,
-  type ToolkitInfo,
-  type WritePolicyAction,
+	connectionIdentity,
+	EMPTY_BYO_FORM,
+	EMPTY_MCP_FORM,
+	errMsg,
+	isRegisteredMcp,
+	oauthAppRedirectUri,
+	type ApprovalMode,
+	type AuthConfigSummary,
+	type ByoForm,
+	type Connection,
+	type HostedConnectIntent,
+	type McpForm,
+	type McpServerEntry,
+	type McpToolOverride,
+	type ProviderStatus,
+	type TestResult,
+	type ToolkitInfo,
+	type WritePolicyAction,
 } from './connectors/types';
 
 type View =
@@ -165,10 +166,10 @@ export function ConnectorsSection() {
 
   const refresh = useCallback(async () => {
     const [st, cn, tk, wp] = await Promise.all([
-      api.get<{ redirectUri: string; providers: ProviderStatus[] }>('/connectors/status'),
-      api.get<{ connections: Connection[] }>('/connectors/connections'),
-      api.get<{ toolkits: ToolkitInfo[] }>('/connectors/toolkits'),
-      api.get<{ toolkits: { actions: (WritePolicyAction & { id: string })[] }[] }>('/connectors/write-policy'),
+      trpcClient.connectors.statusGet.query({}),
+      trpcClient.connectors.connectionsGet.query({}),
+      trpcClient.connectors.toolkitsGet.query({}),
+      trpcClient.connectors.writePolicyGet.query({}),
     ]);
     setProviders(st.providers);
     setRedirectUri(st.redirectUri);
@@ -179,7 +180,7 @@ export function ConnectorsSection() {
     setWritePolicy(wpMap);
     // Fetch MCP server health AFTER the runtime-touching calls above (which force a rebuild +
     // re-ingest), so the health reflects the latest ingest, not a pre-rebuild snapshot.
-    const mcp = await api.get<{ servers: McpServerEntry[] }>('/connectors/mcp-servers');
+    const mcp = await trpcClient.connectors.mcpServersGet.query({});
     // Built-in hosted connectors have a normal provider card and its connect flow.
     setMcpServers(mcp.servers.filter((server) => !server.providerId));
     return st.providers;
@@ -280,42 +281,39 @@ export function ConnectorsSection() {
               ? { kind: 'header' as const, header: f.header.trim() }
               : { kind: 'none' as const };
       const usesSecret = f.authKind === 'bearer' || f.authKind === 'header';
-      const r = await api.post<{ toolCount?: number; requiresAuth?: boolean; authUrl?: string; desktopFlowId?: string }>(
-        '/connectors/mcp-servers',
-        { name: f.name.trim(), url: f.url.trim(), auth, ...(usesSecret ? { secret: f.secret } : {}) },
-      );
-      if (r.requiresAuth && r.authUrl) {
-        await authorize(r.authUrl, r.desktopFlowId);
+      const r = await trpcClient.connectors.mcpServersPost.mutate({body: { name: f.name.trim(), url: f.url.trim(), auth, ...(usesSecret ? { secret: f.secret } : {}) }});
+      if ('requiresAuth' in r && r.requiresAuth && 'authUrl' in r && r.authUrl) {
+        await authorize(r.authUrl, ('desktopFlowId' in r ? r.desktopFlowId : undefined));
         return;
       }
       setMcpForm(EMPTY_MCP_FORM);
       navigate(CATALOG);
       setBanner(
-        `Added ${f.name.trim()}${typeof r.toolCount === 'number' ? ` (${r.toolCount} tool${r.toolCount === 1 ? '' : 's'})` : ''}`,
+        `Added ${f.name.trim()}${typeof ('toolCount' in r ? r.toolCount : undefined) === 'number' ? ` (${('toolCount' in r ? r.toolCount : undefined)} tool${('toolCount' in r ? r.toolCount : undefined) === 1 ? '' : 's'})` : ''}`,
       );
     });
   const authorizeMcp = (id: string) =>
     run(async () => {
-      const r = await api.post<{ requiresAuth?: boolean; authUrl?: string; desktopFlowId?: string }>(`/connectors/mcp-servers/${id}`, {});
-      if (r.requiresAuth && r.authUrl) await authorize(r.authUrl, r.desktopFlowId);
+      const r = await trpcClient.connectors.mcpServerPost.mutate({params: {id: id}, body: {}});
+      if ('requiresAuth' in r && r.requiresAuth && 'authUrl' in r && r.authUrl) await authorize(r.authUrl, ('desktopFlowId' in r ? r.desktopFlowId : undefined));
     });
 
   // Once the refresh drops the server, the stale-view guard below returns to the catalog.
   const removeMcp = (s: McpServerEntry) =>
     run(async () => {
-      await api.delete(`/connectors/mcp-servers/${s.id}`);
+      await trpcClient.connectors.mcpServersDelete.mutate({params: {id: s.id}});
       setBanner(`Removed ${s.displayName}`);
     });
   const toggleMcp = (s: McpServerEntry) =>
-    run(() => api.patch(`/connectors/mcp-servers/${s.id}`, { enabled: !s.enabled }).then(() => {}));
+    run(() => trpcClient.connectors.mcpServersPatch.mutate({params: {id: s.id}, body: { enabled: !s.enabled }}).then(() => {}));
   const retestMcp = (id: string) =>
     run(async () => {
-      await api.patch(`/connectors/mcp-servers/${id}`, {}); // invalidate
-      await api.get('/connectors/connections'); // force a rebuild so health refreshes
+      await trpcClient.connectors.mcpServersPatch.mutate({params: {id: id}, body: {}}); // invalidate
+      await trpcClient.connectors.connectionsGet.query({}); // force a rebuild so health refreshes
     });
   const reviewCapabilities = (serverId: string, reviewedRevision: string) => run(async () => {
     try {
-      await api.patch(`/connectors/mcp-servers/${encodeURIComponent(serverId)}`, { reviewedRevision });
+      await trpcClient.connectors.mcpServersPatch.mutate({params: {id: serverId}, body: { reviewedRevision }});
     } catch (error) {
       // A newer discovery may have landed while this review was open. Keep its
       // latest changes visible and preserve the stale-review error.
@@ -329,7 +327,7 @@ export function ConnectorsSection() {
     const current = s.toolOverrides ?? {};
     const toolOverrides = { ...current, [toolName]: { ...current[toolName], ...patch } };
     setMcpServers((list) => list.map((x) => (x.id === s.id ? { ...x, toolOverrides } : x)));
-    api.patch(`/connectors/mcp-servers/${s.id}`, { toolOverrides }).catch((e) => {
+    trpcClient.connectors.mcpServersPatch.mutate({params: {id: s.id}, body: { toolOverrides }}).catch((e) => {
       setError(errMsg(e));
       refresh().catch(() => {});
     });
@@ -344,7 +342,7 @@ export function ConnectorsSection() {
     if (!prev) return;
     const override = mode === prev.defaultMode ? null : mode;
     setWritePolicy((wp) => ({ ...wp, [actionId]: { ...prev, mode, overridden: override !== null } }));
-    api.post('/connectors/write-policy', { actionId, mode: override }).catch((e) => {
+    trpcClient.connectors.writePolicyPost.mutate({body: { actionId, mode: override }}).catch((e) => {
       setWritePolicy((wp) => ({ ...wp, [actionId]: prev }));
       setError(errMsg(e));
     });
@@ -353,9 +351,7 @@ export function ConnectorsSection() {
   // --- Bring-your-own OAuth app -------------------------------------------
 
   const loadByo = useCallback(async (providerId: string) => {
-    const { configs } = await api.get<{ configs: AuthConfigSummary[] }>(
-      `/connectors/auth-configs?providerId=${encodeURIComponent(providerId)}`,
-    );
+    const { configs } = await trpcClient.connectors.authConfigsGet.query({query: rpcQuery({"providerId": providerId})});
     setByoConfigs((c) => ({ ...c, [providerId]: configs }));
   }, []);
 
@@ -371,12 +367,12 @@ export function ConnectorsSection() {
       }
       const callback = oauthAppRedirectUri(p, redirectUri);
       if (!callback) throw new Error('The callback address is unavailable. Reload Settings and try again.');
-      await api.post('/connectors/auth-configs', {
+      await trpcClient.connectors.authConfigsPost.mutate({body: {
         providerId: p.id,
         label: form.label,
         oauth: { clientId: form.clientId, redirectUri: callback },
         clientSecret: form.clientSecret || undefined,
-      });
+      }});
       setByoForm((f) => ({ ...f, [p.id]: EMPTY_BYO_FORM }));
       await loadByo(p.id);
       setBanner(`Added your ${p.displayName} app`);
@@ -384,13 +380,13 @@ export function ConnectorsSection() {
 
   const deleteByo = (p: ProviderStatus, id: string) =>
     run(async () => {
-      await api.delete(`/connectors/auth-configs?id=${encodeURIComponent(id)}`);
+      await trpcClient.connectors.authConfigsDelete.mutate({query: rpcQuery({"id": id})});
       await loadByo(p.id);
     });
 
   const setDefaultByo = (p: ProviderStatus, id: string) =>
     run(async () => {
-      await api.post('/connectors/auth-configs/default', { providerId: p.id, id });
+      await trpcClient.connectors.authConfigsDefaultPost.mutate({body: { providerId: p.id, id }});
       await loadByo(p.id);
     });
 
@@ -410,7 +406,7 @@ export function ConnectorsSection() {
     if (flowId) setPendingOAuth(flowId);
     try { await openConnectorAuthorization(url); }
     catch (error) {
-      if (flowId) await api.post('/desktop/oauth/cancel', { id: flowId }).catch(() => {});
+      if (flowId) await trpcClient.desktop.cancelOAuth.mutate({ body: { id: flowId } }).catch(() => {});
       setPendingOAuth(null);
       throw error;
     }
@@ -440,28 +436,21 @@ export function ConnectorsSection() {
       setBusy(true);
       setError(null);
       try {
-        const result = await api.post<{
-          authorizationUrl?: string;
-          authUrl?: string;
-          desktopFlowId?: string;
-          requiresAuth?: boolean;
-          serverId?: string;
-          authorizationId?: string;
-        }>('/connectors/connect', {
+        const result = await trpcClient.connectors.connectPost.mutate({body: {
           providerId: p.id,
           ...(p.method === 'mcp' ? hostedAccountRequestFields(p, intent, authConfigId, endpointSelections[p.id], connections) : {
             label: p.displayName,
             scopes: connectScopes(p),
             ...(authConfigId ? { authConfigId } : {}),
           }),
-        });
+        }});
         if (p.mcp?.accounts || p.mcp?.endpointConfig || isRegisteredMcp(p)) await refresh();
-        const authorizationUrl = result.authorizationUrl ?? result.authUrl;
+        const authorizationUrl = result.authorizationUrl ?? ('authUrl' in result ? result.authUrl : undefined);
         if (authorizationUrl) {
-          if (isRegisteredMcp(p)) setPendingRegisteredOAuth({ id: p.id, displayName: intent?.label || p.displayName, serverId: result.serverId ?? intent?.serverId, authorizationId: result.authorizationId });
-          await authorize(authorizationUrl, result.desktopFlowId);
-          if (result.desktopFlowId || isRegisteredMcp(p)) setBusy(false);
-        } else if (p.method === 'mcp' && result.requiresAuth === false) {
+          if (isRegisteredMcp(p)) setPendingRegisteredOAuth({ id: p.id, displayName: intent?.label || p.displayName, serverId: ('serverId' in result ? result.serverId : undefined) ?? intent?.serverId, authorizationId: ('authorizationId' in result ? result.authorizationId : undefined) });
+          await authorize(authorizationUrl, ('desktopFlowId' in result ? result.desktopFlowId : undefined));
+          if (('desktopFlowId' in result ? result.desktopFlowId : undefined) || isRegisteredMcp(p)) setBusy(false);
+        } else if (p.method === 'mcp' && ('requiresAuth' in result ? result.requiresAuth : undefined) === false) {
           await refresh();
           setBanner(`Connected ${p.displayName}`);
           setBusy(false);
@@ -490,12 +479,10 @@ export function ConnectorsSection() {
   const connectDirect = (p: ProviderStatus, intent?: HostedConnectIntent) =>
     run(async () => {
       try {
-        const { connection } = await api.post<{
-          connection?: { email?: string | null; label?: string | null; accountId?: string };
-        }>('/connectors/connectDirect', {
+        const { connection } = await trpcClient.connectors.connectDirectPost.mutate({body: {
           providerId: p.id, fields: intent?.fields ?? creds[p.id] ?? {},
           ...(p.method === 'mcp' ? hostedAccountRequestFields(p, intent, undefined, endpointSelections[p.id], connections) : { label: p.displayName }),
-        });
+        }});
         setCreds((c) => ({ ...c, [p.id]: {} }));
         // Show the identity the engine discovered (identify()) so the connect lands with confidence.
         const who = connection?.email || (p.method === 'mcp' && connection?.accountId === `${p.id}:default` ? undefined : connection?.accountId);
@@ -508,7 +495,7 @@ export function ConnectorsSection() {
 
   const disconnect = (c: Connection) =>
     run(async () => {
-      await api.post('/connectors/disconnect', { id: c.id });
+      await trpcClient.connectors.disconnectPost.mutate({body: { id: c.id }});
       const account = providers.find(provider => provider.id === c.providerId)?.mcp?.accounts?.find(candidate => candidate.connectionId === c.id);
       setPendingRegisteredOAuth(pending => pending?.id === c.providerId && (!pending.serverId || pending.serverId === account?.serverId) ? null : pending);
       setEndpointSelections(previous => ({ ...previous, [c.providerId]: {} }));
@@ -517,7 +504,7 @@ export function ConnectorsSection() {
 
   const cancelSetup = (p: ProviderStatus, serverId = p.mcp?.serverId) => run(async () => {
     if (!serverId) return;
-    await api.delete(`/connectors/mcp-servers/${encodeURIComponent(serverId)}`);
+    await trpcClient.connectors.mcpServersDelete.mutate({params: {id: serverId}});
     setPendingRegisteredOAuth(pending => pending?.id === p.id && (!pending.serverId || pending.serverId === serverId) ? null : pending);
     setEndpointSelections(previous => ({ ...previous, [p.id]: {} }));
     setBanner(`Cancelled ${p.displayName} setup`);
@@ -526,7 +513,7 @@ export function ConnectorsSection() {
   const testConnection = async (id: string) => {
     setTesting(id);
     try {
-      const res = await api.post<TestResult>('/connectors/test', { id });
+      const res = await trpcClient.connectors.testPost.mutate({body: { id }});
       setTestResults((prev) => ({ ...prev, [id]: res }));
       await refresh(); // the probe may have healed the stored status
     } catch (e) {
@@ -603,7 +590,7 @@ export function ConnectorsSection() {
         <div className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm">
           <span>Finish connecting in your browser.</span>
           <Button variant="outline" size="sm" onClick={() => void run(async () => {
-            await api.post('/desktop/oauth/cancel', { id: pendingOAuth });
+            await trpcClient.desktop.cancelOAuth.mutate({ body: { id: pendingOAuth } });
             setPendingOAuth(null);
           })}>Cancel</Button>
         </div>

@@ -1,7 +1,7 @@
 'use client';
 
+import { trpcClient } from '@/lib/trpc/client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api/client';
 
 /**
  * Editor for the user's deck source instructions (DECK.md). Plain-language
@@ -16,8 +16,7 @@ export function DeckSourcesField() {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    api
-      .get<{ content: string }>('/deck/instructions')
+    trpcClient.deck.instructionsGet.query({})
       .then((r) => setContent(r.content ?? ''))
       .catch(() => {})
       .finally(() => setLoaded(true));
@@ -29,8 +28,7 @@ export function DeckSourcesField() {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       setSaving(true);
-      api
-        .put('/deck/instructions', { content: value })
+      trpcClient.deck.instructionsPut.mutate({body: { content: value }})
         .then(() => setSaved(true))
         .catch(() => {})
         .finally(() => setSaving(false));

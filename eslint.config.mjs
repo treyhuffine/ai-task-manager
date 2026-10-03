@@ -27,6 +27,12 @@ const eslintConfig = defineConfig([
       }],
     },
   },
+  {
+    // Shared operations all receive input and request metadata. A leading
+    // underscore marks the pieces that this particular operation does not need.
+    files: ["src/lib/server/operations/**/*.ts"],
+    rules: { "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }] },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

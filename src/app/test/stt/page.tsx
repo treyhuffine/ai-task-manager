@@ -1,18 +1,20 @@
 "use client"
 
-import { useState, useRef, useCallback } from "react"
-import { Button } from "@/components/ui/button"
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { LiveWaveform } from "@/components/ui/live-waveform"
-import { Mic, Square, RotateCcw, Loader2, Play } from "lucide-react"
-import { api, ApiError } from "@/lib/api/client"
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@/components/ui/card";
+import { LiveWaveform } from "@/components/ui/live-waveform";
+import { api } from "@/lib/api/client";
+import { Loader2, Mic, Play, RotateCcw, Square } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 
 // ─── Models from sidecar MODEL_CONFIGS ──────────────────────
 // Order: INT8 models first (already loaded, lightweight), then heavier precision variants
@@ -146,8 +148,8 @@ export default function SttBenchPage() {
         }))
       } catch (err) {
         const msg =
-          err instanceof ApiError
-            ? (err.body as { error?: string } | null)?.error ?? err.message
+          apiErrorStatus(err) !== undefined
+            ? (apiErrorBody(err) as { error?: string } | null)?.error ?? apiErrorText(err)
             : String(err)
         setResults((prev) => ({
           ...prev,

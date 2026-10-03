@@ -1,36 +1,36 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Loader2, RefreshCw } from 'lucide-react';
-import { useMainChat, useNewMainChat, type MainChatScope } from '@/hooks/use-main-chat';
-import type { HarnessId } from '@/lib/harness/registry';
-import {
-  useSession,
-  useSessionEvents,
-  useSendMessage,
-  useRuntimeStatus,
-  useInterruptSession,
-} from '@/hooks/use-execution';
-import { useMarkSessionRead } from '@/hooks/use-workspaces';
-import { useSessionStream } from '@/hooks/use-session-stream';
-import { useSessionReconcile } from '@/hooks/use-session-reconcile';
-import { ExecutionTranscript } from '@/components/executions/execution-transcript';
-import {
-  ExecutionComposer,
-  type ExecutionComposerHandle,
-} from '@/components/executions/execution-composer';
-import { PendingInputArea } from '@/components/executions/pending-input-overlay';
-import { BackgroundTasksBar } from '@/components/executions/background-tasks-bar';
-import { SyncingPill } from '@/components/executions/syncing-pill';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import {
-  EmptyChatActionsContext,
-  MainChatIntroPanel,
-  type EmptyChatActions,
-  type MainChatIntro,
+	EmptyChatActionsContext,
+	MainChatIntroPanel,
+	type EmptyChatActions,
+	type MainChatIntro,
 } from '@/components/chat/main-chat-intro';
-import { ApiError } from '@/lib/api/client';
+import { BackgroundTasksBar } from '@/components/executions/background-tasks-bar';
+import {
+	ExecutionComposer,
+	type ExecutionComposerHandle,
+} from '@/components/executions/execution-composer';
+import { ExecutionTranscript } from '@/components/executions/execution-transcript';
+import { PendingInputArea } from '@/components/executions/pending-input-overlay';
+import { SyncingPill } from '@/components/executions/syncing-pill';
 import type { EffortLevel } from '@/db/types';
+import {
+	useInterruptSession,
+	useRuntimeStatus,
+	useSendMessage,
+	useSession,
+	useSessionEvents,
+} from '@/hooks/use-execution';
+import { useMainChat, useNewMainChat, type MainChatScope } from '@/hooks/use-main-chat';
+import { useSessionReconcile } from '@/hooks/use-session-reconcile';
+import { useSessionStream } from '@/hooks/use-session-stream';
+import { useMarkSessionRead } from '@/hooks/use-workspaces';
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import type { HarnessId } from '@/lib/harness/registry';
+import { Loader2, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * The harness-backed orchestrator chat — the dashboard Chat tab when
@@ -86,8 +86,8 @@ export function HarnessChat({
             {scope === null ? 'Couldn\u2019t load the orchestrator chat.' : 'Couldn\u2019t load this agent\u2019s chat.'}
           </p>
           <p className="text-[11px] text-muted-foreground/80 mt-1">
-            {error instanceof ApiError
-              ? ((error.body as { error?: string } | null)?.error ?? error.message)
+            {apiErrorStatus(error) !== undefined
+              ? ((apiErrorBody(error) as { error?: string } | null)?.error ?? apiErrorText(error))
               : 'Unknown error.'}
           </p>
           <button

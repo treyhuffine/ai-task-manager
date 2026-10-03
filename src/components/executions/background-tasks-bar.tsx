@@ -1,44 +1,45 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import type { ChatEventRecord } from '@/lib/api/dto/records';
+import { formatSpanSeconds } from '@/lib/executions/duration';
+import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Terminal,
-  Bot,
-  Boxes,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  CircleSlash,
-  ChevronRight,
-  ChevronLeft,
-  Square,
+	Bot,
+	Boxes,
+	CheckCircle2,
+	ChevronLeft,
+	ChevronRight,
+	CircleSlash,
+	Loader2,
+	Square,
+	Terminal,
+	XCircle,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { formatSpanSeconds } from '@/lib/executions/duration';
-import type { ChatEventRecord } from '@/db/types';
+import { useMemo, useState } from 'react';
+
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
+	Sheet,
+	SheetContent,
+	SheetHeader,
+	SheetTitle,
 } from '@/components/ui/sheet';
-import { useSession, useSessionEvents, useStopBackgroundTask } from '@/hooks/use-execution';
-import { useHarnesses } from '@/hooks/use-harnesses';
-import { harnessDefinition } from '@/lib/harness/registry';
-import {
-  useBackgroundTasks,
-  deriveTaskDetail,
-  type BackgroundTask,
-  type BackgroundTaskStatus,
-} from '@/hooks/use-background-tasks';
-import { sessionsApi } from '@/lib/api/sessions';
 import { BACKGROUND_DOT } from '@/components/workspaces/activity-style';
 import {
-  mergeEventLists,
-  missingLiveTaskIds,
-  selectVisibleBackgroundTasks,
-  withLivePlaceholders,
+	deriveTaskDetail,
+	useBackgroundTasks,
+	type BackgroundTask,
+	type BackgroundTaskStatus,
+} from '@/hooks/use-background-tasks';
+import { useSession, useSessionEvents, useStopBackgroundTask } from '@/hooks/use-execution';
+import { useHarnesses } from '@/hooks/use-harnesses';
+import { sessionsApi } from '@/lib/api/sessions';
+import { harnessDefinition } from '@/lib/harness/registry';
+import {
+	mergeEventLists,
+	missingLiveTaskIds,
+	selectVisibleBackgroundTasks,
+	withLivePlaceholders,
 } from './background-task-visibility';
 
 /**

@@ -1,25 +1,26 @@
 'use client';
 
-import { HarnessPermissionNotice } from '@/components/settings/harness-permission-notice';
-import { useCallback, useEffect, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import {
-  Check,
-  AlertCircle,
-  AlertTriangle,
-  Loader2,
-  RefreshCw,
-  Package,
-} from 'lucide-react';
-import { defaultModelFor } from '@/lib/harness/options';
-import { useHarnessModels } from '@/hooks/use-harness-models';
 import { CursorCredentialPanel } from '@/components/settings/cursor-credential-panel';
-import { OpenCodeProviderPanel } from '@/components/settings/opencode-provider-panel';
+import { HarnessPermissionNotice } from '@/components/settings/harness-permission-notice';
 import { HarnessPicker } from '@/components/settings/harness-picker';
-import { api, ApiError } from '@/lib/api/client';
-import type { HarnessAuthResponse } from '@/app/api/harness/auth/route';
-import type { HarnessVerifyResponse } from '@/app/api/harness/verify/route';
+import { OpenCodeProviderPanel } from '@/components/settings/opencode-provider-panel';
+import { Button } from '@/components/ui/button';
+import { useHarnessModels } from '@/hooks/use-harness-models';
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import { defaultModelFor } from '@/lib/harness/options';
 import { DEFAULT_HARNESS, HARNESS_IDS, KNOWN_HARNESS_IDS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
+import type { HarnessAuthResponse } from '@/lib/server/operations/harness/auth';
+import type { HarnessVerifyResponse } from '@/lib/server/operations/harness/verify';
+import { trpcClient } from '@/lib/trpc/client';
+import {
+	AlertCircle,
+	AlertTriangle,
+	Check,
+	Loader2,
+	Package,
+	RefreshCw,
+} from 'lucide-react';
+import { useCallback, useEffect, useRef } from 'react';
 
 /**
  * Setting up the harness Ri thinks with: pick a coding CLI, check its
@@ -146,19 +147,19 @@ export function HarnessSetup({
   const runAuthOnly = useCallback(
     async (target: HarnessId, options: { fresh?: boolean } = {}) => {
       try {
-        const report = await api.post<HarnessAuthReport>('/harness/auth', {
+        const report = await trpcClient.harness.authPost.mutate({body: {
           harness: target,
           fresh: options.fresh === true,
-        });
+        }});
         if (authInFlight.current !== target) return;
         update((s) => ({ harnessAuth: { ...s.harnessAuth, phase: 'ready', report } }));
       } catch (err) {
         if (authInFlight.current !== target) return;
         const message =
-          err instanceof ApiError
-            ? (err.body as { error?: string } | null)?.error ?? `Check failed (${err.status})`
+          apiErrorStatus(err) !== undefined
+            ? (apiErrorBody(err) as { error?: string } | null)?.error ?? `Check failed (${apiErrorStatus(err)})`
             : err instanceof Error
-            ? err.message
+            ? apiErrorText(err)
             : 'Check failed';
         update((s) => ({
           harnessAuth: { ...s.harnessAuth, phase: 'error', error: message },
@@ -171,9 +172,9 @@ export function HarnessSetup({
   const runVerifyOnly = useCallback(
     async (target: HarnessId) => {
       try {
-        const result = await api.post<HarnessVerifyResponse>('/harness/verify', {
+        const result = await trpcClient.harness.verifyPost.mutate({body: {
           harness: target,
-        });
+        }});
         if (verifyInFlight.current !== target) return;
         update((s) => ({
           harnessAuth: {
@@ -188,10 +189,10 @@ export function HarnessSetup({
       } catch (err) {
         if (verifyInFlight.current !== target) return;
         const message =
-          err instanceof ApiError
-            ? (err.body as { error?: string } | null)?.error ?? `Verify failed (${err.status})`
+          apiErrorStatus(err) !== undefined
+            ? (apiErrorBody(err) as { error?: string } | null)?.error ?? `Verify failed (${apiErrorStatus(err)})`
             : err instanceof Error
-            ? err.message
+            ? apiErrorText(err)
             : 'Verify failed';
         update((s) => ({
           harnessAuth: {

@@ -16,11 +16,11 @@
  * a recency chip.
  */
 
+import type { TreeEntry, TreeEntryStatus } from '@/lib/workspaces/file-contracts';
+import type { GitWorkspace, TreeNode, Workspace } from '@agentex/workspace';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import picomatch from 'picomatch';
-import type { Workspace, GitWorkspace, TreeNode } from '@agentex/workspace';
-import type { TreeEntry, TreeEntryStatus } from '@/lib/api/sessions';
 import { expandFilesToCopyPatterns } from './files-to-copy';
 
 export type { TreeEntry, TreeEntryStatus };

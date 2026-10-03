@@ -1,5 +1,6 @@
 'use client';
 
+import { trpcClient } from '@/lib/trpc/client';
 /**
  * Controlled connector-scope picker (docs/connectors-workspace-scoping-spec.md §7). Renders the
  * connected *services* (toolkits) grouped under their provider with a provider-level select-all,
@@ -8,21 +9,20 @@
  * persistence (create payload vs PUT). Shared by the workspace settings sheet and the create modal
  * so both surfaces are identical.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { Loader2, AlertCircle, ChevronDown, Plug } from 'lucide-react';
-import { api } from '@/lib/api/client';
+import { ConnectorLogo } from '@/components/connectors/connector-logo';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+	DropdownMenu,
+	DropdownMenuCheckboxItem,
+	DropdownMenuContent,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ConnectorLogo } from '@/components/connectors/connector-logo';
-import { pinKey, pinMatchesConnection, scopePins, toggleAccountPin } from '@/lib/connectors/scope-pins';
 import type { WorkspaceConnectorScope, WorkspaceConnectorScopeAccount } from '@/db/types';
+import { pinKey, pinMatchesConnection, scopePins, toggleAccountPin } from '@/lib/connectors/scope-pins';
+import { AlertCircle, ChevronDown, Loader2, Plug } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 
 interface Toolkit {
   id: string;
@@ -181,9 +181,9 @@ export function ConnectorScopePicker({ scopes, onChange, disabled }: ConnectorSc
 
   useEffect(() => {
     Promise.all([
-      api.get<{ toolkits: Toolkit[] }>('/connectors/toolkits'),
-      api.get<{ providers: ProviderStatus[] }>('/connectors/status'),
-      api.get<{ connections: Connection[] }>('/connectors/connections'),
+      trpcClient.connectors.toolkitsGet.query({}),
+      trpcClient.connectors.statusGet.query({}),
+      trpcClient.connectors.connectionsGet.query({}),
     ])
       .then(([tk, st, cn]) => {
         setToolkits(tk.toolkits);

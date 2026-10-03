@@ -3,7 +3,7 @@ import { openai } from '@ai-sdk/openai';
 import { getDb, getRawDb } from '@/lib/db';
 import { hydrateRow } from '@/lib/db/hydrate';
 import { tasks, notes, stream } from '@/lib/db/schema';
-import { computeContentHash, buildEmbeddingText } from './embed';
+import { computeContentHash, buildEmbeddingText, persistEmbeddingIfCurrent } from './embed';
 
 const BATCH_SIZE = 50;
 
@@ -91,35 +91,11 @@ async function backfill() {
         const item = batch[j];
         const vector = result.embeddings[j];
 
-        const existing = rawDb
-          .prepare('SELECT id FROM embeddings WHERE entity_type = ? AND entity_id = ?')
-          .get(item.entityType, item.entityId) as { id: number } | undefined;
-
-        if (existing) {
-          rawDb.prepare(
-            "UPDATE embeddings SET content_hash = ?, text_content = ?, created_at = datetime('now') WHERE id = ?",
-          ).run(item.hash, item.text, existing.id);
-          // vec0 doesn't support UPDATE — delete + re-insert
-          rawDb.prepare('DELETE FROM embeddings_vec WHERE rowid = ?').run(BigInt(existing.id));
-          rawDb.prepare('INSERT INTO embeddings_vec (rowid, embedding) VALUES (?, ?)').run(
-            BigInt(existing.id),
-            new Float32Array(vector),
-          );
-        } else {
-          const info = rawDb
-            .prepare(
-              'INSERT INTO embeddings (entity_type, entity_id, content_hash, text_content) VALUES (?, ?, ?, ?)',
-            )
-            .run(item.entityType, item.entityId, item.hash, item.text);
-          rawDb.prepare('INSERT INTO embeddings_vec (rowid, embedding) VALUES (?, ?)').run(
-            BigInt(info.lastInsertRowid),
-            new Float32Array(vector),
-          );
-        }
+        persistEmbeddingIfCurrent(rawDb, item.entityType, item.entityId, item.text, vector);
       }
     });
 
-    insertOrUpdate();
+    insertOrUpdate.immediate();
   }
 
   const count = (rawDb.prepare('SELECT COUNT(*) as n FROM embeddings').get() as { n: number }).n;

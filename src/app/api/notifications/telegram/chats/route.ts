@@ -1,45 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getConnectorRuntime, getConnectorOwnerId } from '@/lib/connectors/runtime';
 import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/notifications/telegram/chats';
 
-/**
- * Discover chat ids for a Telegram bot connection by polling `getUpdates` — the user messages the
- * bot once, then we surface the distinct chats so they can pick instead of hunting for a numeric id.
- * `get_updates` is non-mutating, so it runs through the normal (auto-allowed) gate.
- */
-interface TgChat {
-  id?: number | string;
-  first_name?: string;
-  last_name?: string;
-  title?: string;
-  username?: string;
-}
 
-// Compressed when the body is JSON and over ~1KiB; a streamed or
-// non-JSON response passes through untouched. See lib/api/compression.ts.
-export const GET = withCompression(handleGET);
-
-async function handleGET(request: NextRequest) {
-  const connectionId = new URL(request.url).searchParams.get('connectionId');
-  if (!connectionId) return NextResponse.json({ error: 'connectionId required' }, { status: 400 });
-
-  const outcome = await (await getConnectorRuntime()).runAction<{ updates: unknown[] }>(
-    'telegram.get_updates',
-    {},
-    { ownerId: getConnectorOwnerId(), connectionId, caller: { type: 'app', id: 'notifier' } },
-  );
-  if (!outcome.ok) {
-    return NextResponse.json({ error: outcome.reason === 'error' ? outcome.message : outcome.reason }, { status: 400 });
-  }
-
-  const seen = new Map<string, string>();
-  for (const update of outcome.result.updates ?? []) {
-    const chat = (update as { message?: { chat?: TgChat } }).message?.chat;
-    if (chat?.id === undefined || chat.id === null) continue;
-    const name =
-      chat.title || [chat.first_name, chat.last_name].filter(Boolean).join(' ') || chat.username || String(chat.id);
-    seen.set(String(chat.id), name);
-  }
-
-  return NextResponse.json({ chats: [...seen.entries()].map(([chatId, name]) => ({ chatId, name })) });
-}
+export const GET = withCompression(serveOperation(operation.GETInput, operation.GET));

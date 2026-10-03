@@ -1,10 +1,10 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, expect, it, vi } from 'vitest';
+import { GET, PATCH } from './route';
 const mocks = vi.hoisted(() => ({ owner: vi.fn(), request: vi.fn() }));
 vi.mock('@/lib/service/owner-auth', () => ({ isInstallationOwner: mocks.owner }));
 vi.mock('@/lib/service/client', () => ({ serviceRequest: mocks.request }));
-import { GET, PATCH } from './route';
-beforeEach(() => { vi.clearAllMocks(); mocks.owner.mockReturnValue(true); mocks.request.mockResolvedValue({ awake: { enabled: false, phase: 'off' } }); });
+beforeEach(() => { vi.clearAllMocks(); mocks.owner.mockReturnValue(true); mocks.request.mockResolvedValue({ awake: { enabled: false, phase: 'off', power: 'unknown', detail: 'Disabled' } }); });
 const request = (body?: unknown) => new NextRequest('https://localhost/api/service/awake', body === undefined ? {} : { method: 'PATCH', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
 it('rejects non-owner reads and writes before contacting the service', async () => {
   mocks.owner.mockReturnValue(false);
@@ -22,7 +22,7 @@ it.each([{}, { enabled: 'yes' }, { enabled: true, command: 'evil' }, { enabled: 
 });
 it('returns fresh status and an explicit unavailable response when the service cannot be read', async () => {
   const result = await GET(request()); expect(result.headers.get('cache-control')).toBe('no-store');
-  expect(await result.json()).toEqual({ awake: { enabled: false, phase: 'off' } });
+  expect(await result.json()).toEqual({ awake: { enabled: false, phase: 'off', power: 'unknown', detail: 'Disabled' } });
   mocks.request.mockRejectedValue(new Error('disconnected'));
   expect((await GET(request())).status).toBe(503);
   expect((await PATCH(request({ enabled: false }))).status).toBe(400);

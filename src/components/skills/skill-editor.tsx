@@ -1,13 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { AlertCircle, AlertTriangle, Check, FileText, Loader2, MessageCircleMore } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
-import { ApiError, apiErrorText } from '@/lib/api/client';
-import { skillsApi, type SkillView } from '@/lib/api/skills';
-import { SKILLS_KEY } from '@/hooks/use-skills';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { SKILLS_KEY } from '@/hooks/use-skills';
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import { skillsApi, type SkillView } from '@/lib/api/skills';
 import { cn } from '@/lib/utils';
+import { useQueryClient } from '@tanstack/react-query';
+import { AlertCircle, AlertTriangle, Check, FileText, Loader2, MessageCircleMore } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { SkillMarkdownEditor } from './skill-markdown-editor';
 
 /** Mirrors DESCRIPTION_MAX in src/lib/skills/format.ts (not imported: it's a server module). */
@@ -122,7 +122,7 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
         if (result.renamedFrom) openSkill(result.skill.ref, { replace: true });
         return result.skill;
       } catch (err) {
-        if (err instanceof ApiError && err.status === 409 && (err.body as { code?: string } | null)?.code === 'stale') {
+        if (apiErrorStatus(err) !== undefined && apiErrorStatus(err) === 409 && (apiErrorBody(err) as { code?: string } | null)?.code === 'stale') {
           const fresh = await skillsApi.get(current.saved.ref).then((r) => r.skill).catch(() => null);
           if (fresh) setConflict(fresh);
         } else {

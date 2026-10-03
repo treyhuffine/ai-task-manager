@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { entityKeys, isEntityProcedureKey } from './entity-keys';
 
 /**
  * Refresh task lists and their attention badges after agent activity, so the
@@ -11,7 +12,7 @@ import type { QueryClient } from '@tanstack/react-query';
  * when to look. Changes in the middle of a long turn arrive on the board's
  * own poll (`TaskKanban`) or the next edge.
  *
- * A single task (`['tasks', <id>]`, which carries `body`) is left alone: a
+ * A single task (`entityKeys.tasks.detail(id)`, carrying `body`) is left alone: a
  * background refresh never touches a document someone may have open
  * (docs/optimistic-updates.md). Coalesced, so a burst of edges across several
  * agents is one refetch.
@@ -19,9 +20,9 @@ import type { QueryClient } from '@tanstack/react-query';
 const COALESCE_MS = 1_000;
 const pending = new WeakMap<QueryClient, ReturnType<typeof setTimeout>>();
 
-/** `['tasks', <id>]`: one task with its body, as opposed to a list, counts or badges. */
+/** One task with its body, as opposed to a list, counts or badges. */
 export function isTaskDetailKey(key: readonly unknown[]): boolean {
-  return key[0] === 'tasks' && key.length === 2 && typeof key[1] === 'string';
+  return isEntityProcedureKey(key, 'tasks', 'get');
 }
 
 export function invalidateTaskListsSoon(queryClient: QueryClient): void {
@@ -31,7 +32,7 @@ export function invalidateTaskListsSoon(queryClient: QueryClient): void {
     setTimeout(() => {
       pending.delete(queryClient);
       queryClient.invalidateQueries({
-        queryKey: ['tasks'],
+        queryKey: entityKeys.tasks.all,
         predicate: (q) => !isTaskDetailKey(q.queryKey),
       });
     }, COALESCE_MS),

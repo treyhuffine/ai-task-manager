@@ -1,10 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { api, apiErrorText } from '@/lib/api/client';
-import { triggersApi } from '@/lib/api/triggers';
 import type { EffortLevel } from '@/db/types';
+import { apiErrorText } from '@/lib/api/client';
+import { triggersApi } from '@/lib/api/triggers';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { HeartbeatConfig } from '@/lib/heartbeat/types';
+import { trpcClient } from '@/lib/trpc/client';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 /**
  * The heartbeat's settings and status, backed by the app-managed heartbeat
@@ -33,7 +34,7 @@ export interface HeartbeatUpdate {
 export function useHeartbeat() {
   return useQuery({
     queryKey: HEARTBEAT_KEY,
-    queryFn: () => api.get<HeartbeatConfig>('/heartbeat'),
+    queryFn: () => trpcClient.heartbeat.list.query({}),
     // Check-ins land in the background. Poll quickly while one runs so the
     // chip flips from "checking in" to its result without a reload.
     refetchInterval: (query) => (query.state.data?.running ? 5_000 : 30_000),
@@ -63,7 +64,7 @@ function optimisticConfig(prev: HeartbeatConfig, patch: HeartbeatUpdate): Heartb
 export function useUpdateHeartbeat() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (patch: HeartbeatUpdate) => api.put<HeartbeatConfig>('/heartbeat', patch),
+    mutationFn: (patch: HeartbeatUpdate) => trpcClient.heartbeat.replace.mutate({body: patch}),
     onMutate: async (patch) => {
       await qc.cancelQueries({ queryKey: HEARTBEAT_KEY });
       const prev = qc.getQueryData<HeartbeatConfig>(HEARTBEAT_KEY);

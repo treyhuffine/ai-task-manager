@@ -1,27 +1,22 @@
 'use client';
 
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Loader2, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
-import { api } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-
-interface CredentialStatus {
-  configured: boolean;
-  source: 'ri_store' | 'environment' | 'none';
-}
+import { trpcClient } from '@/lib/trpc/client';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { KeyRound, Loader2, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
 
 export function CursorCredentialPanel() {
   const [key, setKey] = useState('');
   const queryClient = useQueryClient();
   const status = useQuery({
     queryKey: ['cursor-credential'],
-    queryFn: () => api.get<CredentialStatus>('/harness/cursor/key'),
+    queryFn: () => trpcClient.harness.cursorKeyGet.query({}),
   });
   const save = useMutation({
-    mutationFn: () => api.put<CredentialStatus>('/harness/cursor/key', { apiKey: key }),
+    mutationFn: () => trpcClient.harness.cursorKeyPut.mutate({body: { apiKey: key }}),
     onSuccess: (data) => {
       setKey('');
       queryClient.setQueryData(['cursor-credential'], data);
@@ -31,7 +26,7 @@ export function CursorCredentialPanel() {
     },
   });
   const clear = useMutation({
-    mutationFn: () => api.delete<CredentialStatus>('/harness/cursor/key'),
+    mutationFn: () => trpcClient.harness.cursorKeyDelete.mutate({}),
     onSuccess: (data) => {
       queryClient.setQueryData(['cursor-credential'], data);
       void queryClient.invalidateQueries({ queryKey: ['agent-connection', 'cursor'] });

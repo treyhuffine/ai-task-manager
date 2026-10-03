@@ -1,6 +1,5 @@
-import { api } from './client';
-import type { PreviewState } from './preview';
-import type { TaskRecord } from '@/db/types';
+import { trpcClient } from '@/lib/trpc/client';
+import type { RouterOutputs } from '@/lib/trpc/router';
 
 /**
  * Reads behind the agent view (docs/agents-view-spec.md Phase 7) that are
@@ -10,22 +9,17 @@ import type { TaskRecord } from '@/db/types';
  */
 
 /** A preview on one of the agent's executions, with the execution's label. */
-export type AgentPreview = PreviewState & { label: string | null };
+export type AgentPreview = RouterOutputs['workspaces']['previewsGet']['previews'][number];
 
 /** An open task one or more of the agent's active executions are working. */
-export interface AgentTask {
-  id: string;
-  title: string;
-  status: TaskRecord['status'];
-  executionIds: string[];
-}
+export type AgentTask = RouterOutputs['workspaces']['tasksGet']['tasks'][number];
 
 export const agentsApi = {
-  previews(workspaceId: string): Promise<{ previews: AgentPreview[] }> {
-    return api.get(`/workspaces/${workspaceId}/previews`);
+  previews(workspaceId: string) {
+    return trpcClient.workspaces.previewsGet.query({params: {id: workspaceId}});
   },
 
-  tasks(workspaceId: string): Promise<{ tasks: AgentTask[] }> {
-    return api.get(`/workspaces/${workspaceId}/tasks`);
+  tasks(workspaceId: string) {
+    return trpcClient.workspaces.tasksGet.query({params: {id: workspaceId}});
   },
 };

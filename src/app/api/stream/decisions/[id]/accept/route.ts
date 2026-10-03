@@ -1,15 +1,6 @@
-import { applyTriageDecision } from '@/lib/db/queries';
-import { triageErrorResponse } from '@/lib/stream-triage/http';
+import { withCompression } from '@/lib/api/compression';
+import { serveOperation } from '@/lib/server/operation';
+import * as operation from '@/lib/server/operations/stream/decisions/[id]/accept';
 
-/** POST /api/stream/decisions/:id/accept — apply a proposed decision. */
-export async function POST(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    const { id } = await params;
-    return Response.json(applyTriageDecision(id, { decidedBy: 'user' }));
-  } catch (err) {
-    return triageErrorResponse('POST /api/stream/decisions/:id/accept', err);
-  }
-}
+
+export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));

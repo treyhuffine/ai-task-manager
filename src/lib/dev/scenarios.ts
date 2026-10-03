@@ -43,53 +43,7 @@ export interface Scenario {
 
 // ─── Inject body types (mirror server discriminator) ─────────
 
-export type InjectBody =
-  | InjectPendingQuestion
-  | InjectPendingPermission
-  | InjectFakeEvent
-  | InjectBatch
-  | InjectClearPending
-  | InjectResetSession;
-
-interface InjectPendingQuestion {
-  kind: 'pending_question';
-  questions: Array<{
-    question: string;
-    header: string;
-    options: Array<{ label: string; description: string; preview?: string }>;
-    multiSelect?: boolean;
-  }>;
-}
-
-interface InjectPendingPermission {
-  kind: 'pending_permission';
-  toolName: string;
-  input: Record<string, unknown>;
-  title?: string;
-  description?: string;
-}
-
-interface InjectFakeEvent {
-  kind: 'fake_event';
-  source: string;
-  content?: string | null;
-  toolName?: string | null;
-  toolInput?: Record<string, unknown> | null;
-  toolIsError?: boolean;
-}
-
-interface InjectBatch {
-  kind: 'batch';
-  events: Array<Omit<InjectFakeEvent, 'kind'>>;
-}
-
-interface InjectClearPending {
-  kind: 'clear_pending';
-}
-
-interface InjectResetSession {
-  kind: 'reset_session';
-}
+export type InjectBody = import('@/lib/trpc/router').RouterInputs['dev']['inject']['body'];
 
 // ─── Scenarios ────────────────────────────────────────────────
 

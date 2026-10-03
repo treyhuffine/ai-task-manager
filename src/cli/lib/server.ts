@@ -1,15 +1,12 @@
 /**
  * Spawn the Next server as a child process and wait for it to be ready.
  *
- * Uses `next start` (production mode). For local CLI iteration before a build
- * exists, pass `dev: true` to spawn `next dev` instead.
+ * Uses the shared HTTP/WebSocket host. Pass `dev: true` for Next development
+ * mode. The router lives in Next's instrumentation runtime in both modes.
  */
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { createRequire } from 'node:module';
 import path from 'node:path';
-
-const require = createRequire(import.meta.url);
 
 export interface StartServerOptions {
   port: number;
@@ -28,8 +25,9 @@ export interface StartServerOptions {
 }
 
 export function startNextServer(opts: StartServerOptions): ChildProcess {
-  const nextBin = require.resolve('next/dist/bin/next');
-  const subcommand = opts.dev ? 'dev' : 'start';
+  const repo = opts.repo ?? process.env.RI_RUNTIME_REPO ?? process.cwd();
+  const serverFile = path.join(repo, 'dist/service/http-server.cjs');
+  const env: NodeJS.ProcessEnv = { ...process.env, ...opts.env, RI_DESKTOP_MODE: opts.dev ? 'development' : 'production', NODE_ENV: opts.dev ? 'development' : 'production' };
 
   // Under portless: portless picks a random port (4000-4999) and injects it
   // via $PORT to the child. We must NOT override PORT or pass `-p` here, or
@@ -39,21 +37,20 @@ export function startNextServer(opts: StartServerOptions): ChildProcess {
   if (opts.portlessName) {
     return spawn(
       'portless',
-      [opts.portlessName, process.execPath, nextBin, subcommand],
-      { stdio: ['ignore', 'inherit', 'inherit'], env: process.env },
+      [opts.portlessName, opts.node ?? process.execPath, serverFile],
+      { cwd: repo, stdio: ['ignore', 'inherit', 'inherit'], env: { ...env, RI_HTTP_HOST: opts.hostname ?? '0.0.0.0' } },
     );
   }
 
-  const args = [nextBin, subcommand, '-p', String(opts.port)];
   if (opts.supervised) {
-    return spawn(opts.node ?? process.execPath, [path.join(opts.repo ?? process.env.RI_RUNTIME_REPO ?? process.cwd(), 'dist/service/http-server.cjs')], {
-      cwd: opts.repo, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: { ...process.env, ...opts.env, PORT: String(opts.port) },
+    return spawn(opts.node ?? process.execPath, [serverFile], {
+      cwd: repo, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: { ...env, PORT: String(opts.port), RI_HTTP_HOST: opts.hostname ?? '127.0.0.1' },
     });
   }
-  if (opts.hostname) args.push('-H', opts.hostname);
-  return spawn(process.execPath, args, {
+  return spawn(opts.node ?? process.execPath, [serverFile], {
+    cwd: repo,
     stdio: ['ignore', 'inherit', 'inherit'],
-    env: { ...process.env, PORT: String(opts.port) },
+    env: { ...env, PORT: String(opts.port), RI_HTTP_HOST: opts.hostname ?? '0.0.0.0' },
   });
 }
 

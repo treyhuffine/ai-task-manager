@@ -41,7 +41,7 @@ const pending = (g.__riOAuthReturns ??= new Map());
  * so `Origin` names an address the app is actually served from. A request that
  * does not say (CLI, older browser) or comes from elsewhere records no origin.
  */
-export function pageOrigin(request: Request): string | null {
+export function pageOrigin(request: Pick<Request, 'headers' | 'url'>): string | null {
   if (request.headers.get('sec-fetch-site') !== 'same-origin') return null;
   const origin = request.headers.get('origin');
   if (!origin) return null;
@@ -86,7 +86,7 @@ export function safeReturnPath(raw: unknown): string | null {
 }
 
 /** Record where the sign-in behind `state` should come back to. */
-export function rememberOAuthReturn(state: string, request: Request, path?: string | null, now = Date.now()): void {
+export function rememberOAuthReturn(state: string, request: Pick<Request, 'headers' | 'url'>, path?: string | null, now = Date.now()): void {
   for (const [key, entry] of pending) {
     if (entry.expiresAt <= now) pending.delete(key);
   }

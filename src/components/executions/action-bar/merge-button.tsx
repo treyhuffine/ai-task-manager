@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { GitMerge, AlertTriangle } from 'lucide-react';
-import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
-import { ActionButton } from './action-button';
 import { useMergePr, useSessionPr, useSetAutoMerge } from '@/hooks/use-execution-actions';
-import { ApiError } from '@/lib/api/client';
+import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
+import { AlertTriangle, GitMerge } from 'lucide-react';
+import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
+import { useState } from 'react';
+import { ActionButton } from './action-button';
 
 interface MergeButtonProps {
   sessionId: string;
@@ -63,11 +63,11 @@ export function MergeButton({
         if (!autoMergeEnabled) setOpen(false);
       },
       onError: (err) => {
-        if (err instanceof ApiError) {
-          const body = err.body as { message?: string; error?: string } | null;
-          setError(body?.message ?? body?.error ?? `Auto-merge failed (${err.status})`);
+        if (apiErrorStatus(err) !== undefined) {
+          const body = apiErrorBody(err) as { message?: string; error?: string } | null;
+          setError(body?.message ?? body?.error ?? `Auto-merge failed (${apiErrorStatus(err)})`);
         } else {
-          setError(err instanceof Error ? err.message : String(err));
+          setError(err instanceof Error ? apiErrorText(err) : String(err));
         }
       },
     });
@@ -82,11 +82,11 @@ export function MergeButton({
           setOpen(false);
         },
         onError: (err) => {
-          if (err instanceof ApiError) {
-            const body = err.body as { message?: string; error?: string } | null;
-            setError(body?.message ?? body?.error ?? `Merge failed (${err.status})`);
+          if (apiErrorStatus(err) !== undefined) {
+            const body = apiErrorBody(err) as { message?: string; error?: string } | null;
+            setError(body?.message ?? body?.error ?? `Merge failed (${apiErrorStatus(err)})`);
           } else {
-            setError(err instanceof Error ? err.message : String(err));
+            setError(err instanceof Error ? apiErrorText(err) : String(err));
           }
         },
       },

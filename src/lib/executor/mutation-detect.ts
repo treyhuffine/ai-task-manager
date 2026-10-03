@@ -84,7 +84,7 @@ function extractBashCommand(input: unknown): string | null {
   return cmd;
 }
 
-export function isMutatingToolUse(event: Pick<ChatEventRecord, 'source' | 'toolName' | 'toolInput'>): boolean {
+export function isMutatingToolUse(event: Pick<ChatEventRecord, 'source' | 'toolName'> & { toolInput?: ChatEventRecord['toolInput'] }): boolean {
   // Only consider tool-call rows; tool-result rows don't trigger another mutation.
   if (event.source !== 'tool_call') return false;
   const name = event.toolName;

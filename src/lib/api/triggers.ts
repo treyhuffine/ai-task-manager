@@ -1,3 +1,5 @@
+import { trpcClient } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
 /**
  * Typed client for the triggers + runs API.
  *
@@ -5,16 +7,11 @@
  * so behavior matches CLI + MCP exactly.
  */
 
-import { api } from './client';
 import type {
-  TriggerRecord,
-  TriggerView,
-  CreateTriggerInput,
-  UpdateTriggerInput,
-  RunRecord,
-  TriggerWithLastRun,
-  RunStatus,
-  RunTrigger,
+	CreateTriggerInput,
+	RunStatus,
+	RunTrigger,
+	UpdateTriggerInput
 } from '@/db/types';
 import type { ProviderId } from '@/lib/harness/options';
 
@@ -35,36 +32,32 @@ export const triggersApi = {
     enabled?: boolean;
     workspaceId?: string | null;
     targetKind?: 'workspace' | 'orchestrator';
-  } = {}): Promise<TriggerWithLastRun[]> {
+  } = {}) {
     const query: Record<string, string> = {};
     if (filter.enabled !== undefined) query.enabled = String(filter.enabled);
     if (filter.workspaceId !== undefined) {
       query.workspaceId = filter.workspaceId === null ? 'null' : filter.workspaceId;
     }
     if (filter.targetKind) query.targetKind = filter.targetKind;
-    return api.get<TriggerWithLastRun[]>('/triggers', { query });
+    return trpcClient.triggers.list.query({ query });
   },
-  get(id: string): Promise<TriggerView> {
-    return api.get<TriggerView>(`/triggers/${id}`);
+  get(id: string) {
+    return trpcClient.triggers.get.query({params: {id: id}});
   },
-  create(input: CreateTriggerPayload): Promise<{
-    trigger: TriggerView;
-    webhookSecret?: string;
-    webhookPublicId?: string;
-  }> {
-    return api.post('/triggers', input);
+  create(input: CreateTriggerPayload) {
+    return trpcClient.triggers.create.mutate({body: input});
   },
-  update(id: string, input: UpdateTriggerPayload): Promise<TriggerView> {
-    return api.patch<TriggerView>(`/triggers/${id}`, input);
+  update(id: string, input: UpdateTriggerPayload) {
+    return trpcClient.triggers.update.mutate({params: {id: id}, body: input});
   },
-  delete(id: string): Promise<{ id: string; deleted: boolean }> {
-    return api.delete(`/triggers/${id}`) as Promise<{ id: string; deleted: boolean }>;
+  delete(id: string) {
+    return trpcClient.triggers.delete.mutate({params: {id: id}});
   },
-  run(id: string): Promise<{ run: RunRecord; chatSessionId: string | null }> {
-    return api.post(`/triggers/${id}?action=run`, {});
+  run(id: string) {
+    return trpcClient.triggers.action.mutate({params: {id: id}, query: rpcQuery({"action": "run"}), body: {}});
   },
-  resetFailures(id: string): Promise<TriggerRecord> {
-    return api.post<TriggerRecord>(`/triggers/${id}?action=reset`, {});
+  resetFailures(id: string) {
+    return trpcClient.triggers.action.mutate({params: {id: id}, query: rpcQuery({"action": "reset"}), body: {}});
   },
 };
 
@@ -77,7 +70,7 @@ export const runsApi = {
     workspaceId?: string;
     since?: string;
     limit?: number;
-  } = {}): Promise<RunRecord[]> {
+  } = {}) {
     const query: Record<string, string> = {};
     if (filter.status) {
       query.status = Array.isArray(filter.status) ? filter.status.join(',') : filter.status;
@@ -90,12 +83,12 @@ export const runsApi = {
     if (filter.workspaceId) query.workspaceId = filter.workspaceId;
     if (filter.since) query.since = filter.since;
     if (filter.limit) query.limit = String(filter.limit);
-    return api.get<RunRecord[]>('/runs', { query });
+    return trpcClient.runs.list.query({ query });
   },
-  get(id: string): Promise<RunRecord> {
-    return api.get<RunRecord>(`/runs/${id}`);
+  get(id: string) {
+    return trpcClient.runs.get.query({params: {id: id}});
   },
-  cancel(id: string): Promise<RunRecord> {
-    return api.post<RunRecord>(`/runs/${id}?action=cancel`, {});
+  cancel(id: string) {
+    return trpcClient.runs.create.mutate({params: {id: id}, query: rpcQuery({"action": "cancel"}), body: {}});
   },
 };

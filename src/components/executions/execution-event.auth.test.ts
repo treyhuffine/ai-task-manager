@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, createElement } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import type { ChatEventRecord } from '@/lib/api/dto/records';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { parseHTML } from 'linkedom';
-import type { ChatEventRecord } from '@/db/types';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { ExecutionEvent } from './execution-event';
 
 const fixtures = vi.hoisted(() => ({
