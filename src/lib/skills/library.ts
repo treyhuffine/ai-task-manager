@@ -182,6 +182,13 @@ export function createSkillAt(dir: string, input: CreateSkillInput = {}): SkillD
   return requireSkillAt(dir);
 }
 
+/** Whether the skill in `dir` is still exactly what `createSkillAt` wrote with nothing in it. */
+export function isBlankSkillAt(dir: string): boolean {
+  const doc = readSkillAt(dir);
+  if (!doc || doc.files.length > 0) return false;
+  return doc.content === renderSkillFile(null, { name: doc.name, description: '', body: '' });
+}
+
 export interface SupportingFileWrite {
   /** Relative path inside the skill folder, like references/api.md. */
   path: string;

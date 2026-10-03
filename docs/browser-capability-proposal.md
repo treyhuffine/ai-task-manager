@@ -33,9 +33,17 @@ Navigates if a url is given, then returns the page. Modes form a fallback ladder
 
 After any navigation, read auto-attaches a fresh snapshot so the agent does not round-trip to re-read.
 
-### browser_act(kind, ref?, text?, key?, values?, idempotency_key?)
+### browser_act(kind, ref?, text?, typing?, key?, values?, fn?, idempotency_key?)
 
-Performs one interaction. Flat shape with a `kind` discriminator (no nested unions, which some model providers reject). `kind` is a short closed list: `click`, `type`, `press`, `select`, `scroll`, `wait`, `upload`. `ref` comes straight from the last read. Every act returns the resulting page state, so the agent always acts against what is currently on screen. Acts carry an idempotency key so a transport retry cannot submit a form twice.
+Performs one interaction. Flat shape with a `kind` discriminator (no nested unions, which some model providers reject). `kind` is a short closed list: `click`, `type`, `press`, `hover`, `select`, `scroll`, `wait`, `upload`, `evaluate`, `back`, `forward`, `reload`. `ref` comes straight from the last read. Every act returns the resulting page state, so the agent always acts against what is currently on screen. Acts carry an idempotency key so a transport retry cannot submit a form twice.
+
+Acts behave like a person at the keyboard (`src/lib/browser/act.ts`, added 2026-10-02 after the Medium writers box failed):
+
+- `type` sends real key events, one character at a time, and replaces the field's text. Autocompletes, comboboxes and rich editors listen for key events, so a value set in one go (`typing: "fill"`) never makes them react. `fill` stays available and is the default above 1,000 characters, where typing key by key would be slow.
+- After an act the page settles before the result is built (`settle.ts`): a floor long enough for a typical debounce after typing, then no pending request and no DOM change for a quiet window, capped at a few seconds. Suggestions that load after a debounce are in the result.
+- The page state leads with what appeared since the agent's last look, found by diffing aria refs, which stay fixed per element for the life of the document (`snapshot.ts`). A suggestion list that just opened is listed first even when it is portaled to the end of the document. The snapshot covers the whole document from `<html>`, so a popover mounted outside `<body>` is still seen.
+- On a big page (a settings page can be 150k characters and 3,000 refs), the page state is only what is new, what changed, and the region around the ref acted on, with a pointer to `browser_read` for the rest. After a navigation it is the whole page, capped like a read. Refs the agent already holds keep working either way.
+- `evaluate` runs agent-written JS in the page. See section 6 for how it fits the trust model.
 
 ### Will the model know what to put in?
 
@@ -93,7 +101,24 @@ What Ri keeps, because it adds safety without restricting the agent or creating 
 - Oversight, not restriction. A lean audit trail (which pages, which acts, which downloads) that rides the existing execution and transcript UI, and a kill switch that closes the agent browser and stops everything. These let you see and stop, they never block a capability.
 - A silent private-network floor. The agent browser cannot be steered to localhost, your router admin, or a cloud metadata endpoint. This restricts nothing you would ever legitimately browse and closes the one hole unrelated to your logins.
 
-The one honest caveat, stated so it is a knowing choice. The risk login scope does not cover is prompt injection acting within the scope. A malicious page the agent reads could try to make it act in an account the profile is logged into. The mitigation lives in your framework, it is proportional to what you log in and give write power to. A profile with a Medium subscription and a burner account is low stakes. A profile with your primary email and send access is high stakes. The real knob is which accounts you hand the agent, and the audit trail and kill switch are there to see and stop anything that goes wrong. For the day you do log in something sensitive, an opt-in "ask before acting on this site" seatbelt is available per site, off by default.
+The one honest caveat, stated so it is a knowing choice. The risk login scope does not cover is prompt injection acting within the scope. A malicious page the agent reads could try to make it act in an account the profile is logged into. The mitigation lives in your framework, it is proportional to what you log in and give write power to. A profile with a Medium subscription and a burner account is low stakes. A profile with your primary email and send access is high stakes. The real knob is which accounts you hand the agent, and the audit trail and kill switch are there to see and stop anything that goes wrong. For the day you do log in something sensitive, an opt-in "ask before acting on this site" seatbelt, off by default, is the planned follow-up. It is not built yet. It would cover every act on that site (not one kind of act), through an approval card in chat like connector writes, and keep its per-profile site list in a file under `.config/browser/`. Until then, the way to keep an agent off a site is to not log its browser in, or to turn its browser off.
+
+### Evaluate follows the same model
+
+`evaluate` (agent-written JS in the page) runs for every caller, on any page, with whatever the profile is signed into. It used to be restricted to trusted local callers. That gate was removed on 2026-10-02, after a per-site trusted list with approval cards was considered and rejected, for these reasons:
+
+- Clicks and typing can already change an account's email, add an admin, or export data. Evaluate is a faster route to the same places, not a new place.
+- The risk exists only where a login exists. On a site the profile is not signed into, a script can do nothing the page's own scripts couldn't.
+- The gate was never a wall. On the home, `ri agent browser_act` from an agent's shell runs as a trusted local caller, so any agent with a shell could already evaluate anywhere. The gate only blocked well-behaved agents.
+- It is the connector rule again: connecting an account is the user saying act there.
+- Each agent browses its own profile (`ws-<workspaceId>`), so login scope is already per agent.
+
+What evaluate adds is held by guards that block nothing a legitimate script needs (`src/lib/browser/evaluate.ts`):
+
+- **HttpOnly cookies stay HttpOnly.** Some sites need a cookie echoed into a header (Medium's `xsrf` as `x-xsrf-token`), and page JS can't read it. The script writes `{{cookie:<name>}}` in a request header or body, and Ri fills it as the request leaves the browser. It fills only for a request to the tab's own origin, only with a cookie the browser would send to that URL anyway, and the value never enters page JS, the result, the model, the transcript or the audit. A placeholder sent to another origin goes out as written. A value a site echoes back is scrubbed from the result. Passing cookie values into the script as arguments was rejected, because agent-written code could then return the value or send it anywhere.
+- **The private-network floor covers the script's requests.** From just before the script until the act settles, requests to localhost, private addresses and metadata endpoints are refused, by the same rule as navigation. A service worker is bypassed for that window, so it cannot answer the tab's requests out of the guard's sight.
+- **The whole script is audited.** Each evaluate records the profile, the chat that called (the browser MCP carries the session's signed credential), the origin, the script (stored whole under `.config/browser/audit/scripts/<sha256>.js`), the result size, which placeholders were filled, and any error.
+- **Large results are capped** and spilled to a file, like a read.
 
 ## 7. Fresh eyes: is this enough to act autonomously and replace the user's work?
 

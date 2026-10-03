@@ -40,6 +40,7 @@ function seedHome() {
   write('attachments/019a.png', 'png-bytes');
   write('.archive/old.md', 'archived');
   write('skills/my-skill/SKILL.md', '---\nname: my-skill\n---\n');
+  write('skill-drafts/an-idea/SKILL.md', '---\nname: an-idea\n---\n');
   write('MEMORY.md', '# memory');
   write('USER.md', '# me');
   write('SOUL.md', '# voice');
@@ -87,6 +88,7 @@ describe('createHomeBackup', () => {
         'attachments/019a.png',
         'data.db',
         'skills/my-skill/SKILL.md',
+        'skill-drafts/an-idea/SKILL.md',
       ].sort(),
     );
     expect(manifest.database.rowCounts.tasks).toBe(25);

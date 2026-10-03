@@ -18,11 +18,27 @@ The browser never wants a guessed selector or a coordinate. You read a page, it 
 
 1. `browser_read(url)` navigates and returns the page. Default mode is `snapshot`, the accessibility tree with `[ref=e12]` ids on every actionable element.
 2. Pick an element from the snapshot and act on its ref: `browser_act(kind: "click", ref: "e12")`, or `browser_act(kind: "type", ref: "e7", text: "...")`.
-3. Every act returns the fresh page state, so you always act against what is on screen now. Re-read if the page changed a lot or a ref stops resolving.
+3. Every act returns the fresh page state, so you always act against what is on screen now. It leads with `# New since your last action`: whatever appeared because of what you did (a suggestion list, a menu, a dialog), with refs to act on. On a big page the page state is only those changes plus the region around the ref you used. The refs you already have keep working, and `browser_read` returns the whole page (pass `selector` to read one part of it). Re-read if a ref stops resolving.
 
 Read modes: `snapshot` (default, to act on), `text` (a clean article body, the readability extraction), `screenshot` (a marked image for canvas, closed shadow DOM, or anything the tree cannot express), `pdf` (files the page as a Ri attachment).
 
-Act kinds: `click`, `type`, `press`, `hover`, `select`, `scroll`, `wait`, `upload`, `back`, `forward`, `reload`, `evaluate` (JS, trusted local only). Use `browser_batch` to run a known sequence (type, type, click) in one round-trip. Pass an `idempotency_key` on an act so a retry never submits twice.
+Act kinds: `click`, `type`, `press`, `hover`, `select`, `scroll`, `wait`, `upload`, `back`, `forward`, `reload`, `evaluate`. Use `browser_batch` to run a known sequence (type, type, click) in one round-trip. Pass an `idempotency_key` on an act so a retry never submits twice.
+
+## Typing into real widgets
+
+`type` replaces the field's text using real key presses, the way a person types, and the page settles before the result comes back. That is what autocompletes, comboboxes, tag pickers and rich editors need: they react to key events, and their suggestions load after a short delay. The usual pattern is type, find the suggestion under `# New since your last action`, click it. Suggestions are often plain clickable rows with no special role, shown like `- generic "Ada Lovelace" [ref=e3012] [cursor=pointer]`. Pass `typing: "fill"` only to drop long text into a plain field fast (it is the default above 1,000 characters).
+
+## Running JS in the page
+
+`evaluate` runs a JS expression in the current tab (a promise is awaited), signed in as the profile. Prefer clicking and typing, which leaves a readable trail and works the way the site expects. Reach for evaluate when the site's own UI can't do the job, or when one request does what would take hundreds of clicks. Everything it runs is recorded in the browser audit trail.
+
+A site may need a cookie that page JS can't read, such as an HttpOnly `xsrf` token sent back as a header. Never try to read it. Write `{{cookie:<name>}}` where the value goes, in a request header or body:
+
+```js
+fetch('/endpoint', { method: 'POST', headers: { 'x-xsrf-token': '{{cookie:xsrf}}' }, body })
+```
+
+Ri fills it as the request leaves the browser, only for the page's own origin. The value never reaches you, and that is on purpose. The result's `evalRequests` says which placeholders were filled (`cookiesFilled`), which named no cookie there (`cookiesMissing`), and which went to another origin unfilled (`notFilled`). Requests to localhost or private network addresses are refused.
 
 Tabs: `browser_tabs` with `list`, `select`, `close`, or `new`. A click that opens a tab auto-switches to it and the act result says so.
 

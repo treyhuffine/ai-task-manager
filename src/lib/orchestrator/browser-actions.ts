@@ -8,10 +8,15 @@
  * Profiles: a `profile` is a separate logged-in identity (its own cookie jar).
  * Every action takes an optional `profile` (default "agent"). Pass a different
  * name to use a different logged-in browser. `browser_profiles` lists them.
+ *
+ * Trust is the login scope (proposal §6): every act, `evaluate` included, runs
+ * for any caller within what the profile is signed into. What is recorded is
+ * oversight, never a gate: the audit trail names the chat, and an evaluate's
+ * whole script is kept (audit.ts).
  */
 
 import { z } from 'zod';
-import { defineAction, ActionError } from './types';
+import { defineAction, ActionError, type ActionContext } from './types';
 import {
   requireBrowser,
   isBrowserEnabled,
@@ -30,13 +35,14 @@ import {
   selectTab,
   closeTab,
   openTab,
+  rememberBaseline,
 } from '@/lib/browser/runtime';
 import { isBrowserOpen, closeBrowser } from '@/lib/browser/session';
 import { readPage } from '@/lib/browser/read';
-import { performAct, performBatch, type ActInput } from '@/lib/browser/act';
+import { performAct, performBatch, type ActInput, type ActOptions } from '@/lib/browser/act';
 import { assertNavigable } from '@/lib/browser/confine';
 import { importCookies } from '@/lib/browser/cookie-import';
-import { appendAudit, readAuditTail } from '@/lib/browser/audit';
+import { appendAudit, readAuditTail, storeScript } from '@/lib/browser/audit';
 
 const readMode = z.enum(['snapshot', 'text', 'screenshot', 'pdf']);
 const actKind = z.enum([
@@ -54,6 +60,7 @@ const actKind = z.enum([
   'reload',
 ]);
 const waitFor = z.enum(['load', 'domcontentloaded', 'networkidle']);
+const typing = z.enum(['keys', 'fill']);
 const profileParam = z.string().optional();
 
 /** The fields shared by a single act and a batch step (minus the kind). */
@@ -61,6 +68,7 @@ const actStepFields = {
   ref: z.string().optional(),
   text: z.string().optional(),
   submit: z.boolean().optional(),
+  typing: typing.optional(),
   key: z.string().optional(),
   values: z.array(z.string()).optional(),
   attachment: z.string().optional(),
@@ -80,6 +88,7 @@ function toActInput(s: z.infer<typeof actStepSchema>): ActInput {
     ref: s.ref,
     text: s.text,
     submit: s.submit,
+    typing: s.typing,
     key: s.key,
     values: s.values,
     attachmentFile: s.attachment,
@@ -89,6 +98,29 @@ function toActInput(s: z.infer<typeof actStepSchema>): ActInput {
     fn: s.fn,
     acceptDialog: s.accept_dialog,
     dialogText: s.dialog_text,
+  };
+}
+
+/** The chat whose agent is calling, when the transport knew it. */
+function chatOf(ctx: ActionContext): string | undefined {
+  return ctx.actor?.sessionId ?? undefined;
+}
+
+/** Act options that audit each evaluate in full, success or failure. */
+function actOptions(ctx: ActionContext, profile: string): ActOptions {
+  return {
+    session: profile,
+    onEvaluate: (record) =>
+      appendAudit({
+        action: 'evaluate',
+        session: profile,
+        chat: chatOf(ctx),
+        origin: record.origin ?? undefined,
+        script: storeScript(record.fn),
+        resultChars: record.resultChars,
+        requests: record.requests,
+        error: record.error,
+      }),
   };
 }
 
@@ -110,7 +142,7 @@ async function goto(url: string, profile: string, headless: boolean) {
 export const browser_read_action = defineAction({
   name: 'browser_read',
   description:
-    'Read a web page through the agent browser. Navigates when a url is given, then returns the page. mode "snapshot" (default) is the accessibility tree with [ref=..] ids to act on, "text" is the readable article body, "screenshot" is a set-of-marks image for canvas or shadow-DOM pages, "pdf" files the page as a Ri attachment. Reads are ungated within the login scope you curate. If a login or challenge wall is detected, the result carries a "blocked" field: hand back to the user, do not try to log in. profile selects which logged-in identity to use (default "agent").',
+    'Read a web page through the agent browser. Navigates when a url is given, then returns the page. mode "snapshot" (default) is the accessibility tree of the whole page with [ref=..] ids to act on (selector narrows it to one element\'s subtree, the way to look at part of a big page), "text" is the readable article body, "screenshot" is a set-of-marks image for canvas or shadow-DOM pages, "pdf" files the page as a Ri attachment. Reads are ungated within the login scope you curate. If a login or challenge wall is detected, the result carries a "blocked" field: hand back to the user, do not try to log in. profile selects which logged-in identity to use (default "agent").',
   params: {
     url: z.string().url().optional(),
     profile: profileParam,
@@ -121,7 +153,7 @@ export const browser_read_action = defineAction({
     full_page: z.boolean().optional(),
   },
   cli: { positional: ['url'] },
-  handler: async (_ctx, input) => {
+  handler: async (ctx, input) => {
     requireBrowser();
     const profile = resolveProfile(input.profile);
     const headless = getHeadlessDefault();
@@ -129,19 +161,23 @@ export const browser_read_action = defineAction({
       ? await goto(input.url, profile, headless)
       : await getSession({ profile, headless });
 
-    const result = await readPage(await getActivePage(session), {
+    const page = await getActivePage(session);
+    const result = await readPage(page, {
       mode: input.mode,
       selector: input.selector,
       maxChars: input.max_chars,
       efficient: input.efficient,
       fullPage: input.full_page,
       session: profile,
+      // What the agent just saw, so the next act can say what is new.
+      onSnapshot: (baseline) => rememberBaseline(session, page, baseline),
     });
     if (result.marks) setMarks(session, result.marks);
 
     appendAudit({
       action: 'browser_read',
       session: profile,
+      chat: chatOf(ctx),
       url: result.url,
       detail: `mode=${result.mode} refs=${result.refCount ?? ''}`,
       blocked: result.blocked?.kind,
@@ -153,7 +189,7 @@ export const browser_read_action = defineAction({
 export const browser_act_action = defineAction({
   name: 'browser_act',
   description:
-    'Perform one interaction on the current tab: click, type, press, hover, select, scroll, wait, upload, evaluate, back, forward, or reload. Target with ref (an aria-ref id like e12 from a snapshot read) or a mark id (m3 from a screenshot read). wait can take a selector or a wait_for load state, not only ms. evaluate runs a JS expression (fn) and is restricted to trusted local callers. Pass an idempotency_key so a retry never repeats a side effect. Set accept_dialog=true (with dialog_text for a prompt) to accept a JS dialog the action triggers, otherwise dialogs are dismissed. The result includes the new page state, downloads (as Ri attachments), a dialog it triggered, a blocked signal, and newTab if it opened one (the active tab switches to it).',
+    'Perform one interaction on the current tab: click, type, press, hover, select, scroll, wait, upload, evaluate, back, forward, or reload. Target with ref (an aria-ref id like e12 from a snapshot read) or a mark id (m3 from a screenshot read). type replaces the field\'s text using real key presses, so autocompletes, comboboxes and rich editors react as they do for a person (typing="fill" sets the value at once instead, the default above 1,000 chars). After an act the page settles, so suggestions that load after a debounce are in the result. pageState lists what appeared since your last look first (a suggestion list that just opened is there). On a big page pageState holds only the new and changed elements and the region around the ref, and the refs you already have keep working. browser_read returns the whole page. wait can take a selector or a wait_for load state, not only ms. evaluate runs JS (fn, an expression, a promise is awaited) in the page, signed in as the profile. To send an HttpOnly cookie such as an xsrf token, write {{cookie:<name>}} in a request header or body: it is filled as the request leaves, only for the page\'s own origin, and the value never reaches you. evalRequests reports which placeholders were filled. Pass an idempotency_key so a retry never repeats a side effect. Set accept_dialog=true (with dialog_text for a prompt) to accept a JS dialog the action triggers, otherwise dialogs are dismissed. The result includes the new page state, downloads (as Ri attachments), a dialog it triggered, a blocked signal, and newTab if it opened one (the active tab switches to it).',
   mutating: true,
   params: {
     profile: profileParam,
@@ -163,9 +199,6 @@ export const browser_act_action = defineAction({
   },
   handler: async (ctx, input) => {
     requireBrowser();
-    if (input.kind === 'evaluate' && (ctx.remote ?? true)) {
-      throw new ActionError('unsupported', 'The evaluate action is restricted to trusted local callers.');
-    }
     const profile = resolveProfile(input.profile);
     const session = await getSession({ profile, headless: getHeadlessDefault() });
 
@@ -173,12 +206,13 @@ export const browser_act_action = defineAction({
       return session.appliedKeys.get(input.idempotency_key);
     }
 
-    const result = await performAct(session, toActInput(input));
+    const result = await performAct(session, toActInput(input), actOptions(ctx, profile));
 
     if (input.idempotency_key) session.appliedKeys.set(input.idempotency_key, result);
     appendAudit({
       action: 'browser_act',
       session: profile,
+      chat: chatOf(ctx),
       url: result.pageState.url,
       kind: input.kind,
       ref: input.ref,
@@ -191,7 +225,7 @@ export const browser_act_action = defineAction({
 export const browser_batch_action = defineAction({
   name: 'browser_batch',
   description:
-    'Run several acts in one call, one round-trip. Each step has the same fields as browser_act (kind, ref, text, ...). Good for a known sequence like filling a form: type, type, click. Stops if a step errors or navigates (refs are for the pre-navigation page) and reports which step and why. Returns the final page state once.',
+    'Run several acts in one call, one round-trip. Each step has the same fields as browser_act (kind, ref, text, typing, fn, ...). Good for a known sequence like filling a form: type, type, click. Stops if a step errors or navigates (refs are for the pre-navigation page) and reports which step and why. Returns the final page state once, led by what appeared since your last look.',
   mutating: true,
   params: {
     profile: profileParam,
@@ -200,9 +234,6 @@ export const browser_batch_action = defineAction({
   },
   handler: async (ctx, input) => {
     requireBrowser();
-    if ((ctx.remote ?? true) && input.steps.some((s) => s.kind === 'evaluate')) {
-      throw new ActionError('unsupported', 'The evaluate action is restricted to trusted local callers.');
-    }
     const profile = resolveProfile(input.profile);
     const session = await getSession({ profile, headless: getHeadlessDefault() });
 
@@ -210,11 +241,12 @@ export const browser_batch_action = defineAction({
       return session.appliedKeys.get(input.idempotency_key);
     }
 
-    const result = await performBatch(session, input.steps.map(toActInput));
+    const result = await performBatch(session, input.steps.map(toActInput), actOptions(ctx, profile));
     if (input.idempotency_key) session.appliedKeys.set(input.idempotency_key, result);
     appendAudit({
       action: 'browser_batch',
       session: profile,
+      chat: chatOf(ctx),
       url: result.pageState.url,
       detail: `steps=${input.steps.length} aborted=${result.aborted?.reason ?? 'no'}`,
     });
@@ -233,7 +265,7 @@ export const browser_tabs_action = defineAction({
     index: z.number().int().nonnegative().optional(),
     url: z.string().url().optional(),
   },
-  handler: async (_ctx, input) => {
+  handler: async (ctx, input) => {
     requireBrowser();
     const profile = resolveProfile(input.profile);
     const session = await getSession({ profile, headless: getHeadlessDefault() });
@@ -256,7 +288,7 @@ export const browser_tabs_action = defineAction({
     }
 
     const tabs = await listTabs(session);
-    appendAudit({ action: 'browser_tabs', session: profile, detail: `${action} tabs=${tabs.length}` });
+    appendAudit({ action: 'browser_tabs', session: profile, chat: chatOf(ctx), detail: `${action} tabs=${tabs.length}` });
     return { action, tabs };
   },
 });
@@ -272,7 +304,7 @@ export const browser_open_action = defineAction({
     headless: z.boolean().optional(),
   },
   cli: { positional: ['url'] },
-  handler: async (_ctx, input) => {
+  handler: async (ctx, input) => {
     requireBrowser();
     const profile = resolveProfile(input.profile);
     const headless = input.headless ?? false; // headed by default: the point is a human logging in
@@ -280,7 +312,7 @@ export const browser_open_action = defineAction({
       ? await goto(input.url, profile, headless)
       : await getSession({ profile, headless });
     const url = (await getActivePage(session)).url();
-    appendAudit({ action: 'browser_open', session: profile, url });
+    appendAudit({ action: 'browser_open', session: profile, chat: chatOf(ctx), url });
     return { ok: true, opened: true, profile, headless, url };
   },
 });

@@ -5,7 +5,7 @@
   "scripts": {
     "postinstall": "node scripts/fetch-symbols-icons.mjs",
     "prepare": "tsup",
-    "dev": "RI_ROOT=${RI_ROOT:-$HOME/ri-dev} next dev --port ${PORT:-42241}",
+    "dev": "tsx scripts/dev.ts",
     "dev:hot": "NEXT_PUBLIC_HOT=1 RI_ROOT=${RI_ROOT:-$HOME/ri-dev} next dev --port ${PORT:-42241}",
     "dev:web": "RI_ROOT=${RI_ROOT:-$HOME/ri-dev} next dev --port ${PORT:-42241}",
     "dev:stt": "docker compose -f modules/parakeet-stt/docker-compose.yml up parakeet-cpu",

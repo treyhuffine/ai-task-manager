@@ -87,7 +87,36 @@ on its own.
 behavior: colored by state, status on the left, the one next step on the
 right (Commit & push, Push, Open PR, Pull, Merge #N, Resolve conflicts,
 Archive, or Try again when setup failed). Push and Pull are mirrored
-arrows. The PR sits just outside on its left as a reference, not a
+arrows. It is always one step, never two: unpushed commits offer Push,
+and a pushed branch with no PR offers Open PR.
+
+What the counts mean changes at the first push. `git status` counts
+ahead/behind against the branch's upstream, which is the base
+(`origin/main`) until the first push and the branch's own remote copy
+(`origin/feat`) after it. So the status read carries `sync`
+(`readBranchSync` in `lib/workspaces/branch-sync.ts`): which upstream it
+is, and a separate count of commits behind the base, measured against the
+agent's configured base branch on its remote. Each read also refreshes the
+base and the remote copy in the background (at most every 90s), and the
+chip re-reads status every minute while it's on screen. From that:
+
+- **Behind the base never blocks.** GitHub merges a branch that's behind,
+  so the chip shows it as a muted "· 12 behind main" beside Push, Open PR
+  or Merge. Only when GitHub itself requires the update (`mergeStateStatus:
+  BEHIND`, a base that requires up-to-date branches) does it become the
+  step: "12 behind main" with Pull. Before any commits of its own, a branch
+  behind the base offers Pull too.
+- **New on the remote copy** (GitHub's "Update branch", a committed review
+  suggestion, another clone) reads "1 new on origin" with Pull, which
+  fetches the branch's remote copy and merges it
+  (`POST /sessions/:id/pull-upstream`). A push refused for the same reason
+  ("Diverged from origin") offers the same Pull. Only a conflict goes to
+  the agent.
+- **A pushed branch with no PR** reads the Changes view's diff against the
+  base, since its upstream counts are 0 (`branchNoPr`, "7 files changed").
+
+A connected device on an older version sends no `sync`, and its counts
+are read the old way. The PR sits just outside on its left as a reference, not a
 button: a small squared `#402 ↗` that opens it on GitHub, so the step is
 the only thing that reads as clickable. It never goes in the box or the
 panel. On the phone it gets its own row under the header.
@@ -275,10 +304,11 @@ POST /api/sessions/[id]/merge             → merge PR (uses @agentex/github)
 
 Existing routes reused unchanged:
 - `GET /api/sessions/[id]/diff[?file=]` — diff hunks (already structured)
-- `GET /api/sessions/[id]/status` — worktree status (ahead/behind/dirty)
+- `GET /api/sessions/[id]/status` — worktree status (ahead/behind/dirty, plus `sync`)
 - `POST /api/sessions/[id]/commit` — commit
 - `POST /api/sessions/[id]/push` — push
 - `POST /api/sessions/[id]/pull-base` — pull base
+- `POST /api/sessions/[id]/pull-upstream` — pull the branch's own remote copy
 
 ### Tree shape
 

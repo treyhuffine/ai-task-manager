@@ -3,10 +3,13 @@ import { readOnOwner } from '@/lib/executor/owner-files';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { withCompression } from '@/lib/api/compression';
+import { readGitStatus } from '@/lib/workspaces/execution-reads';
 
 /**
  * Worktree status from `@agentex/workspace`'s `ws.git.status()` —
- * untracked / modified / staged file lists plus ahead/behind counts.
+ * untracked / modified / staged file lists plus ahead/behind counts against
+ * the upstream — with `sync` saying what that upstream is and how far behind
+ * the base the branch is (`readBranchSync`).
  * Returns null for non-git workspaces or when the worktree is missing.
  */
 // Compressed when the body is JSON and over ~1KiB; a streamed or
@@ -32,8 +35,7 @@ async function handleGET(
     const handle = await openWorktreeHandle(session, ws);
     if (!handle || handle.kind !== 'git') return Response.json(null);
 
-    const status = await handle.git.status();
-    return Response.json(status);
+    return Response.json(await readGitStatus(handle, session.worktreePath, ws));
   } catch (err) {
     console.error('[GET /api/sessions/:id/status]', err);
     return Response.json({ error: String(err) }, { status: 500 });

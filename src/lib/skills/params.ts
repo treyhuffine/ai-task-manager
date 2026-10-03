@@ -5,7 +5,7 @@
  *
  * Limits here only stop absurd input. The skill rules (name pattern,
  * description length) are checks the builder shows, not rejections, so a
- * draft can be saved mid-edit. Turning a skill on is what requires them.
+ * draft can be saved mid-edit. Installing a skill is what requires them.
  */
 
 import { z } from 'zod';
@@ -19,14 +19,16 @@ export const supportingFileParam = z.object({
   content: z.string().max(TEXT_MAX).nullable().describe('The file text, or null to delete the file.'),
 });
 
-const locationKind = z.enum(['ri', 'global', 'project']);
+const locationKind = z.enum(['draft', 'ri', 'global', 'project']);
 
 export const createSkillShape = {
   name: z.string().max(64).optional().describe('lowercase-with-hyphens. Omit to name it from `intent`.'),
   intent: z.string().max(5000).optional().describe('What the skill should do, in the user\'s words.'),
   description: z.string().max(10_000).optional(),
   body: z.string().max(TEXT_MAX).optional(),
-  location: locationKind.optional().describe('Where it lives: "ri" (default), "global", or "project" (with workspaceId).'),
+  location: locationKind
+    .optional()
+    .describe('"draft" (the default: written, not installed, no agent uses it), or install it now in "ri", "global", or "project" (with workspaceId).'),
   workspaceId: z.string().optional().describe('For location "project": the agent whose folder it goes in.'),
 };
 
@@ -40,17 +42,18 @@ export const saveSkillShape = {
 };
 
 export const moveSkillShape = {
-  to: locationKind.describe('"ri", "global", or "project" (with workspaceId).'),
+  to: locationKind.describe('Install it in "ri", "global", or "project" (with workspaceId), or "draft" to uninstall it.'),
   workspaceId: z.string().optional().describe('For "project": the agent whose folder it goes in.'),
   copy: z.boolean().optional().describe('Copy it there and keep the original, the way to share a skill with a project.'),
 };
 
-/** A location from the `location`/`to` kind plus `workspaceId` inputs. */
-export function locationFrom(kind: 'ri' | 'global' | 'project' | undefined, workspaceId?: string): SkillLocation {
+/** A location from the `location`/`to` kind plus `workspaceId` inputs. No kind is a draft. */
+export function locationFrom(kind: 'draft' | 'ri' | 'global' | 'project' | undefined, workspaceId?: string): SkillLocation {
+  if (kind === 'ri') return { kind: 'ri' };
   if (kind === 'global') return { kind: 'global' };
   if (kind === 'project') {
     if (!workspaceId) throw new SkillError('invalid', 'Say which agent\'s folder the skill goes in (workspaceId).');
     return { kind: 'project', workspaceId };
   }
-  return { kind: 'ri' };
+  return { kind: 'draft' };
 }

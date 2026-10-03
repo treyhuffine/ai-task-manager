@@ -306,6 +306,10 @@ export interface TaskAttentionSignals {
   working: boolean;
   hasLiveExecution: boolean;
   executionCount: number;
+  /** The chat to open for the agent work on this task: the one running now,
+   * else the one with an update to review, else a stalled one, else any active
+   * one. Null when no active execution works the task. */
+  agentSessionId: string | null;
 }
 
 // ─── Preview Targets ──────────────────────────────────────────

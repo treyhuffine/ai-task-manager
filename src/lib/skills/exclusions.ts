@@ -7,8 +7,9 @@
  *   - A skill's builder chat never gets the Ri skill it's writing, so the AI
  *     edits the file instead of following it.
  *   - A try chat gets the skill it tries even when the harness wouldn't find
- *     it on its own: a project skill, since the try chat runs in Ri's home,
- *     not in that project.
+ *     it on its own: a draft, which nothing reads until it's installed, or
+ *     a project skill, since the try chat runs in Ri's home, not in that
+ *     project.
  */
 
 import { findSkill, parseSkillRef } from './locations';
@@ -32,7 +33,7 @@ export function sessionSkillPlan(ctx: SessionSkillContext): SessionSkillPlan {
   const ref = parseSkillRef(ctx.surfaceRef);
   if (!ref) return plan;
   if (ctx.surfaceKind === 'skill' && ref.location.kind === 'ri') plan.exclude.push(ref.name);
-  if (ctx.surfaceKind === 'skill-try' && ref.location.kind === 'project') {
+  if (ctx.surfaceKind === 'skill-try' && (ref.location.kind === 'project' || ref.location.kind === 'draft')) {
     const skill = findSkill(ctx.surfaceRef);
     if (skill) plan.extra.push(skill.dir);
   }

@@ -315,7 +315,7 @@ export function ensureBrainDir(): string {
 const CONTENT_ENTRIES = [
   'data.db', 'data.db-wal', 'data.db-shm',
   'tasks', 'notes', 'areas', 'stream', 'streams',
-  'attachments', '.archive', 'skills',
+  'attachments', '.archive', 'skills', 'skill-drafts',
   'MEMORY.md', 'USER.md', 'SOUL.md', 'README.md',
 ];
 /**

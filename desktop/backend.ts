@@ -53,7 +53,9 @@ void (async () => {
     } });
   } else {
     const active = installedRuntime();
-    if (!remote && existingInstallation && !active) throw new Error('Start this installation with its existing CLI service before connecting.');
+    // A development launch runs its own checkout, the way `pnpm dev` does, so
+    // it starts the dev home's service itself (the inspection above passed).
+    if (!remote && existingInstallation && !active && mode !== 'development') throw new Error('Start this installation with its existing CLI service before connecting.');
     const runtime = active ?? (process.env.RI_DESKTOP_RESOURCES ? stageFirstDesktopRuntime(process.env.RI_DESKTOP_RESOURCES) : undefined);
     const serviceRepo = runtime?.repo ?? repo;
     status = await ensureServiceStatus({ repo: serviceRepo, node: runtime?.node ?? process.execPath,

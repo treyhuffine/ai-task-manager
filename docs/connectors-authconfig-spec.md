@@ -661,6 +661,19 @@ flows are gated, existing-connection maintenance keeps working so you never stra
 > **Agrees with review (P1-3):** the secret never crosses the store boundary, matching the
 > canonical's existing rule for `ConnectionStore`.
 
+**The callback address is live, not stored (Ri host, 2026-10-02).** A BYO config is saved with the
+callback address Ri had when it was added, and that goes stale when Ri's address changes: a Google
+app added while the tunnel was `flow-trey` kept sending Google `flow-trey` after the rename to
+`ri-trey`, while Connectors settings showed the new address, so the mismatch was invisible.
+Ri's host reads the store through `withLiveCallback` (`src/lib/connectors/live-callback.ts`):
+any callback on Ri's own paths (`/api/connectors/callback`, `/api/connectors/mcp-oauth/<id>`) is
+rebased onto the current origin, `getConnectorRedirectUri()` (the remote address in Devices when
+set, else the local one, or `CONNECTORS_REDIRECT_URI`), on every read. Writes pass through, so the
+file still holds the old value, unused. Callbacks off those paths (a desktop relay) stay as stored.
+There is deliberately no per-app callback setting: an address only works if it is registered with
+the provider, so a picker would only add ways to break sign-in. One address, shown in Connectors,
+following Devices. When it changes, add the new one to the provider's app.
+
 ---
 
 ## 10. UX rules (keep the simple case simple)

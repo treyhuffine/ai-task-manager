@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ExternalAgentDiscovery } from '@/lib/import/types';
 import { importableHistory, preselectedProjects, recentProjects } from './onboarding-import';
 import { AREA_PRESETS, areaOptions } from './onboarding-areas';
+import { defaultModelSummary } from './onboarding-default-model';
 
 let n = 0;
 function session(source: 'claude' | 'codex' | 'opencode', updatedAt: string, opts: { imported?: boolean; importable?: boolean } = {}) {
@@ -76,5 +77,23 @@ describe('areaOptions', () => {
       'personal',
       'Work',
     ]);
+  });
+});
+
+describe('defaultModelSummary', () => {
+  it('says what it found when it picked on its own', () => {
+    expect(defaultModelSummary({ found: 'Claude Code', model: 'Opus 5.5', effort: 'Medium' })).toBe(
+      'Found Claude Code. Default set to Opus 5.5, medium effort.',
+    );
+  });
+
+  it('skips "found" when the person set the harness up by hand', () => {
+    expect(defaultModelSummary({ found: null, model: 'GPT-6.1 Sol', effort: 'Extra high' })).toBe(
+      'Default set to GPT-6.1 Sol, extra high effort.',
+    );
+  });
+
+  it('leaves effort out for a harness without one', () => {
+    expect(defaultModelSummary({ found: 'Cursor', model: 'Auto', effort: null })).toBe('Found Cursor. Default set to Auto.');
   });
 });

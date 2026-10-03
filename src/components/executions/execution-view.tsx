@@ -740,7 +740,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             // `empty:hidden`: the chip renders nothing in some states (a clean
             // worktree with no branch commits), and the row goes with it.
             <div className="flex-shrink-0 border-b border-border px-3 py-2 empty:hidden">
-              <ExecutionActionBar session={session} workspace={workspace} variant="narrative" />
+              <ExecutionActionBar session={session} workspace={workspace} />
             </div>
           )}
           {/* Phone: Enter inserts a newline; the send button submits. Only

@@ -16,16 +16,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { displayPath, locationSentence } from './location-copy';
 import { SkillLocationControl } from './skill-location-control';
 
 export type SkillPane = 'chat' | 'skill';
 
 /**
- * The skill builder's header: the skill's name (its slash command), where it
- * lives and so who uses it, and for a project skill with changes the repo
- * hasn't committed, committing them. Moving it and the rest live behind
- * quieter controls.
+ * The skill builder's header: the skill's name (its slash command), where
+ * it's installed (Install, for a draft), and for a project skill with
+ * changes the repo hasn't committed, committing them. The location menu says
+ * who uses it, so the header doesn't repeat it.
  */
 export function SkillHeader({
   skill,
@@ -67,7 +66,9 @@ export function SkillHeader({
       description:
         skill.location.kind === 'project'
           ? "It leaves the repo, and its chats are archived with it. The folder moves to the archive in your Ri home, so nothing is deleted. Commit the removal to take it away from your team too."
-          : 'No agent will use it anymore, and its chats are archived with it. The folder moves to the archive in your Ri home, so nothing is deleted.',
+          : skill.location.kind === 'draft'
+            ? 'Its chats are archived with it. The folder moves to the archive in your Ri home, so nothing is deleted.'
+            : 'No agent will use it anymore, and its chats are archived with it. The folder moves to the archive in your Ri home, so nothing is deleted.',
       confirmLabel: 'Archive',
       tone: 'destructive',
     });
@@ -132,9 +133,6 @@ export function SkillHeader({
           ) : (
             <h1 className="truncate font-mono text-[13px] font-semibold text-foreground">{skill.name}</h1>
           )}
-          <p className="truncate text-[10.5px] text-muted-foreground/80" title={displayPath(skill.dir)}>
-            {locationSentence(skill)}
-          </p>
         </div>
 
         {showCommit && (

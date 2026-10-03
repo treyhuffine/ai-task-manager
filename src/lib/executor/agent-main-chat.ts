@@ -96,7 +96,7 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
   }
   // Same isolated per-workspace profile the agent's executions browse with.
   const browser = args.strictMcpIsolation && args.appBrowserEnabled && ws.browserEnabled
-    ? browserMcpServer(args.port, { profile: `ws-${ws.id}` })
+    ? browserMcpServer(args.port, { profile: `ws-${ws.id}`, sessionId: args.chatSessionId })
     : null;
   if (browser) servers.push(browser);
 

@@ -34,11 +34,12 @@ export function localInstallation(input: unknown): LocalInstallation {
 
 /** This checks filesystem identity only. The ordinary Node inspector checks
  * the database history and private service protocol before association. */
-export function assertExistingInstallation(identity: LocalInstallation, options: { allowMissingDatabase?: boolean } = {}) {
+export function assertExistingInstallation(identity: LocalInstallation, options: { allowMissingDatabase?: boolean; allowMissingWork?: boolean } = {}) {
   const connected = options.allowMissingDatabase && !fs.existsSync(identity.database) && fs.existsSync(path.join(identity.config, 'connection.json'));
   for (const key of ['root', 'database', 'config', 'work'] as const) {
-    // A viewer-only CLI connection may never have needed a work directory.
-    if (key === 'work' && connected && !fs.existsSync(identity.work)) continue;
+    // A viewer-only CLI connection may never have needed a work directory, and
+    // a dev home `pnpm dev` booted but never used hasn't made one yet.
+    if (key === 'work' && (connected || options.allowMissingWork) && !fs.existsSync(identity.work)) continue;
     if (key === 'database' && options.allowMissingDatabase && !fs.existsSync(identity.database)) continue;
     const stat = fs.statSync(identity[key]);
     if (key === 'database' ? !stat.isFile() : !stat.isDirectory()) throw new Error(`The ${key} path is not an existing ${key === 'database' ? 'file' : 'folder'}.`);

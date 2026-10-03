@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assertNavigable } from './confine';
+import { assertNavigable, isBlockedHost, isRequestAllowed } from './confine';
 
 describe('assertNavigable', () => {
   it('allows public http and https urls', () => {
@@ -37,5 +37,48 @@ describe('assertNavigable', () => {
     expect(() => assertNavigable('file:///etc/passwd')).toThrow();
     expect(() => assertNavigable('ftp://example.com')).toThrow();
     expect(() => assertNavigable('not a url')).toThrow();
+  });
+});
+
+describe('isBlockedHost', () => {
+  it('does not mistake hostnames that start like IPv6 prefixes for addresses', () => {
+    expect(isBlockedHost('fda.gov')).toBe(false);
+    expect(isBlockedHost('fcbarcelona.com')).toBe(false);
+    expect(isBlockedHost('fe80.example.com')).toBe(false);
+  });
+
+  it('blocks IPv6 loopback, link-local, unique-local and mapped private addresses', () => {
+    expect(isBlockedHost('[::1]')).toBe(true);
+    expect(isBlockedHost('::')).toBe(true);
+    expect(isBlockedHost('fe80::1')).toBe(true);
+    expect(isBlockedHost('fd12:3456::1')).toBe(true);
+    expect(isBlockedHost('fc00::1')).toBe(true);
+    expect(isBlockedHost('::ffff:127.0.0.1')).toBe(true);
+    expect(isBlockedHost(new URL('http://[::ffff:127.0.0.1]/').hostname)).toBe(true);
+    expect(isBlockedHost(new URL('http://[::ffff:192.168.1.1]/').hostname)).toBe(true);
+    expect(isBlockedHost(new URL('http://[::ffff:8.8.8.8]/').hostname)).toBe(false);
+    expect(isBlockedHost('2606:4700::1111')).toBe(false);
+  });
+
+  it('blocks every *.localhost name and a trailing-dot localhost', () => {
+    expect(isBlockedHost('ri.localhost')).toBe(true);
+    expect(isBlockedHost('localhost.')).toBe(true);
+    expect(isBlockedHost('notlocalhost.com')).toBe(false);
+  });
+});
+
+describe('isRequestAllowed', () => {
+  it('allows public http(s) and non-network schemes', () => {
+    expect(isRequestAllowed('https://medium.com/gitconnected')).toBe(true);
+    expect(isRequestAllowed('data:text/plain,hi')).toBe(true);
+    expect(isRequestAllowed('blob:https://medium.com/123')).toBe(true);
+  });
+
+  it('refuses private, loopback and metadata addresses, including websockets', () => {
+    expect(isRequestAllowed('http://localhost:4224/api/tasks')).toBe(false);
+    expect(isRequestAllowed('http://192.168.1.1/admin')).toBe(false);
+    expect(isRequestAllowed('http://169.254.169.254/latest/meta-data')).toBe(false);
+    expect(isRequestAllowed('ws://127.0.0.1:9222/devtools')).toBe(false);
+    expect(isRequestAllowed('not a url')).toBe(false);
   });
 });

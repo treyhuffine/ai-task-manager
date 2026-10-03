@@ -182,6 +182,15 @@ export function resolveService(
 /** What the card offers. The live provider status decides sign-in vs setup vs key at render. */
 export type ConnectionRequestKind = 'connect' | 'reconnect' | 'more_access' | 'allow_agent';
 
+/** A connected account a card can grant, as the card shows it and the grant pins it. */
+export interface CardAccount {
+  accountId: string;
+  authConfigId: string | null;
+  connectionId: string;
+  /** Email, else label, else the account id. */
+  label: string;
+}
+
 /** `tool_input` of a `connection_request` chat event. */
 export interface ConnectionRequestView {
   kind: ConnectionRequestKind;
@@ -205,6 +214,15 @@ export interface ConnectionRequestView {
   /** More access: what's missing. Connect: omitted, the provider's defaults apply. */
   scopes: string[] | null;
   authConfigId: string | null;
+  /**
+   * Allow for an agent: the connected accounts the user can grant, and the ones checked to start
+   * with (the account the agent named, or the only one). Cards written before accounts were
+   * offered have neither, and read as one unnamed choice.
+   */
+  accounts?: CardAccount[];
+  preselected?: string[];
+  /** The account the agent named, in its words ("trey@marketstandard.app", "Market Standard"). */
+  requestedAccount?: string | null;
 }
 
 export type ConnectionOutcome = 'connected' | 'allowed' | 'declined';
@@ -215,8 +233,61 @@ export interface ConnectionResponseView {
   outcome: ConnectionOutcome;
   providerId: string;
   label: string;
+  /** The first of `accounts`, kept for rows read by older code. */
   account: string | null;
+  /** Exactly the accounts connected or allowed. Empty for a decline. */
+  accounts?: string[];
   agent: { workspaceId: string; name: string } | null;
+}
+
+function normalizeAccount(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/** Words that say what kind of account, not which: "my Market Standard email" names "market standard". */
+const NOT_A_NAME = new Set([
+  'my', 'the', 'our', 'their', 'his', 'her', 'one', 'for', 'and', 'with', 'from', 'use',
+  'account', 'accounts', 'address', 'email', 'emails', 'mail', 'inbox', 'calendar', 'calendars',
+  'gmail', 'google', 'outlook', 'microsoft',
+]);
+
+function nameWords(hint: string): string[] {
+  return hint.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !NOT_A_NAME.has(w));
+}
+
+export function looksLikeEmail(text: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text.trim());
+}
+
+/** Whether the words name some account at all: an address, or more than "my email". */
+export function namesAccount(hint: string | null | undefined): boolean {
+  const text = hint?.trim();
+  return !!text && (looksLikeEmail(text) || nameWords(text).length > 0);
+}
+
+/**
+ * The connected accounts an agent's words name: an exact email, label or account id first, else
+ * the one account whose email or label holds the words ("Market Standard", "my marketstandard
+ * email" → trey@marketstandard.app). An address names exactly one account, so it only matches
+ * exactly. Words that fit several accounts name none: the user picks on the card.
+ */
+export function matchAccounts(hint: string | null | undefined, accounts: readonly CardAccount[]): CardAccount[] {
+  const wanted = hint?.trim().toLowerCase();
+  if (!wanted) return [];
+  const exact = accounts.filter((a) => a.label.toLowerCase() === wanted || a.accountId.toLowerCase() === wanted);
+  if (exact.length > 0 || looksLikeEmail(wanted)) return exact;
+  const needle = normalizeAccount(wanted);
+  const whole = needle.length >= 3 ? accounts.filter((a) => normalizeAccount(a.label).includes(needle)) : [];
+  if (whole.length === 1) return whole;
+  const words = nameWords(wanted);
+  const byWords = words.length > 0 ? accounts.filter((a) => words.every((w) => normalizeAccount(a.label).includes(w))) : [];
+  return byWords.length === 1 ? byWords : [];
+}
+
+/** "a@x.com", "a@x.com and b@y.com", "a@x.com, b@y.com and c@z.com". */
+export function describeAccounts(labels: readonly string[]): string {
+  if (labels.length <= 1) return labels[0] ?? '';
+  return `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}`;
 }
 
 const NOTE_HEADER = "[Connection, from the app on the user's behalf]";
@@ -232,11 +303,23 @@ function toolHint(toolkitIds: readonly string[]): string {
  */
 export function connectionNote(
   outcome: ConnectionOutcome,
-  view: Pick<ConnectionRequestView, 'kind' | 'label' | 'toolkitIds' | 'account'>,
-  opts: { account?: string | null; forOtherAgent?: string | null } = {},
+  view: Pick<ConnectionRequestView, 'kind' | 'label' | 'toolkitIds' | 'account' | 'requestedAccount'>,
+  opts: { accounts?: readonly string[]; forOtherAgent?: string | null } = {},
 ): string {
-  const account = opts.account ?? view.account;
-  const as = account ? ` (account ${account})` : '';
+  const accounts = opts.accounts ?? (view.account ? [view.account] : []);
+  // Name exactly what was granted. With several, the tools take `account` to choose between them.
+  const as = accounts.length === 0
+    ? ''
+    : accounts.length === 1
+      ? ` on ${accounts[0]}`
+      : ` on ${describeAccounts(accounts)} (pass \`account\` to choose)`;
+  // A sign-in can land on a different account than the one asked for: say so, don't paper over it.
+  const asked = view.requestedAccount;
+  const mismatch =
+    outcome === 'connected' && asked && accounts.length > 0 &&
+    !accounts.some((label) => matchAccounts(asked, [{ accountId: label, authConfigId: null, connectionId: label, label }]).length > 0)
+      ? ` That isn't the account you asked for (${asked}), so check with the user before relying on it.`
+      : '';
   if (outcome === 'declined') {
     return `${NOTE_HEADER}\n\nThe user chose not to connect ${view.label} for now. Don't ask for it again in this chat unless they bring it up. Continue without it, or tell them what you couldn't do.`;
   }
@@ -250,8 +333,8 @@ export function connectionNote(
       : view.kind === 'more_access'
         ? `gave ${view.label}${as} the extra access it needed. Retry the call that failed.`
         : outcome === 'allowed'
-          ? `allowed this agent to use ${view.label}${as}. Its tools (${toolHint(view.toolkitIds)}) are available now. Continue the task you were doing.`
-          : `connected ${view.label}${as}. Its tools (${toolHint(view.toolkitIds)}) are available now. Continue the task you were doing.`;
+          ? `allowed this agent to use ${view.label}${as}. Its tools (${toolHint(view.toolkitIds)}) are available now.${mismatch} Continue the task you were doing.`
+          : `connected ${view.label}${as}. Its tools (${toolHint(view.toolkitIds)}) are available now.${mismatch} Continue the task you were doing.`;
   return `${NOTE_HEADER}\n\nThe user ${what}`;
 }
 

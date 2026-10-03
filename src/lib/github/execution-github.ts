@@ -41,6 +41,8 @@ export interface PrInfo {
   reviewDecision: PrReviewDecision | null;
   /** Whether auto-merge ("merge when ready") is enabled on the PR. */
   autoMergeEnabled: boolean;
+  /** GitHub requires it brought up to date with its base before merging (see `PrStatus.outOfDate`). */
+  outOfDate: boolean;
 }
 
 type PrLike = Pick<PrInfo, 'number' | 'url' | 'state' | 'isDraft' | 'headRefName' | 'baseRefName' | 'title' | 'updatedAt'>;
@@ -59,6 +61,7 @@ function toPrInfo(pr: PrLike, status: PrStatus | null): PrInfo {
     checks: status?.checks ?? null,
     reviewDecision: status?.reviewDecision ?? null,
     autoMergeEnabled: status?.autoMergeEnabled ?? false,
+    outOfDate: status?.outOfDate ?? false,
   };
 }
 

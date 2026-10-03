@@ -8,9 +8,10 @@ export const runtime = 'nodejs';
 type Context = { params: Promise<{ ref: string }> };
 
 /**
- * Move a skill to Ri, global or a project, or copy it there with `copy`
- * (sharing a skill with a project's team): POST { to, workspaceId?, copy? }
- * → { skill } at its new place.
+ * Install a draft in Ri, global or a project, move an installed skill, or
+ * uninstall it back to the drafts (`to: "draft"`). `copy` keeps the
+ * original (sharing a skill with a project's team).
+ * POST { to, workspaceId?, copy? } → { skill } at its new place.
  */
 export async function POST(request: Request, { params }: Context) {
   const { ref } = await params;

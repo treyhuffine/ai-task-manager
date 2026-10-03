@@ -20,7 +20,7 @@
  */
 import type { ActionOutcome, Connection, ConnectorRuntime } from '@connectors/engine';
 import { PROVIDER_CATALOG } from '@connectors/engine/providers';
-import type { ChatEventRecord, ChatEventSource, WorkspaceRecord } from '@/db/types';
+import type { ChatEventRecord, ChatEventSource, WorkspaceConnectorScopeAccount, WorkspaceRecord } from '@/db/types';
 import {
   getChatEventById,
   getChatSessionWithExecution,
@@ -37,7 +37,12 @@ import { dispatchSessionTurn } from '@/lib/sessions/deliver';
 import { beginConnect, type BeginConnectResult } from './begin-connect';
 import {
   connectionNote,
+  describeAccounts,
+  looksLikeEmail,
+  matchAccounts,
+  namesAccount,
   resolveService,
+  type CardAccount,
   type CatalogProvider,
   type CatalogToolkit,
   type ConnectionOutcome,
@@ -53,6 +58,7 @@ import {
   resolveWorkspaceConnectorFilter,
 } from './runtime';
 import { validateConnectorScopes } from './scopes';
+import { pinKey, pinOfConnection, scopePins } from './scope-pins';
 
 /** A connector call's non-ok outcome, as the MCP pause hook hands it over. */
 type FailedOutcome = Extract<ActionOutcome, { ok: false }>;
@@ -99,28 +105,55 @@ function asResponse(row: ChatEventRecord): ConnectionResponseView | null {
 
 interface ChatCards {
   open: { row: ChatEventRecord; view: ConnectionRequestView }[];
-  /** Latest recorded outcome per provider (and target agent) in this chat. */
-  lastOutcome: Map<string, ConnectionOutcome>;
+  /** `provider|agent|toolkit` the user said "Not now" to, in this chat. */
+  declined: Set<string>;
 }
 
-function cardKey(providerId: string, agent: ConnectionRequestView['agent']): string {
-  return `${providerId}|${agent?.workspaceId ?? ''}`;
+function serviceKeys(providerId: string, agent: ConnectionRequestView['agent'], toolkitIds: readonly string[]): string[] {
+  return toolkitIds.map((t) => `${providerId}|${agent?.workspaceId ?? ''}|${t}`);
 }
 
 function readChatCards(sessionId: string): ChatCards {
   const rows = listSessionEventsBySource(sessionId, [REQUEST, RESPONSE]);
+  const requests = new Map<string, ConnectionRequestView>();
   const answered = new Set<string>();
-  const lastOutcome = new Map<string, ConnectionOutcome>();
+  const declined = new Set<string>();
   for (const row of rows) {
+    const view = asView(row);
+    if (view) requests.set(row.id, view);
     const r = asResponse(row);
     if (!r) continue;
     answered.add(r.requestEventId);
-    lastOutcome.set(cardKey(r.providerId, r.agent), r.outcome);
+    const asked = requests.get(r.requestEventId);
+    const keys = serviceKeys(r.providerId, r.agent, asked?.toolkitIds ?? []);
+    // A later answer to the same service supersedes an earlier "Not now".
+    for (const key of keys) {
+      if (r.outcome === 'declined') declined.add(key);
+      else declined.delete(key);
+    }
   }
   const open = rows
     .map((row) => ({ row, view: asView(row) }))
     .filter((c): c is { row: ChatEventRecord; view: ConnectionRequestView } => c.view !== null && !answered.has(c.row.id));
-  return { open, lastOutcome };
+  return { open, declined };
+}
+
+/**
+ * An open card of the same kind covering any of the same services for the same agent: one card per
+ * service. A card of another kind is a different ask: a Connect card left open after the account got
+ * connected in Settings mustn't block the "Allow for this agent" the agent needs now.
+ */
+function openCardFor(
+  cards: ChatCards,
+  kind: ConnectionRequestKind,
+  providerId: string,
+  agent: ConnectionRequestView['agent'],
+  toolkitIds: readonly string[],
+): { row: ChatEventRecord; view: ConnectionRequestView } | undefined {
+  const wanted = new Set(serviceKeys(providerId, agent, toolkitIds));
+  return cards.open.find(
+    (c) => c.view.kind === kind && serviceKeys(c.view.providerId, c.view.agent, c.view.toolkitIds).some((k) => wanted.has(k)),
+  );
 }
 
 // ── Catalog and state ───────────────────────────────────────────────────────
@@ -136,6 +169,10 @@ const MCP_PROVIDER_PREFIX = 'mcp_';
  * the name they gave it ("Team Calendar", not "MCP: team_calendar"). An MCP server is connected
  * whenever it's ingested, so it can only ever be available or need an agent's access, never a
  * sign-in: servers are added in Settings.
+ *
+ * A built-in hosted service (Slack, Notion, Linear, Todoist…) only registers its toolkit once it's
+ * connected, under the provider's own id. Until then it stands in under that id, so asking for it
+ * gets a Connect card rather than "unsupported", and the card's service is the one it connects.
  */
 function matchCatalog(runtime: ConnectorRuntime): { toolkits: CatalogToolkit[]; providers: CatalogProvider[] } {
   const names = new Map<string, string>();
@@ -144,11 +181,16 @@ function matchCatalog(runtime: ConnectorRuntime): { toolkits: CatalogToolkit[]; 
   } catch {
     /* no MCP store yet */
   }
-  const toolkits = runtime.getToolkits().map((t) => ({
+  const registered = runtime.getToolkits().map((t) => ({
     id: t.id,
     providerId: t.providerId,
     displayName: names.get(t.providerId) ?? t.displayName,
   }));
+  const withToolkits = new Set(registered.map((t) => t.providerId));
+  const hosted = catalogProviders()
+    .filter((p) => p.method === 'mcp' && !withToolkits.has(p.id))
+    .map((p) => ({ id: p.id, providerId: p.id, displayName: p.displayName }));
+  const toolkits = [...registered, ...hosted];
   const mcpProviders: CatalogProvider[] = [...new Set(toolkits.map((t) => t.providerId))]
     .filter((id) => id.startsWith(MCP_PROVIDER_PREFIX))
     .map((id) => ({ id, displayName: names.get(id) ?? id, method: 'custom' }));
@@ -168,10 +210,25 @@ function agentRef(ws: WorkspaceRecord | null | undefined): ConnectionRequestView
   return ws ? { workspaceId: ws.id, name: ws.name } : null;
 }
 
-/** The toolkits an agent still lacks, of the ones a request is about. Empty = it can use them all. */
-async function missingForAgent(workspaceId: string, toolkitIds: readonly string[]): Promise<string[]> {
+function cardAccount(c: Connection): CardAccount {
+  return { accountId: c.accountId, authConfigId: c.authConfigId ?? null, connectionId: c.id, label: c.email ?? c.label ?? c.accountId };
+}
+
+/**
+ * Which of a provider's connections an agent can use, per toolkit, exactly as its connector scope
+ * resolves at call time: none when the toolkit isn't granted, the pinned account(s) when it's
+ * pinned, and every connection when it's granted for all accounts.
+ */
+async function usableByAgent(workspaceId: string, toolkitIds: readonly string[], connections: readonly Connection[]): Promise<Map<string, Set<string>>> {
   const filter = await resolveWorkspaceConnectorFilter(workspaceId);
-  return toolkitIds.filter((id) => !filter.toolkits.includes(id));
+  const usable = new Map<string, Set<string>>();
+  for (const t of toolkitIds) {
+    if (!filter.toolkits.includes(t)) usable.set(t, new Set());
+    else if (filter.connectionPins[t]) usable.set(t, new Set([filter.connectionPins[t]!]));
+    else if (filter.allowedAccounts[t]?.length) usable.set(t, new Set(filter.allowedAccounts[t]!.map((a) => a.connectionId)));
+    else usable.set(t, new Set(connections.map((c) => c.id)));
+  }
+  return usable;
 }
 
 /**
@@ -203,6 +260,8 @@ export interface RequestConnectionInput {
   forAgent?: string | null;
   /** The user explicitly asked, in their latest message, to connect this service. */
   userAsked?: boolean;
+  /** The account the user named, in their words ("trey@marketstandard.app", "Market Standard"). */
+  account?: string | null;
 }
 
 export async function requestConnection(input: RequestConnectionInput): Promise<RequestConnectionResult> {
@@ -250,43 +309,71 @@ export async function requestConnection(input: RequestConnectionInput): Promise<
   }
 
   const connections = await providerConnections(runtime, match.providerId);
-  if (connections.length === 0 && match.providerId.startsWith(MCP_PROVIDER_PREFIX)) {
+  const isMcp = match.providerId.startsWith(MCP_PROVIDER_PREFIX);
+  if (connections.length === 0 && isMcp) {
     return {
       status: 'unsupported',
       message: `${match.label} is an MCP server that isn't running right now. Ask the user to check it in Settings, Plugins.`,
     };
   }
+  const choices = connections.map(cardAccount);
+  // An MCP server's connection is vestigial, it has no accounts to name.
+  const hint = isMcp ? null : input.account?.trim() || null;
+  const named = matchAccounts(hint, choices);
+  const requestedAccount = hint && (named.length > 0 || namesAccount(hint)) ? hint : null;
+  // An address that isn't connected is an account to connect. Words that fit no single connected
+  // account ("work") leave the choice to the user, on the card.
+  const newAccount = requestedAccount !== null && named.length === 0 && looksLikeEmail(requestedAccount);
+  const agent = agentRef(target);
+
   let kind: ConnectionRequestKind = 'connect';
   let toolkitIds = match.toolkitIds;
-  if (connections.length > 0) {
-    const missing = target ? await missingForAgent(target.id, match.toolkitIds) : [];
+  let preselected: string[] = [];
+  if (connections.length > 0 && !newAccount) {
+    // The accounts this request is about: the one(s) named, else any connected one.
+    const usable = target ? await usableByAgent(target.id, match.toolkitIds, connections) : null;
+    const wanted = named.length > 0 ? named : choices;
+    const missing = match.toolkitIds.filter((t) => {
+      if (!usable) return false; // the main chat uses every connected account
+      const ids = usable.get(t)!;
+      return named.length > 0 ? !named.every((a) => ids.has(a.connectionId)) : ids.size === 0;
+    });
     if (missing.length === 0) {
       // Usable already. An agent asking for something it has usually started before the account
       // was connected, so its tool list is stale: reload it once this turn ends.
       if (!onBehalf) await executor.recycleWhenIdle(input.sessionId);
+      // Confirm the account that was named, else every account it can use.
+      const on = (named.length > 0 || !usable
+        ? wanted
+        : choices.filter((c) => match.toolkitIds.every((t) => usable.get(t)!.has(c.connectionId)))
+      ).map((c) => c.label);
+      const accounts = on.length > 0 && !isMcp ? ` on ${describeAccounts(on)}` : '';
+      const choose = on.length > 1 && !isMcp ? ' Pass `account` to choose.' : named.length > 0 && !isMcp ? ' Pass it as `account`.' : '';
       return {
         status: 'already_available',
         service: match.label,
         message: onBehalf
-          ? `${match.label} is already connected and available to the "${target!.name}" agent.`
-          : `${match.label} is already connected and available here. If its tools (${match.toolkitIds.map((t) => `${t}__…`).join(', ')}) aren't in your list, they were connected after this chat started. The app reloads your tools when this turn ends, so they'll be there on your next turn.`,
+          ? `${match.label} is already connected and available to the "${target!.name}" agent${accounts}.`
+          : `${match.label} is already connected and available here${accounts}.${choose} If its tools (${match.toolkitIds.map((t) => `${t}__…`).join(', ')}) aren't in your list, they were connected after this chat started. The app reloads your tools when this turn ends, so they'll be there on your next turn.`,
       };
     }
     kind = 'allow_agent';
     toolkitIds = missing;
+    // Checked to start with: the account the agent named, or the only one there is. With several
+    // and none named, nothing: the user picks, rather than handing over every inbox at once.
+    preselected = isMcp ? [] : named.length > 0 ? named.map((a) => a.accountId) : choices.length === 1 ? [choices[0]!.accountId] : [];
   }
 
   const cards = readChatCards(input.sessionId);
-  const agent = agentRef(target);
-  const key = cardKey(match.providerId, agent);
-  if (cards.open.some((c) => cardKey(c.view.providerId, c.view.agent) === key)) {
+  const open = openCardFor(cards, kind, match.providerId, agent, toolkitIds);
+  if (open) {
     return {
       status: 'already_asked',
       service: match.label,
-      message: `A card for ${match.label} is already waiting in this chat. Stop and wait for the user to answer it.`,
+      message: `A card for ${open.view.label} is already waiting in this chat, and it covers ${match.label}. Stop and wait for the user to answer it.`,
     };
   }
-  if (cards.lastOutcome.get(key) === 'declined' && !input.userAsked) {
+  if (serviceKeys(match.providerId, agent, toolkitIds).some((k) => cards.declined.has(k)) && !input.userAsked) {
     return {
       status: 'declined_earlier',
       service: match.label,
@@ -295,9 +382,6 @@ export async function requestConnection(input: RequestConnectionInput): Promise<
   }
 
   const entry = catalog.providers.find((p) => p.id === match.providerId);
-  const account = kind === 'allow_agent' && !match.providerId.startsWith(MCP_PROVIDER_PREFIX)
-    ? connections[0]?.email ?? connections[0]?.label ?? null
-    : null;
   writeRequest(input.sessionId, {
     kind,
     providerId: match.providerId,
@@ -310,18 +394,27 @@ export async function requestConnection(input: RequestConnectionInput): Promise<
     requestedBy: 'agent',
     agent,
     onBehalf,
-    connectionId: kind === 'allow_agent' ? connections[0]?.id ?? null : null,
-    account,
+    connectionId: null,
+    account: null,
     scopes: null,
     authConfigId: null,
+    accounts: kind === 'allow_agent' && !isMcp ? choices : [],
+    preselected,
+    requestedAccount,
   });
+  const forWhom = onBehalf ? `the "${target!.name}" agent` : 'this agent';
   const what = kind === 'allow_agent'
-    ? `give ${onBehalf ? `the "${target!.name}" agent` : 'this agent'} access to ${match.label}`
-    : `connect ${match.label}`;
+    ? `give ${forWhom} access to ${match.label}${named.length > 0 ? ` on ${describeAccounts(named.map((a) => a.label))}` : choices.length > 1 && !isMcp ? ', choosing which accounts' : ''}`
+    : newAccount && connections.length > 0
+      ? `connect another ${match.providerName} account (${requestedAccount}) for ${match.label}`
+      : `connect ${match.label}${requestedAccount ? ` (${requestedAccount})` : ''}`;
+  const unclear = kind === 'allow_agent' && requestedAccount && named.length === 0
+    ? ` No connected account is clearly "${requestedAccount}", so the user picks.`
+    : '';
   return {
     status: 'card_shown',
     service: match.label,
-    message: `A card asking the user to ${what} is now in this chat. Tell them briefly, then stop and wait. You'll get a note when they decide.`,
+    message: `A card asking the user to ${what} is now in this chat.${unclear} Tell them briefly, then stop and wait. You'll get a note when they decide, naming exactly which accounts you got.`,
   };
 }
 
@@ -376,8 +469,19 @@ export async function recordPausedConnection(args: {
   }
   const connection = connectionId ? (await providerConnections(runtime, providerId)).find((c) => c.id === connectionId) : undefined;
   const agent = agentRef(args.scopeWorkspaceId ? getWorkspace(args.scopeWorkspaceId) : null);
+  // One app-raised card per connection (or per unconnected provider) while it's open.
   const cards = readChatCards(sessionId);
-  if (cards.open.some((c) => cardKey(c.view.providerId, c.view.agent) === cardKey(providerId, agent))) return;
+  if (
+    cards.open.some(
+      (c) =>
+        c.view.requestedBy === 'app' &&
+        c.view.providerId === providerId &&
+        (c.view.agent?.workspaceId ?? '') === (agent?.workspaceId ?? '') &&
+        c.view.connectionId === connectionId,
+    )
+  ) {
+    return;
+  }
 
   writeRequest(sessionId, {
     kind,
@@ -442,9 +546,13 @@ export async function startCardSignIn(
   if (view.method !== 'oauth2') throw new ConnectionRequestError('invalid', `${view.label} connects with a key, not a sign-in.`);
   const runtime = await getConnectorRuntime();
   if (view.kind === 'connect') {
-    const existing = (await providerConnections(runtime, view.providerId))[0];
-    if (existing) {
-      await resolveCard(row, view, 'connected', existing);
+    // Connected meanwhile (in Settings, or a sign-in that finished across a restart): resolve
+    // without another sign-in, but only when it's clear which account the card meant.
+    const accounts = (await providerConnections(runtime, view.providerId)).map(cardAccount);
+    const named = matchAccounts(view.requestedAccount, accounts);
+    const meant = named.length > 0 || view.requestedAccount ? named : accounts;
+    if (meant.length === 1) {
+      await resolveCard(row, view, 'connected', meant);
       return { done: true };
     }
   }
@@ -458,7 +566,7 @@ export async function startCardSignIn(
     ...(view.connectionId ? { existingConnectionId: view.connectionId } : {}),
     ...(view.authConfigId ? { authConfigId: view.authConfigId } : {}),
     returnTo,
-    onCompleted: (connection) => resolveCard(row, view, 'connected', connection),
+    onCompleted: (connection) => resolveCard(row, view, 'connected', [cardAccount(connection)]),
   });
 }
 
@@ -486,32 +594,64 @@ export async function connectCardWithKey(eventId: string, fields: Record<string,
   } catch (e) {
     throw new ConnectionRequestError('failed', e instanceof Error ? e.message : String(e));
   }
-  await resolveCard(row, view, 'connected', connection);
+  await resolveCard(row, view, 'connected', [cardAccount(connection)]);
 }
 
-/** Give the card's agent access to an account that's already connected. */
-export async function allowCardForAgent(eventId: string): Promise<void> {
+/**
+ * Give the card's agent access to the accounts the user checked, exactly those. The choice is
+ * checked against the live connections, so an account disconnected since can't be granted.
+ */
+export async function allowCardForAgent(eventId: string, accountIds: readonly string[] = []): Promise<void> {
   const { row, view } = openCard(eventId);
   if (view.kind !== 'allow_agent' || !view.agent) throw new ConnectionRequestError('invalid', 'This card has no agent to give access to.');
-  await resolveCard(row, view, 'allowed', null);
+  const live = (await providerConnections(await getConnectorRuntime(), view.providerId)).map(cardAccount);
+  // An MCP server's single vestigial connection, or a card from before accounts were offered with
+  // only one account to give: nothing to choose.
+  const offered = view.accounts && view.accounts.length > 0 ? view.accounts : live;
+  let chosen = live.filter((a) => accountIds.includes(a.accountId) && offered.some((o) => o.accountId === a.accountId));
+  if (chosen.length === 0 && offered.length === 1 && accountIds.length === 0) chosen = live.filter((a) => a.accountId === offered[0]!.accountId);
+  if (chosen.length === 0) throw new ConnectionRequestError('invalid', 'Choose at least one account.');
+  await resolveCard(row, view, 'allowed', chosen);
 }
 
 export async function declineCard(eventId: string): Promise<void> {
   const { row, view } = openCard(eventId);
-  await resolveCard(row, view, 'declined', null);
+  await resolveCard(row, view, 'declined', []);
 }
 
 // ── Resolving a card and waking the agent ───────────────────────────────────
 
-/** Add toolkits to an agent's connector access, through the Agents view's own validation. */
-async function grantToolkits(workspaceId: string, toolkitIds: readonly string[]): Promise<void> {
+/**
+ * Give an agent these toolkits on exactly these accounts, through the Agents view's own validation.
+ * A toolkit it doesn't have yet is added pinned to them. One it has on other accounts gets them
+ * added to its pins. One it has for every account already covers them.
+ */
+async function grantAccess(workspaceId: string, toolkitIds: readonly string[], accounts: readonly CardAccount[]): Promise<void> {
   const ws = getWorkspace(workspaceId);
-  if (!ws) return;
+  if (!ws || accounts.length === 0) return;
   const stored = ws.connectorScopes ?? [];
-  const have = new Set(stored.map((s) => s.toolkitId));
-  const added = toolkitIds.filter((id) => !have.has(id));
-  if (added.length === 0) return;
-  const result = await validateConnectorScopes([...stored, ...added.map((toolkitId) => ({ toolkitId }))], { stored });
+  const wanted = accounts.map(pinOfConnection);
+  const next: { toolkitId: string; accounts: WorkspaceConnectorScopeAccount[] }[] = stored.map((sc) => ({
+    toolkitId: sc.toolkitId,
+    accounts: scopePins(sc),
+  }));
+  let changed = false;
+  for (const toolkitId of toolkitIds) {
+    const existing = next.find((sc) => sc.toolkitId === toolkitId);
+    if (!existing) {
+      next.push({ toolkitId, accounts: wanted });
+      changed = true;
+      continue;
+    }
+    const pins = existing.accounts;
+    if (pins.length === 0) continue; // already every account
+    const added = wanted.filter((w) => !pins.some((p) => pinKey(p) === pinKey(w)));
+    if (added.length === 0) continue;
+    existing.accounts = [...pins, ...added];
+    changed = true;
+  }
+  if (!changed) return;
+  const result = await validateConnectorScopes(next, { stored });
   if (!result.ok) throw new ConnectionRequestError('failed', result.error);
   setWorkspaceConnectorScopes(workspaceId, result.scopes);
   await executor.recycleWorkspaceSessions(workspaceId);
@@ -521,34 +661,40 @@ async function resolveCard(
   row: ChatEventRecord,
   view: ConnectionRequestView,
   outcome: ConnectionOutcome,
-  connection: Connection | null,
+  granted: readonly CardAccount[],
 ): Promise<void> {
   // A sign-in can land after the card was answered another way (two tabs). First answer wins.
   if (readChatCards(row.sessionId).open.every((c) => c.row.id !== row.id)) return;
-  const account = connection?.email ?? connection?.label ?? view.account;
-  if (outcome !== 'declined' && view.agent) {
-    await grantToolkits(view.agent.workspaceId, view.toolkitIds);
+  const isMcp = view.providerId.startsWith(MCP_PROVIDER_PREFIX);
+  // Name exactly the accounts this answer covers. A reconnect keeps the card's own account.
+  const accountLabels = isMcp ? [] : granted.length > 0 ? granted.map((a) => a.label) : view.account ? [view.account] : [];
+  // Only an asked-for service changes an agent's access. An app-raised card (Reconnect, More access)
+  // restores a connection the agent already uses, and lists every service of the provider.
+  if (outcome !== 'declined' && view.agent && view.requestedBy === 'agent' && (view.kind === 'connect' || view.kind === 'allow_agent')) {
+    await grantAccess(view.agent.workspaceId, view.toolkitIds, granted);
   }
   const response: ConnectionResponseView = {
     requestEventId: row.id,
     outcome,
     providerId: view.providerId,
     label: view.label,
-    account,
+    account: accountLabels[0] ?? null,
+    accounts: outcome === 'declined' ? [] : accountLabels,
     agent: view.agent,
   };
   const text = outcome === 'declined' ? 'Not now' : outcome === 'allowed' ? 'Allowed' : view.kind === 'reconnect' ? 'Reconnected' : 'Connected';
+  const shown = outcome === 'declined' || accountLabels.length === 0 ? '' : ` (${describeAccounts(accountLabels)})`;
   insertChatEvent({
     sessionId: row.sessionId,
     role: 'system',
     source: RESPONSE,
-    content: `${text}: ${view.label}${account ? ` (${account})` : ''}`,
+    content: `${text}: ${view.label}${shown}`,
     toolName: null,
     toolInput: response,
     toolIsError: outcome === 'declined',
     createdAt: new Date().toISOString(),
   });
-  const note = connectionNote(outcome, view, { account, forOtherAgent: view.onBehalf ? view.agent?.name ?? null : null });
+  const note = connectionNote(outcome, view, { accounts: accountLabels, forOtherAgent: view.onBehalf ? view.agent?.name ?? null : null });
   // New tools only reach a harness when its process restarts, so reload the asking chat before the
   // note, unless it was a decline or on another agent's behalf (nothing new for this chat).
   wakeAgent(row.sessionId, note, { reload: outcome !== 'declined' && !view.onBehalf });

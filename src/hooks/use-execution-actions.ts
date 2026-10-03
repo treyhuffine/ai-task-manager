@@ -2,17 +2,20 @@
 
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { sessionsApi, type MergeRequestBody, type AutoMergeRequestBody, type PrInfo, type WorktreeStatus } from '@/lib/api/sessions';
+import { sessionsApi, type MergeRequestBody, type AutoMergeRequestBody, type PrInfo, type WorktreeStatus, type DiffStats } from '@/lib/api/sessions';
+import type { BranchSync } from '@/lib/workspaces/branch-sync';
 import {
   useCommit,
   usePush,
   usePullBase,
+  usePullUpstream,
   useRetrySetup,
   useSessionStatus,
   useTransfer,
   useWorktreeScope,
   worktreeScopeFromCache,
 } from '@/hooks/use-execution';
+import { useDiffStats } from '@/hooks/use-workspaces';
 import type { ChatSessionWithExecution } from '@/db/types';
 import type { TransferView } from '@/lib/transfer/view';
 import { preparedFolder } from '@/lib/executions/location';
@@ -26,15 +29,28 @@ export interface PrContext {
 export type ActionState =
   | { kind: 'cleanNoBranch' }
   | { kind: 'dirty'; staged: number; unstaged: number; untracked: number; pr?: PrContext }
-  /** Clean worktree, branch is behind base, no PR open yet. Surfaces a
-   *  Pull button so the user can refresh from main before any branch
-   *  divergence compounds. The original state machine only checked
-   *  "behind" with a PR in flight, leaving pre-PR branches without an
-   *  affordance to keep up with main. */
+  /** Clean worktree, branch is behind base, no PR open yet, and nothing
+   *  of its own to push. Surfaces a Pull button so the user can refresh
+   *  from main. */
   | { kind: 'behindBase'; behind: number }
+  /** The branch's own remote copy has commits this side lacks: pushed from
+   *  elsewhere (GitHub's "Update branch", a committed review suggestion,
+   *  another clone). Pull brings them in, merging when this side has
+   *  commits of its own, before anything is pushed. `remote` names it for
+   *  the label ("origin"). */
+  | { kind: 'behindRemote'; behind: number; remote: string; pr?: PrContext }
   | { kind: 'aheadNoPr'; ahead: number }
+  /** Clean, nothing left to push, no PR, but the branch changes files
+   *  against its base: it was pushed (or never tracked a remote) and the
+   *  next step is opening the PR. Upstream ahead/behind can't see this,
+   *  since after the first push the upstream is the branch's own remote
+   *  copy, so it reads the base-relative diff stats instead. */
+  | { kind: 'branchNoPr'; files: number }
   | { kind: 'prOpenInSync'; prNumber: number; prUrl: string }
   | { kind: 'prOpenAhead'; prNumber: number; prUrl: string; ahead: number }
+  /** GitHub won't merge it until it has the base's latest commits (the base
+   *  requires up-to-date branches). `behind` is the local count, 0 when this
+   *  side hasn't fetched the base since it moved. */
   | { kind: 'prOpenBehindBase'; prNumber: number; prUrl: string; behind: number }
   /** PR open and GitHub reports `mergeable: CONFLICTING` — base branch
    *  has moved in a way that doesn't merge cleanly. Resolution path:
@@ -192,11 +208,14 @@ export function useHelpWithError(id: string) {
 
 interface UseExecutionActionsResult {
   state: ActionState;
+  /** The base's name and how far behind it the branch is, when the status says. */
+  base: BaseInfo | null;
   /** The session's PR to link to in every state (see `useOpenablePr`). */
   openablePr: OpenablePr | null;
   commit: ReturnType<typeof useCommit>;
   push: ReturnType<typeof usePush>;
   pullBase: ReturnType<typeof usePullBase>;
+  pullUpstream: ReturnType<typeof usePullUpstream>;
   retrySetup: ReturnType<typeof useRetrySetup>;
   openPr: ReturnType<typeof useOpenPr>;
   mergePr: ReturnType<typeof useMergePr>;
@@ -216,10 +235,12 @@ export function useExecutionActions(
   const { data: status } = useSessionStatus(id || null);
   const { data: prResp } = useSessionPr(id || null);
   const { data: transfer } = useTransfer(id || null);
+  const { data: diffStats } = useDiffStats(id || null, session?.executionId ?? null);
   const openablePr = useOpenablePr(session);
   const commit = useCommit(id);
   const push = usePush(id);
   const pullBase = usePullBase(id);
+  const pullUpstream = usePullUpstream(id);
   const retrySetup = useRetrySetup(id);
   const openPr = useOpenPr(id);
   const mergePr = useMergePr(id);
@@ -237,11 +258,13 @@ export function useExecutionActions(
   }, [push.error]);
 
   const state = useMemo<ActionState>(
-    () => deriveActionState({ session, workspaceIsGit, transfer, pushNonFastForward, status, pr: prResp?.pr }),
-    [session, workspaceIsGit, prResp, status, pushNonFastForward, transfer],
+    () => deriveActionState({ session, workspaceIsGit, transfer, pushNonFastForward, status, pr: prResp?.pr, diffStats }),
+    [session, workspaceIsGit, prResp, status, pushNonFastForward, transfer, diffStats],
   );
 
-  return { state, openablePr, commit, push, pullBase, retrySetup, openPr, mergePr, resolveConflicts };
+  const base = useMemo(() => baseInfo(status), [status]);
+
+  return { state, base, openablePr, commit, push, pullBase, pullUpstream, retrySetup, openPr, mergePr, resolveConflicts };
 }
 
 export interface ActionStateInput {
@@ -252,10 +275,12 @@ export interface ActionStateInput {
   pushNonFastForward: boolean;
   status: WorktreeStatus | null | undefined;
   pr: PrInfo | null | undefined;
+  /** Changes against the base (the Changes view's totals), not the upstream. */
+  diffStats: DiffStats | null | undefined;
 }
 
 /** The action bar's state, from the session, its worktree status and its PR. Pure, for tests. */
-export function deriveActionState({ session, workspaceIsGit, transfer, pushNonFastForward, status, pr }: ActionStateInput): ActionState {
+export function deriveActionState({ session, workspaceIsGit, transfer, pushNonFastForward, status, pr, diffStats }: ActionStateInput): ActionState {
   if (!session) return { kind: 'noWorktree' };
   if (session.status === 'archived') return { kind: 'archived' };
   // A move supersedes every other state until the destination has the
@@ -289,9 +314,6 @@ export function deriveActionState({ session, workspaceIsGit, transfer, pushNonFa
     const unstagedCount = status.modified.length;
     const untrackedCount = status.untracked.length;
     const isDirty = stagedCount + unstagedCount + untrackedCount > 0;
-    const ahead = status.ahead;
-    const behind = status.behind;
-
     if (isDirty) {
       return {
         kind: 'dirty',
@@ -309,55 +331,137 @@ export function deriveActionState({ session, workspaceIsGit, transfer, pushNonFa
       };
     }
 
-    if (pr) {
-      if (pr.state === 'MERGED') {
-        return { kind: 'prMerged', prNumber: pr.number, prUrl: pr.url };
-      }
-      if (pr.state === 'CLOSED') {
-        return { kind: 'prClosed', prNumber: pr.number, prUrl: pr.url };
-      }
-      // GitHub says the PR can't merge cleanly into its base. Override
-      // the behind/ahead branches below — the next step here is "ask
-      // the agent to resolve" (pull base, fix markers, push), not
-      // "merge" or "push more commits."
-      if (pr.mergeable === 'CONFLICTING') {
-        return {
-          kind: 'prConflictingWithBase',
-          prNumber: pr.number,
-          prUrl: pr.url,
-          behind,
-        };
-      }
-      if (behind > 0) {
-        return {
-          kind: 'prOpenBehindBase',
-          prNumber: pr.number,
-          prUrl: pr.url,
-          behind,
-        };
-      }
-      if (ahead > 0) {
-        return {
-          kind: 'prOpenAhead',
-          prNumber: pr.number,
-          prUrl: pr.url,
-          ahead,
-        };
-      }
-      // Open and in sync — show Merge.
-      return { kind: 'prOpenInSync', prNumber: pr.number, prUrl: pr.url };
-    }
-
-    // Clean, no PR — pick the next-step affordance based on
-    // ahead/behind. Pre-PR `behindBase` is a recent addition; the
-    // original machine left clean-but-behind branches with no button.
-    if (behind > 0) {
-      return { kind: 'behindBase', behind };
-    }
-    if (ahead > 0) {
-      return { kind: 'aheadNoPr', ahead };
-    }
+    // A device on an older version sends no `sync`: read ahead/behind the
+    // old way, as if the upstream were always the base.
+    return status.sync
+      ? cleanState(status, status.sync, pr, diffStats)
+      : legacyCleanState(status, pr, diffStats);
   }
 
   return { kind: 'cleanNoBranch' };
+}
+
+/** The clean-worktree states as read before `BranchSync`, for older devices. */
+function legacyCleanState(status: WorktreeStatus, pr: PrInfo | null | undefined, diffStats: DiffStats | null | undefined): ActionState {
+  const ahead = status.ahead;
+  const behind = status.behind;
+  if (pr) {
+    if (pr.state === 'MERGED') {
+      return { kind: 'prMerged', prNumber: pr.number, prUrl: pr.url };
+    }
+    if (pr.state === 'CLOSED') {
+      return { kind: 'prClosed', prNumber: pr.number, prUrl: pr.url };
+    }
+    // GitHub says the PR can't merge cleanly into its base. Override
+    // the behind/ahead branches below — the next step here is "ask
+    // the agent to resolve" (pull base, fix markers, push), not
+    // "merge" or "push more commits."
+    if (pr.mergeable === 'CONFLICTING') {
+      return {
+        kind: 'prConflictingWithBase',
+        prNumber: pr.number,
+        prUrl: pr.url,
+        behind,
+      };
+    }
+    if (behind > 0) {
+      return {
+        kind: 'prOpenBehindBase',
+        prNumber: pr.number,
+        prUrl: pr.url,
+        behind,
+      };
+    }
+    if (ahead > 0) {
+      return {
+        kind: 'prOpenAhead',
+        prNumber: pr.number,
+        prUrl: pr.url,
+        ahead,
+      };
+    }
+    // Open and in sync — show Merge.
+    return { kind: 'prOpenInSync', prNumber: pr.number, prUrl: pr.url };
+  }
+
+  // Clean, no PR — pick the next-step affordance based on
+  // ahead/behind, then on whether the branch changes anything against
+  // its base (`branchNoPr`).
+  if (behind > 0) {
+    return { kind: 'behindBase', behind };
+  }
+  if (ahead > 0) {
+    return { kind: 'aheadNoPr', ahead };
+  }
+  if (diffStats && diffStats.files > 0) {
+    return { kind: 'branchNoPr', files: diffStats.files };
+  }
+  return { kind: 'cleanNoBranch' };
+}
+
+/**
+ * The clean-worktree states. Status ahead/behind are counted against the
+ * upstream, which `sync` says is either the base (not pushed yet) or the
+ * branch's own remote copy (after the first push). Being behind the base
+ * never blocks: GitHub merges a branch that's behind, so it's shown beside
+ * the step (`baseInfo`) unless GitHub itself requires the update.
+ */
+function cleanState(
+  status: WorktreeStatus,
+  sync: BranchSync,
+  pr: PrInfo | null | undefined,
+  diffStats: DiffStats | null | undefined,
+): ActionState {
+  const { ahead, behind } = status;
+  const behindBase = sync.upstreamIsBase ? behind : (sync.behindBase ?? 0);
+
+  if (pr?.state === 'MERGED') return { kind: 'prMerged', prNumber: pr.number, prUrl: pr.url };
+  if (pr?.state === 'CLOSED') return { kind: 'prClosed', prNumber: pr.number, prUrl: pr.url };
+
+  // Pushed from elsewhere. Brought in first: a push would be refused.
+  if (!sync.upstreamIsBase && behind > 0) {
+    return {
+      kind: 'behindRemote',
+      behind,
+      remote: remoteOf(sync.upstream),
+      pr: pr ? { prNumber: pr.number, prUrl: pr.url } : undefined,
+    };
+  }
+
+  if (pr) {
+    const ids = { prNumber: pr.number, prUrl: pr.url };
+    if (pr.mergeable === 'CONFLICTING') return { kind: 'prConflictingWithBase', ...ids, behind: behindBase };
+    // Bring the base in before pushing, so the update and the work go up as one push.
+    if (pr.outOfDate) return { kind: 'prOpenBehindBase', ...ids, behind: behindBase };
+    if (ahead > 0) return { kind: 'prOpenAhead', ...ids, ahead };
+    return { kind: 'prOpenInSync', ...ids };
+  }
+
+  if (ahead > 0) return { kind: 'aheadNoPr', ahead };
+  // Pushed (or tracking nothing): the branch's work shows against the base.
+  if (!sync.upstreamIsBase && diffStats && diffStats.files > 0) return { kind: 'branchNoPr', files: diffStats.files };
+  if (behindBase > 0) return { kind: 'behindBase', behind: behindBase };
+  return { kind: 'cleanNoBranch' };
+}
+
+/** `origin` from `origin/feat`. Remote names don't hold slashes in practice. */
+function remoteOf(upstream: string | null): string {
+  return upstream?.split('/')[0] || 'origin';
+}
+
+/** The base for labels, and how far behind it the branch is. */
+export interface BaseInfo {
+  /** `main` from `origin/main`. */
+  name: string;
+  behind: number;
+}
+
+/** What `BaseInfo` the chip can show, or null when the status can't say (an older device). */
+export function baseInfo(status: WorktreeStatus | null | undefined): BaseInfo | null {
+  const sync = status?.sync;
+  if (!sync?.base) return null;
+  const behind = sync.upstreamIsBase ? status!.behind : sync.behindBase;
+  if (behind == null) return null;
+  const slash = sync.base.indexOf('/');
+  return { name: slash > 0 ? sync.base.slice(slash + 1) : sync.base, behind };
 }

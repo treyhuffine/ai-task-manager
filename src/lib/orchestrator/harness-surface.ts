@@ -84,8 +84,9 @@ const APP_ROOT_INSTRUCTION_FILES: Record<HarnessId, boolean> = {
  */
 const REQUEST_CONNECTION_BRIEF = `If the user's request needs an outside service you have no tools for
 (their email, calendar, Slack, a Linear ticket), don't say you can't: call
-\`request_connection\` with the service's name. The user gets a Connect card in
-this chat, and you get a note when they decide. Never for ${APP_NAME}'s own tasks,
+\`request_connection\` with the service's name (and the account, if they named
+one). The user gets a Connect card in this chat, and you get a note when they
+decide, naming exactly which accounts you got. Never for ${APP_NAME}'s own tasks,
 notes, deck or stream, or content they pasted. Don't guess a provider: if they
 said something generic ("my email", "my calendar") that more than one service
 could be, ask which one they use before calling.`;
@@ -314,8 +315,9 @@ pulling a file down. Prefer a first-party connector when one exists for the job
 act: \`browser_read\` returns a snapshot with \`[ref=..]\` ids, you act on a
 ref. If a result carries a \`blocked\` login or challenge signal, stop and hand
 back to the user, never automate a login. The \`${AGENT_BROWSER_SKILL_NAME}\`
-skill has the full playbook (modes, profiles, downloads, safety), load it when
-you do browser work.`;
+skill has the full playbook (modes, typing into autocompletes and rich
+editors, running JS in a page, profiles, downloads, safety), load it when you
+do browser work.`;
 
 const LONG_RUNNING_SECTION = `## This conversation is long-running
 
@@ -787,22 +789,27 @@ export function connectorsMcpServer(
  * but exposing ONLY the `browser_*` actions (a static subset), for execution
  * sessions that opted into the browser. An optional `profile` locks every call
  * to one browsing identity (via `?profile=<name>`) so an execution cannot
- * switch to a different logged-in profile. Tools appear as `mcp__browser__*`.
- * Returns null when no local token exists yet.
+ * switch to a different logged-in profile. A `sessionId` adds the chat's signed
+ * credential, so the browser audit trail names the chat that acted. Tools
+ * appear as `mcp__browser__*`. Returns null when no local token exists yet.
  */
 export function browserMcpServer(
   port = resolveServerPort(),
-  opts: { profile?: string } = {},
+  opts: { profile?: string; sessionId?: string | null } = {},
 ): McpServerConfig | null {
   const token = readAuthConfig()?.localToken;
   if (!token) return null;
   const base = `http://localhost:${port}/api/orchestrator/browser/mcp`;
   const url = opts.profile ? `${base}?profile=${encodeURIComponent(opts.profile)}` : base;
+  const credential = opts.sessionId ? sessionCredential(opts.sessionId, token) : null;
   return {
     name: BROWSER_MCP_SERVER_NAME,
     type: 'http',
     url,
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(credential ? { [SESSION_CREDENTIAL_HEADER]: credential } : {}),
+    },
   };
 }
 

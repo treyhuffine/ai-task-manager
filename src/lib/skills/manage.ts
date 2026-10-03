@@ -1,20 +1,23 @@
 /**
  * Skill operations as the app and agents see them. A skill is a folder in one
- * of three places (./locations.ts): Ri's skills, the global skills, or a
- * project's. Everything here keeps the folder, its `.agents/skills` link and
- * the skill's builder and try chats in step. The API routes
- * (src/app/api/skills) and the orchestrator actions (list_skills, get_skill,
- * create_skill, save_skill, move_skill) both call through here.
+ * of four places (./locations.ts): the drafts, where every new skill is
+ * written, or installed in Ri's skills, the global skills, or a project's.
+ * Installing is moving out of the drafts, and uninstalling is moving back.
+ * Everything here keeps the folder, its `.agents/skills` link and the
+ * skill's builder and try chats in step. The API routes (src/app/api/skills)
+ * and the orchestrator actions (list_skills, get_skill, create_skill,
+ * save_skill, move_skill) both call through here.
  */
 
 import path from 'node:path';
-import { archiveChatSession, listSkillChats, renameSkillChats } from '@/lib/db/queries';
+import { archiveChatSession, listSkillChats, renameSkillChats, skillHasChatHistory } from '@/lib/db/queries';
 import { nameProblem, parseSkillFile, suggestSkillName, type SkillFields, type SkillProblem } from './format';
 import {
   SkillError,
   archiveFolder,
   copySkillFolder,
   createSkillAt,
+  isBlankSkillAt,
   moveSkillFolder,
   readSkillAt,
   requireSkillAt,
@@ -23,9 +26,10 @@ import {
   type SupportingFileWrite,
 } from './library';
 import {
-  RI,
+  DRAFT,
   canWriteGlobal,
   findSkill,
+  isInstalled,
   linkMirror,
   listAllSkills,
   listProjects,
@@ -68,6 +72,7 @@ export function setSkillSessionControlForTests(control: SkillSessionControl | nu
 }
 
 export type SkillLocationView =
+  | { kind: 'draft' }
   | { kind: 'ri' }
   | { kind: 'global' }
   | { kind: 'project'; workspaceId: string; projectName: string; cwd: string; isGit: boolean };
@@ -219,13 +224,30 @@ export interface NewSkillInput {
   intent?: string;
   description?: string;
   body?: string;
-  /** Where it goes. Ri by default: every chat Ri runs gets it. */
+  /** Where it goes. A draft by default, which no agent uses until it's installed. */
   location?: SkillLocation;
 }
 
-/** Create a skill. It's live where it lands, the way a skill folder is anywhere. */
+/**
+ * A draft nobody has written in or talked about, to hand out again instead
+ * of starting another. Opening New skill and walking away leaves at most one.
+ */
+function blankDraft(): LocatedSkill | null {
+  return listSkillsAt(DRAFT).find((skill) => isBlankSkillAt(skill.dir) && !skillHasChatHistory(skill.ref)) ?? null;
+}
+
+/**
+ * Create a skill. It's a draft unless `location` installs it somewhere, and
+ * live where it lands, the way a skill folder is anywhere. An empty new
+ * draft reuses a blank one if there is one.
+ */
 export async function newSkill(input: NewSkillInput): Promise<SkillView> {
-  const location = input.location ?? RI;
+  const location = input.location ?? DRAFT;
+  const empty = !input.name?.trim() && !input.intent?.trim() && !input.description?.trim() && !input.body?.trim();
+  if (empty && location.kind === 'draft') {
+    const blank = blankDraft();
+    if (blank) return viewOf(blank);
+  }
   const taken = new Set(listSkillsAt(location).map((s) => s.name));
   const name = input.name?.trim() || suggestSkillName(input.intent ?? '', taken);
   if (nameTakenAt(location, name)) throw new SkillError('conflict', `A skill named ${name} is already there.`);
@@ -311,9 +333,12 @@ export async function renameSkill(ref: string, newName: string): Promise<SkillVi
 }
 
 /**
- * Move a skill to another place (Ri, global, a project), or copy it there
- * and leave the original, which is how a skill is shared with a project's
- * team. Keeps the name. Refuses if the name is taken there.
+ * Move a skill to another place, or copy it there and leave the original,
+ * which is how a skill is shared with a project's team. Moving a draft to
+ * Ri, global or a project installs it, and moving a skill to the drafts
+ * uninstalls it. Keeps the name. Refuses if the name is taken there, and
+ * refuses to install a skill with something wrong in it, since agents
+ * would load it as it is.
  */
 export async function moveSkill(ref: string, to: SkillLocation, opts: { copy?: boolean } = {}): Promise<SkillView> {
   const skill = requireLocatedSkill(ref);
@@ -321,6 +346,10 @@ export async function moveSkill(ref: string, to: SkillLocation, opts: { copy?: b
     throw new SkillError('invalid', `${skill.name} is already there.`);
   }
   if (!opts.copy) requireEditable(skill);
+  if (isInstalled(to)) {
+    const error = requireSkillAt(skill.dir).problems.find((problem) => problem.level === 'error');
+    if (error) throw new SkillError('invalid', `Fix this before installing ${skill.name}. ${error.message}`);
+  }
   if (nameTakenAt(to, skill.name)) {
     throw new SkillError('conflict', `There's already a skill named ${skill.name} there. Rename one of them first.`);
   }

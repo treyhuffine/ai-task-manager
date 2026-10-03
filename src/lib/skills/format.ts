@@ -203,7 +203,7 @@ export interface SkillProblem {
 
 /**
  * Everything wrong with a skill, as the builder shows it. Errors keep a
- * skill from being turned on; warnings are advice.
+ * draft from being installed; warnings are advice.
  */
 export function checkSkill(parsed: ParsedSkillFile, folderName: string): SkillProblem[] {
   const problems: SkillProblem[] = [];

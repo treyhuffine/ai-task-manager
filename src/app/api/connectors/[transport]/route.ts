@@ -53,7 +53,7 @@ interface ConnectionToolRegistrar {
  * When to ask for a connection, stated once for the tool and once for the server's instructions.
  * The whole judgment the agent makes: need + no tools + no substitute (docs/connecting-from-chat.md).
  */
-const REQUEST_CONNECTION_RULE = `Ask the user to connect an outside service (or give you access to one) when their current request needs it and you have no tools for it. Call it only when all three hold: (1) finishing the user's current request needs data or an action in a specific outside service, named or clearly implied ("my inbox", "tomorrow's meetings", "the Linear ticket"); (2) you have no tools for that service; (3) nothing you already have covers it. Never for ${APP_NAME}'s own tasks, notes, deck or stream, never for content the user pasted, and never just to suggest a connection. Name the service the user named, in plain words ("Gmail", "Google Calendar", "Slack"). Don't guess a provider: if they only said something generic ("my email", "my calendar") and more than one service could be it (Gmail or Outlook, Google Calendar or Outlook Calendar), ask them which one they use before calling. The app works out what the name means, shows the user a Connect card in this chat, and sends you a note when they decide. ${APP_NAME} can connect Google (Gmail, Calendar, Drive, Docs, Sheets), Microsoft 365 (Outlook Mail and Calendar), Slack, Notion, Linear, Jira, Todoist and about 25 more.`;
+const REQUEST_CONNECTION_RULE = `Ask the user to connect an outside service (or give you access to one) when their current request needs it and you have no tools for it. Call it only when all three hold: (1) finishing the user's current request needs data or an action in a specific outside service, named or clearly implied ("my inbox", "tomorrow's meetings", "the Linear ticket"); (2) you have no tools for that service; (3) nothing you already have covers it. Never for ${APP_NAME}'s own tasks, notes, deck or stream, never for content the user pasted, and never just to suggest a connection. Name the service the user named, in plain words ("Gmail", "Google Calendar", "Slack"), one call per service. If they named an account ("my Market Standard email", trey@example.com), pass it as account. Don't guess a provider: if they only said something generic ("my email", "my calendar") and more than one service could be it (Gmail or Outlook, Google Calendar or Outlook Calendar), ask them which one they use before calling. The app works out what the name means, shows the user a Connect card in this chat, and sends you a note when they decide. ${APP_NAME} can connect Google (Gmail, Calendar, Drive, Docs, Sheets), Microsoft 365 (Outlook Mail and Calendar), Slack, Notion, Linear, Jira, Todoist and about 25 more.`;
 
 function serverInstructions(requestsOn: boolean): string {
   return `${APP_NAME} connectors: typed tools for taking authenticated actions on the user's connected external accounts (Gmail, Calendar, Slack, Notion, Linear, and more).
@@ -146,6 +146,10 @@ function buildHandler(workspaceId: string | null, sessionId: string | null) {
                 .boolean()
                 .optional()
                 .describe('True only when the user explicitly asked, in their latest message, to connect this service.'),
+              account: z
+                .string()
+                .optional()
+                .describe('The account the user named, in their words: an email ("trey@example.com") or a name ("Market Standard"). Omit when they named none.'),
             },
           },
           async (args) => {
@@ -156,6 +160,7 @@ function buildHandler(workspaceId: string | null, sessionId: string | null) {
               reason: String(args.reason ?? ''),
               forAgent: typeof args.for_agent === 'string' ? args.for_agent : null,
               userAsked: args.user_asked === true,
+              account: typeof args.account === 'string' ? args.account : null,
             });
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           },

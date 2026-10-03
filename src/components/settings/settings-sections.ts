@@ -82,6 +82,16 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     description: 'A regular check-in on your work, following your instructions.',
   },
   {
+    // Plugins: everything agents can be extended with, skills and
+    // connectors (docs/skills.md). Links from before the rename still say
+    // `?settings=connectors`, which `sectionFromParam` maps here.
+    id: 'plugins',
+    label: 'Plugins',
+    icon: Plug,
+    title: 'Plugins',
+    description: 'Connectors let your agents act in your accounts. Skills teach them how to do things.',
+  },
+  {
     id: 'models',
     label: 'Models',
     icon: Bot,
@@ -101,16 +111,6 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     icon: Chrome,
     title: 'Agent browser',
     description: 'Let the agent read and act on web pages using sites you sign into once.',
-  },
-  {
-    // Plugins: everything agents can be extended with, skills and
-    // connectors (docs/skills.md). Links from before the rename still say
-    // `?settings=connectors`, which `sectionFromParam` maps here.
-    id: 'plugins',
-    label: 'Plugins',
-    icon: Plug,
-    title: 'Plugins',
-    description: 'Connectors let your agents act in your accounts. Skills teach them how to do things.',
   },
   {
     id: 'imports',

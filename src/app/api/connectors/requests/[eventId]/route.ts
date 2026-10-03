@@ -18,7 +18,8 @@ import { SESSION_CREDENTIAL_HEADER } from '@/lib/orchestrator/session-credential
  *     URL, or `{ done: true }` when the account turned out to be connected already;
  *   - `key` connects an API-key provider with the fields typed into the card. They go straight to
  *     the encrypted store, never into the chat or to the agent;
- *   - `allow` gives the card's agent access to an account that's already connected;
+ *   - `allow` gives the card's agent access to exactly the connected accounts checked on the card
+ *     (`accounts`: account ids);
  *   - `decline` is "Not now".
  * Each records the answer in the chat and wakes the asking agent.
  *
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: 'Connection requests are answered by the user, not by an agent.' }, { status: 403 });
   }
   const { eventId } = await params;
-  const body = (await request.json().catch(() => ({}))) as { action?: unknown; fields?: unknown; returnTo?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { action?: unknown; fields?: unknown; returnTo?: unknown; accounts?: unknown };
   try {
     switch (body.action) {
       case 'sign_in':
@@ -44,9 +45,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         await connectCardWithKey(eventId, clean);
         return NextResponse.json({ done: true });
       }
-      case 'allow':
-        await allowCardForAgent(eventId);
+      case 'allow': {
+        // Exactly the accounts the user checked (account ids). Omitted only when there was one.
+        const accounts = Array.isArray(body.accounts) ? body.accounts.filter((a): a is string => typeof a === 'string') : [];
+        await allowCardForAgent(eventId, accounts);
         return NextResponse.json({ done: true });
+      }
       case 'decline':
         await declineCard(eventId);
         return NextResponse.json({ done: true });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { connectionRequestsApi, type ConnectionCardAction } from '@/lib/api/connection-requests';
+import { connectionRequestsApi, type ConnectionCardBody } from '@/lib/api/connection-requests';
 
 export const connectorStatusKey = ['connectors', 'status'] as const;
 
@@ -25,7 +25,7 @@ export function useConnectorStatus(enabled = true) {
  */
 export function useConnectionCardAction(eventId: string) {
   return useMutation({
-    mutationFn: (body: { action: ConnectionCardAction; fields?: Record<string, string>; returnTo?: string }) =>
+    mutationFn: (body: ConnectionCardBody) =>
       connectionRequestsApi.act(eventId, body),
   });
 }

@@ -46,6 +46,7 @@ import { registerMcpSecrets } from './mcp-secrets';
 import { APP_NAME } from '@/constants/app';
 import { getWorkspace } from '@/lib/db/queries';
 import { resolveConnectorFilter, type WorkspaceConnectorFilter } from './workspace-filter';
+import { withLiveCallback } from './live-callback';
 import { hostedMcpConnectionId, hostedMcpDefinition, hostedMcpRequiresAuth, markHostedMcpReconnectRequired, hostedMcpEndpointSetup, trustHostedMcpAnnotations } from './hosted-mcp';
 import { finalizeMcpServer, finalizeMcpServers, isCurrentMcpTransport } from './mcp-lifecycle';
 import { resolveHostedOAuthConfig, usesRegisteredOAuth } from './hosted-oauth-config';
@@ -341,9 +342,17 @@ export function getConnectorAuthConfigRegistry() {
   const lock = fileLock({ dir: path.join(dir, 'locks') });
   return storeAuthConfigRegistry({
     bundled: dedupeById([...DEFAULT_AUTH_CONFIGS, ...buildAuthConfigs()]),
-    store: authConfigFileStore({ dir, lock }),
+    store: savedAuthConfigStore(dir, lock),
     secretBox: aesGcmSecretBox({ key: getOrCreateKey(dir) }),
   });
+}
+
+/**
+ * Saved OAuth apps, read with Ri's callback paths moved onto its current
+ * address, never the one stored when the app was added (`live-callback.ts`).
+ */
+function savedAuthConfigStore(dir: string, lock: ReturnType<typeof fileLock>) {
+  return withLiveCallback(authConfigFileStore({ dir, lock }), () => new URL(getConnectorRedirectUri()).origin);
 }
 
 export async function selectHostedOAuthConfig(providerId: string, selectedId?: string) {
@@ -483,7 +492,7 @@ async function build(): Promise<Built> {
   const lock = fileLock({ dir: path.join(dir, 'locks') });
   const store = fileStore({ dir, lock });
   const secretBox = aesGcmSecretBox({ key: getOrCreateKey(dir) });
-  const authConfigStore = authConfigFileStore({ dir, lock });
+  const authConfigStore = savedAuthConfigStore(dir, lock);
   const registry = createRegistry();
   const quickbooksEnvironment = process.env.CONNECTORS_QUICKBOOKS_ENVIRONMENT;
   if (quickbooksEnvironment !== undefined && quickbooksEnvironment !== 'production' && quickbooksEnvironment !== 'sandbox') {

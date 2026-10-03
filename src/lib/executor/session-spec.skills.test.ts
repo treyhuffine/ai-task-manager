@@ -27,6 +27,7 @@ beforeEach(async () => {
   wsId = q.createWorkspace({ name: 'Blog', cwd: project, isGit: false, filesToCopy: [], status: 'active' }).id;
   createSkillAt(path.join(home.root, 'skills', 'weekly-review'), { description: 'Reviews the week.', body: 'x\n' });
   createSkillAt(path.join(project, '.claude', 'skills', 'deploy'), { description: 'Deploys.', body: 'x\n' });
+  createSkillAt(path.join(home.root, 'skill-drafts', 'idea'), { description: 'An idea.', body: 'x\n' });
 });
 
 afterEach(async () => {
@@ -79,6 +80,19 @@ describe('skills on the session spec', () => {
     const spec = await buildSessionSpec(input({ sessionType: 'content', surfaceKind: 'skill-try', surfaceRef: `project:${wsId}:deploy` }));
     expect(spec.extraSkillDirs).toEqual([path.join(project, '.claude', 'skills', 'deploy')]);
     expect(spec.instructions ?? '').not.toContain('Writing the');
+  });
+
+  it("tells a draft's builder it isn't installed yet, and how to install it when asked", async () => {
+    const spec = await buildSessionSpec(input({ sessionType: 'content', surfaceKind: 'skill', surfaceRef: 'draft:idea' }));
+    expect(spec.instructions).toContain('It is a draft: written here but not installed, so no agent uses it yet.');
+    expect(spec.instructions).toContain('Install it with `move_skill` (ref\n"draft:idea")');
+    expect(spec.instructions).toContain('Only install when the user asks or agrees');
+    expect(spec.excludeSkills).toBeUndefined();
+  });
+
+  it('gives a try chat the draft it tries, which nothing else reads', async () => {
+    const spec = await buildSessionSpec(input({ sessionType: 'content', surfaceKind: 'skill-try', surfaceRef: 'draft:idea' }));
+    expect(spec.extraSkillDirs).toEqual([path.join(home.root, 'skill-drafts', 'idea')]);
   });
 
   it("needs nothing extra to try a Ri skill, which every chat already gets", async () => {

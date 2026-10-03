@@ -8,7 +8,7 @@ import os from 'node:os';
 import { createInterface } from 'node:readline';
 import { APP_NAME, PAIRING_TOKEN_FRAGMENT_KEY } from '../src/constants/app';
 import { getConfigDir } from '../src/lib/config/paths';
-import { demoEnvironment, type BackendMessage, type BackendReady } from './config';
+import { demoEnvironment, demoRoot, type BackendMessage, type BackendReady } from './config';
 import { certificateDecision, desktopRequestHeaders, externalWebUrl, sameOrigin } from './trust';
 import { installTerminalCommand, removeTerminalCommand, type CliInstallation } from './cli-install';
 import { updateDesktop } from './shell-update';
@@ -43,7 +43,10 @@ const repo = app.isPackaged ? path.join(process.resourcesPath, 'server') : proce
 // the default home. Useful for portable/test launches without OS-global state.
 const desktopState = path.resolve(process.env.RI_DESKTOP_STATE_DIR || (app.isPackaged ? path.join(app.getPath('appData'), APP_NAME) : path.join(repo, '.electron-demo')));
 const installationFile = path.join(desktopState, app.isPackaged ? 'desktop-installation.json' : 'installation.json');
-const defaultDesktopRoot = path.join(desktopState, 'home');
+// A packaged app's own home, else a source launch's (`demoRoot`: the dev
+// home in development, a throwaway one for the production demo).
+const defaultDesktopRoot = app.isPackaged ? path.join(desktopState, 'home')
+  : demoRoot(repo, { RI_DESKTOP_STATE_DIR: process.env.RI_DESKTOP_STATE_DIR }, process.env.RI_DESKTOP_MODE === 'development' ? 'development' : 'production');
 const macLoginLaunch = (() => {
   try { return app.isPackaged && process.platform === 'darwin' && app.getLoginItemSettings({ type: 'mainAppService' }).wasOpenedAtLogin; }
   catch { return false; }

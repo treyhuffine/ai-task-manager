@@ -12,7 +12,7 @@ pnpm test:browser    # real-browser end to end: launches Brave headless, ~5s
 ri browser doctor  # confirms your browser is detected and the profile dir is writable
 ```
 
-`pnpm test:browser` drives a real browser through reads, clicks, typing, dialogs, tabs, downloads, uploads, PDF, and auto-close. If it is green, the machinery works on your machine. `doctor` should list your browser (for example "Brave") and a writable profile dir.
+`pnpm test:browser` drives a real browser through reads, clicks, typing, dialogs, tabs, downloads, uploads, PDF, and auto-close. It also serves a small fake site through request routing (no network) to check the harder cases: a keyup-driven autocomplete on an input and on a contenteditable, with suggestions in a portal (typed with real keys, listed first, clicked), the same box typed with `fill` staying silent, the changes-only page state on a 3,000-link page, and `evaluate` filling `{{cookie:...}}` for the page's own origin only, scrubbing echoed values, and refusing private addresses. If it is green, the machinery works on your machine. `doctor` should list your browser (for example "Brave") and a writable profile dir.
 
 ## 2. Test your real setup (5 minutes)
 
@@ -48,4 +48,5 @@ You can also do steps 4 to 6 by just asking the in-app agent in chat ("read this
 - Verified on controlled pages and on this kind of Mac plus Chromium setup. Real, messy, logged-in sites (your specific accounts) are the one thing only you can prove, and step 2 above is how.
 - The accessibility tree can be thin on canvas, closed shadow DOM, and some embedded iframes. Screenshot mode is the fallback for those.
 - Linux and Windows are not verified yet.
+- Check real sites headed, the way prod runs (`browserHeadlessDefault: false` in `.config/config.json`). Headless Chrome announces itself as `HeadlessChrome`, and Cloudflare-fronted sites such as Medium block it outright. A blocked session can stay blocked for a while afterwards, even headed.
 - Security is the login scope you choose. What you log the agent profile into is its reach, so start with a low-stakes account.

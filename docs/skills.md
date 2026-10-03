@@ -11,11 +11,17 @@ AI, and keeps them where the rest of your tools expect them.
 
 Landed 2026-09-30. Reworked the same day to the location model below, after
 the first version's "reach" settings (off, only some agents, also outside Ri)
-proved harder to follow than the norms users already know.
+proved harder to follow than the norms users already know. Drafts landed
+2026-10-02: a skill is written before it's installed, so a half-written one
+never reaches an agent.
 
-## Where a skill lives is who uses it
+## Written as a draft, installed where it's used
 
-Three places, the same ones Claude Code, Codex and the rest use:
+Every new skill starts as a **draft** in `<app-root>/skill-drafts/<name>`.
+No harness reads that folder, so no agent uses a draft, however unfinished.
+The user installs it when it's ready, or the AI helping them does, when they
+ask. Installing moves the folder to one of three places, the same ones
+Claude Code, Codex and the rest use, and where it's installed is who uses it:
 
 | Place | Folder | Who uses it |
 | --- | --- | --- |
@@ -24,8 +30,15 @@ Three places, the same ones Claude Code, Codex and the rest use:
 | **Project** | `<agent folder>/.claude/skills/<name>`, linked into `.agents/skills` | Agents working in that folder, and anyone who pulls the repo once it's committed |
 
 There's nothing else to set: no on/off, no per-agent lists. To limit a skill
-to one agent, put it in that agent's project. To share it with a team, add it
-to the project and commit.
+to one agent, install it in that agent's project. To share it with a team,
+install it in the project (or add a copy there) and commit. To take it away
+from every agent without losing it, uninstall it: it goes back to the
+drafts.
+
+Installing needs a skill agents can load: nothing flagged as an error (a
+name that matches its folder, a description, frontmatter that parses). A
+draft can be anything while it's being written. Uninstalling never needs
+that.
 
 `.claude/skills` holds the real folder. The `.agents/skills` entry is a link to
 it (relative inside a project, so it works in any clone), because Codex,
@@ -33,13 +46,16 @@ Cursor, Gemini, Antigravity, OpenCode and Pi read `.agents/skills` while Claude
 Code reads `.claude/skills`. A skill someone put only in `.agents/skills`, or in a
 project's older `.ri/skills`, is found and edited where it is.
 
-A skill is named by a **ref**: `ri:<name>`, `global:<name>`, or
-`project:<workspaceId>:<name>`. A bare name means a Ri skill. Refs are the
+A skill is named by a **ref**: `draft:<name>`, `ri:<name>`, `global:<name>`,
+or `project:<workspaceId>:<name>`. A bare name means a Ri skill. Refs are the
 view's URL (`?skill=ri:weekly-review`), the API path, and the orchestrator
-actions' parameter.
+actions' parameter. Installing, moving or uninstalling changes the ref, and
+the skill's chats follow it.
 
 ### What Ri shows
 
+- Drafts: every folder in `<app-root>/skill-drafts` with a `SKILL.md`,
+  first on the Skills tab, since they're waiting on you.
 - Ri's skills: every folder in `<app-root>/skills` with a `SKILL.md`.
 - Global skills: real folders in either global folder. A link another tool
   put there (pointing somewhere Ri doesn't manage) shows as **Linked** and is
@@ -52,11 +68,11 @@ actions' parameter.
 ### How a chat gets them
 
 - Ri's skills are attached to every chat Ri starts (agentex `skillDirs`,
-  `src/lib/executor/skills.ts`). How a harness takes them is agentex's
-  business: Claude gets a temporary folder, Codex links them into the
-  chat's `.agents/skills` (so an agent's main chat on Codex gets none),
-  OpenCode gets them through its session config, and Antigravity links
-  them into its own global folder, `~/.gemini/antigravity-cli/skills`.
+  `src/lib/executor/skills.ts`). Drafts never are. How a harness takes them
+  is agentex's business: Claude gets a temporary folder, Codex links them
+  into the chat's `.agents/skills` (so an agent's main chat on Codex gets
+  none), OpenCode gets them through its session config, and Antigravity
+  links them into its own global folder, `~/.gemini/antigravity-cli/skills`.
   Cursor sessions don't take them yet (agentex reads `skillDirs` only on
   Cursor's one-shot path).
 - Global and project skills aren't attached: every harness reads those
@@ -66,8 +82,9 @@ actions' parameter.
 - Two chats differ, decided at home and carried on the session spec because
   the runner may be on another device (`src/lib/skills/exclusions.ts`): a
   skill's **builder** chat never gets the Ri skill it's writing
-  (`excludeSkills`), and a **try** chat attaches the project skill it tries
-  (`extraSkillDirs`), since it runs in Ri's home, not in that project.
+  (`excludeSkills`), and a **try** chat attaches the draft or project skill
+  it tries (`extraSkillDirs`): nothing reads a draft, and a try chat runs in
+  Ri's home, not in the project.
 
 ## Naming: Plugins
 
@@ -96,24 +113,29 @@ Why, as of September 2026:
 
 ## The builder
 
-The Skills tab starts with a one-line composer ("New skill: what should it
-do?"), and an agent's Setup tab has the same one for that project. Say what
-the skill should do, then:
-
-- **Draft with AI** (Enter): creates the skill (in Ri, or in the project),
-  named from your words, sends your text as the builder chat's first message,
-  and opens the builder. The AI writes a full first draft right away, renames
-  it if the first name is awkward, then asks one or two questions.
-- **Write it**: creates it with your text as the first description.
+**New skill** sits at the right of the Plugins tabs, there on either tab, and
+in the Skills section of an agent's Setup tab. It starts a draft named
+`new-skill` and opens it in the builder straight away. Clicking it again
+before anything is written opens the same blank draft (nothing in the file
+and nothing said in its chats), so walking away never leaves a pile of empty
+ones.
 
 The builder view (`?skill=<ref>`, `src/components/skills/`) is the agent
 view's shape: chat on the left (Build and Try it), the skill on the right.
+Write it by hand, tell the AI what it should do in Build (it writes a full
+first draft, names it, then asks one or two questions), or both.
 
-- The header says where the skill lives. Its menu moves it to Ri or global,
-  or adds it to a project (a copy, leaving this one). A project skill with
-  changes the repo hasn't committed gets **Commit to <branch>**, which commits
-  only that skill's folder and link, leaves anything else staged or changed
-  alone, runs the repo's hooks, and never pushes.
+- The header is the skill's name (click to rename) and one control for where
+  it's installed, which carries the location so nothing else repeats it. On a
+  draft it's **Install**, a menu of the places: Ri, Global, or a project. On
+  an installed skill it names the place, and the same menu moves it (with a
+  check on where it is now), adds a copy to a project to share it with that
+  repo's team, or uninstalls it back to a draft. While something's flagged
+  as an error, the install and move choices are off and the menu says why.
+- A project skill with changes the repo hasn't committed gets **Commit to
+  <branch>**, which commits only that skill's folder and link, leaves
+  anything else staged or changed alone, runs the repo's hooks, and never
+  pushes.
 - **Fields** edits "When to use it" (the description, with a counter) and the
   instructions (CodeMirror, byte-exact markdown). **SKILL.md** edits the whole
   file, for keys like `allowed-tools`. A new `name:` there renames the skill.
@@ -138,18 +160,29 @@ Orchestrator actions (`src/lib/orchestrator/registry.ts`):
 
 | Action | Notes |
 | --- | --- |
-| `list_skills` | Every skill with its `ref` and location. With `workspaceCwd`, only what a chat there gets. |
+| `list_skills` | Every skill with its `ref` and location, drafts included. With `workspaceCwd`, only what a chat there gets (no drafts). |
 | `get_skill` | The file, its parts, problems, files, and the `hash` to write against. |
-| `create_skill` | In Ri. Global or a project only from the app or the local CLI. A retry with the same content returns the same skill. |
+| `create_skill` | A draft, unless `location` installs it right away. A retry with the same content returns the same skill. |
 | `save_skill` | Fields, whole content, supporting `files`, `newName`. Pass `baseHash`: a stale save is refused with a hint to re-read. Refused from other devices. |
-| `move_skill` | Move, or copy with `copy`. Only from the app or the local CLI: writing outside Ri is the user's call. |
+| `move_skill` | Install a draft, move an installed skill, or uninstall it (`to: "draft"`). `copy` keeps the original. A retry that already landed returns the skill. |
 
 Writes go through the app server (`/api/skills/...`), because a rename or
 move restarts the skill's chats, which only the server can do.
 
+Installing is the user's call, made in the editor or by asking an agent. The
+builder chat's brief tells its AI to install only when asked, and to ask
+where. Any caller on the home may install or move a skill (`move_skill`, or
+`create_skill` with a location): the app, the local CLI, and the home's own
+agent chats, the builder among them. A gate stricter than that would add
+friction and no safety, since an agent on the home can already write those
+folders through its shell. Callers on other devices are refused, because the
+folders are the home's (docs/homes-spec.md §4.1). They can still create a
+draft, which nothing uses.
+
 HTTP: `GET/POST /api/skills`, `GET/PUT/DELETE /api/skills/:ref`,
 `POST /api/skills/:ref/move`, `POST /api/skills/:ref/commit`. Delete archives
-to `<app-root>/.archive/skills/`.
+to `<app-root>/.archive/skills/`. Drafts are home content like Ri's skills:
+home backups and comparisons include `skill-drafts` (`src/lib/home/`).
 
 ## Code map
 
@@ -157,7 +190,7 @@ to `<app-root>/.archive/skills/`.
 | --- | --- |
 | `src/lib/skills/format.ts` | Parse, check and write SKILL.md without losing anything |
 | `src/lib/skills/library.ts` | File work on one skill folder: atomic writes, stale checks, move, copy, archive |
-| `src/lib/skills/locations.ts` | The three places, refs, discovery, the `.agents/skills` links |
+| `src/lib/skills/locations.ts` | The drafts and the three places, refs, discovery, the `.agents/skills` links |
 | `src/lib/skills/git.ts` | Uncommitted project skills, and committing one |
 | `src/lib/skills/manage.ts` | Everything the routes and actions do, keeping folders, links and chats in step |
 | `src/lib/skills/exclusions.ts` | What a builder or try chat gets differently |

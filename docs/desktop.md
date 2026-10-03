@@ -677,7 +677,7 @@ pnpm exec tsx desktop/dev-service-smoke.ts --retired-create-drop
 
 For that exact source-development failure, pull the fix, quit Ri Demo and use the install/stop/start recipe below. The same Home upgrades on startup without re-pairing or a manual database repair. Do not run `db-rebuild.ts` for this case: it handles pre-baseline databases and explicitly refuses this baseline. The compatibility tests cover both retired histories, preserved content and rowids, read-only preflight, restart, rollback and refusal of unrecognized history.
 
-If startup reports an HTTP 500 from `/api/health`, the application failed after HTTPS and HTTP/2 connected. Do not install a certificate or delete the database to address that message. The local recovery screen now includes up to three recent redacted Next error summaries. **Open log folder** reveals `service.log` with the full startup context. For the default source Home, the log is `.electron-demo/home/.work/service.log`. Detailed local errors are omitted from service status responses to paired devices.
+If startup reports an HTTP 500 from `/api/health`, the application failed after HTTPS and HTTP/2 connected. Do not install a certificate or delete the database to address that message. The local recovery screen now includes up to three recent redacted Next error summaries. **Open log folder** reveals `service.log` with the full startup context. In development the log is `~/ri-dev/.work/service.log`, and for the production demo `.electron-demo/home/.work/service.log`. Detailed local errors are omitted from service status responses to paired devices.
 
 On 30 September 2026, a fresh source development Home passed the new acceptance check on macOS arm64 with Node 26.5.0, and a native macOS process identity probe reported `Ri Demo` with `isPackaged=false`. The failing Mac's log, supplied on 1 October, identified `Module not found: Can't resolve 'yaml'` in `src/lib/skills/format.ts`. The dependency is already declared in `package.json` and pinned in `pnpm-lock.yaml`. Refresh the checkout's installed dependencies after pulling changes that add packages. A build alone does not install them.
 
@@ -694,9 +694,17 @@ pnpm desktop:dev
 
 This recipe targets the default source Home only. If the recovery screen lists custom database/configuration/work paths or another selected Home, preserve those exact paths instead. It does not require a certificate change, schema reset, or deletion of `.electron-demo/home`.
 
-These commands must run in the worktree containing `desktop/`. Source runs default to `.electron-demo/home`. An explicit `RI_DESKTOP_ROOT` chooses another desktop home. Other database/config/work path overrides are cleared, so the normal CLI home is not silently inherited.
+That recipe predates the shared dev home below. Development now opens `~/ri-dev` and starts its service from the checkout itself, so after pulling there it's `pnpm install --frozen-lockfile`, then `pnpm desktop:dev`.
 
-A source-only installation has no staged release. If its service was explicitly stopped, start it using that installation's matching checkout before reopening the viewer. For the default source demo home:
+### Which home a source launch opens
+
+`pnpm desktop:dev` opens the dev home, `~/ri-dev`, the same one `pnpm dev` and `ri start --dev` use (`demoRoot` in `desktop/config.ts`). There is one dev home, and one launcher runs it at a time: the desktop's service, `ri start` and `pnpm dev` (`scripts/dev.ts`) all take the home's owner lock (`src/lib/service/owner.ts`). Whichever starts second says so and stops, so two servers never run one database's scheduler, heartbeat and deck twice. `ri start --dev` with the desktop's service running uses that service. The desktop checks the lock before starting anything (`serviceOwnerHeld` in the installation inspection), so with `pnpm dev` running it asks you to stop it rather than wait on a service that can't start. To use the dev home in a browser while the desktop app runs it, open the address the desktop's service prints, not `pnpm dev`.
+
+In development the checkout is the runtime. A stopped dev home has no staged release, and the desktop starts its service from the checkout the way `pnpm dev` would, after checking the home's migration history against the checkout's (`sourceDevelopmentRepo`). Pending migrations apply as it boots, and an unrecognized history still refuses. A packaged app is never development, so it never adopts a home this way.
+
+The production demo (`pnpm desktop:demo`) keeps a throwaway home in the checkout, `.electron-demo/home`. An explicit `RI_DESKTOP_ROOT` or `RI_DESKTOP_STATE_DIR` (tests, smokes) chooses another home in either mode. Other database/config/work path overrides are cleared, so the normal CLI home is not silently inherited. These commands must run in the worktree containing `desktop/`.
+
+Outside development, a source-only installation has no staged release. If its service was explicitly stopped, start it using that installation's matching checkout before reopening the viewer. For the production demo home:
 
 ```sh
 RI_DESKTOP=1 NEXT_DIST_DIR=.next-desktop RI_DB_PATH= RI_CONFIG_DIR= RI_WORK_DIR= \

@@ -26,9 +26,16 @@ describe('narrativePr', () => {
     expect(narrativePr(dirty, closedLink)).toBe(closedLink);
   });
 
+  it("names the PR of a branch with new commits on its remote, else the linked one", () => {
+    const behind = { kind: 'behindRemote', behind: 1, remote: 'origin' } as const;
+    expect(narrativePr({ ...behind, pr: { prNumber: 402, prUrl: url } }, linked)).toEqual({ number: 402, url, closed: false });
+    expect(narrativePr(behind, linked)).toBe(linked);
+  });
+
   it('falls back to the linked PR in states that carry none', () => {
     expect(narrativePr({ kind: 'behindBase', behind: 4 }, linked)).toBe(linked);
     expect(narrativePr({ kind: 'aheadNoPr', ahead: 1 }, linked)).toBe(linked);
+    expect(narrativePr({ kind: 'branchNoPr', files: 2 }, linked)).toBe(linked);
     expect(narrativePr({ kind: 'localDiverged' }, linked)).toBe(linked);
     expect(narrativePr({ kind: 'setupFailed', error: 'x', prNumber: 7 }, linked)).toBe(linked);
     expect(narrativePr({ kind: 'aheadNoPr', ahead: 1 }, null)).toBeNull();

@@ -75,7 +75,8 @@ export interface OnboardingProgress {
   /**
    * What the user said at each finished step, shown as their reply. An empty
    * reply is a step finished without a word (the harness set up on its own),
-   * which the conversation doesn't show.
+   * which the conversation doesn't show as a step. The harness one leaves
+   * only its model line (`DefaultModelLine`).
    */
   replies: Partial<Record<OnboardingStep, string>>;
 }

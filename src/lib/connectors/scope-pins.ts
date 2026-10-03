@@ -34,6 +34,22 @@ export function pinOfConnection(conn: { accountId: string; authConfigId?: string
   return { accountId: conn.accountId, ...(conn.authConfigId ? { authConfigId: conn.authConfigId } : {}) };
 }
 
+/**
+ * The account set after the picker toggles one connection (spec §7). "All accounts" (no pins) is
+ * exclusive with the individual accounts, so toggling one from there narrows the service to just
+ * that account. Otherwise the connection is added or removed. The last pin can't be removed: an
+ * empty set means every account, so emptying it would widen the scope instead of narrowing it.
+ */
+export function toggleAccountPin(
+  pins: WorkspaceConnectorScopeAccount[],
+  conn: { accountId: string; authConfigId?: string | null },
+): WorkspaceConnectorScopeAccount[] {
+  if (pins.length === 0) return [pinOfConnection(conn)];
+  if (!pins.some((p) => pinMatchesConnection(p, conn))) return [...pins, pinOfConnection(conn)];
+  const rest = pins.filter((p) => !pinMatchesConnection(p, conn));
+  return rest.length > 0 ? rest : pins;
+}
+
 /** A well-formed pin or null. Tolerates a null `authConfigId` (JSON for "default client"). */
 function asPin(raw: unknown): WorkspaceConnectorScopeAccount | null {
   if (!raw || typeof raw !== 'object') return null;

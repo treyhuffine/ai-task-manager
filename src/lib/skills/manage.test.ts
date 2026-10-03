@@ -16,6 +16,9 @@ import {
   skillsOverview,
 } from './manage';
 
+const RI = { kind: 'ri' } as const;
+const DRAFT = { kind: 'draft' } as const;
+
 let home: TestHome;
 let userHome: string;
 let repo: string;
@@ -59,16 +62,39 @@ function skillChat(ref: string, kind: 'skill' | 'skill-try') {
 }
 
 describe('newSkill', () => {
-  it('goes in Ri by default, named from what it should do', async () => {
+  it('starts as a draft that nothing reads, named from what it should do', async () => {
     const skill = await newSkill({ intent: 'Triage my Gmail inbox every morning' });
-    expect(skill.ref).toBe('ri:triage-gmail-inbox-morning');
-    expect(skill.dir).toBe(path.join(home.root, 'skills', 'triage-gmail-inbox-morning'));
-    expect(skill.location).toEqual({ kind: 'ri' });
+    expect(skill.ref).toBe('draft:triage-gmail-inbox-morning');
+    expect(skill.dir).toBe(path.join(home.root, 'skill-drafts', 'triage-gmail-inbox-morning'));
+    expect(skill.location).toEqual({ kind: 'draft' });
+    expect(fs.existsSync(path.join(home.root, 'skills', 'triage-gmail-inbox-morning'))).toBe(false);
   });
 
   it('never reuses a taken name in the same place', async () => {
     await newSkill({ intent: 'triage inbox' });
     expect((await newSkill({ intent: 'triage inbox' })).name).toBe('triage-inbox-2');
+  });
+
+  it('hands back a blank draft nobody has used instead of starting another', async () => {
+    const first = await newSkill({});
+    expect(first.ref).toBe('draft:new-skill');
+    expect((await newSkill({})).ref).toBe('draft:new-skill');
+
+    // Written in: kept, and the next one is new.
+    await saveSkill(first.ref, { description: 'Reviews pull requests.' });
+    const second = await newSkill({});
+    expect(second.ref).toBe('draft:new-skill-2');
+
+    // Talked about in its builder chat, even with the file still blank: kept too.
+    const build = skillChat(second.ref, 'skill');
+    expect((await newSkill({})).ref).toBe('draft:new-skill-2');
+    q.insertChatEvent({ sessionId: build.id, role: 'user', source: 'user', content: 'It should review PRs.' });
+    expect((await newSkill({})).ref).toBe('draft:new-skill-3');
+  });
+
+  it('never hands back a blank skill that is installed', async () => {
+    await newSkill({ name: 'new-skill', location: RI });
+    expect((await newSkill({})).ref).toBe('draft:new-skill');
   });
 
   it('can go global or in a project, linked for every harness', async () => {
@@ -84,7 +110,7 @@ describe('newSkill', () => {
 
 describe('saveSkill', () => {
   beforeEach(async () => {
-    await newSkill({ name: 'draft', description: 'Drafts replies.', body: 'Old.\n' });
+    await newSkill({ name: 'draft', description: 'Drafts replies.', body: 'Old.\n', location: RI });
   });
 
   it('saves fields and reports no rename', async () => {
@@ -116,7 +142,7 @@ describe('saveSkill', () => {
   });
 
   it('checks a new name before writing anything', async () => {
-    await newSkill({ name: 'taken', description: 'Taken.' });
+    await newSkill({ name: 'taken', description: 'Taken.', location: RI });
     await expect(saveSkill('ri:draft', { newName: 'taken', body: 'Lost?\n' })).rejects.toMatchObject({ code: 'conflict' });
     await expect(saveSkill('ri:draft', { newName: 'Bad Name', body: 'Lost?\n' })).rejects.toMatchObject({ code: 'invalid' });
     expect((await getSkillView('ri:draft'))?.body).toBe('Old.\n');
@@ -147,8 +173,48 @@ describe('saveSkill', () => {
 });
 
 describe('moveSkill', () => {
-  it('moves between Ri and global, carrying its chats and links', async () => {
+  it('installs a draft, carrying its chats, and uninstalls it back to a draft', async () => {
     await newSkill({ name: 'triage', description: 'Triage.', body: 'Steps.\n' });
+    const build = skillChat('draft:triage', 'skill');
+    const installed = await moveSkill('draft:triage', RI);
+    expect(installed.ref).toBe('ri:triage');
+    expect(installed.dir).toBe(path.join(home.root, 'skills', 'triage'));
+    expect(fs.existsSync(path.join(home.root, 'skill-drafts', 'triage'))).toBe(false);
+    expect(q.getChatSession(build.id)?.surfaceRef).toBe('ri:triage');
+    expect(control.recycleWhenIdle).toHaveBeenCalledWith(build.id);
+
+    const back = await moveSkill('ri:triage', DRAFT);
+    expect(back.ref).toBe('draft:triage');
+    expect(back.location).toEqual({ kind: 'draft' });
+    expect(q.getChatSession(build.id)?.surfaceRef).toBe('draft:triage');
+  });
+
+  it('installs a draft straight into a project, linked for every harness', async () => {
+    await newSkill({ name: 'deploy', description: 'Deploys.', body: 'Steps.\n' });
+    const installed = await moveSkill('draft:deploy', { kind: 'project', workspaceId: wsId });
+    expect(installed).toMatchObject({ ref: `project:${wsId}:deploy`, uncommitted: true });
+    expect(fs.readlinkSync(path.join(repo, '.agents', 'skills', 'deploy'))).toBe(path.join('..', '..', '.claude', 'skills', 'deploy'));
+  });
+
+  it("won't install a skill with something wrong in it, and says what", async () => {
+    await newSkill({ name: 'unfinished', body: 'Steps.\n' });
+    await expect(moveSkill('draft:unfinished', RI)).rejects.toMatchObject({
+      code: 'invalid',
+      message: expect.stringMatching(/^Fix this before installing unfinished\. Say what it does/),
+    });
+    await expect(moveSkill('draft:unfinished', { kind: 'project', workspaceId: wsId }, { copy: true })).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    expect(fs.existsSync(path.join(home.root, 'skill-drafts', 'unfinished', 'SKILL.md'))).toBe(true);
+
+    // Uninstalling never needs it to be finished.
+    await newSkill({ name: 'broken', description: 'Works.', location: RI });
+    await saveSkill('ri:broken', { description: '' });
+    await expect(moveSkill('ri:broken', DRAFT)).resolves.toMatchObject({ ref: 'draft:broken' });
+  });
+
+  it('moves between Ri and global, carrying its chats and links', async () => {
+    await newSkill({ name: 'triage', description: 'Triage.', body: 'Steps.\n', location: RI });
     const build = skillChat('ri:triage', 'skill');
     const global = await moveSkill('ri:triage', { kind: 'global' });
     expect(global.ref).toBe('global:triage');
@@ -162,7 +228,7 @@ describe('moveSkill', () => {
   });
 
   it('shares with a project by copying, and leaves the original', async () => {
-    await newSkill({ name: 'review', description: 'Review.', body: 'Steps.\n' });
+    await newSkill({ name: 'review', description: 'Review.', body: 'Steps.\n', location: RI });
     const copy = await moveSkill('ri:review', { kind: 'project', workspaceId: wsId }, { copy: true });
     expect(copy.ref).toBe(`project:${wsId}:review`);
     expect(copy.uncommitted).toBe(true);
@@ -170,7 +236,7 @@ describe('moveSkill', () => {
   });
 
   it('refuses a taken name or the same place', async () => {
-    await newSkill({ name: 'dupe', description: 'D.' });
+    await newSkill({ name: 'dupe', description: 'D.', location: RI });
     await newSkill({ name: 'dupe', description: 'D.', location: { kind: 'global' } });
     await expect(moveSkill('ri:dupe', { kind: 'global' })).rejects.toMatchObject({ code: 'conflict' });
     await expect(moveSkill('ri:dupe', { kind: 'ri' })).rejects.toMatchObject({ code: 'invalid' });
@@ -189,7 +255,7 @@ describe('commitSkill', () => {
   });
 
   it('only commits project skills', async () => {
-    await newSkill({ name: 'ri-one', description: 'D.' });
+    await newSkill({ name: 'ri-one', description: 'D.', location: RI });
     await expect(commitSkill('ri:ri-one')).rejects.toMatchObject({ code: 'invalid' });
   });
 });
@@ -210,14 +276,16 @@ describe('archiveSkill', () => {
 
 describe('skillsOverview', () => {
   it('lists every place, marks uncommitted project skills, and offers the projects', async () => {
-    await newSkill({ name: 'a', description: 'A.' });
+    await newSkill({ name: 'a', description: 'A.', location: RI });
     await newSkill({ name: 'b', description: 'B.', location: { kind: 'global' } });
     await newSkill({ name: 'c', description: 'C.', location: { kind: 'project', workspaceId: wsId } });
+    await newSkill({ name: 'd', description: 'D.' });
     const overview = await skillsOverview();
     expect(overview.skills.map((s) => [s.ref, s.uncommitted])).toEqual([
       ['ri:a', false],
       ['global:b', false],
       [`project:${wsId}:c`, true],
+      ['draft:d', false],
     ]);
     expect(overview.projects).toEqual([{ workspaceId: wsId, name: 'Blog', cwd: repo, isGit: true }]);
     expect(overview.canWriteGlobal).toBe(true);

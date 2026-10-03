@@ -81,6 +81,7 @@ describe('skill actions', () => {
     await seed(path.join(home.root, 'skills'), 'weekly-review');
     await seed(path.join(userHome, '.claude', 'skills'), 'implementing-specs');
     await seed(path.join(project, '.claude', 'skills'), 'deploy');
+    await seed(path.join(home.root, 'skill-drafts'), 'idea');
     const other = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-registry-skills-other-'));
     try {
       const all = (await (await action('list_skills')).handler(LOCAL, {})) as Array<Record<string, unknown>>;
@@ -88,6 +89,7 @@ describe('skill actions', () => {
         expect.objectContaining({ ref: 'ri:weekly-review', location: 'ri', description: 'weekly-review does it.' }),
         expect.objectContaining({ ref: 'global:implementing-specs', location: 'global' }),
         expect.objectContaining({ ref: `project:${wsId}:deploy`, location: 'project', project: 'Blog' }),
+        expect.objectContaining({ ref: 'draft:idea', location: 'draft' }),
       ]);
       const elsewhere = (await (await action('list_skills')).handler(LOCAL, { workspaceCwd: other })) as Array<{ ref: string }>;
       expect(elsewhere.map((s) => s.ref)).toEqual(['ri:weekly-review', 'global:implementing-specs']);
@@ -104,20 +106,24 @@ describe('skill actions', () => {
     await expect((await action('get_skill')).handler(LOCAL, { ref: 'ri:nope' })).rejects.toMatchObject({ code: 'not_found' });
   });
 
-  it('create_skill puts it in Ri, and a retry with the same content returns the same skill', async () => {
+  it('create_skill starts a draft, and a retry with the same content returns the same skill', async () => {
     const create = await action('create_skill');
     const first = (await create.handler(HOME_MCP, { name: 'triage', description: 'D.', body: 'B\n' })) as { ref: string };
-    expect(first.ref).toBe('ri:triage');
-    await expect(create.handler(HOME_MCP, { name: 'triage', description: 'D.', body: 'B\n' })).resolves.toMatchObject({ ref: 'ri:triage' });
+    expect(first.ref).toBe('draft:triage');
+    await expect(create.handler(HOME_MCP, { name: 'triage', description: 'D.', body: 'B\n' })).resolves.toMatchObject({ ref: 'draft:triage' });
     await expect(create.handler(HOME_MCP, { name: 'triage', description: 'Other.' })).rejects.toMatchObject({ code: 'conflict' });
+    // From another device, a draft is fine: it's written in Ri's home and nothing uses it.
+    await expect(create.handler(ELSEWHERE, { name: 'remote-idea', description: 'D.' })).resolves.toMatchObject({ ref: 'draft:remote-idea' });
   });
 
-  it('create_skill outside Ri is the local CLI or app only', async () => {
+  it('create_skill installs right away only for callers on the home', async () => {
     const create = await action('create_skill');
-    await expect(create.handler(HOME_MCP, { name: 'g', location: 'global' })).rejects.toMatchObject({ code: 'invalid_params' });
+    await expect(create.handler(HOME_MCP, { name: 'g', description: 'G.', location: 'global' })).resolves.toMatchObject({ ref: 'global:g' });
     const made = (await create.handler(LOCAL, { name: 'p', location: 'project', workspaceId: wsId })) as { ref: string };
     expect(made.ref).toBe(`project:${wsId}:p`);
     await expect(create.handler(LOCAL, { name: 'q', location: 'project' })).rejects.toMatchObject({ code: 'invalid_params' });
+    await expect(create.handler(ELSEWHERE, { name: 'r', location: 'ri' })).rejects.toMatchObject({ code: 'unsupported' });
+    expect(fs.existsSync(path.join(home.root, 'skills', 'r'))).toBe(false);
   });
 
   it('save_skill goes through the app server, and only from the home', async () => {
@@ -154,13 +160,28 @@ describe('skill actions', () => {
     expect(result).toMatchObject({ renamedFrom: 'ri:original', skill: { ref: 'ri:renamed' } });
   });
 
-  it('move_skill is the local CLI or app only, and goes through the app server', async () => {
+  it('move_skill installs for callers on the home, the builder AI included, through the app server', async () => {
     const move = await action('move_skill');
-    await expect(move.handler(HOME_MCP, { ref: 'ri:x', to: 'global' })).rejects.toMatchObject({ code: 'invalid_params' });
+    await expect(move.handler(ELSEWHERE, { ref: 'draft:x', to: 'ri' })).rejects.toMatchObject({ code: 'unsupported' });
     expect(server.calls).toEqual([]);
+    await move.handler(HOME_MCP, { ref: 'draft:x', to: 'ri' });
     await move.handler(LOCAL, { ref: 'ri:x', to: 'project', workspaceId: wsId, copy: true });
+    await move.handler(HOME_MCP, { ref: 'ri:x', to: 'draft' });
     expect(server.calls).toEqual([
+      { path: '/skills/draft%3Ax/move', method: 'POST', body: { to: 'ri' } },
       { path: '/skills/ri%3Ax/move', method: 'POST', body: { to: 'project', workspaceId: wsId, copy: true } },
+      { path: '/skills/ri%3Ax/move', method: 'POST', body: { to: 'draft' } },
     ]);
+  });
+
+  it('move_skill treats a retried install that already landed as done', async () => {
+    await seed(path.join(home.root, 'skills'), 'installed');
+    const { ServerResponseError } = await import('./server-client');
+    server.reply = () => {
+      throw new ServerResponseError(404, JSON.stringify({ error: "There's no skill named installed there.", code: 'not_found' }), 'POST → 404');
+    };
+    const move = await action('move_skill');
+    await expect(move.handler(HOME_MCP, { ref: 'draft:installed', to: 'ri' })).resolves.toMatchObject({ skill: { ref: 'ri:installed' } });
+    await expect(move.handler(HOME_MCP, { ref: 'draft:missing', to: 'ri' })).rejects.toMatchObject({ code: 'not_found' });
   });
 });

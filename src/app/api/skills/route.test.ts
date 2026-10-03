@@ -55,14 +55,27 @@ function json(method: string, body: unknown) {
 const params = (ref: string) => ({ params: Promise.resolve({ ref }) });
 
 describe('/api/skills', () => {
-  it('creates a skill in Ri and lists it', async () => {
+  it('creates a draft and lists it', async () => {
     const created = await create(json('POST', { intent: 'Review pull requests' }));
     expect(created.status).toBe(201);
     const { skill } = await created.json();
-    expect(skill).toMatchObject({ ref: 'ri:review-pull-requests', location: { kind: 'ri' } });
+    expect(skill).toMatchObject({ ref: 'draft:review-pull-requests', location: { kind: 'draft' } });
     const overview = await (await list()).json();
-    expect(overview.skills.map((s: { ref: string }) => s.ref)).toEqual(['ri:review-pull-requests']);
+    expect(overview.skills.map((s: { ref: string }) => s.ref)).toEqual(['draft:review-pull-requests']);
     expect(overview.projects).toEqual([expect.objectContaining({ workspaceId: wsId, name: 'Blog' })]);
+  });
+
+  it('hands New skill the same blank draft until something is in it', async () => {
+    const first = (await (await create(json('POST', {}))).json()).skill;
+    expect(first.ref).toBe('draft:new-skill');
+    expect((await (await create(json('POST', {}))).json()).skill.ref).toBe('draft:new-skill');
+    await save(json('PUT', { body: 'Steps.\n' }), params(first.ref));
+    expect((await (await create(json('POST', {}))).json()).skill.ref).toBe('draft:new-skill-2');
+  });
+
+  it('can install right away, in Ri', async () => {
+    const { skill } = await (await create(json('POST', { name: 'triage', description: 'T.', location: 'ri' }))).json();
+    expect(skill).toMatchObject({ ref: 'ri:triage', location: { kind: 'ri' } });
   });
 
   it('creates in a project, and needs the agent for it', async () => {
@@ -83,7 +96,7 @@ describe('/api/skills', () => {
 
 describe('/api/skills/[ref]', () => {
   beforeEach(async () => {
-    await create(json('POST', { name: 'triage', description: 'Triage the inbox.', body: 'Steps.\n' }));
+    await create(json('POST', { name: 'triage', description: 'Triage the inbox.', body: 'Steps.\n', location: 'ri' }));
   });
 
   it('reads, saves and 404s', async () => {
@@ -113,9 +126,21 @@ describe('/api/skills/[ref]', () => {
   });
 });
 
-describe('moving and committing', () => {
+describe('installing, moving and committing', () => {
+  it('installs a draft once nothing is flagged, and uninstalls it', async () => {
+    await create(json('POST', { name: 'triage' }));
+    const refused = await move(json('POST', { to: 'ri' }), params('draft:triage'));
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toMatch(/^Fix this before installing triage\./);
+    await save(json('PUT', { description: 'Triages the inbox.' }), params('draft:triage'));
+    const installed = await (await move(json('POST', { to: 'ri' }), params('draft:triage'))).json();
+    expect(installed.skill).toMatchObject({ ref: 'ri:triage', location: { kind: 'ri' } });
+    const back = await (await move(json('POST', { to: 'draft' }), params('ri:triage'))).json();
+    expect(back.skill.ref).toBe('draft:triage');
+  });
+
   it('moves to global, copies to a project and commits it there', async () => {
-    await create(json('POST', { name: 'triage', description: 'Triage.', body: 'Steps.\n' }));
+    await create(json('POST', { name: 'triage', description: 'Triage.', body: 'Steps.\n', location: 'ri' }));
     const moved = await (await move(json('POST', { to: 'global' }), params('ri:triage'))).json();
     expect(moved.skill.ref).toBe('global:triage');
     expect(fs.existsSync(path.join(userHome, '.claude', 'skills', 'triage', 'SKILL.md'))).toBe(true);
@@ -128,7 +153,7 @@ describe('moving and committing', () => {
   });
 
   it('answers 400 for a bad destination and a commit outside a project', async () => {
-    await create(json('POST', { name: 'triage', description: 'Triage.' }));
+    await create(json('POST', { name: 'triage', description: 'Triage.', location: 'ri' }));
     expect((await move(json('POST', { to: 'sideways' }), params('ri:triage'))).status).toBe(400);
     expect((await move(json('POST', { to: 'ri' }), params('ri:triage'))).status).toBe(400);
     expect((await commit(new Request('http://test', { method: 'POST' }), params('ri:triage'))).status).toBe(400);

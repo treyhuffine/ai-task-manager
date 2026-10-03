@@ -8,7 +8,7 @@ export type { SkillSummary, SkillLocationView } from '@/lib/skills/manage';
 export type { ProjectInfo } from '@/lib/skills/locations';
 export type { SkillProblem } from '@/lib/skills/format';
 
-export type LocationKind = 'ri' | 'global' | 'project';
+export type LocationKind = 'draft' | 'ri' | 'global' | 'project';
 
 export interface CreateSkillBody {
   name?: string;
@@ -31,7 +31,7 @@ export interface SaveSkillBody {
 export interface MoveSkillBody {
   to: LocationKind;
   workspaceId?: string;
-  /** Keep the original: how a skill is shared with a project. */
+  /** Keep the original: how a skill is shared with a project. `to: 'draft'` uninstalls it. */
   copy?: boolean;
 }
 
@@ -47,7 +47,11 @@ export const skillsApi = {
     return api.get<{ skill: SkillView }>(at(ref));
   },
 
-  /** A new skill, in Ri unless a location says otherwise. Named from `intent` when `name` is absent. */
+  /**
+   * A new skill, a draft unless a location installs it. Named from `intent`
+   * when `name` is absent. An empty body hands back a blank, unused draft if
+   * there is one.
+   */
   create(body: CreateSkillBody): Promise<{ skill: SkillView }> {
     return api.post<{ skill: SkillView }>('/skills', body);
   },

@@ -126,7 +126,7 @@ export function SettingsModal() {
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? openSettings() : closeSettings())}>
       <DialogContent
-        className="flex h-[720px] max-h-[92vh] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl sm:flex-row"
+        className="flex h-[800px] max-h-[92vh] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl sm:flex-row"
         // The panes own their own scroll; the dialog itself never scrolls.
       >
         <SettingsNav

@@ -18,6 +18,7 @@ export function narrativePr(state: ActionState, openablePr: OpenablePr | null): 
     case 'prClosed':
       return { number: state.prNumber, url: state.prUrl, closed: true };
     case 'dirty':
+    case 'behindRemote':
       return state.pr ? { number: state.pr.prNumber, url: state.pr.prUrl, closed: false } : openablePr;
     default:
       return openablePr;
