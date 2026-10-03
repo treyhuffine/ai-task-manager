@@ -103,9 +103,10 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
     setHydrated(true);
   }, [storageKey]);
 
-  // A home that was never set up needs a harness, and the check for one
-  // starts now, while the person names the assistant.
-  const needsHarness = !!userState && !userState.onboardedAt;
+  const newHome = !!userState && !userState.onboardedAt;
+  // The default belongs to the home, while progress belongs to this browser.
+  // A saved choice survives an unfinished setup opened on another device.
+  const needsHarness = newHome && !userState.defaultHarness;
   const harnessPending = needsHarness && progress.replies.harness === undefined;
   const { data: check } = useHarnessCheck(hydrated && harnessPending);
 
@@ -141,7 +142,13 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
     { about: userState?.description ?? '', projects: projectNames },
     hydrated && !harnessPending && aboutSettled && !ctx.hasAreas,
   );
-  const finished = progress.step === 'done';
+  // A different browser may already have saved the choice while this one
+  // was parked at the harness step. Do not mount its automatic saver with a
+  // cached check result, and do not wait on a check that is now disabled.
+  const currentStep = progress.step === 'harness' && !needsHarness
+    ? nextStep('harness', ctx)
+    : progress.step;
+  const finished = currentStep === 'done';
 
   // Reaching the end is finishing: record it once, so the next empty chat
   // opens on the usual intro. This chat keeps the conversation until it's used.
@@ -204,7 +211,7 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
 
   if (!hydrated || !userState) return <div className="flex-1" />;
 
-  const steps = stepsThrough(progress.step, progress.replies);
+  const steps = stepsThrough(currentStep, progress.replies);
   // Where the harness was picked, a line on what's now the default and a way
   // to change it: after the person's answer when they picked by hand, after
   // the naming when the check picked on its own (that step isn't shown).
@@ -236,7 +243,7 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
         )}
 
         {steps.map((step) => {
-          const current = step === progress.step;
+          const current = step === currentStep;
           if (current && typing) return <Typing key={`${step}-typing`} />;
           const reply = progress.replies[step];
           return (
@@ -249,7 +256,7 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
               {reply !== undefined ? (
                 <Reply step={step}>{reply}</Reply>
               ) : step === 'identity' ? (
-                <IdentityStep newHome={needsHarness} onDone={(name) => advance('identity', name)} />
+                <IdentityStep newHome={newHome} onDone={(name) => advance('identity', name)} />
               ) : step === 'harness' ? (
                 <HarnessStep check={check} onDone={(r) => advance('harness', r)} />
               ) : step === 'you' ? (

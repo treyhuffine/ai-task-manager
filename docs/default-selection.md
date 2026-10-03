@@ -37,5 +37,6 @@ home default for that agent.
 
 ## Unset
 
-A home that never chose (null) runs on Claude Code and its default model, resolved at read time.
-Starting a chat doesn't fill it in.
+A home that never chose (null) runs on Codex and its default model, resolved at read time.
+Starting a chat doesn't fill it in. First-run setup preserves a saved harness, model and effort,
+even when setup is unfinished and resumed in a browser without its earlier progress.
