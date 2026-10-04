@@ -1,19 +1,20 @@
-# tRPC WebSocket trial
+# tRPC WebSocket transport
 
-HTTP remains the default. The trial changes transport, using the same router,
+WebSocket is the default for browser tRPC requests. The transport uses the same router,
 domain operations, types, TanStack Query caches and optimistic hooks. No database
 migration is involved. Terminal output has a typed subscription with the same
 replay cursor and ring-buffer recovery as SSE.
 
-## Using the trial
+## Selecting a transport
 
-Open **Settings > General > Connection transport trial** and select
-**WebSocket trial**. The preference belongs to this browser origin. HTTP is
-the default for a new view. The status explains whether the socket is ready or
+Open **Settings > General > Connection transport**. New views use
+**WebSocket (default)**. A saved HTTP choice is respected. The preference belongs
+to this browser origin. Browsers with unavailable storage also default to WS.
+The status explains whether the socket is ready or
 the view is using HTTP fallback. The diagnostics show successful query/mutation
 counts and the latest response time for each transport.
 
-Select **HTTP (default)** to revert immediately. New operations use HTTP and
+Select **HTTP** to revert immediately. New operations use HTTP and
 terminal output rejoins the page's SSE stream at the delivered cursor. Writes
 already sent on a socket finish there before it closes. No database migration,
 cache clearing, component rewrite or data rollback is needed.
@@ -41,7 +42,7 @@ brand to preserve their status and body across the same bundle boundary.
 
 Native `next dev`/`next start` commands bypass this custom host, advertise no WS
 capability and continue to serve HTTP. Use `pnpm dev`, `pnpm start` or the CLI
-launcher for the trial. `pnpm dev --port ...`, `--hostname ...`, `--webpack` and
+launcher for WebSocket transport. `pnpm dev --port ...`, `--hostname ...`, `--webpack` and
 `--turbopack` are supported. CLI development requires the normal `pnpm cli:build`
 after changes to the custom host.
 
@@ -69,6 +70,12 @@ HTTP or WS. Query keys, optimistic partial merges, editor bodies and input-carry
 mutation metadata are unchanged. Calls with per-operation identity headers
 remain isolated on HTTP because a socket has connection-scoped authentication.
 `context: { httpOnly: true }` also selects HTTP for a particular call.
+The capability check always uses HTTP. A disabled or unavailable socket, a
+background view, or an explicit HTTP preference also routes requests over HTTP.
+Non-browser clients default to HTTP. A native JS client can opt into WS by
+passing an absolute API URL, its WebSocket implementation and
+`getMode: () => 'websocket'` to `createAppTRPCClient`. Thus the browser default
+does not mean every tRPC request uses WS.
 
 The client confirms an authenticated WS ping before sending an application write.
 A failed connection uses HTTP/SSE for 30 seconds before negotiating again. Reads
@@ -101,7 +108,7 @@ Implementation acceptance checklist:
 - [x] Same-process Next runtime, development, production and supervised launchers
 - [x] Viewer authentication, origin checks, protocol negotiation, revocation
 - [x] Maintenance admission, passive subscriptions, bounded buffers and shutdown
-- [x] Opt-in browser setting, connection diagnostics and immediate HTTP rollback
+- [x] WebSocket browser default, connection diagnostics and immediate HTTP rollback
 - [x] HTTP fallback for reads, no automatic replay of ambiguous writes
 - [x] Terminal input ordering, typed output, replay and SSE fallback
 - [x] Direct and gateway socket tests, disconnect and transport-switch tests
@@ -120,15 +127,18 @@ tests cover replay, snapshots, bounded queues, cancellation, visibility,
 transport switching and paused input. The production and development smoke
 also exercise nine domains and a real PTY shared across HTTP and WS.
 
-Verified on 2026-10-03: 5,068 tests passed and 35 skipped, typecheck and
+Verified on 2026-10-03: 5,076 tests passed and 35 skipped, typecheck and
 transport-code lint passed, production and CLI/service builds passed. The
 existing `useMemo` callbacks in General settings still fail its React hook lint
-rule, outside the trial-control insertion. Isolated
+rule, outside the transport-control insertion. Isolated
 development, direct production and packaged-service smokes passed typed terminal delivery, WS/SSE replay,
 HTTP rollback and structured protocol refusals after the HTTP router was loaded.
 A native development HMR socket check also passed. Manual browser interaction
 was unavailable in this session, so the settings control and terminal notice
 have build, type and transport coverage but no manual UI verification.
+The default-transport checks exercise real browser reads/writes with no saved
+preference and with a saved HTTP rollback choice. They also cover unavailable
+storage and the non-browser HTTP default.
 
 Reproduce the smoke against a running isolated Home under the system temporary
 directory:
@@ -149,7 +159,7 @@ calls measured HTTP median 4.34 ms / p95 4.68 ms and WS median 1.82 ms / p95
 1.91 ms. This measures local transport overhead, including the same admission
 check and procedure work. It does not establish internet/tunnel latency, total
 app speed or behavior under contention. Measure the real connection and compare
-the same operations before making WS the default.
+the same operations when assessing transport performance.
 
 Official API references: [WS adapter](https://trpc.io/docs/server/websockets),
 [WS link](https://trpc.io/docs/client/links/wsLink),

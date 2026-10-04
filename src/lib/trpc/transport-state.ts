@@ -1,5 +1,6 @@
 /** Per-view transport preference. Cache keys and server data are independent. */
 export type TransportMode = 'http' | 'websocket';
+export const DEFAULT_BROWSER_TRANSPORT: TransportMode = 'websocket';
 export const TRANSPORT_STORAGE_KEY = 'ri.client.apiTransport';
 const listeners = new Set<() => void>();
 const modeListeners = new Set<() => void>();
@@ -18,7 +19,7 @@ let status = initial;
 export function getTransportMode(): TransportMode {
   if (typeof window === 'undefined') return 'http';
   if (memoryMode) return memoryMode;
-  try { return window.localStorage.getItem(TRANSPORT_STORAGE_KEY) === 'websocket' ? 'websocket' : 'http'; } catch { return 'http'; }
+  try { return window.localStorage.getItem(TRANSPORT_STORAGE_KEY) === 'http' ? 'http' : DEFAULT_BROWSER_TRANSPORT; } catch { return DEFAULT_BROWSER_TRANSPORT; }
 }
 export function setTransportMode(mode: TransportMode): void {
   memoryMode = mode;

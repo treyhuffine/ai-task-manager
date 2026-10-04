@@ -1,8 +1,8 @@
 # Internal UI API migration to tRPC
 
-The opt-in [WebSocket transport trial](./trpc-websocket-trial.md) uses the same
+The browser's default [WebSocket transport](./trpc-websocket-trial.md) uses the same
 router and cache layer, including typed terminal output subscriptions. HTTP
-remains the default. CLI, worker and external adapters retain their existing
+remains available for rollback and fallback. CLI, worker and external adapters retain their existing
 protocol contracts.
 
 Completed October 3, 2026. The migration started from main `11baca63` and
@@ -123,10 +123,10 @@ internal REST JSON calls and transport options that silently discard query
 inputs. It also checks that domain operations do not import HTTP handlers or
 perform raw database writes.
 
-The multiplexed SSE stream continues to carry live chat, terminal and global
-events. The opt-in WebSocket trial is documented separately and includes measurements
-on Ri's local, desktop, tunnel and remote paths, including reconnect/replay
-correctness. This migration does not claim that tRPC or WebSockets inherently
+The multiplexed SSE stream continues to carry live chat and global events, plus
+terminal output during fallback. The browser's default WebSocket transport is
+documented separately with loopback measurements and reconnect/replay behavior.
+This migration does not claim that tRPC or WebSockets inherently
 reduces latency.
 
 React Native can share the TypeScript router contract. Configure

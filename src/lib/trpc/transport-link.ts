@@ -94,7 +94,7 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
           connectionParams: () => options.transport.connectionParams(),
           lazy: { enabled: true, closeMs: 60_000 },
           keepAlive: { enabled: true, intervalMs: 25_000, pongTimeoutMs: 5_000 },
-          // Trial recovery is handled by the circuit and SSE bridge. Do not
+          // Recovery is handled by the circuit and SSE bridge. Do not
           // leave a second background reconnect loop running after fallback.
           onClose: () => { if (candidate && !candidate.retired && !disposed) fallback('WebSocket disconnected. Using HTTP while reconnecting.'); },
           onError: () => { if (candidate && !candidate.retired && !disposed) fallback('WebSocket could not connect. Using HTTP while reconnecting.'); },

@@ -83,6 +83,7 @@ afterEach(async () => {
   (await import('@/lib/home/identity')).resetHomeIdentityCache();
   await home.cleanup();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 function client(getMode: () => TransportMode = () => 'websocket', token: string | (() => string) = home.token) {
   class TrackedSocket extends WebSocket {
@@ -93,6 +94,16 @@ function client(getMode: () => TransportMode = () => 'websocket', token: string 
   clients.push(c);
   return c;
 }
+
+it.each([null, 'http'])('honors the browser default and saved HTTP rollback for reads and writes (%s)', async saved => {
+  vi.stubGlobal('window', { location: new URL(base), localStorage: { getItem: () => saved }, addEventListener: vi.fn() });
+  const c = createAppTRPCClient({ url: `${base}/api/trpc`, WebSocket: WebSocket as unknown as typeof globalThis.WebSocket,
+    transport: new ApiClient({ getToken: () => home.token, onUnauthorized: () => {} }) });
+  clients.push(c);
+  await c.tasks.create.mutate({ title: 'Default socket', rawInput: 'Default socket' });
+  expect(await c.tasks.list.query()).toEqual([{ id: '0', title: 'Default socket' }]);
+  expect(httpPaths).toEqual(saved === 'http' ? ['/api/trpc/tasks.create', '/api/trpc/tasks.list'] : ['/api/trpc/transport.capabilities']);
+});
 
 it('negotiates once and runs typed reads and writes on one socket, with HTTP rollback', async () => {
   let mode: TransportMode = 'websocket';
