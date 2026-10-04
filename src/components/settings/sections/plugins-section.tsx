@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSettingsStore } from '@/components/settings/settings-store';
 import { ConnectorsSection } from './connectors-section';
 import { NewSkillButton, SkillsTab } from './plugins/skills-catalog';
+import { InteractiveExamples } from './plugins/interactive-examples';
 
 export type PluginsTab = 'connectors' | 'skills';
 
@@ -41,26 +42,29 @@ export function PluginsSection() {
   }
 
   return (
-    <Tabs value={tab} onValueChange={(value) => setTab(value as PluginsTab)} className="gap-5">
-      {/* The button sits over the tab list's right end rather than in it: a tablist holds only tabs. */}
-      <div className="relative">
-        <TabsList variant="line" className="h-8 w-full justify-start gap-4 border-b border-border/60 px-0">
-          {TABS.map((t) => (
-            <TabsTrigger key={t.value} value={t.value} className="h-full flex-none px-0.5 text-[12.5px]">
-              {t.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        <div className="absolute right-0 top-0 flex h-8 items-center pb-1">
-          <NewSkillButton />
+    <>
+      <InteractiveExamples />
+      <Tabs value={tab} onValueChange={(value) => setTab(value as PluginsTab)} className="gap-5">
+        {/* The button sits over the tab list's right end rather than in it: a tablist holds only tabs. */}
+        <div className="relative">
+          <TabsList variant="line" className="h-8 w-full justify-start gap-4 border-b border-border/60 px-0">
+            {TABS.map((t) => (
+              <TabsTrigger key={t.value} value={t.value} className="h-full flex-none px-0.5 text-[12.5px]">
+                {t.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          <div className="absolute right-0 top-0 flex h-8 items-center pb-1">
+            <NewSkillButton />
+          </div>
         </div>
-      </div>
-      <TabsContent value="connectors">
-        <ConnectorsSection />
-      </TabsContent>
-      <TabsContent value="skills">
-        <SkillsTab />
-      </TabsContent>
-    </Tabs>
+        <TabsContent value="connectors">
+          <ConnectorsSection />
+        </TabsContent>
+        <TabsContent value="skills">
+          <SkillsTab />
+        </TabsContent>
+      </Tabs>
+    </>
   );
 }

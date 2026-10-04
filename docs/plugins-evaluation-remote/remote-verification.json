@@ -1,0 +1,21 @@
+{
+  "testedAt": "2026-10-04T16:33:34.788Z",
+  "mode": "isolated-ri",
+  "checks": [
+    "The HTTPS view discovers both fixtures without invoking a tool",
+    "Ri cookies do not reach either HTTPS example origin",
+    "Scenario sliders, comparison and reset work over Beamd",
+    "The real app retains its nested sandbox, DOM isolation and lack of desktop IPC",
+    "Excalidraw editing and return preserve the same invocation over HTTPS",
+    "Reload ends the example session without replaying a tool",
+    "No Ri cookie or Authorization header is sent to the examples",
+    "The actual Ri entry opens and returns to Plugins in the same tab",
+    "Reloading Ri leaves the examples closed and never replays a tool",
+    "A narrow Ri view keeps a visible return path without invoking tools"
+  ],
+  "calls": [
+    "get-scenario-data",
+    "create_view",
+    "save_checkpoint"
+  ]
+}

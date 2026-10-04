@@ -51,3 +51,36 @@ Verification launches an installed Chromium browser with a fresh, credential-fre
 Stop the demo, then remove its temporary folder in Finder to reclaim the installation. The recipe can rebuild it later. Removing the temporary folder does not affect Ri's Home, credentials or dependencies.
 
 See [the evaluation report](../../docs/plugins-evaluation-0a.md) for tested interactions, screenshots, exact revisions and limitations.
+
+## Open inside a remote Ri Home
+
+The follow-up experiment adds **Try interactive examples** at the top of Settings > Plugins. It opens the reference host inside a large dialog and returns to Plugins in the same tab. The underlying Ri conversation stays mounted. This is an experimental entry to the synthetic demo, not a production integration with chat results or accounts.
+
+First build and run Ri with this change. Then, on the Home computer, run:
+
+```sh
+pnpm exec tsx scripts/mcp-apps-eval/remote.ts
+```
+
+The Home must already have its HTTPS remote URL configured and Beamd available. Start opens two owned Beamd tunnels, ports 48885 and 48886, in addition to the four isolated local servers. It prints the Ri Plugins URL. The browser uses these HTTPS origins, never its own localhost. Use **Open diagram example** or **Open scenario example**, then **Return to Plugins**.
+
+The app's authenticated tRPC launcher mints a 30-minute capability for the synthetic fixtures. The public examples have no anonymous catalog or launch endpoint. Their child process has no Ri or provider credentials. The host and sandbox use distinct origins, retain the reference nested iframe, and validate the embedding origin. The readiness message is their only bridge to Ri. There is no Ri tool, composer or context authority in that bridge.
+
+Session capabilities and launch keys live only in private temporary files and memory. Do not share a view's capability URL. Reloading the example ends its result session. Reloading Ri closes the dialog. Neither action repeats the original tool call. Choose Open explicitly to start again. Excalidraw still uses the pinned local fallback and requires its upstream CDN.
+
+To verify the real Ri entry through its public HTTPS URL:
+
+```sh
+node --import tsx scripts/mcp-apps-eval/verify-remote.mjs
+node --test scripts/mcp-apps-eval/remote-server.test.mjs
+```
+
+The browser test authenticates only the top-level Ri page with the Home's existing viewer token, using Ri's normal bootstrap. It never gives that token to an example frame or child process. Only sample data is submitted to the fixtures. `--sandbox` instead uses a synthetic parent and imports no Ri credential. `RI_MCP_APPS_TEST_HOME_ORIGIN=http://127.0.0.1:48887` with a matching isolated `RI_ROOT` tests a separately built synthetic Ri Home while the examples still traverse Beamd. Screenshots are captured only in that isolated mode.
+
+Stop only the remote wrapper and its two owned tunnels:
+
+```sh
+pnpm exec tsx scripts/mcp-apps-eval/remote.ts stop
+```
+
+The local standalone servers remain available until `stop.mjs` is run. The experiment's button is hidden when its private descriptor is absent or its process is gone. Ri remains running. This experiment does not qualify production sandbox packaging, harness invocation capture, account permissions or saved-result reopening. See [the remote follow-up report](../../docs/plugins-evaluation-remote.md).

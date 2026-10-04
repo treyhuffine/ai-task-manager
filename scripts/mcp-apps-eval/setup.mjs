@@ -30,6 +30,8 @@ cpSync(join(root, 'upstream/excalidraw'), join(root, 'excalidraw-source'), {
 })
 run('git', ['apply', '--check', join(here, 'evaluation.patch')])
 run('git', ['apply', join(here, 'evaluation.patch')])
+run('git', ['apply', '--check', join(here, 'ri-embed.patch')])
+run('git', ['apply', join(here, 'ri-embed.patch')])
 for (const project of projects) {
   cpSync(join(here, 'locks', project + '.yaml'), join(root, project, 'pnpm-lock.yaml'))
   run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], join(root, project))

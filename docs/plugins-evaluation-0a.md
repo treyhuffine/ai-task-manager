@@ -4,6 +4,8 @@ Milestone 0A completed October 2, 2026, America/Denver. Browser evidence was cap
 
 The working demo is [here](http://ri-mcp-apps.127.0.0.1.nip.io:48880) on the Mac running it. It provides preset buttons for the real Excalidraw MCP App and official Scenario Modeler. [Start, stop, setup and verification instructions](../scripts/mcp-apps-eval/README.md).
 
+An October 4 follow-up adds an experimental button inside Ri for remote Beamd viewers. See [the remote experiment](plugins-evaluation-remote.md). The scope and limitations below describe the original standalone 0A delivery.
+
 ## Scope delivered
 
 - [x] Pinned official basic host in a separate temporary installation, with its own dependencies and frozen lockfiles.

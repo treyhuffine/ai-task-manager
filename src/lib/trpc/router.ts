@@ -9,6 +9,7 @@ import { internalRouters, taskProcedures } from './operation-router';
 import * as s from './schemas';
 import { terminalSubscriptions } from './terminal-subscription';
 import { hasWebSocketRuntime, publishApplicationRouter } from './ws-runtime';
+import { launchPluginEvaluation, pluginEvaluationStatus } from '@/lib/server/operations/plugins/evaluation';
 
 function required<T>(value: T | null | undefined, entity: string): T {
   if (value == null) throw new TRPCError({ code: 'NOT_FOUND', message: `${entity} not found` });
@@ -22,6 +23,10 @@ export const appRouter = router({
     ping: p.query(() => ({ now: Date.now() })),
   }),
   terminals: terminalSubscriptions,
+  pluginEvaluation: router({
+    status: p.query(() => pluginEvaluationStatus()),
+    launch: p.input(z.object({ parentOrigin: z.string().url() }).strict()).mutation(({ input }) => launchPluginEvaluation(input.parentOrigin)),
+  }),
   tasks: router({
     ...taskProcedures,
     list: p.input(s.taskFilterSchema.optional()).query(({ input }) => toTaskListDTOs(q.listTasks(input))),

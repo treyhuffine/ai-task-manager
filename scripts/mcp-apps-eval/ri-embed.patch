@@ -1,0 +1,20 @@
+--- a/host/src/sandbox.ts
++++ b/host/src/sandbox.ts
+@@ -1,7 +1,7 @@
+ import type { McpUiSandboxProxyReadyNotification, McpUiSandboxResourceReadyNotification } from "@modelcontextprotocol/ext-apps/app-bridge";
+ import { buildAllowAttribute } from "@modelcontextprotocol/ext-apps/app-bridge";
+ 
+-const ALLOWED_REFERRER_PATTERN = /^http:\/\/ri-mcp-apps\.127\.0\.0\.1\.nip\.io:48880(\/|$)/;
++const ALLOWED_HOST_ORIGIN = document.documentElement.dataset.evaluationHostOrigin || "http://ri-mcp-apps.127.0.0.1.nip.io:48880";
+ 
+ if (window.self === window.top) {
+   throw new Error("This file is only to be used in an iframe sandbox.");
+@@ -12,7 +12,7 @@
+   throw new Error("No referrer, cannot validate embedding site.");
+ }
+ 
+-if (!document.referrer.match(ALLOWED_REFERRER_PATTERN)) {
++if (new URL(document.referrer).origin !== ALLOWED_HOST_ORIGIN) {
+   throw new Error(
+     `Embedding domain not allowed in referrer ${document.referrer}. (Consider updating the validation logic to allow your domain.)`,
+   );
