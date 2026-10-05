@@ -187,7 +187,9 @@ Files selector (⋯ for the rest). If the chat needs an answer meanwhile, a
 "Needs input · Answer" bar stays on screen and returns to the approval.
 
 **Hotkeys** (`src/constants/commands.ts`): ⌃` toggles the terminal
-(captured so a focused terminal can't swallow it), ⌘P opens Files and
+(captured so a focused terminal can't swallow it), ⌥⌘B shows or hides the
+tools panel the way the Tools toggle does (VS Code's key for its right-hand
+side bar, and the agent view uses it for its tools too), ⌘P opens Files and
 focuses the tree search, Esc as above.
 
 **Mounting.** The dashboard renders its desktop, tablet and phone layouts

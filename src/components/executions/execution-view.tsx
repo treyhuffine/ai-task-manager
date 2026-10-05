@@ -438,6 +438,10 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         e.preventDefault();
         e.stopPropagation();
         workbenchRef.current.dispatch({ type: 'toggleTerminal' });
+      } else if (matchesHotkey(e, HOTKEYS.toggleTools)) {
+        e.preventDefault();
+        e.stopPropagation();
+        workbenchRef.current.dispatch({ type: 'togglePanel' });
       } else if (matchesHotkey(e, HOTKEYS.goToFile)) {
         e.preventDefault();
         e.stopPropagation();

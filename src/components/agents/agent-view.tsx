@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
   useDefaultLayout,
@@ -16,6 +16,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { DEFAULT_AGENT_TAB, readLastAgentTab, writeLastAgentTab } from '@/lib/client/agent-view-tab';
 import type { AgentTab } from '@/types/dashboard';
 import { cn } from '@/lib/utils';
+import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { AgentHeader } from './agent-header';
 import { AgentChatPanel } from './agent-chat-panel';
 import { AgentTools } from './agent-tools';
@@ -97,6 +98,22 @@ export function AgentView({
     if (panel.isCollapsed()) panel.expand();
     else panel.collapse();
   }, [toolsRef]);
+
+  // The tools hotkey, as in an execution: shows or hides the tools panel, or
+  // switches panes when there's room for one. Only the copy on screen listens
+  // (the dashboard mounts a layout per screen size and hides the others).
+  const onScreen = !!width;
+  useEffect(() => {
+    if (!onScreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!matchesHotkey(e, HOTKEYS.toggleTools)) return;
+      e.preventDefault();
+      if (narrow) setPane((p) => (p === 'tools' ? 'chat' : 'tools'));
+      else toggleTools();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onScreen, narrow, toggleTools]);
 
   // Measured in every state, so the layout is known before the agent loads.
   const frame = (children: React.ReactNode) => (

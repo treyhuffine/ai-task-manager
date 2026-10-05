@@ -6,6 +6,9 @@ export interface Hotkey {
   key: string;
   meta?: boolean;    // Cmd (Mac) / Ctrl (Win/Linux)
   shift?: boolean;
+  /** Option (Mac) / Alt. Matched by the physical key, since Option turns
+   *  `e.key` into another character on a Mac (⌥B types "∫"). */
+  alt?: boolean;
   label: string;     // Display string, e.g. "⌘K"
 }
 
@@ -32,6 +35,9 @@ export const HOTKEYS = {
   // ⌃` (VS Code's terminal toggle). ⌘` itself belongs to macOS window
   // cycling and never reaches the page.
   toggleTerminal: { key: '`', meta: true, label: '\u2303`' },
+  // The tools panel on the right, reopened as you left it. VS Code's key for
+  // its right-hand (secondary) side bar.
+  toggleTools: { key: 'b', meta: true, alt: true, label: '\u2325\u2318B' },
   // Open Files and focus the tree's search, like an editor's Go to File.
   goToFile: { key: 'p', meta: true, label: '\u2318P' },
   // Back and Forward in the desktop app, which has no browser chrome to do
@@ -49,6 +55,7 @@ export function matchesHotkey(e: KeyboardEvent, hotkey: Hotkey): boolean {
   const metaHeld = e.metaKey || e.ctrlKey;
   if (metaHeld !== metaRequired) return false;
   if (e.shiftKey !== shiftRequired) return false;
+  if (hotkey.alt) return e.altKey && e.code === `Key${hotkey.key.toUpperCase()}`;
   return e.key.toLowerCase() === hotkey.key.toLowerCase();
 }
 

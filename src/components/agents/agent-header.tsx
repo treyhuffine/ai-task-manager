@@ -6,6 +6,7 @@ import { useRunOn } from '@/hooks/use-workspaces';
 import { openLauncher } from '@/components/workspaces/launcher/launcher-store';
 import type { WorkspaceRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
+import { HOTKEYS } from '@/constants/commands';
 import { AgentIcon } from './agent-icon';
 import type { AgentPane } from './agent-view';
 
@@ -88,7 +89,7 @@ export function AgentHeader({
           onClick={onToggleTools}
           className="flex-shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
           aria-label={toolsCollapsed ? 'Show tools' : 'Hide tools'}
-          title={toolsCollapsed ? 'Show tools' : 'Hide tools'}
+          title={`${toolsCollapsed ? 'Show tools' : 'Hide tools'} (${HOTKEYS.toggleTools.label})`}
         >
           {toolsCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
         </button>

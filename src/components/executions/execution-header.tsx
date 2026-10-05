@@ -547,7 +547,7 @@ export function ExecutionHeader({
               on={workbench.panelOpen}
               onClick={workbench.onTogglePanel}
               label="Tools"
-              title={workbench.panelOpen ? 'Hide the tools panel' : `Show ${workbench.panelLabel}`}
+              title={`${workbench.panelOpen ? 'Hide the tools panel' : `Show ${workbench.panelLabel}`} (${HOTKEYS.toggleTools.label})`}
               icon={<RightPanelIcon filled={workbench.panelOpen} />}
             />
           </>
