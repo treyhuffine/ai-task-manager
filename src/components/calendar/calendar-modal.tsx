@@ -2,8 +2,8 @@
 
 /**
  * The calendar, nearly full screen, over whatever is on screen: the rail's
- * Calendar, the header's next-event peek, the deck's day strip, the calendar
- * panel's Week button and "Open calendar" in ⌘K all open it here
+ * Calendar, the header's next-event peek, the deck's day strip and "Open
+ * calendar" in ⌘K all open it here
  * (`openCalendarModal`). Esc, the X or a click outside leaves you exactly
  * where you were, often an execution you were watching.
  *
@@ -15,8 +15,8 @@
  *   - **Day**: one day on an hour axis.
  *
  * Read-only over external events, like every calendar surface (see
- * docs/calendar-view-spec.md). The panel tab (Home, More, Calendar) stays for
- * keeping a day docked beside the deck.
+ * docs/calendar-view-spec.md). The phone keeps its own day view (More,
+ * Calendar).
  *
  * Layering matches the task board: z-40, the task slideout's own layer, so a
  * deadline opens its task on top with the calendar dimmed behind it, and on

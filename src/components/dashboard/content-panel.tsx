@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Layers, ChevronDown, Users, Gavel, Calendar, Loader2, Plus,
+  Layers, ChevronDown, Users, Gavel, Loader2, Plus,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -11,7 +11,6 @@ import { TaskSurface } from '@/components/tasks/task-surface';
 import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
 import { DeckContainer } from '@/components/deck/deck-container';
-import { CalendarPanel } from '@/components/calendar/calendar-panel';
 import { useNeedsYourCall } from '@/hooks/use-stream';
 import { useUserState, useUpdateUserState, useOrchestratorName } from '@/hooks/use-user-state';
 import { OrchestratorAvatar } from '@/components/shared/orchestrator-mark';
@@ -39,7 +38,6 @@ const MORE_TABS: { id: MorePanelTab; label: string; icon: typeof Users }[] = [
   { id: 'areas', label: 'Areas', icon: Layers },
   { id: 'people', label: 'Contacts', icon: Users },
   { id: 'decisions', label: 'Decisions', icon: Gavel },
-  { id: 'calendar', label: 'Calendar', icon: Calendar },
 ];
 
 const MORE_TAB_IDS = new Set<string>(MORE_TABS.map(t => t.id));
@@ -294,8 +292,7 @@ export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
         {activeTab === 'tasks' && <TaskSurface />}
         {activeTab === 'stream' && <StreamList />}
         {activeTab === 'notes' && <NoteList />}
-        {activeTab === 'calendar' && <CalendarPanel />}
-        {isMoreTab && activeTab !== 'calendar' && <MoreTabContent tab={activeTab as MorePanelTab} />}
+        {isMoreTab && <MoreTabContent tab={activeTab as MorePanelTab} />}
       </div>
 
     </div>

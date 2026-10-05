@@ -1,13 +1,12 @@
 "use client";
 
 /**
- * The Calendar tab — purely a calendar, and in the panel purely a DAY, for
- * keeping one docked beside the deck (Home, More, Calendar). Every other door
- * to the calendar opens it full screen (`CalendarModal`), and so does this
- * tab's Week button: an hour grid fits a half-width column, seven columns
- * never will. Read-only over external events: the deck never renders here —
- * it's a ranked stack, not a schedule (see the retrenchment note in
- * docs/calendar-view-spec.md).
+ * The phone's calendar (More, Calendar) — purely a calendar, and purely a
+ * DAY: an hour axis fits a phone's width, seven columns never will. Every
+ * door on a larger screen opens the full-screen calendar (`CalendarModal`),
+ * and so does the Week button here where it shows (md and up). Read-only
+ * over external events: the deck never renders here — it's a ranked stack,
+ * not a schedule (see the retrenchment note in docs/calendar-view-spec.md).
  */
 
 import { useEffect, useState } from 'react';
