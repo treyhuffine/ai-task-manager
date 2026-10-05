@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils';
 /**
  * The toggle at the foot of a folded list: what's tucked away on the left
  * ("4 inactive hidden"), and Show or Hide on the right. The rows it controls
- * expand in place. One per list, for its inactive executions (`InactiveFold`).
+ * open above it, so it stays the foot. One per list, for its inactive
+ * executions (`InactiveFold`).
  *
  * `accessory` sits after the toggle, e.g. the inactive timer.
  */

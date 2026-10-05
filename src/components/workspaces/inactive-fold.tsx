@@ -15,10 +15,13 @@ import { FoldRow } from './fold-row';
 
 /**
  * The foot of a list section: "N inactive hidden" with Show, folded by
- * default. The toggle shows or hides that section's inactive executions in
- * place (each section remembers its own choice), and the timer beside it
- * changes when executions go inactive, for the whole app. Renders nothing
- * when the section has none.
+ * default. The toggle shows or hides that section's inactive executions
+ * (each section remembers its own choice), and the timer beside it changes
+ * when executions go inactive, for the whole app. Renders nothing when the
+ * section has none.
+ *
+ * Opened, the rows land where the toggle was and the toggle follows them, so
+ * it is the last line of the list either way, never a bar through its middle.
  *
  * `children` are the inactive rows, already rendered by the section in its
  * own row component. They show dimmed, so the section still reads as its
@@ -46,6 +49,7 @@ export function InactiveFold({
   if (count === 0) return null;
   return (
     <div>
+      {shown && <div className={cn('mb-0.5', touch ? 'space-y-1' : 'space-y-0.5')}>{children}</div>}
       <FoldRow
         label={`${count} inactive`}
         shown={shown}
@@ -64,7 +68,6 @@ export function InactiveFold({
           />
         }
       />
-      {shown && <div className={cn('mt-0.5', touch ? 'space-y-1' : 'space-y-0.5')}>{children}</div>}
     </div>
   );
 }

@@ -53,10 +53,12 @@ only takes working context). `get_user_state` returns it.
 Each list folds its own inactive rows behind a toggle at its foot:
 **"4 inactive hidden"** on the left and **Show** on the right (**"4 inactive
 shown"** and **Hide** once open, `FoldRow` in
-`src/components/workspaces/fold-row.tsx`). The rows expand in place. Each
-section remembers its own choice in localStorage (`ri.rail.fold.inactive:<section>`,
-`src/lib/client/rail-fold.ts`). Shown inactive rows are dimmed and carry a
-moon before their age.
+`src/components/workspaces/fold-row.tsx`). Opened, the rows land where the
+toggle was and the toggle moves below them, so it is the last line of its list
+either way. It used to stay put, which left a bar through the middle of the
+list once the rows opened under it. Each section remembers its own choice in
+localStorage (`ri.rail.fold.inactive:<section>`, `src/lib/client/rail-fold.ts`).
+Shown inactive rows are dimmed and carry a moon before their age.
 
 Inactive is the only rule for what hides. The agents-first rail used to also
 cap each agent at its three most recent quiet threads behind "N more", which
