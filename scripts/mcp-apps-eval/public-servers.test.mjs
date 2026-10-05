@@ -91,3 +91,12 @@ test('public checkpoints stay bound to the capability that created them', async 
   assert.equal((await proxy('excalidraw', call('create_view', { elements: '[{"type":"restoreCheckpoint","id":"owned-checkpoint"}]' }), other)).status, 403)
   assert.equal(executions, 2)
 })
+
+test('browser and model request counters cannot collide on a shared upstream connection', async () => {
+  const upstreamIds = []
+  const proxy = createPublicProxy(async (_url, rpc) => { upstreamIds.push(rpc.id); return response(rpc, rpc.method === 'initialize' ? { protocolVersion: '2025-11-25' } : { content: [] }) })
+  const owner = session()
+  assert.equal(JSON.parse((await proxy('excalidraw', { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }, owner)).body).id, 1)
+  for (let i = 0; i < 2; i++) assert.equal(JSON.parse((await proxy('excalidraw', call('read_me', {}, randomUUID(), 1), owner)).body).id, 1)
+  assert.equal(new Set(upstreamIds).size, 3)
+})

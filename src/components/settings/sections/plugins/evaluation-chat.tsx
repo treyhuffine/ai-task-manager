@@ -6,7 +6,7 @@ import { MessageCircle, Send, Tag, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MessageResponse } from '@/components/ai-elements/message';
 import { trpc } from '@/lib/trpc/client';
-import { evaluationContextSchema, type EvaluationContext } from '@/lib/plugins/evaluation-contract';
+import { allowsEvaluationChanges, evaluationContextSchema, type EvaluationContext } from '@/lib/plugins/evaluation-contract';
 
 type Message = { role: 'user' | 'assistant'; text: string; turnId: string; status?: string };
 type Conversation = { draft: string; messages: Message[]; contextId: string | null; allowChanges: boolean };
@@ -27,7 +27,7 @@ export function EvaluationChat({ viewUrl, frame }: { viewUrl: string; frame: Ref
   const everOpened = useRef(false);
   const selectedRef = useRef(selected);
   const log = useRef<HTMLDivElement>(null);
-  const pending = useRef<{ turnId: string; invocationId: string; index: number; timer: number } | null>(null);
+  const pending = useRef<{ turnId: string; invocationId: string; index: number; timer: number; diagram: boolean } | null>(null);
   useEffect(() => { chatsRef.current = chats; }, [chats]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
 
@@ -72,7 +72,7 @@ export function EvaluationChat({ viewUrl, frame }: { viewUrl: string; frame: Ref
         const applying = pending.current;
         if (applying && ['ri-evaluation-applied', 'ri-evaluation-apply-failed'].includes(message?.kind) && applying.turnId === message.turnId && applying.invocationId === message.invocationId) {
           window.clearTimeout(applying.timer);
-          toolStatus(applying.index, message.turnId, message.kind === 'ri-evaluation-applied' ? 'Applied to this scenario through MCP' : 'Calculated, but the view could not apply the result');
+          toolStatus(applying.index, message.turnId, message.kind === 'ri-evaluation-applied' ? applying.diagram ? 'Applied to this diagram through MCP' : 'Applied to this scenario through MCP' : 'The view could not apply the captured result. No call was repeated.');
           pending.current = null; setBusy(false);
         }
       }
@@ -82,7 +82,7 @@ export function EvaluationChat({ viewUrl, frame }: { viewUrl: string; frame: Ref
   }, [frame, viewUrl, toolStatus, patch]);
 
   function show() {
-    if (!everOpened.current && latest) patch(0, chat => ({ ...chat, contextId: latest }));
+    if (!everOpened.current && latest) patch(0, chat => ({ ...chat, contextId: latest, allowChanges: false }));
     everOpened.current = true;
     setOpen(previous => !previous);
   }
@@ -99,14 +99,15 @@ export function EvaluationChat({ viewUrl, frame }: { viewUrl: string; frame: Ref
     try {
       const result = await send.mutateAsync({
         parentOrigin: window.location.origin, viewUrl, turnId, message: text,
-        context, allowChanges: 'inputs' in context && conversation.allowChanges,
+        context, allowChanges: allowsEvaluationChanges(context) && conversation.allowChanges,
         history: conversation.messages.slice(-12).map(({ role, text }) => ({ role, text })),
       });
-      let status = 'kind' in context ? 'Read the attached third-party context. No new server call.' : result.tool.status === 'ready' ? 'Read the sample data through MCP' : result.tool.status === 'unknown' ? 'Tool outcome unknown. No call was repeated.' : 'No server tool was called';
-      const changed = 'inputs' in context && result.tool.inputs && Object.keys(context.inputs).some(key => context.inputs[key as keyof typeof context.inputs] !== result.tool.inputs![key as keyof typeof context.inputs]);
+      const diagram = !!result.tool.diagram && 'kind' in context && context.app === 'Excalidraw' && result.tool.diagram.invocationId === context.invocationId;
+      let status = result.tool.status === 'unknown' ? 'Tool outcome unknown. No call was repeated.' : diagram ? 'Prepared a diagram revision through MCP' : 'kind' in context ? 'Read the attached third-party context. No new server call.' : result.tool.status === 'ready' ? 'Read the sample data through MCP' : 'No server tool was called';
+      const changed = diagram || 'inputs' in context && result.tool.inputs && Object.keys(context.inputs).some(key => context.inputs[key as keyof typeof context.inputs] !== result.tool.inputs![key as keyof typeof context.inputs]);
       const current = contextRef.current[context.invocationId];
       const canApply = changed && conversation.allowChanges && chatsRef.current[index].allowChanges && chatsRef.current[index].contextId === context.invocationId && current?.revision === context.revision && frame.current?.src === viewUrl;
-      if (changed && !canApply) status = 'The scenario or its access changed. The result was not applied.';
+      if (changed && !canApply) status = `The ${diagram ? 'diagram' : 'scenario'} or its access changed. The result was not applied.`;
       if (canApply) status = 'Applying the captured MCP result…';
       patch(index, chat => ({ ...chat, messages: [...chat.messages, { role: 'assistant' as const, text: result.text, turnId, status }].slice(-24) }));
       if (canApply) {
@@ -114,7 +115,7 @@ export function EvaluationChat({ viewUrl, frame }: { viewUrl: string; frame: Ref
           toolStatus(index, turnId, 'Calculated, but the view did not acknowledge the result');
           pending.current = null; setBusy(false);
         }, 15000);
-        pending.current = { turnId, invocationId: context.invocationId, index, timer };
+        pending.current = { turnId, invocationId: context.invocationId, index, timer, diagram };
         frame.current!.contentWindow?.postMessage({ kind: 'ri-evaluation-tool-result', invocationId: context.invocationId, revision: context.revision, turnId }, new URL(viewUrl).origin);
       } else setBusy(false);
     } catch (failure) {
@@ -140,12 +141,12 @@ export function EvaluationChat({ viewUrl, frame }: { viewUrl: string; frame: Ref
         <div className="space-y-2 px-4 py-3">
           {chat.contextId ? <div className="flex items-center justify-between gap-2 rounded-md border border-border px-2 py-1 text-xs">
             <span><Tag className="mr-1 inline size-3" />{context ? viewName(context) + ('inputs' in context ? ` · Growth ${context.inputs.monthlyGrowthRate}%` : '') : 'Attached result · View closed'}</span>
-            <Button size="icon" variant="ghost" className="size-6" aria-label={context && 'kind' in context ? 'Remove result context' : 'Remove scenario context'} onClick={() => patch(selected, value => ({ ...value, contextId: null }))}><X className="size-3" /></Button>
-          </div> : Object.keys(contexts).length > 1 ? <div className="flex flex-wrap gap-1">{Object.values(contexts).map(value => <Button key={value.invocationId} variant="outline" size="sm" onClick={() => patch(selected, chat => ({ ...chat, contextId: value.invocationId }))}><Tag className="size-3" />Attach {viewName(value)}</Button>)}</div> : <Button variant="outline" size="sm" disabled={!latest} onClick={() => patch(selected, value => ({ ...value, contextId: latest }))}><Tag className="size-3" />{latest && contexts[latest] && 'kind' in contexts[latest] ? 'Attach result' : 'Attach scenario'}</Button>}
-          {context && 'kind' in context ? <p className="text-xs text-muted-foreground">Read only. The agent can discuss this result, but cannot change this app or its records.</p> : <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={chat.allowChanges} onChange={event => patch(selected, value => ({ ...value, allowChanges: event.target.checked }))} />Allow updates to the sample scenario</label>}
+            <Button size="icon" variant="ghost" className="size-6" aria-label={context && 'kind' in context ? 'Remove result context' : 'Remove scenario context'} onClick={() => patch(selected, value => ({ ...value, contextId: null, allowChanges: false }))}><X className="size-3" /></Button>
+          </div> : Object.keys(contexts).length > 1 ? <div className="flex flex-wrap gap-1">{Object.values(contexts).map(value => <Button key={value.invocationId} variant="outline" size="sm" onClick={() => patch(selected, chat => ({ ...chat, contextId: value.invocationId, allowChanges: false }))}><Tag className="size-3" />Attach {viewName(value)}</Button>)}</div> : <Button variant="outline" size="sm" disabled={!latest} onClick={() => patch(selected, value => ({ ...value, contextId: latest, allowChanges: false }))}><Tag className="size-3" />{latest && contexts[latest] && 'kind' in contexts[latest] ? 'Attach result' : 'Attach scenario'}</Button>}
+          {context && !allowsEvaluationChanges(context) ? <p className="text-xs text-muted-foreground">Read only. The agent can discuss this result, but cannot change this app or its records.</p> : context && <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={chat.allowChanges} onChange={event => patch(selected, value => ({ ...value, allowChanges: event.target.checked }))} />{'kind' in context ? 'Allow updates to this diagram' : 'Allow updates to the sample scenario'}</label>}
         </div>
         <div ref={log} role="log" aria-label={`Demo chat ${selected + 1} messages`} className="min-h-20 flex-1 space-y-3 overflow-y-auto px-4 pb-3">
-          {!chat.messages.length && <p className="text-xs text-muted-foreground">{context ? 'inputs' in context ? 'Ask about the current sliders. Try “What growth rate do you see?”' : 'Ask about the displayed data or the latest information shared by this app.' : 'Open an example and attach its context here.'}</p>}
+          {!chat.messages.length && <p className="text-xs text-muted-foreground">{context ? 'inputs' in context ? 'Ask about the current sliders. Try “What growth rate do you see?”' : allowsEvaluationChanges(context) ? 'Enable updates, then try “Add a green Done step after Execute.”' : 'Ask about the displayed data or the latest information shared by this app.' : 'Open an example and attach its context here.'}</p>}
           {chat.messages.map((message, index) => <div key={index} className={message.role === 'user' ? 'ml-6 rounded-lg bg-muted px-3 py-2' : 'mr-2 px-1 py-1'}>
             <p className="mb-1 text-[10px] font-medium text-muted-foreground">{message.role === 'user' ? 'You' : 'Agent'}</p>
             {message.role === 'assistant' ? <MessageResponse mode="static" className="break-words text-xs">{message.text}</MessageResponse> : <p className="whitespace-pre-wrap break-words text-xs">{message.text}</p>}

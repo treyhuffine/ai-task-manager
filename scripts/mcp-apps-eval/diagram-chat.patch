@@ -1,0 +1,311 @@
+diff --git a/host/src/index.tsx b/host/src/index.tsx
+--- a/host/src/index.tsx
++++ b/host/src/index.tsx
+@@ -1,8 +1,8 @@
+ import { getToolUiResourceUri, McpUiToolMetaSchema } from "@modelcontextprotocol/ext-apps/app-bridge";
+ import type { Tool } from "@modelcontextprotocol/client";
+-import { Component, type ErrorInfo, type ReactNode, StrictMode, Suspense, use, useEffect, useMemo, useRef, useState } from "react";
++import { Component, type ErrorInfo, type ReactNode, Suspense, use, useEffect, useMemo, useRef, useState } from "react";
+ import { createRoot } from "react-dom/client";
+-import { callTool, connectToServer, hasAppHtml, initializeApp, loadSandboxProxy, log, newAppBridge, newInvocationId, type ServerInfo, type ToolCallInfo, type ModelContext, type AppMessage } from "./implementation";
++import { callTool, connectToServer, hasAppHtml, initializeApp, loadSandboxProxy, log, newAppBridge, type ServerInfo, type ToolCallInfo, type ModelContext, type AppMessage } from "./implementation";
+ import { getTheme, toggleTheme, onThemeChange, type Theme } from "./theme";
+ import styles from "./index.module.css";
+ import { AccountPresets } from './account-presets';
+@@ -141,7 +141,7 @@
+       <header className={styles.demoIntro}>
+         <p>Ri Plugin UI · Milestone 0A</p>
+         <h1>Try real MCP Apps</h1>
+-        <p>{ACCOUNT_HANDLE ? 'This view is bound to the account selected in Ri. Tool calls use its current access and approvals.' : RI_PARENT_ORIGIN ? "Connect to hosted Excalidraw, Microsoft Flint, tldraw and a public building-data service. Chat about any open result. Scenario Modeler also supports opt-in sample changes." : "Try the pinned local Excalidraw fallback and official Scenario Modeler with synthetic inputs."}</p>
++        <p>{ACCOUNT_HANDLE ? 'This view is bound to the account selected in Ri. Tool calls use its current access and approvals.' : RI_PARENT_ORIGIN ? "Connect to hosted Excalidraw, Microsoft Flint, tldraw and a public building-data service. Chat about any open result. Enable updates to change the sample diagram or scenario with your agent." : "Try the pinned local Excalidraw fallback and official Scenario Modeler with synthetic inputs."}</p>
+         <p>Results stay in this tab's memory. Reload, End session or 30 minutes without opening another result ends the view session. Each Open or Run button makes a new tool call.</p>
+         {sessionEnded && <p role="status" className={styles.sessionEnded}>Session ended. Previous results were discarded. No tool call was replayed. Choose an example to start again.</p>}
+         {toolCalls.length > 0 && <button onClick={endSession}>End session</button>}
+@@ -586,11 +586,20 @@
+   const [messages, setMessages] = useState<AppMessage[]>([]);
+   const [viewError, setViewError] = useState<string | null>(null);
+   const [displayMode, setDisplayMode] = useState<"inline" | "fullscreen">("inline");
+-  const [invocationId] = useState(() => newInvocationId());
++  const invocationId = toolCallInfo.invocationId;
++  const [rendered, setRendered] = useState({ epoch: 0, input: toolCallInfo.input, resultPromise: toolCallInfo.resultPromise });
++  const renderedRef = useRef(rendered);
++  renderedRef.current = rendered;
++  const diagramAcknowledgement = useRef<string | null>(null);
++  const diagramApplying = useRef(false);
++  const publishing = useRef(0);
++  const diagramSettlesAt = useRef(0);
++  const diagramReads = useRef(new Map<string, Promise<unknown>>());
+   const revision = useRef(0);
+   const currentInputs = useRef<Record<string, number> | null>(null);
+   const pendingApply = useRef<{ turnId: string; inputs: Record<string, number>; timer: number } | null>(null);
+   const isScenario = toolCallInfo.tool.name === "get-scenario-data";
++  const isDiagram = !ACCOUNT_HANDLE && !!RI_PARENT_ORIGIN && toolCallInfo.tool.name === 'create_view';
+   const accountName = ACCOUNT_HANDLE ? ({ asana: 'Asana', figma: 'Figma', posthog: 'PostHog' } as Record<string, string>)[toolCallInfo.serverInfo.name.split(' · ')[0]] : null;
+   const publicApp = accountName ?? (toolCallInfo.serverInfo.tools.has('exec') ? 'tldraw' : toolCallInfo.serverInfo.tools.has("get_building_profile") ? "Building explorer" : toolCallInfo.serverInfo.tools.has("create_chart_view") ? "Flint charts" : toolCallInfo.serverInfo.tools.has("create_view") ? "Excalidraw" : null);
+   const publicView = accountName === 'Asana' ? 'Tasks' : accountName === 'Figma' || toolCallInfo.tool.name === 'exec' ? 'Canvas' : accountName === 'PostHog' ? 'Query' : toolCallInfo.tool.name === "create_view" ? "Diagram" : toolCallInfo.tool.name === "render_map" ? "Map" : toolCallInfo.tool.name === "render_table" ? "Table" : "Chart";
+@@ -598,18 +607,69 @@
+   const latestPublicText = useRef("");
+   const latestPublicResult = useRef<unknown>(null);
+ 
+-  function publishPublicContext() {
++  async function publishPublicContext() {
+     if (!publicApp) return;
+-    const text = JSON.stringify({ sourceApp: publicApp, viewInput: toolCallInfo.input, toolResult: latestPublicResult.current, latestUiContext: latestPublicContext.current }, null, 2).slice(0, 12000);
+-    if (text === latestPublicText.current) return;
+-    latestPublicText.current = text;
++    const generation = ++publishing.current;
++    if (isDiagram) {
++      const delay = diagramSettlesAt.current - Date.now();
++      if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
++      if (generation !== publishing.current) return;
++    }
++    let diagram;
++    let currentDiagram;
++    if (isDiagram) {
++      for (let attempt = 0; attempt < 20; attempt++) {
++        try {
++          const response = await fetch(new URL(`api/diagram?invocationId=${invocationId}`, location.href));
++          const state = response.ok ? await response.json() : null;
++          if (generation !== publishing.current) return;
++          if (!state || state.ready) {
++            if (state?.ready) {
++              const key = state.checkpointId + ':' + state.version;
++              if (!diagramReads.current.has(key)) diagramReads.current.set(key, toolCallInfo.serverInfo.client.callTool({ name: 'read_checkpoint', arguments: { id: state.checkpointId }, _meta: { 'ri/evaluationAudience': 'app' } }).then(result => {
++                if (result.isError) throw new Error('Checkpoint unavailable');
++                const text = result.content?.filter(content => content.type === 'text').map(content => (content as { text: string }).text).join('');
++                const value = JSON.parse(text || '{}');
++                if (!Array.isArray(value.elements)) throw new Error('Checkpoint unavailable');
++                return value.elements.slice(0, 200).map((element: Record<string, unknown>) => ({ id: element.id, type: element.type, text: element.text ?? (element.label as { text?: string } | undefined)?.text, x: element.x, y: element.y, width: element.width, height: element.height, backgroundColor: element.backgroundColor, strokeColor: element.strokeColor }));
++              }));
++              currentDiagram = await diagramReads.current.get(key);
++              diagram = { checkpointId: state.checkpointId, version: state.version };
++            }
++            break;
++          }
++          await new Promise(resolve => setTimeout(resolve, 100));
++        } catch { break; }
++      }
++    }
++    if (generation !== publishing.current) return;
++    const text = JSON.stringify({ sourceApp: publicApp, ...(currentDiagram ? { currentDiagram } : {}), viewInput: renderedRef.current.input, toolResult: latestPublicResult.current, latestUiContext: latestPublicContext.current }, null, 2).slice(0, 12000);
++    const signature = text + JSON.stringify(diagram);
++    if (signature === latestPublicText.current) return;
++    latestPublicText.current = signature;
+     revision.current++;
+-    notifyRi({ kind: "ri-evaluation-context", context: { invocationId, revision: revision.current, kind: ACCOUNT_HANDLE ? 'account' : "public", app: publicApp, view: publicView, text } });
++    const context = { invocationId, revision: revision.current, kind: ACCOUNT_HANDLE ? 'account' : 'public', app: publicApp, view: publicView, text };
++    // A running older Ri can still read this attachment during deployment.
++    notifyRi({ kind: 'ri-evaluation-context', context });
++    if (diagram) notifyRi({ kind: 'ri-evaluation-context', context: { ...context, diagram } });
+   }
+ 
+   function receiveContext(context: ModelContext | null) {
+     setModelContext(context);
+-    if (publicApp) { latestPublicContext.current = context; publishPublicContext(); return; }
++    if (publicApp) {
++      const changed = JSON.stringify(latestPublicContext.current) !== JSON.stringify(context);
++      latestPublicContext.current = context;
++      // Invalidate an in-flight reply immediately, before waiting for a save.
++      if (isDiagram && changed) {
++        revision.current++;
++        // The editor saves after a two-second debounce. Remove the write
++        // capability until its actual checkpoint has caught up with the UI.
++        diagramSettlesAt.current = Date.now() + 2300;
++        const text = JSON.stringify({ sourceApp: publicApp, latestUiContext: context }, null, 2).slice(0, 12000);
++        notifyRi({ kind: 'ri-evaluation-context', context: { invocationId, revision: revision.current, kind: 'public', app: publicApp, view: publicView, text } });
++      }
++      void publishPublicContext(); return;
++    }
+     const inputs = context?.structuredContent?.inputs;
+     if (!isScenario || !sampleInputs(inputs)) return;
+     if (!sameSample(currentInputs.current, inputs)) {
+@@ -628,15 +688,39 @@
+     async function onParentMessage(event: MessageEvent) {
+       if (!RI_PARENT_ORIGIN || event.source !== window.parent || event.origin !== RI_PARENT_ORIGIN) return;
+       const message = event.data;
+-      if (!isScenario || message?.kind !== "ri-evaluation-tool-result" || message.invocationId !== invocationId || !/^[a-f0-9-]{36}$/.test(message.turnId)) return;
++      if ((!isScenario && !isDiagram) || message?.kind !== "ri-evaluation-tool-result" || message.invocationId !== invocationId || !/^[a-f0-9-]{36}$/.test(message.turnId)) return;
+       const failed = () => notifyRi({ kind: "ri-evaluation-apply-failed", invocationId, turnId: message.turnId });
+-      if (message.revision !== revision.current || !appBridgeRef.current || pendingApply.current) { failed(); return; }
++      if (message.revision !== revision.current || !appBridgeRef.current || pendingApply.current || diagramApplying.current) { failed(); return; }
++      const diagramFrame = isDiagram ? iframeRef.current : null;
+       try {
++        if (diagramFrame) {
++          diagramApplying.current = true;
++          diagramFrame.style.pointerEvents = 'none';
++          if (document.activeElement === diagramFrame) diagramFrame.blur();
++          // The qualified Excalidraw editor debounces checkpoint saves for
++          // two seconds. Let pending manual edits settle before committing.
++          await new Promise(resolve => setTimeout(resolve, 2300));
++          if (message.revision !== revision.current) throw new Error('The diagram changed');
++        }
+         const prefix = location.pathname.match(/^\/s\/[a-f0-9]{64}\//)?.[0];
+         if (!prefix) throw new Error("Not a remote example session");
+-        const response = await fetch(prefix + "chat/" + message.turnId + "/result");
++        const suffix = isDiagram ? `?invocationId=${invocationId}` : '';
++        const response = await fetch(prefix + "chat/" + message.turnId + "/result" + suffix);
+         if (!response.ok) throw new Error("Captured result unavailable");
+         const payload = await response.json();
++        if (isDiagram) {
++          if (message.revision !== revision.current || payload.kind !== 'diagram' || payload.invocationId !== invocationId || typeof payload.checkpointId !== 'string' || !payload.result) throw new Error('The diagram changed');
++          const committed = await fetch(prefix + 'chat/' + message.turnId + '/apply' + suffix, { method: 'POST' });
++          if (!committed.ok) throw new Error('The diagram changed');
++          // Remount only the inner view from the captured checkpoint. This
++          // clears upstream editor state while retaining the host and chat.
++          // The accepted create_view call is never repeated by rendering.
++          latestPublicContext.current = null;
++          latestPublicResult.current = { content: payload.result.content, structuredContent: payload.result.structuredContent };
++          diagramAcknowledgement.current = message.turnId;
++          setRendered(previous => ({ epoch: previous.epoch + 1, input: { elements: JSON.stringify([{ type: 'restoreCheckpoint', id: payload.checkpointId }]) }, resultPromise: Promise.resolve(payload.result) }));
++          return;
++        }
+         if (message.revision !== revision.current || !sampleInputs(payload.inputs) || !payload.result || !appBridgeRef.current) throw new Error("The scenario changed");
+         if (sameSample(currentInputs.current, payload.inputs)) {
+           notifyRi({ kind: "ri-evaluation-applied", invocationId, turnId: message.turnId });
+@@ -647,28 +731,33 @@
+         // Deliver the original, captured tool result. No new tool call here.
+         await appBridgeRef.current.sendToolResult(payload.result);
+       } catch { if (pendingApply.current) window.clearTimeout(pendingApply.current.timer); pendingApply.current = null; failed(); }
++      finally { diagramApplying.current = false; if (diagramFrame) diagramFrame.style.pointerEvents = ''; }
+     }
+     window.addEventListener("message", onParentMessage);
+     return () => {
+       window.removeEventListener("message", onParentMessage);
+       if (pendingApply.current) window.clearTimeout(pendingApply.current.timer);
++      if (isDiagram) void fetch(new URL(`api/diagram/close?invocationId=${invocationId}`, location.href), { method: 'POST' }).catch(() => {});
+       notifyRi({ kind: "ri-evaluation-context-closed", invocationId });
+     };
+-  }, [invocationId, isScenario]);
++  }, [invocationId, isScenario, isDiagram]);
+ 
+   useEffect(() => {
+     const iframe = iframeRef.current!;
+-    if (publicApp) void toolCallInfo.resultPromise.then(result => { if (!result.isError) { latestPublicResult.current = { content: result.content, structuredContent: result.structuredContent }; publishPublicContext(); } }).catch(() => {});
++    let disposed = false;
++    let bridge: ReturnType<typeof newAppBridge> | null = null;
++    if (publicApp) void rendered.resultPromise.then(result => { if (!disposed && !result.isError) { latestPublicResult.current = { content: result.content, structuredContent: result.structuredContent }; void publishPublicContext(); } }).catch(() => {});
+ 
+     // First get CSP and permissions from resource, then load sandbox
+     // CSP is set via HTTP headers (tamper-proof), permissions via iframe allow attribute
+     toolCallInfo.appResourcePromise.then(({ csp, permissions }) => {
++      if (disposed) return;
+       loadSandboxProxy(iframe, csp, permissions).then((firstTime) => {
+         // The `firstTime` check guards against React Strict Mode's double
+         // invocation (mount → unmount → remount simulation in development).
+         // Outside of Strict Mode, this `useEffect` runs only once per
+         // `toolCallInfo`.
+-        if (firstTime) {
++        if (firstTime && !disposed) {
+           const appBridge = newAppBridge(toolCallInfo.serverInfo, iframe, {
+             onContextUpdate: receiveContext,
+             onMessage: (msg) => {
+@@ -683,12 +772,24 @@
+             displayMode: "inline",
+           });
+           appBridgeRef.current = appBridge;
+-          void initializeApp(iframe, appBridge, toolCallInfo).catch((err) => setViewError(String(err)));
++          bridge = appBridge;
++          void initializeApp(iframe, appBridge, { ...toolCallInfo, input: rendered.input, resultPromise: rendered.resultPromise }).then(() => {
++            if (disposed || !diagramAcknowledgement.current) return;
++            const turnId = diagramAcknowledgement.current;
++            diagramAcknowledgement.current = null;
++            iframe.scrollIntoView({ block: 'start' });
++            notifyRi({ kind: 'ri-evaluation-applied', invocationId, turnId });
++          }).catch((err) => {
++            if (disposed) return;
++            setViewError(String(err));
++            if (diagramAcknowledgement.current) { notifyRi({ kind: 'ri-evaluation-apply-failed', invocationId, turnId: diagramAcknowledgement.current }); diagramAcknowledgement.current = null; }
++          });
+         }
+       }).catch((err) => setViewError(String(err)));
+     }).catch((err) => setViewError(String(err)));
+ 
+-  }, [toolCallInfo]);
++    return () => { disposed = true; void bridge?.close(); };
++  }, [toolCallInfo, rendered.epoch]);
+ 
+   // Graceful teardown: wait for guest to respond before unmounting
+   // This follows the spec: "Host SHOULD wait for a response before tearing
+@@ -754,7 +855,7 @@
+         <span>{toolCallInfo.serverInfo.name} · Temporary view</span>
+       </div>}
+       {viewError && <p role="alert">View unavailable: {viewError}. The tool result is still available below.</p>}
+-      <iframe title={`${toolCallInfo.serverInfo.name} interactive result`} ref={iframeRef} />
++      <iframe key={rendered.epoch} title={`${toolCallInfo.serverInfo.name} interactive result`} ref={iframeRef} />
+       {messages.length > 0 && (
+         <CollapsiblePanel
+           icon="💬"
+@@ -846,9 +947,7 @@
+ }
+ 
+ createRoot(document.getElementById("root")!).render(
+-  <StrictMode>
+     <ErrorBoundary>
+       <Host serversPromise={connectToAllServers()} />
+-    </ErrorBoundary>
+-  </StrictMode>,
++    </ErrorBoundary>,
+ );
+diff --git a/host/src/implementation.ts b/host/src/implementation.ts
+--- a/host/src/implementation.ts
++++ b/host/src/implementation.ts
+@@ -49,7 +49,7 @@
+   // Stable invocation references survive transport redelivery, while every
+   // explicit new user action gets a new reference, including after reload.
+   const originalCall = client.callTool.bind(client);
+-  client.callTool = (params, ...options) => originalCall({ ...params, _meta: { ...params._meta, "ri/evaluationInvocation": newInvocationId() } }, ...options);
++  client.callTool = (params, ...options) => originalCall({ ...params, _meta: { ...params._meta, "ri/evaluationInvocation": params._meta?.['ri/evaluationInvocation'] ?? newInvocationId() } }, ...options);
+ 
+   const name = client.getServerVersion()?.name ?? "Example server";
+ 
+@@ -97,6 +97,7 @@
+ }
+ 
+ export interface ToolCallInfo {
++  invocationId: string;
+   serverInfo: ServerInfo;
+   tool: Tool;
+   input: Record<string, unknown>;
+@@ -120,10 +121,11 @@
+   if (!tool) {
+     throw new Error(`Unknown tool: ${name}`);
+   }
+-  const resultPromise = serverInfo.client.callTool({ name, arguments: input, _meta: { 'ri/evaluationAudience': 'model' } }) as Promise<CallToolResult>;
++  const invocationId = newInvocationId();
++  const resultPromise = serverInfo.client.callTool({ name, arguments: input, _meta: { 'ri/evaluationAudience': 'model', 'ri/evaluationInvocation': invocationId } }) as Promise<CallToolResult>;
+   void resultPromise.catch(() => {}); // A rendering boundary shows failure. Never retry.
+ 
+-  const toolCallInfo: ToolCallInfo = { serverInfo, tool, input, resultPromise };
++  const toolCallInfo: ToolCallInfo = { invocationId, serverInfo, tool, input, resultPromise };
+ 
+   const uiResourceUri = getToolUiResourceUri(tool);
+   if (uiResourceUri) {
+@@ -225,7 +227,7 @@
+ export async function initializeApp(
+   iframe: HTMLIFrameElement,
+   appBridge: AppBridge,
+-  { input, resultPromise, appResourcePromise }: Required<ToolCallInfo>,
++  { serverInfo, input, resultPromise, appResourcePromise }: Required<ToolCallInfo>,
+ ): Promise<void> {
+   const appInitializedPromise = hookInitializedCallback(appBridge);
+ 
+@@ -237,6 +239,19 @@
+     new PostMessageTransport(iframe.contentWindow!, iframe.contentWindow!),
+   );
+ 
++  // connect() installs AppBridge's default callback using client.request.
++  // Override it before loading guest HTML, so callbacks cannot bypass callTool's
++  // invocation wrapper. Give every explicit UI operation its own captured ID.
++  appBridge.oncalltool = async (params) => {
++    const tool = serverInfo.tools.get(params.name);
++    if (!tool || tool._meta?.ui && (tool._meta.ui as { visibility?: string[] }).visibility?.every(value => value === 'model')) throw new Error('This tool is unavailable to the app');
++    if (!new URLSearchParams(location.search).has('account') && serverInfo.tools.has('create_view')) {
++      const checkpoint = ((await resultPromise).structuredContent as { checkpointId?: unknown } | undefined)?.checkpointId;
++      if (!['read_checkpoint', 'save_checkpoint'].includes(params.name) || typeof checkpoint !== 'string' || params.arguments?.id !== checkpoint) throw new Error('This callback belongs to a different diagram checkpoint');
++    }
++    return serverInfo.client.callTool({ ...params, _meta: { ...params._meta, 'ri/evaluationAudience': 'app', 'ri/evaluationInvocation': newInvocationId() } }) as Promise<CallToolResult>;
++  };
++
+   // Load inner iframe HTML with CSP and permissions metadata
+   const { html, csp, permissions } = await appResourcePromise;
+   log.info("Sending UI resource HTML to MCP App", csp ? `(CSP: ${JSON.stringify(csp)})` : "", permissions ? `(Permissions: ${JSON.stringify(permissions)})` : "");

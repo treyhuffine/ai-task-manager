@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { root } from './config.mjs'
 import { PUBLIC_SERVERS, createPublicProxy, validPublicCsp } from './public-servers.mjs'
+import { admitDiagramTurn, capturedDiagram, diagramChatRpc, diagramContext } from './diagram-chat.mjs'
 
 const LOCAL_HOST = 'http://ri-mcp-apps.127.0.0.1.nip.io:48880'
 const LOCAL_SANDBOX = 'http://ri-mcp-sandbox.127.0.0.1.sslip.io:48881'
@@ -154,21 +155,30 @@ export function createRemoteServers(config, now = Date.now, { scenarioPort = 488
         const entry = sessionFor(`/s/${input.token}/index.html`)
         if (!entry) { reply(res, 410, 'Example session ended'); return }
         if (url.pathname === '/__chat/begin') {
-          const publicView = ['public', 'account'].includes(input.context?.kind) && ['Excalidraw', 'Flint charts', 'Building explorer', 'tldraw', 'Asana', 'Figma', 'PostHog'].includes(input.context.app) && typeof input.context.text === 'string' && input.context.text.length <= 12000 && input.allowChanges === false
+          const diagram = input.allowChanges === true ? admitDiagramTurn(entry.session, input.context) : null
+          const publicView = ['public', 'account'].includes(input.context?.kind) && ['Excalidraw', 'Flint charts', 'Building explorer', 'tldraw', 'Asana', 'Figma', 'PostHog'].includes(input.context.app) && typeof input.context.text === 'string' && input.context.text.length <= 12000 && (input.allowChanges === false || !!diagram)
           if (!publicView && (!validScenarioInputs(input.inputs) || typeof input.allowChanges !== 'boolean')) { reply(res, 400, 'Invalid example context'); return }
           if (entry.session.turns.has(input.turnId)) { reply(res, 409, 'This turn was already registered'); return }
           if (entry.session.turns.size >= 20) { reply(res, 429, 'Open a new example session after twenty chat turns'); return }
-          entry.session.turns.set(input.turnId, { status: 'unused', base: input.inputs, publicView, allowChanges: publicView ? false : input.allowChanges })
+          entry.session.turns.set(input.turnId, { turnId: input.turnId, status: 'unused', base: input.inputs, publicView, diagram, allowChanges: diagram ? true : publicView ? false : input.allowChanges })
           reply(res, 200, '{}', 'application/json')
         } else {
           const turn = entry.session.turns.get(input.turnId)
           if (!turn) { reply(res, 404, 'Unknown turn'); return }
-          reply(res, 200, JSON.stringify({ status: turn.status, ...(turn.status === 'ready' ? { inputs: turn.inputs } : {}) }), 'application/json')
+          reply(res, 200, JSON.stringify({ status: turn.status, ...(turn.status === 'ready' ? turn.diagram ? { diagram: { invocationId: turn.diagram.invocationId, checkpointId: turn.checkpointId } } : { inputs: turn.inputs } : {}) }), 'application/json')
         }
         return
       }
       const entry = sessionFor(url.pathname)
       if (!entry) { reply(res, 410, 'Example session ended. Return to Ri to open a new session.'); return }
+      if (entry.path === '/api/diagram' && req.method === 'GET') {
+        const context = diagramContext(entry.session, url.searchParams.get('invocationId'))
+        reply(res, context ? 200 : 404, context ? JSON.stringify(context) : 'No attached diagram', 'application/json'); return
+      }
+      if (entry.path === '/api/diagram/close' && req.method === 'POST') {
+        entry.session.publicServers?.get('excalidraw')?.diagrams.delete(url.searchParams.get('invocationId'))
+        reply(res, 204, ''); return
+      }
       if (entry.path === '/api/preset' && req.method === 'POST') {
         if (!['excalidraw', 'flint', 'buildings', 'tldraw'].includes(url.searchParams.get('example'))) { reply(res, 400, 'Unsupported example'); return }
         if (entry.session.presetOpened) { reply(res, 409, 'This example was already opened. No tool call was replayed.'); return }
@@ -201,11 +211,25 @@ export function createRemoteServers(config, now = Date.now, { scenarioPort = 488
         res.writeHead(response.status, { ...response.headers, 'Referrer-Policy': 'origin', 'X-Content-Type-Options': 'nosniff' })
         res.end(response.body)
       }
-      else if (entry.path.match(/^\/chat\/[a-f0-9-]{36}\/(mcp|result)$/)) {
+      else if (entry.path.match(/^\/chat\/[a-f0-9-]{36}\/(mcp|result|apply)$/)) {
         const turnId = entry.path.split('/')[2]
         const turn = entry.session.turns.get(turnId)
         if (!turn) { reply(res, 404, 'Unknown turn'); return }
-        if (entry.path.endsWith('/mcp')) await proxyMcp(req, res, entry, scenarioPort, turn)
+        if (turn.diagram) {
+          if (entry.path.endsWith('/mcp') && req.method === 'POST') {
+            const chunks = []; let size = 0
+            for await (const chunk of req) { size += chunk.length; if (size > 65536) { reply(res, 413, 'Input too large'); return } chunks.push(chunk) }
+            let rpc
+            try { rpc = JSON.parse(Buffer.concat(chunks)) } catch { reply(res, 400, 'Invalid JSON'); return }
+            const response = await diagramChatRpc(publicProxy, entry.session, turn, rpc)
+            res.writeHead(response.status, response.headers); res.end(response.body)
+          } else if (entry.path.endsWith('/mcp') && req.method === 'DELETE') reply(res, 204, '')
+          else if (entry.path.endsWith('/result') && req.method === 'GET' || entry.path.endsWith('/apply') && req.method === 'POST') {
+            const payload = capturedDiagram(entry.session, turn, url.searchParams.get('invocationId'), entry.path.endsWith('/apply'))
+            reply(res, payload ? 200 : 409, payload ? JSON.stringify(payload) : 'The diagram or its access changed. No call was replayed.', 'application/json')
+          } else reply(res, 405, 'Method not supported')
+        }
+        else if (entry.path.endsWith('/mcp')) await proxyMcp(req, res, entry, scenarioPort, turn)
         else if (req.method === 'GET' && turn.status === 'ready') reply(res, 200, JSON.stringify({ inputs: turn.inputs, result: turn.result }), 'application/json')
         else reply(res, 409, 'No completed result. The tool was not replayed.')
       }

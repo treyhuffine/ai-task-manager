@@ -73,7 +73,11 @@ export function publicRequestAllowed(name, rpc, state) {
     return false
   }
   if (name !== 'excalidraw') return true
-  if (['save_checkpoint', 'read_checkpoint'].includes(tool)) return typeof args.id === 'string' && state.checkpoints.has(args.id)
+  if (tool === 'read_checkpoint') return typeof args.id === 'string' && state.checkpoints.has(args.id) && Object.keys(args).every(key => key === 'id')
+  if (tool === 'save_checkpoint') {
+    if (typeof args.id !== 'string' || !state.checkpoints.has(args.id) || typeof args.data !== 'string' || Object.keys(args).some(key => !['id', 'data'].includes(key))) return false
+    try { const data = JSON.parse(args.data); return data && Array.isArray(data.elements) && data.elements.length <= 500 } catch { return false }
+  }
   if (tool === 'create_view') {
     try {
       const elements = JSON.parse(args.elements)
@@ -109,7 +113,7 @@ export function createPublicProxy(send = httpsMcpRequest) {
     session.publicServers ??= new Map()
     let state = session.publicServers.get(name)
     if (!state) {
-      state = { checkpoints: new Set(), canvases: new Set(), deliveries: new Map(), protocolVersion: undefined, sessionId: undefined }
+      state = { checkpoints: new Set(), checkpointVersions: new Map(), diagrams: new Map(), canvases: new Set(), deliveries: new Map(), requestId: 0, protocolVersion: undefined, sessionId: undefined }
       session.publicServers.set(name, state)
     }
     if (!publicRequestAllowed(name, rpc, state)) return failure(rpc, 'Unsupported public example operation')
@@ -124,13 +128,27 @@ export function createPublicProxy(send = httpsMcpRequest) {
       return result(saved.status, { ...saved.rpc, id: rpc.id })
     }
     if (isCall && (++session.calls > 80 || state.deliveries.size >= 80)) return failure(rpc, 'Example session call limit reached', 429)
+    const checkpointWrite = isCall && name === 'excalidraw' && toolName(rpc) === 'save_checkpoint'
+      ? state.checkpointVersions.get(rpc.params.arguments.id) ?? { version: 0, pending: 0, unknown: false } : null
+    if (checkpointWrite) {
+      const dataFingerprint = createHash('sha256').update(JSON.stringify(rpc.params.arguments.data)).digest('hex')
+      if (checkpointWrite.dataFingerprint !== dataFingerprint) checkpointWrite.version++
+      checkpointWrite.dataFingerprint = dataFingerprint
+      checkpointWrite.pending++
+      state.checkpointVersions.set(rpc.params.arguments.id, checkpointWrite)
+    }
     async function execute() {
       try {
         const forwarded = structuredClone(rpc)
+        // Browser and model transports share one upstream MCP connection.
+        // Their request counters cannot share the server's ID namespace.
+        if ('id' in forwarded) forwarded.id = ++state.requestId
         if (isCall) delete forwarded.params._meta['ri/evaluationInvocation']
         const response = await send(server.url, forwarded, state.sessionId, state.protocolVersion)
         if (rpc.method === 'notifications/initialized') return { status: response.status, rpc: null }
         const parsed = parseRpc(response.body, response.headers['content-type'])
+        if ('id' in forwarded && parsed.id !== forwarded.id) throw new Error('Mismatched upstream request reference')
+        parsed.id = rpc.id
         if (rpc.method === 'initialize' && parsed.result) {
           state.sessionId = response.headers['mcp-session-id']
           state.protocolVersion = parsed.result.protocolVersion
@@ -148,15 +166,19 @@ export function createPublicProxy(send = httpsMcpRequest) {
           const checkpoint = parsed.result?.structuredContent?.checkpointId
           if (typeof checkpoint === 'string' && checkpoint.length <= 128) {
             state.checkpoints.add(checkpoint)
+            state.checkpointVersions.set(checkpoint, { version: 0, pending: 0, unknown: false })
+            if (toolName(rpc) === 'create_view') state.diagrams.set(invocation, { checkpointId: checkpoint })
           }
         }
+        if (checkpointWrite && (response.status !== 200 || !parsed.result || parsed.result.isError)) checkpointWrite.unknown = true
         if (isCall && name === 'tldraw' && !parsed.result?.isError) {
           const canvas = parsed.result?.structuredContent?.canvasId
           if (toolName(rpc) === 'exec' && typeof canvas === 'string' && canvas.length <= 128) state.canvases.add(canvas)
           if (toolName(rpc) === 'save_checkpoint') state.checkpoints.add(rpc.params.arguments.checkpointId)
         }
         return { status: response.status, rpc: parsed }
-      } catch { return null }
+      } catch { if (checkpointWrite) checkpointWrite.unknown = true; return null }
+      finally { if (checkpointWrite) checkpointWrite.pending-- }
     }
     const pending = execute()
     if (isCall) state.deliveries.set(invocation, { fingerprint, promise: pending.then(saved => {

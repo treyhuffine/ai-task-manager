@@ -101,3 +101,20 @@ it('reads bounded third-party context with no tools and rejects update grants', 
   }));
   expect(fetch).toHaveBeenCalledTimes(2);
 });
+
+it('enables only Excalidraw reference and rendering tools for an explicitly granted owned diagram', async () => {
+  const context = { invocationId: randomUUID(), revision: 3, kind: 'public' as const, app: 'Excalidraw' as const, view: 'Diagram' as const, text: 'Capture, Review, Execute', diagram: { checkpointId: 'owned_checkpoint', version: 2 } };
+  const input = { ...turn(), context, allowChanges: true, message: 'Add a green Done step' };
+  const tool = { status: 'ready', diagram: { invocationId: context.invocationId, checkpointId: 'new_checkpoint' } };
+  const fetch = vi.fn(async (url: string) => Response.json(url.endsWith('/begin') ? {} : tool));
+  vi.stubGlobal('fetch', fetch);
+  const reply = await chatWithPluginEvaluation(input);
+  expect(reply.tool).toEqual(tool);
+  expect(JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).toMatchObject({ context, allowChanges: true });
+  expect(runHarnessText).toHaveBeenCalledWith(expect.objectContaining({
+    requiredHarness: 'claude', allowedTools: ['mcp__excalidraw_demo__read_me', 'mcp__excalidraw_demo__create_view'],
+    mcpServers: [expect.objectContaining({ name: 'excalidraw_demo' })],
+    system: expect.stringContaining('owned_checkpoint'),
+  }));
+  for (const changed of [{ ...context, diagram: undefined }, { ...context, kind: 'account' as const }, { ...context, app: 'Figma' as const }]) expect(() => chatWithPluginEvaluation({ ...input, turnId: randomUUID(), context: changed })).toThrow();
+});

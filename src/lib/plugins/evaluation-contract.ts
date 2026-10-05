@@ -22,9 +22,13 @@ export const publicViewContextSchema = z.object({
   app: z.enum(['Excalidraw', 'Flint charts', 'Building explorer', 'tldraw', 'Asana', 'Figma', 'PostHog']),
   view: z.enum(['Diagram', 'Chart', 'Map', 'Table', 'Canvas', 'Tasks', 'Query']),
   text: z.string().max(12000),
-}).strict();
+  diagram: z.object({ checkpointId: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/), version: z.number().int().nonnegative() }).strict().optional(),
+}).strict().refine(value => !value.diagram || value.kind === 'public' && value.app === 'Excalidraw' && value.view === 'Diagram', 'Only the public Excalidraw diagram supports this update capability');
 export const evaluationContextSchema = z.union([scenarioContextSchema, publicViewContextSchema]);
 export type EvaluationContext = z.infer<typeof evaluationContextSchema>;
+export function allowsEvaluationChanges(context: EvaluationContext) {
+  return 'inputs' in context || context.kind === 'public' && context.app === 'Excalidraw' && context.view === 'Diagram' && !!context.diagram;
+}
 
 export const evaluationChatInputSchema = z.object({
   parentOrigin: z.string().url(),
@@ -39,6 +43,7 @@ export const evaluationChatInputSchema = z.object({
 export const evaluationToolResultSchema = z.object({
   status: z.enum(['ready', 'unknown', 'unused']),
   inputs: scenarioInputsSchema.optional(),
+  diagram: z.object({ invocationId: z.uuid(), checkpointId: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/) }).strict().optional(),
 }).strict();
 
 export const accountRpcSchema = z.object({

@@ -24,7 +24,7 @@ node scripts/mcp-apps-eval/setup.mjs
 node scripts/mcp-apps-eval/start.mjs
 ```
 
-Setup requires Git, Node 20.19 or later and pnpm 10.33.2. It fetches the exact commits in `sources.json`, applies the evaluation, embedding, conversation, third-party and account-demo patches in order, installs three frozen pnpm lockfiles and typechecks/builds all three examples. It does not install into Ri. The tested Node version was 26.5.0.
+Setup requires Git, Node 20.19 or later and pnpm 10.33.2. It fetches the exact commits in `sources.json`, applies the evaluation, embedding, conversation, third-party, account-demo and diagram-chat patches in order, installs three frozen pnpm lockfiles and typechecks/builds all three examples. It does not install into Ri. The tested Node version was 26.5.0.
 
 To use another isolated folder, set `RI_MCP_APPS_EVAL_DIR` to the same absolute path for setup, start, stop and verify. A folder inside the Ri checkout is rejected. The servers intentionally use fixed ports 48880 through 48883 and refuse to start over an existing listener.
 
@@ -70,7 +70,9 @@ Open **Scenario Modeler**, then **Chat about scenario**. The first demo chat att
 
 Chat is read only initially. Check **Allow updates to the sample scenario**, then ask “Set growth to 7%” to let the agent calculate and apply a captured result. Change a slider and ask another question to see UI context flow back to the agent. Switch to **Chat 2** and choose **Attach scenario** to reference the same view in a separate temporary conversation. Each chat keeps its own draft. Removing the reference prevents Send. These are two demo conversations, not regular Ri chat records. Reload discards messages, references and results without replaying work.
 
-For a third-party result, choose **Chat about result**. Remove the current reference to pick another open result, or attach it explicitly in **Chat 2**. Ask about the building address/year, chart rows or diagram context. The agent can read that bounded attachment and cannot change the public app or its records. No account credentials are required for these three demos.
+For a third-party result, choose **Chat about result**. Remove the current reference to pick another open result, or attach it explicitly in **Chat 2**. Ask about the building address/year, chart rows or diagram context. The agent reads that bounded attachment. Building records, charts, tldraw and account-result demo chats remain read only.
+
+For **Excalidraw**, check **Allow updates to this diagram** in the demo chat, then ask “Add a green Done step after Execute.” The configured Claude harness can use only Excalidraw's public `read_me` and `create_view` tools. Each update restores the exact attached checkpoint, including saved manual edits, and creates a new checkpoint. The host loads that captured checkpoint into the same result area without repeating the accepted call. Manual edits, revoked permission or a removed reference defeat a late result. A second chat needs its own explicit attachment and update permission. Reload still ends the demo rather than replaying it. See [the diagram chat evaluation](../../docs/plugins-evaluation-excalidraw-chat.md).
 
 Session capabilities and launch keys live only in private temporary files and memory. Do not share a view's capability URL. Reloading the example ends its result session. Reloading Ri closes the dialog. Neither action repeats the original tool call. Choose Open explicitly to start again. The remote presets use hosted Excalidraw, Microsoft Flint and the public building-data service. Excalidraw sends editing checkpoints to its upstream server and requires its upstream CDN. Export is excluded. The standalone local demo retains its pinned Excalidraw fallback. There is no automatic remote-to-local substitution.
 
@@ -81,11 +83,20 @@ node --import tsx scripts/mcp-apps-eval/verify-remote.mjs
 node --test scripts/mcp-apps-eval/remote-server.test.mjs scripts/mcp-apps-eval/public-servers.test.mjs
 ```
 
-Add `--chat` to the browser verification with the isolated test Home to exercise one real read-only Claude MCP call and controlled captured-result updates against the real app. Both `--chat` and `--read-chat` also verify a real read-only Claude reply about third-party building data, explicit tagging into either demo chat and controlled `ui/message` staging without automatic Send. Third-party attachments have no model tools. The controlled scenario cases cover stale slider edits, update permission revocation, detached context, wrong-frame messages, preserved typing and reload. They deliberately distinguish renderer verification from a live changing model call:
+Add `--chat` to the browser verification with the isolated test Home to exercise one real read-only Claude MCP call and controlled captured-result updates against the real app. Both `--chat` and `--read-chat` also verify a real read-only Claude reply about third-party building data, explicit tagging into either demo chat and controlled `ui/message` staging without automatic Send. Read-only third-party attachments have no model tools. The controlled scenario cases cover stale slider edits, update permission revocation, detached context, wrong-frame messages, preserved typing and reload. They deliberately distinguish renderer verification from a live changing model call:
 
 ```sh
 RI_ROOT=/private/tmp/ri-plugin-ui-check RI_MCP_APPS_TEST_HOME_ORIGIN=http://127.0.0.1:48887 node --import tsx scripts/mcp-apps-eval/verify-remote.mjs --chat
 ```
+
+To qualify agent edits against the real public Excalidraw server with a separately built synthetic Ri Home configured for Claude:
+
+```sh
+RI_ROOT=/private/tmp/ri-plugin-diagram-home RI_MCP_APPS_TEST_HOME_ORIGIN=http://127.0.0.1:48887 node --import tsx scripts/mcp-apps-eval/verify-diagram-chat.mjs
+node --test scripts/mcp-apps-eval/diagram-chat.test.mjs scripts/mcp-apps-eval/remote-server.test.mjs scripts/mcp-apps-eval/public-servers.test.mjs
+```
+
+The browser check makes one real agent update, preserves a manual label and typed draft, reads the revised diagram in another real Claude turn, and exercises controlled late replies using real captured checkpoints. `--live` explicitly checks the synthetic sample through the normal running Ri Home instead. That mode does not run controlled reply fixtures or capture a screenshot of the real Home.
 
 The browser test authenticates only the top-level Ri page with the Home's existing viewer token, using Ri's normal bootstrap. It never gives that token to an example frame or child process. Only sample data is submitted to the fixtures. `--sandbox` instead uses a synthetic parent and imports no Ri credential. `RI_MCP_APPS_TEST_HOME_ORIGIN=http://127.0.0.1:48887` with a matching isolated `RI_ROOT` tests a separately built synthetic Ri Home while the examples still traverse Beamd. Screenshots are captured only in that isolated mode.
 

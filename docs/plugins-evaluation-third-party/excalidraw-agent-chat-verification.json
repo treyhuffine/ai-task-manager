@@ -1,0 +1,16 @@
+{
+  "testedAt": "2026-10-05T23:28:05.530Z",
+  "mode": "isolated-ri",
+  "checks": [
+    "Opening the Excalidraw row captures one real public invocation and its owned checkpoint",
+    "A real Claude MCP update adds Done to the same diagram while preserving manual edits and typing",
+    "The remounted guest cannot read an older checkpoint through its current view bridge",
+    "A subsequent read-only Claude reply sees the actual agent-updated checkpoint and the manual note",
+    "Revoking the update checkbox while a reply is pending keeps the captured fork out of the view",
+    "A newer manual edit defeats a stale agent result without replaying the accepted call",
+    "A second chat attaches the updated diagram explicitly with an independent draft and update permission",
+    "Reload discards the diagram and temporary chats without rerunning create_view"
+  ],
+  "harness": "claude",
+  "upstream": "https://mcp.excalidraw.com/mcp"
+}

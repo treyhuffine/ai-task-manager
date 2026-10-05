@@ -4,7 +4,7 @@ October 5, 2026. Open Settings > Plugins at your Home's normal HTTPS URL. The ex
 
 | Plugin | What opens | Current qualification |
 | --- | --- | --- |
-| Excalidraw | Hosted diagram with interactive editing and expansion | Live tested over Beamd. Editing sends checkpoints upstream. |
+| Excalidraw | Hosted diagram with interactive editing, expansion and opt-in agent updates | Live tested over Beamd. Editing sends checkpoints upstream. [Diagram chat follow-up](plugins-evaluation-excalidraw-chat.md). |
 | Microsoft Flint | Hosted chart with synthetic revenue, chart options and themes | Live tested over Beamd. |
 | Building explorer | Public Dutch building lookup, map and sortable table | Live tested over Beamd. Public records are read only. |
 | tldraw | Hosted canvas with a fixed sample script and editable label | Live tested over Beamd. Edits update attached context without repeating the initial execution. External discovery can time out, shown locally. |
@@ -12,7 +12,7 @@ October 5, 2026. Open Settings > Plugins at your Home's normal HTTPS URL. The ex
 | Figma | Interactive tools actually advertised to the selected Ri connection | OAuth plus client admission required. A Figma account or tool-only connection does not establish portable UI support. Authenticated Ri qualification pending. |
 | PostHog | Discovered query/analytics UI with schema-derived inputs | OAuth or personal API key. Authenticated Ri UI qualification pending. Existing OAuth accounts remain valid. |
 
-The official Scenario Modeler also remains available in the preset host. It is the synthetic example where a chat can optionally change a calculation. Third-party demo chats are read only, with no tool access. They see only context explicitly attached by the human. App-requested messages are staged for normal Send, and typing is preserved. This evaluation does not attach results to ordinary Ri conversations or provide generic document persistence.
+The official Scenario Modeler also remains available in the preset host with opt-in calculation changes. Excalidraw now supports opt-in updates to the attached sample diagram using only its public reference and rendering tools. The other third-party demo chats remain read only, with no tool access. They see only context explicitly attached by the human. App-requested messages are staged for normal Send, and typing is preserved. This evaluation does not attach results to ordinary Ri conversations or provide generic document persistence.
 
 ## Connect an account
 
