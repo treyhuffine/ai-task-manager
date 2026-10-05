@@ -38,12 +38,22 @@ remote JSON body does not become the client contract. Refusals preserve their
 original status, machine code, message, details and recovery body through the
 tRPC error formatter.
 
-`httpBatchLink` combines independent calls in a turn, with a 16,000-character
-URL ceiling. Batches are not transactions and cannot order dependent writes.
-Calls with custom authorization or device headers use an individual `httpLink`
-to prevent headers leaking across a batch. Existing compression wraps large
-JSON responses. Attention reads keep the 200-ID limit per procedure, with
-larger boards split into bounded calls under one TanStack query key.
+Over HTTP every procedure is its own request (`httpLink`), as the REST API
+was. A slow procedure never holds another's response, each call is its own row
+and timing in the network tab, and calls with custom authorization or device
+headers send them on their own request only. HTTP/2 to the public edge
+multiplexes the requests. Until 2026-10-05 the client used `httpBatchLink`,
+whose batch answered only when its slowest procedure did, and whose mutation
+batch a drain admitted only when every procedure in it was a save.
+
+If request count ever matters more than that, `httpBatchStreamLink` keeps
+batching but streams each result as it finishes. Before switching, check that
+the edge passes a streamed body through unbuffered (otherwise it behaves like
+`httpBatchLink`), keep mutations on `httpLink` so a save never shares a
+drain-gated batch, and accept that streamed bodies skip the app-side gzip.
+Existing compression wraps large JSON responses. Attention reads keep the
+200-ID limit per procedure, with larger boards split into bounded calls under
+one TanStack query key.
 
 The shared HTTP client supplies cookie/Bearer authentication, pairing recovery,
 API protocol metadata and Home reachability reporting. The proxy authenticates
@@ -56,8 +66,8 @@ gate inside the operation.
 
 Both the service HTTP boundary and procedure middleware respect maintenance.
 Reads and ordinary task/note/area saves may finish while draining. A mutation
-batch gets the save exception only when every path is a recognized update
-procedure. New work is refused during drain, and offline maintenance refuses
+request gets the save exception only when every path in it is a recognized
+update procedure, which with `httpLink` is the one it carries. New work is refused during drain, and offline maintenance refuses
 all procedures. Accepted work holds an activity lease until it finishes.
 Pre-adapter authentication, protocol, maintenance and gateway failures retain
 their HTTP status so document saves keep the correct recovery and retry policy.

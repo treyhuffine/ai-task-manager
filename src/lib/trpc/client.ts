@@ -1,6 +1,6 @@
 import { api, ApiError, type ApiClient } from '@/lib/api/client';
 import { getQueryClient } from '@/lib/query/client';
-import { createTRPCClient, httpBatchLink, httpLink, splitLink } from '@trpc/client';
+import { createTRPCClient, httpLink } from '@trpc/client';
 import { createTRPCOptionsProxy } from '@trpc/tanstack-react-query';
 import type { AppRouter } from './router';
 import { createTransportLink } from './transport-link';
@@ -20,20 +20,26 @@ export function createAppTRPCClient({ url = '/api/trpc', transport = api, getMod
     }
     return response;
   };
-  const http = splitLink<AppRouter>({
-    condition: op => op.context.headers !== undefined,
-    true: httpLink({
-      url,
-      headers: ({ op }) => Object.fromEntries(new Headers(op.context.headers as HeadersInit)),
-      fetch,
-    }),
-    false: httpBatchLink({
-      url,
-      maxURLLength: 16_000,
-      // Share pairing, cookie/Bearer auth, protocol negotiation and Home
-      // connectivity with uploads and the remaining HTTP API.
-      fetch,
-    }),
+  // One HTTP request per procedure, as the REST API was: a slow procedure
+  // never holds another's response, each call is its own row and timing in
+  // the network tab, and an update drain admits a save on its own (it admits
+  // a batch only when every procedure in it is a save). HTTP/2 to the public
+  // edge already multiplexes the requests.
+  //
+  // If request count ever matters more than that, httpBatchStreamLink keeps
+  // batching but streams each result as it finishes. Before switching, check
+  // that the edge passes a streamed body through unbuffered (otherwise it
+  // behaves like httpBatchLink, every result waiting for the slowest), keep
+  // mutations on httpLink so a save never shares a drain-gated batch, and
+  // accept that streamed bodies skip the app-side gzip (lib/api/compression).
+  const http = httpLink<AppRouter>({
+    url,
+    // A call with its own authorization or device headers sends them. Each
+    // call is its own request, so they can't reach any other call.
+    headers: ({ op }) => (op.context.headers ? Object.fromEntries(new Headers(op.context.headers as HeadersInit)) : {}),
+    // Share pairing, cookie/Bearer auth, protocol negotiation and Home
+    // connectivity with uploads and the remaining HTTP API.
+    fetch,
   });
   const trial = createTransportLink({ url, transport, http, getMode, WebSocket, websocketOnly });
   const client = createTRPCClient<AppRouter>({ links: [trial.link] });

@@ -53,7 +53,7 @@ afterEach(async () => {
 });
 
 describe('typed UI API over the authenticated HTTP adapter', () => {
-  it('round-trips hydrated records and batches independent reads with compact list DTOs', async () => {
+  it('round-trips hydrated records, one request per independent read, with compact list DTOs', async () => {
     const area = await client.areas.create.mutate({ name: 'Work' });
     const task = await client.tasks.create.mutate({ title: 'Ship', rawInput: 'Ship', areaId: area.id, body: 'a'.repeat(600), contextTags: ['work'] });
     const note = await client.notes.create.mutate({ body: 'Original', taskId: task.id });
@@ -61,7 +61,11 @@ describe('typed UI API over the authenticated HTTP adapter', () => {
     const [tasks, notes, counts] = await Promise.all([
       client.tasks.list.query({ areaId: area.id }), client.notes.list.query({ taskId: task.id }), client.tasks.counts.query({ areaId: area.id }),
     ]);
-    expect(requests.length - before).toBe(1);
+    // httpLink, not a batch: each read is its own request and response.
+    expect(requests.length - before).toBe(3);
+    expect(requests.slice(before).map((req) => new URL(req.url).pathname).sort()).toEqual([
+      '/api/trpc/notes.list', '/api/trpc/tasks.counts', '/api/trpc/tasks.list',
+    ]);
     expect(tasks[0]).toMatchObject({ id: task.id, bodyLen: 600, bodyExcerpt: 'a'.repeat(300) });
     expect(tasks[0]).not.toHaveProperty('body');
     expect(notes[0]).not.toHaveProperty('body');

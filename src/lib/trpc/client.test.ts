@@ -8,7 +8,7 @@ import { tasksApi } from '@/lib/api/tasks';
 afterEach(() => { vi.unstubAllGlobals(); reportApiCompatibility(null); });
 
 it('uses the correct endpoint with the shared auth/protocol transport', async () => {
-  const fetch = vi.fn(async () => Response.json([{ result: { data: [] } }]));
+  const fetch = vi.fn(async () => Response.json({ result: { data: [] } }));
   vi.stubGlobal('fetch', fetch);
   const client = createAppTRPCClient();
   await expect(client.tasks.list.query()).resolves.toEqual([]);
@@ -72,10 +72,10 @@ it('retains a non-JSON gateway status so refused saves remain retryable', async 
 });
 
 it('leaves a procedure error envelope to tRPC and preserves its domain details', async () => {
-  vi.stubGlobal('fetch', async () => Response.json([{ error: {
+  vi.stubGlobal('fetch', async () => Response.json({ error: {
     message: 'Choose how to stop the running work.', code: -32009,
     data: { code: 'CONFLICT', httpStatus: 409, path: 'tasks.update', domainCode: 'running_work', details: { taskId: 'task' } },
-  } }], { status: 409 }));
+  } }, { status: 409 }));
   const client = createAppTRPCClient();
   let error: unknown;
   try { await client.tasks.update.mutate({ id: 'task', patch: { title: 'Retained' } }); } catch (err) { error = err; }
@@ -85,17 +85,17 @@ it('leaves a procedure error envelope to tRPC and preserves its domain details',
 });
 
 it('splits large boards into bounded attention calls and keeps every returned badge', async () => {
-  const batches: string[][] = [];
+  const calls: string[][] = [];
   vi.stubGlobal('fetch', async (url: string) => {
     const request = new URL(url);
-    const inputs = JSON.parse(request.searchParams.get('input')!) as Record<string, { ids: string[] }>;
-    return Response.json(Object.values(inputs).map(({ ids }) => {
-      batches.push(ids);
-      return { result: { data: Object.fromEntries(ids.map(id => [id, { blocked: false }])) } };
-    }));
+    expect(request.searchParams.has('batch')).toBe(false);
+    const { ids } = JSON.parse(request.searchParams.get('input')!) as { ids: string[] };
+    calls.push(ids);
+    return Response.json({ result: { data: Object.fromEntries(ids.map(id => [id, { blocked: false }])) } });
   });
   const ids = Array.from({ length: 405 }, (_, i) => `task-${i}`);
   expect(Object.keys(await tasksApi.attention([...ids, ids[0]]))).toHaveLength(405);
-  expect(batches.map(ids => ids.length)).toEqual([200, 200, 5]);
+  // One request per call, never one batch: a slow call can't hold the others.
+  expect(calls.map(ids => ids.length)).toEqual([200, 200, 5]);
   expect(await tasksApi.attention([])).toEqual({});
 });
