@@ -126,15 +126,10 @@ export const userState = sqliteTable('user_state', {
   defaultHarness: text({ enum: HARNESS_VALUES }),
   defaultModel: text(),
   defaultEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
-  // Which surface powers the dashboard orchestrator chat:
-  //   harness_skills — harness session (cwd = data root), actions via CLI/skills
-  //   harness_mcp    — harness session with the orchestrator MCP attached
-  //   legacy         — the retired built-in chat (its /api/chat is gone),
-  //                    kept in the enum so old rows still parse
-  // Harness sessions read this at spawn; switching modes starts a new chat.
-  // Null and 'legacy' run as 'harness_mcp' in the UI and at dispatch alike
-  // (resolveOrchestratorMode, src/lib/orchestrator/mode.ts).
-  // See docs/orchestrator-harness.md.
+  // Retired 2026-10-05, no longer read or written: the main chat acts
+  // through MCP only. It once chose between 'harness_skills' (actions via the
+  // CLI and skills), 'harness_mcp' and the built-in 'legacy' chat. Kept so
+  // existing homes need no migration. See docs/orchestrator-harness.md.
   orchestratorMode: text({ enum: ['legacy', 'harness_skills', 'harness_mcp'] }),
   // Monthly spend ceiling in USD for scheduled + manual runs combined.
   // Null means no budget enforced. When `currentMonthSpend()` crosses

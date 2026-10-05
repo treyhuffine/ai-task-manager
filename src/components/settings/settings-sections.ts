@@ -96,7 +96,7 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     label: 'Models',
     icon: Bot,
     title: 'AI & Models',
-    description: 'Default provider and model, orchestrator mode, and usage.',
+    description: 'Default provider and model, and usage.',
   },
   {
     id: 'voice',

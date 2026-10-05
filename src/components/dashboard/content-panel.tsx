@@ -12,12 +12,11 @@ import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
 import { DeckContainer } from '@/components/deck/deck-container';
 import { useNeedsYourCall } from '@/hooks/use-stream';
-import { useUserState, useUpdateUserState, useOrchestratorName } from '@/hooks/use-user-state';
+import { useUserState, useOrchestratorName } from '@/hooks/use-user-state';
 import { OrchestratorAvatar } from '@/components/shared/orchestrator-mark';
 import { HarnessChat } from '@/components/chat/harness-chat';
 import { appMainChatIntro } from '@/components/chat/main-chat-intro';
 import { useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
-import { resolveOrchestratorMode, type OrchestratorChatMode } from '@/lib/orchestrator/mode';
 import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
 import { MainChatOnboarding } from '@/components/chat/onboarding/main-chat-onboarding';
 
@@ -42,30 +41,17 @@ const MORE_TABS: { id: MorePanelTab; label: string; icon: typeof Users }[] = [
 
 const MORE_TAB_IDS = new Set<string>(MORE_TABS.map(t => t.id));
 
-// ─── Chat mode switcher ────────────────────────────────────────
+// ─── Chat header ───────────────────────────────────────────────
 //
-// Two orchestrator surfaces behind one tab (user_state.orchestratorMode):
-//   skills — harness session in the data root, actions via CLI/skills
-//   mcp    — harness session with the orchestrator MCP attached
-// Unset and the retired 'legacy' resolve to mcp, the same rule the server
-// uses (lib/orchestrator/mode.ts). Switching starts a fresh session: the
-// mode's CLI flags (MCP attachment, write guards) are read at process spawn.
+// Who you're talking to, past chats, and New. The main chat acts through
+// MCP only: the Skills / MCP switch that sat here was retired on 2026-10-05.
 
-const CHAT_MODES: { id: OrchestratorChatMode; label: string; title: string }[] = [
-  { id: 'harness_skills', label: 'Skills', title: 'Harness session: actions via CLI + skills' },
-  { id: 'harness_mcp', label: 'MCP', title: 'Harness session: actions via MCP tools' },
-];
-
-function ChatModeBar({
+function ChatHeaderBar({
   name,
-  mode,
-  onSwitch,
   onNewChat,
   newChatPending,
 }: {
   name: string;
-  mode: OrchestratorChatMode;
-  onSwitch: (mode: OrchestratorChatMode) => void;
   onNewChat: () => void;
   newChatPending: boolean;
 }) {
@@ -78,23 +64,6 @@ function ChatModeBar({
           {name}
         </span>
       </span>
-      <div className="flex items-center rounded-md border border-border overflow-hidden">
-        {CHAT_MODES.map((m) => (
-          <button
-            key={m.id}
-            onClick={() => onSwitch(m.id)}
-            title={m.title}
-            className={cn(
-              'px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.06em] transition-all',
-              mode === m.id
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-            )}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
       <MainChatHistoryMenu scope={null} />
       <button
         onClick={onNewChat}
@@ -111,9 +80,7 @@ function ChatModeBar({
 
 function ChatContent({ isMobile }: { isMobile: boolean }) {
   const { data: userState } = useUserState();
-  const updateUserState = useUpdateUserState();
   const newChat = useNewOrchestratorChat();
-  const mode = resolveOrchestratorMode(userState?.orchestratorMode);
   const name = useOrchestratorName();
   // The first-run conversation, for a home that hasn't had it. Latched for
   // this mount, so finishing it (which records `orchestratorIntroducedAt`)
@@ -126,26 +93,10 @@ function ChatContent({ isMobile }: { isMobile: boolean }) {
     setOnboarding(!userState.orchestratorIntroducedAt);
   }
 
-  const handleSwitch = (next: OrchestratorChatMode) => {
-    if (next === mode) return;
-    updateUserState.mutate({ orchestratorMode: next });
-    // Harness flags are spawn-time, so a switch always cuts over to a fresh
-    // session and the new mode's surface applies cleanly.
-    newChat.mutate();
-  };
-
   return (
     <div className="flex flex-col h-full min-h-0">
-      <ChatModeBar
-        name={name}
-        mode={mode}
-        onSwitch={handleSwitch}
-        onNewChat={() => newChat.mutate()}
-        newChatPending={newChat.isPending}
-      />
-      {/* Key on mode so a switch fully remounts against the new session. */}
+      <ChatHeaderBar name={name} onNewChat={() => newChat.mutate()} newChatPending={newChat.isPending} />
       <HarnessChat
-        key={mode}
         isMobile={isMobile}
         intro={appMainChatIntro(name)}
         emptyState={onboarding ? <MainChatOnboarding onSkip={() => setOnboarding(false)} /> : undefined}

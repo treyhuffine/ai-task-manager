@@ -15,22 +15,21 @@
  *   2. Per-session ProviderConfig fields (`orchestratorSessionConfig`) —
  *      typed agentex ≥0.0.20 config, no raw argv:
  *        - `mcpServers` points the harness at this server's orchestrator
- *          MCP with the local bearer token (`harness_mcp` mode only).
+ *          MCP with the local bearer token.
  *          agentex stages the config as a 0600 temp file and passes
  *          `--mcp-config` itself — we no longer write
  *          `tmp/orchestrator-mcp.json` (stale copies are cleaned up on
  *          install; they carry a token).
  *        - `strictMcpConfig` so the session sees exactly what we attach
- *          (no user-level MCP leakage, and `harness_skills` mode gets a
- *          genuinely MCP-free session for a clean A/B).
+ *          (no user-level MCP leakage).
  *        - `disallowedTools: Write/Edit/NotebookEdit` — the write guard:
  *          every write must flow through actions. The markdown mirror is
  *          one-way; direct edits get clobbered and bypass
  *          embeddings/attachment derivation.
  *
- * Mode selection lives on `user_state.orchestratorMode`. `legacy` keeps
- * the hand-rolled streamText agent and never reaches this module's
- * session-args path.
+ * The main chat acts through MCP only. A second surface that acted through
+ * the CLI and skills ("Skills" mode, `user_state.orchestratorMode`) was
+ * retired on 2026-10-05: the stored value is no longer read.
  */
 
 import fs from 'node:fs';
@@ -41,12 +40,10 @@ import path from 'node:path';
 // import inside the async installer below. Matches the lazy-load convention
 // in registry.ts / skills.ts.
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
-import { AGENT_SKILL_NAME, AGENT_BROWSER_SKILL_NAME, APP_NAME, APP_SHORT_ID } from '@/constants/app';
-import { renderBaseBrief, RI_MANAGED_TAG } from '@/lib/config/agents-md-template';
+import { AGENT_SKILL_NAME, AGENT_BROWSER_SKILL_NAME, APP_NAME } from '@/constants/app';
+import { RI_MANAGED_TAG } from '@/lib/config/agents-md-template';
 import { shouldWriteClaudeMdPointer } from '@/lib/orchestrator/claude-agents-md';
 import {
-  APP_ROOT_ENV,
-  DB_PATH_ENV,
   ensureAppRoot,
   ensureBrainDir,
   getAppRoot,
@@ -60,8 +57,6 @@ import { connectorRequestsEnabled } from '@/lib/connectors/request-settings';
 import { DEFAULT_ORCHESTRATOR_NAME } from '@/lib/orchestrator/name';
 import type { WorkspaceRecord } from '@/db/types';
 import { KNOWN_HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
-
-export type OrchestratorMode = 'legacy' | 'harness_skills' | 'harness_mcp';
 
 export const ORCHESTRATOR_MCP_SERVER_NAME = 'orchestrator';
 export const CONNECTORS_MCP_SERVER_NAME = 'connectors';
@@ -105,47 +100,6 @@ export function resolveServerPort(): number {
   const lastPort = readAuthConfig()?.lastPort;
   if (typeof lastPort === 'number' && lastPort > 0) return lastPort;
   return 4224;
-}
-
-// ─── CLI command resolution ───────────────────────────────────────
-
-/** Single-quote a value for safe inline use in a shell command. */
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-/**
- * Inline env assignments pinning the CLI to THIS server's data root.
- *
- * Baked into the command string rather than relying on inheritance: the
- * harness's Bash tool starts a fresh shell from the user's profile, so the
- * server's `<APP>_ROOT` does NOT reach CLI subprocesses on its own.
- * (Caught by the level-4 smoke — a skills-mode run wrote its task into the
- * default/prod home instead of the active one.) A db override rides along
- * when the server itself runs with it set.
- */
-function cliEnvPrefix(): string {
-  const parts = [`${APP_ROOT_ENV}=${shellQuote(getAppRoot())}`];
-  const dbOverride = process.env[DB_PATH_ENV];
-  if (dbOverride) parts.push(`${DB_PATH_ENV}=${shellQuote(dbOverride)}`);
-  return parts.join(' ');
-}
-
-/**
- * The command the harness should run for CLI actions. Production installs
- * have the `<cli>` binary on PATH; dev runs route through the repo's
- * `cli:dev` script (tsx). Always carries the data-root env inline — see
- * `cliEnvPrefix`.
- */
-export function resolveCliCommand(): string {
-  if (process.env[`${APP_SHORT_ID.toUpperCase()}_CLI_COMMAND`]) {
-    return process.env[`${APP_SHORT_ID.toUpperCase()}_CLI_COMMAND`]!;
-  }
-  const base =
-    process.env.NODE_ENV !== 'production'
-      ? `pnpm --silent --dir ${process.cwd()} cli:dev`
-      : APP_SHORT_ID;
-  return `${cliEnvPrefix()} ${base}`;
 }
 
 // ─── Role brief ───────────────────────────────────────────────────
@@ -403,10 +357,8 @@ const DOMAIN_BRIEF = [
   OUTPUT_STYLE_SECTION,
 ].join('\n\n');
 
-function modeSection(mode: OrchestratorMode, cliCommand: string): string {
-  switch (mode) {
-    case 'harness_mcp':
-      return `## Your tools (MCP)
+function toolsSection(): string {
+  return `## Your tools (MCP)
 
 The \`${ORCHESTRATOR_MCP_SERVER_NAME}\` MCP server is attached to this session, one typed
 tool per action: \`list_tasks\`, \`get_task\`, \`create_task\`, \`update_task\`,
@@ -441,42 +393,13 @@ approval_required the user gets an approval card in this chat: stop and wait.
 A note arrives when they decide, naming which calls to retry and which not to.${connectorRequestsEnabled() ? `
 
 ${REQUEST_CONNECTION_BRIEF}` : ''}`;
-    case 'harness_skills':
-      return `## Your tools (CLI)
-
-Run actions through the CLI via Bash. The command is:
-
-    ${cliCommand} agent <action> [params]
-
-- Output is JSON on stdout. Errors are JSON on stderr with exit code 1.
-- Simple params are flags. Complex input goes through \`--input '<json>'\`:
-
-      ${cliCommand} agent list_tasks --status active
-      ${cliCommand} agent search "standup notes" --limit 5
-      ${cliCommand} agent create_task --input '{"title":"Ship the manifest","effort":"small"}'
-      ${cliCommand} agent complete_task <task-id>
-
-- \`${cliCommand} agent --help\` lists every action. \`<action> --help\` shows params.
-
-Use the CLI for every read and write. Reading files in your home dir for
-ambient context is fine. Writing through anything but the CLI is not.`;
-    case 'legacy':
-      return '';
-  }
 }
 
 /**
- * The full managed brief for a mode. `legacy` renders the base orientation
- * (the data root still hosts walk-up agent sessions); harness modes get the
- * domain model + mode-specific tool guidance.
+ * The full managed brief for the app's main chat: who it is, the MCP tools,
+ * and the domain model.
  */
-export function renderOrchestratorBrief(
-  mode: OrchestratorMode,
-  cliCommand = resolveCliCommand(),
-  name = DEFAULT_ORCHESTRATOR_NAME,
-): string {
-  if (mode === 'legacy') return renderBaseBrief();
-
+export function renderOrchestratorBrief(name = DEFAULT_ORCHESTRATOR_NAME): string {
   // The default name is the app's own, and "You are Ri, Ri's orchestrator"
   // says it twice. A chosen name leads.
   const whoYouAre = name === APP_NAME ? `You are ${APP_NAME}'s orchestrator` : `You are ${name}, ${APP_NAME}'s orchestrator`;
@@ -497,7 +420,7 @@ mirror sync, and attachment derivation. Every mutation goes through the
 actions described below. If a capability you need isn't exposed, say so
 rather than working around it through the filesystem.
 
-${modeSection(mode, cliCommand)}
+${toolsSection()}
 
 ${DOMAIN_BRIEF}
 
@@ -852,16 +775,13 @@ export interface InstalledSurface {
  * off (which retires the full-brief copy installs before AGENTS.md-only
  * left), and added on top of a CLAUDE.md the user wrote.
  */
-export async function installOrchestratorSurface(
-  mode: OrchestratorMode,
-  opts: { name?: string } = {},
-): Promise<InstalledSurface> {
+export async function installOrchestratorSurface(opts: { name?: string } = {}): Promise<InstalledSurface> {
   const root = ensureAppRoot();
   // Seed MEMORY/USER/SOUL.md at the home root (write-once) before writing a brief that
   // references/@imports them — guarantees the import targets exist, including
   // on installs that predate these files. Never clobbers user edits.
   ensureBrainDir();
-  const brief = renderOrchestratorBrief(mode, undefined, opts.name);
+  const brief = renderOrchestratorBrief(opts.name);
   const claudeMdWanted = shouldWriteClaudeMdPointer();
 
   const { installInstructions } = await import('@agentex/agent');
@@ -887,46 +807,39 @@ export async function installOrchestratorSurface(
 /**
  * Tools the orchestrator session may never use: every write goes through
  * actions, so file-editing tools are denied outright. Bash stays available
- * (the skills mode depends on it; reads and the CLI flow through it).
+ * for reads.
  */
 export const ORCHESTRATOR_DISALLOWED_TOOLS = ['Write', 'Edit', 'NotebookEdit'];
 
 /**
- * The mode's slice of agentex `ProviderConfig` for an orchestrator harness
- * session. Merged into the executor's config at spawn:
- *
- * - Both harness modes: deny file-editing tools, and set
- *   `strictMcpConfig` so the session's MCP surface is exactly what we
- *   attach — a stray `.mcp.json` in the data root (e.g. from the level-3
- *   smoke) or user-level servers can't leak in.
- * - `harness_mcp`: additionally attach the orchestrator MCP server
- *   (skipped with a warning when no local token exists yet).
+ * The orchestrator harness session's slice of agentex `ProviderConfig`,
+ * merged into the executor's config at spawn: deny file-editing tools, set
+ * `strictMcpConfig` so the session's MCP surface is exactly what we attach (a
+ * stray `.mcp.json` in the data root, e.g. from the level-3 smoke, or
+ * user-level servers can't leak in), and attach the orchestrator and
+ * connectors MCP servers (skipped with a warning when no local token exists
+ * yet).
  *
  * Typed config, not argv — agentex maps it per provider. Providers
- * without argv tool filtering / MCP wiring (Codex today) ignore the
- * fields, so passing them is safe and lights up when upstream wiring
- * lands. Returns {} for `legacy` (no harness session exists in that mode).
+ * without argv tool filtering / MCP wiring ignore the fields, so passing
+ * them is safe and lights up when upstream wiring lands.
  */
 export function orchestratorSessionConfig(
-  mode: OrchestratorMode,
   opts: { port?: number; sessionId?: string | null } = {},
 ): Partial<ProviderConfig> {
-  if (mode === 'legacy') return {};
   const config: Partial<ProviderConfig> = {
     disallowedTools: [...ORCHESTRATOR_DISALLOWED_TOOLS],
     strictMcpConfig: true,
   };
-  if (mode === 'harness_mcp') {
-    // Attach the orchestrator MCP (tasks/notes/deck/…) + the connectors MCP (Gmail/Slack/…),
-    // both over localhost + the local bearer. Each routes through its own gated runtime.
-    const servers = [
-      orchestratorMcpServer(opts.port, { sessionId: opts.sessionId }),
-      connectorsMcpServer(opts.port, { sessionId: opts.sessionId }),
-    ].filter(
-      (s): s is McpServerConfig => s !== null,
-    );
-    if (servers.length > 0) config.mcpServers = servers;
-  }
+  // Attach the orchestrator MCP (tasks/notes/deck/…) + the connectors MCP (Gmail/Slack/…),
+  // both over localhost + the local bearer. Each routes through its own gated runtime.
+  const servers = [
+    orchestratorMcpServer(opts.port, { sessionId: opts.sessionId }),
+    connectorsMcpServer(opts.port, { sessionId: opts.sessionId }),
+  ].filter(
+    (s): s is McpServerConfig => s !== null,
+  );
+  if (servers.length > 0) config.mcpServers = servers;
   return config;
 }
 

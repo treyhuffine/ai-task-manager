@@ -33,7 +33,6 @@ import {
   orchestratorSessionConfig,
   renderContentFocusPrompt,
 } from '@/lib/orchestrator/harness-surface';
-import { resolveOrchestratorMode } from '@/lib/orchestrator/mode';
 import { resolveOrchestratorName } from '@/lib/orchestrator/name';
 import { isBrowserEnabled } from '@/lib/browser/config';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
@@ -235,9 +234,9 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
   };
 
   // An agent's main chat: an orchestration chat with a workspace, running in
-  // the user's own folder. Nothing is installed there, whatever the
-  // orchestrator mode says: the brief rides the session instructions file and
-  // the actions come over the session's MCP config. See agent-main-chat.ts.
+  // the user's own folder. Nothing is installed there: the brief rides the
+  // session instructions file and the actions come over the session's MCP
+  // config. See agent-main-chat.ts.
   const agentMainChat = args.sessionType === 'orchestration' && args.workspaceId
     ? getWorkspace(args.workspaceId) ?? null
     : null;
@@ -263,22 +262,20 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
   } else if ((args.sessionType === 'orchestration' || args.sessionType === 'content') && target.isHome) {
     // Install/refresh the on-disk brief (AGENTS.md, plus a CLAUDE.md pointer
     // only where Claude needs one) before spawn — this also `ensureAppRoot()`s
-    // the cwd — and take the mode's typed
+    // the cwd — and take the session's typed
     // ProviderConfig slice (disallowedTools / strictMcpConfig / mcpServers).
     // Providers without tool-filtering or MCP wiring ignore the fields
     // (Codex today), so the config is safe to pass everywhere — but warn,
-    // because the write guard genuinely doesn't hold there yet. The mode
-    // resolves by the same rule the UI uses (lib/orchestrator/mode.ts).
+    // because the write guard genuinely doesn't hold there yet.
     const userState = getUserState();
-    const orchestratorMode = resolveOrchestratorMode(userState?.orchestratorMode);
     try {
       // The brief carries the name the user calls the orchestrator. A rename
       // recycles the app's main chat (PATCH /api/user-state), so this
       // reinstall is where the new name lands.
-      await installOrchestratorSurface(orchestratorMode, {
+      await installOrchestratorSurface({
         name: resolveOrchestratorName(userState?.orchestratorName),
       });
-      applyProviderConfig(spec, orchestratorSessionConfig(orchestratorMode, { sessionId: args.chatSessionId }));
+      applyProviderConfig(spec, orchestratorSessionConfig({ sessionId: args.chatSessionId }));
       // A `content` session is a *focused* orchestrator session: same
       // installed surface + tool set, narrowed to the one task/note the user
       // is viewing in the editor. The focus rides Claude's

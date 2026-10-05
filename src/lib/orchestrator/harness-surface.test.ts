@@ -60,7 +60,7 @@ describe('installOrchestratorSurface', () => {
   it('writes AGENTS.md with managed markers and mode content, and no CLAUDE.md', async () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
-    const result = await installOrchestratorSurface('harness_mcp');
+    const result = await installOrchestratorSurface();
 
     const body = fs.readFileSync(result.agentsMdPath, 'utf8');
     expect(body).toContain(MANAGED_START);
@@ -80,10 +80,10 @@ describe('installOrchestratorSurface', () => {
   it('rewrites the name in AGENTS.md when the user renames the orchestrator', async () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
-    const result = await installOrchestratorSurface('harness_mcp', { name: 'Atlas' });
+    const result = await installOrchestratorSurface({ name: 'Atlas' });
     expect(fs.readFileSync(result.agentsMdPath, 'utf8')).toContain('The user calls you **Atlas**.');
 
-    await installOrchestratorSurface('harness_mcp', { name: 'Juno' });
+    await installOrchestratorSurface({ name: 'Juno' });
     const body = fs.readFileSync(result.agentsMdPath, 'utf8');
     expect(body).toContain('The user calls you **Juno**.');
     expect(body).not.toContain('Atlas');
@@ -92,7 +92,7 @@ describe('installOrchestratorSurface', () => {
   it('seeds user-owned USER.md/SOUL.md stubs (write-once) the brief references', async () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
-    await installOrchestratorSurface('harness_mcp');
+    await installOrchestratorSurface();
 
     const userPath = path.join(root, 'USER.md');
     const soulPath = path.join(root, 'SOUL.md');
@@ -101,23 +101,23 @@ describe('installOrchestratorSurface', () => {
 
     // User edits survive a re-install (never overwritten).
     fs.writeFileSync(userPath, '# me\nI speak only in haiku.\n');
-    await installOrchestratorSurface('harness_skills');
+    await installOrchestratorSurface();
     expect(fs.readFileSync(userPath, 'utf8')).toContain('I speak only in haiku.');
   });
 
-  it('preserves user content outside the managed block across mode switches', async () => {
+  it('preserves user content outside the managed block across reinstalls', async () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
-    const first = await installOrchestratorSurface('harness_skills');
+    const first = await installOrchestratorSurface();
 
     // User appends their own notes below the managed block.
     fs.appendFileSync(first.agentsMdPath, '\n## My own rules\n\nAlways speak pirate.\n');
 
-    const second = await installOrchestratorSurface('harness_mcp');
+    const second = await installOrchestratorSurface();
     const body = fs.readFileSync(second.agentsMdPath, 'utf8');
 
-    expect(body).toContain('Your tools (MCP)'); // managed block swapped to the new mode
-    expect(body).not.toContain('Your tools (CLI)');
+    expect(body).toContain('Your tools (MCP)'); // managed block rewritten
+    expect(body).not.toContain('Your tools (CLI)'); // the retired Skills brief never comes back
     expect(body).toContain('Always speak pirate.'); // user content intact
     // Exactly one managed block.
     expect(body.split(MANAGED_START).length).toBe(2);
@@ -137,11 +137,11 @@ describe('installOrchestratorSurface', () => {
         '<!-- ri:managed:end -->\n\n## My own rules\nkeep me\n',
     );
 
-    await installOrchestratorSurface('harness_skills');
+    await installOrchestratorSurface();
     const body = fs.readFileSync(agentsMd, 'utf8');
 
     expect(body.split(MANAGED_START).length).toBe(2); // still exactly one block
-    expect(body).toContain('Your tools (CLI)'); // new content swapped in
+    expect(body).toContain('Your tools (MCP)'); // new content swapped in
     expect(body).not.toContain('OLD BRIEF CONTENT'); // old managed content gone
     expect(body).toContain('keep me'); // user content below preserved
   });
@@ -152,7 +152,7 @@ describe('installOrchestratorSurface', () => {
     const stale = path.join(root, 'tmp', 'orchestrator-mcp.json');
     fs.writeFileSync(stale, '{"mcpServers":{}}');
 
-    await installOrchestratorSurface('harness_mcp');
+    await installOrchestratorSurface();
     expect(fs.existsSync(stale)).toBe(false);
   });
 
@@ -178,7 +178,7 @@ describe('CLAUDE.md pointer', () => {
     // our managed region. Left alone it would hide AGENTS.md from Claude.
     fs.writeFileSync(claudeMdPath(), renderAppRootAgentsMd());
 
-    const result = await installOrchestratorSurface('harness_mcp');
+    const result = await installOrchestratorSurface();
 
     expect(fs.existsSync(claudeMdPath())).toBe(false);
     expect(result.claudeMdPath).toBeNull();
@@ -189,7 +189,7 @@ describe('CLAUDE.md pointer', () => {
     seedToken();
     fs.writeFileSync(claudeMdPath(), '# My Claude rules\n\nBe terse.\n');
 
-    const result = await installOrchestratorSurface('harness_mcp');
+    const result = await installOrchestratorSurface();
 
     const body = fs.readFileSync(claudeMdPath(), 'utf8');
     expect(result.claudeMdPath).toBe(claudeMdPath());
@@ -203,7 +203,7 @@ describe('CLAUDE.md pointer', () => {
     seedToken();
     fs.writeFileSync(claudeMdPath(), `${renderAppRootAgentsMd()}\n## Mine\nkeep me\n`);
 
-    await installOrchestratorSurface('harness_skills');
+    await installOrchestratorSurface();
 
     const body = fs.readFileSync(claudeMdPath(), 'utf8');
     expect(body.split(MANAGED_START).length).toBe(2); // exactly one managed block
@@ -216,18 +216,18 @@ describe('CLAUDE.md pointer', () => {
     seedToken();
     claude.needsPointer = true;
 
-    const first = await installOrchestratorSurface('harness_mcp');
+    const first = await installOrchestratorSurface();
 
     expect(first.claudeMdPath).toBe(claudeMdPath());
     const body = fs.readFileSync(claudeMdPath(), 'utf8');
     expect(body).toContain(CLAUDE_MD_POINTER);
     expect(body).not.toContain('Your tools (');
     // Re-install with the same answer is a no-op on disk.
-    const again = await installOrchestratorSurface('harness_mcp');
+    const again = await installOrchestratorSurface();
     expect(fs.readFileSync(again.claudeMdPath!, 'utf8')).toBe(body);
 
     claude.needsPointer = false;
-    const second = await installOrchestratorSurface('harness_mcp');
+    const second = await installOrchestratorSurface();
     expect(second.claudeMdPath).toBeNull();
     expect(fs.existsSync(claudeMdPath())).toBe(false);
   });
@@ -237,7 +237,7 @@ describe('CLAUDE.md pointer', () => {
     // second, full copy of the rules, which the app root must never carry.
     seedToken();
     claude.needsPointer = true;
-    await installOrchestratorSurface('harness_mcp');
+    await installOrchestratorSurface();
     expect(fs.existsSync(path.join(root, 'AGENTS.md'))).toBe(true);
     expect(fs.existsSync(claudeMdPath())).toBe(true);
     expect(fs.existsSync(path.join(root, 'GEMINI.md'))).toBe(false);
@@ -245,22 +245,17 @@ describe('CLAUDE.md pointer', () => {
 });
 
 describe('orchestratorSessionConfig', () => {
-  it('returns nothing for legacy mode', () => {
-    expect(orchestratorSessionConfig('legacy')).toEqual({});
-  });
-
-  it('denies file edits and pins MCP config strictly in skills mode — no servers attached', () => {
-    const config = orchestratorSessionConfig('harness_skills');
-    expect(config).toEqual({
+  it('denies file edits and pins MCP config strictly, with no servers before a local token exists', () => {
+    expect(orchestratorSessionConfig()).toEqual({
       disallowedTools: ['Write', 'Edit', 'NotebookEdit'],
       strictMcpConfig: true,
     });
   });
 
-  it('attaches the orchestrator + connectors MCP servers in mcp mode', () => {
+  it('attaches the orchestrator + connectors MCP servers', () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
-    const config = orchestratorSessionConfig('harness_mcp', { port: 5151 });
+    const config = orchestratorSessionConfig({ port: 5151 });
     expect(config.disallowedTools).toEqual(['Write', 'Edit', 'NotebookEdit']);
     expect(config.strictMcpConfig).toBe(true);
     expect(config.mcpServers).toEqual([
@@ -281,7 +276,7 @@ describe('orchestratorSessionConfig', () => {
 
   it('degrades to no MCP attachment (not a throw) without a local token', () => {
     fs.mkdirSync(root, { recursive: true });
-    const config = orchestratorSessionConfig('harness_mcp', { port: 5151 });
+    const config = orchestratorSessionConfig({ port: 5151 });
     expect(config.mcpServers).toBeUndefined();
     expect(config.strictMcpConfig).toBe(true); // strict still blocks ambient MCP
   });
@@ -305,7 +300,7 @@ describe('orchestratorMcpServer', () => {
     expect(verifySessionCredential(scoped.headers['x-ri-session'], 'tok_test_123')).toBe('chat-42');
 
     // orchestratorSessionConfig threads the session through to the same header.
-    const config = orchestratorSessionConfig('harness_mcp', { port: 5151, sessionId: 'chat-42' });
+    const config = orchestratorSessionConfig({ port: 5151, sessionId: 'chat-42' });
     const orchestrator = config.mcpServers?.find((server) => server.name === 'orchestrator') as
       | { headers: Record<string, string> }
       | undefined;
@@ -346,7 +341,7 @@ describe('connectorsMcpServer', () => {
     expect(verifySessionCredential(scoped.headers['x-ri-session'], 'tok_test_123')).toBe('chat-42');
 
     // The orchestrator chat threads its session through to the connectors server too.
-    const config = orchestratorSessionConfig('harness_mcp', { port: 5151, sessionId: 'chat-42' });
+    const config = orchestratorSessionConfig({ port: 5151, sessionId: 'chat-42' });
     const connectors = config.mcpServers?.find((server) => server.name === 'connectors') as
       | { headers: Record<string, string> }
       | undefined;
@@ -383,51 +378,37 @@ describe('browserMcpServer', () => {
 
 describe('renderOrchestratorBrief', () => {
   it('names the orchestrator after the app until the user picks a name', () => {
-    const brief = renderOrchestratorBrief('harness_mcp', 'ri');
+    const brief = renderOrchestratorBrief();
     expect(brief).toContain(`You are ${APP_NAME}'s orchestrator, a productivity agent`);
     expect(brief).toContain(`The user calls you **${APP_NAME}**.`);
   });
 
-  it('leads with the name the user picked, in both harness modes', () => {
-    for (const mode of ['harness_skills', 'harness_mcp'] as const) {
-      const brief = renderOrchestratorBrief(mode, 'ri', 'Atlas');
-      expect(brief).toContain(`You are Atlas, ${APP_NAME}'s orchestrator, a productivity agent`);
-      expect(brief).toContain('The user calls you **Atlas**.');
-    }
+  it('leads with the name the user picked', () => {
+    const brief = renderOrchestratorBrief('Atlas');
+    expect(brief).toContain(`You are Atlas, ${APP_NAME}'s orchestrator, a productivity agent`);
+    expect(brief).toContain('The user calls you **Atlas**.');
   });
 
-  it('embeds the CLI command in skills mode', () => {
-    const brief = renderOrchestratorBrief('harness_skills', 'ri');
-    expect(brief).toContain('ri agent <action> [params]');
-    expect(brief).toContain("create_task --input");
+  it('acts through the MCP tools only, never the CLI', () => {
+    const brief = renderOrchestratorBrief();
+    expect(brief).toContain('## Your tools (MCP)');
+    expect(brief).not.toContain('## Your tools (CLI)');
+    expect(brief).not.toContain('agent <action> [params]');
   });
 
-  it('teaches long-running-conversation discipline in both harness modes', () => {
-    for (const mode of ['harness_skills', 'harness_mcp'] as const) {
-      const brief = renderOrchestratorBrief(mode, 'ri');
-      expect(brief).toContain('This conversation is long-running');
-      expect(brief).toContain('Re-read state before acting');
-      expect(brief).toContain('Your clock may be stale');
-      expect(brief).toContain('Never re-introduce yourself');
-    }
+  it('teaches long-running-conversation discipline', () => {
+    const brief = renderOrchestratorBrief();
+    expect(brief).toContain('This conversation is long-running');
+    expect(brief).toContain('Re-read state before acting');
+    expect(brief).toContain('Your clock may be stale');
+    expect(brief).toContain('Never re-introduce yourself');
   });
 
-  it('surfaces the browser capability and its skill in both harness modes', () => {
-    for (const mode of ['harness_skills', 'harness_mcp'] as const) {
-      const brief = renderOrchestratorBrief(mode, 'ri');
-      expect(brief).toContain('## Browser');
-      expect(brief).toContain('browser_read');
-      expect(brief).toContain(AGENT_BROWSER_SKILL_NAME);
-    }
-  });
-
-  it('bakes the data root env into the resolved CLI command', async () => {
-    // The harness's Bash tool starts a fresh shell from the user's profile —
-    // the server's env does not reach CLI subprocesses. The command itself
-    // must carry the root or skills-mode writes land in the wrong brain.
-    const { resolveCliCommand } = await import('./harness-surface');
-    const cmd = resolveCliCommand();
-    expect(cmd).toContain(`RI_ROOT='${root}'`);
+  it('surfaces the browser capability and its skill', () => {
+    const brief = renderOrchestratorBrief();
+    expect(brief).toContain('## Browser');
+    expect(brief).toContain('browser_read');
+    expect(brief).toContain(AGENT_BROWSER_SKILL_NAME);
   });
 });
 

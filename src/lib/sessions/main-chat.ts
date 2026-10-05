@@ -207,9 +207,8 @@ export type ResumeMainChatResult =
  * an agent's history can never pull in the app's main chat or another
  * agent's.
  *
- * Spawn flags (MCP attachment, tool guards) are read from the current
- * `orchestratorMode` at dispatch, so a chat that ran under another mode
- * continues under the active one.
+ * Spawn flags (MCP attachment, tool guards) are applied at dispatch, so a
+ * chat that ran under the retired Skills mode continues on MCP.
  */
 export async function resumeMainChat(scope: MainChatScope, sessionId: string): Promise<ResumeMainChatResult> {
   const target = getChatSession(sessionId);

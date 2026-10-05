@@ -5,10 +5,9 @@
  *
  * The folder belongs to the user, so nothing is written into it. The brief
  * goes through the session instructions file (in the work dir), and
- * orchestrator actions go through the session's MCP config, whatever
- * `user_state.orchestratorMode` says. The chat gets the same scope as the
- * agent's executions: its connector scopes, the agent browser when enabled,
- * and its reference folders. In a git agent the file-editing tools are
+ * orchestrator actions go through the session's MCP config. The chat gets
+ * the same scope as the agent's executions: its connector scopes, the agent
+ * browser when enabled, and its reference folders. In a git agent the file-editing tools are
  * denied, since the checkout is what every execution's worktree branches
  * from. That guard is argv tool filtering, which only Claude enforces, so
  * elsewhere it holds by the brief alone and the caller logs it.

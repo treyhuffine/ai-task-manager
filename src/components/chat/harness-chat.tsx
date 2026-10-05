@@ -33,12 +33,10 @@ import { Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * The harness-backed orchestrator chat — the dashboard Chat tab when
- * `orchestratorMode` is a harness mode. A persistent `type='orchestration'`
- * chat session runs a real harness process (Claude Code today) with
- * cwd = the app data root, acting through the orchestrator action surface
- * (CLI in skills mode, MCP in mcp mode — see
- * `src/lib/orchestrator/harness-surface.ts`).
+ * The harness-backed orchestrator chat — the dashboard Chat tab. A
+ * persistent `type='orchestration'` chat session runs a real harness process
+ * (Claude Code today) with cwd = the app data root, acting through the
+ * orchestrator's MCP tools (see `src/lib/orchestrator/harness-surface.ts`).
  *
  * Deliberately a recomposition of the execution chat column —
  * transcript + pending-input + composer — minus the workspace chrome

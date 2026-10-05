@@ -1,25 +1,23 @@
 # Orchestrator on the harness
 
-The dashboard chat runs on one of two surfaces, selected by
-`user_state.orchestratorMode` (the Skills / MCP switch in the Chat tab and
-in Settings):
+The dashboard chat is a real harness session (Claude Code, Codex, …) with
+cwd = the app data root and the orchestrator HTTP MCP attached: one typed
+tool per registry action (`mcp__orchestrator__create_task`, …).
 
-| Mode | Value | What runs |
-|---|---|---|
-| Skills | `harness_skills` | A real harness session (Claude Code) with cwd = the app data root. Actions via the CLI (`<cli> agent <action>`), taught by the data-root brief + the bundled `orchestrator` skill. No MCP servers attached. |
-| MCP | `harness_mcp` | Same harness session, with the orchestrator HTTP MCP attached — one typed tool per registry action (`mcp__orchestrator__create_task`, …). |
-
-The old Classic chat (`legacy`, a hand-rolled streamText agent behind
-`/api/chat`) is retired: its server stack went in 3dd6586 and its UI after.
-The enum keeps `legacy` so old rows still parse. Unset and `legacy` both
-resolve to `harness_mcp`, in the UI and at dispatch alike, through one
-function (`resolveOrchestratorMode`, `src/lib/orchestrator/mode.ts`). Before
-that, the UI fell back to Classic on its own, so a home where nobody had
-picked a mode sent its main chat to the missing route and nothing happened.
+There used to be a second surface, chosen by `user_state.orchestratorMode`
+through a Skills / MCP switch in the Chat tab and in Settings. Skills mode
+(`harness_skills`) ran the same session with no MCP attached and taught it to
+act through the CLI (`<cli> agent <action>`). It was retired on 2026-10-05,
+since MCP is the surface the app is built around, and the switch, its
+resolver (`src/lib/orchestrator/mode.ts`) and the CLI brief went with it. The
+column stays (no migration) but nothing reads or writes it, so a home that
+had chosen Skills runs on MCP. The older Classic chat (`legacy`, a hand-rolled
+streamText agent behind `/api/chat`) was retired before that, in 3dd6586.
+The `ri agent` CLI itself stays: executions, scripts and you still use it.
 
 ## How a harness orchestrator session works
 
-1. The Chat tab (harness modes) ensures a persistent `type='orchestration'`
+1. The Chat tab ensures a persistent `type='orchestration'`
    chat session via `GET /api/orchestrator-chat` (created on the user's
    default harness, stored as `chat_sessions.harness`). "New" archives it
    and starts fresh (`POST /api/orchestrator-chat`). This is the app's main
@@ -178,7 +176,7 @@ is frozen and doesn't get these):
 Process-ownership rule (`src/lib/orchestrator/server-client.ts`): the server
 process owns every harness subprocess, the running set, and pending-input
 resolvers. Registry handlers run in-server (MCP) *or* in a short-lived CLI
-process (skills mode) — so DB reads go direct, while live flags and sends go
+process (`ri agent`, from an execution or a terminal) — so DB reads go direct, while live flags and sends go
 over the server's HTTP API with the local token. When the server is
 unreachable, live flags degrade to unknown (and sends fail with a clear
 error) rather than lying.
@@ -187,7 +185,7 @@ error) rather than lying.
 `<chatSessionId>.<HMAC-SHA256(localToken, "ri-session:<id>")>`
 (`src/lib/orchestrator/session-credential.ts`). MCP sessions send it as the
 `x-ri-session` header on their orchestrator MCP config, and every session's
-env carries it as `RI_SESSION_CREDENTIAL` for `ri agent` in skills mode. The
+env carries it as `RI_SESSION_CREDENTIAL` for any `ri agent` call it makes. The
 MCP route and the CLI resolve it to `ctx.actor`. A bare id, a forged
 signature or a credential for a deleted chat resolves to no actor, which is
 what a human at the CLI gets. This is identity, not authorization:
@@ -329,5 +327,5 @@ actions.
 - `src/lib/orchestrator/session-credential.ts` — caller identity
 - `src/lib/sessions/sender.ts` — the sender label
 - `src/components/chat/harness-chat.tsx` — the harness chat column
-- `src/components/dashboard/content-panel.tsx` — mode switch (`ChatModeBar`)
+- `src/components/dashboard/content-panel.tsx` — the Chat tab's header (`ChatHeaderBar`)
 - `skills/orchestrator/SKILL.md` — bundled skill (CLI/MCP conventions)

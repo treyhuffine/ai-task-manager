@@ -656,8 +656,7 @@ agent. It reuses the orchestrator's surface end to end:
   `/api/sessions/[id]/stream` transport — identical to executions and orchestration — and
   the slideout renders the same `HarnessChatSession` surface (transcript + composer).
 - **Agent surface.** `ensureAgentSession` treats `content` like `orchestration`: it
-  installs the orchestrator brief + tool set at the app data root (MCP in `harness_mcp`,
-  CLI in `harness_skills`). **No new tools** — the agent edits the focused entity with the
+  installs the orchestrator brief + MCP tool set at the app data root. **No new tools** — the agent edits the focused entity with the
   existing `get_/update_task|note` actions. A per-session **focus directive**
   (`renderContentFocusPrompt`, delivered via Claude's `--append-system-prompt` so it never
   shows in the transcript) pins it to the one entity and tells it to act decisively, since
