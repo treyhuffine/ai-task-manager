@@ -68,81 +68,87 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
   const reviewed = ctx.latestDisposition;
 
   return (
-    <div
-      className={cn(
-        'mx-3 mb-2 flex flex-shrink-0 flex-wrap items-center gap-2 rounded-lg border px-3 py-2',
-        ctx.hasUnreviewedOutput
-          ? 'border-violet-500/30 bg-violet-500/[0.06]'
-          : 'border-border bg-muted/40',
-      )}
-    >
-      <span className="text-[11px] font-medium text-foreground">
-        {ctx.hasUnreviewedOutput ? 'Review the agent’s latest output' : `Reviewed: ${reviewed ? DISPOSITION_LABEL[reviewed] : ''}`}
-      </span>
+    // The composer's column (`max-w-3xl`, `px-5`), so the bar lines up with
+    // the chat field under it instead of spanning the whole pane.
+    <div className="mx-auto max-w-3xl flex-shrink-0 px-5 pb-2">
+      <div
+        className={cn(
+          'flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg border px-3 py-2',
+          ctx.hasUnreviewedOutput
+            ? 'border-violet-500/30 bg-violet-500/[0.06]'
+            : 'border-border bg-muted/40',
+        )}
+      >
+        <span className="text-[11px] font-medium text-foreground">
+          {ctx.hasUnreviewedOutput ? 'Review the agent’s latest output' : `Reviewed: ${reviewed ? DISPOSITION_LABEL[reviewed] : ''}`}
+        </span>
 
-      <div className="ml-auto flex items-center gap-1.5">
-        {pending && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
-        <ReviewButton
-          label="Request changes"
-          active={reviewed === 'changes_requested'}
-          disabled={pending}
-          onClick={() => review.mutate({ disposition: 'changes_requested' })}
-          icon={<MessageSquareDashed size={12} />}
-          tone="amber"
-        />
-        <ReviewButton
-          label="Dismiss"
-          active={reviewed === 'dismissed'}
-          disabled={pending}
-          onClick={() => review.mutate({ disposition: 'dismissed' })}
-          icon={<EyeOff size={12} />}
-          tone="muted"
-        />
-        <ReviewButton
-          label="Accept"
-          active={reviewed === 'accepted'}
-          disabled={pending}
-          onClick={() => review.mutate({ disposition: 'accepted' })}
-          icon={<Check size={12} />}
-          tone="emerald"
-        />
-        {eligible.length === 1 && (
+        {/* On a narrow chat the buttons drop below the title and wrap whole,
+            never squeezing a label onto two lines. */}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+          {pending && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
           <ReviewButton
-            label="Accept & complete"
-            active={false}
+            label="Request changes"
+            active={reviewed === 'changes_requested'}
             disabled={pending}
-            onClick={() => review.mutate({ disposition: 'accepted', completeTask: true, taskId: eligible[0].id })}
-            icon={<CheckCheck size={12} />}
-            tone="emerald-solid"
-            title={`Accept and complete “${eligible[0].title || 'the task'}”`}
+            onClick={() => review.mutate({ disposition: 'changes_requested' })}
+            icon={<MessageSquareDashed size={12} />}
+            tone="amber"
           />
-        )}
-        {eligible.length > 1 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                disabled={pending}
-                title="Accept the output and complete one of the tasks this workstream is working"
-                className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
-              >
-                <CheckCheck size={12} />
-                Accept & complete…
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-w-xs">
-              <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">Complete which task?</div>
-              {eligible.map((t) => (
-                <DropdownMenuItem
-                  key={t.id}
-                  className="text-xs"
-                  onClick={() => review.mutate({ disposition: 'accepted', completeTask: true, taskId: t.id })}
+          <ReviewButton
+            label="Dismiss"
+            active={reviewed === 'dismissed'}
+            disabled={pending}
+            onClick={() => review.mutate({ disposition: 'dismissed' })}
+            icon={<EyeOff size={12} />}
+            tone="muted"
+          />
+          <ReviewButton
+            label="Accept"
+            active={reviewed === 'accepted'}
+            disabled={pending}
+            onClick={() => review.mutate({ disposition: 'accepted' })}
+            icon={<Check size={12} />}
+            tone="emerald"
+          />
+          {eligible.length === 1 && (
+            <ReviewButton
+              label="Accept & complete"
+              active={false}
+              disabled={pending}
+              onClick={() => review.mutate({ disposition: 'accepted', completeTask: true, taskId: eligible[0].id })}
+              icon={<CheckCheck size={12} />}
+              tone="emerald-solid"
+              title={`Accept and complete “${eligible[0].title || 'the task'}”`}
+            />
+          )}
+          {eligible.length > 1 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  disabled={pending}
+                  title="Accept the output and complete one of the tasks this workstream is working"
+                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-emerald-600 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
                 >
-                  <span className="truncate">{t.title || 'Untitled'}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+                  <CheckCheck size={12} />
+                  Accept & complete…
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-w-xs">
+                <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">Complete which task?</div>
+                {eligible.map((t) => (
+                  <DropdownMenuItem
+                    key={t.id}
+                    className="text-xs"
+                    onClick={() => review.mutate({ disposition: 'accepted', completeTask: true, taskId: t.id })}
+                  >
+                    <span className="truncate">{t.title || 'Untitled'}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -176,7 +182,7 @@ function ReviewButton({
       onClick={onClick}
       disabled={disabled}
       title={title ?? label}
-      className={cn('inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-60', tones[tone])}
+      className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-60', tones[tone])}
     >
       {icon}
       {label}
