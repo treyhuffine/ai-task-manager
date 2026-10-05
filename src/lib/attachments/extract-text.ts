@@ -91,7 +91,9 @@ function maybeTruncate(text: string): { text: string; truncated: boolean } {
  * the type isn't supported (caller decides next step).
  *
  * Extension-sniffs as a backup to mime — browsers often misreport
- * docx/xlsx as `application/octet-stream` or `application/zip`.
+ * docx/xlsx as `application/octet-stream` or `application/zip`. Only the
+ * name routes a zip mime to an Office parser, so a real archive
+ * (`backup.zip`) matches nothing here and returns null.
  */
 export async function extractTextFromAttachment(
   attachment: Attachment,

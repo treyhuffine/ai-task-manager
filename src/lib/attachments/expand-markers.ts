@@ -1,6 +1,6 @@
 /**
  * Expand `[[file:<fileName>]]` markers in a user-prompt string into
- * the agent-readable form. Two outcomes per marker:
+ * the agent-readable form. Three outcomes per marker:
  *
  *   - For mimes the agent reads itself (text, code, images, PDF, JSON,
  *     XML): the marker stays. `executor.dispatch` turns it into the file's
@@ -11,6 +11,10 @@
  *     to text and inline it wrapped in `<attachment>` tags so the
  *     agent sees the content directly. Extraction runs at home, wherever
  *     the chat runs.
+ *   - For a zip archive: the marker stays, like a file the agent reads
+ *     itself. There is no text to extract, so the agent gets the path and
+ *     unpacks it with its own tools. An Office document that arrived
+ *     labeled as its zip container is still extracted, by its name.
  *
  * Used by `POST /api/sessions/[id]/messages` and the health check's orphan
  * re-fire, each before handing the text and its attachments to
@@ -21,7 +25,7 @@
  */
 
 import { extractTextFromAttachment, formatExtractedAttachment } from './extract-text';
-import { FILE_MARKER_RE, readsNatively } from './markers';
+import { FILE_MARKER_RE, isArchive, readsNatively } from './markers';
 import type { Attachment } from '@/db/types';
 
 export async function expandMarkers(content: string, attachments: Attachment[]): Promise<string> {
@@ -48,6 +52,9 @@ export async function expandMarkers(content: string, attachments: Attachment[]):
       (async () => {
         try {
           const result = await extractTextFromAttachment(a);
+          // Nothing extracted from a zip means it is a real archive, not an
+          // Office document. Its marker stays, and becomes its path.
+          if (!result && isArchive(a.mimeType)) return;
           matches[slot]!.replacement = result
             ? formatExtractedAttachment(a, result)
             : `<attachment filename="${a.originalName || a.fileName}" status="unreadable" />`;

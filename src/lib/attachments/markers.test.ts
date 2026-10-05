@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ATTACHMENT_FILE_NAME, markedFileNames, placeFileMarkers, readsNatively } from './markers';
+import { ATTACHMENT_FILE_NAME, isArchive, markedFileNames, placeFileMarkers, readsNatively } from './markers';
 
 describe('file markers', () => {
   it('names each marked file once', () => {
@@ -17,6 +17,13 @@ describe('file markers', () => {
     }
     for (const mime of ['audio/webm', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']) {
       expect(readsNatively(mime)).toBe(false);
+    }
+  });
+
+  it('knows an archive, which the agent gets whole', () => {
+    expect(isArchive('application/zip')).toBe(true);
+    for (const mime of ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/octet-stream']) {
+      expect(isArchive(mime)).toBe(false);
     }
   });
 

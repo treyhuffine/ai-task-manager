@@ -78,6 +78,11 @@ describe('extForFile', () => {
     expect(extForFile('text/plain', 'random.weird')).toBe('txt');
   });
 
+  it('stores an archive as .zip', () => {
+    expect(extForFile('application/zip', 'backup.zip')).toBe('zip');
+    expect(extForFile('application/zip', 'backup')).toBe('zip');
+  });
+
   it('uses canonical extensions for office formats', () => {
     expect(extForFile('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'doc')).toBe('docx');
     expect(extForFile('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'sheet')).toBe('xlsx');
@@ -113,6 +118,31 @@ describe('resolveMime', () => {
     expect(resolveMime('', 'config.yaml')).toBe('text/plain');
   });
 
+  it('resolves every name a browser gives a zip to application/zip', () => {
+    expect(resolveMime('application/zip', 'backup.zip')).toBe('application/zip');
+    // Windows browsers.
+    expect(resolveMime('application/x-zip-compressed', 'backup.zip')).toBe('application/zip');
+    expect(resolveMime('application/x-zip', 'backup.zip')).toBe('application/zip');
+    expect(resolveMime('application/octet-stream', 'backup.zip')).toBe('application/zip');
+    expect(resolveMime('', 'backup.zip')).toBe('application/zip');
+    // The mime alone is enough: an archive needs no particular name.
+    expect(resolveMime('application/zip', 'backup')).toBe('application/zip');
+    expect(resolveMime('application/zip', 'photos.png')).toBe('application/zip');
+  });
+
+  it('resolves an Office document labeled as its zip container to its own type', () => {
+    const docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    const xlsx = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const pptx = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    expect(resolveMime('application/zip', 'Report.DOCX')).toBe(docx);
+    expect(resolveMime('application/zip', 'budget.xlsx')).toBe(xlsx);
+    expect(resolveMime('application/x-zip-compressed', 'deck.pptx')).toBe(pptx);
+    expect(resolveMime('application/zip', 'letter.odt')).toBe('application/vnd.oasis.opendocument.text');
+    expect(resolveMime('application/zip', 'slides.odp')).toBe('application/vnd.oasis.opendocument.presentation');
+    // So it lands on disk under its own extension, where the parsers look for it.
+    expect(extForFile(resolveMime('application/zip', 'budget.xlsx'), 'budget.xlsx')).toBe('xlsx');
+  });
+
   it('does not override an already-known mime via text-like fallback', () => {
     // If browser correctly identifies as application/json, we keep that
     // instead of demoting to text/plain.
@@ -131,6 +161,11 @@ describe('isAllowedMime', () => {
     expect(isAllowedMime('application/vnd.openxmlformats-officedocument.wordprocessingml.document')).toBe(true);
     expect(isAllowedMime('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')).toBe(true);
     expect(isAllowedMime('application/vnd.openxmlformats-officedocument.presentationml.presentation')).toBe(true);
+  });
+
+  it('accepts zip archives, under the one name they are stored as', () => {
+    expect(isAllowedMime('application/zip')).toBe(true);
+    expect(isAllowedMime(resolveMime('application/x-zip-compressed', 'backup.zip'))).toBe(true);
   });
 
   it('rejects unknown / disallowed types', () => {

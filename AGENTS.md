@@ -68,7 +68,7 @@ One generic attachment system across the whole app:
 - Upload: `POST /api/attachments` (multipart, 50 MiB cap, mime allowlist). Serve: `GET /api/attachments/:file_name` (auth-protected).
 - Client helpers in `src/lib/attachments/client.ts` (`uploadAttachment`) and `src/lib/attachments/view.ts` (`attachmentUrl`).
 - Chat-specific: chat composers use `ChatInputEditor` + `FileChipNode` (Tiptap). Messages carry `[[file:<file_name>]]` markers inline in `content`; the matching `Attachment` lives in `chat_events.attachments`. Transcript renders chips via `MessageFileChip` (image thumb / expandable text / download), branching on mime.
-- Send-to-model: every chat is a harness session, so `src/lib/attachments/expand-markers.ts` substitutes `[[file:...]]` markers with the absolute disk path when the harness reads the mime natively (text, code, images, PDF), or an inline `<attachment>` block of extracted text otherwise (`src/lib/attachments/extract-text.ts`: docx/xlsx/pptx via mammoth/xlsx/officeparser, audio via STT through `pickProvider`, svg as XML). 200k-char per-attachment cap to bound context.
+- Send-to-model: every chat is a harness session, so `src/lib/attachments/expand-markers.ts` substitutes `[[file:...]]` markers with the absolute disk path when the harness reads the mime natively (text, code, images, PDF), or an inline `<attachment>` block of extracted text otherwise (`src/lib/attachments/extract-text.ts`: docx/xlsx/pptx via mammoth/xlsx/officeparser, audio via STT through `pickProvider`, svg as XML). A zip archive also goes as its disk path, for the agent to unpack itself. 200k-char per-attachment cap to bound context.
 - See `docs/chat-sessions.md` for the chat-specific flow end-to-end.
 
 ## Skills

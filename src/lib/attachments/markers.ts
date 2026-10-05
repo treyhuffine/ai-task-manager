@@ -4,8 +4,9 @@
  * A file the agent reads itself (text, code, images, PDF, JSON, XML) reaches
  * it as a path on the device the agent runs on: the home's attachments
  * directory for a chat that runs at home, and the worker's own copy for one
- * on a connected device (docs/homes-build.md, P2.5). Everything else is
- * extracted to text at home (`expand-markers.ts`).
+ * on a connected device (docs/homes-build.md, P2.5). So does a zip archive,
+ * which the agent unpacks itself. Everything else is extracted to text at
+ * home (`expand-markers.ts`).
  *
  * No database and no extractors here, so a connected device's worker
  * places the files it fetched with the same rule the home uses.
@@ -23,6 +24,14 @@ export function readsNatively(mime: string): boolean {
   if (mime === 'application/pdf') return true;
   if (mime === 'application/json' || mime === 'application/xml') return true;
   return false;
+}
+
+/**
+ * Whether this is an archive. It has no text of its own to extract, so the
+ * agent gets the file whole, as a path, and unpacks it with its own tools.
+ */
+export function isArchive(mime: string): boolean {
+  return mime === 'application/zip';
 }
 
 /** The file names a message's markers name, each once. */

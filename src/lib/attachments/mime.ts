@@ -81,6 +81,8 @@ export const ALLOWED_MIMES: ReadonlySet<string> = new Set([
   'application/vnd.ms-powerpoint',       // legacy .ppt — same caveat
   'application/vnd.oasis.opendocument.text',         // .odt
   'application/vnd.oasis.opendocument.presentation', // .odp
+  // Archives (never unpacked here: the agent gets the file and opens it itself)
+  'application/zip',
 ]);
 
 /** Preferred file extension for a given canonical mime type. */
@@ -115,6 +117,7 @@ const MIME_TO_EXT: Record<string, string> = {
   'application/vnd.ms-powerpoint': 'ppt',
   'application/vnd.oasis.opendocument.text': 'odt',
   'application/vnd.oasis.opendocument.presentation': 'odp',
+  'application/zip': 'zip',
 };
 
 /** Extension → canonical mime. Used when a filename has an extension but the
@@ -124,6 +127,19 @@ const EXT_TO_MIME: Record<string, string> = Object.fromEntries(
 );
 
 const FALLBACK_EXT = 'bin';
+
+const ZIP_MIME = 'application/zip';
+
+/** Other names browsers give a mime we store under one. Windows reports a
+ *  zip as `application/x-zip-compressed`. */
+const MIME_ALIASES: ReadonlyMap<string, string> = new Map([
+  ['application/x-zip-compressed', ZIP_MIME],
+  ['application/x-zip', ZIP_MIME],
+]);
+
+/** Office formats that are zip containers. A browser that doesn't know one
+ *  reports the container, so for these the filename says more than the mime. */
+const ZIP_CONTAINER_EXTS: ReadonlySet<string> = new Set(['docx', 'xlsx', 'pptx', 'odt', 'odp']);
 
 /** Strip parameters, lowercase, trim. Returns empty string for empties. */
 export function normalizeMime(raw: string | null | undefined): string {
@@ -172,11 +188,17 @@ export function extForFile(mime: string, originalName: string): string {
  * `text/plain` so common code/data files (`.ts`, `.json`, `.yaml`,
  * etc.) flow through the upload allowlist — Claude reads them fine
  * regardless of the technical mime type.
+ *
+ * A zip mime is trusted for a real archive only. A `.docx`, `.xlsx` or
+ * `.pptx` that arrives labeled as its zip container resolves to its own
+ * type, so it is stored and extracted as the document it is.
  */
 export function resolveMime(rawMime: string | null | undefined, name: string): string {
-  const normalized = normalizeMime(rawMime);
-  if (normalized && normalized !== 'application/octet-stream') return normalized;
+  const head = normalizeMime(rawMime);
+  const normalized = MIME_ALIASES.get(head) ?? head;
   const ext = extFromName(name);
+  if (normalized === ZIP_MIME && ext && ZIP_CONTAINER_EXTS.has(ext)) return EXT_TO_MIME[ext]!;
+  if (normalized && normalized !== 'application/octet-stream') return normalized;
   if (ext) {
     if (EXT_TO_MIME[ext]) return EXT_TO_MIME[ext];
     if (TEXT_LIKE_EXTS.has(ext)) return 'text/plain';

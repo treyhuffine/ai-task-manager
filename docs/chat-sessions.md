@@ -308,6 +308,7 @@ For execution chat (Claude Code subprocess via agentex), each `[[file:<file_name
 
 - The file's path on the computer the chat runs on, if the harness reads the mime natively (text, code, images, PDF, JSON, XML). `expandMarkers` leaves these markers, and `executor.dispatch` places them with the message's attachments: the home's attachments directory for a chat at home, or the worker's own checked copy for a chat on a connected computer (see `docs/homes-build.md`, P2.5).
 - An inline `<attachment filename="...">…</attachment>` block carrying extracted text otherwise, done by `expandMarkers` at home wherever the chat runs (docx, xlsx, pptx via mammoth/`xlsx`/officeparser; audio via STT through `pickProvider`).
+- The file's path too for a zip archive. There is no text to extract, so the agent gets the archive whole and unpacks it with its own tools. Upload stores every name a browser gives a zip (`application/x-zip-compressed` on Windows) as `application/zip`. A docx, xlsx or pptx that arrives labeled as its zip container is stored as the document it is (`resolveMime`), so it is extracted, never handed over as an archive.
 
 Orchestrator and content chats are harness sessions too, so the same substitution covers them — there is no separate ai-sdk inlining path anymore. (The old `inlineTextAttachments` rewrite for direct-API Anthropic/OpenAI chat, including `sharp` image normalization and `unpdf` PDF extraction, was deleted along with the legacy `/api/chat` route.)
 
