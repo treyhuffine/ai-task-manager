@@ -8,14 +8,25 @@
  * connection never has to reconnect for one terminal.
  */
 
-import { agentTerminalPlace, sessionTerminalPlace, terminalStreamAt } from '@/lib/terminal/place';
+import { agentTerminalPlace, homeTerminalPlace, sessionTerminalPlace, terminalStreamAt, type TerminalPlace } from '@/lib/terminal/place';
 import type { FeedEmit } from './session-feed';
 
 /** `/sessions/<id>` or `/workspaces/<id>`: whose shell it is, as the terminal routes name it. */
 const BASE = /^\/(sessions|workspaces)\/([A-Za-z0-9-]{1,64})$/;
+/** Home's own shells, on the box (Home, More, Terminal). */
+const HOME_BASE = '/home';
 
 export function isTerminalBase(base: string): boolean {
-  return BASE.test(base);
+  return base === HOME_BASE || BASE.test(base);
+}
+
+/** Where the base's shells are, resolved fresh on every call. Null for a base that names none. */
+function placeFor(base: string): (() => TerminalPlace) | null {
+  if (base === HOME_BASE) return homeTerminalPlace;
+  const match = BASE.exec(base);
+  if (!match) return null;
+  const [, kind, ownerId] = match;
+  return () => (kind === 'sessions' ? sessionTerminalPlace(ownerId!) : agentTerminalPlace(ownerId!));
 }
 
 const DEFAULT_RETRY_MS = 2_000;
@@ -27,13 +38,11 @@ export async function runTerminalFeed(
   emit: FeedEmit,
   signal: AbortSignal,
 ): Promise<void> {
-  const match = BASE.exec(base);
-  if (!match) {
+  const place = placeFor(base);
+  if (!place) {
     emit('error', { message: 'Not a terminal' });
     return;
   }
-  const [, kind, ownerId] = match;
-  const place = () => (kind === 'sessions' ? sessionTerminalPlace(ownerId!) : agentTerminalPlace(ownerId!));
   let cursor = after;
   const decoder = new TextDecoder();
 

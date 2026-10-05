@@ -1,5 +1,5 @@
 'use client';
-import type { FolderApiBase } from '@/lib/folders/source';
+import type { TerminalApiBase } from '@/lib/folders/source';
 
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { terminalsUnavailable } from '@/hooks/use-terminals';
@@ -29,8 +29,8 @@ import { useEffect, useRef, useState } from 'react';
 const RESIZE_SETTLE_MS = 120;
 
 interface ExecutionTerminalInstanceProps {
-  /** Route base for the folder's terminal routes (`folderApiBase`). */
-  apiBase: FolderApiBase;
+  /** Route base for the source's terminal routes (`terminalApiBase`). */
+  apiBase: TerminalApiBase;
   terminalId: string;
   active: boolean;
   /**
@@ -55,8 +55,8 @@ interface ExecutionTerminalInstanceProps {
  *
  * Keyed on `terminalId` alone, deliberately. The PTY is owned by the
  * execution, so hopping between chats on one execution leaves the same
- * terminal on screen — and `apiBase` (which names a chat session, or the
- * agent's workspace) is only an address for reaching it, not part of its
+ * terminal on screen — and `apiBase` (which names a chat session, the
+ * agent's workspace, or Home) is only an address for reaching it, not part of its
  * identity. Including it in the effect deps would
  * dispose and rebuild xterm on every chat switch, throwing away
  * scrollback for a PTY that never went anywhere. Terminal ids are

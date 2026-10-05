@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Layers, ChevronDown, Users, Gavel, Loader2, Plus,
+  Layers, ChevronDown, Users, Gavel, Loader2, Plus, SquareTerminal,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -19,6 +19,7 @@ import { appMainChatIntro } from '@/components/chat/main-chat-intro';
 import { useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
 import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
 import { MainChatOnboarding } from '@/components/chat/onboarding/main-chat-onboarding';
+import { HomeTerminal } from '@/components/dashboard/home-terminal';
 
 // ─── Tab definitions ───────────────────────────────────────────
 
@@ -37,6 +38,8 @@ const MORE_TABS: { id: MorePanelTab; label: string; icon: typeof Users }[] = [
   { id: 'areas', label: 'Areas', icon: Layers },
   { id: 'people', label: 'Contacts', icon: Users },
   { id: 'decisions', label: 'Decisions', icon: Gavel },
+  // Shells on the box the home runs on, opening in its home folder.
+  { id: 'terminal', label: 'Terminal', icon: SquareTerminal },
 ];
 
 const MORE_TAB_IDS = new Set<string>(MORE_TABS.map(t => t.id));
@@ -106,6 +109,7 @@ function ChatContent({ isMobile }: { isMobile: boolean }) {
 }
 
 function MoreTabContent({ tab }: { tab: MorePanelTab }) {
+  if (tab === 'terminal') return <HomeTerminal />;
   const tabInfo = MORE_TABS.find(t => t.id === tab);
   if (!tabInfo) return null;
   const Icon = tabInfo.icon;

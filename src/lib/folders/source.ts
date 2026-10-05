@@ -45,3 +45,28 @@ export function folderStateId(source: FolderSource, executionId?: string | null)
 export function folderSourceFromBase(base: FolderApiBase): FolderSource {
   return base.startsWith('/sessions/') ? { kind: 'session', sessionId: base.slice('/sessions/'.length) } : { kind: 'workspace', workspaceId: base.slice('/workspaces/'.length) };
 }
+
+/**
+ * What a terminal panel is pointed at: one of the folders above, or Home's
+ * own shells on the box (Home, More, Terminal), which start in its home
+ * folder. That folder has terminal routes only, no file routes, so it's a
+ * terminal source and never a folder source.
+ */
+export type TerminalSource = FolderSource | { kind: 'home' };
+
+export const homeTerminals: TerminalSource = { kind: 'home' };
+
+/** Route base under `/api` for the source's terminal routes. */
+export type TerminalApiBase = FolderApiBase | '/home';
+export function terminalApiBase(source: TerminalSource): TerminalApiBase {
+  return source.kind === 'home' ? '/home' : folderApiBase(source);
+}
+
+export function terminalSourceFromBase(base: TerminalApiBase): TerminalSource {
+  return base === '/home' ? homeTerminals : folderSourceFromBase(base);
+}
+
+/** The folder behind a terminal source, for the folder hooks. Null for Home's. */
+export function terminalFolder(source: TerminalSource | null): FolderSource | null {
+  return source && source.kind !== 'home' ? source : null;
+}

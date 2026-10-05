@@ -81,6 +81,10 @@ import * as operation75 from "@/lib/server/operations/harness/skills/global";
 import * as operation76 from "@/lib/server/operations/harness/verify";
 import * as operation77 from "@/lib/server/operations/heartbeat";
 import * as operation257 from "@/lib/server/operations/home";
+import * as operation258 from "@/lib/server/operations/home/terminals";
+import * as operation259 from "@/lib/server/operations/home/terminals/[terminalId]";
+import * as operation260 from "@/lib/server/operations/home/terminals/[terminalId]/input";
+import * as operation261 from "@/lib/server/operations/home/terminals/[terminalId]/resize";
 import * as operation78 from "@/lib/server/operations/imports/agents";
 import * as operation79 from "@/lib/server/operations/imports/agents/refresh";
 import * as operation80 from "@/lib/server/operations/notifications/channels";
@@ -671,5 +675,11 @@ export const internalRouters = {
   }),
   home: router({
     info: p.input(operation257.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation257.GET(input, operationContext(ctx.request, input, "/home")))),
+    terminalsGet: p.input(operation258.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation258.GET(input, operationContext(ctx.request, input, "/home/terminals")))),
+    terminalsPost: p.input(operation258.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation258.POST(input, operationContext(ctx.request, input, "/home/terminals")))),
+    terminalsTerminalIdGet: p.input(operation259.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation259.GET(input, operationContext(ctx.request, input, "/home/terminals/[terminalId]")))),
+    terminalsTerminalIdDelete: p.input(operation259.DELETEInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation259.DELETE(input, operationContext(ctx.request, input, "/home/terminals/[terminalId]")))),
+    terminalsInputTerminalIdPost: p.input(operation260.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation260.POST(input, operationContext(ctx.request, input, "/home/terminals/[terminalId]/input")))),
+    terminalsResizeTerminalIdPost: p.input(operation261.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation261.POST(input, operationContext(ctx.request, input, "/home/terminals/[terminalId]/resize")))),
   }),
 };

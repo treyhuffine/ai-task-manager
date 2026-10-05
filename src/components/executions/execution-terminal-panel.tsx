@@ -5,15 +5,15 @@ import { useFolderRoot, useFolderScope } from '@/hooks/use-folder';
 import { terminalsUnavailable, useCreateTerminal, useKillTerminal, useTerminals } from '@/hooks/use-terminals';
 import { apiErrorText } from '@/lib/api/client';
 import type { TerminalDescriptor } from '@/lib/api/terminals';
-import { folderApiBase, type FolderSource } from '@/lib/folders/source';
+import { terminalApiBase, terminalFolder, type TerminalSource } from '@/lib/folders/source';
 import { cn } from '@/lib/utils';
 import { ChevronDown, ChevronUp, Plus, Terminal as TerminalIcon, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ExecutionTerminalInstance } from './execution-terminal-instance';
 
 interface ExecutionTerminalPanelProps {
-  /** The folder the shells run in: an execution's worktree, or an agent's own folder. */
-  source: FolderSource;
+  /** Where the shells run: an execution's worktree, an agent's own folder, or Home's box. */
+  source: TerminalSource;
   /** Hide entirely — used while the worktree is still provisioning. */
   disabled?: boolean;
   disabledReason?: string;
@@ -78,8 +78,8 @@ export function ExecutionTerminalPanel({
   //
   // Keying on the worktree path and the disabled gate as well means every
   // transition that could plausibly fix a failed spawn also clears it.
-  const scope = useFolderScope(source);
-  const root = useFolderRoot(source);
+  const scope = useFolderScope(terminalFolder(source));
+  const root = useFolderRoot(terminalFolder(source));
   const scopeKey = scope ? scope.join(':') : null;
   const resetKey = `${scopeKey ?? ''}|${root ?? ''}|${disabled ? 'off' : 'on'}`;
   const resetCreate = createTerminal.reset;
@@ -185,7 +185,7 @@ export function ExecutionTerminalPanel({
             )}
           >
             <ExecutionTerminalInstance
-              apiBase={folderApiBase(source)}
+              apiBase={terminalApiBase(source)}
               terminalId={t.id}
               active={activeId === t.id}
               live={activeId === t.id && !collapsed}

@@ -19,10 +19,15 @@
  * agent's folder and owned by the workspace, under a prefixed key so they
  * can never collide with an execution's.
  *
+ * Home's terminals (Home, More, Terminal) are the box's own: rooted in the
+ * home directory of the user the server runs as, and owned by the home
+ * under one fixed key, apart from every execution's and agent's.
+ *
  * Deliberately free of the `node-pty` import so route handlers and tests
  * can resolve ownership without pulling in the native module.
  */
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 
 /** Who owns the shells a route addresses, or why the route can't say. */
@@ -79,6 +84,24 @@ export function workspaceTerminalCwd(workspaceId: string): TerminalCwd {
     return { ok: false, error: `The agent's folder does not exist: ${ws.cwd}`, status: 409 };
   }
   return { ok: true, cwd: ws.cwd, ownerId: workspaceTerminalOwnerId(workspaceId) };
+}
+
+/**
+ * The key Home's terminals live under. Execution and session ids are UUIDs
+ * and agents' keys carry `workspace:`, so this one can't collide.
+ */
+export const HOME_TERMINAL_OWNER_ID = 'home';
+
+/**
+ * Where a new shell on Home starts: `~` on the box, resolved here and never
+ * taken from the caller. A shell anywhere is still a trusted shell, so the
+ * folder is where it opens, not a boundary (docs/homes-spec.md §5.6).
+ */
+export function homeTerminalCwd(homeDir: string = os.homedir()): TerminalCwd {
+  if (!isExistingDir(homeDir)) {
+    return { ok: false, error: `The home folder does not exist: ${homeDir || '(unset)'}`, status: 409 };
+  }
+  return { ok: true, cwd: homeDir, ownerId: HOME_TERMINAL_OWNER_ID };
 }
 
 /** Does this path resolve to an existing directory on disk? */

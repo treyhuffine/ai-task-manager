@@ -137,7 +137,9 @@ perform raw database writes.
 The multiplexed SSE stream continues to carry live chat and global events.
 Browser terminals use an independent WS-only client for control, input and typed
 output, even when ordinary API calls use HTTP. Terminal REST/SSE remains an
-external compatibility protocol, with no browser terminal fallback. The browser's default WebSocket transport is
+external compatibility protocol for execution and agent terminals, with no
+browser terminal fallback. Home's own terminal (`home.terminals*`, output base
+`/home`) is tRPC only, with no REST adapter. The browser's default WebSocket transport is
 documented separately with loopback measurements and reconnect/replay behavior.
 This migration does not claim that tRPC or WebSockets inherently
 reduces latency.

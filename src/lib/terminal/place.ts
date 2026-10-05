@@ -6,8 +6,9 @@ import { createTerminalResult, deleteTerminalResult, getTerminalResult, listTerm
  * the execution runs on, in its working folder. An agent's own shells run on
  * the device the agent lives on, in its folder there. The home runs its own
  * in process; another device's are reached through its worker
- * (`remote.ts`). Resolved on every operation, so a terminal is only ever
- * reached through the placement that holds it now.
+ * (`remote.ts`). Home's own shells (Home, More, Terminal) run on the box
+ * the home runs on, in its home folder. Resolved on every operation, so a
+ * terminal is only ever reached through the placement that holds it now.
  *
  * An execution elsewhere never falls back to a shell at home: not in the
  * agent's folder here, not anywhere.
@@ -26,6 +27,8 @@ import {
 	terminalStreamResponse
 } from './http';
 import {
+	HOME_TERMINAL_OWNER_ID,
+	homeTerminalCwd,
 	isExistingDir,
 	sessionTerminalOwner,
 	terminalOwnerId,
@@ -112,6 +115,14 @@ export function agentTerminalPlace(workspaceId: string): TerminalPlace {
     };
   }
   return { at: 'home', owner: workspaceTerminalOwner(workspaceId), cwd: () => workspaceTerminalCwd(workspaceId), location: homeLocation() };
+}
+
+/**
+ * Home's own shells: on the box the home runs on, in its home folder. Never
+ * a worker's, whichever device is viewing.
+ */
+export function homeTerminalPlace(): TerminalPlace {
+  return { at: 'home', owner: { ok: true, ownerId: HOME_TERMINAL_OWNER_ID }, cwd: () => homeTerminalCwd(), location: homeLocation() };
 }
 
 /** Compatibility adapters for worker and public HTTP callers. */
