@@ -135,7 +135,8 @@ export interface ChatInputEditorHandle {
    * Upload a file (or blob) and insert a chip at the cursor. Same path
    * used by paste/drop handlers — exposed so toolbars can drive it
    * from a paperclip / camera button. Resolves once the chip is
-   * inserted, or rejects with the upload error.
+   * inserted, or rejects with the upload error. Where Enter sends, it
+   * also moves focus into the editor, so the next Enter sends the message.
    */
   uploadFile(file: File | Blob, name?: string): Promise<void>;
   /**
@@ -953,7 +954,15 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           // editor was at right before send (typing position).
           editor.chain().setContent(snap.doc as never, { emitUpdate: true }).focus('end').run();
         },
-        uploadFile: (file, name) => uploadAndInsert(file, name ?? (file as File).name ?? 'upload'),
+        uploadFile: (file, name) => {
+          // The file came from outside the editor (the paperclip, a drop on
+          // the transcript), and focus stayed out there: on the paperclip,
+          // the next Enter opened the file picker again instead of sending.
+          // Bring it back wherever Enter sends. A touch composer keeps its
+          // focus, so attaching a photo doesn't raise the keyboard.
+          if (editor && submitOnEnterRef.current) editor.commands.focus();
+          return uploadAndInsert(file, name ?? (file as File).name ?? 'upload');
+        },
         getMarkerOutput: () => buildMarkerOutput(editor),
         getUiMessageParts: () => buildUiMessageParts(editor),
       }),
