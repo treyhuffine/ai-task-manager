@@ -94,8 +94,8 @@ default. A typed name is stored folded to one line (it's written into the
 brief, where a line break would start a new instruction) and capped at 40
 characters by `PATCH /api/user-state`.
 
-- **Where it shows.** The top of the rail (the home link, with its face in
-  the skinny rail and the tablet rail), the main chat's header and empty-chat
+- **Where it shows.** The top of the rail (the home link, just its face
+  when the rail is collapsed, as on tablets), the main chat's header and empty-chat
   intro, and the "From …" chip on messages it sends into executions. Its face
   (`OrchestratorMark`) is its picture, else its emoji on its color, else the
   Ri mark for the default name, else its initial.

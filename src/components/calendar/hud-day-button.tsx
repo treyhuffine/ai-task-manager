@@ -27,7 +27,7 @@ import { requestCalendarDate } from './calendar-store';
 import { dismissCalendarInvite, readInviteDismissed, subscribeInviteDismissed } from './invite';
 import { HudDayPeek } from './hud-day-peek';
 import { WeekOverlay } from './week-overlay';
-import { HOME_VIEW } from '@/lib/client/active-view';
+import { useOpenCalendar } from './use-open-calendar';
 
 const STALE_MS = 15 * 60_000;
 const TICK_MS = 30_000;
@@ -36,7 +36,8 @@ export function HudDayButton() {
   const today = todayLocalDate();
   const { data } = useDayShape(today, 1);
   const prefetch = usePrefetchDayShape();
-  const { setActiveView, showPanelTab, openTask } = useDashboard();
+  const { openTask } = useDashboard();
+  const { openCalendar } = useOpenCalendar();
   const [open, setOpen] = useState(false);
   const [weekOpen, setWeekOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -105,14 +106,9 @@ export function HudDayButton() {
   const stale = Date.now() - Date.parse(data.asOf) > STALE_MS;
   const degraded = data.status === 'degraded' || data.status === 'error';
 
-  const goToCalendarTab = () => {
-    setActiveView(HOME_VIEW);
-    showPanelTab('calendar');
-  };
-
   const openDay = () => {
     setOpen(false);
-    goToCalendarTab();
+    openCalendar();
   };
 
   const openWeek = () => {
@@ -163,7 +159,7 @@ export function HudDayButton() {
           onSelectDay={(date) => {
             // An explicit day choice earns the navigation.
             requestCalendarDate(date);
-            goToCalendarTab();
+            openCalendar();
           }}
           onOpenTask={openTask}
         />

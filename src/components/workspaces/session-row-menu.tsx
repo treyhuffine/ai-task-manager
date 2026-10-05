@@ -49,8 +49,8 @@ interface SessionRowMenuProps {
  *
  *   1. Read state — Mark read / Mark unread (toggles based on current).
  *   2. Workspace ops — New execution, Execution from git, Workspace
- *      settings. Lifted into the row menu so the by-status surface
- *      (which has no workspace tree) can still drive them.
+ *      settings. Lifted into the row menu so lists without the workspace
+ *      tree (Pinned, Recent) can still drive them.
  *   3. Destructive — Archive.
  *
  * Stops pointerdown so dnd-kit doesn't see the click as a drag start

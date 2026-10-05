@@ -1,5 +1,5 @@
 import type { ChatSessionRecord } from '@/db/types';
-import { isSessionUnread } from '@/lib/utils/session-sort';
+import { isSessionUnread, sortSessionsHotnessDesc, type SortableSession } from '@/lib/utils/session-sort';
 
 export type BucketId = 'needsApproval' | 'unread' | 'waiting' | 'working';
 
@@ -42,6 +42,30 @@ export function classifySession(
   if (session.surfaceKind === 'imported_agent') return null;
 
   return 'waiting';
+}
+
+/**
+ * Active sessions sorted into their buckets, hottest first in each. Inactive
+ * work is left out (src/lib/sessions/inactive.ts), and so is anything that
+ * classifies to null, so every reader counts the same rows: the header's
+ * pills and the collapsed rail's Agents badge.
+ */
+export function bucketSessions<T extends ClassifiableSession & SortableSession>(
+  sessions: readonly T[],
+  pending: ReadonlySet<string>,
+  streaming: ReadonlySet<string>,
+  isInactive: (session: T) => boolean,
+): Record<BucketId, T[]> {
+  const buckets: Record<BucketId, T[]> = { needsApproval: [], unread: [], waiting: [], working: [] };
+  for (const s of sessions) {
+    if (s.status !== 'active' || isInactive(s)) continue;
+    const id = classifySession(s, pending, streaming);
+    if (id) buckets[id].push(s);
+  }
+  for (const id of Object.keys(buckets) as BucketId[]) {
+    buckets[id] = sortSessionsHotnessDesc(buckets[id]);
+  }
+  return buckets;
 }
 
 /**

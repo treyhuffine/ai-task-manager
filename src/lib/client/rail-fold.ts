@@ -7,9 +7,8 @@ import { useCallback, useSyncExternalStore } from 'react';
  * `src/lib/sessions/inactive.ts`). Each fold remembers its own choice, so
  * opening one agent's leaves the others shut.
  *
- * Per-browser in localStorage, like the Status tab's bucket collapse
- * (`ri.rail.bucket.<id>`): how a list is folded on this screen is a view
- * choice, not data. Shut is the default.
+ * Per-browser in localStorage: how a list is folded on this screen is a
+ * view choice, not data. Shut is the default.
  *
  * Read through `useSyncExternalStore` so server render and hydration agree
  * (shut) and a toggle in one place updates every mounted copy of that fold

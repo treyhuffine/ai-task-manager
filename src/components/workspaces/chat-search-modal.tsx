@@ -35,7 +35,7 @@ const GROUP_CLASS =
  * row with its date, agent, branch and a highlighted snippet, narrowed by
  * status (active / archived) and source (native / imported). With no query it
  * lists recent chats, so it doubles as a quick switcher. Arrows and Enter
- * open a chat. Opened from the rail's search icon or "Search chats" in ⌘K.
+ * open a chat. Opened from the rail's Search button or "Search chats" in ⌘K.
  */
 export function ChatSearchModal() {
   const open = useChatSearchOpen();

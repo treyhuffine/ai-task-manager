@@ -1,16 +1,13 @@
 import { AlertCircle, Circle, Clock, Zap } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { BucketId } from '@/lib/sessions/classification';
-export { classifySession, executionActivity, type BucketId } from '@/lib/sessions/classification';
+export { bucketSessions, classifySession, executionActivity, type BucketId } from '@/lib/sessions/classification';
 
-// Bucket identity for the rail's "by status" view. Shared by:
-//   - status-view.tsx (the rail body)
-//   - rail-status-pills.tsx (the top-HUD remote-control surface)
-// Both reads use the same classify() so the count in the HUD always
-// matches the rows in the rail.
+// Bucket identity for the header's status pills (rail-status-pills.tsx), the
+// one place work is shown by status. Counted through `bucketSessions`, which
+// the collapsed rail's Agents badge reads too, so the two always agree.
 
-// Top-to-bottom render order in the rail body. Reorder by editing this
-// array — both the rail and the HUD pills follow it.
+// Left-to-right order of the header pills. Reorder by editing this array.
 export const BUCKET_ORDER: readonly BucketId[] = [
   'needsApproval',
   'unread',
@@ -23,9 +20,8 @@ export interface BucketConfig {
   label: string;
   accentClass: string;
   countBgClass: string;
-  /** Faint at-rest tint that anchors "hot" sections (working,
-   *  needs-approval). Passive buckets leave this undefined so the rail
-   *  doesn't read as colored stripes. */
+  /** Faint tint behind the pill popover's header for the "hot" buckets.
+   *  Passive buckets leave this undefined. */
   headerBgClass?: string;
   icon: ReactNode;
 }

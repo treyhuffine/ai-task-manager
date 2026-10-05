@@ -70,15 +70,15 @@ That cap is gone: everything with activity in the last week shows.
 | Rail: Pinned | `pinned` |
 | Rail, Agents tab: Needs you (executions) | `unread` |
 | Rail, Agents tab: each agent's threads (agents-first) or list (classic) | `agent:<workspaceId>` |
-| Rail, Status tab: each bucket | `status:<bucket>` |
-| Skinny rail: a moon button at the foot | `skinny` |
 | Agent view Overview: Pinned, Needs you, Recent | `overview:<workspaceId>:pinned`, `:needs`, `:recent` |
 | Mobile Agents: Needs review, each agent | `unread`, `agent:<workspaceId>` |
 
-A section holding only inactive rows still shows, with just its fold.
+A section holding only inactive rows still shows, with just its fold. The
+collapsed rail's Agents flyout renders the same lists, so it shares their
+section ids and their folds (`docs/rail.md`).
 
 **Pins fold too.** An inactive pin leaves the Pinned group (and its agent,
-its status bucket, the skinny strip) for the same "N inactive hidden" toggle.
+and the header's status pills) for the same "N inactive hidden" toggle.
 Shown, it is dimmed with a moon and offers Unpin and Archive on hover, so a
 stale pin is one click from gone. In the agents-first rail the execution open
 right now stays among its agent's threads, marked, whatever its age.

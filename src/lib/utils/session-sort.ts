@@ -27,7 +27,7 @@ import { timestampEpoch } from './timestamps';
  * below the day's active ones instead of rising to the top.
  */
 
-interface SortableSession {
+export interface SortableSession {
   lastActivityAt?: string | null;
   unreadMarkerAt: string | null;
   startedAt: string;

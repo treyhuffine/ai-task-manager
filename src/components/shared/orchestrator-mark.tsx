@@ -32,7 +32,7 @@ const LOGO_MASK: CSSProperties = {
 
 /**
  * The orchestrator's face, wherever the user sees it: the rail's home row
- * (its initial in the skinny rail and on tablets), the main chat's header, its
+ * (alone when the rail is collapsed, as on tablets), the main chat's header, its
  * messages in the first-run conversation, and the editor's preview. What it
  * draws, in order (src/lib/orchestrator/look.ts):
  *

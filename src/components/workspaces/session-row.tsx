@@ -99,7 +99,7 @@ export function SessionRow({
   // Multi-select for bulk archive lives only on the canonical tree row;
   // the needs-review duplicate stays plain navigation so a session can't
   // present two checkboxes. `selection` is null outside the workspace
-  // nav (e.g. the by-status surface), which keeps the row inert there.
+  // nav (e.g. Pinned), which keeps the row inert there.
   const selection = useWorkspaceSelection();
   const selectable = variant === 'tree' && !!selection?.selecting;
   const selected = selectable && !!selection?.isSelected(session.id);

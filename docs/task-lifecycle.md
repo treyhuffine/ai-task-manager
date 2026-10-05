@@ -77,7 +77,7 @@ proves clunky. Reviews (`execution_reviews`) are keyed to the exact output event
 - Lanes (List and Board): Current Work, Todo, Consider, Done, Archived — two
   views over the same records and the same lifecycle (`src/lib/tasks/lanes.ts`).
   The Board shows in the Tasks panel (its List/Board switcher) and nearly full
-  screen from the top HUD's Board button or "Open board" in ⌘K
+  screen from the rail's Board row or "Open board" in ⌘K
   (`src/components/tasks/task-board-modal.tsx`, linkable as `?board=1`).
   In progress cards carry the attention badges (Working, Update, Stalled,
   Blocked) and an Open button to the agent's chat (`agentSessionId` on

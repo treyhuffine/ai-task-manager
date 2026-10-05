@@ -17,11 +17,11 @@ const PILL_SCROLL_PRESETS = {
 } as const;
 
 /**
- * "By history" rail surface. Cross-workspace chronological feed of
+ * The rail's Recent tab. Cross-workspace chronological feed of
  * executions, grouped into Today / Yesterday / N-days-ago / weeks-ago /
  * months-ago buckets. Includes active AND archived sessions — this is
  * the only rail tab that surfaces past work, so archived rows belong
- * here even though they're invisible in the other two tabs.
+ * here even though they're invisible in the Agents tab.
  *
  * Controls:
  *   - Workspace pill row for multi-select scoping. Pills derive from
@@ -29,7 +29,7 @@ const PILL_SCROLL_PRESETS = {
  *     workspaces table) so an empty workspace never gets a chip.
  *
  * Full-text search over transcripts lives in the chat search modal (the
- * rail's search icon, `ChatSearchModal`), not here — it searches every chat's
+ * rail's Search button, `ChatSearchModal`), not here — it searches every chat's
  * content, not just this feed's labels.
  */
 export function HistoryView() {
@@ -68,8 +68,8 @@ export function HistoryView() {
   // Re-sort before bucketing. The server orders by `last_activity_at`, but
   // this is the one rail surface that used to render the server list
   // verbatim, which meant it inherited every ordering quirk the SQL had.
-  // Running the shared key here keeps History agreeing with Status, the
-  // workspace tree, and the skinny rail.
+  // Running the shared key here keeps Recent agreeing with the header's
+  // status pills and the workspace tree.
   const grouped = useMemo(
     () => groupByDateBucket(sortSessionsHotnessDesc(filtered)),
     [filtered],

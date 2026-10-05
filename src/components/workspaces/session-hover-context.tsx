@@ -51,7 +51,12 @@ const HoverContext = createContext<HoverContextValue | null>(null);
 const OPEN_DELAY_MS = 250;
 const CLOSE_DELAY_MS = 150;
 
-export function SessionHoverProvider({ children }: { children: ReactNode }) {
+/**
+ * `disabled` keeps every row under it from opening a preview: the collapsed
+ * rail's Agents flyout lists executions by name only, and a preview beside a
+ * panel that is itself floating would stack one hover on another.
+ */
+export function SessionHoverProvider({ children, disabled = false }: { children: ReactNode; disabled?: boolean }) {
   const [state, setState] = useState<HoverState | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -71,6 +76,7 @@ export function SessionHoverProvider({ children }: { children: ReactNode }) {
 
   const onRowEnter = useCallback(
     (sessionId: string, anchor: HoverAnchor, rowOwner?: object) => {
+      if (disabled) return;
       owner.current = rowOwner ?? null;
       // Cancel any pending close — cursor came back.
       if (closeTimer.current) {
@@ -89,7 +95,7 @@ export function SessionHoverProvider({ children }: { children: ReactNode }) {
         openTimer.current = null;
       }, OPEN_DELAY_MS);
     },
-    [state],
+    [state, disabled],
   );
 
   const onRowLeave = useCallback(() => {
@@ -149,8 +155,8 @@ export function useSessionHover() {
 /**
  * Wires a session row's hover events to the preview panel. Returns the
  * ref the row must spread + the mouseenter/leave handlers. Shared across
- * `SessionRow`, `StatusSessionRow`, and `SkinnySessionRow` so the same
- * panel can be triggered from any rail rendering.
+ * `SessionRow` and `HistoryRow` so the same panel can be triggered from
+ * either rail list.
  */
 export function useSessionRowHover(sessionId: string) {
   const { onRowEnter, onRowLeave, closeNow, release } = useSessionHover();

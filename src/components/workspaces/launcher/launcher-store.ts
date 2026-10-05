@@ -6,15 +6,15 @@ import { useSyncExternalStore } from 'react';
  * Imperative open/close store for the execution launcher.
  *
  * Module-level for the same reason settings is (see `settings-store.ts`):
- * the launcher is reachable from the workspace row, the by-status rail, the
- * history feed, and a session's row menu. Threading `onOpenLauncher` down
+ * the launcher is reachable from the workspace row, the rail's Create, the
+ * Recent feed, and a session's row menu. Threading `onOpenLauncher` down
  * four component chains to reach three separate mount sites is exactly the
  * prop-drilling the settings store was written to kill.
  *
  * `workspaceId` is a *seed*, not a constraint. The modal renders it as a
  * changeable chip, so opening from a row prefills that workspace while
  * still allowing a launch into a different one. An explicit `null` opens it
- * with no agent picked (the rail's ➕): the person writes the prompt and
+ * with no agent picked (the rail's Create): the person writes the prompt and
  * picks where it runs, in either order.
  */
 /** Optional seed for "Start with agent": the task this execution will own,

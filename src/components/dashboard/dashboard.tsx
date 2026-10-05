@@ -20,7 +20,6 @@ import { AreasSheet } from '@/components/dashboard/areas-sheet';
 import { SettingsModal } from '@/components/settings/settings-modal';
 import { LaunchModal } from '@/components/workspaces/launcher/launch-modal';
 import { ChatSearchModal } from '@/components/workspaces/chat-search-modal';
-import { IdentityDialog } from '@/components/orchestrator/identity-dialog';
 import { MobileLayout } from '@/components/mobile/mobile-layout';
 import { TabletLayout } from '@/components/mobile/tablet-layout';
 import { AuthRecoveryCard } from '@/components/auth/auth-recovery-card';
@@ -52,7 +51,7 @@ function DashboardShell() {
   const isHome = activeView.kind === 'home';
 
   // Sync the rail GET's pending/running snapshots into the dashboard
-  // context so the by-status bucketizer and by-workspace status pips
+  // context so the header's status pills and the agent rows' status pips
   // both reflect cross-session state. The global lifecycle stream refreshes
   // background sessions, with the rail poll as a safety net.
   useRailContextHydrate();
@@ -186,7 +185,6 @@ function DashboardShell() {
         <SettingsModal />
         <LaunchModal />
         <ChatSearchModal />
-        <IdentityDialog />
         <AuthRecoveryCard />
       </div>
     </div>

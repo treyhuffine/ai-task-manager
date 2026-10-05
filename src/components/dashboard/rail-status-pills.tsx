@@ -1,17 +1,14 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useRailSessions } from '@/hooks/use-workspaces';
-import { useInactivity } from '@/hooks/use-inactivity';
+import { useSessionBuckets } from '@/hooks/use-session-buckets';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   BUCKET_CONFIG,
   BUCKET_ORDER,
-  classifySession,
   type BucketId,
 } from '@/components/workspaces/bucket-config';
-import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { cn } from '@/lib/utils';
 import type { RailSession } from '@/lib/api/sessions';
@@ -19,43 +16,20 @@ import { executionView } from '@/lib/client/active-view';
 import { useAgentAttention, type AgentAttentionItem } from '@/hooks/use-agent-attention';
 import { AgentAttentionRow } from '@/components/workspaces/agent-attention-row';
 
-// Top-HUD status pills. Same buckets as the rail body, just rendered as
-// a compact dot+count strip that stays visible regardless of rail
-// collapse state or current view. Click → popover of sessions; click a
-// row → jumps to that execution. Zero-count pills render dimmed so the
-// strip's positions are stable and the eye learns where to look.
+// Top-HUD status pills: every active execution by status, as a compact
+// dot+count strip that stays visible regardless of rail collapse state or
+// current view. This is the app's one by-status view (the rail lists work by
+// agent and by time). Click → popover of sessions; click a row → jumps to that
+// execution. Zero-count pills render dimmed so the strip's positions are
+// stable and the eye learns where to look.
 
 export function RailStatusPills() {
-  const { data } = useRailSessions();
-  const { streamingSessionIds, pendingInputSessionIds } = useDashboard();
+  // Inactive work and settled imports are left out (`bucketSessions`), the
+  // same reading the collapsed rail's Agents badge counts.
+  const buckets = useSessionBuckets();
   // Agents that want you count where their work counts, so "needs you"
   // anywhere in the app is one number. Thinking stays out of Working.
   const agents = useAgentAttention();
-  const { isInactive } = useInactivity();
-
-  const buckets = useMemo(() => {
-    const map: Record<BucketId, RailSession[]> = {
-      needsApproval: [],
-      unread: [],
-      waiting: [],
-      working: [],
-    };
-    for (const s of data?.sessions ?? []) {
-      if (s.status !== 'active') continue;
-      // Inactive work is folded out of the rail's attention, so it doesn't
-      // count here either (src/lib/sessions/inactive.ts).
-      if (isInactive(s)) continue;
-      const id = classifySession(s, pendingInputSessionIds, streamingSessionIds);
-      // null = not live work (a settled import). Skipped in both readers so the
-      // HUD pill counts keep matching the rail body row for row.
-      if (!id) continue;
-      map[id].push(s);
-    }
-    for (const key of Object.keys(map) as BucketId[]) {
-      map[key] = sortSessionsHotnessDesc(map[key]);
-    }
-    return map;
-  }, [data?.sessions, pendingInputSessionIds, streamingSessionIds, isInactive]);
 
   return (
     <div className="flex items-center gap-1">

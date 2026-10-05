@@ -706,7 +706,9 @@ unblock later ones.
 - [x] Add a `compact` prop to `PowerRail` — forces the existing
       skinny-icon variant when set. Reuses the rail's existing
       `SkinnyView`. Hover-to-expand-overlay deferred (⌘\ toggle still
-      works in execution view).
+      works in execution view). *(Superseded 2026-10-05: the collapsed
+      rail no longer lists executions. Its Agents button opens the list
+      as a flyout over the page, `docs/rail.md`.)*
 - [x] Update `Dashboard` to pass `compact` when `isExecutionView`.
 - [x] Add `<DetailsPopover>` to `ExecutionHeader` desktop variant —
       `ⓘ` icon button between status pill and menu. Popover content

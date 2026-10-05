@@ -1,16 +1,10 @@
 "use client";
 
-import { useState } from 'react';
-import { Search, Inbox, Zap } from 'lucide-react';
+import { Search, Zap } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { InboxComingSoonSheet } from '@/components/shared/inbox-coming-soon-sheet';
-
-// Flip to false to hide (not yet launched)
-const SHOW_INBOX = true;
 
 export function MobileTopBar() {
   const { setQuickCaptureOpen } = useDashboard();
-  const [inboxOpen, setInboxOpen] = useState(false);
 
   return (
     // pt: respect the safe-area on devices that report one (notch/island),
@@ -36,19 +30,6 @@ export function MobileTopBar() {
       >
         <Zap size={16} />
       </button>
-
-      {SHOW_INBOX && (
-        <>
-          <button
-            onClick={() => setInboxOpen(true)}
-            className="h-10 w-10 flex items-center justify-center rounded-lg border border-border text-muted-foreground active:bg-muted/60 transition-colors"
-            aria-label="Inbox"
-          >
-            <Inbox size={16} />
-          </button>
-          <InboxComingSoonSheet open={inboxOpen} onOpenChange={setInboxOpen} />
-        </>
-      )}
     </header>
   );
 }

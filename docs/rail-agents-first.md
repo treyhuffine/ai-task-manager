@@ -29,7 +29,7 @@ So there's one state vocabulary for every conversation, the same colors and shap
 
 **Hiding executions** is one click on the agent row's hover (the chevrons next to +). Hidden executions fold into one line, like "› 6 executions · 1 needs you · 2 working", so hiding never hides what wants you, and clicking that line shows them again.
 
-**Needs you** (the group at the top, formerly Unread) lists everything that wants you across agents: agents first, then executions, the same order as the tree. The header's Unread and Needs approval pills, the Status tab's buckets and the tablet rail's dots count agents the same way, through `useAgentAttention`, so they always agree with each other and with the agent's own row.
+**Needs you** (the group at the top, formerly Unread) lists everything that wants you across agents: agents first, then executions, the same order as the tree. The header's Unread and Needs approval pills and the collapsed rail's Agents badge count agents the same way, through `useAgentAttention`, so they always agree with each other and with the agent's own row.
 
 Opening an agent marks its main chat read (`HarnessChat` does on mount), and the rail's cache updates at once (`useMarkSessionRead` patches `mainChats` too), so its "New reply" clears as soon as you look.
 

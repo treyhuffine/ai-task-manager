@@ -1,25 +1,23 @@
 "use client";
 
-import { useState } from 'react';
-import { Search, Inbox, Zap, X, Settings, SquareKanban } from 'lucide-react';
+import { Search, Zap, X } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useLatestExecutionId } from '@/hooks/use-latest-execution';
-import { openTaskBoard } from '@/lib/client/task-board';
 import { HOTKEYS } from '@/constants/commands';
-import { InboxComingSoonSheet } from '@/components/shared/inbox-coming-soon-sheet';
-import { openSettings } from '@/components/settings/settings-store';
 import { CreateMenu } from './create-menu';
 import { RailStatusPills } from './rail-status-pills';
 import { BudgetWarningPill } from './budget-warning-pill';
 import { HudDayButton } from '@/components/calendar/hud-day-button';
 import { DesktopNavButtons } from '@/components/desktop/desktop-nav-buttons';
 
-// Flip to false to hide (not yet launched)
-const SHOW_INBOX = true;
+// What's happening, from every view: work by status, the way out of (or
+// back into) an execution, the next calendar event, the budget. Places (Board,
+// Calendar, Schedules and Triggers) and Settings live in the left rail
+// (docs/rail.md). Create (tasks, notes, quick capture) and ⌘K search stay here
+// for now, beside the rail's own Create and Search.
 
 export function TopHud() {
   const { activeView, goHome, openExecution, setQuickCaptureOpen } = useDashboard();
-  const [inboxOpen, setInboxOpen] = useState(false);
   // The agent view and the execution view both close back to Home.
   const closeLabel =
     activeView.kind === 'execution'
@@ -35,31 +33,8 @@ export function TopHud() {
     <header data-desktop-titlebar className="flex-shrink-0 h-10 border-b border-border flex items-center px-4 gap-4 bg-background z-50">
       {/* Desktop app only, right after the window controls. */}
       <DesktopNavButtons className="-mx-1" />
-      {SHOW_INBOX && (
-        <>
-          <button
-            onClick={() => setInboxOpen(true)}
-            className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all"
-            aria-label="Inbox"
-            title="Inbox"
-          >
-            <Inbox size={14} />
-          </button>
-          <InboxComingSoonSheet open={inboxOpen} onOpenChange={setInboxOpen} />
-        </>
-      )}
 
       <RailStatusPills />
-
-      <button
-        onClick={openTaskBoard}
-        className="flex items-center gap-1.5 h-7 px-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-        aria-label="Open board"
-        title="Open board"
-      >
-        <SquareKanban size={14} />
-        <span className="text-[11px] font-medium">Board</span>
-      </button>
 
       {closeLabel ? (
         <button
@@ -103,14 +78,6 @@ export function TopHud() {
           aria-label="Search"
         >
           <Search size={14} />
-        </button>
-        <button
-          onClick={() => openSettings()}
-          className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-all"
-          aria-label="Settings"
-          title="Settings"
-        >
-          <Settings size={14} />
         </button>
         <button
           onClick={() => setQuickCaptureOpen(true)}

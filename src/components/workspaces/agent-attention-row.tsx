@@ -14,9 +14,8 @@ import { cn } from '@/lib/utils';
  *
  *   - `rail`: the rail's Needs you group. A status dot, then the agent (a
  *     small icon and its name) over what it's saying.
- *   - `status`: the Status tab, whose rows lead with the agent's icon and
- *     whose section header already names the state.
- *   - `pill`: a header pill's popover, the same shape, tighter.
+ *   - `pill`: a header pill's popover, whose rows lead with the agent's icon
+ *     and whose header already names the state.
  *
  * The second line is what it's saying: the question it's waiting on, or its
  * reply. Opens the agent.
@@ -27,7 +26,7 @@ export function AgentAttentionRow({
   onPick,
 }: {
   item: AgentAttentionItem;
-  variant?: 'rail' | 'status' | 'pill';
+  variant?: 'rail' | 'pill';
   onPick?: () => void;
 }) {
   const { activeView, openAgent } = useDashboard();
@@ -76,9 +75,8 @@ export function AgentAttentionRow({
     <button
       onClick={open}
       className={cn(
-        'w-full flex items-start gap-1.5 text-left rounded-md transition-colors',
-        variant === 'status' ? 'pl-4 pr-1.5 py-1.5' : 'px-2.5 py-1.5',
-        isActive ? 'bg-secondary' : variant === 'status' ? 'hover:bg-muted/40' : 'hover:bg-muted/50',
+        'w-full flex items-start gap-1.5 px-2.5 py-1.5 text-left rounded-md transition-colors',
+        isActive ? 'bg-secondary' : 'hover:bg-muted/50',
       )}
       title={`${workspace.name}: ${voice.text}`}
     >
@@ -92,7 +90,6 @@ export function AgentAttentionRow({
         <span className="block truncate text-[11.5px] font-semibold text-foreground/90">{workspace.name}</span>
         <span className={cn('mt-0.5 block truncate text-[10px]', voiceClass)}>{voice.text}</span>
       </span>
-      {variant === 'status' && time && <span className="flex-shrink-0 text-[9px] text-muted-foreground/60 pt-px">{time}</span>}
     </button>
   );
 }

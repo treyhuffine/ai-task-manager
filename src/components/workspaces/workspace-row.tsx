@@ -90,7 +90,7 @@ export function WorkspaceRow({
 
   // Re-sort children client-side so the hottest row stays at the top
   // regardless of the API's stored order. Uses the same hotness key as
-  // the by-status view so the two surfaces agree on ordering. Rows are the
+  // the header's status pills so the two surfaces agree on ordering. Rows are the
   // rail's, filtered to this workspace's active sessions (see the note above).
   const childSessions = useMemo(
     () =>
@@ -109,9 +109,10 @@ export function WorkspaceRow({
 
   // Per-state counts for the header dots. Computed off the rail data
   // (cross-workspace, always loaded) so the indicators are accurate
-  // whether the workspace is expanded or collapsed. Classification
-  // mirrors `StatusView.classify` so a session lives in exactly one
-  // bucket and the totals don't double-count.
+  // whether the workspace is expanded or collapsed. Classification follows
+  // `classifySession`'s order (approval, working, unread), as the header's
+  // pills do, so a session lives in exactly one bucket and the totals don't
+  // double-count.
   const counts = useMemo(() => {
     hot('memo WorkspaceRow.counts');
     let working = 0;
@@ -137,10 +138,10 @@ export function WorkspaceRow({
     return { working, needsApproval, unread };
   }, [railData?.sessions, workspace.id, streamingSessionIds, pendingInputSessionIds, isInactive]);
   // `attention` rolls unread + needs-approval into one amber count — they
-  // share the same urgency color across the rail (NeedsReviewSection
-  // header, by-status bucket, here), so rendering them as two identical
-  // amber pills would just look like a duplicate. The by-status view
-  // still separates them into distinct buckets for triage.
+  // share the same urgency color across the app (NeedsReviewSection
+  // header, the header's pills, here), so rendering them as two identical
+  // amber pills would just look like a duplicate. The header's pills
+  // still separate them into distinct buckets for triage.
   const attentionCount = counts.needsApproval + counts.unread;
   const hasAnyCount = counts.working > 0 || attentionCount > 0;
 
@@ -295,8 +296,8 @@ const COUNT_VARIANT_LABELS: Record<CountVariant, string> = {
  * the matching count inside. Hidden under the action buttons on row
  * hover so the buttons can take the slot back without layout shift.
  *
- * Visually consistent with the skinny rail's status overlay so the same
- * colors mean the same thing across both rail modes.
+ * The same colors as the header's status pills, so a color means the
+ * same thing wherever it appears.
  */
 function CountDot({ variant, count }: { variant: CountVariant; count: number }) {
   return (

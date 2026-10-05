@@ -18,8 +18,8 @@ export interface AgentAttentionItem {
 
 /**
  * Every agent that wants you, for the surfaces that count what wants you:
- * the rail's Needs you group, the header's pills, the Status tab and the
- * tablet rail. One source, so they always agree with each other and with
+ * the rail's Needs you group, the header's pills and the collapsed rail's
+ * Agents badge. One source, so they always agree with each other and with
  * the agent's own row. Waiting on you first, then new replies, newest first.
  *
  * Thinking is left out on purpose: it is activity, not attention, and the

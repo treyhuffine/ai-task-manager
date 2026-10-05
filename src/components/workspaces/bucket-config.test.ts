@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifySession, executionActivity } from './bucket-config';
+import { bucketSessions, classifySession, executionActivity } from './bucket-config';
 import type { RailSession } from '@/lib/api/sessions';
 
 const NONE: ReadonlySet<string> = new Set();
@@ -100,5 +100,34 @@ describe('executionActivity', () => {
 
   it('skips archived executions', () => {
     expect(executionActivity([session({ id: 'a', status: 'archived' })], NONE, new Set(['a']))).toEqual({ pending: 0, working: 0 });
+  });
+});
+
+describe('bucketSessions', () => {
+  const never = () => false;
+
+  it('files each active session in its bucket, hottest first', () => {
+    const older = session({ id: 'older', lastActivityAt: '2026-07-01T00:00:00.000Z', lastOutcomeEventAt: '2026-07-01T00:00:00.000Z' });
+    const newer = session({ id: 'newer', lastActivityAt: '2026-07-02T00:00:00.000Z', lastOutcomeEventAt: '2026-07-02T00:00:00.000Z' });
+    const asking = session({ id: 'asking' });
+    const live = session({ id: 'live' });
+    const buckets = bucketSessions([older, newer, asking, live], new Set(['asking']), new Set(['live']), never);
+    expect(buckets.unread.map((s) => s.id)).toEqual(['newer', 'older']);
+    expect(buckets.needsApproval.map((s) => s.id)).toEqual(['asking']);
+    expect(buckets.working.map((s) => s.id)).toEqual(['live']);
+    expect(buckets.waiting).toEqual([]);
+  });
+
+  it('leaves out archived work, inactive work and settled imports', () => {
+    const archived = session({ id: 'archived', status: 'archived' });
+    const sleepy = session({ id: 'sleepy' });
+    const imported = session({ id: 'imported', surfaceKind: 'imported_agent' });
+    const buckets = bucketSessions(
+      [archived, sleepy, imported],
+      new Set(['archived', 'sleepy']),
+      NONE,
+      (s) => s.id === 'sleepy',
+    );
+    expect(Object.values(buckets).flat()).toEqual([]);
   });
 });

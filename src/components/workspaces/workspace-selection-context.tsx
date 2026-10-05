@@ -35,8 +35,8 @@ const SelectionContext = createContext<SelectionContextValue | null>(null);
  * `SessionRow`s (which render the checkboxes) can share one source of
  * truth without prop-drilling through `WorkspaceRow`.
  *
- * Scoped to the workspace nav only — the needs-review duplicate rows and
- * the by-status / history lenses never see this provider, so selection
+ * Scoped to the workspace nav only — the needs-review duplicate rows,
+ * Pinned and the Recent tab never see this provider, so selection
  * stays a property of the canonical tree.
  */
 export function WorkspaceSelectionProvider({ children }: { children: ReactNode }) {
@@ -81,7 +81,7 @@ export function WorkspaceSelectionProvider({ children }: { children: ReactNode }
 
 /**
  * Reads the workspace selection state. Returns `null` when rendered
- * outside the provider (e.g. a `SessionRow` on the by-status surface) so
+ * outside the provider (e.g. a `SessionRow` in Pinned) so
  * callers can no-op rather than crash.
  */
 export function useWorkspaceSelection(): SelectionContextValue | null {

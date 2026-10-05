@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Folder, FolderPlus, Archive, X } from 'lucide-react';
+import { Folder, FolderPlus, Archive, X } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -140,18 +140,7 @@ function WorkspaceNavInner() {
   };
 
   return (
-    <div
-      className={cn(
-        'flex flex-col',
-        // The rail's scroll container has its own `pt-1`, which sits ABOVE
-        // this nav — out of reach of the sticky header below (whose
-        // containing block is this div). Left as-is, scrolling rows peek
-        // through that 4px strip between the tabs and the pinned toolbar.
-        // While selecting, cancel that padding so the nav (and the sticky
-        // header's pin point) sits flush under the tabs with no gap.
-        selecting && '-mt-1',
-      )}
-    >
+    <div className="flex flex-col">
       {/* The needs-review triage surface duplicates tree rows; hide it
           while selecting so a session never shows two checkboxes (or a
           checkbox up top and a plain row below). */}
@@ -161,10 +150,13 @@ function WorkspaceNavInner() {
         className={cn(
           'px-1 pt-1 pb-1.5',
           // While selecting, pin the Archive/Cancel toolbar to the top of
-          // the rail's scroll area so it stays reachable no matter how far
-          // the user scrolls the workspace tree. Solid bg + border so rows
-          // scroll cleanly underneath it.
-          selecting && 'sticky top-0 z-20 bg-background border-b border-border/60',
+          // the list so it stays reachable no matter how far the user
+          // scrolls the tree. In the wide rail the list scrolls under a
+          // sticky block (Create, Search and the tabs), whose height the
+          // rail publishes as --rail-sticky-top; the flyout's tabs sit
+          // outside its scroll area, so there it's 0. Solid bg + border so
+          // rows scroll cleanly underneath it.
+          selecting && 'sticky top-[var(--rail-sticky-top,0px)] z-20 bg-background border-b border-border/60',
         )}
       >
         <div className="flex items-center justify-between gap-2 px-1.5 min-h-[22px]">

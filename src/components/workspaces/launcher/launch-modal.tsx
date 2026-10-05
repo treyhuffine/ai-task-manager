@@ -129,7 +129,7 @@ function LaunchModalInner({
 }: {
   seedWorkspaceId: string | null;
   seed: LauncherSeed | null;
-  /** Opened with no agent picked (the rail's ➕): don't fill one in. */
+  /** Opened with no agent picked (the rail's Create): don't fill one in. */
   pickAgent: boolean;
 }) {
   const { data: workspaces } = useWorkspaces({ status: 'active' });
@@ -905,7 +905,7 @@ function Chip({ chip, onRemove }: { chip: LaunchChip; onRemove: () => void }) {
  * a launch can still target a different workspace — which is what lets this
  * same modal serve as a global "start work" entry point.
  *
- * Opened with no agent (the rail's ➕), the chip asks for one and a launch
+ * Opened with no agent (the rail's Create), the chip asks for one and a launch
  * opens this list. It filters as you type and takes arrows and Enter, so the
  * whole flow stays on the keyboard: write, Enter, type a few letters, Enter,
  * Enter.
