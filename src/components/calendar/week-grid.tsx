@@ -10,6 +10,9 @@
  * position by percentage WITHIN their day cell, vertical positions are
  * percentages of the track, and the track height is `hours × var(--hour-h)`.
  * No pixel math in JS.
+ *
+ * With `work`, each day also shows its agents' work spans (docs/work-view.md),
+ * packed into the same columns as the meetings.
  */
 
 import { useEffect, useMemo, useRef } from 'react';
@@ -19,7 +22,6 @@ import {
   FULL_DAY_BOUNDS,
   hourMarks,
   minutePct,
-  packColumns,
   landingTopMinute,
   trackHeight,
   windowPct,
@@ -33,6 +35,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { EventPopoverContent } from './event-popover';
 import { NowLine } from './now-line';
 import type { DeadlineMarker } from './week-view';
+import { WorkSpanBlock, WorkSpanDetails } from './work/work-span-block';
+import { packDay, timeLabel, type DayItem, type WorkLayer } from './work/work-style';
 
 const GRID_COLS = 'grid-cols-[2.5rem_repeat(7,minmax(0,1fr))]';
 
@@ -49,16 +53,20 @@ export interface WeekGridProps {
   deadlinesByDate: Map<string, DeadlineMarker[]>;
   onSelectDay: (date: string) => void;
   onOpenTask: (taskId: string) => void;
+  /** The work layer, when the calendar shows work. */
+  work?: WorkLayer;
+  /** Free time per day: only meaningful with a calendar connected. */
+  showOpen?: boolean;
 }
 
-export function WeekGrid({ days, workday, today, deadlinesByDate, onSelectDay, onOpenTask }: WeekGridProps) {
+export function WeekGrid({ days, workday, today, deadlinesByDate, onSelectDay, onOpenTask, work, showOpen = true }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   // The full day, always — workday bounds size the DECK, not the calendar.
   const bounds = FULL_DAY_BOUNDS;
   const packed = useMemo(
-    () => days.map((day) => ({ day, packed: packColumns(day.events, day.date) })),
-    [days],
+    () => days.map((day) => ({ day, packed: packDay(day.events, work?.spansByDate.get(day.date) ?? [], day.date) })),
+    [days, work],
   );
   const hours = useMemo(() => hourMarks(bounds), [bounds]);
 
@@ -98,9 +106,11 @@ export function WeekGrid({ days, workday, today, deadlinesByDate, onSelectDay, o
                 )}
               >
                 {formatDayLabel(day.date)}
-                <span className="ml-1.5 text-[9px] font-normal text-muted-foreground">
-                  {formatMinutes(day.freeMinutes)} open
-                </span>
+                {showOpen && (
+                  <span className="ml-1.5 text-[9px] font-normal text-muted-foreground">
+                    {formatMinutes(day.freeMinutes)} open
+                  </span>
+                )}
               </button>
               {day.allDay.map((e) => (
                 <span
@@ -166,9 +176,22 @@ export function WeekGrid({ days, workday, today, deadlinesByDate, onSelectDay, o
                   key={day.date}
                   className={cn('relative border-l border-border/30 min-w-0', isToday && 'bg-primary/5')}
                 >
-                  {p.placed.map((placed) => (
-                    <GridEvent key={`${placed.event.id}-${placed.startMinute}`} placed={placed} bounds={bounds} />
-                  ))}
+                  {p.placed.map(({ item, ...placed }) =>
+                    item.kind === 'event' ? (
+                      <GridEvent key={`${item.event.id}-${placed.startMinute}`} placed={{ ...placed, event: item.event }} bounds={bounds} />
+                    ) : (
+                      <WorkSpanBlock
+                        key={item.span.id}
+                        span={item.span}
+                        agent={work?.agents.get(item.span.agentId)}
+                        style={{
+                          ...toStyle(windowPct(placed, bounds)),
+                          left: `${(placed.column / placed.columns) * 100}%`,
+                          width: `${100 / placed.columns}%`,
+                        }}
+                      />
+                    ),
+                  )}
                   {p.overflow.map((group, gi) => (
                     <Popover key={`ov-${day.date}-${gi}`}>
                       <PopoverTrigger asChild>
@@ -177,12 +200,12 @@ export function WeekGrid({ days, workday, today, deadlinesByDate, onSelectDay, o
                           className="absolute z-20 right-0 w-1/3 min-h-4 rounded border border-border bg-muted px-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors"
                           style={toStyle(windowPct(group, bounds))}
                         >
-                          +{group.events.length}
+                          +{group.items.length}
                         </button>
                       </PopoverTrigger>
                       <PopoverContent side="left" className="p-1 w-64">
-                        {group.events.map((e) => (
-                          <OverflowRow key={e.id} event={e} />
+                        {group.items.map((item) => (
+                          <OverflowItem key={item.kind === 'event' ? item.event.id : item.span.id} item={item} work={work} />
                         ))}
                       </PopoverContent>
                     </Popover>
@@ -228,6 +251,24 @@ function GridEvent({ placed, bounds }: { placed: PlacedEvent; bounds: MinuteWind
       </PopoverTrigger>
       <PopoverContent side="right" align="start" className="p-0 w-auto">
         <EventPopoverContent event={event} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function OverflowItem({ item, work }: { item: DayItem; work: WorkLayer | undefined }) {
+  if (item.kind === 'event') return <OverflowRow event={item.event} />;
+  const agent = work?.agents.get(item.span.agentId);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className="w-full flex items-center gap-2 rounded px-2 py-1 text-left hover:bg-muted/60 transition-colors">
+          <span className="flex-1 truncate text-xs">{agent?.name ?? 'Ri'}</span>
+          <span className="shrink-0 text-[10px] text-muted-foreground">{timeLabel(item.span.start)}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="left" className="w-80 p-0">
+        <WorkSpanDetails span={item.span} agent={agent} />
       </PopoverContent>
     </Popover>
   );

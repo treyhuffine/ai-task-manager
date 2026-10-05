@@ -13,6 +13,13 @@ import { launchPluginEvaluation, pluginEvaluationStatus } from '@/lib/server/ope
 import { chatWithPluginEvaluation } from '@/lib/server/operations/plugins/evaluation-chat';
 import { evaluationChatInputSchema } from '@/lib/plugins/evaluation-contract';
 import { accountEvaluationCatalog, accountEvaluationRpc, accountRpcSchema, endAccountEvaluation, launchAccountEvaluation } from '@/lib/server/operations/plugins/account-evaluation';
+import { MAX_WORK_DAYS, getWorkRange, saveWorkReport } from '@/lib/work/service';
+
+/** A run of days for the work view (docs/work-view.md). */
+const workRangeInput = z.object({
+  start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'start must be YYYY-MM-DD'),
+  days: z.number().int().min(1).max(MAX_WORK_DAYS),
+}).strict();
 
 function required<T>(value: T | null | undefined, entity: string): T {
   if (value == null) throw new TRPCError({ code: 'NOT_FOUND', message: `${entity} not found` });
@@ -68,6 +75,10 @@ export const appRouter = router({
     delete: p.input(s.entityIdSchema).mutation(({ input }) => {
       if (!q.deleteNote(input.id)) throw new TRPCError({ code: 'NOT_FOUND', message: 'Note not found' });
     }),
+  }),
+  work: router({
+    range: p.input(workRangeInput).query(({ input }) => getWorkRange(input)),
+    saveReport: p.input(workRangeInput).mutation(({ input }) => saveWorkReport(input)),
   }),
   areas: router({
     list: p.input(s.areaFilterSchema.optional()).query(({ input }) => q.listAreas(input)),

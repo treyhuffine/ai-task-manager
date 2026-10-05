@@ -10293,3 +10293,112 @@ export function getRecentEntities(limit = 10) {
 export function listDecks(limit = 10): DeckRecord[] {
   return getDb().select().from(decks).orderBy(desc(decks.createdAt)).limit(limit).all();
 }
+
+// ─── Work view (docs/work-view.md) ──────────────────────────────
+//
+// Read-only. The work ledger (src/lib/work/ledger.ts) walks chat_events by
+// rowid, so it reads only rows added since its last pass, an imported
+// transcript's old timestamps included.
+
+export interface WorkEventRow {
+  rowid: number;
+  sessionId: string;
+  createdAt: string;
+  source: string;
+  senderSessionId: string | null;
+  /** Message text, only for user and agent rows (word counts). */
+  text: string | null;
+}
+
+const WORK_EVENT_SOURCES_SQL =
+  "('user','agent','tool_call','tool_result','thinking','result','approval_request','approval_response','error')";
+
+/** Work events after a rowid, oldest insert first. */
+export function listWorkEventsAfterRowid(afterRowid: number, limit: number): WorkEventRow[] {
+  return getRawDb()
+    .prepare(
+      `SELECT rowid, session_id AS sessionId, created_at AS createdAt, source,
+              sender_session_id AS senderSessionId,
+              CASE WHEN source IN ('user', 'agent') THEN content END AS text
+       FROM chat_events
+       WHERE rowid > ? AND source IN ${WORK_EVENT_SOURCES_SQL}
+       ORDER BY rowid
+       LIMIT ?`,
+    )
+    .all(afterRowid, limit) as WorkEventRow[];
+}
+
+/** Every work event of one chat, by time (to rebuild its blocks). */
+export function listWorkEventsForSession(sessionId: string): WorkEventRow[] {
+  return getRawDb()
+    .prepare(
+      `SELECT rowid, session_id AS sessionId, created_at AS createdAt, source,
+              sender_session_id AS senderSessionId,
+              CASE WHEN source IN ('user', 'agent') THEN content END AS text
+       FROM chat_events
+       WHERE session_id = ? AND source IN ${WORK_EVENT_SOURCES_SQL}
+       ORDER BY created_at, id`,
+    )
+    .all(sessionId) as WorkEventRow[];
+}
+
+/** The newest chat_events rowid, 0 when empty. */
+export function maxChatEventRowid(): number {
+  const row = getRawDb().prepare('SELECT MAX(rowid) AS max FROM chat_events').get() as { max: number | null };
+  return row.max ?? 0;
+}
+
+export interface WorkSessionMetaRow {
+  id: string;
+  workspaceId: string | null;
+  executionId: string | null;
+  type: string;
+  surfaceKind: string | null;
+  createdByRunId: string | null;
+  label: string | null;
+  executionLabel: string | null;
+}
+
+/** What the work view needs about each chat: its agent, title and origin. */
+export function listWorkSessionMeta(ids: readonly string[]): WorkSessionMetaRow[] {
+  if (ids.length === 0) return [];
+  const out: WorkSessionMetaRow[] = [];
+  const stmt = getRawDb().prepare(
+    `SELECT s.id, s.workspace_id AS workspaceId, s.execution_id AS executionId, s.type,
+            s.surface_kind AS surfaceKind, s.created_by_run_id AS createdByRunId,
+            s.label, x.label AS executionLabel
+     FROM chat_sessions s
+     LEFT JOIN executions x ON x.id = s.execution_id
+     WHERE s.id IN (SELECT value FROM json_each(?))`,
+  );
+  // json_each keeps one statement for any number of ids. Chunked to bound the JSON.
+  for (let i = 0; i < ids.length; i += 500) {
+    out.push(...(stmt.all(JSON.stringify(ids.slice(i, i + 500))) as WorkSessionMetaRow[]));
+  }
+  return out;
+}
+
+/** Tasks completed in [from, to), ISO instants. */
+export function listTasksCompletedBetween(from: string, to: string): Array<{ id: string; title: string; completedAt: string }> {
+  return getRawDb()
+    .prepare(
+      `SELECT id, title, completed_at AS completedAt FROM tasks
+       WHERE status = 'done' AND completed_at >= ? AND completed_at < ?
+       ORDER BY completed_at`,
+    )
+    .all(from, to) as Array<{ id: string; title: string; completedAt: string }>;
+}
+
+/** Executions archived (finished) in [from, to), ISO instants. */
+export function listExecutionsArchivedBetween(
+  from: string,
+  to: string,
+): Array<{ id: string; label: string | null; workspaceId: string; archivedAt: string }> {
+  return getRawDb()
+    .prepare(
+      `SELECT id, label, workspace_id AS workspaceId, archived_at AS archivedAt FROM executions
+       WHERE archived_at >= ? AND archived_at < ?
+       ORDER BY archived_at`,
+    )
+    .all(from, to) as Array<{ id: string; label: string | null; workspaceId: string; archivedAt: string }>;
+}

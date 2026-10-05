@@ -14,6 +14,11 @@
  *     opens that day.
  *   - **Day**: one day on an hour axis.
  *
+ * With Work on (the default, one click off), it also shows what you and
+ * your agents did: their work as blocks in each day, a list of what got done,
+ * and what it adds up to, in person-hours (docs/work-view.md). Work shows
+ * with or without a calendar connected.
+ *
  * Read-only over external events, like every calendar surface (see
  * docs/calendar-view-spec.md). The phone keeps its own day view (More,
  * Calendar).
@@ -32,6 +37,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useDayShape, useRefreshDayShape } from '@/hooks/use-day-shape';
 import { useTasks } from '@/hooks/use-tasks';
+import { useWorkRange } from '@/hooks/use-work';
+import { useCalendarWork } from '@/lib/client/calendar-work';
+import { openSettings } from '@/components/settings/settings-store';
+import type { CalendarDay } from '@/lib/calendar/types';
 import { viewKey } from '@/lib/client/active-view';
 import {
   closeCalendarModal,
@@ -50,6 +59,9 @@ import { CalendarConnectPrompt } from './calendar-connect-prompt';
 import { DayView } from './day-view';
 import { WeekGrid } from './week-grid';
 import { WeekView, type DeadlineMarker } from './week-view';
+import { WorkList } from './work/work-list';
+import { WorkSummary } from './work/work-summary';
+import type { WorkLayer } from './work/work-style';
 
 /** `?calendar=1` keeps the calendar open across a reload and makes it linkable. */
 const CALENDAR_PARAM = 'calendar';
@@ -161,6 +173,15 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
   const days = view === 'day' ? 1 : 7;
   const { data } = useDayShape(start, days);
   const refresh = useRefreshDayShape();
+  const { on: workOn, setOn: setWorkOn } = useCalendarWork();
+  const { data: workRange, isPlaceholderData: workStale } = useWorkRange(start, days, workOn);
+  const work = useMemo<WorkLayer | undefined>(() => {
+    if (!workOn || !workRange) return undefined;
+    return {
+      spansByDate: new Map(workRange.dayList.map((d) => [d.date, d.spans] as const)),
+      agents: new Map(workRange.agents.map((a) => [a.id, a] as const)),
+    };
+  }, [workOn, workRange]);
 
   // The commitment calendar shows Todo and In progress deadlines. Consider
   // stays off it (it uses resurface, not the calendar).
@@ -211,6 +232,11 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
   const stale = data ? Date.now() - Date.parse(data.asOf) > STALE_MS : false;
   const degraded = data?.status === 'degraded' || data?.status === 'error';
   const noCalendar = data?.status === 'no_providers';
+  // No calendar connected: work still shows, over days with nothing booked.
+  const days_ = noCalendar
+    ? Array.from({ length: days }, (_, i) => emptyDay(addDaysLocal(start, i)))
+    : data?.days;
+  const showConnect = noCalendar && !workOn;
 
   return (
     <>
@@ -220,7 +246,7 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
           Calendar
         </DialogTitle>
 
-        {!noCalendar && (
+        {!showConnect && (
           <>
             <Segmented
               label="View"
@@ -267,7 +293,34 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
 
         <div className="flex-1" />
 
-        {!noCalendar && (
+        {noCalendar && workOn && (
+          <button
+            type="button"
+            onClick={() => {
+              closeCalendarModal();
+              openSettings('plugins');
+            }}
+            className="text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            Connect your calendar
+          </button>
+        )}
+
+        <button
+          type="button"
+          aria-pressed={workOn}
+          onClick={() => setWorkOn(!workOn)}
+          title={workOn ? 'Hide your work' : 'Show what you and your agents did'}
+          className={cn(
+            'flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors',
+            workOn ? 'border-border bg-muted text-foreground' : 'border-border text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <span className={cn('size-1.5 rounded-full', workOn ? 'bg-emerald-500' : 'bg-muted-foreground/40')} aria-hidden />
+          Work
+        </button>
+
+        {!showConnect && (
           <>
             {view === 'week' && (
               <Segmented
@@ -308,21 +361,26 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
         </DialogPrimitive.Close>
       </header>
 
-      <div className={cn('min-h-0 flex-1', !noCalendar && 'px-4 pt-3')}>
-        {noCalendar ? (
+      <div className={cn('flex min-h-0 flex-1 flex-col', !showConnect && 'px-4 pt-3')}>
+        {workOn && !showConnect && <WorkSummary range={workRange} today={today} stale={workStale} />}
+        <div className="min-h-0 flex-1">
+        {showConnect ? (
           <CalendarConnectPrompt onConnect={closeCalendarModal} />
         ) : view === 'day' ? (
           <DayView
             date={anchor}
-            day={data?.days[0]}
+            day={days_?.[0]}
             workday={data?.workday ?? { start: '09:00', end: '18:00' }}
             isToday={anchor === today}
+            work={work}
           />
-        ) : !data ? (
+        ) : weekMode === 'list' && workOn ? (
+          workRange ? <WorkList range={workRange} today={today} /> : <WeekSkeleton />
+        ) : !days_ ? (
           // Loading and failure never render as an empty week: "no data"
           // and "no meetings" are different facts.
           <WeekSkeleton />
-        ) : data.status === 'error' ? (
+        ) : data?.status === 'error' ? (
           <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
             <p className="text-sm font-medium text-foreground">Calendar unreachable</p>
             <p className="text-xs text-muted-foreground">
@@ -331,26 +389,34 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
           </div>
         ) : weekMode === 'grid' ? (
           <WeekGrid
-            days={data.days}
-            workday={data.workday}
+            days={days_}
+            workday={data?.workday ?? { start: '09:00', end: '18:00' }}
             today={today}
             deadlinesByDate={deadlinesByDate}
             onSelectDay={openDay}
             onOpenTask={openTask}
+            work={work}
+            showOpen={!noCalendar}
           />
         ) : (
           <WeekView
-            days={data.days}
-            workday={data.workday}
+            days={days_}
+            workday={data?.workday ?? { start: '09:00', end: '18:00' }}
             today={today}
             deadlinesByDate={deadlinesByDate}
             onSelectDay={openDay}
             onOpenTask={openTask}
           />
         )}
+        </div>
       </div>
     </>
   );
+}
+
+/** A day with nothing booked, for drawing work without a calendar connected. */
+function emptyDay(date: string): CalendarDay {
+  return { date, allDay: [], events: [], gaps: [], freeMinutes: 0, largestGapMinutes: 0, busyMinutes: 0 };
 }
 
 function Segmented<T extends string>({

@@ -97,22 +97,25 @@ export interface PackedDay {
 }
 
 /**
- * Greedy interval packing: sort by start, place each event in the first
+ * Greedy interval packing: sort by start, place each item in the first
  * column free at its start. Clusters (connected overlap components) wider
- * than MAX_EVENT_COLUMNS collapse their extra events into one overflow group
- * (rendered as a "+N" chip in the last column).
+ * than `maxColumns` collapse their extra items into one overflow group
+ * (rendered as a "+N" chip in the last column). Generic so the calendar can
+ * pack meetings and work spans together (docs/work-view.md).
  */
-export function packColumns(events: CalendarEvent[], date: string): PackedDay {
-  const windows = events
-    .map((event) => ({ event, window: eventWindowOnDate(event, date) }))
-    .filter((x): x is { event: CalendarEvent; window: MinuteWindow } => x.window != null)
-    .sort(
-      (a, b) =>
-        a.window.startMinute - b.window.startMinute || b.window.endMinute - a.window.endMinute,
-    );
+export function packWindows<T>(
+  entries: ReadonlyArray<{ item: T; window: MinuteWindow }>,
+  maxColumns = MAX_EVENT_COLUMNS,
+): {
+  placed: Array<{ item: T; startMinute: number; endMinute: number; column: number; columns: number }>;
+  overflow: Array<{ startMinute: number; endMinute: number; items: T[] }>;
+} {
+  const windows = [...entries].sort(
+    (a, b) => a.window.startMinute - b.window.startMinute || b.window.endMinute - a.window.endMinute,
+  );
 
   interface Working {
-    event: CalendarEvent;
+    item: T;
     window: MinuteWindow;
     column: number;
     cluster: number;
@@ -124,9 +127,9 @@ export function packColumns(events: CalendarEvent[], date: string): PackedDay {
   let clusterId = -1;
   let clusterMaxEnd = -1;
 
-  for (const { event, window } of windows) {
+  for (const { item, window } of windows) {
     if (window.startMinute >= clusterMaxEnd) {
-      // New cluster — nothing currently open overlaps this event.
+      // New cluster — nothing currently open overlaps this item.
       clusterId += 1;
       columnEnds = [];
       clusterMaxEnd = window.endMinute;
@@ -140,11 +143,11 @@ export function packColumns(events: CalendarEvent[], date: string): PackedDay {
     } else {
       columnEnds[column] = window.endMinute;
     }
-    working.push({ event, window, column, cluster: clusterId });
+    working.push({ item, window, column, cluster: clusterId });
   }
 
-  const placed: PlacedEvent[] = [];
-  const overflow: OverflowGroup[] = [];
+  const placed: Array<{ item: T; startMinute: number; endMinute: number; column: number; columns: number }> = [];
+  const overflow: Array<{ startMinute: number; endMinute: number; items: T[] }> = [];
   const byCluster = new Map<number, Working[]>();
   for (const w of working) {
     const list = byCluster.get(w.cluster) ?? [];
@@ -154,40 +157,51 @@ export function packColumns(events: CalendarEvent[], date: string): PackedDay {
 
   for (const members of byCluster.values()) {
     const totalColumns = Math.max(...members.map((m) => m.column)) + 1;
-    if (totalColumns <= MAX_EVENT_COLUMNS) {
+    if (totalColumns <= maxColumns) {
       for (const m of members) {
-        placed.push({
-          event: m.event,
-          startMinute: m.window.startMinute,
-          endMinute: m.window.endMinute,
-          column: m.column,
-          columns: totalColumns,
-        });
+        placed.push({ item: m.item, startMinute: m.window.startMinute, endMinute: m.window.endMinute, column: m.column, columns: totalColumns });
       }
       continue;
     }
-    // Overflowing cluster: first two columns render, the rest collapse.
-    const visible = members.filter((m) => m.column < MAX_EVENT_COLUMNS - 1);
-    const hidden = members.filter((m) => m.column >= MAX_EVENT_COLUMNS - 1);
+    // Overflowing cluster: all but the last column render, the rest collapse.
+    const visible = members.filter((m) => m.column < maxColumns - 1);
+    const hidden = members.filter((m) => m.column >= maxColumns - 1);
     for (const m of visible) {
-      placed.push({
-        event: m.event,
-        startMinute: m.window.startMinute,
-        endMinute: m.window.endMinute,
-        column: m.column,
-        columns: MAX_EVENT_COLUMNS,
-      });
+      placed.push({ item: m.item, startMinute: m.window.startMinute, endMinute: m.window.endMinute, column: m.column, columns: maxColumns });
     }
     overflow.push({
       startMinute: Math.min(...hidden.map((m) => m.window.startMinute)),
       endMinute: Math.max(...hidden.map((m) => m.window.endMinute)),
-      events: hidden.map((m) => m.event),
+      items: hidden.map((m) => m.item),
     });
   }
 
   placed.sort((a, b) => a.startMinute - b.startMinute || a.column - b.column);
   overflow.sort((a, b) => a.startMinute - b.startMinute);
   return { placed, overflow };
+}
+
+/** Meetings only: `packWindows` over a day's timed events. */
+export function packColumns(events: CalendarEvent[], date: string): PackedDay {
+  const entries = events
+    .map((event) => ({ item: event, window: eventWindowOnDate(event, date) }))
+    .filter((x): x is { item: CalendarEvent; window: MinuteWindow } => x.window != null);
+  const { placed, overflow } = packWindows(entries);
+  return {
+    placed: placed.map(({ item, ...rest }) => ({ event: item, ...rest })),
+    overflow: overflow.map(({ items, ...rest }) => ({ events: items, ...rest })),
+  };
+}
+
+/** A span of instants as a minute window on a local date, clamped to the day. */
+export function instantWindowOnDate(startIso: string, endIso: string, date: string): MinuteWindow | null {
+  const dayStart = new Date(`${date}T00:00:00`).getTime();
+  const s = Date.parse(startIso);
+  const e = Date.parse(endIso);
+  if (!Number.isFinite(dayStart) || !Number.isFinite(s) || !Number.isFinite(e)) return null;
+  const startMinute = Math.max(0, Math.round((s - dayStart) / 60000));
+  const endMinute = Math.min(1440, Math.round((e - dayStart) / 60000));
+  return endMinute > startMinute ? { startMinute, endMinute } : null;
 }
 
 // ─── Axis bounds ────────────────────────────────────────────────

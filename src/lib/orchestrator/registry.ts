@@ -141,6 +141,10 @@ import {
 	getDbPath,
 	getTmpDir,
 } from '@/lib/config/paths';
+import { MAX_WORK_DAYS, getWorkRange } from '@/lib/work/service';
+import { formatDuration, summaryLines } from '@/lib/work/equivalents';
+import { mondayOf } from '@/lib/calendar/dates';
+import { todayLocalDate } from '@/lib/deck/date';
 import { assertSupportedPermissionMode, UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 import { PERMISSION_MODES } from '@/lib/permissions/modes';
 import { listResolvedReferenceFolders } from '@/lib/reference-folders/resolve';
@@ -3245,6 +3249,57 @@ const move_skill_action = defineAction({
   },
 });
 
+const work_summary_action = defineAction({
+  name: 'work_summary',
+  description:
+    'What the person and their agents did over a range of days, measured (docs/work-view.md): ' +
+    'their hands-on time, agent time, the person-hours equivalent (commits sized like an engineer would, ' +
+    'other agent work one for one), commits by agent, finished executions and tasks, and a three-line report. ' +
+    'Use for "what did I do this week" and weekly reports. Defaults to this week (Monday on). ' +
+    'Quote the numbers and lines as given rather than recomputing them.',
+  params: {
+    start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('First day, YYYY-MM-DD. Defaults to this week\'s Monday.'),
+    days: z.number().int().min(1).max(MAX_WORK_DAYS).optional().describe('How many days, 1 to 31. Defaults to 7.'),
+  },
+  handler: async (_ctx, { start, days }) => {
+    const range = await getWorkRange({ start: start ?? mondayOf(todayLocalDate()), days: days ?? 7 });
+    const t = range.totals;
+    return {
+      start: range.start,
+      days: range.days,
+      report: range.report,
+      summary: summaryLines(t, range.days),
+      totals: {
+        handsOn: formatDuration(t.handsOnMinutes),
+        agentTime: formatDuration(t.agentMinutes),
+        whileAway: formatDuration(t.whileAwayMinutes),
+        personHours: Math.round(t.personHours),
+        commits: t.commits,
+        agents: t.agents,
+        chats: t.chats,
+        agentWords: t.agentWords,
+        yourWords: t.yourWords,
+        peakConcurrentAgents: t.peak?.count ?? 0,
+      },
+      agents: range.agents.map((a) => ({
+        name: a.name,
+        agentTime: formatDuration(a.agentMinutes),
+        personHours: Math.round(a.personHours),
+        commits: a.commits,
+      })),
+      byDay: range.dayList.map((d) => ({
+        date: d.date,
+        handsOn: formatDuration(d.stats.handsOnMinutes),
+        agentTime: formatDuration(d.stats.agentMinutes),
+        personHours: Math.round(d.stats.personHours),
+        commits: [...d.spans.flatMap((sp) => sp.commits), ...d.looseCommits].map((c) => c.subject),
+        finishedExecutions: d.executionsFinished.map((x) => x.label),
+        tasksDone: d.tasksDone.map((t) => t.title),
+      })),
+    };
+  },
+});
+
 export const typedActions = [
   register_device_action,
   rename_device_action,
@@ -3329,6 +3384,7 @@ export const typedActions = [
   delete_trigger_action,
   run_trigger_action,
   list_runs_action,
+  work_summary_action,
   get_run_action,
   cancel_run_action,
   reset_trigger_failures_action,

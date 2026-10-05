@@ -796,6 +796,8 @@ desktop panel tab went too (removed from Home's More menu, and `calendar`
 from `MorePanelTab`). The phone keeps its day view under More, Calendar,
 where a full-screen week has no room.
 
+The full-screen calendar also carries the **work view** (2026-10-05): what you and your agents did, as blocks beside the meetings, a list, and what it adds up to in person-hours. See `docs/work-view.md`.
+
 **Geometry rule (learned the hard way):** time surfaces contain no pixel math
 in JS. Columns are real CSS grid tracks (`grid-cols-[2.5rem_repeat(7,1fr)]`),
 vertical positions are percentages of the track (`minutePct`/`windowPct` in

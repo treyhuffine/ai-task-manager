@@ -191,3 +191,32 @@ describe('stripSegments', () => {
     expect(seg.clamped).toBe(true);
   });
 });
+
+describe('packWindows (meetings and work together)', () => {
+  it('packs any items into columns and folds a wide cluster into +N', async () => {
+    const { packWindows } = await import('./layout');
+    const w = (s: number, e: number) => ({ startMinute: s, endMinute: e });
+    const packed = packWindows([
+      { item: 'a', window: w(0, 60) },
+      { item: 'b', window: w(30, 90) },
+      { item: 'c', window: w(40, 50) },
+      { item: 'd', window: w(45, 55) },
+      { item: 'e', window: w(200, 230) },
+    ]);
+    expect(packed.placed.map((p) => [p.item, p.column, p.columns])).toEqual([
+      ['a', 0, 3],
+      ['b', 1, 3],
+      ['e', 0, 1],
+    ]);
+    expect(packed.overflow).toEqual([{ startMinute: 40, endMinute: 55, items: ['c', 'd'] }]);
+  });
+
+  it('turns instants into a minute window on a local day, clamped', async () => {
+    const { instantWindowOnDate } = await import('./layout');
+    const at = (h: number, m = 0) => new Date(2026, 9, 1, h, m).toISOString();
+    expect(instantWindowOnDate(at(9, 30), at(10, 15), '2026-10-01')).toEqual({ startMinute: 570, endMinute: 615 });
+    // Started the evening before: clamped to midnight.
+    expect(instantWindowOnDate(new Date(2026, 8, 30, 23).toISOString(), at(1), '2026-10-01')).toEqual({ startMinute: 0, endMinute: 60 });
+    expect(instantWindowOnDate(at(9), at(9), '2026-10-01')).toBeNull();
+  });
+});
