@@ -46,9 +46,6 @@ import {
 } from '@/components/shared/list-toolbar';
 import { cn } from '@/lib/utils';
 
-/** Columns that accept new tasks. Done/Archived are reached by moving a task,
- *  never created directly. */
-const CREATABLE_LANES: readonly TaskLane[] = ['consider', 'todo', 'current'];
 
 /** How often the board looks for changes made elsewhere: an agent moving a
  * task in the middle of a long turn, the CLI, another device. Turn starts and
@@ -144,9 +141,11 @@ function KanbanCard({
   );
 }
 
-/** Inline "add a task" at the bottom of a column. Creates with the column's
- *  status pre-set (Current Work = create Todo then start, per lifecycle). Stays
- *  open after each add for rapid entry. */
+/** Inline "add a task" at the bottom of every column. Creates with the column's
+ *  status pre-set. A task is born Consider or Todo, so the other columns go
+ *  through the lifecycle from Todo: In progress starts it, Done completes it
+ *  (logging work already finished), Archived archives it. Stays open after
+ *  each add for rapid entry. */
 function ColumnAddTask({
   lane,
   onCreate,
@@ -161,7 +160,16 @@ function ColumnAddTask({
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  const placeholder = lane === 'consider' ? 'Park a possibility…' : lane === 'current' ? 'Start a task…' : 'Add a task…';
+  const placeholder =
+    lane === 'consider'
+      ? 'Park a possibility…'
+      : lane === 'current'
+        ? 'Start a task…'
+        : lane === 'done'
+          ? 'Log a finished task…'
+          : lane === 'archived'
+            ? 'Add an archived task…'
+            : 'Add a task…';
   const submit = () => {
     const t = value.trim();
     if (!t) return;
@@ -225,7 +233,6 @@ function KanbanColumn({
 }) {
   const def = LANE_BY_KEY[lane];
   const { setNodeRef, isOver } = useDroppable({ id: `col:${lane}`, data: { lane } });
-  const canCreate = CREATABLE_LANES.includes(lane);
   return (
     <div className="flex h-full min-h-0 min-w-[240px] flex-1 flex-col">
       <div className="mb-2 flex items-center justify-between px-1">
@@ -258,7 +265,7 @@ function KanbanColumn({
           )}
         </SortableContext>
       </div>
-      {canCreate && <ColumnAddTask lane={lane} onCreate={onCreate} />}
+      <ColumnAddTask lane={lane} onCreate={onCreate} />
     </div>
   );
 }
@@ -287,9 +294,10 @@ export function TaskKanban({
   const [showArchived, setShowArchived] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  // Create into a column with its status pre-set. Current Work creates a Todo
-  // then starts it so lifecycle history stays valid (mirrors the list). A new
-  // task inherits the active Area filter when one is selected.
+  // Create into a column with its status pre-set. In progress, Done and
+  // Archived create a Todo, then start, complete or archive it, so lifecycle
+  // history stays valid (mirrors the list). A new task inherits the active
+  // Area filter when one is selected.
   const handleColumnCreate = useCallback(
     async (lane: TaskLane, title: string) => {
       const trimmed = title.trim();
@@ -301,7 +309,10 @@ export function TaskKanban({
         status,
         ...(areaMode !== 'all' && areaMode !== 'none' ? { areaId: areaMode } : {}),
       } as Parameters<typeof createTask.mutateAsync>[0]);
-      if (lane === 'current' && created?.id) lifecycle.start(created.id);
+      if (!created?.id) return;
+      if (lane === 'current') lifecycle.start(created.id);
+      else if (lane === 'done') lifecycle.complete(created.id);
+      else if (lane === 'archived') lifecycle.archive(created.id);
     },
     [createTask, areaMode, lifecycle],
   );
