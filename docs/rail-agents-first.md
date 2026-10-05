@@ -21,7 +21,7 @@ So there's one state vocabulary for every conversation, the same colors and shap
 
 - A dot on its icon: amber and pulsing when it's waiting on you, amber when it has replied since you last looked, green and pulsing while it's thinking.
 - Its name, bold when it wants you, regular when it doesn't. That's the email and chat norm for unread.
-- A second line in its voice, the way a chat list previews the last message, because what it said is the best answer to "should I go in?". The question it's waiting on, "Thinking…", its new reply, or (quiet) what it last said. An agent that hasn't spoken yet shows its purpose.
+- A second line in its voice, the way a chat list previews the last message, because what it said is the best answer to "should I go in?". The question it's waiting on, "Thinking…", its new reply, or (quiet) what it last said. An agent that hasn't spoken yet shows its purpose. One with no purpose either shows no second line. It used to say "No messages yet", which is about the agent's own chat but read as the agent having no executions.
 
 **Executions** sit under the agent, one 32px line each, inset so their dots sit under its icon: a status dot, the label, and on the right the pin, where it runs when that's not this machine, and time. No diff stats: in the rail they don't help decide where to go, and they live in the execution's header and the agent's Overview.
 

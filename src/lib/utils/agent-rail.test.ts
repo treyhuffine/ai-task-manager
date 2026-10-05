@@ -55,10 +55,16 @@ describe('agentVoice', () => {
     expect(agentVoice({ ...base, activity: 'replied' })).toEqual({ text: 'New reply', tone: 'strong' });
   });
 
-  it('when quiet, shows what it last said, then its purpose, then that it has not spoken', () => {
+  it('when quiet, shows what it last said, then its purpose', () => {
     expect(agentVoice({ ...base, preview: 'Filed 4 notes', purpose: 'Research' })).toEqual({ text: 'Filed 4 notes', tone: 'muted' });
     expect(agentVoice({ ...base, purpose: '  Research notes  ' })).toEqual({ text: 'Research notes', tone: 'muted' });
-    expect(agentVoice(base)).toEqual({ text: 'No messages yet', tone: 'muted' });
+  });
+
+  it('says nothing when it has not spoken and has no purpose, rather than "No messages yet"', () => {
+    // The agent may well have executions: an empty main chat is not an empty agent.
+    expect(agentVoice(base)).toBeNull();
+    expect(agentVoice({ ...base, purpose: '   ' })).toBeNull();
+    expect(agentVoice({ ...base, preview: '' })).toBeNull();
   });
 });
 

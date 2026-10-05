@@ -67,7 +67,8 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  * So the row carries only the agent's own state. A dot on its icon (thinking,
  * waiting on you, a new reply), its name in bold when it wants you, and a
  * second line in its voice: the question it's waiting on, "Thinking…", its
- * reply, or what it last said. Executions carry their own state on their own
+ * reply, or what it last said (its purpose until it has spoken, and no line
+ * at all when it has neither). Executions carry their own state on their own
  * rows, so nothing here is counted twice.
  *
  * Its executions sit under it on one 32px line each, inset so their dots sit
@@ -173,7 +174,11 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
             />
           )}
         </button>
-        <button onClick={open} className="flex-1 min-w-0 text-left" title={`${workspace.name}: ${voice.text}`}>
+        <button
+          onClick={open}
+          className="flex-1 min-w-0 text-left"
+          title={voice ? `${workspace.name}: ${voice.text}` : workspace.name}
+        >
           <span
             className={cn(
               'block truncate text-[12.5px] leading-tight',
@@ -182,9 +187,11 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
           >
             {workspace.name}
           </span>
-          <span className={cn('mt-0.5 block truncate text-[10.5px] leading-tight', VOICE_TONE[voice.tone])}>
-            {voice.text}
-          </span>
+          {voice && (
+            <span className={cn('mt-0.5 block truncate text-[10.5px] leading-tight', VOICE_TONE[voice.tone])}>
+              {voice.text}
+            </span>
+          )}
         </button>
 
         {/* Takes no room until you hover, so at rest the name and its line

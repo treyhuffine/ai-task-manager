@@ -46,24 +46,30 @@ export interface Voice {
   tone: VoiceTone;
 }
 
-/**
- * The agent's second line: what it's saying, so you can tell from the rail
- * whether to go in. The question it's waiting on, that it's thinking, its
- * new reply, or (quiet) what it last said. An agent that hasn't spoken yet
- * shows its purpose.
- */
-export function agentVoice(input: {
+interface VoiceInput {
   activity: AgentActivity;
   waitingOn: string | null;
   preview: string | null;
   purpose: string | null;
-}): Voice {
+}
+
+/**
+ * The agent's second line: what it's saying, so you can tell from the rail
+ * whether to go in. The question it's waiting on, that it's thinking, its
+ * new reply, or (quiet) what it last said. An agent that hasn't spoken yet
+ * shows its purpose, and one with no purpose either has no second line.
+ * Nothing stands in for it: the line is about the agent's own chat, and
+ * "No messages yet" under an agent read as the agent having no executions.
+ */
+export function agentVoice(input: VoiceInput & { activity: Exclude<AgentActivity, null> }): Voice;
+export function agentVoice(input: VoiceInput): Voice | null;
+export function agentVoice(input: VoiceInput): Voice | null {
   if (input.activity === 'waiting') return { text: input.waitingOn ?? 'Waiting on you', tone: 'attention' };
   if (input.activity === 'thinking') return { text: 'Thinking…', tone: 'working' };
   if (input.activity === 'replied') return { text: input.preview ?? 'New reply', tone: 'strong' };
   if (input.preview) return { text: input.preview, tone: 'muted' };
   const purpose = input.purpose?.trim();
-  return { text: purpose || 'No messages yet', tone: 'muted' };
+  return purpose ? { text: purpose, tone: 'muted' } : null;
 }
 
 export interface SummarySegment {
