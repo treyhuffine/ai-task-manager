@@ -5,6 +5,8 @@
  * cram into inline buttons and dropdowns lives here, stacked in the order a
  * person needs it: who is connected, how to connect (or add another account),
  * what agents can do with it, and the Advanced bring-your-own OAuth app.
+ * Adding an account opens its form under the Accounts heading, above the
+ * accounts, where the button that opened it is.
  */
 import { useState, type FormEvent } from 'react';
 import { ChevronDown, ExternalLink, KeyRound, Loader2, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
@@ -19,7 +21,7 @@ import { HostedEndpointFields } from '@/components/connectors/hosted-endpoint-fi
 import { connectorEndpointReady, type HostedEndpointSelection } from '@/lib/client/connector-endpoint';
 import { ByoPanel } from './byo-panel';
 import { HostedProviderDetail } from './hosted-provider-detail';
-import { BackLink, Chip, DetailHeader, GroupHeading } from './parts';
+import { BackLink, Chip, ConnectFormSection, DetailHeader, GroupHeading } from './parts';
 import {
   connectionIdentity,
   isRegisteredMcp,
@@ -106,6 +108,31 @@ function SingleProviderDetail(props: ProviderDetailProps) {
     setAddOpen(false);
   }
   const showConnect = canConnect && (!connected || addOpen || needsReconnect);
+  // A form opened from the Accounts section goes under its heading, above the
+  // accounts. Below them it opened away from the button that asked for it.
+  const opened = connected && addOpen;
+  const connectForm = showConnect && (
+    <ConnectFormSection opened={opened}>
+      <GroupHeading
+        action={
+          opened && (
+            <Button variant="ghost" size="xs" onClick={() => setAddOpen(false)} className="text-xs">
+              Cancel
+            </Button>
+          )
+        }
+      >
+        {connected ? hosted ? 'Reconnect' : 'Add another account' : 'Connect'}
+      </GroupHeading>
+      <div className="space-y-4 rounded-xl border border-border bg-card/20 p-4">
+        {hosted && p.mcp?.endpointConfig && <HostedEndpointFields setup={p.mcp.endpointConfig} value={props.endpointSelection} disabled={busy} onChange={props.onEndpointChange} />}
+        <ConnectPanel {...props} />
+        {!connected && (p.mcp?.endpointConfig?.locked || registered) && p.mcp?.serverId && props.onCancelSetup && (
+          <Button variant="ghost" size="xs" onClick={() => props.onCancelSetup?.()} disabled={busy}>Cancel setup</Button>
+        )}
+      </div>
+    </ConnectFormSection>
+  );
 
   return (
     <div className="space-y-6">
@@ -151,6 +178,7 @@ function SingleProviderDetail(props: ProviderDetailProps) {
           >
             Accounts
           </GroupHeading>
+          {opened && connectForm}
           <div className="divide-y divide-border/60 rounded-xl border border-border bg-card/20">
             {conns.map((c) => (
               <AccountRow
@@ -184,28 +212,7 @@ function SingleProviderDetail(props: ProviderDetailProps) {
         OAuth app: {props.byoConfigs.find(config => config.id === p.mcp?.authConfigId)?.label ?? p.mcp.authConfigId}. Disconnect to change this app.
       </p>}
 
-      {showConnect && (
-        <section className="space-y-2">
-          <GroupHeading
-            action={
-              connected && addOpen && (
-                <Button variant="ghost" size="xs" onClick={() => setAddOpen(false)} className="text-xs">
-                  Cancel
-                </Button>
-              )
-            }
-          >
-            {connected ? hosted ? 'Reconnect' : 'Add another account' : 'Connect'}
-          </GroupHeading>
-          <div className="space-y-4 rounded-xl border border-border bg-card/20 p-4">
-            {hosted && p.mcp?.endpointConfig && <HostedEndpointFields setup={p.mcp.endpointConfig} value={props.endpointSelection} disabled={busy} onChange={props.onEndpointChange} />}
-            <ConnectPanel {...props} />
-            {!connected && (p.mcp?.endpointConfig?.locked || registered) && p.mcp?.serverId && props.onCancelSetup && (
-              <Button variant="ghost" size="xs" onClick={() => props.onCancelSetup?.()} disabled={busy}>Cancel setup</Button>
-            )}
-          </div>
-        </section>
-      )}
+      {!opened && connectForm}
 
       {toolCount > 0 && (
         <ToolList toolkits={toolkits} writePolicy={props.writePolicy} onSetApproval={props.onSetApproval} />

@@ -51,6 +51,21 @@ export function GroupHeading({
   );
 }
 
+/**
+ * The section a connect form sits in. `opened` is for a form that a button in
+ * the Accounts section opened (Add account, Reconnect): it sits under that
+ * heading, above the accounts, where its button is, and is tinted so it reads
+ * as the step the button started. A first connect has no accounts to stand
+ * out from and stays plain.
+ */
+export function ConnectFormSection({ opened, children }: { opened: boolean; children: ReactNode }) {
+  return (
+    <section className={cn('space-y-2', opened && 'rounded-xl border border-primary/30 bg-primary/5 p-3')}>
+      {children}
+    </section>
+  );
+}
+
 /** Rounded pill for status and facts in a detail header or account row. */
 export function Chip({ tone = 'neutral', children }: { tone?: Tone | 'neutral'; children: ReactNode }) {
   return (

@@ -8,7 +8,7 @@ import { ConnectorLogo } from '@/components/connectors/connector-logo';
 import { connectorMeta } from '@/components/connectors/connector-meta';
 import { HostedEndpointFields } from '@/components/connectors/hosted-endpoint-fields';
 import { connectorEndpointSelection, type HostedEndpointSelection } from '@/lib/client/connector-endpoint';
-import { BackLink, Chip, DetailHeader, GroupHeading } from './parts';
+import { BackLink, Chip, ConnectFormSection, DetailHeader, GroupHeading } from './parts';
 import { Byo, ConnectPanel, ToolList, type ProviderDetailProps } from './provider-detail';
 import { CapabilityReview } from './capability-review';
 import { providerForHostedAccount } from './hosted-account-request';
@@ -30,6 +30,14 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
   const healthy = accounts.length > 0 && accounts.every(account => account.enabled !== false && !account.requiresAuth && account.status === 'ok');
   const usedAuthConfigIds = accounts.flatMap(account => account.authConfigId ? [account.authConfigId] : []);
   const toolCount = props.toolkits.reduce((count, toolkit) => count + toolkit.actions.length, 0);
+  // With accounts, a button in their section opened the form, so it goes under that heading, above them.
+  const hasAccounts = accounts.length > 0 || previousConnections.length > 0;
+  const form = showForm && <ConnectFormSection opened={hasAccounts}>
+    <GroupHeading action={hasAccounts && <Button size="xs" variant="ghost" disabled={busy} onClick={() => setTarget(null)}>Cancel</Button>}>
+      {active ? `Reconnect ${active.label || provider.displayName}` : previousActive ? `Reconnect ${connectionIdentity(previousActive)}` : hasAccounts ? 'Add another account' : 'Connect'}
+    </GroupHeading>
+    <HostedAccountForm key={active?.serverId ?? previousActive?.id ?? 'new'} {...props} account={active} previousConnection={previousActive} usedAuthConfigIds={usedAuthConfigIds} />
+  </ConnectFormSection>;
 
   return <div className="space-y-6">
     <div className="space-y-4">
@@ -41,6 +49,7 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
 
     {(accounts.length > 0 || previousConnections.length > 0) && <section className="space-y-2">
       <GroupHeading count={accounts.length + previousConnections.length} action={kind !== 'none' && <Button size="xs" variant="outline" disabled={busy} onClick={() => setTarget('new')}><Plus size={12} /> Add account</Button>}>Accounts</GroupHeading>
+      {form}
       <div className="space-y-3">{accounts.map(account => {
         const connection = connections.find(candidate => candidate.id === account.connectionId);
         const label = account.label || (connection && connectionIdentity(connection)) || provider.displayName;
@@ -74,12 +83,7 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
       </div>)}
     </section>}
 
-    {showForm && <section className="space-y-2">
-      <GroupHeading action={(accounts.length > 0 || previousConnections.length > 0) && <Button size="xs" variant="ghost" disabled={busy} onClick={() => setTarget(null)}>Cancel</Button>}>
-        {active ? `Reconnect ${active.label || provider.displayName}` : previousActive ? `Reconnect ${connectionIdentity(previousActive)}` : accounts.length || previousConnections.length ? 'Add another account' : 'Connect'}
-      </GroupHeading>
-      <HostedAccountForm key={active?.serverId ?? previousActive?.id ?? 'new'} {...props} account={active} previousConnection={previousActive} usedAuthConfigIds={usedAuthConfigIds} />
-    </section>}
+    {!hasAccounts && form}
 
     {isRegisteredMcp(provider) && !showForm && <section className="space-y-2">
       <Button variant="ghost" size="xs" onClick={props.onToggleAdvanced} aria-expanded={props.advancedOpen}>OAuth apps</Button>
