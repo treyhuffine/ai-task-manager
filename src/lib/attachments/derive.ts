@@ -21,19 +21,21 @@
 import type { Attachment } from '@/db/types';
 
 /**
- * Only internal `/api/attachments/<fileName>` references are recognized.
- * External image URLs (screenshots pasted from a web page) are ignored — we
- * don't own those files and shouldn't pretend to manage them.
+ * Only internal references are recognized: `/api/attachments/<fileName>` (an
+ * uploaded image's src) and the `[[file:<fileName>]]` marker (a file named
+ * inline, shown by the editor's file link). External image URLs (screenshots
+ * pasted from a web page) are ignored — we don't own those files and
+ * shouldn't pretend to manage them.
  *
  * The captured fileName is constrained to the on-disk shape: uuid-ish
  * segment, dot, extension. This prevents a path-traversal reference in the
  * body from showing up in the manifest.
  */
-const ATTACHMENT_REF_RE = /\/api\/attachments\/([A-Za-z0-9_-]+\.[A-Za-z0-9]+)/g;
+const ATTACHMENT_REF_RE = /\/api\/attachments\/([A-Za-z0-9_-]+\.[A-Za-z0-9]+)|\[\[file:([A-Za-z0-9_-]+\.[A-Za-z0-9]+)\]\]/g;
 
 /**
- * Collect every fileName referenced by `/api/attachments/<file>` inside the
- * given body. Dedupes by fileName, first occurrence wins. Returns the
+ * Collect every fileName referenced by `/api/attachments/<file>` or
+ * `[[file:<file>]]` inside the given body. Dedupes by fileName, first occurrence wins. Returns the
  * file_names in reading order.
  */
 export function extractReferencedFileNames(body: string | null | undefined): string[] {
@@ -41,7 +43,7 @@ export function extractReferencedFileNames(body: string | null | undefined): str
   const seen = new Set<string>();
   const out: string[] = [];
   for (const match of body.matchAll(ATTACHMENT_REF_RE)) {
-    const name = match[1];
+    const name = match[1] ?? match[2];
     if (!seen.has(name)) {
       seen.add(name);
       out.push(name);

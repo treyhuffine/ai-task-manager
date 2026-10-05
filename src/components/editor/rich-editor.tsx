@@ -27,6 +27,7 @@ import { EditorBubbleMenu } from './editor-bubble-menu'
 import { ListKeymap } from './list-keymap'
 import { SlashCommands } from './slash-commands'
 import { EntityLinkNode } from './entity-link-node'
+import { FileLinkNode } from './file-link-node'
 import { EntityLinkMenuExtension } from './entity-link-menu/extension'
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
 import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea'
@@ -124,6 +125,7 @@ export function RichEditor({
       ToggleContent,
       Markdown,
       EntityLinkNode,
+      FileLinkNode,
       EntityLinkMenuExtension,
       Placeholder.configure({
         placeholder: ({ node, pos, editor }) => {

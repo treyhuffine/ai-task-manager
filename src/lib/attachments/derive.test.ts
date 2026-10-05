@@ -40,6 +40,13 @@ describe('extractReferencedFileNames', () => {
     expect(extractReferencedFileNames(body)).toEqual(['abc.webm']);
   });
 
+  it('extracts files named inline with [[file:name]], alongside image srcs, in reading order', () => {
+    const body = 'toolbar [[file:ballcoach-toolbar-full.png]] then ![a](/api/attachments/first.png) and [[file:ballcoach-toolbar-full.png]] again';
+    expect(extractReferencedFileNames(body)).toEqual(['ballcoach-toolbar-full.png', 'first.png']);
+    // Not a bare file name: left alone.
+    expect(extractReferencedFileNames('[[file:...]] [[file:../x.png]] [[file:<fileName>]]')).toEqual([]);
+  });
+
   it('ignores unrelated URLs that happen to contain the prefix text', () => {
     const body = 'check https://example.com/api/attachments-elsewhere?id=foo';
     // prefix is `/api/attachments/<name>.<ext>` — the dash + query breaks the

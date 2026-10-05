@@ -10,6 +10,8 @@ import { NoteIcon } from '@/components/shared/note-icon';
 import { useOptionalDashboard } from '@/contexts/dashboard-context';
 import type { AreaRecord, ChatSessionWithExecution, NoteRecord, TaskRecord } from '@/db/types';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
+import { resolveMime } from '@/lib/attachments/mime';
+import { MessageFileChip } from '@/components/chat/message-file-chip';
 import { executionView } from '@/lib/client/active-view';
 import { calendarDaysUntil, formatLocalDate, isPastDate } from '@/lib/dates';
 import { cn } from '@/lib/utils';
@@ -24,15 +26,17 @@ import { type ReactNode } from 'react';
 type EntityType = 'task' | 'note' | 'area' | 'deck' | 'execution'
 
 interface EntitySegment {
-  type: 'text' | 'entity'
+  type: 'text' | 'entity' | 'file'
   content: string
   entityType?: EntityType
   entityId?: string
+  /** A `[[file:<name>]]` marker: a file in the home's attachments folder. */
+  fileName?: string
 }
 
 // ─── Parser ─────────────────────────────────────────────────
 
-const ENTITY_PATTERN = /\[\[(task|note|area|deck|execution):([^\]]+)\]\]/g
+const ENTITY_PATTERN = /\[\[(task|note|area|deck|execution):([^\]]+)\]\]|\[\[file:([A-Za-z0-9_-]+\.[A-Za-z0-9]+)\]\]/g
 
 export function parseEntityReferences(text: string): EntitySegment[] {
   const segments: EntitySegment[] = []
@@ -43,12 +47,11 @@ export function parseEntityReferences(text: string): EntitySegment[] {
     if (matchStart > lastIndex) {
       segments.push({ type: 'text', content: text.slice(lastIndex, matchStart) })
     }
-    segments.push({
-      type: 'entity',
-      content: match[0],
-      entityType: match[1] as EntityType,
-      entityId: match[2],
-    })
+    segments.push(
+      match[3]
+        ? { type: 'file', content: match[0], fileName: match[3] }
+        : { type: 'entity', content: match[0], entityType: match[1] as EntityType, entityId: match[2] },
+    )
     lastIndex = matchStart + match[0].length
   }
 
@@ -495,6 +498,19 @@ export function EntityAwareText({ text, renderMarkdown }: EntityAwareTextProps) 
   return (
     <>
       {segments.map((segment, i) => {
+        if (segment.type === 'file') {
+          // A file the agent named from the attachments folder, shown as the
+          // file (an image, text to expand, or a download), like one in a
+          // user's message.
+          const fileName = segment.fileName!
+          return (
+            <MessageFileChip
+              key={i}
+              variant="block"
+              attachment={{ fileName, originalName: fileName, mimeType: resolveMime(null, fileName), size: 0, uploadedAt: '' }}
+            />
+          )
+        }
         if (segment.type === 'entity') {
           return (
             <EntityChip

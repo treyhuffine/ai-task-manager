@@ -22,4 +22,11 @@ describe('parseEntityReferences', () => {
     const segments = parseEntityReferences('no markers here');
     expect(segments).toEqual([{ type: 'text', content: 'no markers here' }]);
   });
+
+  it('lifts a [[file:name]] marker out as a file, and leaves non-file names as text', () => {
+    const segments = parseEntityReferences('Here: [[file:ballcoach-toolbar-full.png]] and [[task:abc]] then [[file:...]]');
+    expect(segments.map((s) => s.type)).toEqual(['text', 'file', 'text', 'entity', 'text']);
+    expect(segments[1].fileName).toBe('ballcoach-toolbar-full.png');
+    expect(segments.at(-1)!.content).toBe(' then [[file:...]]');
+  });
 });
