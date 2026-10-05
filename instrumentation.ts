@@ -7,6 +7,8 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   const { validationBoot } = await import('@/lib/service/validation-boot');
   if (validationBoot()) return;
+  // Labels the background work below in the perf log (docs/server-perf-log.md).
+  const { perfScope } = await import('@/lib/perf/recorder');
   const { registerWebSocketRuntime } = await import('@/lib/trpc/ws-server');
   await registerWebSocketRuntime();
 
@@ -106,7 +108,7 @@ export async function register() {
 
   try {
     const { reconcileAllSessions } = await import('@/lib/executor/reconcile');
-    reconcileAllSessions()
+    perfScope('startup:reconcile', () => reconcileAllSessions())
       .then((stats) => {
         console.log(
           `[reconcile] startup sweep: checked=${stats.checked} drifted=${stats.drifted} replayed=${stats.replayed} redispatched=${stats.redispatched} reapedStuckBootstraps=${stats.reapedStuckBootstraps} importsChecked=${stats.importsChecked} importsSynced=${stats.importsSynced} errors=${stats.errors}`,
@@ -125,7 +127,7 @@ export async function register() {
   try {
     const { drainPendingNotifications } = await import('@/lib/notifications/notify');
     const drain = () =>
-      drainPendingNotifications()
+      perfScope('timer:notifier', () => drainPendingNotifications())
         .then((n) => {
           if (n > 0) console.log(`[notifier] sent ${n} notification(s) left pending`);
         })
@@ -160,7 +162,7 @@ export async function register() {
     const { healthCheckSession } = await import('@/lib/executor/health');
     const HEALTH_SWEEP_INTERVAL_MS = 60_000;
     let sweeping = false;
-    const interval = setInterval(async () => {
+    const interval = setInterval(() => perfScope('timer:health', async () => {
       if (sweeping) return;
       sweeping = true;
       try {
@@ -182,7 +184,7 @@ export async function register() {
       } finally {
         sweeping = false;
       }
-    }, HEALTH_SWEEP_INTERVAL_MS);
+    }), HEALTH_SWEEP_INTERVAL_MS);
     // Don't keep the event loop alive on shutdown.
     interval.unref?.();
   } catch (err) {

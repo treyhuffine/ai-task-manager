@@ -5,6 +5,7 @@
 
 import { reconcileAll } from './reconcile';
 import { isMirrorEnabled } from './config';
+import { perfScope } from '@/lib/perf/recorder';
 
 const INTERVAL_MS = 15 * 60 * 1000;
 
@@ -15,7 +16,7 @@ export function startMirrorTimer(): void {
   if (!isMirrorEnabled()) return;
 
   handle = setInterval(() => {
-    reconcileAll()
+    perfScope('timer:mirror', () => reconcileAll())
       .then((stats) => {
         if (stats.synced > 0 || stats.orphaned > 0 || stats.attachments.archived > 0) {
           console.log(

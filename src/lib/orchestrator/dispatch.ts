@@ -7,6 +7,7 @@
  * stable JSON envelope so CLI and MCP can render them the same way.
  */
 
+import { perfScope } from '@/lib/perf/recorder';
 import { recordRunArtifacts } from '@/lib/runs/artifact-refs';
 import { z } from 'zod';
 import { actions, type ActionName, type ActionOutput } from './registry';
@@ -26,7 +27,17 @@ export type DispatchEnvelope<T = unknown> =
 
 export function runAction<Name extends ActionName>(name: Name, rawInput: unknown, ctx: ActionContext): Promise<DispatchEnvelope<ActionOutput<Name>>>;
 export function runAction(name: string, rawInput: unknown, ctx: ActionContext): Promise<DispatchEnvelope>;
-export async function runAction(
+export function runAction(
+  name: string,
+  rawInput: unknown,
+  ctx: ActionContext,
+): Promise<DispatchEnvelope> {
+  // A perf-log scope per action, inside the request that carried it (MCP or
+  // the actions route), so an agent's calls show up by name.
+  return perfScope(`action:${name}`, () => dispatch(name, rawInput, ctx));
+}
+
+async function dispatch(
   name: string,
   rawInput: unknown,
   ctx: ActionContext,

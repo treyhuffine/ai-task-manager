@@ -7,6 +7,9 @@ import { isTrpcDrainSave } from '@/lib/trpc/admission';
 import { listRunningSessions, listBackgroundTaskSessions, listSessionsWithPending } from '@/lib/executor/status-snapshot';
 import { TRPC_WS_PATH } from '@/lib/trpc/ws-runtime';
 import { DEFAULT_PORT } from '@/lib/auth/port';
+import { beginPerfScope, stopPerfRecorder } from '@/lib/perf/recorder';
+import { startServerPerfLog } from '@/lib/perf/server';
+import { requestLabel } from '@/lib/perf/labels';
 
 process.env.RI_TRPC_WS_HOST = '1';
 Object.assign(process.env, { NODE_ENV: process.env.RI_DESKTOP_MODE === 'development' ? 'development' : 'production' });
@@ -23,6 +26,9 @@ const application = next({ dev: process.env.RI_DESKTOP_MODE === 'development', h
 const handle = application.getRequestHandler();
 
 async function start() {
+  // Before Next loads, so boot's own statements are timed too. A validating
+  // server is a rehearsal and would only add noise to the Home's log.
+  if (process.env.RI_SERVICE_VALIDATING !== '1') startServerPerfLog();
   await application.prepare();
   const server = http.createServer((request, response) => {
     let pathname: string;
@@ -81,8 +87,11 @@ async function start() {
     let done = false;
     let handlerDone = false;
     let responseDone = false;
+    // One perf-log scope per request (src/lib/perf/recorder.ts), so what the
+    // handler runs is attributed to its route or tRPC procedure.
+    const perf = beginPerfScope(requestLabel(request.method, pathname));
     const finish = (passive = false) => { if (!done && (passive || (handlerDone && responseDone))) { done = true; release(); } };
-    const responseEnded = () => { responseDone = true; finish(); };
+    const responseEnded = () => { responseDone = true; perf.end(); finish(); };
     response.once('finish', responseEnded);
     response.once('close', responseEnded);
     // A passive SSE subscriber does not keep an otherwise idle Home busy.
@@ -90,10 +99,10 @@ async function start() {
     const writeHead = response.writeHead;
     response.writeHead = function (status: number, message?: string | http.OutgoingHttpHeaders | http.OutgoingHttpHeader[], headers?: http.OutgoingHttpHeaders | http.OutgoingHttpHeader[]) {
       const result = Reflect.apply(writeHead, this, [status, message, headers]) as ReturnType<typeof writeHead>;
-      if (safeRead && String(this.getHeader('content-type')).includes('text/event-stream')) finish(true);
+      if (safeRead && String(this.getHeader('content-type')).includes('text/event-stream')) { perf.end(); finish(true); }
       return result;
     };
-    void handle(request, response).then(() => { handlerDone = true; finish(); }).catch(error => {
+    void perf.run(() => handle(request, response)).then(() => { handlerDone = true; finish(); }).catch(error => {
       handlerDone = true; finish();
       console.error('[service] Request failed', error instanceof Error ? error.name : 'Error');
       if (!response.headersSent) response.writeHead(500);
@@ -119,6 +128,7 @@ async function start() {
   const stop = () => {
     if (stopping) return;
     stopping = true;
+    stopPerfRecorder();
     server.close();
     void (async () => { await globalThis.__riTRPCWebSocket?.close(); await application.close(); })().finally(() => process.exit(0));
   };

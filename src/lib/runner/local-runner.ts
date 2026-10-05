@@ -52,6 +52,7 @@ import { decodeBackgroundTaskEvent, isActiveBackgroundTaskEvent } from '@/lib/ex
 import { removeOwnedProjectSkillLinks } from '@/lib/agent-skills/shipped';
 import { getHarnessRuntime, runtimeContextForHarness } from '@/lib/harness/runtime';
 import { redactHarnessRuntimeValue } from '@/lib/harness/redaction';
+import { perfScope } from '@/lib/perf/recorder';
 import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import { ExecutorError } from './errors';
 import { withFirstTurnPreamble } from './first-turn';
@@ -823,11 +824,22 @@ export function nextPartRevision(): number {
   return next;
 }
 
-export async function persistStreamEvent(
+export function persistStreamEvent(
   chatSessionId: string,
   event: StreamEvent,
   writer: EventWriter,
   options: { trackBackgroundTaskRuntime?: boolean } = {},
+): Promise<void> {
+  // One perf-log scope per stored event, by harness, so the log can tell how
+  // much of the server's time goes to taking in agent output.
+  return perfScope(`ingest:${event.providerType ?? 'unknown'}`, () => persist(chatSessionId, event, writer, options));
+}
+
+async function persist(
+  chatSessionId: string,
+  event: StreamEvent,
+  writer: EventWriter,
+  options: { trackBackgroundTaskRuntime?: boolean },
 ): Promise<void> {
   const safeEvent = redactHarnessRuntimeValue(event);
   // Runtime signal, not transcript content — and it has to be applied even

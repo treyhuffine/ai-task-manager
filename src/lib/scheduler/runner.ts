@@ -22,6 +22,7 @@
  */
 
 import { withActivity, MaintenanceError } from '@/lib/service/maintenance';
+import { perfScope } from '@/lib/perf/recorder';
 import {
   acquireSchedulerLock,
   peekLockHolderPid,
@@ -112,9 +113,10 @@ export function startScheduler(): void {
 
   // Defer first tick a few seconds so DB migrations and lazy modules
   // finish before we go banging on the triggers table.
+  const tick = () => void perfScope('timer:scheduler', () => runTick());
   const initial = setTimeout(() => {
-    void runTick();
-    state.interval = setInterval(() => void runTick(), TICK_INTERVAL_MS);
+    tick();
+    state.interval = setInterval(tick, TICK_INTERVAL_MS);
     state.interval.unref?.();
   }, STARTUP_DELAY_MS);
   initial.unref?.();

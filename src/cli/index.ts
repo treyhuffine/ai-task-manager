@@ -25,6 +25,7 @@ import { registerWorkerCommand } from './commands/worker';
 import { installRoleGuard } from './lib/role-guard';
 import { registerUpdateCommand } from './commands/update';
 import { registerServiceCommand } from './commands/service';
+import { registerPerfCommand } from './commands/perf';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -118,6 +119,7 @@ registerSetupCommand(program);
 registerConnectCommands(program);
 registerWorkerCommand(program);
 registerServiceCommand(program);
+registerPerfCommand(program);
 registerUpdateCommand(program);
 installRoleGuard(program);
 

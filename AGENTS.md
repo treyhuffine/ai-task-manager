@@ -62,6 +62,7 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 ## Query cost
 
 - better-sqlite3 is synchronous and the server has one thread, so a slow query stalls every other request until it returns. `chat_events` is the big table: over 1.4M rows and 9 GB on a real home, and one long codex chat alone can hold 250k events.
+- Measure, don't guess: the server keeps a perf log of stalls, slow statements and per-procedure rates, read with `ri perf` (`docs/server-perf-log.md`). New background work runs inside `perfScope('timer:<name>', ...)` so the log can name it.
 - Any `chat_events` read on a request, poll or timer must be bounded by an index: `session_id = ?` for one session (an `IN` list over several sessions can't walk the index in order, so SQLite sorts all of their events), `ORDER BY created_at, id` with a `LIMIT`, or a partial index for a rare kind of row. Never rank, group or `json_extract` across the whole table or a whole long session.
 - Columns stored after `raw` (`external_*`, `part_revision`, `attachments`) can mean reading the whole row, overflow pages included. Filter on the early columns (`session_id`, `source`, `content`) first.
 - SQLite only uses a partial index when the query repeats its `WHERE` with literals, not bound params. Build both from one expression (`isBackgroundTaskEvent` in `schema.ts`).
