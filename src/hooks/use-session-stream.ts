@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { isNewerRevision, type ChatEventDTO } from '@/lib/api/dto/chat-event';
+import { referencesEntity } from '@/lib/entity-refs/parse-markers';
 import type { PendingInput } from '@/lib/api/sessions';
 import { isMutatingToolUse } from '@/lib/executor/mutation-detect';
 import { worktreeScopeFromCache } from '@/hooks/use-execution';
@@ -117,6 +118,14 @@ export function useSessionStream(sessionId: string | null): void {
         });
         return out;
       });
+
+      // A message that references a task or note: the server recorded the
+      // reference (chat_refs) before publishing the message, so refresh the
+      // lookup the transcript's chips read. Left cached, a task mentioned for
+      // the first time renders as "Unknown task" until the lookup goes stale.
+      if (event.source === 'user' && referencesEntity(event.content)) {
+        queryClient.invalidateQueries({ queryKey: ['session', sessionId, 'entities'] });
+      }
 
       // Turn-completion landings (source='result') are the strongest
       // "this session moved buckets" signal — invalidate the rail so

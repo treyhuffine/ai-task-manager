@@ -83,3 +83,12 @@ export function listNonFileMarkers(
   }
   return out;
 }
+
+/**
+ * Whether a message references a task or note (not a file or the
+ * scratchpad): the references the transcript's chips look up by id, so a
+ * new one means the lookup needs a refresh.
+ */
+export function referencesEntity(text: string | null | undefined): boolean {
+  return !!text && /\[\[(?:task|note):[A-Za-z0-9_.-]+\]\]/.test(text);
+}
