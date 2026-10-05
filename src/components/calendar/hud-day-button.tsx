@@ -3,9 +3,9 @@
 /**
  * The TopHud next-boundary button — the calendar's ambient layer, present on
  * every surface including ExecutionView. The label IS the glance ("Standup in
- * 40m"); clicking opens a peek popover with two doors: Day view (navigates to
- * the calendar tab) and Week view (opens the large overlay in place, so a
- * look-ahead never yanks you out of an execution).
+ * 40m"); clicking opens a peek popover with two doors, Day view and Week
+ * view, into the full-screen calendar (`CalendarModal`). It opens in place,
+ * so a look-ahead never yanks you out of an execution.
  *
  * With no calendar connected it shows a dismissible invitation instead of
  * hiding — this is a key feature people would otherwise never discover. One
@@ -16,18 +16,15 @@
 import { useEffect, useState } from 'react';
 import { Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useDashboard } from '@/contexts/dashboard-context';
 import { openSettings } from '@/components/settings/settings-store';
 import { useDayShape, usePrefetchDayShape } from '@/hooks/use-day-shape';
 import { hudLabel } from '@/lib/calendar/hud';
 import { todayLocalDate } from '@/lib/deck/date';
 import { mondayOf } from '@/lib/calendar/dates';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { requestCalendarDate } from './calendar-store';
 import { dismissCalendarInvite, readInviteDismissed, subscribeInviteDismissed } from './invite';
 import { HudDayPeek } from './hud-day-peek';
-import { WeekOverlay } from './week-overlay';
-import { useOpenCalendar } from './use-open-calendar';
+import { openCalendarModal } from '@/lib/client/calendar-modal';
 
 const STALE_MS = 15 * 60_000;
 const TICK_MS = 30_000;
@@ -36,10 +33,7 @@ export function HudDayButton() {
   const today = todayLocalDate();
   const { data } = useDayShape(today, 1);
   const prefetch = usePrefetchDayShape();
-  const { openTask } = useDashboard();
-  const { openCalendar } = useOpenCalendar();
   const [open, setOpen] = useState(false);
-  const [weekOpen, setWeekOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteDismissed, setInviteDismissed] = useState(readInviteDismissed);
   useEffect(() => subscribeInviteDismissed(() => setInviteDismissed(true)), []);
@@ -108,16 +102,15 @@ export function HudDayButton() {
 
   const openDay = () => {
     setOpen(false);
-    openCalendar();
+    openCalendarModal({ view: 'day', date: today });
   };
 
   const openWeek = () => {
     setOpen(false);
-    setWeekOpen(true); // overlay in place — no navigation, no jarring
+    openCalendarModal({ view: 'week', date: today });
   };
 
   return (
-    <>
       <Popover
         open={open}
         onOpenChange={(next) => {
@@ -150,21 +143,6 @@ export function HudDayButton() {
           <HudDayPeek data={data} onOpenDay={openDay} onOpenWeek={openWeek} />
         </PopoverContent>
       </Popover>
-
-      {weekOpen && (
-        <WeekOverlay
-          open={weekOpen}
-          onOpenChange={setWeekOpen}
-          initialDate={today}
-          onSelectDay={(date) => {
-            // An explicit day choice earns the navigation.
-            requestCalendarDate(date);
-            openCalendar();
-          }}
-          onOpenTask={openTask}
-        />
-      )}
-    </>
   );
 }
 

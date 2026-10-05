@@ -28,9 +28,9 @@ export function HudDayPeek({
   onOpenWeek,
 }: {
   data: CalendarRangeResult;
-  /** Navigate to the calendar tab's day view (leaves the current surface). */
+  /** Open the full-screen calendar on today (in place, over any surface). */
   onOpenDay: () => void;
-  /** Open the week overlay in place (works from inside an execution). */
+  /** Open the full-screen calendar on this week. */
   onOpenWeek: () => void;
 }) {
   const day = data.days[0];

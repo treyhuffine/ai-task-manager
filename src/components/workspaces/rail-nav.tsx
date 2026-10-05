@@ -2,8 +2,11 @@
 
 import type { ComponentProps, ReactNode } from 'react';
 import { Calendar, Clock, Plus, Search, SquareKanban, type LucideIcon } from 'lucide-react';
-import { useOpenCalendar } from '@/components/calendar/use-open-calendar';
+import { usePrefetchDayShape } from '@/hooks/use-day-shape';
 import { useRunsStats } from '@/hooks/use-runs-stats';
+import { openCalendarModal, useCalendarModal } from '@/lib/client/calendar-modal';
+import { mondayOf } from '@/lib/calendar/dates';
+import { todayLocalDate } from '@/lib/deck/date';
 import { openTaskBoard, useTaskBoardOpen } from '@/lib/client/task-board';
 import { cn } from '@/lib/utils';
 import { openLauncher } from './launcher/launcher-store';
@@ -14,7 +17,8 @@ import { openChatSearch } from './chat-search-store';
  * the collapsed strip show the same buttons in the same order.
  *
  *   - **Places**: Board, Calendar, Schedules and Triggers. Rows under the
- *     home row in the wide rail, which scroll away with the list.
+ *     home row in the wide rail, which scroll away with the list. Each opens
+ *     full screen or in a dialog over whatever is on screen.
  *   - **Verbs**: Create (a new execution in any agent, the launcher with no
  *     agent picked) and Search (every chat's transcript, in a modal). Two
  *     buttons side by side, sticky with the tabs.
@@ -30,7 +34,9 @@ export interface RailPlace {
   title: string;
   icon: LucideIcon;
   onClick: () => void;
-  /** Showing now: the board is open, the calendar is on screen at Home. */
+  /** The pointer or focus reached it: warm what it opens. */
+  onIntent?: () => void;
+  /** Showing now: its board, calendar or dialog is open. */
   active: boolean;
   /** Live count beside the label in the wide rail, a dot on the icon in the strip. */
   count?: number;
@@ -44,7 +50,8 @@ export function useRailPlaces({
   onOpenSchedules: () => void;
 }): RailPlace[] {
   const boardOpen = useTaskBoardOpen();
-  const { openCalendar, calendarShowing } = useOpenCalendar();
+  const calendarOpen = useCalendarModal().open;
+  const prefetchCalendar = usePrefetchDayShape();
   const { data: runs } = useRunsStats();
   const activeRuns = runs?.activeRuns ?? 0;
   const running = activeRuns > 0 ? `${activeRuns} run${activeRuns === 1 ? '' : 's'} active` : null;
@@ -63,8 +70,10 @@ export function useRailPlaces({
       label: 'Calendar',
       title: 'Calendar',
       icon: Calendar,
-      onClick: openCalendar,
-      active: calendarShowing,
+      onClick: () => openCalendarModal(),
+      // The week, so the calendar opens with its events, not a skeleton.
+      onIntent: () => prefetchCalendar(mondayOf(todayLocalDate()), 7),
+      active: calendarOpen,
     },
     {
       id: 'schedules',
@@ -107,11 +116,13 @@ export const RAIL_VERBS: readonly RailVerb[] = [
 export function RailPlaceRows({ places }: { places: readonly RailPlace[] }) {
   return (
     <nav aria-label="Places" className="flex flex-col gap-0.5 px-2 pt-1 pb-1.5">
-      {places.map(({ id, label, title, icon: Icon, onClick, active, count }) => (
+      {places.map(({ id, label, title, icon: Icon, onClick, onIntent, active, count }) => (
         <button
           key={id}
           type="button"
           onClick={onClick}
+          onPointerEnter={onIntent}
+          onFocus={onIntent}
           title={title}
           aria-current={active ? 'page' : undefined}
           className={cn(
@@ -216,12 +227,14 @@ export function RailIconButton({
 export function RailStripActions({ places }: { places: readonly RailPlace[] }) {
   return (
     <>
-      {places.map(({ id, title, icon, onClick, active, count }) => (
+      {places.map(({ id, title, icon, onClick, onIntent, active, count }) => (
         <RailIconButton
           key={id}
           icon={icon}
           label={title}
           onClick={onClick}
+          onPointerEnter={onIntent}
+          onFocus={onIntent}
           active={active}
           badge={
             count !== undefined ? (

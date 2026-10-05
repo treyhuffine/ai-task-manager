@@ -6,6 +6,7 @@ import { SquareKanban, X } from 'lucide-react';
 import { Dialog, DialogDescription, DialogOverlay, DialogPortal, DialogTitle } from '@/components/ui/dialog';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { viewKey } from '@/lib/client/active-view';
+import { closeCalendarModal } from '@/lib/client/calendar-modal';
 import { closeTaskBoard, openTaskBoard, useTaskBoardOpen } from '@/lib/client/task-board';
 import { cn } from '@/lib/utils';
 import { TaskKanban } from './task-kanban';
@@ -15,7 +16,7 @@ const BOARD_PARAM = 'board';
 
 /**
  * The task board, nearly full screen, over whatever is on screen. Opened from
- * the top HUD's Board button or "Open board" in ⌘K, and closed with Esc, the X
+ * the rail's Board or "Open board" in ⌘K, and closed with Esc, the X
  * or a click outside, which leaves you exactly where you were (often an
  * execution you were watching). Same board as the Tasks panel's Board view,
  * just with the width to read it.
@@ -63,9 +64,12 @@ export function TaskBoardModal() {
 
   // A slideout already open (the board opened from ⌘K over a task) would sit
   // under the board, still visible but no longer clickable, since dialogs
-  // stack in the order they open. Start the board from a clean stack.
+  // stack in the order they open. Start the board from a clean stack, the
+  // full-screen calendar included: one full-screen surface at a time.
   useEffect(() => {
-    if (open) closeAllSlideouts();
+    if (!open) return;
+    closeCalendarModal();
+    closeAllSlideouts();
   }, [open, closeAllSlideouts]);
 
   return (

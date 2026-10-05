@@ -17,6 +17,7 @@ import { useSearch } from '@/hooks/use-search';
 import { useCreateTask } from '@/hooks/use-tasks';
 import type { SearchResult } from '@/lib/api/search';
 import { closeTaskBoard, openTaskBoard } from '@/lib/client/task-board';
+import { closeCalendarModal, openCalendarModal } from '@/lib/client/calendar-modal';
 import type { AnyPanelTab } from '@/types/dashboard';
 import { Command } from 'cmdk';
 import {
@@ -133,8 +134,9 @@ export function SearchOverlay() {
 
   const handleNavigate = useCallback((tab: AnyPanelTab) => {
     showPanelTab(tab);
-    // The tab opens under the board, so going to it leaves the board.
+    // The tab opens under the board or the calendar, so going to it leaves them.
     closeTaskBoard();
+    closeCalendarModal();
     setOpen(false);
   }, [showPanelTab]);
 
@@ -174,6 +176,10 @@ export function SearchOverlay() {
       case 'open-board':
         setOpen(false);
         openTaskBoard();
+        break;
+      case 'open-calendar':
+        setOpen(false);
+        openCalendarModal();
         break;
       default:
         // go-* navigation commands

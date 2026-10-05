@@ -8,20 +8,19 @@
  * onto the timeline for the deck; it stays a ranked stack.
  *
  * Lives under the deck's conductor (DeckDayBar) and inside the HUD peek.
- * Clicking opens the full calendar tab (by default in the panel opposite the
- * deck, so deck and calendar end up side by side).
+ * Clicking opens today in the full-screen calendar (`CalendarModal`).
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarPlus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useDashboard } from '@/contexts/dashboard-context';
 import { useDayShape } from '@/hooks/use-day-shape';
 import { todayLocalDate } from '@/lib/deck/date';
 import { formatMinutes, minutesToLabel, parseHhMm } from '@/lib/deck/calendar';
 import { eventWindowOnDate, stripSegments } from '@/lib/calendar/layout';
 import { pickPairing, type PairableItem } from '@/lib/calendar/pairing';
 import { openSettings } from '@/components/settings/settings-store';
+import { openCalendarModal } from '@/lib/client/calendar-modal';
 import { dismissCalendarInvite, readInviteDismissed, subscribeInviteDismissed } from './invite';
 import {
   Tooltip,
@@ -49,7 +48,6 @@ export function DayShapeStrip({
 }: DayShapeStripProps) {
   const today = todayLocalDate();
   const { data } = useDayShape(today, 1);
-  const { panelATab, panelBTab, setPanelTab } = useDashboard();
   const [inviteDismissed, setInviteDismissed] = useState(readInviteDismissed);
   useEffect(() => subscribeInviteDismissed(() => setInviteDismissed(true)), []);
 
@@ -137,12 +135,7 @@ export function DayShapeStrip({
     }))
     .filter((g) => g.widthPct >= 12);
 
-  const openCalendar =
-    onOpenCalendar ??
-    (() => {
-      const target = panelATab === 'deck' ? 'b' : panelBTab === 'deck' ? 'a' : 'b';
-      setPanelTab(target, 'calendar');
-    });
+  const openCalendar = onOpenCalendar ?? (() => openCalendarModal({ view: 'day', date: today }));
 
   return (
     <TooltipProvider delayDuration={200}>

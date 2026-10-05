@@ -772,6 +772,29 @@ default, for reading the week's shape) and **List** (the stacked per-day
 agenda, denser when sparse). All-day chips and deadline markers live in a
 pinned header row in grid mode.
 
+### Container decision, revised (2026-10-05): the calendar opens full screen
+
+Opening the calendar now means one place: `CalendarModal`, nearly full screen
+over any surface, the same container as the task board (z-40, below the
+header on desktop, Esc / X / click outside returns exactly where you were,
+`?calendar=1` survives a reload). The rail's Calendar, the header peek's Day
+view and Week view, the deck's day strip, the panel's Week button and
+"Open calendar" in ⌘K (formerly "Go to Calendar") all open it. It replaces
+`WeekOverlay`, and with it `calendar-store.ts`: a day click in the week now
+switches the modal to that day instead of jumping the panel.
+
+The modal has two views, the last one used remembered (`ri.calendar.view`,
+week to start): **Week** (Grid or List, as the overlay had, with deadline
+markers) and **Day** (the hour-axis `DayView`). Each open can ask for a view
+and a date (`openCalendarModal({ view, date })`); unsaid, it's the last view
+and today.
+
+Why the reversal of "day lives in the panel": the panel put the calendar in
+half a column and swapped it into the deck's place, and Trey asked for it to
+open full screen rather than in the two-column layout. The panel tab stays
+(Home, More, Calendar) for keeping a day docked beside the deck on purpose.
+It's now the only door into the panel.
+
 **Geometry rule (learned the hard way):** time surfaces contain no pixel math
 in JS. Columns are real CSS grid tracks (`grid-cols-[2.5rem_repeat(7,1fr)]`),
 vertical positions are percentages of the track (`minutePct`/`windowPct` in

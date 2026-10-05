@@ -15,6 +15,7 @@ import { SearchOverlay } from '@/components/shared/search-overlay';
 import { NoteSlideout } from '@/components/notes/note-slideout';
 import { TaskSlideout } from '@/components/tasks/task-slideout';
 import { TaskBoardModal } from '@/components/tasks/task-board-modal';
+import { CalendarModal } from '@/components/calendar/calendar-modal';
 import { AreaSlideout } from '@/components/dashboard/area-slideout';
 import { AreasSheet } from '@/components/dashboard/areas-sheet';
 import { SettingsModal } from '@/components/settings/settings-modal';
@@ -160,6 +161,7 @@ function DashboardShell() {
         <FocusView />
         <SearchOverlay />
         <TaskBoardModal />
+        <CalendarModal />
         <NoteSlideout
           noteId={openNoteId}
           onClose={popSlideout}

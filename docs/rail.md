@@ -12,7 +12,7 @@ Reworked 2026-10-05 from a rail that listed every execution even when collapsed,
 | Part | What it does | Scrolls? |
 |---|---|---|
 | Home row | The orchestrator by name, the way home. Collapse toggle (⌘\) at its right. | Fixed |
-| Places | Board (the task board modal), Calendar (Home's calendar tab), Schedules and Triggers (with the live run count). | Scroll away with the list |
+| Places | Board (the task board, full screen), Calendar (the calendar, full screen, `CalendarModal`), Schedules and Triggers (with the live run count). Pointing at Calendar prefetches the week. | Scroll away with the list |
 | Create, Search | Create opens the launcher with no agent picked (a new execution anywhere). Search opens chat search (every transcript). | Sticky under the home row |
 | Agents, Recent | Agents is the agent tree with each agent's executions. Recent is every execution newest first, archived included, with an agent filter. | Sticky |
 | The list | Pinned, then the chosen tab's list. | Scrolls |
@@ -39,7 +39,7 @@ The execution view starts with the rail collapsed (`executionRailOpen`, separate
 
 ## Tablet
 
-768 to 1024px uses the same collapsed rail with no expand toggle (`PowerRail fixed`): the window can't spare 256px. Tap Agents for the flyout. Calendar opens in the left panel there, the only one a tablet shows (`useOpenCalendar`).
+768 to 1024px uses the same collapsed rail with no expand toggle (`PowerRail fixed`): the window can't spare 256px. Tap Agents for the flyout. Board and Calendar open full screen, as on a desktop.
 
 ## What went away
 

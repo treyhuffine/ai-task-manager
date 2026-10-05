@@ -7,9 +7,9 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useAgentAttention } from '@/hooks/use-agent-attention';
 import { useSessionBuckets } from '@/hooks/use-session-buckets';
 import { HOTKEYS } from '@/constants/commands';
+import { viewKey } from '@/lib/client/active-view';
 import { nextFlyoutState, type FlyoutEvent, type FlyoutState } from '@/lib/client/rail-flyout';
 import { useRailTab } from '@/lib/client/rail-tab';
-import type { ActiveView } from '@/types/dashboard';
 import { RailHome } from './rail-home';
 import { RailFooter } from './rail-footer';
 import { RailIconButton, RailStripActions, StripDivider, type RailPlace } from './rail-nav';
@@ -224,16 +224,4 @@ function FlyoutList() {
       </div>
     </>
   );
-}
-
-function viewKey(view: ActiveView): string {
-  switch (view.kind) {
-    case 'home':
-      return 'home';
-    case 'skill':
-      return `skill:${view.ref}`;
-    case 'agent':
-    case 'execution':
-      return `${view.kind}:${view.id}`;
-  }
 }

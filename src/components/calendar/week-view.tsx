@@ -7,8 +7,8 @@
  * the day's timed events as compact agenda rows. No verdicts, no scores —
  * judgment stays with the reader.
  *
- * Rendered inside WeekOverlay (it needs width); the in-panel calendar is
- * day-only.
+ * Rendered in the full-screen calendar (it needs width); the in-panel
+ * calendar is day-only.
  */
 
 import { Flag } from 'lucide-react';

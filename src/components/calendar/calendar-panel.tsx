@@ -1,62 +1,46 @@
 "use client";
 
 /**
- * The Calendar tab — purely a calendar, and in the panel purely a DAY.
- * The hour-axis day view is the high-frequency companion surface beside the
- * deck; the week is a deliberate look-ahead, so the Week button opens the
- * large WeekOverlay directly (an hour grid fits a half-width column, seven
- * columns never will). Read-only over external events: the deck never
- * renders here — it's a ranked stack, not a schedule (see the retrenchment
- * note in docs/calendar-view-spec.md).
+ * The Calendar tab — purely a calendar, and in the panel purely a DAY, for
+ * keeping one docked beside the deck (Home, More, Calendar). Every other door
+ * to the calendar opens it full screen (`CalendarModal`), and so does this
+ * tab's Week button: an hour grid fits a half-width column, seven columns
+ * never will. Read-only over external events: the deck never renders here —
+ * it's a ranked stack, not a schedule (see the retrenchment note in
+ * docs/calendar-view-spec.md).
  */
 
 import { useEffect, useState } from 'react';
 import {
-  Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
   Columns3,
   RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useDashboard } from '@/contexts/dashboard-context';
 import { useDayShape, usePrefetchDayShape, useRefreshDayShape } from '@/hooks/use-day-shape';
 import { todayLocalDate } from '@/lib/deck/date';
 import { addDaysLocal, formatDayLabel, mondayOf } from '@/lib/calendar/dates';
-import { openSettings } from '@/components/settings/settings-store';
+import { openCalendarModal } from '@/lib/client/calendar-modal';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { CALENDAR_GOTO_EVENT, consumePendingCalendarDate } from './calendar-store';
+import { CalendarConnectPrompt } from './calendar-connect-prompt';
 import { DayView } from './day-view';
-import { WeekOverlay } from './week-overlay';
 
 const STALE_MS = 15 * 60_000;
 
 export function CalendarPanel() {
   const today = todayLocalDate();
   const [anchor, setAnchor] = useState(today);
-  const [weekOpen, setWeekOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const { openTask } = useDashboard();
 
   const { data } = useDayShape(anchor, 1);
   const refresh = useRefreshDayShape();
   const prefetch = usePrefetchDayShape();
-
-  // Global surfaces (the HUD week overlay) can ask the panel to show a date.
-  useEffect(() => {
-    const claim = () => {
-      const requested = consumePendingCalendarDate();
-      if (requested) setAnchor(requested);
-    };
-    claim(); // a request may have fired before this panel mounted
-    window.addEventListener(CALENDAR_GOTO_EVENT, claim);
-    return () => window.removeEventListener(CALENDAR_GOTO_EVENT, claim);
-  }, []);
 
   // Warm the week range so the Week button opens instantly.
   useEffect(() => {
@@ -78,24 +62,7 @@ export function CalendarPanel() {
   const degraded = data?.status === 'degraded' || data?.status === 'error';
 
   if (data?.status === 'no_providers') {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
-        <CalendarIcon size={24} className="text-muted-foreground/30" />
-        <div>
-          <p className="text-sm font-medium text-foreground">Connect your calendar</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            See your day here and let the deck plan around it
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => openSettings('plugins')}
-          className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
-        >
-          Open connector settings
-        </button>
-      </div>
-    );
+    return <CalendarConnectPrompt />;
   }
 
   return (
@@ -140,12 +107,12 @@ export function CalendarPanel() {
 
           <div className="flex-1" />
 
-          {/* Week look-ahead — opens the wide overlay directly (needs width) */}
+          {/* Week look-ahead — opens the full-screen calendar (needs width) */}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={() => setWeekOpen(true)}
+                onClick={() => openCalendarModal({ view: 'week', date: anchor })}
                 className="hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-border text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
                 <Columns3 size={11} />
@@ -186,16 +153,6 @@ export function CalendarPanel() {
             isToday={anchor === today}
           />
         </div>
-
-        {weekOpen && (
-          <WeekOverlay
-            open={weekOpen}
-            onOpenChange={setWeekOpen}
-            initialDate={anchor}
-            onSelectDay={setAnchor}
-            onOpenTask={openTask}
-          />
-        )}
       </div>
     </TooltipProvider>
   );
