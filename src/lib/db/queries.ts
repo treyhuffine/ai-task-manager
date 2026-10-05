@@ -9032,10 +9032,16 @@ export function listChatEventIdentities(
  * the floating "Resume sessions" card can render a preview and resend
  * action per row.
  *
- * Single round-trip: window function picks each session's latest event
- * (drives the filter) and joins to that session's most-recent user event
- * (drives the preview). Non-archived sessions only — archived ones don't
- * need a "resume" prompt.
+ * Single round-trip, driven from `chat_sessions`: per active session, one
+ * `LIMIT 1` probe of `idx_chat_events_session_created` reads the latest
+ * event (drives the filter), and only sessions that match probe again for
+ * their most-recent user event (drives the preview). Non-archived
+ * sessions only — archived ones don't need a "resume" prompt.
+ *
+ * Never rank the whole of `chat_events` here. The card polls this every
+ * 30s, better-sqlite3 runs on the server's only thread, and a window
+ * function over every event (1.4M rows, 600 MB of content in prod) took
+ * 30-50s, stalling every other request until it returned.
  */
 export interface StuckSessionRow {
   sessionId: string;
@@ -9049,33 +9055,26 @@ export function listSessionsStuckOnSource(source: ChatEventSource): StuckSession
   const db = getRawDb();
   return db
     .prepare(
-      `WITH ranked_events AS (
-         SELECT session_id, source, id, content, attachments, created_at,
-           ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY created_at DESC, id DESC) AS rn_any,
-           ROW_NUMBER() OVER (
-             PARTITION BY session_id, CASE WHEN source = 'user' THEN 1 ELSE 0 END
-             ORDER BY created_at DESC, id DESC
-           ) AS rn_in_source
-         FROM chat_events
-       ),
-       latest AS (
-         SELECT session_id FROM ranked_events WHERE rn_any = 1 AND source = ?
-       ),
-       last_user AS (
-         SELECT session_id, id AS event_id, content, attachments
-         FROM ranked_events
-         WHERE source = 'user' AND rn_in_source = 1
-       )
-       SELECT
-         l.session_id AS sessionId,
+      `SELECT
+         s.id AS sessionId,
          s.label AS label,
-         lu.event_id AS last_user_event_id,
+         lu.id AS last_user_event_id,
          lu.content AS last_user_content,
          lu.attachments AS last_user_attachments
-       FROM latest l
-       JOIN chat_sessions s ON s.id = l.session_id
-       LEFT JOIN last_user lu ON lu.session_id = l.session_id
+       FROM chat_sessions s
+       LEFT JOIN chat_events lu ON lu.id = (
+         SELECT u.id FROM chat_events u
+         WHERE u.session_id = s.id AND u.source = 'user'
+         ORDER BY u.created_at DESC, u.id DESC
+         LIMIT 1
+       )
        WHERE s.status = 'active'
+         AND (
+           SELECT e.source FROM chat_events e
+           WHERE e.session_id = s.id
+           ORDER BY e.created_at DESC, e.id DESC
+           LIMIT 1
+         ) = ?
        ORDER BY COALESCE(s.last_activity_at, s.started_at) DESC, s.started_at DESC`,
     )
     .all(source) as StuckSessionRow[];
