@@ -154,7 +154,7 @@ export function createRemoteServers(config, now = Date.now, { scenarioPort = 488
         const entry = sessionFor(`/s/${input.token}/index.html`)
         if (!entry) { reply(res, 410, 'Example session ended'); return }
         if (url.pathname === '/__chat/begin') {
-          const publicView = input.context?.kind === 'public' && ['Excalidraw', 'Flint charts', 'Building explorer'].includes(input.context.app) && typeof input.context.text === 'string' && input.context.text.length <= 12000 && input.allowChanges === false
+          const publicView = ['public', 'account'].includes(input.context?.kind) && ['Excalidraw', 'Flint charts', 'Building explorer', 'tldraw', 'Asana', 'Figma', 'PostHog'].includes(input.context.app) && typeof input.context.text === 'string' && input.context.text.length <= 12000 && input.allowChanges === false
           if (!publicView && (!validScenarioInputs(input.inputs) || typeof input.allowChanges !== 'boolean')) { reply(res, 400, 'Invalid example context'); return }
           if (entry.session.turns.has(input.turnId)) { reply(res, 409, 'This turn was already registered'); return }
           if (entry.session.turns.size >= 20) { reply(res, 429, 'Open a new example session after twenty chat turns'); return }
@@ -169,8 +169,15 @@ export function createRemoteServers(config, now = Date.now, { scenarioPort = 488
       }
       const entry = sessionFor(url.pathname)
       if (!entry) { reply(res, 410, 'Example session ended. Return to Ri to open a new session.'); return }
+      if (entry.path === '/api/preset' && req.method === 'POST') {
+        if (!['excalidraw', 'flint', 'buildings', 'tldraw'].includes(url.searchParams.get('example'))) { reply(res, 400, 'Unsupported example'); return }
+        if (entry.session.presetOpened) { reply(res, 409, 'This example was already opened. No tool call was replayed.'); return }
+        entry.session.presetOpened = true;
+        reply(res, 204, ''); return
+      }
       if (entry.path === '/api/servers' && req.method === 'GET') {
-        reply(res, 200, JSON.stringify(['excalidraw', 'flint', 'buildings', 'scenario'].map(name => `${hostOrigin}/s/${entry.token}/mcp/${name}`)), 'application/json')
+        const names = url.searchParams.has('account') ? [] : ['excalidraw', 'flint', 'buildings', 'tldraw', 'scenario']
+        reply(res, 200, JSON.stringify(names.map(name => `${hostOrigin}/s/${entry.token}/mcp/${name}`)), 'application/json')
       } else if (entry.path === '/index.html' && req.method === 'GET') {
         let html = readFileSync(join(root, 'host/dist/index.html'), 'utf8')
         html = html.replaceAll(LOCAL_SANDBOX + '/sandbox.html', `${sandboxOrigin}/s/${entry.token}/sandbox.html`)

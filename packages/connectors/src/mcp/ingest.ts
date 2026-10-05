@@ -33,6 +33,7 @@ export interface McpToolDef {
   description?: string;
   inputSchema?: unknown;
   outputSchema?: unknown;
+  _meta?: Record<string, unknown> & { ui?: { resourceUri?: string; visibility?: ('model' | 'app')[] } };
   annotations?: {
     title?: string;
     readOnlyHint?: boolean;
@@ -49,6 +50,7 @@ export interface McpClientLike {
     content: unknown;
     structuredContent?: unknown;
     isError?: boolean;
+    _meta?: Record<string, unknown>;
   }>;
 }
 
@@ -223,6 +225,9 @@ export async function ingestMcpServers(
       async execute(ctx, input) {
         const selected = selectedTool(ctx.connection, name, input);
         const { account } = selected;
+        if (!mcpToolVisible(selected.selected.tool, ctx.toolAudience ?? 'model')) {
+          throw new ConnectorError('denied', 'This tool is not available to this caller.');
+        }
         if (account.opts.isCurrentTransport?.() === false) throw new NeedsReauthError(ctx.connection.id);
         let res: Awaited<ReturnType<McpClientLike['callTool']>>;
         try {
@@ -238,11 +243,18 @@ export async function ingestMcpServers(
           const detail = remoteErrorMessage(res.content);
           throw new ConnectorError('provider_error', `MCP tool "${name}" from "${account.opts.name}" failed${detail ? `: ${detail}` : '.'}`);
         }
+        // A host-owned channel, before the model projection. UI-only metadata
+        // never enters the ordinary result, audit preview or transcript.
+        ctx.captureOriginalResult?.(res);
         return { server: account.opts.name, tool: name, isError: false, content: res.content,
           ...(res.structuredContent !== undefined ? { structuredContent: res.structuredContent } : {}) };
       },
     });
-    return { ...result, validateForConnection: (connection, input) => { selectedTool(connection, name, input); } };
+    return { ...result, modelVisible: variants.some(variant => mcpToolVisible(variant.tool, 'model')),
+      validateForConnection: (connection, input, audience = 'model') => {
+        const selected = selectedTool(connection, name, input);
+        if (!mcpToolVisible(selected.selected.tool, audience)) throw new ConnectorError('denied', 'This tool is not available to this caller.');
+      } };
   });
   const bindingFor = (connection: Connection) => {
     const account = byConnection.get(connection.id);
@@ -264,6 +276,13 @@ export async function ingestMcpServers(
   }
   return prepared.map(account => ({ providerId, toolkitId: providerId, connectionId: account.connection.id,
     toolCount: account.enabled.size, tools: account.tools }));
+}
+
+/** Invalid visibility fails closed. Omitted visibility allows both audiences. */
+export function mcpToolVisible(tool: McpToolDef, audience: 'model' | 'app'): boolean {
+  const visibility = tool._meta?.ui?.visibility;
+  return visibility === undefined || (Array.isArray(visibility) && visibility.length > 0
+    && visibility.every(value => value === 'model' || value === 'app') && visibility.includes(audience));
 }
 
 /** A projection object wide enough for every account, followed by exact account validation. */

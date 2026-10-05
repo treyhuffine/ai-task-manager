@@ -1007,7 +1007,7 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
       const connection = resolution.connection;
       requireTransportBinding(provider, connection);
       const meta = connectionMetadata(connection);
-      action.validateForConnection?.(meta, cleanInput);
+      action.validateForConnection?.(meta, cleanInput, options.toolAudience ?? 'model');
 
       // Resolve the connection's minting config once (secret-free): used for the consent/reconnect
       // URL (its clientId), the allowedScopes bound, and a per-instance base URL (§6).
@@ -1152,6 +1152,8 @@ export function createConnectorRuntime(opts: ConnectorRuntimeOptions): Connector
         config: connection.config ?? {},
         clock,
         log: logger,
+        toolAudience: options.toolAudience ?? 'model',
+        captureOriginalResult: options.captureOriginalResult ? (result: unknown) => options.captureOriginalResult!(redactor.redact(result)) : undefined,
       };
 
       // 8. Execute.

@@ -11,7 +11,7 @@ export { hostedMcpEndpointSetup, trustHostedMcpAnnotations } from './hosted-endp
 export function hostedMcpDefinition(entry: McpServerEntry): HostedMcpProvider | undefined {
   if (!entry.providerId) return undefined;
   const definition = getHostedMcpProvider(entry.providerId);
-  if (!definition || !hostedMcpUrlMatches(definition, entry.url) || entry.auth.kind !== (definition.auth?.kind ?? 'oauth')) {
+  if (!definition || !hostedMcpUrlMatches(definition, entry.url) || (entry.auth.kind !== (definition.auth?.kind ?? 'oauth') && !(definition.tokenAuth && entry.auth.kind === 'bearer'))) {
     throw new Error('The built-in connector no longer matches its trusted service configuration. Reconnect it from Settings.');
   }
   return definition;
@@ -107,9 +107,9 @@ export async function ensureHostedMcpServer(
   ownerId: string,
   options: HostedEndpointInput & HostedAccountSelection & { secret?: string; authConfigId?: string } = {},
 ): Promise<McpServerEntry> {
-  const auth = { kind: definition.auth?.kind ?? 'oauth' };
+  const auth = { kind: options.secret !== undefined && definition.tokenAuth ? 'bearer' : definition.auth?.kind ?? 'oauth' };
   const pinned = getHostedMcpProvider(definition.id);
-  if (!pinned || pinned.url !== definition.url || JSON.stringify(pinned.endpoint) !== JSON.stringify(definition.endpoint) || (pinned.auth?.kind ?? 'oauth') !== auth.kind) {
+  if (!pinned || pinned.url !== definition.url || JSON.stringify(pinned.endpoint) !== JSON.stringify(definition.endpoint) || ((pinned.auth?.kind ?? 'oauth') !== auth.kind && !(pinned.tokenAuth && auth.kind === 'bearer'))) {
     throw new Error('The built-in connector does not match its trusted service configuration.');
   }
   if (auth.kind !== 'bearer' && options.secret !== undefined) throw new Error('This connector does not accept a token.');
@@ -124,6 +124,7 @@ export async function ensureHostedMcpServer(
   const url = existing && !hasSelection ? existing.url : resolveHostedMcpUrl(pinned, options);
   if (existing) {
     hostedMcpDefinition(existing);
+    if (existing.auth.kind !== auth.kind) throw new Error('Add another account to use a different connection method.');
     if (url !== existing.url) throw new Error('Disconnect this connector before changing its region or instance.');
     if (auth.kind === 'bearer' && !secret && !await servers.openSecret(existing.id)) throw new Error('A connection token is required.');
     if (!existing.enabled || secret !== undefined) {
@@ -160,6 +161,7 @@ export async function ensureHostedMcpServer(
     const raced = servers.getBySlug(slug);
     if (raced?.providerId === definition.id && hostedMcpConnectionId(raced) === connectionId) {
       hostedMcpDefinition(raced);
+      if (raced.auth.kind !== auth.kind) throw new Error('Add another account to use a different connection method.');
       if (raced.authConfigId !== options.authConfigId) throw new Error('This connector was connected with a different OAuth app. Disconnect it before changing the app.');
       if (raced.url !== url) throw new Error('This connector was connected to a different region or instance. Disconnect it before changing the endpoint.');
       // A concurrent connect may have supplied a different replacement token.

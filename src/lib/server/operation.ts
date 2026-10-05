@@ -101,11 +101,15 @@ export function operationContext(request: Request, input: { query?: Record<strin
 
 /** Existing public REST contracts are thin adapters over the same operations.
  * Validation happens before either transport can enter the domain. */
+interface OperationRouteHandler {
+  (request: Request): Promise<Response>;
+  (request: Request, route: { params: Promise<Record<string, string>> }): Promise<Response>;
+}
 export function serveOperation<Input, Result extends OperationSuccess<unknown> | OperationFailure>(
   schema: ZodType<Input>,
   operation: (input: Input, context: OperationContext) => Promise<Result>,
   options: { maxBodyBytes?: number; oversizedStatus?: 400 | 413; prepareBody?: (body: unknown) => unknown } = {},
-) {
+): OperationRouteHandler {
   let shapeSchema: ZodType = schema;
   while (!(shapeSchema instanceof ZodObject) && 'unwrap' in shapeSchema && typeof shapeSchema.unwrap === 'function') shapeSchema = shapeSchema.unwrap();
   const objectSchema = shapeSchema instanceof ZodObject ? shapeSchema : undefined;

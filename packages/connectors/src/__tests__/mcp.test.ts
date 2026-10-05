@@ -215,6 +215,35 @@ const demoClient = (calls: { name: string; arguments?: Record<string, unknown> }
 });
 
 describe('ingestMcpServer (§12) — external MCP as a gated provider', () => {
+  it('captures original UI metadata through the runtime without adding it to model results or audit', async () => {
+    const s = ingestSetup(); const captured: unknown[] = [];
+    const original = { content: [{ type: 'text', text: 'Visible summary' }], structuredContent: { rows: [1] }, _meta: { privateUi: 'private widget payload' } };
+    await ingestMcpServer(s.registry, s.store, s.secretBox, { name: 'view', client: {
+      listTools: async () => ({ tools: [{ name: 'query', _meta: { ui: { resourceUri: 'ui://query' } } }] }), callTool: async () => original,
+    } });
+    await s.runtime.runAction('mcp.view.query', {}, { captureOriginalResult: result => captured.push(result) });
+    expect(captured).toHaveLength(0);
+    s.setApproval(() => 'allow');
+    const result = await s.runtime.runAction('mcp.view.query', {}, { captureOriginalResult: value => captured.push(value) });
+    expect(captured).toEqual([original]); expect(result.ok).toBe(true);
+    expect(JSON.stringify(result)).not.toContain('private widget payload');
+    expect(JSON.stringify(s.runs)).not.toContain('private widget payload');
+  });
+  it('keeps app-only tools out of model projections and enforces tool audience before execution', async () => {
+    const s = ingestSetup(); let executions = 0;
+    await ingestMcpServer(s.registry, s.store, s.secretBox, { name: 'view', client: {
+      listTools: async () => ({ tools: [{ name: 'widget_update', _meta: { ui: { visibility: ['app'] } } }, { name: 'query', _meta: { ui: { visibility: ['model'] } } }] }),
+      callTool: async () => { executions++; return { content: [{ type: 'text', text: 'Done' }] }; },
+    } });
+    const reg = fakeRegistrar(); serveMcp(reg, s.runtime);
+    expect([...reg.tools.keys()]).toEqual(['mcp__view__query']);
+    s.setApproval(() => 'allow');
+    expect(await s.runtime.runAction('mcp.view.widget_update', {})).toMatchObject({ ok: false });
+    expect(await s.runtime.runAction('mcp.view.query', {}, { toolAudience: 'app' })).toMatchObject({ ok: false });
+    expect(executions).toBe(0);
+    expect(await s.runtime.runAction('mcp.view.widget_update', {}, { toolAudience: 'app' })).toMatchObject({ ok: true });
+    expect(executions).toBe(1);
+  });
   it('registers namespaced, provenance-clean actions', async () => {
     const s = ingestSetup();
     const res = await ingestMcpServer(s.registry, s.store, s.secretBox, { name: 'demo', client: demoClient([]) });

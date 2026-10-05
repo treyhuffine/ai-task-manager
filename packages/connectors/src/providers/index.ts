@@ -95,6 +95,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
   { id: 'whatsapp', displayName: 'WhatsApp', method: 'custom', credentialFields: ['access_token', 'phone_number_id'] },
   { id: 'gitlab', displayName: 'GitLab', method: 'mcp' },
   { id: 'asana', displayName: 'Asana', method: 'mcp' },
+  { id: 'figma', displayName: 'Figma', method: 'mcp' },
   { id: 'zendesk', displayName: 'Zendesk', method: 'custom', credentialFields: ['subdomain', 'email', 'api_token'] },
   { id: 'dropbox', displayName: 'Dropbox', method: 'mcp' },
   { id: 'box', displayName: 'Box', method: 'mcp' },

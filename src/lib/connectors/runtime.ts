@@ -121,6 +121,7 @@ export interface HostedAccountStatus {
   accountId: string;
   label: string;
   enabled: boolean;
+  authKind?: Exclude<McpServerEntry['auth']['kind'], 'header'>;
   configured: boolean;
   requiresAuth: boolean;
   authConfigId?: string;
@@ -138,7 +139,7 @@ export interface ProviderStatus extends ProviderCatalogEntry {
   /** OAuth providers: client configured in env. API-key/custom: always true (paste at connect). */
   configured: boolean;
   desktopCallback?: { kind: 'loopback' | 'relay'; redirectUri?: string };
-  mcp?: { serverId?: string; status?: 'ok' | 'unreachable' | 'error'; error?: string; requiresAuth: boolean; authKind?: 'oauth' | 'bearer' | 'none'; credentialLabel?: string; helpUrl?: string; endpointConfig?: HostedMcpEndpointSetup; oauthRegistration?: 'dynamic' | 'registered'; authConfigId?: string; redirectUri?: string; accounts: HostedAccountStatus[] };
+  mcp?: { serverId?: string; status?: 'ok' | 'unreachable' | 'error'; error?: string; requiresAuth: boolean; authKind?: 'oauth' | 'bearer' | 'none'; tokenAuth?: { label: string; helpUrl: string }; credentialLabel?: string; helpUrl?: string; endpointConfig?: HostedMcpEndpointSetup; oauthRegistration?: 'dynamic' | 'registered'; authConfigId?: string; redirectUri?: string; accounts: HostedAccountStatus[] };
 }
 
 /**
@@ -183,7 +184,7 @@ export async function getProviderStatuses(nativeDesktop = false): Promise<Provid
           }
           return {
             serverId: server.id, connectionId: hostedMcpConnectionId(server), accountId: server.accountId ?? `${entry.id}:default`,
-            label: server.displayName, enabled: server.enabled, configured: accountConfigured,
+            label: server.displayName, enabled: server.enabled, ...(server.auth.kind !== 'header' ? { authKind: server.auth.kind } : {}), configured: accountConfigured,
             requiresAuth: !accountConfigured || await hostedMcpRequiresAuth(server, servers),
             authConfigId: server.authConfigId, endpointConfig: hostedMcpEndpointSetup(definition, server),
             status: server.lastStatus, error: server.lastError, toolCount: server.lastToolCount, lastCheckedAt: server.lastCheckedAt,
@@ -198,6 +199,7 @@ export async function getProviderStatuses(nativeDesktop = false): Promise<Provid
           ...(single ? { serverId: single.serverId } : {}),
           ...(accounts.length ? { status: unhealthy?.status ?? 'ok', error: unhealthy?.error } : {}),
           authKind: auth.kind,
+          ...(definition.tokenAuth ? { tokenAuth: definition.tokenAuth } : {}),
           ...(registered ? { oauthRegistration: 'registered' as const, redirectUri: getRegisteredMcpRedirectUrl(entry.id), authConfigId: single?.authConfigId } : {}),
           ...(auth.kind === 'bearer' ? { credentialLabel: auth.label, helpUrl: auth.helpUrl } : {}),
           requiresAuth: accounts.length === 0 || accounts.every(account => account.requiresAuth),
@@ -472,8 +474,15 @@ interface Built {
   runtime: ConnectorRuntime;
   admin: AuthConfigAdmin;
   mcpClients: ConnectedMcpClient[];
+  mcpViews: Map<string, McpViewConnection>;
   builtAt: number;
   configuration: string;
+}
+
+export interface McpViewConnection {
+  snapshot: McpServerEntry;
+  tools: McpToolDef[];
+  readResource: ConnectedMcpClient['readResource'];
 }
 
 let generation = 0;
@@ -486,6 +495,7 @@ let inFlight: Promise<Built> | null = null;
 // with row-level tenant isolation, spec §20). Until then this is single-user local.
 async function build(): Promise<Built> {
   const buildGeneration = generation;
+  const mcpViews = new Map<string, McpViewConnection>();
   const dir = connectorsDir();
   // CLI + dev server share one home, so the file store's read-modify-write and the runtime's
   // refresh single-flight need a CROSS-PROCESS lock, not an in-process mutex.
@@ -673,7 +683,7 @@ async function build(): Promise<Built> {
           const hosted = hostedMcpDefinition(snapshot);
           definitions.push({
             name: snapshot.slug,
-            client: { listTools: async () => ({ tools: account.tools }), callTool: (params: { name: string; arguments?: Record<string, unknown> }) => account.client.callTool(params) },
+            client: { listTools: async () => ({ tools: account.tools }), callTool: async (params: { name: string; arguments?: Record<string, unknown> }) => redactor.redact(await account.client.callTool(params)) },
             ownerId: getConnectorOwnerId(), connectionId: hostedMcpConnectionId(snapshot), sessionToken: account.sessionToken,
             isCurrentTransport: () => {
               if (generation !== buildGeneration || account.changed || mcpStore.get(snapshot.id)?.capabilityRevision !== snapshot.capabilityRevision) {
@@ -698,6 +708,10 @@ async function build(): Promise<Built> {
           });
           accepted.add(account.entry.id);
           mcpClients.push(account.client);
+          mcpViews.set(account.entry.id, {
+            snapshot: account.entry, tools: account.tools,
+            readResource: async params => redactor.redact(await account.client.readResource(params)),
+          });
         }
       });
     } catch (error) {
@@ -709,7 +723,7 @@ async function build(): Promise<Built> {
 
   const configuration = mcpConfigurationSignature(entries.map(entry => prepared.find(candidate => candidate.entry.id === entry.id)?.entry ?? entry));
   if (configuration !== mcpConfigurationSignature(mcpStore)) invalidateConnectorRuntime();
-  return { runtime, admin, mcpClients, builtAt: Date.now(), configuration };
+  return { runtime, admin, mcpClients, mcpViews, builtAt: Date.now(), configuration };
 }
 
 /** Changes made by another process must also refresh the tool projection. */
@@ -759,6 +773,16 @@ async function getBuilt(): Promise<Built> {
 
 export async function getConnectorRuntime(): Promise<ConnectorRuntime> {
   return (await getBuilt()).runtime;
+}
+
+/** Per-account UI definitions and resource access from the existing transport. */
+export async function getMcpViewConnection(serverId: string): Promise<McpViewConnection | null> {
+  const built = await getBuilt();
+  const view = built.mcpViews.get(serverId);
+  if (!view || !isCurrentMcpTransport(view.snapshot, getMcpServerStore())) return null;
+  const connection = (await built.runtime.listConnections({ ownerId: getConnectorOwnerId() }))
+    .find(value => value.id === hostedMcpConnectionId(view.snapshot) && value.status === 'active');
+  return connection ? view : null;
 }
 
 /** The BYO auth-config admin service (add/remove/setDefault your own OAuth clients). */

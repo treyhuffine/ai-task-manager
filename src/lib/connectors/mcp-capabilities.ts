@@ -7,8 +7,9 @@ export interface McpCapabilityTool {
   inputSchema?: unknown;
   outputSchema?: unknown;
   annotations?: unknown;
+  _meta?: unknown;
 }
-const FIELDS = ['title', 'description', 'inputSchema', 'outputSchema', 'annotations'] as const;
+const FIELDS = ['title', 'description', 'inputSchema', 'outputSchema', 'annotations', '_meta'] as const;
 export type McpCapabilityField = typeof FIELDS[number];
 export interface McpCapabilitySnapshot {
   revision: string;
@@ -46,7 +47,11 @@ export function snapshotMcpCapabilities(input: readonly McpCapabilityTool[]): Mc
   const tools = input.map(tool => {
     if (!tool.name || seen.has(tool.name)) throw new Error('Tool capability names must be unique and nonempty.');
     seen.add(tool.name);
-    const definition = canonical({ name: tool.name, ...Object.fromEntries(FIELDS.filter(field => tool[field] !== undefined).map(field => [field, tool[field]])) }) as McpCapabilityTool;
+    const meta = tool._meta as { ui?: { resourceUri?: unknown; visibility?: unknown }; 'ui/resourceUri'?: unknown } | undefined;
+    const ui = meta?.ui && Object.fromEntries(['resourceUri', 'visibility'].flatMap(key => meta.ui![key as keyof typeof meta.ui] === undefined ? [] : [[key, meta.ui![key as keyof typeof meta.ui]]]));
+    const safeMeta = { ...(ui && Object.keys(ui).length ? { ui } : {}), ...(meta?.['ui/resourceUri'] === undefined ? {} : { 'ui/resourceUri': meta['ui/resourceUri'] }) };
+    const advertised = { ...tool, _meta: Object.keys(safeMeta).length ? safeMeta : undefined };
+    const definition = canonical({ name: tool.name, ...Object.fromEntries(FIELDS.filter(field => advertised[field] !== undefined).map(field => [field, advertised[field]])) }) as McpCapabilityTool;
     return { ...definition, fingerprint: hash(definition) };
   }).sort((a, b) => compare(a.name, b.name));
   return { revision: hash(tools), tools };

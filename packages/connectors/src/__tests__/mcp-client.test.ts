@@ -9,6 +9,7 @@ const sdk = vi.hoisted(() => ({
   close: vi.fn(),
   listTools: vi.fn(),
   callTool: vi.fn(),
+  readResource: vi.fn(),
   setNotificationHandler: vi.fn(),
   auth: vi.fn(),
 }));
@@ -24,6 +25,7 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
     close = sdk.close;
     listTools = sdk.listTools;
     callTool = sdk.callTool;
+    readResource = sdk.readResource;
     setNotificationHandler = sdk.setNotificationHandler;
   },
 }));
@@ -34,6 +36,18 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', async (importOrigi
 
 describe('connectMcpClient', () => {
   beforeEach(() => { vi.resetAllMocks(); });
+  it('preserves advertised UI metadata, original result metadata and resource contents', async () => {
+    const metadata = { ui: { resourceUri: 'ui://sample', visibility: ['model'] } };
+    sdk.listTools.mockResolvedValue({ tools: [{ name: 'query', _meta: metadata }] });
+    sdk.callTool.mockResolvedValue({ content: [], structuredContent: { value: 42 }, _meta: { privateUi: 'original' } });
+    const resource = { contents: [{ uri: 'ui://sample', mimeType: 'text/html;profile=mcp-app', text: '<main>View</main>', _meta: { ui: { csp: {} } } }] };
+    sdk.readResource.mockResolvedValue(resource);
+    const client = await connectMcpClient({ url: 'https://official.example/mcp' });
+    expect((await client.listTools()).tools[0]?._meta).toEqual(metadata);
+    expect(await client.callTool({ name: 'query' })).toMatchObject({ structuredContent: { value: 42 }, _meta: { privateUi: 'original' } });
+    expect(await client.readResource({ uri: 'ui://sample' })).toEqual(resource);
+    expect(sdk.readResource).toHaveBeenCalledWith({ uri: 'ui://sample' }, { timeout: 30000 });
+  });
 
   it.each(['AUTHORIZED', 'REDIRECT'] as const)('begins explicit SDK OAuth without opening a transport: %s', async (result) => {
     const authProvider = { redirectUrl: 'https://app.example/mcp/callback' };

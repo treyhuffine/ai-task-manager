@@ -81,8 +81,9 @@ try {
   await host.getByText("Connected to Excalidraw's public server.", { exact: true }).waitFor()
   await host.getByText("Connected to Microsoft's public Flint server.", { exact: true }).waitFor()
   await host.getByText('Connected to the public Dutch building-data server.', { exact: true }).waitFor()
+  await host.getByText('Connected to tldraw\'s public server.', { exact: true }).waitFor()
   assert.equal(calls.length, 0)
-  pass('The HTTPS view discovers three public servers and the local scenario without invoking a tool')
+  pass('The HTTPS view discovers four public servers and the local scenario without invoking a tool')
   assert.equal((await context.cookies([config.hostOrigin, config.sandboxOrigin])).length, 0)
   pass('Ri cookies do not reach either HTTPS example origin')
 
@@ -134,6 +135,22 @@ try {
   if (process.argv.includes('--chat') || process.argv.includes('--read-chat')) {
     await verifyPublicChatRead({ page, host, table: publicViews.table, calls, pass })
   }
+  await host.getByRole('region', { name: 'Excalidraw result', exact: true }).getByTitle('Close', { exact: true }).click()
+  await host.getByRole('button', { name: 'Open canvas example', exact: true }).click()
+  const tldraw = await resultFrame(host, 'tldraw interactive result')
+  await tldraw.view.getByText('Ri sample workflow', { exact: true }).first().waitFor()
+  assert.equal(count('exec'), 1)
+  await tldraw.view.locator('.tl-canvas').waitFor({ state: 'visible' })
+  pass('The real tldraw MCP app executes the fixed sample on its interactive canvas')
+  await tldraw.view.getByText('Ri sample workflow', { exact: true }).first().dblclick()
+  const label = tldraw.view.locator('[contenteditable="true"],textarea').first()
+  await label.fill('Remote Ri canvas')
+  await page.keyboard.press('Escape')
+  await tldraw.view.getByText('Remote Ri canvas', { exact: true }).first().waitFor()
+  await host.getByRole('region', { name: 'tldraw result', exact: true }).getByText('📋 Model Context', { exact: true }).click()
+  await until(async () => (await host.getByRole('region', { name: 'tldraw result', exact: true }).innerText()).includes('Remote Ri canvas'), 'The edited canvas did not share its latest context')
+  assert.equal(count('exec'), 1)
+  pass('Editing the real tldraw canvas updates attached context without repeating its initial execution')
   if (process.env.RI_MCP_APPS_TEST_HOME_ORIGIN) {
     mkdirSync(join(root, 'evidence'), { recursive: true })
     await page.screenshot({ path: join(root, 'evidence/ri-remote-examples.png') })

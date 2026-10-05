@@ -11,6 +11,7 @@ export interface HostedMcpAccount {
   accountId?: string;
   label?: string;
   enabled?: boolean;
+  authKind?: 'oauth' | 'bearer' | 'none';
   requiresAuth: boolean;
   configured?: boolean;
   authConfigId?: string;
@@ -50,6 +51,7 @@ export interface ProviderStatus {
     error?: string;
     requiresAuth: boolean;
     authKind?: 'oauth' | 'bearer' | 'none';
+    tokenAuth?: { label: string; helpUrl: string };
     credentialLabel?: string;
     helpUrl?: string;
     endpointConfig?: HostedMcpEndpointSetup;

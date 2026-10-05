@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { snapshotMcpCapabilities, diffMcpCapabilities } from './mcp-capabilities';
 
 describe('MCP capability snapshots', () => {
+  it('reviews UI URI and visibility changes while excluding unrelated private metadata', () => {
+    const first = snapshotMcpCapabilities([{ name: 'view', _meta: { ui: { resourceUri: 'ui://old', visibility: ['model'] }, secret: 'never persisted' } }]);
+    expect(first.tools[0]?._meta).toEqual({ ui: { resourceUri: 'ui://old', visibility: ['model'] } });
+    const next = snapshotMcpCapabilities([{ name: 'view', _meta: { ui: { resourceUri: 'ui://new', visibility: ['app'] } } }]);
+    expect(diffMcpCapabilities(first, next)?.changed).toEqual([{ name: 'view', fields: ['_meta'] }]);
+  });
   it('ignores tool order, object key order, and unordered schema/permission collections', () => {
     const first = snapshotMcpCapabilities([{ name: 'b' }, { name: 'a', inputSchema: { type: 'object', required: ['a', 'b'], properties: { b: { enum: ['y', 'x'] }, a: {} } }, annotations: { scopes: ['write', 'read'], readOnlyHint: true } }]);
     const reordered = snapshotMcpCapabilities([{ annotations: { readOnlyHint: true, scopes: ['read', 'write'] }, inputSchema: { properties: { a: {}, b: { enum: ['x', 'y'] } }, required: ['b', 'a'], type: 'object' }, name: 'a' }, { name: 'b' }]);

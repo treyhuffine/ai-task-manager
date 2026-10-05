@@ -84,6 +84,7 @@ export async function toToolSet(runtime: ConnectorRuntime, options: ToToolSetOpt
           : 'Which connected account to act as (email or label). Usually omit — there is at most one connected account.';
 
     for (const a of toolkit.actions) {
+      if (a.modelVisible === false) continue;
       const baseSchema = a.input as unknown as z.ZodObject<z.ZodRawShape>;
       const inputSchema =
         binding.kind === 'pin' ? baseSchema : baseSchema.extend({ account: z.string().optional().describe(accountDesc) });

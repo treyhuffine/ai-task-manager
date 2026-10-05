@@ -78,6 +78,7 @@ export function serveMcp(server: McpToolRegistrar, runtime: ConnectorRuntime, op
         ? allowedAccountDescription(binding.choices)
         : 'Which connected account (email/label) to act as; omit if only one.';
     for (const a of toolkit.actions) {
+      if (a.modelVisible === false) continue;
       const shape = (a.input as unknown as z.ZodObject<z.ZodRawShape>).shape;
       server.registerTool(
         toToolName(a.id),

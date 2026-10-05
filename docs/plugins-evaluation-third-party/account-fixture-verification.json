@@ -1,0 +1,16 @@
+{
+  "testedAt": "2026-10-05T15:25:51.851Z",
+  "mode": "Controlled account protocol fixtures in the actual built Ri UI",
+  "checks": [
+    "Seven rows and explicit multi-account selection open the real account bridge without a tool call",
+    "The actual Ri approval overlay retries the same gated invocation and renders its captured result once",
+    "A nested widget calls an app-only tool through its selected account channel",
+    "Wrong-frame requests are ignored and the isolated app origins receive no Ri cookie",
+    "Reload starts a new discovery channel, discards the result and never repeats either tool",
+    "Returning to Plugins revokes the temporary account handle"
+  ],
+  "executions": [
+    "query",
+    "filter"
+  ]
+}

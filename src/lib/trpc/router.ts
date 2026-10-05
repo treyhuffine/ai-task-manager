@@ -12,6 +12,7 @@ import { hasWebSocketRuntime, publishApplicationRouter } from './ws-runtime';
 import { launchPluginEvaluation, pluginEvaluationStatus } from '@/lib/server/operations/plugins/evaluation';
 import { chatWithPluginEvaluation } from '@/lib/server/operations/plugins/evaluation-chat';
 import { evaluationChatInputSchema } from '@/lib/plugins/evaluation-contract';
+import { accountEvaluationCatalog, accountEvaluationRpc, accountRpcSchema, endAccountEvaluation, launchAccountEvaluation } from '@/lib/server/operations/plugins/account-evaluation';
 
 function required<T>(value: T | null | undefined, entity: string): T {
   if (value == null) throw new TRPCError({ code: 'NOT_FOUND', message: `${entity} not found` });
@@ -27,8 +28,12 @@ export const appRouter = router({
   terminals: terminalSubscriptions,
   pluginEvaluation: router({
     status: p.query(() => pluginEvaluationStatus()),
-    launch: p.input(z.object({ parentOrigin: z.string().url() }).strict()).mutation(({ input }) => launchPluginEvaluation(input.parentOrigin)),
-    chat: p.input(evaluationChatInputSchema).mutation(({ input }) => chatWithPluginEvaluation(input)),
+    launch: p.input(z.object({ parentOrigin: z.string().url(), example: z.enum(['excalidraw', 'flint', 'buildings', 'tldraw']).optional() }).strict()).mutation(({ input }) => launchPluginEvaluation(input.parentOrigin, input.example)),
+    chat: p.input(evaluationChatInputSchema).mutation(({ input, ctx }) => chatWithPluginEvaluation(input, ctx.key!.apiKeyId)),
+    accounts: p.query(() => accountEvaluationCatalog()),
+    launchAccount: p.input(z.object({ parentOrigin: z.string().url(), serverId: z.string().min(1) }).strict()).mutation(({ input, ctx }) => launchAccountEvaluation(input.parentOrigin, input.serverId, ctx.key!.apiKeyId)),
+    accountRpc: p.input(accountRpcSchema).mutation(({ input, ctx }) => accountEvaluationRpc(input, ctx.key!.apiKeyId)),
+    endAccount: p.input(z.object({ handle: z.uuid() }).strict()).mutation(({ input, ctx }) => endAccountEvaluation(input.handle, ctx.key!.apiKeyId)),
   }),
   tasks: router({
     ...taskProcedures,

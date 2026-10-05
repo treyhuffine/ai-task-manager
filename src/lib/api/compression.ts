@@ -211,19 +211,15 @@ async function compressOrThrow(request: Request, res: Response): Promise<Respons
  * `strictFunctionTypes`), and over the context so it composes with dynamic
  * routes, whose second argument carries `params`.
  */
-// `Ctx` defaults to `unknown`, not `undefined`. Next's generated route
-// validator types every handler as taking a context — `{ params: Promise<{}> }`
-// even on static routes — and parameters are contravariant, so a handler
-// declaring `undefined` there fails to satisfy it. `unknown` accepts whatever
-// Next passes, while dynamic routes still infer their real `params` shape
-// from the wrapped handler.
-// `ctx` is optional on the *returned* function so a wrapped handler stays
-// callable as `GET(request)` — route tests invoke handlers directly and
-// static routes have no params worth passing. An optional parameter still
-// satisfies Next's validator, which types every handler as taking a context.
+// The first overload preserves direct, one-argument route calls. Next inspects
+// the final overload, where the context is required and has no undefined union.
+interface CompressedHandler<Req extends Request, Ctx> {
+  (request: Req): Promise<Response>;
+  (request: Req, ctx: Exclude<Ctx, undefined>): Promise<Response>;
+}
 export function withCompression<Req extends Request, Ctx = unknown>(
   handler: (request: Req, ctx: Ctx) => Response | Promise<Response>,
-): (request: Req, ctx?: Ctx) => Promise<Response> {
-  return async (request, ctx) =>
+): CompressedHandler<Req, Ctx> {
+  return async (request: Req, ctx?: Ctx) =>
     compressJsonResponse(request, await handler(request, ctx as Ctx));
 }

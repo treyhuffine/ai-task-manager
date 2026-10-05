@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 
 const FIELD_LABELS: Record<McpCapabilityField, string> = {
   title: 'title', description: 'description', inputSchema: 'inputs', outputSchema: 'outputs', annotations: 'permissions and behavior',
+  _meta: 'interactive views and visibility',
 };
 export function CapabilityReview({ changes, busy, onReview }: { changes?: McpCapabilityChanges; busy: boolean; onReview?: (revision: string) => void }) {
   if (!changes) return null;

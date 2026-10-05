@@ -66,6 +66,7 @@ yarn-error.log*
 
 # vercel
 .vercel
+/.next-plugin-ready/
 
 # typescript
 *.tsbuildinfo

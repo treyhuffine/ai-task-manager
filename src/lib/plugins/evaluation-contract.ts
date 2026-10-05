@@ -18,9 +18,9 @@ export type ScenarioContext = z.infer<typeof scenarioContextSchema>;
 export const publicViewContextSchema = z.object({
   invocationId: z.uuid(),
   revision: z.number().int().nonnegative(),
-  kind: z.literal('public'),
-  app: z.enum(['Excalidraw', 'Flint charts', 'Building explorer']),
-  view: z.enum(['Diagram', 'Chart', 'Map', 'Table']),
+  kind: z.enum(['public', 'account']),
+  app: z.enum(['Excalidraw', 'Flint charts', 'Building explorer', 'tldraw', 'Asana', 'Figma', 'PostHog']),
+  view: z.enum(['Diagram', 'Chart', 'Map', 'Table', 'Canvas', 'Tasks', 'Query']),
   text: z.string().max(12000),
 }).strict();
 export const evaluationContextSchema = z.union([scenarioContextSchema, publicViewContextSchema]);
@@ -39,4 +39,11 @@ export const evaluationChatInputSchema = z.object({
 export const evaluationToolResultSchema = z.object({
   status: z.enum(['ready', 'unknown', 'unused']),
   inputs: scenarioInputsSchema.optional(),
+}).strict();
+
+export const accountRpcSchema = z.object({
+  handle: z.uuid(), method: z.enum(['initialize', 'tools/list', 'resources/list', 'resources/read', 'tools/call']),
+  invocationId: z.uuid().optional(), name: z.string().max(200).optional(), uri: z.string().max(1000).optional(),
+  arguments: z.record(z.string(), z.unknown()).optional(), audience: z.enum(['model', 'app']).default('app'),
+  retryApproval: z.boolean().optional(),
 }).strict();

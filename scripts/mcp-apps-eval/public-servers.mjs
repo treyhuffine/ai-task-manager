@@ -7,8 +7,10 @@ export const PUBLIC_SERVERS = {
   excalidraw: { url: 'https://mcp.excalidraw.com/mcp', tools: ['read_me', 'create_view', 'save_checkpoint', 'read_checkpoint'], resources: ['ui://excalidraw/mcp-app.html'] },
   flint: { url: 'https://flint.data-formulator.ai/mcp', tools: ['create_chart_view', 'validate_chart', 'list_chart_types', 'list_themes'], resources: ['ui://flint-chart/chart-view.html'] },
   buildings: { url: 'https://europe-west4-mcp-metadata-demo.cloudfunctions.net/mcpBest', tools: ['get_building_profile', 'render_map', 'render_table', 'render_chart'], resources: ['ui://metadata-demo/map.html', 'ui://metadata-demo/table.html', 'ui://metadata-demo/chart.html'] },
+  tldraw: { url: 'https://tldraw-mcp-app.tldraw.workers.dev/mcp', tools: ['exec', '_exec_callback', '_get_canvas_state', 'save_checkpoint', 'read_checkpoint'], resources: ['ui://show-canvas/mcp-app.html'] },
 }
-export const PUBLIC_DOMAINS = ['https://esm.sh', 'https://tile.openstreetmap.org']
+export const PUBLIC_DOMAINS = ['https://esm.sh', 'https://tile.openstreetmap.org', 'https://cdn.tldraw.com', 'https://fonts.googleapis.com', 'https://fonts.gstatic.com', 'https://tldraw-mcp-app.tldraw.workers.dev']
+export const TLDRAW_CODE = "editor.createShape({ _type: 'rectangle', shapeId: 'ri_demo', x: 100, y: 100, w: 320, h: 180, text: 'Ri sample workflow' }); editor.zoomToFit();"
 const MAX_RESULT = 20 * 1024 * 1024
 const MAX_CAPTURE = 512 * 1024
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
@@ -17,7 +19,7 @@ export function validPublicCsp(value) {
   if (value === undefined) return true
   return value && typeof value === 'object' && !Array.isArray(value)
     && Object.entries(value).every(([key, domains]) => ['resourceDomains', 'connectDomains', 'frameDomains', 'baseUriDomains'].includes(key)
-      && Array.isArray(domains) && domains.length <= 4 && domains.every(domain => PUBLIC_DOMAINS.includes(domain)))
+      && Array.isArray(domains) && domains.length <= 8 && domains.every(domain => PUBLIC_DOMAINS.includes(domain) || key === 'resourceDomains' && domain === 'blob:'))
 }
 
 export function parseRpc(body, type) {
@@ -55,6 +57,21 @@ export function publicRequestAllowed(name, rpc, state) {
   }
   if (name === 'buildings' && tool === 'render_map') return Array.isArray(args.markers) && args.markers.length <= 20
   if (name === 'buildings' && tool === 'render_table') return boundedJson(args, 32768)
+  if (name === 'tldraw') {
+    if (tool === 'exec') return args.code === TLDRAW_CODE && args.canvasId === undefined && Object.keys(args).every(key => key === 'code')
+    if (tool === '_get_canvas_state') return state.canvases.has(args.canvasId)
+    if (tool === 'read_checkpoint') return state.checkpoints.has(args.checkpointId)
+    if (tool === '_exec_callback') return args.channel === 'exec' && args.result && typeof args.result.success === 'boolean'
+      && (args.result.canvasId === undefined || state.canvases.has(args.result.canvasId)) && boundedJson(args, 32768)
+    if (tool === 'save_checkpoint') {
+      if (!state.canvases.has(args.canvasId) || typeof args.checkpointId !== 'string' || args.checkpointId.length > 128) return false
+      try {
+        return ['shapesJson', 'assetsJson', 'bindingsJson'].every(key => args[key] === undefined
+          || typeof args[key] === 'string' && Array.isArray(JSON.parse(args[key])) && JSON.parse(args[key]).length <= 500)
+      } catch { return false }
+    }
+    return false
+  }
   if (name !== 'excalidraw') return true
   if (['save_checkpoint', 'read_checkpoint'].includes(tool)) return typeof args.id === 'string' && state.checkpoints.has(args.id)
   if (tool === 'create_view') {
@@ -92,7 +109,7 @@ export function createPublicProxy(send = httpsMcpRequest) {
     session.publicServers ??= new Map()
     let state = session.publicServers.get(name)
     if (!state) {
-      state = { checkpoints: new Set(), deliveries: new Map(), protocolVersion: undefined, sessionId: undefined }
+      state = { checkpoints: new Set(), canvases: new Set(), deliveries: new Map(), protocolVersion: undefined, sessionId: undefined }
       session.publicServers.set(name, state)
     }
     if (!publicRequestAllowed(name, rpc, state)) return failure(rpc, 'Unsupported public example operation')
@@ -133,6 +150,11 @@ export function createPublicProxy(send = httpsMcpRequest) {
             state.checkpoints.add(checkpoint)
           }
         }
+        if (isCall && name === 'tldraw' && !parsed.result?.isError) {
+          const canvas = parsed.result?.structuredContent?.canvasId
+          if (toolName(rpc) === 'exec' && typeof canvas === 'string' && canvas.length <= 128) state.canvases.add(canvas)
+          if (toolName(rpc) === 'save_checkpoint') state.checkpoints.add(rpc.params.arguments.checkpointId)
+        }
         return { status: response.status, rpc: parsed }
       } catch { return null }
     }
@@ -151,3 +173,5 @@ export function createPublicProxy(send = httpsMcpRequest) {
     return result(saved.status, saved.rpc)
   }
 }
+
+function toolName(rpc) { return rpc.params?.name }

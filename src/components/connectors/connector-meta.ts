@@ -523,6 +523,16 @@ export const CONNECTOR_META: Record<string, ConnectorMeta> = {
       'AI-powered tools require organization AI processing to be enabled and may incur PostHog AI charges.',
     ],
   },
+  figma: {
+    category: 'Developer',
+    description: 'Read design context and work with Figma and FigJam files.',
+    docsUrl: 'https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/',
+    setup: [
+      'Figma admits approved MCP clients. Ri may need approval before you can sign in.',
+      'Check Figma’s client requirements and join its new-client waitlist if needed.',
+      'An account connection is followed by a separate check for supported interactive views.',
+    ],
+  },
   docusign: {
     category: 'Documents & agreements',
     description: 'Find agreements, check signature status and run agreement workflows.',

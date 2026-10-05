@@ -24,7 +24,7 @@ node scripts/mcp-apps-eval/setup.mjs
 node scripts/mcp-apps-eval/start.mjs
 ```
 
-Setup requires Git, Node 20.19 or later and pnpm 10.33.2. It fetches the exact commits in `sources.json`, applies the evaluation, embedding, conversation and third-party patches in order, installs three frozen pnpm lockfiles and typechecks/builds all three examples. It does not install into Ri. The tested Node version was 26.5.0.
+Setup requires Git, Node 20.19 or later and pnpm 10.33.2. It fetches the exact commits in `sources.json`, applies the evaluation, embedding, conversation, third-party and account-demo patches in order, installs three frozen pnpm lockfiles and typechecks/builds all three examples. It does not install into Ri. The tested Node version was 26.5.0.
 
 To use another isolated folder, set `RI_MCP_APPS_EVAL_DIR` to the same absolute path for setup, start, stop and verify. A folder inside the Ri checkout is rejected. The servers intentionally use fixed ports 48880 through 48883 and refuse to start over an existing listener.
 
@@ -54,7 +54,7 @@ See [the evaluation report](../../docs/plugins-evaluation-0a.md) for tested inte
 
 ## Open inside a remote Ri Home
 
-The follow-up experiment adds **Try interactive examples** at the top of Settings > Plugins. It opens the reference host inside a large dialog and returns to Plugins in the same tab. The underlying Ri conversation stays mounted. This is an experimental entry to public third-party apps and synthetic examples. Account integration and ordinary Ri chat results remain outside this experiment.
+The follow-up experiment adds **Try interactive examples** at the top of Settings > Plugins. Its seven-row table opens public demos and reuses Ri account setup for Asana, Figma and PostHog. It opens the reference host inside a large dialog and returns to Plugins in the same tab. The underlying Ri conversation stays mounted. Account views are a bounded development experiment. Ordinary Ri chat results remain outside this experiment. See [account setup and qualification](../../docs/plugins-evaluation-accounts.md).
 
 First build and run Ri with this change. Then, on the Home computer, run:
 
@@ -62,7 +62,7 @@ First build and run Ri with this change. Then, on the Home computer, run:
 pnpm exec tsx scripts/mcp-apps-eval/remote.ts
 ```
 
-The Home must already have its HTTPS remote URL configured and Beamd available. Start opens two owned Beamd tunnels, ports 48885 and 48886, in addition to the four isolated local servers. It prints the Ri Plugins URL. The browser uses these HTTPS origins, never its own localhost. Use **Open diagram example**, **Open chart example**, **Open building map/table** or **Open scenario example**, then **Return to Plugins**.
+The Home must already have its HTTPS remote URL configured and Beamd available. Start opens two owned Beamd tunnels, ports 48885 and 48886, in addition to the four isolated local servers. It prints the Ri Plugins URL. The browser uses these HTTPS origins, never its own localhost. Choose **Open demo** in a table row or **Try interactive examples** for all presets, including **Open canvas example**, then **Return to Plugins**.
 
 The app's authenticated tRPC launcher mints a 30-minute capability for the fixed public servers and synthetic fixtures. The public examples have no anonymous catalog or launch endpoint. Their child process has no Ri or provider credentials. The host and sandbox use distinct origins, retain the reference nested iframe, and validate the embedding origin. The bridge carries readiness, bounded numeric scenario or public-view context, staged app messages and captured-result references with exact source/origin checks. It has no Ri account, integration or ordinary composer authority.
 

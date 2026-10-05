@@ -33,7 +33,7 @@ export function pluginEvaluationStatus() {
   return { available: !!value, parentOrigin: value?.parentOrigin ?? null };
 }
 
-export async function launchPluginEvaluation(parentOrigin: string) {
+export async function launchPluginEvaluation(parentOrigin: string, example?: 'excalidraw' | 'flint' | 'buildings' | 'tldraw') {
   const value = evaluationDescriptor();
   if (!value) throw new OperationError(503, { error: 'evaluation_offline', message: 'The interactive examples are offline on your Home computer.' });
   if (parentOrigin !== value.parentOrigin) throw new OperationError(400, { error: 'unsupported_origin', message: 'Open these examples from your Home’s configured remote Ri URL.' });
@@ -42,5 +42,5 @@ export async function launchPluginEvaluation(parentOrigin: string) {
   }).catch(() => null);
   if (!response?.ok) throw new OperationError(503, { error: 'evaluation_offline', message: 'The interactive examples could not start. Your conversation is still available.' });
   const result = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/), expiresAt: z.string().datetime() }).parse(await response.json());
-  return { url: `${value.hostOrigin}/s/${result.token}/index.html`, expiresAt: result.expiresAt };
+  return { url: `${value.hostOrigin}/s/${result.token}/index.html${example ? `?example=${example}` : ''}`, expiresAt: result.expiresAt };
 }

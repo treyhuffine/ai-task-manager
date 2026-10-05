@@ -77,6 +77,34 @@ afterEach(() => {
 describe('multiple hosted accounts', () => {
   const setupId = 'ae8c37c1-df91-4105-a738-6d2da375ad80';
 
+  it('adds a PostHog API-key account without replacing its existing OAuth account', async () => {
+    const provider = getHostedMcpProvider('posthog')!;
+    const servers = freshStore(true), connections = connectionStore();
+    const oauth = await ensureHostedMcpServer(provider, servers, connections, 'local');
+    await servers.setOAuthState(oauth.id, { tokens: { access_token: 'existing-oauth-token' } });
+    await expect(ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: oauth.id, secret: 'personal-api-key' })).rejects.toThrow('different connection method');
+    const bearer = await ensureHostedMcpServer(provider, servers, connections, 'local', { addAccount: true, setupId, secret: 'personal-api-key', label: 'API key' });
+    expect(bearer.auth).toEqual({ kind: 'bearer' }); expect(hostedMcpDefinition(bearer)).toBe(provider);
+    expect(hostedMcpDefinition(oauth)).toBe(provider);
+    expect(await servers.openSecret(bearer.id)).toBe('personal-api-key');
+    expect(await servers.getOAuthState(oauth.id)).toMatchObject({ tokens: { access_token: 'existing-oauth-token' } });
+    expect(await servers.getOAuthState(bearer.id)).toBeNull();
+    expect((await ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: bearer.id, secret: 'rotated-key' })).id).toBe(bearer.id);
+    expect(await servers.openSecret(bearer.id)).toBe('rotated-key');
+  });
+  it('never attaches an API key to a concurrently created OAuth account', async () => {
+    const provider = getHostedMcpProvider('posthog')!, servers = freshStore(true), connections = connectionStore();
+    const outcomes = await Promise.allSettled([
+      ensureHostedMcpServer(provider, servers, connections, 'local', { addAccount: true, setupId }),
+      ensureHostedMcpServer(provider, servers, connections, 'local', { addAccount: true, setupId, secret: 'api-key' }),
+    ]);
+    expect(outcomes.filter(value => value.status === 'fulfilled')).toHaveLength(1);
+    expect(outcomes.filter(value => value.status === 'rejected')).toHaveLength(1);
+    expect(outcomes.find(value => value.status === 'rejected')).toMatchObject({ reason: expect.objectContaining({ message: expect.stringContaining('different connection method') }) });
+    const account = servers.list()[0]!;
+    expect(await servers.openSecret(account.id)).toBe(account.auth.kind === 'bearer' ? 'api-key' : null);
+  });
+
   it('adds independent accounts and requires explicit selection for reconnect', async () => {
     const servers = freshStore(true);
     const connections = connectionStore();

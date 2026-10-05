@@ -1,0 +1,307 @@
+--- a/host/src/index.tsx
++++ b/host/src/index.tsx
+@@ -5,8 +5,10 @@
+ import { callTool, connectToServer, hasAppHtml, initializeApp, loadSandboxProxy, log, newAppBridge, newInvocationId, type ServerInfo, type ToolCallInfo, type ModelContext, type AppMessage } from "./implementation";
+ import { getTheme, toggleTheme, onThemeChange, type Theme } from "./theme";
+ import styles from "./index.module.css";
++import { AccountPresets } from './account-presets';
+
+ const RI_PARENT_ORIGIN = document.documentElement.dataset.evaluationParentOrigin;
++const ACCOUNT_HANDLE = new URLSearchParams(location.search).get('account');
+ const SCENARIO_KEYS = ["startingMRR", "monthlyGrowthRate", "monthlyChurnRate", "grossMargin", "fixedCosts"];
+ function sampleInputs(value: unknown): value is Record<string, number> {
+   return !!value && typeof value === "object" && SCENARIO_KEYS.every(key => typeof (value as Record<string, unknown>)[key] === "number" && Number.isFinite((value as Record<string, number>)[key]));
+@@ -139,13 +141,13 @@
+       <header className={styles.demoIntro}>
+         <p>Ri Plugin UI · Milestone 0A</p>
+         <h1>Try real MCP Apps</h1>
+-        <p>{RI_PARENT_ORIGIN ? "Connect to hosted Excalidraw, Microsoft Flint and a public building-data service. Chat about any open result. Scenario Modeler also supports opt-in sample changes." : "Try the pinned local Excalidraw fallback and official Scenario Modeler with synthetic inputs."}</p>
+-        <p>Uses sample inputs and public museum or office data. Results stay in this tab's memory. Reload, End session or 30 minutes without opening another result ends the view session. Each Open button makes a new tool call.</p>
++        <p>{ACCOUNT_HANDLE ? 'This view is bound to the account selected in Ri. Tool calls use its current access and approvals.' : RI_PARENT_ORIGIN ? "Connect to hosted Excalidraw, Microsoft Flint, tldraw and a public building-data service. Chat about any open result. Scenario Modeler also supports opt-in sample changes." : "Try the pinned local Excalidraw fallback and official Scenario Modeler with synthetic inputs."}</p>
++        <p>Results stay in this tab's memory. Reload, End session or 30 minutes without opening another result ends the view session. Each Open or Run button makes a new tool call.</p>
+         {sessionEnded && <p role="status" className={styles.sessionEnded}>Session ended. Previous results were discarded. No tool call was replayed. Choose an example to start again.</p>}
+         {toolCalls.length > 0 && <button onClick={endSession}>End session</button>}
+       </header>
+       <Suspense fallback={<p role="status">Connecting to the example servers...</p>}>
+-        <DemoPresets serversPromise={serversPromise} addToolCall={addToolCall} activeCount={toolCalls.length} />
++        {ACCOUNT_HANDLE ? <AccountPresets serversPromise={serversPromise} addToolCall={addToolCall} activeCount={toolCalls.length} /> : <DemoPresets serversPromise={serversPromise} addToolCall={addToolCall} activeCount={toolCalls.length} />}
+       </Suspense>
+       {!queryParams.hideThemeToggle && <ThemeToggle />}
+       {toolCalls.map((info) => (
+@@ -189,6 +191,7 @@
+   theme_spec: "economist",
+   field_display_names: { month: "Month", revenue: "Revenue (USD)" },
+ };
++const TLDRAW_CODE = "editor.createShape({ _type: 'rectangle', shapeId: 'ri_demo', x: 100, y: 100, w: 320, h: 180, text: 'Ri sample workflow' }); editor.zoomToFit();";
+ const BUILDINGS = [
+   { label: "Rijksmuseum, Amsterdam", postcode: "1071XX", huisnummer: 1 },
+   { label: "Gustav Mahlerlaan 10, Amsterdam", postcode: "1082PP", huisnummer: 10 },
+@@ -204,6 +207,7 @@
+   const [error, setError] = useState<string | null>(null);
+   const [opening, setOpening] = useState(false);
+   const [building, setBuilding] = useState(0);
++  const openedPreset = useRef(false);
+   const open = (name: string, input: Record<string, unknown>) => {
+     const server = servers.find(s => s.tools.has(name));
+     if (!server) { setError("This example is unavailable. Reload to reconnect. No tool call was made."); return; }
+@@ -231,6 +235,19 @@
+     } catch (err) { setError(err instanceof Error ? err.message : "The public building service is unavailable. No call was replayed."); }
+     finally { setOpening(false); }
+   }
++  useEffect(() => {
++    if (openedPreset.current || performance.getEntriesByType('navigation').some(entry => (entry as PerformanceNavigationTiming).type === 'reload')) return;
++    openedPreset.current = true;
++    const example = new URLSearchParams(location.search).get('example');
++    if (!example || !RI_PARENT_ORIGIN) return;
++    void fetch(new URL(`api/preset?example=${example}`, location.href), { method: 'POST' }).then(response => {
++      if (!response.ok) { setError('This example session ended or was already opened. No tool call was replayed. Open a new session from Ri.'); return; }
++      if (example === 'excalidraw') open('create_view', { elements: JSON.stringify(DIAGRAM) });
++      if (example === 'flint') open('create_chart_view', CHART);
++      if (example === 'buildings') void openBuilding('map');
++      if (example === 'tldraw') open('exec', { code: TLDRAW_CODE });
++    }).catch(() => setError('The example could not open. No tool call was replayed.'));
++  }, []);
+   return <section className={styles.demoPresets} aria-label="Example plugins">
+     {connectionFailures.length > 0 && <div role="alert">Some examples could not connect: {connectionFailures.join(". ")}. Reload to reconnect, then explicitly open an example.</div>}
+     {error && <p role="alert">{error}</p>}
+@@ -243,6 +260,11 @@
+       <button disabled={!servers.some(s => s.tools.has("create_chart_view")) || activeCount >= 4} onClick={() => open("create_chart_view", CHART)}>Open chart example</button>
+       <p>{servers.some(s => s.tools.has("create_chart_view")) ? "Connected to Microsoft's public Flint server." : "Unavailable"}</p>
+       <p>Source: flint.data-formulator.ai. Uses synthetic revenue data.</p>
++    </article>
++    <article><h2>tldraw</h2><p>Edit a real drawing canvas, then attach its latest context to the demo chat.</p>
++      <button disabled={!servers.some(s => s.tools.has('exec')) || activeCount >= 4} onClick={() => open('exec', { code: TLDRAW_CODE })}>Open canvas example</button>
++      <p>{servers.some(s => s.tools.has('exec')) ? "Connected to tldraw's public server." : 'Unavailable'}</p>
++      <p>Uses a fixed sample script. Canvas edits and checkpoints are sent to tldraw's public service.</p>
+     </article>
+     <article><h2>Building explorer</h2><p>Look up a real public building, then explore its location or read its information in a table.</p>
+       <label>Public building <select aria-label="Public building" disabled={opening} value={building} onChange={event => setBuilding(Number(event.target.value))}>{BUILDINGS.map((address, index) => <option key={address.postcode} value={index}>{address.label}</option>)}</select></label>
+@@ -569,18 +591,20 @@
+   const currentInputs = useRef<Record<string, number> | null>(null);
+   const pendingApply = useRef<{ turnId: string; inputs: Record<string, number>; timer: number } | null>(null);
+   const isScenario = toolCallInfo.tool.name === "get-scenario-data";
+-  const publicApp = toolCallInfo.serverInfo.tools.has("get_building_profile") ? "Building explorer" : toolCallInfo.serverInfo.tools.has("create_chart_view") ? "Flint charts" : toolCallInfo.serverInfo.tools.has("create_view") ? "Excalidraw" : null;
+-  const publicView = toolCallInfo.tool.name === "create_view" ? "Diagram" : toolCallInfo.tool.name === "render_map" ? "Map" : toolCallInfo.tool.name === "render_table" ? "Table" : "Chart";
++  const accountName = ACCOUNT_HANDLE ? ({ asana: 'Asana', figma: 'Figma', posthog: 'PostHog' } as Record<string, string>)[toolCallInfo.serverInfo.name.split(' · ')[0]] : null;
++  const publicApp = accountName ?? (toolCallInfo.serverInfo.tools.has('exec') ? 'tldraw' : toolCallInfo.serverInfo.tools.has("get_building_profile") ? "Building explorer" : toolCallInfo.serverInfo.tools.has("create_chart_view") ? "Flint charts" : toolCallInfo.serverInfo.tools.has("create_view") ? "Excalidraw" : null);
++  const publicView = accountName === 'Asana' ? 'Tasks' : accountName === 'Figma' || toolCallInfo.tool.name === 'exec' ? 'Canvas' : accountName === 'PostHog' ? 'Query' : toolCallInfo.tool.name === "create_view" ? "Diagram" : toolCallInfo.tool.name === "render_map" ? "Map" : toolCallInfo.tool.name === "render_table" ? "Table" : "Chart";
+   const latestPublicContext = useRef<ModelContext | null>(null);
+   const latestPublicText = useRef("");
++  const latestPublicResult = useRef<unknown>(null);
+
+   function publishPublicContext() {
+     if (!publicApp) return;
+-    const text = JSON.stringify({ sourceApp: publicApp, viewInput: toolCallInfo.input, latestUiContext: latestPublicContext.current }, null, 2).slice(0, 12000);
++    const text = JSON.stringify({ sourceApp: publicApp, viewInput: toolCallInfo.input, toolResult: latestPublicResult.current, latestUiContext: latestPublicContext.current }, null, 2).slice(0, 12000);
+     if (text === latestPublicText.current) return;
+     latestPublicText.current = text;
+     revision.current++;
+-    notifyRi({ kind: "ri-evaluation-context", context: { invocationId, revision: revision.current, kind: "public", app: publicApp, view: publicView, text } });
++    notifyRi({ kind: "ri-evaluation-context", context: { invocationId, revision: revision.current, kind: ACCOUNT_HANDLE ? 'account' : "public", app: publicApp, view: publicView, text } });
+   }
+
+   function receiveContext(context: ModelContext | null) {
+@@ -634,7 +658,7 @@
+
+   useEffect(() => {
+     const iframe = iframeRef.current!;
+-    if (publicApp) void toolCallInfo.resultPromise.then(result => { if (!result.isError) publishPublicContext(); }).catch(() => {});
++    if (publicApp) void toolCallInfo.resultPromise.then(result => { if (!result.isError) { latestPublicResult.current = { content: result.content, structuredContent: result.structuredContent }; publishPublicContext(); } }).catch(() => {});
+
+     // First get CSP and permissions from resource, then load sandbox
+     // CSP is set via HTTP headers (tamper-proof), permissions via iframe allow attribute
+@@ -793,12 +817,14 @@
+ const connectionFailures: string[] = [];
+
+ async function connectToAllServers(): Promise<ServerInfo[]> {
+-  const serverUrlsResponse = await fetch("/api/servers");
+-  const serverUrls = (await serverUrlsResponse.json()) as string[];
++  const serverUrlsResponse = ACCOUNT_HANDLE ? null : await fetch("/api/servers");
++  const serverUrls = ACCOUNT_HANDLE
++    ? [new URL(`mcp/account?account=${ACCOUNT_HANDLE}`, location.href).href]
++    : (await serverUrlsResponse!.json()) as string[];
+
+   // Use allSettled to be resilient to individual server failures
+   const results = await Promise.allSettled(
+-    serverUrls.map((url) => Promise.race([connectToServer(new URL(url)), new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Connection timed out after 15 seconds")), 15000))]))
++    serverUrls.map((url) => Promise.race([connectToServer(new URL(url)), new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Connection timed out after 45 seconds")), 45000))]))
+   );
+
+   const servers: ServerInfo[] = [];
+--- a/host/src/implementation.ts
++++ b/host/src/implementation.ts
+@@ -9,6 +9,7 @@
+ } from "@modelcontextprotocol/client";
+ import { getTheme, onThemeChange } from "./theme";
+ import { HOST_STYLE_VARIABLES } from "./host-styles";
++import { connectAccount } from './account-transport';
+
+
+ const SANDBOX_PROXY_BASE_URL = "http://ri-mcp-sandbox.127.0.0.1.sslip.io:48881/sandbox.html";
+@@ -65,6 +66,8 @@
+ }
+
+ async function connectWithFallback(serverUrl: URL): Promise<Client> {
++  const handle = serverUrl.searchParams.get('account');
++  if (handle) return connectAccount(handle);
+   // Try Streamable HTTP first (modern transport)
+   try {
+     const client = new Client(IMPLEMENTATION, { capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: [RESOURCE_MIME_TYPE] } } } });
+@@ -117,14 +120,16 @@
+   if (!tool) {
+     throw new Error(`Unknown tool: ${name}`);
+   }
+-  const resultPromise = serverInfo.client.callTool({ name, arguments: input }) as Promise<CallToolResult>;
++  const resultPromise = serverInfo.client.callTool({ name, arguments: input, _meta: { 'ri/evaluationAudience': 'model' } }) as Promise<CallToolResult>;
+   void resultPromise.catch(() => {}); // A rendering boundary shows failure. Never retry.
+
+   const toolCallInfo: ToolCallInfo = { serverInfo, tool, input, resultPromise };
+
+   const uiResourceUri = getToolUiResourceUri(tool);
+   if (uiResourceUri) {
+-    toolCallInfo.appResourcePromise = getUiResource(serverInfo, uiResourceUri);
++    toolCallInfo.appResourcePromise = new URLSearchParams(location.search).has('account')
++      ? resultPromise.then(result => { if (result.isError) throw new Error('The account call did not complete. Its text result is available below.'); return getUiResource(serverInfo, uiResourceUri); })
++      : getUiResource(serverInfo, uiResourceUri);
+   }
+
+   return toolCallInfo;
+@@ -350,7 +355,6 @@
+   // handlers registered after connect() might miss early requests.
+
+   appBridge.onmessage = async (params, _extra) => {
+-    log.info("Message from MCP App:", params);
+     callbacks?.onMessage?.(params);
+     return {};
+   };
+@@ -364,7 +368,7 @@
+   };
+
+   appBridge.onloggingmessage = (params) => {
+-    log.info("Log message from MCP App:", params);
++    void params;
+   };
+
+   appBridge.onupdatemodelcontext = async (params) => {
+--- /dev/null
++++ b/host/src/account-transport.ts
+@@ -0,0 +1,44 @@
++import { Client } from '@modelcontextprotocol/client';
++
++type Transport = Parameters<Client['connect']>[0];
++type Message = Parameters<NonNullable<Transport['onmessage']>>[0];
++
++/** An authenticated parent operates Ri's existing runtime. This iframe has no credential. */
++export async function connectAccount(handle: string): Promise<Client> {
++  const origin = document.documentElement.dataset.evaluationParentOrigin;
++  if (!origin || !/^[a-f0-9-]{36}$/i.test(handle)) throw new Error('Account view has no authenticated parent');
++  const pending = new Map<string | number, number>();
++  const channel = crypto.randomUUID();
++  const transport: Transport = {
++    onmessage: undefined, onclose: undefined, onerror: undefined,
++    async start() { window.addEventListener('message', receive); },
++    async send(message) {
++      if (!('id' in message) || message.id === undefined || !('method' in message)) return;
++      const id = message.id;
++      const timer = window.setTimeout(() => {
++        pending.delete(id);
++        transport.onmessage?.({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Account request timed out. No call was repeated.' } });
++      }, 120000);
++      pending.set(id, timer);
++      window.parent.postMessage({ kind: 'ri-account-rpc', handle, channel, rpc: { id, method: message.method, ...('params' in message ? { params: message.params } : {}) } }, origin);
++    },
++    async close() {
++      window.removeEventListener('message', receive);
++      for (const timer of pending.values()) window.clearTimeout(timer);
++      pending.clear();
++      transport.onclose?.();
++    },
++  };
++  function receive(event: MessageEvent) {
++    if (event.source !== window.parent || event.origin !== origin || event.data?.kind !== 'ri-account-response' || event.data.handle !== handle || event.data.channel !== channel) return;
++    const rpc = event.data.rpc;
++    if (!rpc || !pending.has(rpc.id)) return;
++    window.clearTimeout(pending.get(rpc.id)); pending.delete(rpc.id);
++    transport.onmessage?.(rpc as Message);
++  }
++  const client = new Client({ name: 'Ri interactive evaluation', version: '1.0.0' }, {
++    capabilities: { extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } },
++  });
++  await client.connect(transport);
++  return client;
++}
+--- /dev/null
++++ b/host/src/account-presets.tsx
+@@ -0,0 +1,72 @@
++import { use, useState } from 'react';
++import { getToolUiResourceUri } from '@modelcontextprotocol/ext-apps/app-bridge';
++import type { Tool } from '@modelcontextprotocol/client';
++import { callTool, type ServerInfo, type ToolCallInfo } from './implementation';
++
++type Schema = { type?: string; default?: unknown; const?: unknown; enum?: unknown[]; properties?: Record<string, Schema>; required?: string[]; anyOf?: Schema[]; oneOf?: Schema[]; description?: string };
++const SQL = "SELECT toDate(timestamp) AS day, count() AS pageviews FROM events WHERE event = '$pageview' AND timestamp > now() - INTERVAL 7 DAY GROUP BY day ORDER BY day";
++function schemaFor(value: Schema): Schema {
++  const variants = value.anyOf ?? value.oneOf;
++  return variants?.find(value => value.properties?.kind?.const === 'HogQLQuery' || value.properties?.kind?.enum?.includes('HogQLQuery'))
++    ?? variants?.find(value => value.type !== 'null') ?? value;
++}
++function defaults(raw: Schema, key = ''): unknown {
++  const schema = schemaFor(raw);
++  if (schema.default !== undefined) return schema.default;
++  if (schema.const !== undefined) return schema.const;
++  if (schema.enum?.length) return schema.enum[0];
++  if (schema.properties) return Object.fromEntries(Object.entries(schema.properties).flatMap(([key, child]) => {
++    const value = defaults(child, key);
++    return value === undefined ? [] : [[key, value]];
++  }));
++  if (/mermaid/i.test(key)) return 'graph TD\n  A[Capture] --> B[Review]\n  B --> C[Act]';
++  if (/^(name|title)$/i.test(key)) return 'Ri interactive preview';
++  if (/^(query|sql)$/i.test(key) && schema.type === 'string') return SQL;
++  return undefined;
++}
++function Fields({ schema: raw, value, change, path = '' }: { schema: Schema; value: Record<string, unknown>; change: (value: Record<string, unknown>) => void; path?: string }) {
++  const schema = schemaFor(raw);
++  return <>{Object.entries(schema.properties ?? {}).slice(0, 24).map(([key, raw]) => {
++    const field = schemaFor(raw);
++    const label = key.replaceAll('_', ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
++    const id = `${path}${key}`;
++    const update = (next: unknown) => change({ ...value, [key]: next });
++    if (field.properties && path.split('.').length < 4) return <fieldset key={key}><legend>{label}</legend><Fields schema={field} value={(value[key] as Record<string, unknown>) ?? {}} change={update} path={`${id}.`} /></fieldset>;
++    if (field.const !== undefined) return null;
++    if (field.enum) return <label key={key}>{label}<select aria-label={id} value={String(value[key] ?? '')} onChange={event => update(event.target.value)}><option value="">Choose</option>{field.enum.map(option => <option key={String(option)}>{String(option)}</option>)}</select></label>;
++    if (field.type === 'boolean') return <label key={key}><input aria-label={id} type="checkbox" checked={value[key] === true} onChange={event => update(event.target.checked)} />{label}</label>;
++    if (field.type === 'number' || field.type === 'integer') return <label key={key}>{label}<input aria-label={id} type="number" value={value[key] === undefined ? '' : String(value[key])} onChange={event => update(event.target.value === '' ? undefined : Number(event.target.value))} /></label>;
++    if (field.type === 'string' || !field.type && !field.properties) return <label key={key}>{label}{/query|sql|description|mermaid/i.test(key)
++      ? <textarea aria-label={id} rows={4} value={String(value[key] ?? '')} onChange={event => update(event.target.value || undefined)} />
++      : <input aria-label={id} value={String(value[key] ?? '')} onChange={event => update(event.target.value || undefined)} />}</label>;
++    return <details key={key}><summary>{label}, advanced input</summary><textarea aria-label={id} rows={3} defaultValue={value[key] === undefined ? '' : JSON.stringify(value[key], null, 2)} onBlur={event => { try { update(event.target.value ? JSON.parse(event.target.value) : undefined); } catch { event.target.setCustomValidity('Enter valid JSON for this advanced field.'); } }} /></details>;
++  })}</>;
++}
++function AccountTool({ server, tool, addToolCall, activeCount }: { server: ServerInfo; tool: Tool; addToolCall: (info: ToolCallInfo) => void; activeCount: number }) {
++  const [input, setInput] = useState<Record<string, unknown>>(() => (defaults(tool.inputSchema as Schema) as Record<string, unknown>) ?? {});
++  const [error, setError] = useState<string | null>(null);
++  function run() { setError(null); try { addToolCall(callTool(server, tool.name, input)); } catch { setError('The view could not start. No call was repeated.'); } }
++  return <form onSubmit={event => { event.preventDefault(); run(); }}>
++    <p>{tool.description?.slice(0, 500)}</p>
++    <div style={{ display: 'grid', gap: '12px', maxWidth: '720px' }}><Fields schema={tool.inputSchema as Schema} value={input} change={setInput} /></div>
++    <p><button type="button" onClick={run} disabled={activeCount >= 4}>Run and show result</button></p>
++    <p>This is a new call on the selected account. Any required approval appears in Ri before the call runs.</p>
++    {error && <p role="alert">{error}</p>}
++  </form>;
++}
++export function AccountPresets({ serversPromise, addToolCall, activeCount }: { serversPromise: Promise<ServerInfo[]>; addToolCall: (info: ToolCallInfo) => void; activeCount: number }) {
++  const servers = use(serversPromise);
++  const server = servers[0];
++  const tools = server ? [...server.tools.values()].filter(tool => getToolUiResourceUri(tool) && (!tool._meta?.ui || !Array.isArray((tool._meta.ui as { visibility?: unknown }).visibility) || (tool._meta.ui as { visibility: string[] }).visibility.includes('model')))
++    .sort((a, b) => Number(!/search_tasks_preview|query.run|query.trends|generate_diagram/.test(a.name)) - Number(!/search_tasks_preview|query.run|query.trends|generate_diagram/.test(b.name))) : [];
++  const [selected, setSelected] = useState('');
++  const tool = tools.find(tool => tool.name === selected) ?? tools[0];
++  if (!server) return <section><p role="alert">This account could not connect. Return to Plugins to check its setup.</p></section>;
++  return <section style={{ padding: '24px' }} aria-label="Selected account interactive tools">
++    <h2>{server.name}</h2>
++    {!tool ? <p role="status">No compatible interactive tool was discovered. The account remains available for ordinary tools in Ri.</p> : <>
++      <label>Interactive workflow <select aria-label="Interactive workflow" value={tool.name} onChange={event => setSelected(event.target.value)}>{tools.map(tool => <option key={tool.name} value={tool.name}>{tool.title ?? tool.name}</option>)}</select></label>
++      <AccountTool key={tool.name} server={server} tool={tool} addToolCall={addToolCall} activeCount={activeCount} />
++    </>}
++  </section>;
++}

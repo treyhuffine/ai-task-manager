@@ -25,6 +25,7 @@ export interface ConnectMcpOptions {
 }
 
 export interface ConnectedMcpClient extends McpClientLike {
+  readResource(params: { uri: string }): Promise<{ contents: Array<{ uri: string; mimeType?: string; text?: string; blob?: string; _meta?: Record<string, unknown> }> }>;
   close(): Promise<void>;
 }
 
@@ -48,7 +49,9 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const authMod = (await import('@modelcontextprotocol/sdk/client/auth.js')) as any;
 
-  const client = new clientMod.Client({ name: opts.name ?? 'connectors-engine', version: opts.version ?? '0.0.1' });
+  const client = new clientMod.Client({ name: opts.name ?? 'connectors-engine', version: opts.version ?? '0.0.1' }, {
+    capabilities: { extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } },
+  });
   if (opts.onToolsChanged) {
     const { ToolListChangedNotificationSchema } = await import('@modelcontextprotocol/sdk/types.js');
     // Install before connect so an early change cannot be lost between discovery
@@ -69,6 +72,9 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
   }
 
   return {
+    async readResource(params) {
+      return client.readResource(params, { timeout: 30_000 });
+    },
     async listTools() {
       const tools: McpToolDef[] = [];
       const seenCursors = new Set<string>();
@@ -99,6 +105,7 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
           content: res.content,
           ...(res.structuredContent !== undefined ? { structuredContent: res.structuredContent } : {}),
           isError: res.isError ?? false,
+          ...(res._meta !== undefined ? { _meta: res._meta } : {}),
         };
       } catch (error) {
         // Only the SDK's typed authentication rejection proves this request was

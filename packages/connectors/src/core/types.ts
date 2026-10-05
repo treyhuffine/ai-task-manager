@@ -273,8 +273,10 @@ export interface Action<I = unknown, O = unknown> {
   deprecated?: boolean;
   /** The action id to use instead, when `deprecated`. Surfaced in the projected description. */
   replacedBy?: string;
+  /** App-only MCP tools remain callable through the gated app path. */
+  modelVisible?: boolean;
   /** Trusted local validation after account resolution and before approval. No side effects. */
-  validateForConnection?(connection: ConnectionMetadata, input: I): void;
+  validateForConnection?(connection: ConnectionMetadata, input: I, audience?: 'model' | 'app'): void;
   execute(ctx: ActionContext, input: I): Promise<O>;
 }
 
@@ -323,6 +325,9 @@ export interface ActionContext {
   config: Record<string, unknown>;
   clock: Clock;
   log: Logger;
+  toolAudience?: 'model' | 'app';
+  /** Trusted host capture before projection. Never supplied by a remote tool. */
+  captureOriginalResult?: (result: unknown) => void;
 }
 
 // ───────────────────────────── Outcomes ─────────────────────────────────────
@@ -695,6 +700,8 @@ export interface RunActionOptions {
    */
   allowedConnectionIds?: string[];
   caller?: Caller;
+  toolAudience?: 'model' | 'app';
+  captureOriginalResult?: (result: unknown) => void;
   // Multi-client / hosted layer (authconfig spec §6): the tenant half of the resolution context,
   // used when the agent path auto-initiates auth and must pick a visible client per §4a.
   tenantId?: string;

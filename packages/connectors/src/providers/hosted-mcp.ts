@@ -30,6 +30,8 @@ export interface HostedMcpProvider {
   } | { kind: 'bearer'; label?: string; helpUrl?: string } | { kind: 'none' };
   /** Provider-specific write floor, for broad automation or administrative tools. */
   defaultMutationRisk?: 'medium' | 'high';
+  /** A documented API-key path alongside OAuth, without changing saved accounts. */
+  tokenAuth?: { label: string; helpUrl: string };
 }
 
 export const HOSTED_MCP_PROVIDERS: readonly HostedMcpProvider[] = [
@@ -95,6 +97,7 @@ export const HOSTED_MCP_PROVIDERS: readonly HostedMcpProvider[] = [
     auth: { kind: 'oauth', grantTypes: ['authorization_code'], tokenEndpointAuthMethod: 'none' }, defaultMutationRisk: 'high' },
   { id: 'asana', displayName: 'Asana', url: 'https://mcp.asana.com/v2/mcp',
     auth: { kind: 'oauth', registration: 'registered', tokenEndpointAuthMethod: 'client_secret_post' } },
+  { id: 'figma', displayName: 'Figma', url: 'https://mcp.figma.com/mcp', defaultMutationRisk: 'high' },
   { id: 'dropbox', displayName: 'Dropbox', url: 'https://mcp.dropbox.com/mcp',
     auth: { kind: 'oauth', registration: 'registered', tokenEndpointAuthMethod: 'client_secret_post',
       authorizationParams: { token_access_type: 'offline' } }, defaultMutationRisk: 'high' },
@@ -104,7 +107,8 @@ export const HOSTED_MCP_PROVIDERS: readonly HostedMcpProvider[] = [
   { id: 'twitter', displayName: 'X (Twitter)', url: 'https://api.x.com/mcp',
     auth: { kind: 'oauth', registration: 'registered', tokenEndpointAuthMethod: 'client_secret_basic' }, defaultMutationRisk: 'high' },
   { id: 'robinhood', displayName: 'Robinhood', url: 'https://agent.robinhood.com/mcp/trading', defaultMutationRisk: 'high' },
-  { id: 'posthog', displayName: 'PostHog', url: 'https://mcp.posthog.com/mcp', defaultMutationRisk: 'high' },
+  { id: 'posthog', displayName: 'PostHog', url: 'https://mcp.posthog.com/mcp', defaultMutationRisk: 'high',
+    tokenAuth: { label: 'Personal API key', helpUrl: 'https://posthog.com/docs/api/personal-api-keys' } },
   // The vendor's older /http examples return 404. Live challenges advertise /mcp.
   { id: 'paypal', displayName: 'PayPal', endpoint: { kind: 'region', label: 'PayPal environment', options: [
     { id: 'production', label: 'Production', url: 'https://mcp.paypal.com/mcp' },

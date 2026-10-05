@@ -1,11 +1,27 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { test } from 'node:test'
-import { createPublicProxy, PUBLIC_SERVERS, validPublicCsp } from './public-servers.mjs'
+import { createPublicProxy, PUBLIC_SERVERS, TLDRAW_CODE, validPublicCsp } from './public-servers.mjs'
 
 const call = (name, args, invocation = randomUUID(), id = 1) => ({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args, _meta: { 'ri/evaluationInvocation': invocation } } })
 function response(rpc, value) { return { status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: value })) } }
 const session = () => ({ calls: 0 })
+
+test('tldraw permits the fixed canvas and keeps app callbacks inside its owning session', async () => {
+  let executions = 0
+  const proxy = createPublicProxy(async (_url, rpc) => { executions++; return response(rpc, { structuredContent: { canvasId: 'owned' }, content: [] }) })
+  const owner = session(), other = session()
+  assert.equal((await proxy('tldraw', call('exec', { code: 'arbitrary code' }), owner)).status, 403)
+  assert.equal((await proxy('tldraw', call('exec', { code: TLDRAW_CODE }), owner)).status, 200)
+  assert.equal((await proxy('tldraw', call('_get_canvas_state', { canvasId: 'owned' }), owner)).status, 200)
+  assert.equal((await proxy('tldraw', call('_get_canvas_state', { canvasId: 'owned' }), other)).status, 403)
+  assert.equal((await proxy('tldraw', call('save_checkpoint', { checkpointId: 'checkpoint', canvasId: 'owned', shapesJson: '[]' }), owner)).status, 200)
+  assert.equal((await proxy('tldraw', call('read_checkpoint', { checkpointId: 'checkpoint' }), owner)).status, 200)
+  assert.equal((await proxy('tldraw', call('read_checkpoint', { checkpointId: 'checkpoint' }), other)).status, 403)
+  assert.equal(executions, 4)
+  assert.equal(validPublicCsp({ resourceDomains: ['https://cdn.tldraw.com', 'blob:'], connectDomains: ['https://tldraw-mcp-app.tldraw.workers.dev'] }), true)
+  assert.equal(validPublicCsp({ connectDomains: ['blob:'] }), false)
+})
 
 test('remote allowlists reject arbitrary tools, resources, file data and private addresses', async () => {
   let executions = 0

@@ -25,7 +25,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
   const providerId = typeof body.providerId === 'string' ? body.providerId : '';
   if (!providerId) return reply({ error: 'providerId required' }, { status: 400 });
   const hosted = getHostedMcpProvider(providerId);
-  if (hosted && (!hosted.auth || hosted.auth.kind === 'oauth')) {
+  if (hosted && (!hosted.auth || hosted.auth.kind === 'oauth') && !hosted.tokenAuth) {
     return reply({ error: 'This connector uses browser sign-in. Connect it from Settings.' }, { status: 400 });
   }
   const fields =
@@ -33,7 +33,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
 
   if (hosted) {
     const token = typeof fields.token === 'string' ? fields.token.trim() : '';
-    if (hosted.auth?.kind === 'bearer' && !token) return reply({ error: 'A connection token is required.' }, { status: 400 });
+    if ((hosted.auth?.kind === 'bearer' || hosted.tokenAuth) && !token) return reply({ error: 'A connection token is required.' }, { status: 400 });
     if (hosted.auth?.kind === 'none' && Object.keys(fields).length > 0) return reply({ error: 'This connector does not accept credentials.' }, { status: 400 });
     try {
       const servers = getMcpServerStore();

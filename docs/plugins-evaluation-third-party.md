@@ -1,5 +1,7 @@
 # Hosted third-party MCP Apps evaluation
 
+The October 5 follow-up adds tldraw and temporary account views. See [the current seven-option report](plugins-evaluation-accounts.md) for setup, qualification states and the account adapter. The report below records the earlier three-public-app evaluation.
+
 October 4, 2026. This extends the isolated milestone 0A host opened from Ri's Settings > Plugins > **Try interactive examples**. It connects to actual external MCP servers through the Mac Mini. A remote viewer needs only their existing Ri URL. The browser does not use its own localhost.
 
 ## Qualified public examples

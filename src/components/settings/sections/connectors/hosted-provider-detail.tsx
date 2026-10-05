@@ -51,16 +51,17 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
       <GroupHeading count={accounts.length + previousConnections.length} action={kind !== 'none' && <Button size="xs" variant="outline" disabled={busy} onClick={() => setTarget('new')}><Plus size={12} /> Add account</Button>}>Accounts</GroupHeading>
       {form}
       <div className="space-y-3">{accounts.map(account => {
+        const accountKind = account.authKind ?? kind;
         const connection = connections.find(candidate => candidate.id === account.connectionId);
         const label = account.label || (connection && connectionIdentity(connection)) || provider.displayName;
         const result = connection ? props.testResults[connection.id] : undefined;
         return <div key={account.serverId} className="space-y-3 rounded-xl border border-border bg-card/20 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0"><p className="truncate text-sm font-medium">{label}</p>
-              <p className="text-xs text-muted-foreground">{account.enabled === false ? 'Off' : account.requiresAuth ? kind === 'bearer' ? 'Token needed' : 'Sign-in needed' : account.status === 'ok' ? 'Connected' : 'Needs attention'}{account.toolCount !== undefined ? ` · ${account.toolCount} tools` : ''}</p>
+              <p className="text-xs text-muted-foreground">{account.enabled === false ? 'Off' : account.requiresAuth ? accountKind === 'bearer' ? 'Token needed' : 'Sign-in needed' : account.status === 'ok' ? 'Connected' : 'Needs attention'}{account.toolCount !== undefined ? ` · ${account.toolCount} tools` : ''}</p>
             </div>
             <div className="flex flex-wrap gap-1">
-              <Button size="xs" variant="ghost" disabled={busy} onClick={() => setTarget(account.serverId)}>{kind === 'bearer' ? 'Update token' : 'Reconnect'}</Button>
+              <Button size="xs" variant="ghost" disabled={busy} onClick={() => setTarget(account.serverId)}>{accountKind === 'bearer' ? 'Update token' : 'Reconnect'}</Button>
               {connection && <Button size="xs" variant="ghost" disabled={busy || props.testing === connection.id} onClick={() => props.onTest(connection.id)}>Test</Button>}
               {connection ? <Button size="xs" variant="ghost" disabled={busy} onClick={() => props.onDisconnect(connection.id)}>Disconnect</Button>
                 : <Button size="xs" variant="ghost" disabled={busy} onClick={() => props.onCancelSetup?.(account.serverId)}>Cancel setup</Button>}
@@ -103,7 +104,12 @@ function HostedAccountForm(props: ProviderDetailProps & { account?: HostedMcpAcc
     ? { serverId: account.serverId, existingConnectionId: account.connectionId }
     : previousConnection ? { existingConnectionId: previousConnection.id }
       : props.provider.mcp?.authKind === 'none' ? {} : { addAccount: true, setupId };
-  const provider = providerForHostedAccount(props.provider, baseIntent, props.connections);
+  const baseProvider = providerForHostedAccount(props.provider, baseIntent, props.connections);
+  const [method, setMethod] = useState(account?.authKind ?? baseProvider.mcp?.authKind ?? 'oauth');
+  const tokenAuth = props.provider.mcp?.tokenAuth;
+  const provider = method === 'bearer' && tokenAuth
+    ? { ...baseProvider, mcp: { ...baseProvider.mcp!, authKind: 'bearer' as const, credentialLabel: tokenAuth.label, helpUrl: tokenAuth.helpUrl } }
+    : baseProvider;
   const needsLabel = !account && !previousConnection && provider.mcp?.authKind !== 'none';
   const ready = !needsLabel || !!label.trim();
   const intent = (): HostedConnectIntent => ({ ...baseIntent, label: label.trim() || undefined, fields: creds, ...connectorEndpointSelection(provider.mcp?.endpointConfig, endpoint) });
@@ -115,6 +121,10 @@ function HostedAccountForm(props: ProviderDetailProps & { account?: HostedMcpAcc
     onConnectDirect: () => { if (ready) props.onConnectDirect(intent()); },
   };
   return <div className="space-y-4 rounded-xl border border-border bg-card/20 p-4">
+    {tokenAuth && !account && !previousConnection && <div className="flex gap-2" aria-label="Connection method">
+      <Button type="button" size="xs" variant={method === 'oauth' ? 'secondary' : 'ghost'} disabled={props.busy} onClick={() => { setMethod('oauth'); setCreds({}); }}>Sign in</Button>
+      <Button type="button" size="xs" variant={method === 'bearer' ? 'secondary' : 'ghost'} disabled={props.busy} onClick={() => { setMethod('bearer'); setCreds({}); }}>Use API key</Button>
+    </div>}
     {needsLabel && <div className="space-y-1"><label htmlFor="hosted-account-label" className="text-xs font-medium">Account label</label><Input id="hosted-account-label" value={label} onChange={event => setLabel(event.target.value)} placeholder="Work or Personal" disabled={props.busy} required /></div>}
     {provider.mcp?.endpointConfig && <HostedEndpointFields setup={provider.mcp.endpointConfig} value={endpoint} onChange={setEndpoint} disabled={props.busy} />}
     <ConnectPanel {...formProps} />

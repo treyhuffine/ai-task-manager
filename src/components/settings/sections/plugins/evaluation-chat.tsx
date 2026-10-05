@@ -131,7 +131,7 @@ export function EvaluationChat({ viewUrl, frame }: { viewUrl: string; frame: Ref
     <div className="absolute bottom-4 right-4 z-10 flex max-w-[calc(100vw-3rem)] flex-col items-end gap-2">
       {open && <section aria-label="Temporary demo chat" className="flex max-h-[72dvh] w-96 max-w-full flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div><p className="text-sm font-medium">Demo chat</p><p className="text-xs text-muted-foreground">Sample inputs and public data. Reload ends the chat.</p></div>
+          <div><p className="text-sm font-medium">Demo chat</p><p className="text-xs text-muted-foreground">Discuss the context you attach. Reload ends the chat.</p></div>
           <Button size="icon" variant="ghost" aria-label="Close demo chat" onClick={() => setOpen(false)}><X className="size-4" /></Button>
         </div>
         <div className="flex gap-2 px-4 pt-3">
