@@ -10329,39 +10329,34 @@ export interface WorkEventRow {
 const WORK_EVENT_SOURCES_SQL =
   "('user','agent','tool_call','tool_result','thinking','result','approval_request','approval_response','error')";
 
+// The columns the ledger reads. `sender_session_id` sits after `raw` in the
+// row, so it's read only for user rows: reading it for every row can pull
+// in each big row's overflow pages (AGENTS.md, "Query cost").
+const WORK_EVENT_COLUMNS = `rowid, session_id AS sessionId, created_at AS createdAt, source,
+  CASE WHEN source = 'user' THEN sender_session_id END AS senderSessionId,
+  CASE WHEN source IN ('user', 'agent') THEN content END AS text`;
+
+/** Bounded by the rowid itself: a range search from the cursor (plan pinned in a test). */
+export const WORK_EVENTS_AFTER_ROWID_SQL = `SELECT ${WORK_EVENT_COLUMNS}
+  FROM chat_events
+  WHERE rowid > ? AND source IN ${WORK_EVENT_SOURCES_SQL}
+  ORDER BY rowid
+  LIMIT ?`;
+
+/** One chat, by `idx_chat_events_session_created` (plan pinned in a test). */
+export const WORK_EVENTS_FOR_SESSION_SQL = `SELECT ${WORK_EVENT_COLUMNS}
+  FROM chat_events
+  WHERE session_id = ? AND source IN ${WORK_EVENT_SOURCES_SQL}
+  ORDER BY created_at, id`;
+
 /** Work events after a rowid, oldest insert first. */
 export function listWorkEventsAfterRowid(afterRowid: number, limit: number): WorkEventRow[] {
-  return getRawDb()
-    .prepare(
-      `SELECT rowid, session_id AS sessionId, created_at AS createdAt, source,
-              sender_session_id AS senderSessionId,
-              CASE WHEN source IN ('user', 'agent') THEN content END AS text
-       FROM chat_events
-       WHERE rowid > ? AND source IN ${WORK_EVENT_SOURCES_SQL}
-       ORDER BY rowid
-       LIMIT ?`,
-    )
-    .all(afterRowid, limit) as WorkEventRow[];
+  return getRawDb().prepare(WORK_EVENTS_AFTER_ROWID_SQL).all(afterRowid, limit) as WorkEventRow[];
 }
 
-/** Every work event of one chat, by time (to rebuild its blocks). */
+/** Every work event of one chat, by time (to rebuild its blocks after an import). */
 export function listWorkEventsForSession(sessionId: string): WorkEventRow[] {
-  return getRawDb()
-    .prepare(
-      `SELECT rowid, session_id AS sessionId, created_at AS createdAt, source,
-              sender_session_id AS senderSessionId,
-              CASE WHEN source IN ('user', 'agent') THEN content END AS text
-       FROM chat_events
-       WHERE session_id = ? AND source IN ${WORK_EVENT_SOURCES_SQL}
-       ORDER BY created_at, id`,
-    )
-    .all(sessionId) as WorkEventRow[];
-}
-
-/** The newest chat_events rowid, 0 when empty. */
-export function maxChatEventRowid(): number {
-  const row = getRawDb().prepare('SELECT MAX(rowid) AS max FROM chat_events').get() as { max: number | null };
-  return row.max ?? 0;
+  return getRawDb().prepare(WORK_EVENTS_FOR_SESSION_SQL).all(sessionId) as WorkEventRow[];
 }
 
 export interface WorkSessionMetaRow {
