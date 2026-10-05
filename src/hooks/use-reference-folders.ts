@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { referenceFoldersApi } from '@/lib/api/reference-folders';
 import type { FileMentionItem } from '@/components/chat/editor/mention-menu/types';
 import type { CreateReferenceFolderInput, UpdateReferenceFolderInput } from '@/db/types';
@@ -23,10 +23,21 @@ export function useReferenceFolders(workspaceId: string | null) {
 }
 
 /**
+ * Every open chat's `@` picker (`useSessionReferenceFolders`) reads its folders
+ * again. Any change to an agent's folders calls this, or a folder just added
+ * stays out of the picker for a minute.
+ */
+export function invalidateReferencePickers(qc: QueryClient) {
+  return qc.invalidateQueries({
+    predicate: (q) => q.queryKey[0] === 'sessions' && q.queryKey[2] === 'reference-folders',
+  });
+}
+
+/**
  * Invalidate every scope, not just the one that changed. A global reference is
  * visible from every workspace, so a write to one scope can change what
- * another workspace sees. Every agent's folders on each device, and where
- * it can run, follow its linked folders too.
+ * another workspace sees. Every agent's folders on each device, where it can
+ * run, and every open chat's `@` picker follow its linked folders too.
  */
 function useInvalidateReferenceFolders() {
   const qc = useQueryClient();
@@ -34,6 +45,7 @@ function useInvalidateReferenceFolders() {
     void qc.invalidateQueries({
       predicate: (q) => q.queryKey[0] === 'workspaces' && (q.queryKey[2] === 'folders' || q.queryKey[2] === 'run-on'),
     });
+    void invalidateReferencePickers(qc);
     return qc.invalidateQueries({ queryKey: REFERENCE_FOLDERS_KEY });
   };
 }

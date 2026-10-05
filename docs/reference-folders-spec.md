@@ -324,6 +324,12 @@ Two-step behavior:
 - Selecting it **retargets the file picker into that folder**, so
   `@backend/src/routes/` resolves. This is the ergonomic payoff and it falls
   out of the existing suggestion plumbing rather than needing new machinery.
+- The picker offers them everywhere you write to an agent: its chats and
+  executions (`useSessionReferenceFolders`), and the launcher before the
+  execution exists (`useReferenceFolders`, offered only when the work runs on
+  this machine, since the paths are this machine's). Adding, changing or
+  removing a folder refreshes every open picker (`invalidateReferencePickers`),
+  so a folder just added is there on the next `@`.
 
 **How the drill-down actually works.** Selecting a reference inserts no chip.
 It rewrites the composer text to `@<alias>/`, which leaves Tiptap's suggestion

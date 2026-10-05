@@ -6,6 +6,7 @@ import { sessionsApi, type HistoryResponse, type RailResponse } from '@/lib/api/
 import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
 import type { DirtyWorktreeBody, UncommittedFile } from '@/lib/workspaces/uncommitted-files';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import { invalidateReferencePickers } from '@/hooks/use-reference-folders';
 
 const WORKSPACES_KEY = ['workspaces'] as const;
 
@@ -87,6 +88,7 @@ export function useChangeAgentFolders(workspaceId: string) {
     qc.setQueryData([...WORKSPACES_KEY, workspaceId, 'folders'], data);
     void qc.invalidateQueries({ queryKey: [...WORKSPACES_KEY, workspaceId, 'run-on'] });
     void qc.invalidateQueries({ queryKey: ['reference-folders'] });
+    void invalidateReferencePickers(qc);
   };
   return {
     project: useMutation({

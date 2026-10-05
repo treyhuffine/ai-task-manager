@@ -13,6 +13,8 @@ import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { useUserState } from '@/hooks/use-user-state';
 import { useRunOn, useSetDefaultDevice, useWorkspacePRs, useWorkspaces } from '@/hooks/use-workspaces';
+import { useLoadReferenceTree, useReferenceFolders } from '@/hooks/use-reference-folders';
+import type { ReferenceFolderMentionItem } from '@/components/chat/editor/mention-menu/types';
 import { apiErrorText } from '@/lib/api/client';
 import { sessionsApi } from '@/lib/api/sessions';
 import { tasksApi } from '@/lib/api/tasks';
@@ -159,6 +161,27 @@ function LaunchModalInner({
   // A device that can't take the work blocks the start, with why. Never
   // another device in its place.
   const runOnProblem = runOnChoice && !runOnChoice.ready ? runOnChoice.problem : null;
+
+  // The agent's reference folders (and the global ones) in the `@` picker, so
+  // a folder can be tagged before the execution exists. Their paths are this
+  // machine's, so they're offered only when the work will run here.
+  const { data: referenceFolders } = useReferenceFolders(workspaceId);
+  const runsHere = !runOnChoice || runOnChoice.isHome;
+  const mentionReferenceFolders = useMemo<ReferenceFolderMentionItem[]>(
+    () =>
+      runsHere
+        ? (referenceFolders ?? []).map((r) => ({
+            kind: 'reference',
+            id: r.id,
+            alias: r.alias,
+            absolutePath: r.absolutePath,
+            exists: r.exists,
+            browsable: true,
+          }))
+        : [],
+    [referenceFolders, runsHere],
+  );
+  const loadReferenceTree = useLoadReferenceTree();
 
   // The editor owns its own document; we only mirror "is there anything to
   // send" for the Start button. Pulling the text out happens once, at launch.
@@ -696,7 +719,8 @@ function LaunchModalInner({
                   long-paste-becomes-a-file, and `#` PR mentions for free.
                   File `@`-mentions and slash commands are deliberately absent:
                   both are sourced from a worktree/harness that doesn't exist
-                  until this modal creates one. */}
+                  until this modal creates one. Reference folders aren't: they
+                  belong to the agent, so `@alias` finds them here too. */}
               <div
                 onKeyDownCapture={handleEditorKeyDownCapture}
                 className="rounded-lg border border-border bg-background px-3 py-2.5 focus-within:border-primary/40 focus-within:ring-1 focus-within:ring-primary/30"
@@ -706,6 +730,8 @@ function LaunchModalInner({
                   placeholder="What are we working on?"
                   disabled={launching}
                   prs={prMentions}
+                  mentionReferenceFolders={mentionReferenceFolders}
+                  loadReferenceTree={loadReferenceTree}
                   // Opened with no agent, the draft is the launcher's own and
                   // stays put while an agent is picked. Keyed to the agent, a
                   // pick would swap in that agent's draft over what you typed.
