@@ -180,6 +180,21 @@ describe('sweepAttachments', () => {
     expect(fs.existsSync(path.join(archiveDir, file.fileName))).toBe(false);
   });
 
+  it('reads chat_events through the partial attachments index, never a table scan', async () => {
+    const { getRawDb } = await import('@/lib/db');
+    const { collectReferencedFileNames } = await import('./attachments-gc');
+    const db = getRawDb();
+    const prepare = vi.spyOn(db, 'prepare');
+    collectReferencedFileNames();
+    const sql = prepare.mock.calls.map(([s]) => s).find((s) => s.includes('"chat_events"'));
+    prepare.mockRestore();
+    expect(sql).toBeDefined();
+    // `attachments` sits after `raw`, so a scan reads every event in full:
+    // seconds on a real home, every 15 minutes, on the server's only thread.
+    const plan = (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as { detail: string }[]).map((r) => r.detail);
+    expect(plan).toEqual(['SCAN chat_events USING COVERING INDEX idx_chat_events_attachments']);
+  });
+
   it('tolerates a missing attachments directory', async () => {
     const { sweepAttachments } = await import('./attachments-gc');
     const stats = await sweepAttachments();

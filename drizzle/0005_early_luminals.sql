@@ -1,0 +1,2 @@
+CREATE INDEX `idx_chat_events_attachments` ON `chat_events` (`attachments`) WHERE "chat_events"."attachments" <> '[]';--> statement-breakpoint
+CREATE INDEX `idx_chat_events_background_task` ON `chat_events` (`session_id`,`created_at`) WHERE ("chat_events"."source" = 'background_task' OR ("chat_events"."source" = 'system' AND "chat_events"."content" IN ('background_task', 'task_started', 'task_progress', 'task_updated', 'task_notification')));

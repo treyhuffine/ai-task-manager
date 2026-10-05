@@ -14,7 +14,7 @@ import {
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
-  triagePasses, triageDecisions, streamLinks, skillUsage,
+  triagePasses, triageDecisions, streamLinks, skillUsage, isBackgroundTaskEvent,
 } from '@/lib/db/schema';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, notInArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
@@ -1842,28 +1842,39 @@ export function getExecutionReviews(executionId: string): ExecutionReviewRecord[
  * review target). Returns the id and time, or null.
  */
 function latestReviewableOutputEvent(sessionIds: string[]): { id: string; createdAt: string } | null {
-  if (sessionIds.length === 0) return null;
-  // The newest outcome event that is NOT nested subagent narration, decided in
-  // SQL (a correlated NOT EXISTS against the launching tool_call) so no row cap
-  // can let enough nested output hide the real top-level result. Kept in sync
-  // with isSubagentTool.
-  const row = getDb()
-    .select({ id: chatEvents.id, createdAt: chatEvents.createdAt })
-    .from(chatEvents)
-    .where(
-      and(
-        inArray(chatEvents.sessionId, sessionIds),
-        inArray(chatEvents.source, [...OUTCOME_SOURCES]),
-        or(
-          isNull(chatEvents.externalParentToolCallId),
-          sql`NOT EXISTS (SELECT 1 FROM chat_events sub WHERE sub.session_id = ${chatEvents.sessionId} AND sub.external_tool_call_id = ${chatEvents.externalParentToolCallId} AND sub.source = 'tool_call' AND sub.tool_name IN ('Task', 'Agent', 'spawn_agent'))`,
+  // One query per session, then the newest by (createdAt, id). An IN list over
+  // several sessions can't walk idx_chat_events_session_created newest-first,
+  // so SQLite sorted every event of every chat in the execution (0.6s on a long
+  // codex run) on the server's only thread, and this backs two polls (the
+  // review bar every 15s, task attention every 20s).
+  let latest: { id: string; createdAt: string } | null = null;
+  for (const sessionId of sessionIds) {
+    // The newest outcome event that is NOT nested subagent narration, decided
+    // in SQL (a correlated NOT EXISTS against the launching tool_call) so no
+    // row cap can let enough nested output hide the real top-level result.
+    // Kept in sync with isSubagentTool.
+    const row = getDb()
+      .select({ id: chatEvents.id, createdAt: chatEvents.createdAt })
+      .from(chatEvents)
+      .where(
+        and(
+          eq(chatEvents.sessionId, sessionId),
+          inArray(chatEvents.source, [...OUTCOME_SOURCES]),
+          or(
+            isNull(chatEvents.externalParentToolCallId),
+            sql`NOT EXISTS (SELECT 1 FROM chat_events sub WHERE sub.session_id = ${chatEvents.sessionId} AND sub.external_tool_call_id = ${chatEvents.externalParentToolCallId} AND sub.source = 'tool_call' AND sub.tool_name IN ('Task', 'Agent', 'spawn_agent'))`,
+          ),
         ),
-      ),
-    )
-    .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id))
-    .limit(1)
-    .get();
-  return row ? { id: row.id, createdAt: row.createdAt } : null;
+      )
+      .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id))
+      .limit(1)
+      .get();
+    if (!row) continue;
+    if (!latest || row.createdAt > latest.createdAt || (row.createdAt === latest.createdAt && row.id > latest.id)) {
+      latest = { id: row.id, createdAt: row.createdAt };
+    }
+  }
+  return latest;
 }
 
 function executionSessionIds(executionId: string): string[] {
@@ -8971,6 +8982,9 @@ export function listBackgroundTaskEvents(sessionId: string, taskIds: readonly st
     .where(
       and(
         eq(chatEvents.sessionId, sessionId),
+        // Narrows to the session's lifecycle rows through
+        // idx_chat_events_background_task before any `raw` is parsed.
+        isBackgroundTaskEvent(chatEvents),
         or(
           inArray(sql<string>`json_extract(${chatEvents.raw}, '$.taskId')`, idList),
           inArray(sql<string>`json_extract(${chatEvents.raw}, '$.raw.task_id')`, idList),

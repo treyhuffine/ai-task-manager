@@ -400,6 +400,24 @@ describe('task↔workstream associations', () => {
     expect(q.getExecutionReviewContext(exec.id).latestOutputEventId).toBe('top-out');
   });
 
+  it('the review target is the newest output across all of an execution\'s chats', async () => {
+    const { q, wsId } = await setup();
+    const exec = q.createExecution({ workspaceId: wsId });
+    const chat = () => q.createChatSession({ type: 'execution', harness: 'codex', workspaceId: wsId, executionId: exec.id, label: null, status: 'active' });
+    const a = chat();
+    const b = chat();
+    const c = chat();
+    q.insertChatEvent({ id: 'a-out', sessionId: a.id, role: 'assistant', source: 'agent', content: 'a', createdAt: '2999-01-01T00:00:00.000Z' });
+    q.insertChatEvent({ id: 'b-out', sessionId: b.id, role: 'assistant', source: 'agent', content: 'b', createdAt: '2999-01-03T00:00:00.000Z' });
+    // Newer than every output, but not an outcome: never the target.
+    q.insertChatEvent({ id: 'a-user', sessionId: a.id, role: 'user', source: 'user', content: 'u', createdAt: '2999-01-09T00:00:00.000Z' });
+    expect(q.getExecutionReviewContext(exec.id).latestOutputEventId).toBe('b-out');
+
+    // Same instant in another chat: the id breaks the tie, as in the transcript.
+    q.insertChatEvent({ id: 'c-out', sessionId: c.id, role: 'assistant', source: 'agent', content: 'c', createdAt: '2999-01-03T00:00:00.000Z' });
+    expect(q.getExecutionReviewContext(exec.id).latestOutputEventId).toBe('c-out');
+  });
+
   it('accept-and-complete is atomic and refuses to complete over newer output', async () => {
     const { q, wsId } = await setup();
     const exec = q.createExecution({ workspaceId: wsId });

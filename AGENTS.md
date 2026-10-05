@@ -59,6 +59,13 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 - Once a migration has reached any running Home, its SQL and journal entry are immutable. Never remove a create/drop pair, reuse its index, or assume only known local databases applied it. Append a forward migration instead. The exact retired `skill_scopes` lineage in `src/lib/db/migrate.ts` is a compatibility exception for an existing history rewrite, not permission to rewrite more history.
 - Collapsing the history into a fresh baseline (delete `drizzle/`, `pnpm db:generate`) means every existing database must be rebuilt: with the app stopped, `pnpm tsx scripts/db-rebuild.ts --in-place <app-root>/data.db` snapshots the file, builds the schema at the baseline, refills it table by table keeping rowids, verifies every row, and only then swaps it in (`--from <copy> --to <new>` rehearses without swapping). Migrations after the baseline apply on the next boot like any other, so the script's CHANGES block only changes at the next collapse. New code refuses to boot on an old journal: `MigrationHistoryError` stops before touching anything and prints the rebuild command.
 
+## Query cost
+
+- better-sqlite3 is synchronous and the server has one thread, so a slow query stalls every other request until it returns. `chat_events` is the big table: over 1.4M rows and 9 GB on a real home, and one long codex chat alone can hold 250k events.
+- Any `chat_events` read on a request, poll or timer must be bounded by an index: `session_id = ?` for one session (an `IN` list over several sessions can't walk the index in order, so SQLite sorts all of their events), `ORDER BY created_at, id` with a `LIMIT`, or a partial index for a rare kind of row. Never rank, group or `json_extract` across the whole table or a whole long session.
+- Columns stored after `raw` (`external_*`, `part_revision`, `attachments`) can mean reading the whole row, overflow pages included. Filter on the early columns (`session_id`, `source`, `content`) first.
+- SQLite only uses a partial index when the query repeats its `WHERE` with literals, not bound params. Build both from one expression (`isBackgroundTaskEvent` in `schema.ts`), and pin the plan in a test with `EXPLAIN QUERY PLAN` (as `queries.stuck-sessions.test.ts` does).
+
 ## Attachments
 
 One generic attachment system across the whole app:

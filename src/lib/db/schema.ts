@@ -1738,6 +1738,19 @@ export const externalSessionImports = sqliteTable(
 // One row per atomic thing that happened in a chat. Source enum
 // distinguishes user/agent/thinking/tool_call/tool_result/system/result/etc.
 // External_event_id makes idempotent upsert possible across retries.
+
+/**
+ * The chat_events rows that carry a background task's lifecycle, as
+ * `parseStreamEvent` writes them: terminal records as `background_task`,
+ * active ones as `system` rows whose content is `background_task`
+ * (agentex 0.0.33+) or the legacy Claude subtype (`task_*`, agentex 0.0.32
+ * and earlier). Literal SQL on purpose: SQLite only uses the partial index
+ * `idx_chat_events_background_task` when a query repeats this exact
+ * expression, so `listBackgroundTaskEvents` filters with it too.
+ */
+export const isBackgroundTaskEvent = (t: { source: AnySQLiteColumn; content: AnySQLiteColumn }) =>
+  sql`(${t.source} = 'background_task' OR (${t.source} = 'system' AND ${t.content} IN ('background_task', 'task_started', 'task_progress', 'task_updated', 'task_notification')))`;
+
 export const chatEvents = sqliteTable(
   'chat_events',
   {
@@ -1788,6 +1801,20 @@ export const chatEvents = sqliteTable(
       .where(sql`${table.externalEventId} IS NOT NULL`),
     index('idx_chat_events_session_created').on(table.sessionId, table.createdAt),
     index('idx_chat_events_tool_call_id').on(table.externalToolCallId),
+    // The rare events that carry files, covering `attachments`, so the
+    // attachment sweep (`collectReferencedFileNames`) reads those rows only.
+    // The column sits after `raw`, so a table scan reads every event in full:
+    // 7.6s on a 9 GB home, every 15 minutes, on the server's only thread.
+    index('idx_chat_events_attachments')
+      .on(table.attachments)
+      .where(sql`${table.attachments} <> '[]'`),
+    // A session's background-task lifecycle rows in transcript order, for
+    // `listBackgroundTaskEvents`. Without it the lookup parsed `raw` on every
+    // event of the session (14s cold on a 250k-event codex chat). `created_at`
+    // is what makes SQLite pick it over idx_chat_events_session_created.
+    index('idx_chat_events_background_task')
+      .on(table.sessionId, table.createdAt)
+      .where(isBackgroundTaskEvent(table)),
   ],
 );
 

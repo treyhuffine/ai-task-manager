@@ -23,6 +23,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { hydrateRow } from '@/lib/db/hydrate';
 import {
@@ -72,7 +73,16 @@ export function collectReferencedFileNames(): Set<string> {
   push(db.select({ attachments: areasTbl.attachments }).from(areasTbl).all().map((r) => hydrateRow(r)));
   push(db.select({ attachments: streamTbl.attachments }).from(streamTbl).all().map((r) => hydrateRow(r)));
   push(db.select({ attachments: workspacesTbl.attachments }).from(workspacesTbl).all().map((r) => hydrateRow(r)));
-  push(db.select({ attachments: chatEventsTbl.attachments }).from(chatEventsTbl).all().map((r) => hydrateRow(r)));
+  // Through the partial covering index idx_chat_events_attachments: the
+  // predicate must stay a literal `<> '[]'` (not a bound param) for SQLite
+  // to use it, and scanning chat_events instead reads the whole home.
+  push(
+    db.select({ attachments: chatEventsTbl.attachments })
+      .from(chatEventsTbl)
+      .where(sql`${chatEventsTbl.attachments} <> '[]'`)
+      .all()
+      .map((r) => hydrateRow(r)),
+  );
 
   return out;
 }
