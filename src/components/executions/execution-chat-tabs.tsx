@@ -72,7 +72,8 @@ function byTabOrder(a: ExecutionChatHistoryEntry, b: ExecutionChatHistoryEntry):
  * - One tab per open (non-archived) chat plus the chat being viewed. Click
  *   switches; a switch never disturbs the worktree, terminal, or pane
  *   layout (those are execution-keyed, not chat-keyed). Drag to reorder —
- *   the manual order persists (`tabSortKey`, fractional index).
+ *   the manual order persists (`tabSortKey`, fractional index). By touch,
+ *   press and hold a tab to pick it up; a plain swipe scrolls the strip.
  * - Emerald pulse = agent actively working that chat (executor turn
  *   state). Primary dot + semibold = unread activity since last view.
  * - X closes: harness torn down, row archived. Closing the current tab
@@ -574,10 +575,13 @@ function ChatTab({
           onDoubleClick={onStartRename}
           title={tooltip}
           // Drag the tab by its body (like a browser tab). MouseSensor's
-          // 5px activation lets a plain click/double-click through.
+          // 5px activation lets a plain click/double-click through. By touch,
+          // a swipe scrolls the strip and a press-and-hold picks the tab up
+          // (TouchSensor's delay), so the tab must leave panning to the
+          // browser: `touch-none` here made the strip unscrollable on a phone.
           {...listeners}
           className={cn(
-            'flex h-full min-w-0 touch-none items-center gap-1.5 pl-2 text-[12px] font-medium',
+            'flex h-full min-w-0 touch-manipulation items-center gap-1.5 pl-2 text-[12px] font-medium',
             canClose ? 'pr-1' : 'pr-2',
             dragEnabled && 'cursor-grab active:cursor-grabbing',
           )}
