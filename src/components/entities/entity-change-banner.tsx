@@ -48,33 +48,41 @@ export function EntityChangeBanner({
 
   return (
     <>
-      <div className="sticky top-0 z-20 mx-4 mt-2 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 shadow-sm backdrop-blur md:mx-12">
-        <FilePenLine size={15} className="flex-shrink-0 text-primary" />
-        <span className="min-w-0 flex-1 text-[12.5px] text-foreground">
-          AI {verb} this {noun}.
-        </span>
-        <button
-          onClick={() => setModalOpen(true)}
-          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-[11.5px] font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          <Eye size={12} /> Review changes
-        </button>
-        {latest.before && (
+      {/* A container, so the banner fits the room it has: where its words and
+          buttons don't fit on one line, the buttons take a row of their own
+          under the words (the dismiss X stays top right), instead of the
+          sentence being squeezed to a word per line beside them. */}
+      <div className="@container sticky top-0 z-20 mx-4 mt-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 shadow-sm backdrop-blur md:mx-12">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <FilePenLine size={15} className="flex-shrink-0 text-primary" />
+          <span className="min-w-0 flex-1 text-[12.5px] text-foreground">
+            AI {verb} this {noun}.
+          </span>
+          <div className="flex items-center gap-2 @max-[30rem]:order-last @max-[30rem]:basis-full @max-[30rem]:pl-[23px]">
+            <button
+              onClick={() => setModalOpen(true)}
+              className="inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-2.5 py-1 text-[11.5px] font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <Eye size={12} /> Review changes
+            </button>
+            {latest.before && (
+              <button
+                onClick={() => revert.mutate(latest.before!.id)}
+                disabled={revert.isPending}
+                className="inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background/60 px-2.5 py-1 text-[11.5px] font-medium text-foreground hover:bg-muted/60 disabled:opacity-50"
+              >
+                {revert.isPending ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />} Undo
+              </button>
+            )}
+          </div>
           <button
-            onClick={() => revert.mutate(latest.before!.id)}
-            disabled={revert.isPending}
-            className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border border-border bg-background/60 px-2.5 py-1 text-[11.5px] font-medium text-foreground hover:bg-muted/60 disabled:opacity-50"
+            onClick={() => setDismissedId(latest.after.id)}
+            className="flex-shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label="Dismiss"
           >
-            {revert.isPending ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />} Undo
+            <X size={14} />
           </button>
-        )}
-        <button
-          onClick={() => setDismissedId(latest.after.id)}
-          className="flex-shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label="Dismiss"
-        >
-          <X size={14} />
-        </button>
+        </div>
       </div>
       {modalOpen && (
         <EntityDiffModal open={modalOpen} onClose={() => setModalOpen(false)} entityType={entityType} entityId={entityId} />
