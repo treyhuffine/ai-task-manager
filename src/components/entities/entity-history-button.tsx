@@ -5,6 +5,7 @@ import { History } from 'lucide-react';
 import { useEntityVersions, groupVersions, type VersionedEntityType } from '@/hooks/use-entity-versions';
 import { EntityDiffModal } from './entity-diff-modal';
 import { cn } from '@/lib/utils';
+import { ENTITY_HEADER_LABEL } from './entity-header';
 
 /**
  * Top-level "review changes" affordance for a note/task — the discoverable
@@ -35,9 +36,10 @@ export function EntityHistoryButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title="Review changes"
+        title={aiLatest ? 'Review changes' : 'History'}
+        aria-label={aiLatest ? 'Review changes' : 'History'}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+          'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
           aiLatest
             ? 'bg-primary/10 text-primary hover:bg-primary/20'
             : 'text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -45,7 +47,7 @@ export function EntityHistoryButton({
         )}
       >
         <History size={12} />
-        {aiLatest ? 'Review changes' : 'History'}
+        <span className={ENTITY_HEADER_LABEL}>{aiLatest ? 'Review changes' : 'History'}</span>
       </button>
       {open && (
         <EntityDiffModal open={open} onClose={() => setOpen(false)} entityType={entityType} entityId={entityId} />

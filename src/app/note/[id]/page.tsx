@@ -9,6 +9,7 @@ import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout
 import { EntityHistoryButton } from '@/components/entities/entity-history-button';
 import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
 import { EntityViewToggle } from '@/components/entities/entity-view-toggle';
+import { ENTITY_HEADER } from '@/components/entities/entity-header';
 import { EntityAgentView } from '@/components/entities/entity-agent-view';
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { AreaSelect } from '@/components/shared/area-select';
@@ -135,7 +136,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
   }, [goBack]);
 
   const header = (
-        <div className="flex items-center justify-between h-11 sticky top-0 z-10 bg-background/80 backdrop-blur-sm">
+        <div className={cn('flex items-center justify-between gap-2 h-11 sticky top-0 z-10 bg-background/80 backdrop-blur-sm', ENTITY_HEADER)}>
           <button
             onClick={goBack}
             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5 shrink-0"

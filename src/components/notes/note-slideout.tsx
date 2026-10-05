@@ -22,6 +22,7 @@ import { ReferencingSessionsButton } from '@/components/shared/referencing-sessi
 import { EntityHistoryButton } from '@/components/entities/entity-history-button'
 import { EntityChangeBanner } from '@/components/entities/entity-change-banner'
 import { EntityViewToggle } from '@/components/entities/entity-view-toggle'
+import { ENTITY_HEADER } from '@/components/entities/entity-header'
 import { EntityAgentView } from '@/components/entities/entity-agent-view'
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode'
 import { cn } from '@/lib/utils'
@@ -216,7 +217,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
         {/* Panel content */}
         <div className="flex-1 flex flex-col bg-background border-l border-border overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 h-11 flex-shrink-0">
+          <div className={cn('flex items-center justify-between gap-2 px-4 h-11 flex-shrink-0', ENTITY_HEADER)}>
             <div className="flex items-center gap-1.5 group/nav">
               <button
                 onClick={onClose}
@@ -242,7 +243,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
               )}
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
               {agentFirst && <EntityViewToggle value={view} onChange={setView} compact={width < 700} />}
               {noteId && <EntityHistoryButton entityType="note" entityId={noteId} />}
               {noteId && <ReferencingSessionsButton entityType="note" entityId={noteId} />}

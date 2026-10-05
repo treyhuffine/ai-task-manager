@@ -2,6 +2,7 @@
 
 import { openLauncher } from '@/components/workspaces/launcher/launcher-store';
 import { trpcClient } from '@/lib/trpc/client';
+import { ENTITY_HEADER_LABEL } from '@/components/entities/entity-header';
 import { cn } from '@/lib/utils';
 import { Bot, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -148,13 +149,15 @@ export function StartWithAgentButton({
       <button
         onClick={onClick}
         disabled={busy}
+        title={label}
+        aria-label={label}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded border border-violet-500/30 bg-violet-500/5 px-2 py-1 text-[11px] font-medium text-violet-600 transition-colors hover:bg-violet-500/10 disabled:opacity-60 dark:text-violet-400',
+          'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded border border-violet-500/30 bg-violet-500/5 px-2 py-1 text-[11px] font-medium text-violet-600 transition-colors hover:bg-violet-500/10 disabled:opacity-60 dark:text-violet-400',
           className,
         )}
       >
         {busy ? <Loader2 size={13} className="animate-spin" /> : <Bot size={13} />}
-        {label}
+        <span className={ENTITY_HEADER_LABEL}>{label}</span>
       </button>
       {chooserDialog}
     </>

@@ -2,6 +2,7 @@
 
 import { FileText, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ENTITY_HEADER_TOGGLE_LABEL } from './entity-header';
 import type { EntityViewMode } from '@/lib/client/entity-view-mode';
 
 /**
@@ -20,7 +21,8 @@ export function EntityViewToggle({
   onChange: (next: EntityViewMode) => void;
   className?: string;
   /** Icon-only. Hosts pass this when their header is cramped (a narrow
-   *  slideout). Below the `sm` viewport the labels hide on their own. */
+   *  slideout). Below the `sm` viewport, or in a task or note header without
+   *  room for them, the labels hide on their own. */
   compact?: boolean;
 }) {
   return (
@@ -44,7 +46,7 @@ export function EntityViewToggle({
           )}
         >
           {m === 'agent' ? <Bot size={10} /> : <FileText size={10} />}
-          <span className={cn(compact ? 'hidden' : 'hidden sm:inline')}>{m === 'agent' ? 'Agent' : 'Document'}</span>
+          <span className={cn(compact ? 'hidden' : cn('hidden sm:inline', ENTITY_HEADER_TOGGLE_LABEL))}>{m === 'agent' ? 'Agent' : 'Document'}</span>
         </button>
       ))}
     </div>

@@ -54,6 +54,7 @@ import { ReferencingSessionsButton } from '@/components/shared/referencing-sessi
 import { EntityHistoryButton } from '@/components/entities/entity-history-button';
 import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
 import { EntityViewToggle } from '@/components/entities/entity-view-toggle';
+import { ENTITY_HEADER, ENTITY_HEADER_LABEL } from '@/components/entities/entity-header';
 import { EntityAgentView } from '@/components/entities/entity-agent-view';
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { cn } from '@/lib/utils';
@@ -372,7 +373,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
           {/* Panel content */}
           <div className="flex-1 flex flex-col bg-background border-l border-border overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between px-4 h-11 flex-shrink-0">
+            <div className={cn('flex items-center justify-between gap-2 px-4 h-11 flex-shrink-0', ENTITY_HEADER)}>
               <div className="flex items-center gap-1.5 group/nav">
                 <button
                   onClick={onClose}
@@ -398,7 +399,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 {agentFirst && <EntityViewToggle value={view} onChange={setView} compact={width < 700} />}
                 {taskId && <EntityHistoryButton entityType="task" entityId={taskId} />}
                 {taskId && <ReferencingSessionsButton entityType="task" entityId={taskId} />}
@@ -426,15 +427,17 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                 {task && task.status !== 'consider' && task.status !== 'archived' && (
                   <button
                     onClick={handleComplete}
+                    title={isDone ? 'Completed' : 'Complete'}
+                    aria-label={isDone ? 'Completed' : 'Complete'}
                     className={cn(
-                      'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
+                      'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
                       isDone
                         ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                         : 'border border-border text-muted-foreground hover:text-foreground hover:bg-accent',
                     )}
                   >
                     <Check size={12} />
-                    {isDone ? 'Completed' : 'Complete'}
+                    <span className={ENTITY_HEADER_LABEL}>{isDone ? 'Completed' : 'Complete'}</span>
                   </button>
                 )}
 
