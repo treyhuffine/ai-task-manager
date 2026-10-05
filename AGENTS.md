@@ -64,7 +64,8 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 - better-sqlite3 is synchronous and the server has one thread, so a slow query stalls every other request until it returns. `chat_events` is the big table: over 1.4M rows and 9 GB on a real home, and one long codex chat alone can hold 250k events.
 - Any `chat_events` read on a request, poll or timer must be bounded by an index: `session_id = ?` for one session (an `IN` list over several sessions can't walk the index in order, so SQLite sorts all of their events), `ORDER BY created_at, id` with a `LIMIT`, or a partial index for a rare kind of row. Never rank, group or `json_extract` across the whole table or a whole long session.
 - Columns stored after `raw` (`external_*`, `part_revision`, `attachments`) can mean reading the whole row, overflow pages included. Filter on the early columns (`session_id`, `source`, `content`) first.
-- SQLite only uses a partial index when the query repeats its `WHERE` with literals, not bound params. Build both from one expression (`isBackgroundTaskEvent` in `schema.ts`), and pin the plan in a test with `EXPLAIN QUERY PLAN` (as `queries.stuck-sessions.test.ts` does).
+- SQLite only uses a partial index when the query repeats its `WHERE` with literals, not bound params. Build both from one expression (`isBackgroundTaskEvent` in `schema.ts`).
+- There are no `ANALYZE` stats, so SQLite reaches for `idx_chat_events_session_created` whenever a query has `session_id = ?` or `ORDER BY created_at`, even when a narrower index exists. Sort a handful of rows in JS, or leave the session term out (`listBackgroundTaskEvents` does both). Pin every such plan in a test with `EXPLAIN QUERY PLAN`, as `queries.stuck-sessions.test.ts` does.
 
 ## Attachments
 

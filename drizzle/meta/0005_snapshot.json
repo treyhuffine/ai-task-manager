@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "4f209f12-b5ad-4184-884c-9a16520ffe2b",
+  "id": "7b170927-3629-4b8e-828d-91b45189371d",
   "prevId": "97f8cac7-8d8a-4189-90e6-a452396ec4c3",
   "tables": {
     "api_keys": {
@@ -476,8 +476,7 @@
         "idx_chat_events_background_task": {
           "name": "idx_chat_events_background_task",
           "columns": [
-            "session_id",
-            "created_at"
+            "session_id"
           ],
           "isUnique": false,
           "where": "(\"chat_events\".\"source\" = 'background_task' OR (\"chat_events\".\"source\" = 'system' AND \"chat_events\".\"content\" IN ('background_task', 'task_started', 'task_progress', 'task_updated', 'task_notification')))"

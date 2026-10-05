@@ -1808,12 +1808,11 @@ export const chatEvents = sqliteTable(
     index('idx_chat_events_attachments')
       .on(table.attachments)
       .where(sql`${table.attachments} <> '[]'`),
-    // A session's background-task lifecycle rows in transcript order, for
+    // A session's background-task lifecycle rows, for
     // `listBackgroundTaskEvents`. Without it the lookup parsed `raw` on every
-    // event of the session (14s cold on a 250k-event codex chat). `created_at`
-    // is what makes SQLite pick it over idx_chat_events_session_created.
+    // event of the session (14s cold on a 250k-event codex chat).
     index('idx_chat_events_background_task')
-      .on(table.sessionId, table.createdAt)
+      .on(table.sessionId)
       .where(isBackgroundTaskEvent(table)),
   ],
 );

@@ -8991,7 +8991,9 @@ export function listBackgroundTaskEvents(sessionId: string, taskIds: readonly st
         ),
       ),
     )
-    .orderBy(asc(chatEvents.createdAt), asc(chatEvents.id))
+    // Unordered on purpose, here and below: given an ORDER BY created_at,
+    // SQLite prefers idx_chat_events_session_created and walks every event
+    // of the session. The few rows found are sorted at the end.
     .all()
     .map((r) => hydrateRow(r));
 
@@ -9003,14 +9005,14 @@ export function listBackgroundTaskEvents(sessionId: string, taskIds: readonly st
     lifecycle.push(row);
     if (decoded.toolUseId) toolUseIds.add(decoded.toolUseId);
   }
-  if (toolUseIds.size === 0) return lifecycle;
-
-  const launches = db
+  // By tool call id alone, through idx_chat_events_tool_call_id, then this
+  // session's: with a session_id term SQLite walks the session instead.
+  const launches = toolUseIds.size === 0 ? [] : db
     .select()
     .from(chatEvents)
-    .where(and(eq(chatEvents.sessionId, sessionId), inArray(chatEvents.externalToolCallId, [...toolUseIds])))
-    .orderBy(asc(chatEvents.createdAt), asc(chatEvents.id))
+    .where(inArray(chatEvents.externalToolCallId, [...toolUseIds]))
     .all()
+    .filter((r) => r.sessionId === sessionId)
     .map((r) => hydrateRow(r));
 
   const byId = new Map<string, ChatEventRecord>();
