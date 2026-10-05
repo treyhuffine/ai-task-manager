@@ -35,6 +35,10 @@ import {
 import { cn } from '@/lib/utils';
 import type { TriggerWithLastRun } from '@/db/types';
 import { isReservedTrigger } from '@/lib/triggers/reserved';
+import { isTriggerInactive } from '@/lib/triggers/inactive';
+import { useFoldShown } from '@/lib/client/rail-fold';
+import { formatCompactRelative } from '@/lib/utils/relative-time';
+import { FoldRow } from '@/components/workspaces/fold-row';
 import { findProvider } from '@/lib/harness/options';
 import { AwakeNote } from '@/components/triggers/awake-note';
 
@@ -194,8 +198,21 @@ function ListBody({
 }) {
   const { data: triggers, isLoading } = useTriggers();
   const updateTrigger = useUpdateTrigger();
+  // Paused triggers and one-time ones that already fired fold below the rest,
+  // the same toggle as every other list (src/lib/triggers/inactive.ts).
+  const [inactiveShown, setInactiveShown] = useFoldShown('inactive:triggers');
 
   const hasContent = !!triggers && triggers.length > 0;
+  const active = (triggers ?? []).filter((t) => !isTriggerInactive(t));
+  const inactive = (triggers ?? []).filter((t) => isTriggerInactive(t));
+  const row = (s: TriggerWithLastRun) => (
+    <Row
+      key={s.id}
+      trigger={s}
+      onToggle={(enabled) => updateTrigger.mutate({ id: s.id, enabled })}
+      onOpen={() => onOpenDetail(s.id)}
+    />
+  );
 
   return (
     <div className="space-y-3">
@@ -220,14 +237,18 @@ function ListBody({
 
       {hasContent && (
         <div className="space-y-1.5">
-          {triggers.map((s) => (
-            <Row
-              key={s.id}
-              trigger={s}
-              onToggle={(enabled) => updateTrigger.mutate({ id: s.id, enabled })}
-              onOpen={() => onOpenDetail(s.id)}
-            />
-          ))}
+          {active.map(row)}
+          {inactive.length > 0 && (
+            <>
+              {inactiveShown && <div className="space-y-1.5 opacity-60">{inactive.map(row)}</div>}
+              <FoldRow
+                label={`${inactive.length} paused or finished`}
+                shown={inactiveShown}
+                onToggle={() => setInactiveShown(!inactiveShown)}
+                rowClassName="py-1.5 text-[11px]"
+              />
+            </>
+          )}
         </div>
       )}
     </div>
@@ -333,6 +354,7 @@ function Row({
         <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
           {cadence}
           {trigger.provider && ` · ${findProvider(trigger.provider)?.name ?? trigger.provider}`}
+          {trigger.lastFiredAt && ` · ran ${ranAgo(trigger.lastFiredAt)}`}
         </p>
       </button>
 
@@ -347,4 +369,10 @@ function Row({
       </button>
     </div>
   );
+}
+
+/** "now", "5m ago", "3d ago", or a date for anything older than a month. */
+function ranAgo(at: string): string {
+  const rel = formatCompactRelative(at);
+  return rel === 'now' || /^[A-Z]/.test(rel) ? rel : `${rel} ago`;
 }
