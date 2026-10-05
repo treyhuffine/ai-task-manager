@@ -1,10 +1,18 @@
 {
-  "testedAt": "2026-10-04T16:33:34.788Z",
+  "testedAt": "2026-10-05T03:29:29.792Z",
   "mode": "isolated-ri",
   "checks": [
     "The HTTPS view discovers both fixtures without invoking a tool",
     "Ri cookies do not reach either HTTPS example origin",
     "Scenario sliders, comparison and reset work over Beamd",
+    "A real Claude MCP call reads the current UI values without overwriting a typed draft",
+    "The same view can be explicitly attached to a second temporary chat without sharing its draft",
+    "A controlled captured MCP result updates the actual view and receives an acknowledgement",
+    "A late result cannot overwrite newer slider edits",
+    "Revoking update permission during a reply preserves the view and new typing",
+    "Detaching context during a reply prevents application to the view",
+    "A message from the wrong frame source cannot attach or replace view context",
+    "Reload discards both temporary chats and their attached authority without a replay",
     "The real app retains its nested sandbox, DOM isolation and lack of desktop IPC",
     "Excalidraw editing and return preserve the same invocation over HTTPS",
     "Reload ends the example session without replaying a tool",
@@ -13,9 +21,13 @@
     "Reloading Ri leaves the examples closed and never replays a tool",
     "A narrow Ri view keeps a visible return path without invoking tools"
   ],
-  "calls": [
+  "browserCalls": [
     "get-scenario-data",
     "create_view",
     "save_checkpoint"
-  ]
+  ],
+  "chatVerification": {
+    "readHarness": "claude",
+    "changes": "Controlled replies with actual captured MCP results"
+  }
 }

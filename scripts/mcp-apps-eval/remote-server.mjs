@@ -8,6 +8,23 @@ const LOCAL_HOST = 'http://ri-mcp-apps.127.0.0.1.nip.io:48880'
 const LOCAL_SANDBOX = 'http://ri-mcp-sandbox.127.0.0.1.sslip.io:48881'
 const SESSION_MS = 30 * 60 * 1000
 const LIMIT = 20 * 1024 * 1024
+const INPUT_RANGES = { startingMRR: [10000, 500000], monthlyGrowthRate: [0, 20], monthlyChurnRate: [0, 15], grossMargin: [50, 95], fixedCosts: [5000, 200000] }
+export function validScenarioInputs(value) {
+  return value && typeof value === 'object' && Object.keys(value).length === 5 && Object.entries(INPUT_RANGES).every(([name, [min, max]]) => typeof value[name] === 'number' && Number.isFinite(value[name]) && value[name] >= min && value[name] <= max)
+}
+function sameInputs(a, b) { return Object.keys(INPUT_RANGES).every(name => a?.[name] === b?.[name]) }
+function rpcResponse(body, type) {
+  if (type?.includes('text/event-stream')) {
+    for (const event of body.toString('utf8').split(/\r?\n\r?\n/)) {
+      const data = event.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\n')
+      if (!data) continue
+      const parsed = JSON.parse(data)
+      if ('result' in parsed || 'error' in parsed) return parsed
+    }
+    throw new Error('No MCP response')
+  }
+  return JSON.parse(body.toString('utf8'))
+}
 
 export function validOrigins(parentOrigin, hostOrigin, sandboxOrigin) {
   const origins = [parentOrigin, hostOrigin, sandboxOrigin]
@@ -16,7 +33,7 @@ export function validOrigins(parentOrigin, hostOrigin, sandboxOrigin) {
   })
 }
 
-export function createRemoteServers(config, now = Date.now) {
+export function createRemoteServers(config, now = Date.now, { scenarioPort = 48882 } = {}) {
   const { parentOrigin, hostOrigin, sandboxOrigin, key } = config
   if (!validOrigins(parentOrigin, hostOrigin, sandboxOrigin) || !/^[a-f0-9]{64}$/.test(key)) throw new Error('Invalid isolated HTTPS configuration')
   const sessions = new Map()
@@ -36,18 +53,32 @@ export function createRemoteServers(config, now = Date.now) {
   }
   // Only fixed, synthetic MCP fixtures are exposed. No Ri route, arbitrary
   // URL, cookie, Authorization header or upstream credential is forwarded.
-  async function proxyMcp(req, res, entry, port) {
+  async function proxyMcp(req, res, entry, port, turn) {
     if (!['POST', 'DELETE'].includes(req.method)) { reply(res, 405, 'Method not supported'); return }
     const chunks = []
     let size = 0
     for await (const chunk of req) { size += chunk.length; if (size > 1024 * 1024) { reply(res, 413, 'Input too large'); return } chunks.push(chunk) }
     const body = Buffer.concat(chunks)
+    let captureCall = false
     if (req.method === 'POST') {
       let rpc
       try { rpc = JSON.parse(body) } catch { reply(res, 400, 'Invalid JSON'); return }
       const methods = ['initialize', 'notifications/initialized', 'ping', 'tools/list', 'tools/call', 'resources/list', 'resources/read']
       const tools = port === 48883 ? ['create_view', 'save_checkpoint', 'read_checkpoint'] : ['get-scenario-data']
       if (!methods.includes(rpc?.method) || rpc.method === 'tools/call' && !tools.includes(rpc.params?.name)) { reply(res, 403, 'Unsupported example operation'); return }
+      if (turn && rpc.method === 'resources/read') { reply(res, 403, 'UI resources are not part of the demo agent context'); return }
+      if (turn && rpc.method === 'resources/list') { reply(res, 200, JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { resources: [] } }), 'application/json'); return }
+      if (turn && rpc.method === 'tools/call') {
+        const inputs = rpc.params?.arguments?.customInputs
+        if (!validScenarioInputs(inputs) || Object.keys(rpc.params.arguments).some(name => name !== 'customInputs')) { reply(res, 400, 'Invalid sample scenario inputs'); return }
+        if (!turn.allowChanges && !sameInputs(inputs, turn.base)) { reply(res, 403, 'This chat can read the sample scenario only'); return }
+        if (turn.status !== 'unused') { reply(res, 409, 'This turn already called its tool. The original call was not repeated.'); return }
+        // Capture inside the proxy, using a registered turn reference. The
+        // model-facing harness transcript is never used as the UI payload.
+        turn.status = 'unknown'
+        turn.inputs = inputs
+        captureCall = true
+      }
       if (rpc.method === 'tools/call' && ++entry.session.calls > 80) { reply(res, 429, 'Example session call limit reached'); return }
     }
     const headers = { Host: `ri-mcp-apps.127.0.0.1.nip.io:${port}`, Origin: LOCAL_HOST, Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json' }
@@ -58,7 +89,16 @@ export function createRemoteServers(config, now = Date.now) {
         let length = 0
         response.on('data', chunk => { length += chunk.length; if (length > LIMIT) { upstream.destroy(); reply(res, 413, 'Result too large'); resolve() } else output.push(chunk) })
         response.on('end', () => {
-          if (res.writableEnded) return
+          if (captureCall && turn.status === 'unknown' && !turn.result) {
+            try {
+              const captured = rpcResponse(Buffer.concat(output), response.headers['content-type'])
+              if (length <= 256 * 1024 && response.statusCode === 200 && captured.result && !captured.result.isError) {
+                turn.result = captured.result
+                turn.status = 'ready'
+              }
+            } catch { /* An unknown outcome is never replayed. */ }
+          }
+          if (res.writableEnded || res.destroyed) { resolve(); return }
           const outgoing = { 'Content-Type': response.headers['content-type'] || 'application/json', 'Cache-Control': 'no-store' }
           if (response.headers['mcp-session-id']) outgoing['mcp-session-id'] = response.headers['mcp-session-id']
           res.writeHead(response.statusCode || 502, outgoing); res.end(Buffer.concat(output)); resolve()
@@ -97,8 +137,29 @@ export function createRemoteServers(config, now = Date.now) {
         if (sessions.size >= 32) { reply(res, 429, 'Too many example sessions'); return }
         const token = randomBytes(32).toString('hex')
         const expires = now() + SESSION_MS
-        sessions.set(token, { expires, calls: 0 })
+        sessions.set(token, { expires, calls: 0, turns: new Map() })
         reply(res, 200, JSON.stringify({ token, expiresAt: new Date(expires).toISOString() }), 'application/json')
+        return
+      }
+      if (['/__chat/begin', '/__chat/result'].includes(url.pathname) && hostname === '127.0.0.1' && req.method === 'POST' && authorized(req)) {
+        const chunks = []; let size = 0
+        for await (const chunk of req) { size += chunk.length; if (size > 16384) { reply(res, 413, 'Input too large'); return } chunks.push(chunk) }
+        let input
+        try { input = JSON.parse(Buffer.concat(chunks)) } catch { reply(res, 400, 'Invalid JSON'); return }
+        if (!/^[a-f0-9]{64}$/.test(input.token) || !/^[a-f0-9-]{36}$/.test(input.turnId)) { reply(res, 400, 'Invalid turn reference'); return }
+        const entry = sessionFor(`/s/${input.token}/index.html`)
+        if (!entry) { reply(res, 410, 'Example session ended'); return }
+        if (url.pathname === '/__chat/begin') {
+          if (!validScenarioInputs(input.inputs) || typeof input.allowChanges !== 'boolean') { reply(res, 400, 'Invalid sample scenario'); return }
+          if (entry.session.turns.has(input.turnId)) { reply(res, 409, 'This turn was already registered'); return }
+          if (entry.session.turns.size >= 20) { reply(res, 429, 'Open a new example session after twenty chat turns'); return }
+          entry.session.turns.set(input.turnId, { status: 'unused', base: input.inputs, allowChanges: input.allowChanges })
+          reply(res, 200, '{}', 'application/json')
+        } else {
+          const turn = entry.session.turns.get(input.turnId)
+          if (!turn) { reply(res, 404, 'Unknown turn'); return }
+          reply(res, 200, JSON.stringify({ status: turn.status, ...(turn.status === 'ready' ? { inputs: turn.inputs } : {}) }), 'application/json')
+        }
         return
       }
       const entry = sessionFor(url.pathname)
@@ -109,13 +170,22 @@ export function createRemoteServers(config, now = Date.now) {
         let html = readFileSync(join(root, 'host/dist/index.html'), 'utf8')
         html = html.replaceAll(LOCAL_SANDBOX + '/sandbox.html', `${sandboxOrigin}/s/${entry.token}/sandbox.html`)
         html = html.replaceAll('"/api/servers"', `"/s/${entry.token}/api/servers"`)
-        // The one bridge to Ri reports readiness only. It has no tools,
-        // context, composer, credentials or navigation authority in Ri.
+        html = html.replace(/<html\b/, `<html data-evaluation-parent-origin="${parentOrigin}"`)
+        // The bridge carries only the sample scenario and captured demo
+        // result references. It has no Ri account or integration authority.
         const ready = `<script>window.addEventListener('load',()=>window.parent.postMessage({kind:'ri-evaluation-ready'},${JSON.stringify(parentOrigin)}))</script>`
         res.setHeader('Content-Security-Policy', hostCsp())
         reply(res, 200, html.replace('</body>', ready + '</body>'), 'text/html')
       } else if (entry.path === '/mcp/excalidraw') await proxyMcp(req, res, entry, 48883)
-      else if (entry.path === '/mcp/scenario') await proxyMcp(req, res, entry, 48882)
+      else if (entry.path === '/mcp/scenario') await proxyMcp(req, res, entry, scenarioPort)
+      else if (entry.path.match(/^\/chat\/[a-f0-9-]{36}\/(mcp|result)$/)) {
+        const turnId = entry.path.split('/')[2]
+        const turn = entry.session.turns.get(turnId)
+        if (!turn) { reply(res, 404, 'Unknown turn'); return }
+        if (entry.path.endsWith('/mcp')) await proxyMcp(req, res, entry, scenarioPort, turn)
+        else if (req.method === 'GET' && turn.status === 'ready') reply(res, 200, JSON.stringify({ inputs: turn.inputs, result: turn.result }), 'application/json')
+        else reply(res, 409, 'No completed result. The tool was not replayed.')
+      }
       else reply(res, 404, 'Not found')
     } catch { if (!res.writableEnded) reply(res, 502, 'Example view unavailable') }
   })

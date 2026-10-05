@@ -6,12 +6,14 @@ import { ArrowLeft, PanelsTopLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { trpc } from '@/lib/trpc/client';
+import { EvaluationChat } from './evaluation-chat';
 
 export function InteractiveExamples() {
   const status = useQuery(trpc.pluginEvaluation.status.queryOptions());
   const launch = useMutation(trpc.pluginEvaluation.launch.mutationOptions());
   const [view, setView] = useState<{ url: string; expiresAt: string } | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'failed' | 'ended'>('loading');
+  const [generation, setGeneration] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
   const launchButton = useRef<HTMLButtonElement>(null);
 
@@ -64,7 +66,8 @@ export function InteractiveExamples() {
               <p role="status" className="text-sm">{state === 'ended' ? 'Example session ended.' : 'The examples could not load. Your conversation is still available.'}</p>
               <Button variant="outline" onClick={() => { setView(null); void open(); }}>Open a new example session</Button>
             </div>
-          ) : view && <iframe ref={frame} title="Interactive plugin examples" src={view.url} sandbox="allow-scripts allow-same-origin" referrerPolicy="origin" className="min-h-0 w-full flex-1 border-0 bg-background" />}
+          ) : view && <iframe ref={frame} title="Interactive plugin examples" src={view.url} onLoad={() => setGeneration(previous => previous + 1)} sandbox="allow-scripts allow-same-origin" referrerPolicy="origin" className="min-h-0 w-full flex-1 border-0 bg-background" />}
+          {view && state === 'ready' && <EvaluationChat key={`${view.url}:${generation}`} viewUrl={view.url} frame={frame} />}
         </DialogContent>
       </Dialog>
     </>

@@ -77,6 +77,10 @@ export interface HarnessOneShotOpts {
    */
   skipPermissions?: boolean;
   onEvent?: (event: StreamEvent) => void | Promise<void>;
+  /** Fail rather than silently run a harness that the caller has not qualified. */
+  requiredHarness?: ProviderId;
+  /** Trusted host-only flags for a qualified CLI workflow. Never accept from UI input. */
+  extraArgs?: string[];
 }
 
 export interface HarnessOneShotResult {
@@ -127,6 +131,9 @@ export function runHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneShot
 
 async function executeHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneShotResult> {
   const providerType = resolveBackgroundHarness();
+  if (opts.requiredHarness && providerType !== opts.requiredHarness) {
+    throw new Error(`[${opts.label}] This workflow requires the configured ${opts.requiredHarness} harness.`);
+  }
   const unavailable = backgroundHarnessUnavailableReason(providerType);
   if (unavailable) throw new Error(`[${opts.label}] ${unavailable}`);
   const model = opts.model ?? await backgroundModelFor(providerType, opts.tier ?? 'fast');
@@ -150,6 +157,7 @@ async function executeHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneS
       // Ambient MCP (a stray .mcp.json, user-scope servers) must never leak
       // into a background call — its surface is exactly what we attach.
       strictMcpConfig: true,
+      ...(opts.extraArgs ? { extraArgs: opts.extraArgs } : {}),
       ...(hasMcp ? { mcpServers: opts.mcpServers } : {}),
       ...(opts.allowedTools?.length ? { allowedTools: opts.allowedTools } : {}),
       disallowedTools: opts.disallowedTools ?? DEFAULT_DISALLOWED_TOOLS,

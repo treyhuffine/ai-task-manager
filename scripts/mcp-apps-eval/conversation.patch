@@ -1,0 +1,172 @@
+--- a/host/src/index.tsx
++++ b/host/src/index.tsx
+@@ -5,6 +5,14 @@
+ import { callTool, connectToServer, hasAppHtml, initializeApp, loadSandboxProxy, log, newAppBridge, type ServerInfo, type ToolCallInfo, type ModelContext, type AppMessage } from "./implementation";
+ import { getTheme, toggleTheme, onThemeChange, type Theme } from "./theme";
+ import styles from "./index.module.css";
++
++const RI_PARENT_ORIGIN = document.documentElement.dataset.evaluationParentOrigin;
++const SCENARIO_KEYS = ["startingMRR", "monthlyGrowthRate", "monthlyChurnRate", "grossMargin", "fixedCosts"];
++function sampleInputs(value: unknown): value is Record<string, number> {
++  return !!value && typeof value === "object" && SCENARIO_KEYS.every(key => typeof (value as Record<string, unknown>)[key] === "number" && Number.isFinite((value as Record<string, number>)[key]));
++}
++function sameSample(a: Record<string, number> | null, b: Record<string, number>) { return !!a && SCENARIO_KEYS.every(key => a[key] === b[key]); }
++function notifyRi(value: unknown) { if (RI_PARENT_ORIGIN) window.parent.postMessage(value, RI_PARENT_ORIGIN); }
+ 
+ /**
+  * Check if a tool is visible to the model (not app-only).
+@@ -505,6 +513,59 @@
+   const [messages, setMessages] = useState<AppMessage[]>([]);
+   const [viewError, setViewError] = useState<string | null>(null);
+   const [displayMode, setDisplayMode] = useState<"inline" | "fullscreen">("inline");
++  const [invocationId] = useState(() => crypto.randomUUID());
++  const revision = useRef(0);
++  const currentInputs = useRef<Record<string, number> | null>(null);
++  const pendingApply = useRef<{ turnId: string; inputs: Record<string, number>; timer: number } | null>(null);
++  const isScenario = toolCallInfo.tool.name === "get-scenario-data";
++
++  function receiveContext(context: ModelContext | null) {
++    setModelContext(context);
++    const inputs = context?.structuredContent?.inputs;
++    if (!isScenario || !sampleInputs(inputs)) return;
++    if (!sameSample(currentInputs.current, inputs)) {
++      if (currentInputs.current) revision.current++;
++      currentInputs.current = inputs;
++      notifyRi({ kind: "ri-evaluation-context", context: { invocationId, revision: revision.current, inputs } });
++    }
++    if (pendingApply.current && sameSample(pendingApply.current.inputs, inputs)) {
++      window.clearTimeout(pendingApply.current.timer);
++      notifyRi({ kind: "ri-evaluation-applied", invocationId, turnId: pendingApply.current.turnId });
++      pendingApply.current = null;
++    }
++  }
++
++  useEffect(() => {
++    async function onParentMessage(event: MessageEvent) {
++      if (!RI_PARENT_ORIGIN || event.source !== window.parent || event.origin !== RI_PARENT_ORIGIN) return;
++      const message = event.data;
++      if (!isScenario || message?.kind !== "ri-evaluation-tool-result" || message.invocationId !== invocationId || !/^[a-f0-9-]{36}$/.test(message.turnId)) return;
++      const failed = () => notifyRi({ kind: "ri-evaluation-apply-failed", invocationId, turnId: message.turnId });
++      if (message.revision !== revision.current || !appBridgeRef.current || pendingApply.current) { failed(); return; }
++      try {
++        const prefix = location.pathname.match(/^\/s\/[a-f0-9]{64}\//)?.[0];
++        if (!prefix) throw new Error("Not a remote example session");
++        const response = await fetch(prefix + "chat/" + message.turnId + "/result");
++        if (!response.ok) throw new Error("Captured result unavailable");
++        const payload = await response.json();
++        if (message.revision !== revision.current || !sampleInputs(payload.inputs) || !payload.result || !appBridgeRef.current) throw new Error("The scenario changed");
++        if (sameSample(currentInputs.current, payload.inputs)) {
++          notifyRi({ kind: "ri-evaluation-applied", invocationId, turnId: message.turnId });
++          return;
++        }
++        const timer = window.setTimeout(() => { pendingApply.current = null; failed(); }, 10000);
++        pendingApply.current = { turnId: message.turnId, inputs: payload.inputs, timer };
++        // Deliver the original, captured tool result. No new tool call here.
++        await appBridgeRef.current.sendToolResult(payload.result);
++      } catch { if (pendingApply.current) window.clearTimeout(pendingApply.current.timer); pendingApply.current = null; failed(); }
++    }
++    window.addEventListener("message", onParentMessage);
++    return () => {
++      window.removeEventListener("message", onParentMessage);
++      if (pendingApply.current) window.clearTimeout(pendingApply.current.timer);
++      notifyRi({ kind: "ri-evaluation-context-closed", invocationId });
++    };
++  }, [invocationId, isScenario]);
+ 
+   useEffect(() => {
+     const iframe = iframeRef.current!;
+@@ -519,7 +580,7 @@
+         // `toolCallInfo`.
+         if (firstTime) {
+           const appBridge = newAppBridge(toolCallInfo.serverInfo, iframe, {
+-            onContextUpdate: setModelContext,
++            onContextUpdate: receiveContext,
+             onMessage: (msg) => setMessages((prev) => [...prev.slice(-19), msg]),
+             onDisplayModeChange: setDisplayMode,
+           }, {
+--- a/scenario/src/mcp-app.tsx
++++ b/scenario/src/mcp-app.tsx
+@@ -22,6 +22,7 @@
+ interface CallToolResultData {
+   templates?: ScenarioTemplate[];
+   defaultInputs?: ScenarioInputs;
++  currentInputs?: ScenarioInputs;
+ }
+ 
+ const APP_INFO = { name: "SaaS Scenario Modeler", version: "1.0.0" };
+@@ -51,16 +52,18 @@
+   const [hostContext, setHostContext] = useState<
+     McpUiHostContext | undefined
+   >();
++  const [currentInputs, setCurrentInputs] = useState<ScenarioInputs>(FALLBACK_INPUTS);
+ 
+   const { app, error } = useApp({
+     appInfo: APP_INFO,
+     capabilities: {},
+     onAppCreated: (app) => {
+       app.ontoolresult = async (result) => {
+-        const { templates, defaultInputs } =
++        const { templates, defaultInputs, currentInputs } =
+           result.structuredContent as unknown as CallToolResultData;
+         if (templates) setTemplates(templates);
+         if (defaultInputs) setDefaultInputs(defaultInputs);
++        if (currentInputs) setCurrentInputs(currentInputs);
+       };
+       app.onhostcontextchanged = (params) => {
+         setHostContext((prev) => ({ ...prev, ...params }));
+@@ -95,6 +98,8 @@
+       templates={templates}
+       defaultInputs={defaultInputs}
+       hostContext={hostContext}
++      currentInputs={currentInputs}
++      app={app}
+     />
+   );
+ }
+@@ -103,17 +108,28 @@
+   templates: ScenarioTemplate[];
+   defaultInputs: ScenarioInputs;
+   hostContext?: McpUiHostContext;
++  currentInputs: ScenarioInputs;
++  app: NonNullable<ReturnType<typeof useApp>["app"]>;
+ }
+ 
+ function ScenarioModelerInner({
+   templates,
+   defaultInputs,
+   hostContext,
++  currentInputs,
++  app,
+ }: ScenarioModelerInnerProps) {
+   const [inputs, setInputs] = useState<ScenarioInputs>(FALLBACK_INPUTS);
+   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
+     null,
+   );
++  useEffect(() => {
++    setInputs(currentInputs);
++    setSelectedTemplateId(null);
++  }, [currentInputs]);
++  useEffect(() => {
++    void app.updateModelContext({ structuredContent: { inputs } });
++  }, [app, inputs]);
+ 
+   // Derived state - recalculates when inputs change
+   const projections = useMemo(() => calculateProjections(inputs), [inputs]);
+--- a/scenario/server.ts
++++ b/scenario/server.ts
+@@ -70,6 +70,7 @@
+ const GetScenarioDataOutputSchema = z.object({
+   templates: z.array(ScenarioTemplateSchema),
+   defaultInputs: ScenarioInputsSchema,
++  currentInputs: ScenarioInputsSchema,
+   customProjections: z.array(MonthlyProjectionSchema).optional(),
+   customSummary: ScenarioSummarySchema.optional(),
+ });
+@@ -339,6 +340,7 @@
+           structuredContent: {
+             templates: SCENARIO_TEMPLATES,
+             defaultInputs: DEFAULT_INPUTS,
++            currentInputs: args.customInputs ?? DEFAULT_INPUTS,
+             customProjections: customScenario?.projections,
+             customSummary: customScenario?.summary,
+           },

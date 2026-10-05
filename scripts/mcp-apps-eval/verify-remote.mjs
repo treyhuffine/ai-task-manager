@@ -3,6 +3,7 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { root, serverEnv } from './config.mjs'
+import { verifyChatFlow, verifyChatRead } from './verify-chat-flow.mjs'
 
 const config = JSON.parse(readFileSync(join(root, 'remote.json'), 'utf8'))
 const { chromium } = createRequire(join(root, 'host/package.json'))('playwright-core')
@@ -91,6 +92,14 @@ try {
   assert.equal(count('get-scenario-data'), 1)
   pass('Scenario sliders, comparison and reset work over Beamd')
 
+  if (process.argv.includes('--chat')) {
+    if (!process.env.RI_MCP_APPS_TEST_HOME_ORIGIN) throw new Error('Chat qualification requires the isolated synthetic Ri Home.')
+    await verifyChatFlow({ page, context, host, scenario, config, pass })
+  } else if (process.argv.includes('--read-chat')) {
+    await verifyChatRead({ page, scenario, pass })
+    await page.getByRole('button', { name: 'Hide demo chat', exact: true }).click()
+  }
+
   await host.getByRole('button', { name: 'Open diagram example', exact: true }).click()
   const diagram = await resultFrame(host, 'Excalidraw interactive result')
   await diagram.view.getByText('Move a shape or add a label in Edit.', { exact: true }).waitFor()
@@ -149,7 +158,8 @@ try {
   }
   mkdirSync(join(root, 'evidence'), { recursive: true })
   const mode = process.argv.includes('--sandbox') ? 'synthetic-parent' : process.env.RI_MCP_APPS_TEST_HOME_ORIGIN ? 'isolated-ri' : 'actual-ri'
-  writeFileSync(join(root, 'evidence/remote-verification.json'), JSON.stringify({ testedAt: new Date().toISOString(), mode, checks, calls }, null, 2) + '\n')
+  const chatVerification = process.argv.includes('--chat') ? { readHarness: 'claude', changes: 'Controlled replies with actual captured MCP results' } : process.argv.includes('--read-chat') ? { readHarness: 'claude', changes: 'Read only' } : null
+  writeFileSync(join(root, 'evidence/remote-verification.json'), JSON.stringify({ testedAt: new Date().toISOString(), mode, checks, browserCalls: calls, chatVerification }, null, 2) + '\n')
 } catch (error) {
   if (process.env.RI_MCP_APPS_TEST_HOME_ORIGIN) {
     console.log('Synthetic Ri test page:', page.url().split('#')[0], (await page.locator('body').innerText()).slice(0,2500))

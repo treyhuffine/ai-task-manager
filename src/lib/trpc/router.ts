@@ -10,6 +10,8 @@ import * as s from './schemas';
 import { terminalSubscriptions } from './terminal-subscription';
 import { hasWebSocketRuntime, publishApplicationRouter } from './ws-runtime';
 import { launchPluginEvaluation, pluginEvaluationStatus } from '@/lib/server/operations/plugins/evaluation';
+import { chatWithPluginEvaluation } from '@/lib/server/operations/plugins/evaluation-chat';
+import { evaluationChatInputSchema } from '@/lib/plugins/evaluation-contract';
 
 function required<T>(value: T | null | undefined, entity: string): T {
   if (value == null) throw new TRPCError({ code: 'NOT_FOUND', message: `${entity} not found` });
@@ -26,6 +28,7 @@ export const appRouter = router({
   pluginEvaluation: router({
     status: p.query(() => pluginEvaluationStatus()),
     launch: p.input(z.object({ parentOrigin: z.string().url() }).strict()).mutation(({ input }) => launchPluginEvaluation(input.parentOrigin)),
+    chat: p.input(evaluationChatInputSchema).mutation(({ input }) => chatWithPluginEvaluation(input)),
   }),
   tasks: router({
     ...taskProcedures,

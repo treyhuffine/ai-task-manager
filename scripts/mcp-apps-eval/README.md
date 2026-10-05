@@ -24,7 +24,7 @@ node scripts/mcp-apps-eval/setup.mjs
 node scripts/mcp-apps-eval/start.mjs
 ```
 
-Setup requires Git, Node 20.19 or later and pnpm 10.33.2. It fetches the exact commits in `sources.json`, applies `evaluation.patch`, installs three frozen pnpm lockfiles and typechecks/builds all three examples. It does not install into Ri. The tested Node version was 26.5.0.
+Setup requires Git, Node 20.19 or later and pnpm 10.33.2. It fetches the exact commits in `sources.json`, applies the evaluation, embedding and conversation patches in order, installs three frozen pnpm lockfiles and typechecks/builds all three examples. It does not install into Ri. The tested Node version was 26.5.0.
 
 To use another isolated folder, set `RI_MCP_APPS_EVAL_DIR` to the same absolute path for setup, start, stop and verify. A folder inside the Ri checkout is rejected. The servers intentionally use fixed ports 48880 through 48883 and refuse to start over an existing listener.
 
@@ -64,7 +64,11 @@ pnpm exec tsx scripts/mcp-apps-eval/remote.ts
 
 The Home must already have its HTTPS remote URL configured and Beamd available. Start opens two owned Beamd tunnels, ports 48885 and 48886, in addition to the four isolated local servers. It prints the Ri Plugins URL. The browser uses these HTTPS origins, never its own localhost. Use **Open diagram example** or **Open scenario example**, then **Return to Plugins**.
 
-The app's authenticated tRPC launcher mints a 30-minute capability for the synthetic fixtures. The public examples have no anonymous catalog or launch endpoint. Their child process has no Ri or provider credentials. The host and sandbox use distinct origins, retain the reference nested iframe, and validate the embedding origin. The readiness message is their only bridge to Ri. There is no Ri tool, composer or context authority in that bridge.
+The app's authenticated tRPC launcher mints a 30-minute capability for the synthetic fixtures. The public examples have no anonymous catalog or launch endpoint. Their child process has no Ri or provider credentials. The host and sandbox use distinct origins, retain the reference nested iframe, and validate the embedding origin. The bridge carries readiness, bounded numeric scenario context and captured-result references with exact source/origin checks. It has no Ri account, integration or ordinary composer authority.
+
+Open **Scenario Modeler**, then **Chat about scenario**. The first demo chat attaches that scenario. Ask “What monthly growth rate do you see? Calculate month 12 MRR using the server.” It uses the configured Claude subscription harness with only the fixed sample MCP tool attached. If a different harness is configured or Claude is not signed in, the demo reports that limitation without switching providers.
+
+Chat is read only initially. Check **Allow updates to the sample scenario**, then ask “Set growth to 7%” to let the agent calculate and apply a captured result. Change a slider and ask another question to see UI context flow back to the agent. Switch to **Chat 2** and choose **Attach scenario** to reference the same view in a separate temporary conversation. Each chat keeps its own draft. Removing the reference prevents Send. These are two demo conversations, not regular Ri chat records. Reload discards messages, references and results without replaying work.
 
 Session capabilities and launch keys live only in private temporary files and memory. Do not share a view's capability URL. Reloading the example ends its result session. Reloading Ri closes the dialog. Neither action repeats the original tool call. Choose Open explicitly to start again. Excalidraw still uses the pinned local fallback and requires its upstream CDN.
 
@@ -73,6 +77,12 @@ To verify the real Ri entry through its public HTTPS URL:
 ```sh
 node --import tsx scripts/mcp-apps-eval/verify-remote.mjs
 node --test scripts/mcp-apps-eval/remote-server.test.mjs
+```
+
+Add `--chat` to the browser verification with the isolated test Home to exercise one real read-only Claude MCP call and controlled captured-result updates against the real app. The controlled cases cover stale slider edits, update permission revocation, detached context, wrong-frame messages, preserved typing and reload. They deliberately distinguish renderer verification from a live changing model call:
+
+```sh
+RI_ROOT=/private/tmp/ri-plugin-ui-check RI_MCP_APPS_TEST_HOME_ORIGIN=http://127.0.0.1:48887 node --import tsx scripts/mcp-apps-eval/verify-remote.mjs --chat
 ```
 
 The browser test authenticates only the top-level Ri page with the Home's existing viewer token, using Ri's normal bootstrap. It never gives that token to an example frame or child process. Only sample data is submitted to the fixtures. `--sandbox` instead uses a synthetic parent and imports no Ri credential. `RI_MCP_APPS_TEST_HOME_ORIGIN=http://127.0.0.1:48887` with a matching isolated `RI_ROOT` tests a separately built synthetic Ri Home while the examples still traverse Beamd. Screenshots are captured only in that isolated mode.

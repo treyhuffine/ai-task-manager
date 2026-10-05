@@ -20,7 +20,7 @@ const descriptorSchema = z.object({
   parentOrigin: httpsOrigin, hostOrigin: httpsOrigin, sandboxOrigin: httpsOrigin,
 }).refine(value => new Set([value.parentOrigin, value.hostOrigin, value.sandboxOrigin]).size === 3);
 
-function descriptor() {
+export function evaluationDescriptor() {
   try {
     const value = descriptorSchema.parse(JSON.parse(fs.readFileSync(path.join(evaluationDirectory(), 'remote.json'), 'utf8')));
     process.kill(value.pid, 0);
@@ -29,12 +29,12 @@ function descriptor() {
 }
 
 export function pluginEvaluationStatus() {
-  const value = descriptor();
+  const value = evaluationDescriptor();
   return { available: !!value, parentOrigin: value?.parentOrigin ?? null };
 }
 
 export async function launchPluginEvaluation(parentOrigin: string) {
-  const value = descriptor();
+  const value = evaluationDescriptor();
   if (!value) throw new OperationError(503, { error: 'evaluation_offline', message: 'The interactive examples are offline on your Home computer.' });
   if (parentOrigin !== value.parentOrigin) throw new OperationError(400, { error: 'unsupported_origin', message: 'Open these examples from your Home’s configured remote Ri URL.' });
   const response = await fetch('http://127.0.0.1:48885/__launch', {

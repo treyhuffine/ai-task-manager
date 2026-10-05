@@ -108,6 +108,17 @@ describe('resolveBackgroundHarness / backgroundModelFor', () => {
 });
 
 describe('runHarnessText', () => {
+  it('forwards qualified host flags and refuses a different saved harness', async () => {
+    userState = { defaultHarness: 'claude' };
+    const { runHarnessText } = await import('./one-shot');
+    const extraArgs = ['--tools', '', '--no-session-persistence'];
+    await runHarnessText({ label: 'demo', prompt: 'x', requiredHarness: 'claude', extraArgs });
+    expect(lastCall().config.extraArgs).toEqual(extraArgs);
+    executeMock.mockClear();
+    userState = { defaultHarness: 'codex' };
+    await expect(runHarnessText({ label: 'demo', prompt: 'x', requiredHarness: 'claude', extraArgs })).rejects.toThrow('requires the configured claude harness');
+    expect(executeMock).not.toHaveBeenCalled();
+  });
   it('returns the trimmed summary and folds system into the prompt', async () => {
     executeMock.mockResolvedValue({ status: 'completed', summary: '  the answer  ' });
     const { runHarnessText } = await import('./one-shot');
