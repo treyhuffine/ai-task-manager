@@ -3,17 +3,14 @@
 import { Checkbox } from '@/components/ui/checkbox';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useArchiveExecution } from '@/hooks/use-archive-execution';
-import { useDiffStats, useUnpinSession } from '@/hooks/use-workspaces';
+import { useUnpinSession } from '@/hooks/use-workspaces';
 import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 import { cn } from '@/lib/utils';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
-import { isSessionUnread } from '@/lib/utils/session-sort';
 import { Archive, GitBranch, Moon, Pin, PinOff } from 'lucide-react';
 
 import { executionView } from '@/lib/client/active-view';
-import { preparedFolder } from '@/lib/executions/location';
-import { BACKGROUND_DOT, BACKGROUND_LABEL, UNREAD_WITH_BACKGROUND_DOT } from './activity-style';
-import { DiffStatsPair } from './diff-stats';
+import { StatusPip, useChatStatus } from './chat-status';
 import { useSessionRowHover } from './session-hover-context';
 import { SessionRowMenu } from './session-row-menu';
 import { useWorkspaceSelection } from './workspace-selection-context';
@@ -46,9 +43,9 @@ interface SessionRowProps {
   /**
    * `compact` is the agents-first rail's thread row (docs/rail-agents-first.md):
    * one line, label then a right-aligned cluster (pin, where it runs, time)
-   * that gives way to the kebab on hover. No diff stats: in the rail they
-   * don't help decide where to go, they live in the execution's header.
-   * `regular` is the two-line row everywhere else.
+   * that gives way to the kebab on hover. `regular` is the two-line row
+   * (Pinned, Needs you). Neither shows diff stats: in the rail they don't
+   * help decide where to go, they live in the execution's header.
    */
   density?: 'regular' | 'compact';
   /**
@@ -87,13 +84,7 @@ export function SessionRow({
   density = 'regular',
   inactive = false,
 }: SessionRowProps) {
-  const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds } = useDashboard();
-  const { data: diffStats } = useDiffStats(
-    // Its folder wherever it runs: an execution elsewhere has its +/- too (P3.5).
-    // Compact rows show no diff stats, so they don't fetch them.
-    preparedFolder(session) && density !== 'compact' ? session.id : null,
-    session.executionId,
-  );
+  const { activeSessionId, activeExecutionId, setActiveView } = useDashboard();
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
   // Multi-select for bulk archive lives only on the canonical tree row;
@@ -104,16 +95,9 @@ export function SessionRow({
   const selectable = variant === 'tree' && !!selection?.selecting;
   const selected = selectable && !!selection?.isSelected(session.id);
 
-  const isStreaming = streamingSessionIds.has(session.id);
-  const isPending = pendingInputSessionIds.has(session.id);
-  // The turn is over but something it started is still running.
-  const isBackground = !isStreaming && backgroundSessionIds.has(session.id);
-
-  // Shared unread rule (isSessionUnread) so every surface agrees: the
-  // user's "Mark as unread" override (unreadMarkerAt) or a fresh outcome
-  // event beats the read receipt. The streaming overlay stays local — a
-  // session you're actively watching isn't flagged unread.
-  const isUnread = !isStreaming && isSessionUnread(session);
+  // Working, needs input, unread, background: one reading for every rail row.
+  const status = useChatStatus(session);
+  const { isPending, isUnread } = status;
 
   // Activity, not outcome: this is the row's rank made visible. The unread
   // derivation above deliberately stays on `lastOutcomeEventAt`.
@@ -219,12 +203,9 @@ export function SessionRow({
             className="pointer-events-none size-3.5"
           />
         ) : (
-          <StatusPip
-            isStreaming={isStreaming}
-            isPending={isPending}
-            isUnread={isUnread}
-            isBackground={isBackground}
-          />
+          // Idle rows keep the branch glyph, so the row still parses as an
+          // execution at rest.
+          <StatusPip {...status} idle={<GitBranch size={10} className="flex-shrink-0 opacity-50" />} />
         )}
       </span>
       {density === 'compact' ? (
@@ -271,10 +252,8 @@ export function SessionRow({
           >
             {label}
           </span>
-          {/* Metadata line, ordered static → async left to right: the
-              timestamp anchors it, the workspace tag (needs-review only)
-              is known at render, and the diff stats append last so their
-              arrival lands in empty space and displaces nothing. */}
+          {/* Metadata line: the timestamp anchors it, then the workspace
+              tag (Pinned and Needs you) and where it runs. */}
           <div className="flex items-center gap-1.5 mt-0.5 text-[9px] leading-none">
             {isPinned && !hidePinMarker && (
               <Pin
@@ -299,7 +278,6 @@ export function SessionRow({
             {session.location && !session.location.isHome && (
               <span className="text-muted-foreground/60 truncate" title={`Runs on ${session.location.name}`}>· {session.location.name}</span>
             )}
-            <DiffStatsPair stats={diffStats} className="flex-shrink-0" />
           </div>
         </div>
       )}
@@ -372,62 +350,3 @@ function InactiveQuickActions({ sessionId, label, isPinned }: { sessionId: strin
   );
 }
 
-/**
- * 10px wide left-slot indicator. Replaces the GitBranch icon when the
- * session is in a non-idle state so a vertical scan picks out hot rows
- * by color before reading any text. Idle rows keep the GitBranch so
- * the row still parses as "this is an execution" at rest.
- */
-function StatusPip({
-  isStreaming,
-  isPending,
-  isUnread,
-  isBackground,
-}: {
-  isStreaming: boolean;
-  isPending: boolean;
-  isUnread: boolean;
-  /** Background work still running after the turn ended. Never "working". */
-  isBackground: boolean;
-}) {
-  // Pending wins over streaming: the agent process is still alive but
-  // blocked on a user response, so the green "working" pip would lie
-  // about what's actually happening.
-  if (isPending) {
-    return (
-      <span
-        aria-label="needs input"
-        title="Needs input"
-        className="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0"
-      />
-    );
-  }
-  if (isStreaming) {
-    return (
-      <span
-        aria-label="working"
-        title="Working"
-        className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"
-      />
-    );
-  }
-  if (isUnread) {
-    return (
-      <span
-        aria-label={isBackground ? `unread, ${BACKGROUND_LABEL.toLowerCase()}` : 'unread'}
-        title={isBackground ? `Unread · ${BACKGROUND_LABEL}` : 'Unread'}
-        className={cn('w-2 h-2 flex-shrink-0', isBackground ? UNREAD_WITH_BACKGROUND_DOT : 'rounded-full bg-amber-500')}
-      />
-    );
-  }
-  if (isBackground) {
-    return (
-      <span
-        aria-label={BACKGROUND_LABEL.toLowerCase()}
-        title={BACKGROUND_LABEL}
-        className={cn('w-2 h-2 flex-shrink-0', BACKGROUND_DOT)}
-      />
-    );
-  }
-  return <GitBranch size={10} className="flex-shrink-0 opacity-50" />;
-}

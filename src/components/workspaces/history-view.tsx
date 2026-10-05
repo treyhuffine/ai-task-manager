@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
-import { useHistorySessions } from '@/hooks/use-workspaces';
+import { useHistorySessions, useRailSessions } from '@/hooks/use-workspaces';
 import { openLauncher } from './launcher/launcher-store';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
@@ -34,6 +34,15 @@ const PILL_SCROLL_PRESETS = {
  */
 export function HistoryView() {
   const { data, isLoading } = useHistorySessions();
+  // The history feed refreshes once a minute, while the rail's record of an
+  // active execution is live (the session stream, read and unread, pins). Use
+  // it wherever there is one, so Recent shows the same status and order as
+  // the agent tree. Archived work only lives in the feed.
+  const { data: rail } = useRailSessions();
+  const sessions = useMemo(() => {
+    const live = new Map((rail?.sessions ?? []).map((s) => [s.id, s] as const));
+    return (data?.sessions ?? []).map((s) => live.get(s.id) ?? s);
+  }, [data?.sessions, rail?.sessions]);
   const { setActiveView, openAgent } = useDashboard();
   const [selectedWs, setSelectedWs] = useState<Set<string>>(new Set());
   // Session row menus open the agent's setup: its view, on the Setup tab.
@@ -45,7 +54,7 @@ export function HistoryView() {
   // expects to find it in the by-workspace tree.
   const workspacePills = useMemo(() => {
     const seen = new Map<string, { id: string; name: string; emoji: string | null; image: string | null }>();
-    for (const s of data?.sessions ?? []) {
+    for (const s of sessions) {
       if (!s.workspaceId || seen.has(s.workspaceId)) continue;
       seen.set(s.workspaceId, {
         id: s.workspaceId,
@@ -55,15 +64,15 @@ export function HistoryView() {
       });
     }
     return Array.from(seen.values());
-  }, [data?.sessions]);
+  }, [sessions]);
 
   const filtered = useMemo(() => {
     const wsScope = selectedWs.size > 0 ? selectedWs : null;
-    if (!wsScope) return data?.sessions ?? [];
-    return (data?.sessions ?? []).filter(
+    if (!wsScope) return sessions;
+    return sessions.filter(
       (s) => s.workspaceId && wsScope.has(s.workspaceId),
     );
-  }, [data?.sessions, selectedWs]);
+  }, [sessions, selectedWs]);
 
   // Re-sort before bucketing. The server orders by `last_activity_at`, but
   // this is the one rail surface that used to render the server list
@@ -120,7 +129,7 @@ export function HistoryView() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="px-3 py-4 text-center text-[10px] text-muted-foreground/70 leading-relaxed">
-          {(data?.sessions.length ?? 0) === 0 ? 'No executions yet.' : 'Nothing matches your filter.'}
+          {sessions.length === 0 ? 'No executions yet.' : 'Nothing matches your filter.'}
         </div>
       ) : (
         <div className="flex flex-col pt-1">

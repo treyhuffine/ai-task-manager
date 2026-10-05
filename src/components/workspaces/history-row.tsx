@@ -2,17 +2,15 @@
 
 import { GitBranch, Pin } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useDiffStats } from '@/hooks/use-workspaces';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { splitHighlight } from '@/lib/search/highlight';
 import { cn } from '@/lib/utils';
 import type { RailSession } from '@/lib/api/sessions';
-import { DiffStatsPair } from './diff-stats';
+import { hasChatStatus, StatusPip, useChatStatus } from './chat-status';
 import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
 import { executionView } from '@/lib/client/active-view';
-import { preparedFolder } from '@/lib/executions/location';
 
 interface HistoryRowProps {
   session: RailSession;
@@ -25,20 +23,20 @@ interface HistoryRowProps {
 }
 
 /**
- * One row in the "By history" rail tab. Two-line layout:
+ * One row in the rail's Recent tab. Two-line layout:
  *
- *   Line 1 — execution label, with the right-edge date stamp.
- *   Line 2 — workspace name · branch · diff stats (+/-).
+ *   Line 1 — execution label (bold when unread), with the right-edge date.
+ *   Line 2 — workspace name · branch.
  *
  * The avatar carries the workspace identity so a vertical scan parses
- * "which project did this work happen in" before reading the label.
- * Diff stats come from the existing on-demand `useDiffStats` endpoint
- * — the row mounts only when scrolled into view-ish, and React Query
- * dedupes the same session across multiple surfaces.
+ * "which project did this work happen in" before reading the label, and its
+ * corner carries the chat's status, the same dot as the agent tree (needs
+ * input, working, unread, background). No diff stats: in the rail they don't
+ * help decide where to go, they live in the execution's header.
  *
  * Archived sessions render muted but still navigable so the user can
  * jump back into past work; the row's `isArchived` flag just tones the
- * left edge so the eye reads the active rows first.
+ * left edge so the eye reads the active rows first. They carry no status.
  */
 export function HistoryRow({
   session,
@@ -47,11 +45,7 @@ export function HistoryRow({
   onOpenLauncher,
 }: HistoryRowProps) {
   const { activeSessionId, setActiveView } = useDashboard();
-  const { data: diffStats } = useDiffStats(
-    // Its folder wherever it runs: an execution elsewhere has its +/- too (P3.5).
-    preparedFolder(session) ? session.id : null,
-    session.executionId,
-  );
+  const status = useChatStatus(session);
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
 
   const isActive = activeSessionId === session.id;
@@ -95,7 +89,15 @@ export function HistoryRow({
         isArchived && !isActive && 'opacity-60',
       )}
     >
-      <WorkspaceAvatar wsImage={wsImage} wsEmoji={wsEmoji} wsName={wsName} />
+      <span className="relative flex-shrink-0">
+        <WorkspaceAvatar wsImage={wsImage} wsEmoji={wsEmoji} wsName={wsName} />
+        {hasChatStatus(status) && (
+          // A disc of the row's background keeps the dot legible on any avatar.
+          <span className="absolute -top-1 -right-1 flex rounded-full bg-background p-[2px]">
+            <StatusPip {...status} />
+          </span>
+        )}
+      </span>
 
       <div className="flex-1 min-w-0 leading-tight">
         <div className="flex items-baseline gap-1.5">
@@ -105,6 +107,7 @@ export function HistoryRow({
               labelIsPlaceholder
                 ? 'italic text-muted-foreground/70'
                 : 'font-medium text-foreground/90',
+              status.isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
             )}
           >
             {label}
@@ -124,7 +127,6 @@ export function HistoryRow({
               <span className="truncate">{branch}</span>
             </span>
           )}
-          <DiffStatsPair stats={diffStats} className="ml-auto flex-shrink-0" />
         </div>
         {snippet && <SearchSnippet snippet={snippet} />}
       </div>
@@ -132,7 +134,7 @@ export function HistoryRow({
       <SessionRowMenu
         sessionId={session.id}
         workspaceId={session.workspaceId ?? null}
-        isUnread={false}
+        isUnread={status.isUnread || status.isPending}
         isPinned={isArchived ? undefined : isPinned}
         label={label}
         onOpenWorkspaceSettings={onOpenWorkspaceSettings}
