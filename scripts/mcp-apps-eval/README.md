@@ -24,7 +24,7 @@ node scripts/mcp-apps-eval/setup.mjs
 node scripts/mcp-apps-eval/start.mjs
 ```
 
-Setup requires Git, Node 20.19 or later and pnpm 10.33.2. It fetches the exact commits in `sources.json`, applies the evaluation, embedding and conversation patches in order, installs three frozen pnpm lockfiles and typechecks/builds all three examples. It does not install into Ri. The tested Node version was 26.5.0.
+Setup requires Git, Node 20.19 or later and pnpm 10.33.2. It fetches the exact commits in `sources.json`, applies the evaluation, embedding, conversation and third-party patches in order, installs three frozen pnpm lockfiles and typechecks/builds all three examples. It does not install into Ri. The tested Node version was 26.5.0.
 
 To use another isolated folder, set `RI_MCP_APPS_EVAL_DIR` to the same absolute path for setup, start, stop and verify. A folder inside the Ri checkout is rejected. The servers intentionally use fixed ports 48880 through 48883 and refuse to start over an existing listener.
 
@@ -54,7 +54,7 @@ See [the evaluation report](../../docs/plugins-evaluation-0a.md) for tested inte
 
 ## Open inside a remote Ri Home
 
-The follow-up experiment adds **Try interactive examples** at the top of Settings > Plugins. It opens the reference host inside a large dialog and returns to Plugins in the same tab. The underlying Ri conversation stays mounted. This is an experimental entry to the synthetic demo, not a production integration with chat results or accounts.
+The follow-up experiment adds **Try interactive examples** at the top of Settings > Plugins. It opens the reference host inside a large dialog and returns to Plugins in the same tab. The underlying Ri conversation stays mounted. This is an experimental entry to public third-party apps and synthetic examples. Account integration and ordinary Ri chat results remain outside this experiment.
 
 First build and run Ri with this change. Then, on the Home computer, run:
 
@@ -62,24 +62,26 @@ First build and run Ri with this change. Then, on the Home computer, run:
 pnpm exec tsx scripts/mcp-apps-eval/remote.ts
 ```
 
-The Home must already have its HTTPS remote URL configured and Beamd available. Start opens two owned Beamd tunnels, ports 48885 and 48886, in addition to the four isolated local servers. It prints the Ri Plugins URL. The browser uses these HTTPS origins, never its own localhost. Use **Open diagram example** or **Open scenario example**, then **Return to Plugins**.
+The Home must already have its HTTPS remote URL configured and Beamd available. Start opens two owned Beamd tunnels, ports 48885 and 48886, in addition to the four isolated local servers. It prints the Ri Plugins URL. The browser uses these HTTPS origins, never its own localhost. Use **Open diagram example**, **Open chart example**, **Open building map/table** or **Open scenario example**, then **Return to Plugins**.
 
-The app's authenticated tRPC launcher mints a 30-minute capability for the synthetic fixtures. The public examples have no anonymous catalog or launch endpoint. Their child process has no Ri or provider credentials. The host and sandbox use distinct origins, retain the reference nested iframe, and validate the embedding origin. The bridge carries readiness, bounded numeric scenario context and captured-result references with exact source/origin checks. It has no Ri account, integration or ordinary composer authority.
+The app's authenticated tRPC launcher mints a 30-minute capability for the fixed public servers and synthetic fixtures. The public examples have no anonymous catalog or launch endpoint. Their child process has no Ri or provider credentials. The host and sandbox use distinct origins, retain the reference nested iframe, and validate the embedding origin. The bridge carries readiness, bounded numeric scenario or public-view context, staged app messages and captured-result references with exact source/origin checks. It has no Ri account, integration or ordinary composer authority.
 
 Open **Scenario Modeler**, then **Chat about scenario**. The first demo chat attaches that scenario. Ask “What monthly growth rate do you see? Calculate month 12 MRR using the server.” It uses the configured Claude subscription harness with only the fixed sample MCP tool attached. If a different harness is configured or Claude is not signed in, the demo reports that limitation without switching providers.
 
 Chat is read only initially. Check **Allow updates to the sample scenario**, then ask “Set growth to 7%” to let the agent calculate and apply a captured result. Change a slider and ask another question to see UI context flow back to the agent. Switch to **Chat 2** and choose **Attach scenario** to reference the same view in a separate temporary conversation. Each chat keeps its own draft. Removing the reference prevents Send. These are two demo conversations, not regular Ri chat records. Reload discards messages, references and results without replaying work.
 
-Session capabilities and launch keys live only in private temporary files and memory. Do not share a view's capability URL. Reloading the example ends its result session. Reloading Ri closes the dialog. Neither action repeats the original tool call. Choose Open explicitly to start again. Excalidraw still uses the pinned local fallback and requires its upstream CDN.
+For a third-party result, choose **Chat about result**. Remove the current reference to pick another open result, or attach it explicitly in **Chat 2**. Ask about the building address/year, chart rows or diagram context. The agent can read that bounded attachment and cannot change the public app or its records. No account credentials are required for these three demos.
+
+Session capabilities and launch keys live only in private temporary files and memory. Do not share a view's capability URL. Reloading the example ends its result session. Reloading Ri closes the dialog. Neither action repeats the original tool call. Choose Open explicitly to start again. The remote presets use hosted Excalidraw, Microsoft Flint and the public building-data service. Excalidraw sends editing checkpoints to its upstream server and requires its upstream CDN. Export is excluded. The standalone local demo retains its pinned Excalidraw fallback. There is no automatic remote-to-local substitution.
 
 To verify the real Ri entry through its public HTTPS URL:
 
 ```sh
 node --import tsx scripts/mcp-apps-eval/verify-remote.mjs
-node --test scripts/mcp-apps-eval/remote-server.test.mjs
+node --test scripts/mcp-apps-eval/remote-server.test.mjs scripts/mcp-apps-eval/public-servers.test.mjs
 ```
 
-Add `--chat` to the browser verification with the isolated test Home to exercise one real read-only Claude MCP call and controlled captured-result updates against the real app. The controlled cases cover stale slider edits, update permission revocation, detached context, wrong-frame messages, preserved typing and reload. They deliberately distinguish renderer verification from a live changing model call:
+Add `--chat` to the browser verification with the isolated test Home to exercise one real read-only Claude MCP call and controlled captured-result updates against the real app. Both `--chat` and `--read-chat` also verify a real read-only Claude reply about third-party building data, explicit tagging into either demo chat and controlled `ui/message` staging without automatic Send. Third-party attachments have no model tools. The controlled scenario cases cover stale slider edits, update permission revocation, detached context, wrong-frame messages, preserved typing and reload. They deliberately distinguish renderer verification from a live changing model call:
 
 ```sh
 RI_ROOT=/private/tmp/ri-plugin-ui-check RI_MCP_APPS_TEST_HOME_ORIGIN=http://127.0.0.1:48887 node --import tsx scripts/mcp-apps-eval/verify-remote.mjs --chat
@@ -93,4 +95,4 @@ Stop only the remote wrapper and its two owned tunnels:
 pnpm exec tsx scripts/mcp-apps-eval/remote.ts stop
 ```
 
-The local standalone servers remain available until `stop.mjs` is run. The experiment's button is hidden when its private descriptor is absent or its process is gone. Ri remains running. This experiment does not qualify production sandbox packaging, harness invocation capture, account permissions or saved-result reopening. See [the remote follow-up report](../../docs/plugins-evaluation-remote.md).
+The local standalone servers remain available until `stop.mjs` is run. The experiment's button is hidden when its private descriptor is absent or its process is gone. Ri remains running. This experiment does not qualify production sandbox packaging, harness invocation capture, account permissions or saved-result reopening. See [the remote follow-up report](../../docs/plugins-evaluation-remote.md) and [third-party qualification and credential candidates](../../docs/plugins-evaluation-third-party.md).

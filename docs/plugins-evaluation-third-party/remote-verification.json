@@ -1,0 +1,45 @@
+{
+  "testedAt": "2026-10-05T05:12:46.980Z",
+  "mode": "isolated-ri",
+  "checks": [
+    "The HTTPS view discovers three public servers and the local scenario without invoking a tool",
+    "Ri cookies do not reach either HTTPS example origin",
+    "Scenario sliders, comparison and reset work over Beamd",
+    "A real Claude MCP call reads the current UI values without overwriting a typed draft",
+    "The same view can be explicitly attached to a second temporary chat without sharing its draft",
+    "A controlled captured MCP result updates the actual view and receives an acknowledgement",
+    "A late result cannot overwrite newer slider edits",
+    "Revoking update permission during a reply preserves the view and new typing",
+    "Detaching context during a reply prevents application to the view",
+    "A message from the wrong frame source cannot attach or replace view context",
+    "Reload discards both temporary chats and their attached authority without a replay",
+    "The real app retains its nested sandbox, DOM isolation and lack of desktop IPC",
+    "Excalidraw editing and return preserve the same invocation over HTTPS",
+    "The public Flint app renders sample revenue and its theme control changes the actual chart",
+    "A real public building lookup feeds the third-party map app",
+    "The third-party table renders the actual building data",
+    "A controlled app-requested message is attributed and staged beside existing typing without automatic Send",
+    "A real Claude reply reads third-party building data without tools, changes or draft loss",
+    "Third-party results can be tagged into either temporary chat without sending or replaying a tool",
+    "Reload ends the example session without replaying a tool",
+    "No Ri cookie or Authorization header is sent to the examples",
+    "The actual Ri entry opens and returns to Plugins in the same tab",
+    "Reloading Ri leaves the examples closed and never replays a tool",
+    "A narrow Ri view keeps a visible return path without invoking tools"
+  ],
+  "browserCalls": [
+    "get-scenario-data",
+    "create_view",
+    "save_checkpoint",
+    "create_chart_view",
+    "save_checkpoint",
+    "get_building_profile",
+    "render_map",
+    "get_building_profile",
+    "render_table"
+  ],
+  "chatVerification": {
+    "readHarness": "claude",
+    "changes": "Controlled replies with actual captured MCP results"
+  }
+}

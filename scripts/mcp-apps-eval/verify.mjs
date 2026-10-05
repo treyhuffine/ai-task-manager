@@ -125,7 +125,7 @@ try {
   await page.screenshot({ path: join(evidence, 'excalidraw-editing.png') })
   await page.getByRole('button', { name: 'Return to examples', exact: true }).click()
   await diagram.frame.getByText('Ri demo note', { exact: true }).waitFor()
-  await page.getByText('Model Context', { exact: false }).waitFor()
+  await page.getByRole('region', { name: 'Excalidraw result', exact: true }).getByText('Model Context', { exact: false }).waitFor()
   assert.equal(count('create_view'), 1)
   assert.equal(await diagram.frame.evaluate(() => localStorage.length), 0)
   pass('Excalidraw text editing, app-only checkpoint call, context and return preserve the same result')

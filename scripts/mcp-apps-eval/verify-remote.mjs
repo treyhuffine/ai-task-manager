@@ -3,7 +3,8 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { root, serverEnv } from './config.mjs'
-import { verifyChatFlow, verifyChatRead } from './verify-chat-flow.mjs'
+import { verifyChatFlow, verifyChatRead, verifyPublicChatRead } from './verify-chat-flow.mjs'
+import { verifyThirdPartyFlow } from './verify-third-party-flow.mjs'
 
 const config = JSON.parse(readFileSync(join(root, 'remote.json'), 'utf8'))
 const { chromium } = createRequire(join(root, 'host/package.json'))('playwright-core')
@@ -12,7 +13,7 @@ const browser = await chromium.launch({ executablePath, headless: true, chromium
 const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } })
 const page = await context.newPage()
 page.setDefaultTimeout(30000)
-const calls = [], checks = [], requests = []
+const calls = [], checks = [], requests = [], routeErrors = []
 let closing = false
 context.on('request', request => {
   if (!request.url().startsWith(config.hostOrigin) && !request.url().startsWith(config.sandboxOrigin)) return
@@ -61,9 +62,13 @@ try {
         // A bounded test stream avoids a permanently pending route on exit.
         if (url.pathname === '/api/live') { await route.fulfill({ contentType: 'text/event-stream', body: '' }); return }
         try {
-          const response = await route.fetch({ url: testHome.origin + url.pathname + url.search })
+          const response = await route.fetch({ url: testHome.origin + url.pathname + url.search, timeout: 120000 })
           await route.fulfill({ response })
-        } catch (error) { if (!closing) throw new Error(error.message.split('Call log:')[0]) }
+        } catch (error) {
+          if (closing) return
+          routeErrors.push({ path: url.pathname, message: error.message.split('Call log:')[0] })
+          await route.fulfill({ status: 503, body: 'Synthetic test Home request failed' }).catch(() => {})
+        }
       })
       await context.addInitScript(origin => { if (location.origin === origin) localStorage.setItem('ri.client.apiTransport', 'http') }, config.parentOrigin)
     }
@@ -73,9 +78,11 @@ try {
   await page.getByTitle('Interactive plugin examples', { exact: true }).waitFor()
   host = await (await page.getByTitle('Interactive plugin examples', { exact: true }).elementHandle()).contentFrame()
   await host.getByText('Connected to the pinned local official example.').waitFor()
-  await host.getByText('Connected to the pinned local Excalidraw fallback.', { exact: false }).waitFor()
+  await host.getByText("Connected to Excalidraw's public server.", { exact: true }).waitFor()
+  await host.getByText("Connected to Microsoft's public Flint server.", { exact: true }).waitFor()
+  await host.getByText('Connected to the public Dutch building-data server.', { exact: true }).waitFor()
   assert.equal(calls.length, 0)
-  pass('The HTTPS view discovers both fixtures without invoking a tool')
+  pass('The HTTPS view discovers three public servers and the local scenario without invoking a tool')
   assert.equal((await context.cookies([config.hostOrigin, config.sandboxOrigin])).length, 0)
   pass('Ri cookies do not reach either HTTPS example origin')
 
@@ -123,6 +130,10 @@ try {
   await diagram.view.getByText('Remote Ri example', { exact: true }).waitFor()
   assert.equal(count('create_view'), 1)
   pass('Excalidraw editing and return preserve the same invocation over HTTPS')
+  const publicViews = await verifyThirdPartyFlow({ page, host, resultFrame, count, pass })
+  if (process.argv.includes('--chat') || process.argv.includes('--read-chat')) {
+    await verifyPublicChatRead({ page, host, table: publicViews.table, calls, pass })
+  }
   if (process.env.RI_MCP_APPS_TEST_HOME_ORIGIN) {
     mkdirSync(join(root, 'evidence'), { recursive: true })
     await page.screenshot({ path: join(root, 'evidence/ri-remote-examples.png') })
@@ -157,10 +168,17 @@ try {
     pass('A narrow Ri view keeps a visible return path without invoking tools')
   }
   mkdirSync(join(root, 'evidence'), { recursive: true })
+  assert.deepEqual(routeErrors, [])
   const mode = process.argv.includes('--sandbox') ? 'synthetic-parent' : process.env.RI_MCP_APPS_TEST_HOME_ORIGIN ? 'isolated-ri' : 'actual-ri'
   const chatVerification = process.argv.includes('--chat') ? { readHarness: 'claude', changes: 'Controlled replies with actual captured MCP results' } : process.argv.includes('--read-chat') ? { readHarness: 'claude', changes: 'Read only' } : null
   writeFileSync(join(root, 'evidence/remote-verification.json'), JSON.stringify({ testedAt: new Date().toISOString(), mode, checks, browserCalls: calls, chatVerification }, null, 2) + '\n')
 } catch (error) {
+  if (process.argv.includes('--sandbox')) {
+    const example = await (await page.getByTitle('Interactive plugin examples').elementHandle())?.contentFrame()
+    console.log('Public example test page:', (await example?.locator('body').innerText())?.slice(0, 3000))
+    mkdirSync(join(root, 'evidence'), { recursive: true })
+    await page.screenshot({ path: join(root, 'evidence/third-party-diagnostic.png') })
+  }
   if (process.env.RI_MCP_APPS_TEST_HOME_ORIGIN) {
     console.log('Synthetic Ri test page:', page.url().split('#')[0], (await page.locator('body').innerText()).slice(0,2500))
     await page.screenshot({ path: join(root, 'evidence/ri-ui-diagnostic.png') })

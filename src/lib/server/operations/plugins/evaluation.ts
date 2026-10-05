@@ -4,8 +4,8 @@ import path from 'node:path';
 import { z } from 'zod/v4';
 import { OperationError } from '@/lib/server/operation';
 
-// This experimental host has synthetic fixtures only. It is not an account
-// connection, and grants no authority to Ri's integration runtime.
+// This experimental host has fixed public services and synthetic fixtures.
+// It has no account connection or authority in Ri's integration runtime.
 export function evaluationDirectory() {
   return path.resolve(process.env.RI_MCP_APPS_EVAL_DIR || path.join(process.platform === 'darwin' ? '/private/tmp' : os.tmpdir(), 'ri-mcp-apps-0a'));
 }

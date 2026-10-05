@@ -15,13 +15,24 @@ export const scenarioContextSchema = z.object({
 }).strict();
 export type ScenarioContext = z.infer<typeof scenarioContextSchema>;
 
+export const publicViewContextSchema = z.object({
+  invocationId: z.uuid(),
+  revision: z.number().int().nonnegative(),
+  kind: z.literal('public'),
+  app: z.enum(['Excalidraw', 'Flint charts', 'Building explorer']),
+  view: z.enum(['Diagram', 'Chart', 'Map', 'Table']),
+  text: z.string().max(12000),
+}).strict();
+export const evaluationContextSchema = z.union([scenarioContextSchema, publicViewContextSchema]);
+export type EvaluationContext = z.infer<typeof evaluationContextSchema>;
+
 export const evaluationChatInputSchema = z.object({
   parentOrigin: z.string().url(),
   viewUrl: z.string().url(),
   turnId: z.uuid(),
   message: z.string().trim().min(1).max(2000),
   history: z.array(z.object({ role: z.enum(['user', 'assistant']), text: z.string().max(4000) }).strict()).max(12),
-  context: scenarioContextSchema,
+  context: evaluationContextSchema,
   allowChanges: z.boolean(),
 }).strict();
 

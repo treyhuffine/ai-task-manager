@@ -1,0 +1,288 @@
+--- a/host/src/index.tsx
++++ b/host/src/index.tsx
+@@ -2,7 +2,7 @@
+ import type { Tool } from "@modelcontextprotocol/client";
+ import { Component, type ErrorInfo, type ReactNode, StrictMode, Suspense, use, useEffect, useMemo, useRef, useState } from "react";
+ import { createRoot } from "react-dom/client";
+-import { callTool, connectToServer, hasAppHtml, initializeApp, loadSandboxProxy, log, newAppBridge, type ServerInfo, type ToolCallInfo, type ModelContext, type AppMessage } from "./implementation";
++import { callTool, connectToServer, hasAppHtml, initializeApp, loadSandboxProxy, log, newAppBridge, newInvocationId, type ServerInfo, type ToolCallInfo, type ModelContext, type AppMessage } from "./implementation";
+ import { getTheme, toggleTheme, onThemeChange, type Theme } from "./theme";
+ import styles from "./index.module.css";
+
+@@ -139,8 +139,8 @@
+       <header className={styles.demoIntro}>
+         <p>Ri Plugin UI · Milestone 0A</p>
+         <h1>Try real MCP Apps</h1>
+-        <p>Draw and edit a workflow, or explore a business scenario. These are the actual Excalidraw and official Scenario Modeler interfaces.</p>
+-        <p>Synthetic examples only. Results stay in this tab's memory. Reload, End session or 30 minutes without opening another result ends the session. Each Open button makes a new tool call.</p>
++        <p>{RI_PARENT_ORIGIN ? "Connect to hosted Excalidraw, Microsoft Flint and a public building-data service. Chat about any open result. Scenario Modeler also supports opt-in sample changes." : "Try the pinned local Excalidraw fallback and official Scenario Modeler with synthetic inputs."}</p>
++        <p>Uses sample inputs and public museum or office data. Results stay in this tab's memory. Reload, End session or 30 minutes without opening another result ends the view session. Each Open button makes a new tool call.</p>
+         {sessionEnded && <p role="status" className={styles.sessionEnded}>Session ended. Previous results were discarded. No tool call was replayed. Choose an example to start again.</p>}
+         {toolCalls.length > 0 && <button onClick={endSession}>End session</button>}
+       </header>
+@@ -182,6 +182,19 @@
+   { type: "text", id: "note", x: 90, y: 475, text: "Move a shape or add a label in Edit.", fontSize: 20 },
+ ];
+
++const CHART = {
++  data: { values: [{ month: "Jan", revenue: 42000 }, { month: "Feb", revenue: 47000 }, { month: "Mar", revenue: 51000 }, { month: "Apr", revenue: 56000 }] },
++  semantic_types: { month: "Category", revenue: "Quantity" },
++  chart_spec: { chartType: "Bar Chart", title: "Sample monthly revenue", subtitle: "Synthetic data, USD", encodings: { x: { field: "month" }, y: { field: "revenue" } }, baseSize: { width: 600, height: 360 } },
++  theme_spec: "economist",
++  field_display_names: { month: "Month", revenue: "Revenue (USD)" },
++};
++const BUILDINGS = [
++  { label: "Rijksmuseum, Amsterdam", postcode: "1071XX", huisnummer: 1 },
++  { label: "Gustav Mahlerlaan 10, Amsterdam", postcode: "1082PP", huisnummer: 10 },
++];
++type PublicBuilding = { adres: string; bouwjaar: number; energielabel: string | null; coordinaten: { lat: number; lon: number } };
++
+ function DemoPresets({ serversPromise, addToolCall, activeCount }: {
+   serversPromise: Promise<ServerInfo[]>;
+   addToolCall: (info: ToolCallInfo) => void;
+@@ -189,6 +202,8 @@
+ }) {
+   const servers = use(serversPromise);
+   const [error, setError] = useState<string | null>(null);
++  const [opening, setOpening] = useState(false);
++  const [building, setBuilding] = useState(0);
+   const open = (name: string, input: Record<string, unknown>) => {
+     const server = servers.find(s => s.tools.has(name));
+     if (!server) { setError("This example is unavailable. Reload to reconnect. No tool call was made."); return; }
+@@ -196,13 +211,47 @@
+     setError(null);
+     try { addToolCall(callTool(server, name, input)); } catch (err) { setError(String(err)); }
+   };
++  async function openBuilding(kind: "map" | "table") {
++    const server = servers.find(s => s.tools.has("get_building_profile"));
++    if (!server || opening || activeCount >= 4) { setError("Close a result before opening another example."); return; }
++    setOpening(true);
++    setError(null);
++    try {
++      const address = BUILDINGS[building];
++      const result = await server.client.callTool({ name: "get_building_profile", arguments: { postcode: address.postcode, huisnummer: address.huisnummer, queryIntent: "Public address from the published demo, viewing its building information." } });
++      if (result.isError) throw new Error("The public building lookup failed. No lookup was repeated.");
++      const profile = result.structuredContent as PublicBuilding | undefined;
++      if (!profile || typeof profile.adres !== "string" || !Number.isFinite(profile.coordinaten?.lat) || !Number.isFinite(profile.coordinaten?.lon)) throw new Error("The public service returned no usable building location.");
++      const summary = `${profile.adres}. Built ${profile.bouwjaar}. Energy label: ${profile.energielabel ?? "none registered"}.`;
++      const tool = kind === "map" ? "render_map" : "render_table";
++      const input = kind === "map"
++        ? { title: address.label, markers: [{ lat: profile.coordinaten.lat, lng: profile.coordinaten.lon, label: address.label, description: summary, type: "building" }], center: { lat: profile.coordinaten.lat, lng: profile.coordinaten.lon }, zoom: 16 }
++        : { title: address.label, columns: [{ key: "address", header: "Address" }, { key: "year", header: "Built" }, { key: "label", header: "Energy label" }], data: [{ address: profile.adres, year: String(profile.bouwjaar), label: profile.energielabel ?? "None registered" }] };
++      addToolCall(callTool(server, tool, input));
++    } catch (err) { setError(err instanceof Error ? err.message : "The public building service is unavailable. No call was replayed."); }
++    finally { setOpening(false); }
++  }
+   return <section className={styles.demoPresets} aria-label="Example plugins">
+     {connectionFailures.length > 0 && <div role="alert">Some examples could not connect: {connectionFailures.join(". ")}. Reload to reconnect, then explicitly open an example.</div>}
+     {error && <p role="alert">{error}</p>}
+     <article><h2>Excalidraw</h2><p>Sketch a review workflow, expand it and edit the real diagram.</p>
+       <button onClick={() => open("create_view", { elements: JSON.stringify(DIAGRAM) })}>Open diagram example</button>
+-      <p>{servers.some(s => s.tools.has("create_view")) ? "Connected to the pinned local Excalidraw fallback. The public endpoint rejected browser CORS." : "Unavailable"}</p>
++      <p>{servers.some(s => s.tools.has("create_view")) ? RI_PARENT_ORIGIN ? "Connected to Excalidraw's public server." : "Connected to the pinned local Excalidraw fallback." : "Unavailable"}</p>
++      <p>{RI_PARENT_ORIGIN ? "Source: mcp.excalidraw.com. Editing sends checkpoints to that public service. Export is unavailable in this demo." : "Runs from the pinned local source. Checkpoints stay in server memory. The editor requires its upstream CDN."}</p>
+     </article>
++    {RI_PARENT_ORIGIN && <><article><h2>Flint charts</h2><p>Send sample revenue to Microsoft's hosted chart app, then change the theme and chart options.</p>
++      <button disabled={!servers.some(s => s.tools.has("create_chart_view")) || activeCount >= 4} onClick={() => open("create_chart_view", CHART)}>Open chart example</button>
++      <p>{servers.some(s => s.tools.has("create_chart_view")) ? "Connected to Microsoft's public Flint server." : "Unavailable"}</p>
++      <p>Source: flint.data-formulator.ai. Uses synthetic revenue data.</p>
++    </article>
++    <article><h2>Building explorer</h2><p>Look up a real public building, then explore its location or read its information in a table.</p>
++      <label>Public building <select aria-label="Public building" disabled={opening} value={building} onChange={event => setBuilding(Number(event.target.value))}>{BUILDINGS.map((address, index) => <option key={address.postcode} value={index}>{address.label}</option>)}</select></label>
++      <p><button disabled={opening || activeCount >= 4 || !servers.some(s => s.tools.has("get_building_profile"))} onClick={() => void openBuilding("map")}>{opening ? "Looking up building..." : "Open building map"}</button>{" "}
++      <button disabled={opening || activeCount >= 4 || !servers.some(s => s.tools.has("get_building_profile"))} onClick={() => void openBuilding("table")}>Open building table</button></p>
++      <p>{servers.some(s => s.tools.has("get_building_profile")) ? "Connected to the public Dutch building-data server." : "Unavailable"}</p>
++      <p>Source: DaveGold's metadata demo, BAG and EP-Online. This reads public records. It cannot change those records.</p>
++    </article>
++    </>}
+     <article><h2>Scenario Modeler</h2><p>Adjust growth and churn, then compare live charts with a template.</p>
+       <button onClick={() => open("get-scenario-data", { customInputs: { startingMRR: 50000, monthlyGrowthRate: 5, monthlyChurnRate: 3, grossMargin: 80, fixedCosts: 30000 } })}>Open scenario example</button>
+       <p>{servers.some(s => s.tools.has("get-scenario-data")) ? "Connected to the pinned local official example." : "Unavailable"}</p>
+@@ -421,6 +470,8 @@
+   return (
+     <div
+       className={styles.toolCallInfoPanel}
++      role="region"
++      aria-label={`${toolCallInfo.serverInfo.name} result`}
+       style={isDestroying ? { opacity: 0.5, pointerEvents: "none" } : undefined}
+     >
+       {/* Row 1: Header with server:tool name and close button */}
+@@ -513,14 +564,28 @@
+   const [messages, setMessages] = useState<AppMessage[]>([]);
+   const [viewError, setViewError] = useState<string | null>(null);
+   const [displayMode, setDisplayMode] = useState<"inline" | "fullscreen">("inline");
+-  const [invocationId] = useState(() => crypto.randomUUID());
++  const [invocationId] = useState(() => newInvocationId());
+   const revision = useRef(0);
+   const currentInputs = useRef<Record<string, number> | null>(null);
+   const pendingApply = useRef<{ turnId: string; inputs: Record<string, number>; timer: number } | null>(null);
+   const isScenario = toolCallInfo.tool.name === "get-scenario-data";
++  const publicApp = toolCallInfo.serverInfo.tools.has("get_building_profile") ? "Building explorer" : toolCallInfo.serverInfo.tools.has("create_chart_view") ? "Flint charts" : toolCallInfo.serverInfo.tools.has("create_view") ? "Excalidraw" : null;
++  const publicView = toolCallInfo.tool.name === "create_view" ? "Diagram" : toolCallInfo.tool.name === "render_map" ? "Map" : toolCallInfo.tool.name === "render_table" ? "Table" : "Chart";
++  const latestPublicContext = useRef<ModelContext | null>(null);
++  const latestPublicText = useRef("");
++
++  function publishPublicContext() {
++    if (!publicApp) return;
++    const text = JSON.stringify({ sourceApp: publicApp, viewInput: toolCallInfo.input, latestUiContext: latestPublicContext.current }, null, 2).slice(0, 12000);
++    if (text === latestPublicText.current) return;
++    latestPublicText.current = text;
++    revision.current++;
++    notifyRi({ kind: "ri-evaluation-context", context: { invocationId, revision: revision.current, kind: "public", app: publicApp, view: publicView, text } });
++  }
+
+   function receiveContext(context: ModelContext | null) {
+     setModelContext(context);
++    if (publicApp) { latestPublicContext.current = context; publishPublicContext(); return; }
+     const inputs = context?.structuredContent?.inputs;
+     if (!isScenario || !sampleInputs(inputs)) return;
+     if (!sameSample(currentInputs.current, inputs)) {
+@@ -569,6 +634,7 @@
+
+   useEffect(() => {
+     const iframe = iframeRef.current!;
++    if (publicApp) void toolCallInfo.resultPromise.then(result => { if (!result.isError) publishPublicContext(); }).catch(() => {});
+
+     // First get CSP and permissions from resource, then load sandbox
+     // CSP is set via HTTP headers (tamper-proof), permissions via iframe allow attribute
+@@ -581,7 +647,11 @@
+         if (firstTime) {
+           const appBridge = newAppBridge(toolCallInfo.serverInfo, iframe, {
+             onContextUpdate: receiveContext,
+-            onMessage: (msg) => setMessages((prev) => [...prev.slice(-19), msg]),
++            onMessage: (msg) => {
++              setMessages((prev) => [...prev.slice(-19), msg]);
++              const text = msg.content.filter(content => content.type === "text").map(content => (content as { text: string }).text).join("\n").slice(0, 2000);
++              if (text) notifyRi({ kind: "ri-evaluation-message", invocationId, text });
++            },
+             onDisplayModeChange: setDisplayMode,
+           }, {
+             // Provide container dimensions - maxHeight for flexible sizing
+@@ -657,7 +727,7 @@
+     <div className={panelClassName}>
+       {displayMode === "fullscreen" && <div className={styles.returnToolbar}>
+         <button onClick={() => { setDisplayMode("inline"); appBridgeRef.current?.sendHostContextChange({ displayMode: "inline" }); }}>Return to examples</button>
+-        <span>{toolCallInfo.serverInfo.name} · Synthetic example</span>
++        <span>{toolCallInfo.serverInfo.name} · Temporary view</span>
+       </div>}
+       {viewError && <p role="alert">View unavailable: {viewError}. The tool result is still available below.</p>}
+       <iframe title={`${toolCallInfo.serverInfo.name} interactive result`} ref={iframeRef} />
+@@ -737,8 +807,8 @@
+     if (result.status === "fulfilled") {
+       servers.push(result.value);
+     } else {
+-      console.warn(`[HOST] Failed to connect to ${serverUrls[i]}:`, result.reason);
+-      connectionFailures.push(`${serverUrls[i]}: ${String(result.reason)}`);
++      console.warn("[HOST] An example connection is unavailable.");
++      connectionFailures.push(`${new URL(serverUrls[i]).pathname.split("/").at(-1)}: connection unavailable`);
+     }
+   }
+
+--- a/host/src/implementation.ts
++++ b/host/src/implementation.ts
+@@ -31,11 +31,26 @@
+ }
+
+
++// randomUUID is restricted to secure contexts. The standalone loopback-domain
++// host also runs over HTTP, where getRandomValues still supplies secure bytes.
++export function newInvocationId(): string {
++  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
++  const bytes = crypto.getRandomValues(new Uint8Array(16));
++  bytes[6] = (bytes[6] & 0x0f) | 0x40;
++  bytes[8] = (bytes[8] & 0x3f) | 0x80;
++  const hex = Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
++  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
++}
++
+ export async function connectToServer(serverUrl: URL): Promise<ServerInfo> {
+-  log.info("Connecting to server:", serverUrl.href);
++  log.info("Connecting to an example server");
+   const client = await connectWithFallback(serverUrl);
+-
+-  const name = client.getServerVersion()?.name ?? serverUrl.href;
++  // Stable invocation references survive transport redelivery, while every
++  // explicit new user action gets a new reference, including after reload.
++  const originalCall = client.callTool.bind(client);
++  client.callTool = (params, ...options) => originalCall({ ...params, _meta: { ...params._meta, "ri/evaluationInvocation": newInvocationId() } }, ...options);
++
++  const name = client.getServerVersion()?.name ?? "Example server";
+
+   const toolsList = await client.listTools();
+   const tools = new Map(toolsList.tools.map((tool) => [tool.name, tool]));
+@@ -52,22 +67,22 @@
+ async function connectWithFallback(serverUrl: URL): Promise<Client> {
+   // Try Streamable HTTP first (modern transport)
+   try {
+-    const client = new Client(IMPLEMENTATION);
++    const client = new Client(IMPLEMENTATION, { capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: [RESOURCE_MIME_TYPE] } } } });
+     await client.connect(new StreamableHTTPClientTransport(serverUrl));
+     log.info("Connected via Streamable HTTP transport");
+     return client;
+-  } catch (streamableError) {
+-    log.info("Streamable HTTP failed:", streamableError);
++  } catch {
++    log.info("Streamable HTTP connection unavailable");
+   }
+
+   // Fall back to SSE (deprecated but needed for older servers)
+   try {
+-    const client = new Client(IMPLEMENTATION);
++    const client = new Client(IMPLEMENTATION, { capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: [RESOURCE_MIME_TYPE] } } } });
+     await client.connect(new SSEClientTransport(serverUrl));
+     log.info("Connected via SSE transport");
+     return client;
+-  } catch (sseError) {
+-    throw new Error(`Could not connect with any transport. SSE error: ${sseError}`);
++  } catch {
++    throw new Error("Could not connect with any supported transport.");
+   }
+ }
+
+@@ -97,7 +112,7 @@
+   name: string,
+   input: Record<string, unknown>,
+ ): ToolCallInfo {
+-  log.info("Calling tool", name, "with input", input);
++  log.info("Calling tool", name);
+   const tool = serverInfo.tools.get(name);
+   if (!tool) {
+     throw new Error(`Unknown tool: ${name}`);
+@@ -142,7 +157,6 @@
+   // Extract CSP and permissions metadata, preferring content-level (resources/read)
+   // and falling back to listing-level (resources/list) per the spec
+   log.info("Resource content keys:", Object.keys(content));
+-  log.info("Resource content._meta:", (content as any)._meta);
+
+   // Try both _meta (spec) and meta (Python SDK quirk) for content-level
+   const contentMeta = (content as any)._meta || (content as any).meta;
+@@ -150,7 +164,6 @@
+   // Get listing-level metadata as fallback
+   const listingResource = serverInfo.resources.get(uri);
+   const listingMeta = (listingResource as any)?._meta;
+-  log.info("Resource listing._meta:", listingMeta);
+
+   // Content-level takes precedence, fall back to listing-level
+   const uiMeta = contentMeta?.ui ?? listingMeta?.ui;
+@@ -230,13 +243,11 @@
+   log.info("MCP App initialized");
+
+   // Send tool call input to iframe
+-  log.info("Sending tool call input to MCP App:", input);
+   appBridge.sendToolInput({ arguments: input });
+
+   // Schedule tool call result (or cancellation) to be sent to MCP App
+   resultPromise.then(
+     (result) => {
+-      log.info("Sending tool call result to MCP App:", result);
+       appBridge.sendToolResult(result);
+     },
+     (error) => {
+@@ -357,7 +368,6 @@
+   };
+
+   appBridge.onupdatemodelcontext = async (params) => {
+-    log.info("Model context update from MCP App:", params);
+     // Normalize: empty content array means clear context
+     const hasContent = params.content && params.content.length > 0;
+     const hasStructured = params.structuredContent && Object.keys(params.structuredContent).length > 0;

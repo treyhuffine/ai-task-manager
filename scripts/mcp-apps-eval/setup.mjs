@@ -34,6 +34,8 @@ run('git', ['apply', '--check', join(here, 'ri-embed.patch')])
 run('git', ['apply', join(here, 'ri-embed.patch')])
 run('git', ['apply', '--check', join(here, 'conversation.patch')])
 run('git', ['apply', join(here, 'conversation.patch')])
+run('git', ['apply', '--check', join(here, 'third-party.patch')])
+run('git', ['apply', join(here, 'third-party.patch')])
 for (const project of projects) {
   cpSync(join(here, 'locks', project + '.yaml'), join(root, project, 'pnpm-lock.yaml'))
   run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], join(root, project))

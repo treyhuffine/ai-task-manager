@@ -53,6 +53,11 @@ test('chat capture is scoped, bounded, read only unless enabled, and never repla
     assert.equal(executions, 1)
     const other = JSON.parse((await send('/__launch', {}, true)).body).token
     assert.equal((await send(path.replace(token, other) + '/result')).status, 404)
+    const publicId = randomUUID(), publicPath = `/s/${token}/chat/${publicId}`
+    assert.equal((await send('/__chat/begin', { token, turnId: publicId, context: { kind: 'public', app: 'Building explorer', text: 'Public museum' }, allowChanges: false }, true)).status, 200)
+    assert.deepEqual(JSON.parse((await send(publicPath + '/mcp', { id: 1, method: 'tools/list' })).body).result, { tools: [] })
+    assert.equal((await send(publicPath + '/mcp', call(inputs))).status, 403)
+    assert.equal(executions, 1)
     const updateId = randomUUID()
     await send('/__chat/begin', { token, turnId: updateId, inputs, allowChanges: true }, true)
     assert.equal((await send(`/s/${token}/chat/${updateId}/mcp`, call({ ...inputs, monthlyGrowthRate: 7 }))).status, 200)
@@ -104,7 +109,7 @@ test('public access requires a locally minted bounded capability and allowed ope
     const servers = await send(prefix + '/api/servers')
     assert.equal(servers.status, 200)
     assert.equal(servers.headers['cache-control'], 'no-store')
-    assert.deepEqual(JSON.parse(servers.body), ['excalidraw', 'scenario'].map(name => config.hostOrigin + prefix + '/mcp/' + name))
+    assert.deepEqual(JSON.parse(servers.body), ['excalidraw', 'flint', 'buildings', 'scenario'].map(name => config.hostOrigin + prefix + '/mcp/' + name))
     assert.equal((await send(prefix + '/api/tasks')).status, 404)
     assert.equal((await send(prefix + '/mcp/scenario', { method: 'POST', body: JSON.stringify({ method: 'tools/call', params: { name: 'delete_task' } }) })).status, 403)
     assert.equal((await send(prefix + '/mcp/excalidraw', { method: 'POST', body: JSON.stringify({ method: 'sampling/createMessage' }) })).status, 403)

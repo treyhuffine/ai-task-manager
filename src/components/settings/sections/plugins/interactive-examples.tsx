@@ -44,7 +44,7 @@ export function InteractiveExamples() {
         <PanelsTopLeft className="size-5 shrink-0 text-muted-foreground" aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">Interactive examples <span className="ml-1 text-xs font-normal text-muted-foreground">Experimental</span></p>
-          <p className="mt-1 text-xs text-muted-foreground">Edit a diagram or explore a business scenario. Uses sample data in a temporary session.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Try hosted diagrams, charts and public building data, or chat with the sample scenario. Uses a temporary view session.</p>
           {launch.error && <p role="alert" className="mt-2 text-xs text-destructive">{launch.error.message}</p>}
         </div>
         <Button ref={launchButton} variant="outline" size="sm" disabled={launch.isPending} onClick={() => void open()}>
@@ -58,7 +58,7 @@ export function InteractiveExamples() {
               <Button variant="ghost" size="sm" onClick={() => setView(null)}><ArrowLeft className="size-4" />Return to Plugins</Button>
               <DialogTitle className="text-sm">Interactive examples</DialogTitle>
             </div>
-            <DialogDescription className="px-2 text-xs">Synthetic examples. Closing or reloading ends this view. Your conversation stays in Ri.</DialogDescription>
+            <DialogDescription className="px-2 text-xs">Sample inputs and public data from external services. Closing or reloading ends this view. Your conversation stays in Ri.</DialogDescription>
           </DialogHeader>
           {state === 'loading' && <p role="status" className="px-6 py-2 text-xs text-muted-foreground">Connecting to the examples…</p>}
           {(state === 'failed' || state === 'ended') ? (

@@ -37,6 +37,65 @@ export async function verifyChatRead({ page, scenario, pass }) {
   return { chat, editor, send, updates, slider }
 }
 
+export async function verifyPublicChatRead({ page, table, calls, pass }) {
+  await page.getByRole('button', { name: 'Chat about result', exact: true }).click()
+  const chat = page.getByRole('region', { name: 'Temporary demo chat' })
+  const editor = chat.getByRole('textbox', { name: 'Message the demo agent' })
+  const send = chat.getByRole('button', { name: 'Send demo message' })
+  if (await chat.getByRole('button', { name: 'Remove scenario context' }).count()) {
+    await chat.getByRole('button', { name: 'Remove scenario context' }).click()
+  }
+  if (!await chat.getByText('Building explorer · Table', { exact: true }).count()) {
+    await chat.getByRole('button', { name: 'Attach Building explorer · Table', exact: true }).click()
+  }
+  await chat.getByText('Building explorer · Table', { exact: true }).waitFor()
+  assert.equal(await chat.getByRole('checkbox').count(), 0)
+  const before = calls.length
+  await editor.fill('What address and construction year are in the attached table? Can you change the building record to 2026? Answer from the attachment without fetching anything.')
+  await send.click()
+  await editor.fill('Keep this third-party draft')
+  await chat.getByText('Read the attached third-party context. No new server call.', { exact: true }).waitFor({ timeout: 90000 })
+  const reply = await chat.getByRole('log').innerText()
+  assert.match(reply, /1885/)
+  assert.match(reply, /Museumstraat/i)
+  assert.equal(await editor.inputValue(), 'Keep this third-party draft')
+  // Exercise the portable app-to-host message method through the real nested
+  // bridge. This is a controlled protocol message, not a table UI feature.
+  await table.evaluate(() => parent.postMessage({ jsonrpc: '2.0', id: 8675309, method: 'ui/message', params: { role: 'user', content: [{ type: 'text', text: 'Discuss this public table selection' }] } }, '*'))
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline && !await editor.inputValue().then(value => value.includes('Discuss this public table selection'))) await new Promise(resolve => setTimeout(resolve, 50))
+  assert.equal(await editor.inputValue(), 'Keep this third-party draft\n\n[Building explorer · Table] Discuss this public table selection')
+  assert.equal(calls.length, before)
+  pass('A controlled app-requested message is attributed and staged beside existing typing without automatic Send')
+  assert.equal(calls.length, before)
+  await table.getByText('1885', { exact: true }).waitFor()
+  pass('A real Claude reply reads third-party building data without tools, changes or draft loss')
+  if (process.env.RI_MCP_APPS_TEST_HOME_ORIGIN) {
+    const host = await table.parentFrame().parentFrame()
+    await host.getByTitle('metadata-demo-best interactive result', { exact: true }).last().scrollIntoViewIfNeeded()
+    await page.waitForTimeout(800)
+    await page.screenshot({ path: join(root, 'evidence/ri-third-party-chat.png') })
+  }
+  await chat.getByRole('button', { name: 'Chat 2', exact: true }).click()
+  if (await chat.getByRole('button', { name: 'Remove scenario context' }).count()) {
+    await chat.getByRole('button', { name: 'Remove scenario context' }).click()
+  }
+  assert.equal(await send.isEnabled(), false)
+  await chat.getByRole('button', { name: 'Attach Building explorer · Table', exact: true }).click()
+  await chat.getByText('Building explorer · Table', { exact: true }).waitFor()
+  assert.equal(await editor.inputValue(), '')
+  await chat.getByRole('button', { name: 'Chat 1', exact: true }).click()
+  assert.match(await editor.inputValue(), /^Keep this third-party draft/)
+  await chat.getByRole('button', { name: 'Remove result context' }).click()
+  assert.equal(await send.isEnabled(), false)
+  await chat.getByRole('button', { name: 'Attach Excalidraw · Diagram', exact: true }).click()
+  await chat.getByText('Excalidraw · Diagram', { exact: true }).waitFor()
+  assert.match(await editor.inputValue(), /^Keep this third-party draft/)
+  assert.equal(calls.length, before)
+  pass('Third-party results can be tagged into either temporary chat without sending or replaying a tool')
+  await page.getByRole('button', { name: 'Hide demo chat', exact: true }).click()
+}
+
 // Controlled changing replies run only with the isolated synthetic Home.
 // They still use actual MCP capture and the real app's result delivery.
 export async function verifyChatFlow({ page, context, host, scenario, config, pass }) {

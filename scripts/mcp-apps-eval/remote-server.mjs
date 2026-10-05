@@ -3,6 +3,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { root } from './config.mjs'
+import { PUBLIC_SERVERS, createPublicProxy, validPublicCsp } from './public-servers.mjs'
 
 const LOCAL_HOST = 'http://ri-mcp-apps.127.0.0.1.nip.io:48880'
 const LOCAL_SANDBOX = 'http://ri-mcp-sandbox.127.0.0.1.sslip.io:48881'
@@ -33,10 +34,11 @@ export function validOrigins(parentOrigin, hostOrigin, sandboxOrigin) {
   })
 }
 
-export function createRemoteServers(config, now = Date.now, { scenarioPort = 48882 } = {}) {
+export function createRemoteServers(config, now = Date.now, { scenarioPort = 48882, publicSend } = {}) {
   const { parentOrigin, hostOrigin, sandboxOrigin, key } = config
   if (!validOrigins(parentOrigin, hostOrigin, sandboxOrigin) || !/^[a-f0-9]{64}$/.test(key)) throw new Error('Invalid isolated HTTPS configuration')
   const sessions = new Map()
+  const publicProxy = createPublicProxy(publicSend)
   function reply(res, status, body, type = 'text/plain') {
     res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'Referrer-Policy': 'origin', 'X-Content-Type-Options': 'nosniff' })
     res.end(body)
@@ -66,6 +68,8 @@ export function createRemoteServers(config, now = Date.now, { scenarioPort = 488
       const methods = ['initialize', 'notifications/initialized', 'ping', 'tools/list', 'tools/call', 'resources/list', 'resources/read']
       const tools = port === 48883 ? ['create_view', 'save_checkpoint', 'read_checkpoint'] : ['get-scenario-data']
       if (!methods.includes(rpc?.method) || rpc.method === 'tools/call' && !tools.includes(rpc.params?.name)) { reply(res, 403, 'Unsupported example operation'); return }
+      if (turn?.publicView && rpc.method === 'tools/call') { reply(res, 403, 'Third-party attachments are read only. No tool is available.'); return }
+      if (turn?.publicView && rpc.method === 'tools/list') { reply(res, 200, JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { tools: [] } }), 'application/json'); return }
       if (turn && rpc.method === 'resources/read') { reply(res, 403, 'UI resources are not part of the demo agent context'); return }
       if (turn && rpc.method === 'resources/list') { reply(res, 200, JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { resources: [] } }), 'application/json'); return }
       if (turn && rpc.method === 'tools/call') {
@@ -150,10 +154,11 @@ export function createRemoteServers(config, now = Date.now, { scenarioPort = 488
         const entry = sessionFor(`/s/${input.token}/index.html`)
         if (!entry) { reply(res, 410, 'Example session ended'); return }
         if (url.pathname === '/__chat/begin') {
-          if (!validScenarioInputs(input.inputs) || typeof input.allowChanges !== 'boolean') { reply(res, 400, 'Invalid sample scenario'); return }
+          const publicView = input.context?.kind === 'public' && ['Excalidraw', 'Flint charts', 'Building explorer'].includes(input.context.app) && typeof input.context.text === 'string' && input.context.text.length <= 12000 && input.allowChanges === false
+          if (!publicView && (!validScenarioInputs(input.inputs) || typeof input.allowChanges !== 'boolean')) { reply(res, 400, 'Invalid example context'); return }
           if (entry.session.turns.has(input.turnId)) { reply(res, 409, 'This turn was already registered'); return }
           if (entry.session.turns.size >= 20) { reply(res, 429, 'Open a new example session after twenty chat turns'); return }
-          entry.session.turns.set(input.turnId, { status: 'unused', base: input.inputs, allowChanges: input.allowChanges })
+          entry.session.turns.set(input.turnId, { status: 'unused', base: input.inputs, publicView, allowChanges: publicView ? false : input.allowChanges })
           reply(res, 200, '{}', 'application/json')
         } else {
           const turn = entry.session.turns.get(input.turnId)
@@ -165,7 +170,7 @@ export function createRemoteServers(config, now = Date.now, { scenarioPort = 488
       const entry = sessionFor(url.pathname)
       if (!entry) { reply(res, 410, 'Example session ended. Return to Ri to open a new session.'); return }
       if (entry.path === '/api/servers' && req.method === 'GET') {
-        reply(res, 200, JSON.stringify(['excalidraw', 'scenario'].map(name => `${hostOrigin}/s/${entry.token}/mcp/${name}`)), 'application/json')
+        reply(res, 200, JSON.stringify(['excalidraw', 'flint', 'buildings', 'scenario'].map(name => `${hostOrigin}/s/${entry.token}/mcp/${name}`)), 'application/json')
       } else if (entry.path === '/index.html' && req.method === 'GET') {
         let html = readFileSync(join(root, 'host/dist/index.html'), 'utf8')
         html = html.replaceAll(LOCAL_SANDBOX + '/sandbox.html', `${sandboxOrigin}/s/${entry.token}/sandbox.html`)
@@ -176,8 +181,19 @@ export function createRemoteServers(config, now = Date.now, { scenarioPort = 488
         const ready = `<script>window.addEventListener('load',()=>window.parent.postMessage({kind:'ri-evaluation-ready'},${JSON.stringify(parentOrigin)}))</script>`
         res.setHeader('Content-Security-Policy', hostCsp())
         reply(res, 200, html.replace('</body>', ready + '</body>'), 'text/html')
-      } else if (entry.path === '/mcp/excalidraw') await proxyMcp(req, res, entry, 48883)
-      else if (entry.path === '/mcp/scenario') await proxyMcp(req, res, entry, scenarioPort)
+      } else if (entry.path === '/mcp/scenario') await proxyMcp(req, res, entry, scenarioPort)
+      else if (entry.path === '/mcp/excalidraw-local') await proxyMcp(req, res, entry, 48883)
+      else if (entry.path.startsWith('/mcp/') && PUBLIC_SERVERS[entry.path.slice(5)]) {
+        if (req.method === 'DELETE') { reply(res, 204, ''); return }
+        if (req.method !== 'POST') { reply(res, 405, 'Method not supported'); return }
+        const chunks = []; let size = 0
+        for await (const chunk of req) { size += chunk.length; if (size > 1024 * 1024) { reply(res, 413, 'Input too large'); return } chunks.push(chunk) }
+        let rpc
+        try { rpc = JSON.parse(Buffer.concat(chunks)) } catch { reply(res, 400, 'Invalid JSON'); return }
+        const response = await publicProxy(entry.path.slice(5), rpc, entry.session)
+        res.writeHead(response.status, { ...response.headers, 'Referrer-Policy': 'origin', 'X-Content-Type-Options': 'nosniff' })
+        res.end(response.body)
+      }
       else if (entry.path.match(/^\/chat\/[a-f0-9-]{36}\/(mcp|result)$/)) {
         const turnId = entry.path.split('/')[2]
         const turn = entry.session.turns.get(turnId)
@@ -195,6 +211,9 @@ export function createRemoteServers(config, now = Date.now, { scenarioPort = 488
       if ((req.headers.host || '').split(':')[0] !== new URL(sandboxOrigin).hostname) { reply(res, 404, 'Not found'); return }
       const entry = sessionFor(url.pathname)
       if (!entry || entry.path !== '/sandbox.html' || req.method !== 'GET') { reply(res, 410, 'Example session ended'); return }
+      let policy
+      try { policy = url.searchParams.has('csp') ? JSON.parse(url.searchParams.get('csp')) : undefined } catch { reply(res, 400, 'Invalid sandbox policy'); return }
+      if (!validPublicCsp(policy)) { reply(res, 403, 'Unsupported sandbox network policy'); return }
       const upstream = await readSandbox(url.search)
       if (upstream.status !== 200) { reply(res, 502, 'Example sandbox unavailable'); return }
       const csp = upstream.headers['content-security-policy']

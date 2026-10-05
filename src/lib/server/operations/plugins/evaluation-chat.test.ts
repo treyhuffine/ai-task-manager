@@ -85,3 +85,19 @@ it('keeps failed or expired turns from being automatically rerun', async () => {
   await expect(chatWithPluginEvaluation(turn())).rejects.toMatchObject({ status: 410 });
   expect(runHarnessText).toHaveBeenCalledTimes(1);
 });
+
+it('reads bounded third-party context with no tools and rejects update grants', async () => {
+  const input = { ...turn(), context: { invocationId: randomUUID(), revision: 1, kind: 'public' as const, app: 'Building explorer' as const, view: 'Table' as const, text: 'Museumstraat 1, built 1885. Selected row.' } };
+  const fetch = vi.fn(async (url: string) => Response.json(url.endsWith('/begin') ? {} : { status: 'unused' }));
+  vi.stubGlobal('fetch', fetch);
+  expect(() => chatWithPluginEvaluation({ ...input, allowChanges: true })).toThrow('read only');
+  expect(() => chatWithPluginEvaluation({ ...input, context: { ...input.context, text: 'x'.repeat(12001) } })).toThrow();
+  await chatWithPluginEvaluation(input);
+  expect(runHarnessText).toHaveBeenCalledWith(expect.objectContaining({
+    requiredHarness: 'claude', allowedTools: [],
+    mcpServers: [expect.objectContaining({ name: 'public_context' })],
+    system: expect.stringContaining('READ ONLY'),
+    prompt: expect.stringContaining('built 1885'),
+  }));
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
