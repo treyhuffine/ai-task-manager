@@ -8,7 +8,7 @@ export function ApiTransportSettings() {
   return (
     <section className="space-y-2">
       <h3 className="text-[12px] font-medium text-foreground">Connection transport</h3>
-      <p className="text-[11px] text-muted-foreground/85">WebSocket is the default for requests and terminal output on this device. Choose HTTP to switch immediately. Your data and caches stay in place.</p>
+      <p className="text-[11px] text-muted-foreground/85">WebSocket is the default for API requests on this device. Choose HTTP to switch immediately. Terminal connections always use WebSocket. Your data and caches stay in place.</p>
       <select aria-label="Connection transport" value={mode} onChange={event => setTransportMode(event.target.value === 'websocket' ? 'websocket' : 'http')}
         className="rounded-md border border-border bg-background px-2 py-1.5 text-sm">
         <option value="websocket">WebSocket (default)</option>

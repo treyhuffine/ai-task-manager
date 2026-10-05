@@ -3,12 +3,12 @@
 import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
 import { useFolderRoot, useFolderScope } from '@/hooks/use-folder';
 import { terminalsUnavailable, useCreateTerminal, useKillTerminal, useTerminals } from '@/hooks/use-terminals';
-import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import { apiErrorText } from '@/lib/api/client';
 import type { TerminalDescriptor } from '@/lib/api/terminals';
 import { folderApiBase, type FolderSource } from '@/lib/folders/source';
 import { cn } from '@/lib/utils';
 import { ChevronDown, ChevronUp, Plus, Terminal as TerminalIcon, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ExecutionTerminalInstance } from './execution-terminal-instance';
 
 interface ExecutionTerminalPanelProps {
@@ -56,7 +56,9 @@ export function ExecutionTerminalPanel({
   const severalDevices = useRunsOnSeveralDevices();
   const createTerminal = useCreateTerminal(source);
   const killTerminal = useKillTerminal(source);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedId, setActiveId] = useState<string | null>(null);
+  // Keep the selection through outages, with a real tab as the fallback.
+  const activeId = terminals.some(t => t.id === selectedId) ? selectedId : terminals.at(-1)?.id ?? null;
 
   // Clear a stale spawn failure once the thing that caused it has changed.
   //
@@ -80,9 +82,8 @@ export function ExecutionTerminalPanel({
   const root = useFolderRoot(source);
   const scopeKey = scope ? scope.join(':') : null;
   const resetKey = `${scopeKey ?? ''}|${root ?? ''}|${disabled ? 'off' : 'on'}`;
-  const resetCreate = useRef(createTerminal.reset);
-  resetCreate.current = createTerminal.reset;
-  useEffect(() => { resetCreate.current(); }, [resetKey]);
+  const resetCreate = createTerminal.reset;
+  useEffect(() => { resetCreate(); }, [resetKey, resetCreate]);
 
   // Auto-create the first terminal once the panel mounts and isn't
   // disabled. Skip when collapsed — no point spinning a PTY for a
@@ -98,17 +99,6 @@ export function ExecutionTerminalPanel({
     createTerminal.mutate({ cols: 80, rows: 24 });
   }, [disabled, isLoading, collapsed, listError, terminals.length, createTerminal]);
 
-  // Keep the active tab pointing at something real.
-  useEffect(() => {
-    if (terminals.length === 0) {
-      if (activeId !== null) setActiveId(null);
-      return;
-    }
-    if (!activeId || !terminals.some((t) => t.id === activeId)) {
-      setActiveId(terminals[terminals.length - 1].id);
-    }
-  }, [terminals, activeId]);
-
   const handleNew = () => {
     if (createTerminal.isPending) return;
     createTerminal.reset();
@@ -121,11 +111,7 @@ export function ExecutionTerminalPanel({
   const createErrorMessage = (() => {
     const err = createTerminal.error;
     if (!err) return null;
-    if (apiErrorStatus(err) !== undefined) {
-      const body = apiErrorBody(err) as { error?: string } | null;
-      return body?.error ?? `Couldn't start terminal (HTTP ${apiErrorStatus(err)}).`;
-    }
-    return err instanceof Error ? apiErrorText(err) : String(err);
+    return apiErrorText(err);
   })();
 
   const handleClose = (id: string) => {

@@ -114,7 +114,7 @@ The explicit exceptions are protocols rather than application JSON consumers:
   orchestrator action calls.
 - Native desktop IPC, worker enrollment, grants, heartbeat, command/event
   delivery and worker byte streams.
-- Live page/chat/terminal SSE and the playground's model stream.
+- Live page/chat SSE, external terminal SSE compatibility and the playground's model stream.
 
 The exact route allowlist lives in
 `src/lib/trpc/migration-coverage.test.ts`. Adding an application JSON route
@@ -123,8 +123,10 @@ internal REST JSON calls and transport options that silently discard query
 inputs. It also checks that domain operations do not import HTTP handlers or
 perform raw database writes.
 
-The multiplexed SSE stream continues to carry live chat and global events, plus
-terminal output during fallback. The browser's default WebSocket transport is
+The multiplexed SSE stream continues to carry live chat and global events.
+Browser terminals use an independent WS-only client for control, input and typed
+output, even when ordinary API calls use HTTP. Terminal REST/SSE remains an
+external compatibility protocol, with no browser terminal fallback. The browser's default WebSocket transport is
 documented separately with loopback measurements and reconnect/replay behavior.
 This migration does not claim that tRPC or WebSockets inherently
 reduces latency.

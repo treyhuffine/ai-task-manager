@@ -1,8 +1,9 @@
 /**
  * The page's one stream (P3 review). Everything on screen that follows the
- * server live (the dashboard's signals, each chat, each visible terminal)
+ * server live (the dashboard's signals and each chat)
  * subscribes here, and this keeps one EventSource to `/api/live` naming
- * them all. A browser keeps six HTTP/1.1 connections to a host: one stream
+ * them all. Browser terminals use their own WebSocket connection. The terminal
+ * SSE subscription API remains for compatibility. A browser keeps six HTTP/1.1 connections to a host: one stream
  * each used them up, and every ordinary request waited behind them.
  *
  * - Subscribing or leaving reconnects (coalesced, and only when the set of

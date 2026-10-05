@@ -22,6 +22,8 @@ async function main() {
   let mode: TransportMode = 'websocket';
   const client = createAppTRPCClient({ url: `${origin.origin}/api/trpc`, transport: new ApiClient({ getToken: () => config.localToken! }),
     getMode: () => mode, WebSocket: WebSocket as unknown as typeof globalThis.WebSocket });
+  const terminalClient = createAppTRPCClient({ url: `${origin.origin}/api/trpc`, transport: new ApiClient({ getToken: () => config.localToken! }),
+    websocketOnly: true, getMode: () => mode, WebSocket: WebSocket as unknown as typeof globalThis.WebSocket });
   const capabilities = await client.transport.capabilities.query(undefined, { context: { httpOnly: true } });
   assert(capabilities.websocket, 'The running Home must use the shared WebSocket server');
   // The HTTP route has published its bundle's router. Auth failures from the
@@ -61,19 +63,24 @@ async function main() {
     assert.equal(domains.length, 8);
     const workspace = await client.workspaces.create.mutate({ body: { name: 'WebSocket smoke', cwd: folder, isGit: false, browserEnabled: false } });
     workspaceId = workspace.id;
-    const terminal = await client.workspaces.terminalsPost.mutate({ params: { id: workspace.id }, body: { cols: 80, rows: 24 } });
-    terminalId = terminal.id;
     mode = 'http';
+    await client.transport.ping.query();
+    assert.equal(getTransportStatus().state, 'http');
+    const beforeTerminal = getTransportStatus();
+    const terminal = await terminalClient.workspaces.terminalsPost.mutate({ params: { id: workspace.id }, body: { cols: 80, rows: 24 } });
+    terminalId = terminal.id;
+    await terminalClient.workspaces.terminalsResizeTerminalIdPost.mutate({ params: { id: workspace.id, terminalId: terminal.id }, body: { cols: 100, rows: 30 } });
+    assert.equal(getTransportStatus(), beforeTerminal, 'Terminal activity must not change API diagnostics');
     // HTTP must see the PTY made on WS, demonstrating one live runtime.
     const terminals = await client.workspaces.terminalsGet.query({ params: { id: workspace.id } });
     assert(terminals.some(item => item.id === terminal.id));
-    mode = 'websocket';
+    assert((await terminalClient.workspaces.terminalsGet.query({ params: { id: workspace.id } })).some(item => item.id === terminal.id));
     let text = '', after: number | null = null;
     let ready = () => {}, arrived = () => {};
     const initialized = new Promise<void>(resolve => { ready = resolve; });
     const marker = `RI_WS_SMOKE_${Date.now()}`;
     const output = new Promise<void>(resolve => { arrived = resolve; });
-    const subscription = client.terminals.output.subscribe({ base: `/workspaces/${workspace.id}`, terminalId: terminal.id, after: null }, {
+    const subscription = terminalClient.terminals.output.subscribe({ base: `/workspaces/${workspace.id}`, terminalId: terminal.id, after: null }, {
       onData({ data: frame }) {
         if (frame.event === 'ready') ready();
         if (frame.id) after = Number(frame.id);
@@ -85,13 +92,13 @@ async function main() {
     const bounded = <T>(promise: Promise<T>) => Promise.race([promise, new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error('Terminal smoke timed out')), 15_000); timer.unref(); })]);
     await bounded(initialized);
     const escaped = [...marker + '\n'].map(char => '\\' + char.charCodeAt(0).toString(8).padStart(3, '0')).join('');
-    await client.workspaces.terminalsInputTerminalIdPost.mutate({ params: { id: workspace.id, terminalId: terminal.id }, body: { data: `printf '${escaped}'\r` } });
+    await terminalClient.workspaces.terminalsInputTerminalIdPost.mutate({ params: { id: workspace.id, terminalId: terminal.id }, body: { data: `printf '${escaped}'\r` } });
     await bounded(output);
     assert(after !== null);
     stopOutput();
     // Fresh WS subscriber catches up against the same ring without a reset.
     const resumed = new Promise<void>((resolve, reject) => {
-      const replay = client.terminals.output.subscribe({ base: `/workspaces/${workspace.id}`, terminalId: terminal.id, after }, {
+      const replay = terminalClient.terminals.output.subscribe({ base: `/workspaces/${workspace.id}`, terminalId: terminal.id, after }, {
         onData({ data: frame }) { if (frame.event === 'ready') { try { assert(frame.data.resumed); resolve(); } catch (error) { reject(error); } } }, onError: reject,
       });
       stopOutput = () => replay.unsubscribe();
@@ -119,14 +126,15 @@ async function main() {
       return { medianMs: Number(samples[15].toFixed(2)), p95Ms: Number(samples[28].toFixed(2)) };
     };
     const http = await measure('http'), websocket = await measure('websocket');
-    console.log(JSON.stringify({ ok: true, domains: 9, terminal: 'WS input/output, HTTP visibility, WS/SSE replay', warmPing: { http, websocket } }));
+    console.log(JSON.stringify({ ok: true, domains: 9, terminal: 'WS-only create/list/resize/input/output in API HTTP mode, WS replay, external SSE compatibility', warmPing: { http, websocket } }));
   } finally {
     stopOutput();
     mode = 'http';
-    if (workspaceId && terminalId) await client.workspaces.terminalsTerminalIdDelete.mutate({ params: { id: workspaceId, terminalId } }).catch(() => {});
+    if (workspaceId && terminalId) await terminalClient.workspaces.terminalsTerminalIdDelete.mutate({ params: { id: workspaceId, terminalId } }).catch(() => {});
     if (taskId) await client.tasks.delete.mutate({ id: taskId }).catch(() => {});
     if (workspaceId) await client.workspaces.update.mutate({ params: { id: workspaceId }, body: { status: 'archived' } }).catch(() => {});
     await client.closeTransport();
+    await terminalClient.closeTransport();
   }
 }
 void main().catch(error => { console.error(error instanceof Error ? error.message : 'WebSocket smoke failed'); process.exitCode = 1; });

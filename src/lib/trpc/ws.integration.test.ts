@@ -5,6 +5,9 @@ import getPort from 'get-port';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { nodeHTTPRequestHandler } from '@trpc/server/adapters/node-http';
 import { z } from 'zod/v4';
+import { tracked } from '@trpc/server';
+import { subscribeTerminalOutput } from '@/lib/realtime/terminal-transport';
+import { terminalSubscriptionInput } from './terminal-subscription';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { ApiClient, apiErrorStatus, apiErrorCode } from '@/lib/api/client';
 import { router, viewerProcedure as p } from './init';
@@ -13,6 +16,7 @@ import { createWebSocketServer } from './ws-server';
 import { createAppTRPCClient } from './client';
 import type { WebSocketRuntime } from './ws-runtime';
 import type { TransportMode } from './transport-state';
+import { getTransportStatus } from './transport-state';
 
 let home: TestHome;
 let server: http.Server;
@@ -26,6 +30,7 @@ let failAfterWrite: boolean;
 let failRead: boolean;
 let supported: boolean;
 let pauseWrite: Promise<void> | undefined;
+let outputCursors: (number | null)[];
 
 beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-ws-' });
@@ -37,6 +42,7 @@ beforeEach(async () => {
   writes = []; httpPaths = []; sockets = []; clients = [];
   failAfterWrite = false; failRead = false; supported = true;
   pauseWrite = undefined;
+  outputCursors = [];
   const fixture = router({
     transport: router({ capabilities: p.query(() => ({ websocket: supported })), ping: p.query(() => ({ now: Date.now() })) }),
     tasks: router({
@@ -61,6 +67,16 @@ beforeEach(async () => {
         return { id: input.id, title: input.patch.title };
       }),
     }),
+    terminals: router({ output: p.input(terminalSubscriptionInput).subscription(async function* ({ input, signal }) {
+      outputCursors.push(input.after);
+      yield tracked(String(input.after ?? 0), { event: 'ready' as const, data: { id: input.terminalId, resumed: input.after !== null } });
+      const id = String((input.after ?? 0) + 1);
+      yield tracked(id, { event: 'data' as const, data: 'output', id });
+      await new Promise<void>(resolve => {
+        if (signal!.aborted) resolve();
+        else signal!.addEventListener('abort', () => resolve(), { once: true });
+      });
+    }) }),
   });
   runtime = createWebSocketServer(fixture);
   server = http.createServer((req, res) => {
@@ -85,15 +101,86 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
-function client(getMode: () => TransportMode = () => 'websocket', token: string | (() => string) = home.token) {
+function client(getMode: () => TransportMode = () => 'websocket', token: string | (() => string) = home.token, websocketOnly = false) {
   class TrackedSocket extends WebSocket {
     constructor(url: string | URL, protocols?: string | string[]) { super(url, protocols); sockets.push(this); }
   }
-  const c = createAppTRPCClient({ url: `${base}/api/trpc`, getMode, WebSocket: TrackedSocket as unknown as typeof globalThis.WebSocket,
+  const c = createAppTRPCClient({ url: `${base}/api/trpc`, getMode, websocketOnly, WebSocket: TrackedSocket as unknown as typeof globalThis.WebSocket,
     transport: new ApiClient({ getToken: () => typeof token === 'function' ? token() : token, onUnauthorized: () => {} }) });
   clients.push(c);
   return c;
 }
+
+it('keeps the terminal socket independent of HTTP preference and API diagnostics', async () => {
+  const previous = getTransportStatus();
+  const c = client(() => 'http', home.token, true);
+  await c.tasks.create.mutate({ title: 'Strict socket', rawInput: 'Strict socket' });
+  expect(await c.tasks.list.query()).toEqual([{ id: '0', title: 'Strict socket' }]);
+  expect(sockets).toHaveLength(1);
+  expect(httpPaths).toEqual([]);
+  expect(getTransportStatus()).toBe(previous);
+});
+
+it('refuses terminal writes when WS is disabled without any HTTP fallback', async () => {
+  vi.stubEnv('RI_TRPC_WS_DISABLED', '1');
+  const c = client(() => 'http', home.token, true);
+  const error = await c.tasks.create.mutate({ title: 'Never HTTP', rawInput: 'Never HTTP' }).catch(error => error);
+  expect(apiErrorStatus(error)).toBe(503);
+  expect(apiErrorCode(error)).toBe('websocket_unavailable');
+  expect(writes).toEqual([]);
+  expect(httpPaths).toEqual([]);
+});
+
+it('does not retry a disconnected terminal read over HTTP', async () => {
+  const c = client(() => 'http', home.token, true);
+  await c.tasks.create.mutate({ title: 'Strict read', rawInput: 'Strict read' });
+  failRead = true;
+  const error = await c.tasks.list.query().catch(error => error);
+  expect(apiErrorStatus(error)).toBe(503);
+  expect(httpPaths).toEqual([]);
+});
+
+it('does not replay unconfirmed terminal writes on either transport', async () => {
+  const c = client(() => 'http', home.token, true);
+  await c.tasks.list.query();
+  failAfterWrite = true;
+  const error = await c.tasks.create.mutate({ title: 'Once on WS', rawInput: 'Once on WS' }).catch(error => error);
+  expect(apiErrorStatus(error)).toBe(424);
+  expect(writes).toEqual(['Once on WS']);
+  expect(httpPaths).toEqual([]);
+});
+
+it.each([{ httpOnly: true }, { headers: { 'x-ri-device-id': 'viewer' } }])('never allows an HTTP escape hatch on the terminal socket (%j)', async context => {
+  const c = client(() => 'http', home.token, true);
+  const error = await c.tasks.list.query(undefined, { context }).catch(error => error);
+  expect(apiErrorStatus(error)).toBe(503);
+  expect(httpPaths).toEqual([]);
+  expect(sockets).toHaveLength(0);
+});
+
+it('reconnects terminal output after a real disconnect with the delivered cursor and no SSE', async () => {
+  const c = client(() => 'http', home.token, true);
+  const position = { after: 5 as number | null };
+  const listener = vi.fn();
+  const stop = subscribeTerminalOutput('/sessions/chat', 'shell', position, listener, {
+    document: undefined,
+    ws: (deliver, fail) => {
+      const subscription = c.terminals.output.subscribe({ base: '/sessions/chat', terminalId: 'shell', after: position.after }, {
+        onData: ({ data }) => deliver(data), onError: fail, onComplete: fail,
+      });
+      return () => subscription.unsubscribe();
+    },
+  });
+  try {
+    await vi.waitFor(() => expect(position.after).toBe(6));
+    sockets.at(-1)!.terminate();
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledWith('unavailable', { message: 'The terminal WebSocket is disconnected. Reconnecting.' }));
+    await vi.waitFor(() => expect(position.after).toBe(7), { timeout: 5_000 });
+    expect(outputCursors).toEqual([5, 6]);
+    expect(httpPaths).toEqual([]);
+    expect(sockets).toHaveLength(2);
+  } finally { stop(); }
+});
 
 it.each([null, 'http'])('honors the browser default and saved HTTP rollback for reads and writes (%s)', async saved => {
   vi.stubGlobal('window', { location: new URL(base), localStorage: { getItem: () => saved }, addEventListener: vi.fn() });

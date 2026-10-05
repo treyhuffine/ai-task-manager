@@ -6,7 +6,7 @@ import type { AppRouter } from './router';
 import { createTransportLink } from './transport-link';
 import type { TransportMode } from './transport-state';
 
-export function createAppTRPCClient({ url = '/api/trpc', transport = api, getMode, WebSocket }: { url?: string; transport?: ApiClient; getMode?: () => TransportMode; WebSocket?: typeof globalThis.WebSocket } = {}) {
+export function createAppTRPCClient({ url = '/api/trpc', transport = api, getMode, WebSocket, websocketOnly }: { url?: string; transport?: ApiClient; getMode?: () => TransportMode; WebSocket?: typeof globalThis.WebSocket; websocketOnly?: boolean } = {}) {
   const fetch = async (url: RequestInfo | URL, init?: RequestInit) => {
     const response = await transport.raw(String(url), init as RequestInit);
     // Auth, protocol and maintenance refusals can happen before the adapter.
@@ -35,9 +35,11 @@ export function createAppTRPCClient({ url = '/api/trpc', transport = api, getMod
       fetch,
     }),
   });
-  const trial = createTransportLink({ url, transport, http, getMode, WebSocket });
+  const trial = createTransportLink({ url, transport, http, getMode, WebSocket, websocketOnly });
   const client = createTRPCClient<AppRouter>({ links: [trial.link] });
   return new Proxy(client, { get: (target, key) => key === 'closeTransport' ? trial.close : Reflect.get(target, key) }) as typeof client & { closeTransport(): Promise<void> };
 }
 export const trpcClient = createAppTRPCClient();
+/** Terminal traffic remains bidirectional even when ordinary API calls use HTTP. */
+export const terminalTRPCClient = createAppTRPCClient({ websocketOnly: true });
 export const trpc = createTRPCOptionsProxy<AppRouter>({ client: trpcClient, queryClient: getQueryClient });

@@ -3,7 +3,8 @@
 WebSocket is the default for browser tRPC requests. The transport uses the same router,
 domain operations, types, TanStack Query caches and optimistic hooks. No database
 migration is involved. Terminal output has a typed subscription with the same
-replay cursor and ring-buffer recovery as SSE.
+replay cursor and ring-buffer recovery as the compatibility SSE adapter. Browser
+terminals always use an independent WebSocket connection, including in API HTTP mode.
 
 ## Selecting a transport
 
@@ -14,15 +15,17 @@ The status explains whether the socket is ready or
 the view is using HTTP fallback. The diagnostics show successful query/mutation
 counts and the latest response time for each transport.
 
-Select **HTTP** to revert immediately. New operations use HTTP and
-terminal output rejoins the page's SSE stream at the delivered cursor. Writes
-already sent on a socket finish there before it closes. No database migration,
-cache clearing, component rewrite or data rollback is needed.
+Select **HTTP** to revert ordinary API requests immediately. Terminal creation,
+listing, input, resize, closing and output stay on their independent WebSocket.
+Writes already sent on an API socket finish there before it closes. No database
+migration, cache clearing, component rewrite or data rollback is needed.
 
 Operators can set `RI_TRPC_WS_DISABLED=1` and restart Home to disable the socket
-endpoint for every viewer. Clients negotiate capabilities through authenticated
-HTTP before attempting WS and fall back when the endpoint is unavailable. A
-proxy that blocks upgrades also causes fallback. The built-in TLS gateway
+endpoint for every viewer. Ordinary API clients negotiate capabilities through
+authenticated HTTP before attempting WS and fall back when the endpoint is unavailable. A
+proxy that blocks upgrades also causes API fallback. Terminals connect directly
+over WS and show an unavailable notice instead of falling back. Disabling this
+endpoint therefore disables browser terminals. The built-in TLS gateway
 supports WSS using an HTTP/1.1 upgrade alongside HTTP/2 requests.
 
 ## Runtime and authorization
@@ -41,7 +44,7 @@ subscription envelopes share their symbol identity. Domain errors use a shared
 brand to preserve their status and body across the same bundle boundary.
 
 Native `next dev`/`next start` commands bypass this custom host, advertise no WS
-capability and continue to serve HTTP. Use `pnpm dev`, `pnpm start` or the CLI
+capability and continue to serve HTTP, but cannot serve browser terminals. Use `pnpm dev`, `pnpm start` or the CLI
 launcher for WebSocket transport. `pnpm dev --port ...`, `--hostname ...`, `--webpack` and
 `--turbopack` are supported. CLI development requires the normal `pnpm cli:build`
 after changes to the custom host.
@@ -78,7 +81,7 @@ passing an absolute API URL, its WebSocket implementation and
 does not mean every tRPC request uses WS.
 
 The client confirms an authenticated WS ping before sending an application write.
-A failed connection uses HTTP/SSE for 30 seconds before negotiating again. Reads
+A failed API connection uses HTTP for 30 seconds before negotiating again. Reads
 that lose a response can retry over HTTP. A sent mutation that loses its
 acknowledgement returns `424 / unconfirmed_write` and is never replayed on HTTP.
 Autosaves retain the draft for explicit recovery. Existing request abort signals
@@ -87,15 +90,32 @@ queries/mutations. Token changes negotiate a fresh connection. A background view
 releases its socket after five seconds, after any pending writes finish, and
 reconnects when shown.
 
+The dedicated `terminalTRPCClient` uses `websocketOnly: true`, with no HTTP
+capability request or fallback. It shares one socket across this view's terminals
+and does not change the API mode or its diagnostics. Switching the API preference
+never interrupts a terminal subscription. General API and terminal connections
+may coexist as two sockets. Authentication, protocol checks and deadlines still
+apply to both.
+
 Terminal input retains its immediate first send and adaptive single-flight
-batching. Acknowledgement gates each subsequent batch. An unconfirmed input
+batching. Input waits for the output feed to be ready. Disconnects pause input
+and discard unsent bytes, including keys typed during the outage. Acknowledgement
+gates each subsequent batch. An unconfirmed input
 pauses typing, drops unsent bytes and requires **Continue typing** after reviewing
 the screen. Keystrokes entered while paused are discarded. Output uses
 `terminals.output`, a typed tracked subscription over the existing local/worker
-feed without an HTTP round trip. WS/SSE switches use only the cursor actually
+feed without an HTTP round trip. Reconnects use only the cursor actually
 delivered to that screen. A replay gap resets to the PTY ring snapshot. Hidden
-terminal screens release their subscriptions, and disconnects or subscription
-errors use the existing multiplexed SSE page stream as fallback.
+terminal screens release their subscriptions. Disconnects or subscription errors
+show a reconnecting notice and retry WS with backoff from one to thirty seconds.
+The server-side shell keeps running. A fresh `ready` resumes typing unless an
+unconfirmed write still needs explicit review. Resizing is resynchronized then.
+A terminal that exited or disappeared is never reopened by the retry loop.
+Unavailable terminal lists are polled every five seconds over WS. Unconfirmed
+create/close results refresh the list without retrying the mutation.
+
+External terminal REST/SSE adapters and worker HTTP/SSE relays remain supported.
+Browser terminal traffic does not use either HTTP input or SSE output fallback.
 
 Chat and global live events keep their multiplexed SSE transport. Uploads,
 downloads, OAuth, pairing, MCP and external REST compatibility keep their
@@ -110,7 +130,7 @@ Implementation acceptance checklist:
 - [x] Maintenance admission, passive subscriptions, bounded buffers and shutdown
 - [x] WebSocket browser default, connection diagnostics and immediate HTTP rollback
 - [x] HTTP fallback for reads, no automatic replay of ambiguous writes
-- [x] Terminal input ordering, typed output, replay and SSE fallback
+- [x] WS-only terminal control/input/output, API preference independence and replay
 - [x] Direct and gateway socket tests, disconnect and transport-switch tests
 - [x] Typecheck, production/CLI builds and full regression suite
 
@@ -124,8 +144,9 @@ gateway, authenticated reads/writes, key rotation and revocation, protocol and
 origin refusals, drain saves, lost acknowledgements, safe read fallback and
 switching to HTTP while an original write awaits its acknowledgement. Terminal
 tests cover replay, snapshots, bounded queues, cancellation, visibility,
-transport switching and paused input. The production and development smoke
-also exercise nine domains and a real PTY shared across HTTP and WS.
+API preference independence, bounded reconnect backoff and paused input. The
+production and development smoke also exercise nine domains and a real PTY
+shared across HTTP and WS.
 
 Verified on 2026-10-03: 5,076 tests passed and 35 skipped, typecheck and
 transport-code lint passed, production and CLI/service builds passed. The
@@ -139,6 +160,16 @@ have build, type and transport coverage but no manual UI verification.
 The default-transport checks exercise real browser reads/writes with no saved
 preference and with a saved HTTP rollback choice. They also cover unavailable
 storage and the non-browser HTTP default.
+
+Verified on 2026-10-05 for the WS-only terminal change: 78 focused tests passed,
+including all terminal transport/input tests and the icon-test rerun. Production
+build, typecheck and lint for every changed code file passed. The isolated
+production smoke passed terminal create/list/resize/input/output and WS replay
+while ordinary API calls used HTTP, plus external SSE compatibility.
+The full suite reported 5,146 passed, 35 skipped and two failures. The icon test
+passed alone without the concurrent build. The PostHog browser-sign-in assertion
+in `hosted-routes.test.ts` also fails on unchanged main. No manual browser UI
+interaction was performed.
 
 Reproduce the smoke against a running isolated Home under the system temporary
 directory:

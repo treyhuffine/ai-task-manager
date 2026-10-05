@@ -13,19 +13,31 @@ export class UnconfirmedWebSocketWrite extends ApiError {
   }
 }
 
+export class WebSocketUnavailable extends ApiError {
+  constructor() {
+    super(503, { code: 'websocket_unavailable', error: 'websocket_unavailable', message: 'The terminal WebSocket is disconnected. Reconnecting.' }, '/api/trpc/ws');
+    this.name = 'WebSocketUnavailable';
+  }
+}
+
 interface Options {
   url: string;
   transport: ApiClient;
   http: TRPCLink<AppRouter>;
   getMode?: () => TransportMode;
   WebSocket?: typeof WebSocket;
+  /** An independent socket with no HTTP negotiation, fallback or API telemetry. */
+  websocketOnly?: boolean;
 }
 type Socket = { client: ReturnType<typeof createWSClient>; link: TRPCLink<AppRouter>; active: number; retired: boolean; credentials: string };
 
 /** Only confirmed connections receive new writes. Sent mutations are never
  * replayed on HTTP. tRPC reconnects subscriptions with tracked replay cursors. */
 export function createTransportLink(options: Options): { link: TRPCLink<AppRouter>; close: () => Promise<void> } {
-  const mode = options.getMode ?? getTransportMode;
+  const strict = options.websocketOnly === true;
+  const mode = strict ? () => 'websocket' as const : options.getMode ?? getTransportMode;
+  const status = strict ? () => {} : reportTransportStatus;
+  const record = strict ? () => {} : recordTransportRequest;
   let socket: Socket | undefined;
   let opening: Promise<Socket | undefined> | undefined;
   let generation = 0;
@@ -37,6 +49,7 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
   let hidden = doc?.visibilityState === 'hidden';
   let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
   const pending = new Set<() => void>();
+  const subscriptions = new Set<() => void>();
   const retire = () => {
     generation++;
     const old = socket;
@@ -48,16 +61,23 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
       void attempt.candidate?.client.close();
       attempt = undefined;
     }
-    if (old) { old.retired = true; if (old.active === 0) void old.client.close(); }
+    if (old) {
+      old.retired = true;
+      if (strict) for (const disconnect of [...subscriptions]) disconnect();
+      if (old.active === 0) void old.client.close();
+    }
   };
   const fallback = (reason: string, network = true) => {
     if (disposed) return;
     retire();
-    coolingUntil = Date.now() + 30_000;
+    coolingUntil = Date.now() + (strict ? 1_000 : 30_000);
     if (mode() !== 'websocket') return;
-    reportTransportStatus({ state: 'fallback', reason });
+    status({ state: 'fallback', reason });
     if (network && typeof window !== 'undefined') void reportNetworkFailure();
     if (retry) clearTimeout(retry);
+    // Terminal subscriptions own their bounded reconnect loop. Never start
+    // an idle terminal connection or send an application operation over HTTP.
+    if (strict) return;
     retry = setTimeout(() => { retry = undefined; if (!disposed && mode() === 'websocket') void ensure(); }, 30_000);
     retry.unref?.();
   };
@@ -82,9 +102,11 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
     opening = (async () => {
       let candidate: Socket | undefined;
       try {
-        reportTransportStatus({ state: 'connecting', reason: null });
-        const capability = await httpClient.transport.capabilities.query(undefined, { signal: setupSignal });
-        if (!capability.websocket) { fallback('This Home does not support WebSocket transport. Using HTTP.', false); return; }
+        status({ state: 'connecting', reason: null });
+        if (!strict) {
+          const capability = await httpClient.transport.capabilities.query(undefined, { signal: setupSignal });
+          if (!capability.websocket) { fallback('This Home does not support WebSocket transport. Using HTTP.', false); return; }
+        }
         if (disposed || version !== generation || mode() !== 'websocket') return;
         const url = new URL(options.url, typeof window === 'undefined' ? 'http://localhost' : window.location.origin);
         url.pathname = url.pathname.replace(/\/$/, '') + '/ws';
@@ -94,7 +116,7 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
           connectionParams: () => options.transport.connectionParams(),
           lazy: { enabled: true, closeMs: 60_000 },
           keepAlive: { enabled: true, intervalMs: 25_000, pongTimeoutMs: 5_000 },
-          // Recovery is handled by the circuit and SSE bridge. Do not
+          // Recovery is handled by the circuit and terminal subscription. Do not
           // leave a second background reconnect loop running after fallback.
           onClose: () => { if (candidate && !candidate.retired && !disposed) fallback('WebSocket disconnected. Using HTTP while reconnecting.'); },
           onError: () => { if (candidate && !candidate.retired && !disposed) fallback('WebSocket could not connect. Using HTTP while reconnecting.'); },
@@ -108,7 +130,7 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
         if (disposed || version !== generation || mode() !== 'websocket' || candidate.retired) { candidate.retired = true; await client.close(); return; }
         socket = candidate;
         reportReachable();
-        reportTransportStatus({ state: 'websocket', reason: null });
+        status({ state: 'websocket', reason: null });
         return candidate;
       } catch (error) {
         recoverError(error);
@@ -119,12 +141,12 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
     })();
     return opening;
   }
-  const unsubscribe = options.getMode ? () => {} : subscribeTransportMode(() => {
+  const unsubscribe = strict || options.getMode ? () => {} : subscribeTransportMode(() => {
     if (mode() === 'http') {
       coolingUntil = 0;
       if (retry) clearTimeout(retry);
       retire();
-      reportTransportStatus({ state: 'http', reason: null });
+      status({ state: 'http', reason: null });
     } else if (!socket && !opening && Date.now() >= coolingUntil) void ensure();
   });
   const visibility = () => {
@@ -134,13 +156,13 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
         hiddenTimer = undefined;
         hidden = true;
         retire();
-        if (mode() === 'websocket') reportTransportStatus({ state: 'fallback', reason: 'Using HTTP while this view is in the background.' });
+        if (mode() === 'websocket') status({ state: 'fallback', reason: 'Using HTTP while this view is in the background.' });
       }, 5_000);
     } else {
       if (hiddenTimer) clearTimeout(hiddenTimer);
       hiddenTimer = undefined;
       hidden = false;
-      if (mode() === 'websocket') void ensure();
+      if (!strict && mode() === 'websocket') void ensure();
     }
   };
   doc?.addEventListener('visibilitychange', visibility);
@@ -158,6 +180,7 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
         if (timer) clearTimeout(timer);
         op.signal?.removeEventListener('abort', abort);
         pending.delete(abort);
+        subscriptions.delete(disconnect);
         inner?.unsubscribe();
         if (active) {
           active.active--;
@@ -170,22 +193,28 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
         observer.error(TRPCClientError.from(op.type === 'mutation' && active ? new UnconfirmedWebSocketWrite() : new Error('Request cancelled')));
         cleanup();
       };
+      const disconnect = () => {
+        if (ended) return;
+        observer.error(TRPCClientError.from(new WebSocketUnavailable()));
+        cleanup();
+      };
       pending.add(abort);
       op.signal?.addEventListener('abort', abort, { once: true });
       if (op.signal?.aborted) { abort(); return cleanup; }
       const sendHttp = () => {
         if (ended) return;
+        if (strict) { observer.error(TRPCClientError.from(new WebSocketUnavailable())); cleanup(); return; }
         if (op.type === 'subscription') { observer.error(TRPCClientError.from(new Error('Use the SSE terminal fallback.'))); cleanup(); return; }
         const started = performance.now();
         inner = http({ op, next }).subscribe({
-          next(value) { recordTransportRequest('http', performance.now() - started); observer.next(value); },
+          next(value) { record('http', performance.now() - started); observer.next(value); },
           error(error) { observer.error(error); cleanup(); },
           complete() { observer.complete(); cleanup(); },
         });
       };
       if (mode() === 'http') {
         if (socket || opening) retire();
-        reportTransportStatus({ state: 'http', reason: null });
+        status({ state: 'http', reason: null });
         sendHttp();
         return cleanup;
       }
@@ -195,11 +224,12 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
         if (!ready || ready.retired || mode() !== 'websocket') { sendHttp(); return; }
         active = ready;
         ready.active++;
+        if (strict && op.type === 'subscription') subscriptions.add(disconnect);
         const started = performance.now();
         let counted = false;
         if (op.type !== 'subscription' && !op.signal) timer = setTimeout(abort, 120_000);
         inner = ready.link(runtime)({ op, next }).subscribe({
-          next(value) { if (!counted && op.type !== 'subscription' && value.result.type === 'data') { counted = true; recordTransportRequest('websocket', performance.now() - started); } observer.next(value); },
+          next(value) { if (!counted && op.type !== 'subscription' && value.result.type === 'data') { counted = true; record('websocket', performance.now() - started); } observer.next(value); },
           error(error) {
             if (ended) return;
             recoverError(error);
@@ -212,7 +242,7 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
             fallback('WebSocket disconnected. Using HTTP while reconnecting.');
             if (ready.retired && ready.active === 0) void ready.client.close();
             if (op.type === 'query') sendHttp();
-            else { observer.error(op.type === 'mutation' ? TRPCClientError.from(new UnconfirmedWebSocketWrite()) : error); cleanup(); }
+            else { observer.error(TRPCClientError.from(op.type === 'mutation' ? new UnconfirmedWebSocketWrite() : strict ? new WebSocketUnavailable() : error)); cleanup(); }
           },
           complete() { if (!ended) { observer.complete(); cleanup(); } },
         });

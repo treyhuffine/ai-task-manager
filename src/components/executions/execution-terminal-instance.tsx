@@ -48,8 +48,8 @@ interface ExecutionTerminalInstanceProps {
  * The component intentionally mounts once per `terminalId` and stays
  * mounted while its tab is hidden — switching tabs uses CSS
  * `display: none`, not unmount, so scrollback survives. Output flows in
- * over the page's one stream while the tab is live, and a hidden tab picks
- * up what it missed when shown; keystrokes go out via POST. The fit addon adapts to the
+ * over its WebSocket subscription while the tab is live, and a hidden tab picks
+ * up what it missed when shown. Input uses the same socket. The fit addon adapts to the
  * container, and we re-fit whenever the tab becomes active because
  * `ResizeObserver` doesn't fire on `display:none → block` transitions.
  *
@@ -80,8 +80,9 @@ export function ExecutionTerminalInstance({
    * Why input is off: the shell's device isn't connected (P3.5). Keys typed
    * meanwhile are dropped, never kept to send when it's back (spec §5.6).
    */
-  const [offline, setOffline] = useState<string | null>(null);
+  const [offline, setOffline] = useState<string | null>('Connecting to the terminal WebSocket.');
   const [reviewInput, setReviewInput] = useState(false);
+  const [connected, setConnected] = useState(false);
   const resumeInputRef = useRef<(() => void) | null>(null);
   /** Turns input off with the reason, or back on with null. Set by the terminal's setup. */
   const goOfflineRef = useRef<((message: string | null) => void) | null>(null);
@@ -94,7 +95,7 @@ export function ExecutionTerminalInstance({
 
   // Same trick for the address: reads stay current, but a chat switch
   // doesn't tear the terminal down. Any sibling chat's id routes to the
-  // same execution-owned PTY, so the already-open SSE connection stays
+  // same execution-owned PTY, so the already-open subscription stays
   // valid even though its URL pins the address we mounted with.
   const apiBaseRef = useRef(apiBase);
   useEffect(() => { apiBaseRef.current = apiBase; }, [apiBase]);
@@ -179,20 +180,23 @@ export function ExecutionTerminalInstance({
 
     const isMac = detectIsMac();
 
-    // Input is live only while the shell's device is reachable.
-    let inputOff = false;
+    // Wait for output readiness, then allow input only while connected.
+    let inputOff = true;
     let pausedForReview = false;
+    let connectionReason: string | null = 'Connecting to the terminal WebSocket.';
     const goOffline = (message: string | null) => {
-      if (message === null && pausedForReview) return;
-      inputOff = message !== null;
-      setOffline(message);
+      connectionReason = message;
+      setConnected(message === null);
+      inputOff = message !== null || pausedForReview;
+      if (inputOff) queue.pause();
+      else queue.resume();
+      setOffline(pausedForReview ? 'The last input was not confirmed. Check the terminal before continuing.' : message);
     };
     goOfflineRef.current = goOffline;
     // A new screen: its first subscription starts from the whole backlog.
     positionRef.current = { after: null };
 
-    // stdin. Serialised and self-batching — see `input-queue.ts` for why
-    // one-POST-per-keystroke both reorders bytes and drowns a tunnel.
+    // stdin remains ordered and self-batching across socket round trips.
     const queue = createInputQueue({
       send: (data) => terminalsApi.input(apiBaseRef.current, terminalId, data),
       onError: (err) => {
@@ -202,16 +206,16 @@ export function ExecutionTerminalInstance({
           queue.pause();
           pausedForReview = true;
           setReviewInput(true);
-          goOffline('The last input was not confirmed. Check the terminal before continuing.');
+          goOffline(connectionReason);
           toast.error(apiErrorText(err), { id: `terminal-input-${terminalId}` });
         }
       },
     });
+    queue.pause();
     resumeInputRef.current = () => {
       pausedForReview = false;
       setReviewInput(false);
-      queue.resume();
-      goOffline(null);
+      goOffline(connectionReason);
     };
     const input = {
       push: (data: string) => {
@@ -322,22 +326,26 @@ export function ExecutionTerminalInstance({
     // apiBase is read through a ref on purpose; see the note on this component.
   }, [terminalId]);
 
-  // stdout, over the page's one stream (P3 review), while this terminal is
+  // stdout, over a typed WS subscription, while this terminal is
   // on screen. The first subscription gets the whole backlog, which is what
   // makes a refresh land on a live screen. A later one, after the tab was
   // hidden or the page reconnected, gets only what this screen missed: the
-  // page stream moves its position only for output it hands this screen (P3
-  // re-check). One that couldn't be resumed (the missed output aged out of
+  // subscription moves its position only for output it hands this screen.
+  // One that couldn't be resumed (the missed output aged out of
   // the ring) hands back a snapshot: reset first so it replaces the screen
   // rather than being appended to a stale copy of itself.
   useEffect(() => {
-    if (!live) return;
+    if (!live) {
+      goOfflineRef.current?.('The terminal reconnects when shown.');
+      return;
+    }
     const term = termRef.current;
     if (!term) return;
     let ended = false;
     let unsubscribe = () => {};
     const finish = (line: string) => {
       ended = true;
+      goOfflineRef.current?.('This terminal has ended.');
       term.write(`\r\n\x1b[2m${line}\x1b[0m\r\n`);
       unsubscribe();
       onExitRef.current?.();
@@ -352,6 +360,8 @@ export function ExecutionTerminalInstance({
           case 'ready':
             goOfflineRef.current?.(null);
             if (!(data as { resumed?: boolean } | null)?.resumed) term.reset();
+            // A resize during an outage may not have reached the PTY.
+            void terminalsApi.resize(apiBaseRef.current, terminalId, { cols: term.cols, rows: term.rows }).catch(() => {});
             break;
           case 'data':
             if (typeof data === 'string') term.write(data);
@@ -362,7 +372,7 @@ export function ExecutionTerminalInstance({
           case 'error':
             finish('[this terminal is gone]');
             break;
-          // Its device dropped, or can't be reached now: the page stream
+          // Its device or socket can't be reached now: the subscription
           // keeps trying, and `ready` turns input back on.
           case 'unavailable':
             goOfflineRef.current?.((data as { message?: string } | null)?.message ?? 'Its device is not connected.');
@@ -372,6 +382,7 @@ export function ExecutionTerminalInstance({
     );
     return () => {
       ended = true;
+      goOfflineRef.current?.('The terminal reconnects when shown.');
       unsubscribe();
     };
     // apiBase is read through a ref on purpose; see the note on this component.
@@ -419,7 +430,7 @@ export function ExecutionTerminalInstance({
           className="absolute inset-x-0 top-0 border-b border-zinc-800 bg-zinc-900/95 px-3 py-1.5 text-[11px] text-zinc-300"
         >
           {offline}{!reviewInput && ' Typing is off until then.'}
-          {reviewInput && <button type="button" className="ml-2 underline underline-offset-2" onClick={() => { resumeInputRef.current?.(); termRef.current?.focus(); }}>Continue typing</button>}
+          {reviewInput && <button type="button" disabled={!connected} className="ml-2 underline underline-offset-2 disabled:opacity-50" onClick={() => { resumeInputRef.current?.(); termRef.current?.focus(); }}>Continue typing</button>}
         </div>
       )}
     </div>

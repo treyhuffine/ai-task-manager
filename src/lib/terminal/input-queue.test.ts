@@ -140,6 +140,22 @@ describe('createInputQueue', () => {
     expect(t.batches).toEqual(['a']);
   });
 
+  it('drops unsent bytes during a disconnect even when the previous send later succeeds', async () => {
+    const t = controllableSend();
+    const q = createInputQueue({ send: t.send });
+    q.push('sent');
+    q.push('queued before disconnect');
+    q.pause();
+    q.push('typed while disconnected');
+    await t.settle();
+    expect(t.batches).toEqual(['sent']);
+    q.resume();
+    q.push('typed after ready');
+    expect(t.batches).toEqual(['sent', 'typed after ready']);
+    q.dispose();
+    await t.settle();
+  });
+
   it('ignores empty writes', async () => {
     const t = controllableSend();
     const q = createInputQueue({ send: t.send });
