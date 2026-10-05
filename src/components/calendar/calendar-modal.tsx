@@ -374,8 +374,16 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
             isToday={anchor === today}
             work={work}
           />
-        ) : weekMode === 'list' && workOn ? (
-          workRange ? <WorkList range={workRange} today={today} /> : <WeekSkeleton />
+        ) : weekMode === 'list' && workOn && workRange && days_ ? (
+          // The calendar's days with the work under each. Until the work
+          // arrives, the plain calendar list below stands in.
+          <WorkList
+            range={workRange}
+            today={today}
+            calendarDays={days_}
+            deadlinesByDate={deadlinesByDate}
+            onOpenTask={openTask}
+          />
         ) : !days_ ? (
           // Loading and failure never render as an empty week: "no data"
           // and "no meetings" are different facts.

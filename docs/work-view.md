@@ -18,7 +18,7 @@ Open the calendar (the rail's Calendar). With **Work** on (the default, one clic
   (Sep 28 to Oct 4, 2026, from real data.) While today is in view, a Today box shows today's numbers live.
 - **Report**: three lines (what shipped, where agent time went, the leverage), with Copy and Save as note. The note adds the numbers, a line per agent, a line per day and every commit subject by agent.
 - **Grid** (Week or Day): each agent's work as blocks in its color, packed beside meetings into the same columns ("+N" past three). Solid where you were hands-on, dashed where the agent worked on its own. Click one for its chats (click to open) and commits, each commit with its size in hours.
-- **List** (Week): each day's numbers, then by agent what it committed and which chats ran without a commit, then finished executions and completed tasks.
+- **List** (Week): each day's calendar first (meetings by time, all-day events, deadlines), then its numbers, then by agent what it committed and which chats ran without a commit, then finished executions and completed tasks. Past days read as a record, coming days as the plan. Grid/List picks the layout and Work adds the layer, so both layouts keep the calendar.
 
 Without a calendar connected the grid still shows work, over empty days, and "Connect your calendar" becomes a small link in the header.
 

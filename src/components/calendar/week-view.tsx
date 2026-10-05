@@ -140,7 +140,8 @@ export function WeekView({ days, workday, today, deadlinesByDate, onSelectDay, o
   );
 }
 
-function agendaRows(day: CalendarDay): Array<{ event: CalendarEvent; startMinute: number }> {
+/** A day's timed events in order, with their start minute on that day. */
+export function agendaRows(day: CalendarDay): Array<{ event: CalendarEvent; startMinute: number }> {
   return day.events
     .map((event) => {
       const w = eventWindowOnDate(event, day.date);
