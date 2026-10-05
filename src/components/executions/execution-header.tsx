@@ -376,12 +376,10 @@ export function ExecutionHeader({
             {archiveMenuItem}
           </div>
 
-          {worktreeLinks && (
-            <>
-              <div className="h-px bg-border" />
-              <div className="p-1.5">{worktreeLinks}</div>
-            </>
-          )}
+          {/* The links render nothing on a screen that can't open the folder
+              (a browser on another device), so the section's divider and
+              padding go with them rather than leaving an empty bar. */}
+          {worktreeLinks && <div className="border-t border-border p-1.5 empty:hidden">{worktreeLinks}</div>}
 
           {/* With no device chip, moving it lives here (P4.2). */}
           {!locationChip && <MoveActionsSection session={session} workspace={workspace} />}
