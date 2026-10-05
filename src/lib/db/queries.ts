@@ -8729,6 +8729,23 @@ export function replaceChatEventPart(input: CreateChatEventInput): ChatEventReco
   return hydrated;
 }
 
+
+/**
+ * Whether the agent wrote `text` verbatim in one of its replies in this chat.
+ * The reply-image route serves a file outside the execution's folder only when
+ * the agent itself named it (`src/lib/sessions/reply-images.ts`).
+ */
+export function agentReplyMentions(sessionId: string, text: string): boolean {
+  if (!text) return false;
+  const row = getDb()
+    .select({ id: chatEvents.id })
+    .from(chatEvents)
+    .where(and(eq(chatEvents.sessionId, sessionId), eq(chatEvents.role, 'assistant'), sql`instr(${chatEvents.content}, ${text}) > 0`))
+    .limit(1)
+    .get();
+  return !!row;
+}
+
 /**
  * Returns chat events in chronological order. When a session has more
  * events than `limit`, the OLDEST get cut off, not the newest — older

@@ -1,6 +1,7 @@
 'use client';
 
 import { EntityAwareText } from '@/components/ai-elements/entity-reference';
+import { rewriteLocalImages } from '@/lib/sessions/reply-image-urls';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { CopyMessageButton } from '@/components/chat/copy-message-button';
 import { MessageEntityChip, type EntityLookup } from '@/components/chat/message-entity-chip';
@@ -193,7 +194,9 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
                   teaches harness sessions. Plain markdown flows through
                   MessageResponse unchanged. */}
               <EntityAwareText
-                text={event.content ?? ''}
+                // Local image paths in the reply load through this chat's
+                // reply-image route (src/lib/sessions/reply-image-urls.ts).
+                text={rewriteLocalImages(event.content ?? '', sessionId)}
                 renderMarkdown={(text, key) => (
                   <MessageResponse
                     key={key}

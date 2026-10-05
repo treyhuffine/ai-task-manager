@@ -8,8 +8,9 @@ protocol contracts.
 Completed October 3, 2026. The migration started from main `11baca63` and
 replaces every internal TypeScript UI JSON call with a server-inferred tRPC
 procedure. There are 356 procedures, covering all application JSON domains.
-The route inventory accounts for all 311 API route files: 258 shared-operation
-paths, 13 core entity paths and 40 explicit protocol boundaries.
+The route inventory accounts for all 312 API route files: 258 shared-operation
+paths, 13 core entity paths and 41 explicit protocol boundaries (the 41st,
+`/sessions/[id]/reply-image`, came after: image bytes for an `<img>`).
 
 ## Architecture
 

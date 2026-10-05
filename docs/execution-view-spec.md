@@ -300,9 +300,22 @@ useExecutionActions(sessionId)    composes useCommit/usePush/usePullBase + new o
 ```
 GET  /api/sessions/[id]/tree              → { entries: TreeEntry[] }
 GET  /api/sessions/[id]/file?path=<rel>   → { content, encoding, mime, size, sha, isBinary }
+GET  /api/sessions/[id]/reply-image?path= → image bytes, for a local image path in an agent reply
 POST /api/sessions/[id]/pr                → ask agent to draft + open PR (prompt injection)
 POST /api/sessions/[id]/merge             → merge PR (uses @agentex/github)
 ```
+
+**Images in replies.** An agent's reply that shows a screenshot by local path
+(`![shot](/tmp/shot.png)`, `![](screenshots/home.png)`, `file://…`, `~/…`)
+loads it through `reply-image`: the transcript rewrites the path
+(`src/lib/sessions/reply-image-urls.ts`, never inside code), and the route
+serves images only, from the chat's own folder, or from anywhere on the home
+when the agent wrote that exact path in one of its replies
+(`src/lib/sessions/reply-images.ts`). Before this, the browser asked the app's
+address for `/tmp/shot.png` and every such image failed, in the repo or not. A
+chat on another device keeps its files there, and the route says so.
+`[[file:<name>]]` in a reply shows the file from the home's attachments folder,
+like one in a user's message.
 
 Existing routes reused unchanged:
 - `GET /api/sessions/[id]/diff[?file=]` — diff hunks (already structured)
