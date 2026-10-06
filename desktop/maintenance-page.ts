@@ -1,13 +1,13 @@
+import { localPageStyle, type LocalPageStyleOptions } from './local-page-style';
+
+export interface MaintenancePageOptions extends LocalPageStyleOptions { chooseInstallation?: boolean }
+
 /** Static, local-only UI. All runtime values are assigned with textContent. */
-export function maintenancePage(nonce: string, options: { chooseInstallation?: boolean } = {}) {
-  if (!/^[a-zA-Z0-9]+$/.test(nonce)) throw new Error('Invalid page nonce');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>Ri local installation</title>
-<style nonce="${nonce}">
-:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#181a18;color:#f5f2ea;font:14px/1.6 system-ui;padding:32px;max-width:850px;margin:auto}h1{font-size:25px;margin:0 0 8px}h2{font-size:17px;margin:0 0 12px}p{margin:8px 0;color:#bdc5bb}section{border:1px solid #434a40;padding:20px;border-radius:12px;margin-top:24px}button,input{font:inherit}button{background:#e3ead9;color:#20261e;border:0;border-radius:6px;padding:9px 13px;cursor:pointer}button.secondary{background:#333b30;color:#f5f2ea}button:disabled{opacity:.45;cursor:default}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}label{display:block;margin-top:12px}input{width:100%;padding:9px;background:#242b22;border:1px solid #5c6757;color:inherit;border-radius:5px}.field{display:flex;gap:8px}.field input{flex:1;min-width:0}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#11170f;padding:12px;border-radius:6px;font-size:12px}#error{color:#ffb7ad}#error,#reason{white-space:pre-wrap;overflow-wrap:anywhere}#status{font-weight:600}summary{cursor:pointer}small{color:#bdc5bb}button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid #b9d998;outline-offset:3px}
-</style></head><body>
-<p><button id="back" class="secondary">‹ Back</button></p>
+export function maintenancePage(nonce: string, options: MaintenancePageOptions = {}) {
+  const style = localPageStyle(nonce, options);
+  return `<!doctype html><html ${style.attributes} data-ri-local-view="maintenance"><head><meta charset="utf-8">
+${style.head}<title>Ri</title></head><body>${style.chrome}<main class="maintenance">
+${style.brand}<button id="back" class="link">‹ Back</button>
 <h1>Local installation</h1><p>Manage this computer’s service or choose an existing Ri.</p>
 <p id="error" role="alert"></p>
 <section aria-labelledby="service-title"><h2 id="service-title">Service and recovery</h2>
@@ -23,7 +23,8 @@ export function maintenancePage(nonce: string, options: { chooseInstallation?: b
 <label for="work">Work folder</label><div class="field"><input id="work" autocomplete="off" spellcheck="false" placeholder="Default inside data folder"><button class="secondary" data-browse="work">Choose…</button></div></details>
 <div class="actions"><button id="inspect" class="secondary">Verify installation</button><button id="use" disabled>Use verified installation</button><button id="default" class="secondary">Use default desktop installation</button></div>
 <pre id="inspection" hidden></pre><p>No files are moved or merged. A stopped installation requiring migrations must first use its matching service and verified update flow.</p></details></section>
-<script nonce="${nonce}">
+</main><script nonce="${nonce}">
+${style.script}
 const byId = id => document.getElementById(id);
 let verified = false;
 let busy = false;

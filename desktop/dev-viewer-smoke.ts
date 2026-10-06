@@ -2,9 +2,9 @@
  * retry without replacing the Home or restarting its healthy background owner. */
 import assert from 'node:assert/strict';
 import type { BrowserWindow } from 'electron';
-import type { Page } from 'playwright-core';
 import { waitForHome } from './first-run';
-import { acceptance, api, eventually } from './acceptance-fixture';
+import { acceptance, api } from './acceptance-fixture';
+import { assertLocalIsolation, assertSameNativeWindow, localPage, nativeWindowSnapshot } from './acceptance-surfaces';
 import { serviceStatus } from '../src/lib/service/client';
 
 void acceptance('development-viewer', async fixture => {
@@ -23,21 +23,22 @@ void acceptance('development-viewer', async fixture => {
       return original(url, options);
     };
   });
-  let setup: Page | undefined;
-  await eventually(async () => {
-    setup = fixture.app!.windows().find(window => window.url().includes('Ri%20on%20this%20device'));
-    return !!setup;
-  }, 'first-run local setup');
-  await setup!.locator('#create-home').click();
-  await setup!.waitForFunction(() => document.getElementById('connection-error')?.textContent?.includes('HTTP 500'));
-  const reason = await setup!.locator('#connection-error').textContent();
+  const initialWindow = await nativeWindowSnapshot(fixture.app!);
+  let setup = await localPage(fixture.app!, 'companion');
+  await assertLocalIsolation(fixture.app!, setup, 'companion');
+  await setup.locator('#create-home').click();
+  setup = await localPage(fixture.app!, 'companion');
+  await setup.waitForFunction(() => document.getElementById('connection-error')?.textContent?.includes('HTTP 500'));
+  const reason = await setup.locator('#connection-error').textContent();
+  assertSameNativeWindow(initialWindow, await nativeWindowSnapshot(fixture.app!));
   assert.match(reason ?? '', /local Ri service/);
   assert.doesNotMatch(reason ?? '', /Connect this device again|credential|Untrusted upstream/);
   const before = await serviceStatus();
   assert.equal(before?.phase, 'running');
   fixture.check('An HTTP 500 sign-in failure reports the server error without asking to pair again');
-  await setup!.locator('#open').click();
+  await setup.locator('#open').click();
   await waitForHome(page);
+  assertSameNativeWindow(initialWindow, await nativeWindowSnapshot(fixture.app!));
   fixture.origin = new URL(page.url()).origin;
   const home = await api<{ id: string }>(page, '/api/home');
   assert(home.id);

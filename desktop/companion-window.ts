@@ -1,15 +1,16 @@
 import { ipcMain } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { companionPage } from './companion-page';
-import { createLocalWindow, type LocalWindow } from './local-window';
+import type { LocalPageStyleOptions } from './local-page-style';
+import type { LocalWindow } from './local-window';
 
 export const companionActions = ['status', 'preferences', 'create-home', 'use-detected', 'connect', 'enable-worker', 'stop-worker', 'resume-worker', 'login', 'open', 'updates', 'update-check', 'update-download', 'update-apply', 'update-later', 'recovery', 'notification-enable', 'notification-disable', 'notification-test'] as const;
 export type CompanionAction = typeof companionActions[number];
-export interface CompanionViewOptions { view?: 'auto' | 'settings' | 'connect' | 'help'; logoDataUrl?: string }
+export interface CompanionViewOptions extends LocalPageStyleOptions { view?: 'auto' | 'settings' | 'connect' | 'help' }
 
-/** Only this local window may operate on this computer. A Home page never
+/** Only this local view may operate on this computer. A Home page never
  * receives this bridge or shares the companion's cookie/session partition. */
-export function companionWindow(action: (name: CompanionAction, value?: unknown) => Promise<unknown>, host: LocalWindow = createLocalWindow()) {
+export function companionWindow(action: (name: CompanionAction, value?: unknown) => Promise<unknown>, host: LocalWindow) {
   let shownOptions: string | undefined;
   let busy = false;
   ipcMain.handle('desktop:companion', async (event, name: unknown, value?: unknown) => {
@@ -28,7 +29,7 @@ export function companionWindow(action: (name: CompanionAction, value?: unknown)
       if (host.get('companion') && shownOptions === key) { host.reveal(); return; }
       shownOptions = key;
       try {
-        await host.show({ id: 'companion', title: 'Ri', width: 640, height: 820,
+        await host.show({ id: 'companion',
           html: companionPage(randomBytes(24).toString('hex'), options) });
       } catch (error) { if (shownOptions === key) shownOptions = undefined; throw error; }
     },

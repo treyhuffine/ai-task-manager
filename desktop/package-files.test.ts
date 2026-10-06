@@ -21,17 +21,26 @@ it('preserves pnpm links after the staging folder is removed and refuses externa
   expect(() => rebaseResourceLinks(output, source)).toThrow('escapes resources');
 });
 
-it('refuses a new companion package missing setup, worker, or privileged local preload', () => {
+it('refuses a new companion package missing setup, worker, privileged preload or offline appearance assets', () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-package-companion-')); dirs.push(temporary);
   const server = path.join(temporary, 'server'); const shell = path.join(temporary, 'shell');
-  const files = [path.join(server, 'dist/desktop/connection-setup-entry.cjs'), path.join(server, 'dist/service/worker.cjs'), path.join(shell, 'companion-preload.cjs'), path.join(shell, 'local-preload.cjs')];
+  const assets = ['src/styles/theme.css', 'public/fonts/inter-latin.woff2', 'public/fonts/OFL.txt', 'public/brand/ri-mark-white.svg'].map(file => path.join(server, file));
+  const files = [path.join(server, 'dist/desktop/connection-setup-entry.cjs'), path.join(server, 'dist/service/worker.cjs'), path.join(shell, 'companion-preload.cjs'), path.join(shell, 'local-preload.cjs'), ...assets];
   for (const file of files) {
     expect(() => assertCompanionPackage(server, shell)).toThrow(/missing or unsafe/);
     fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, 'built');
   }
   expect(() => assertCompanionPackage(server, shell)).not.toThrow();
-  fs.unlinkSync(files[2]); fs.symlinkSync(files[0], files[2]);
-  expect(() => assertCompanionPackage(server, shell)).toThrow(/missing or unsafe/);
+  for (const file of [files[2], ...assets]) {
+    fs.unlinkSync(file);
+    expect(() => assertCompanionPackage(server, shell)).toThrow(file);
+    fs.symlinkSync(files[0], file);
+    expect(() => assertCompanionPackage(server, shell)).toThrow(file);
+    fs.unlinkSync(file); fs.mkdirSync(file);
+    expect(() => assertCompanionPackage(server, shell)).toThrow(file);
+    fs.rmdirSync(file); fs.writeFileSync(file, 'built');
+  }
+  expect(() => assertCompanionPackage(server, shell)).not.toThrow();
 });
 
 function shellFixture(files: Record<string, string>) {

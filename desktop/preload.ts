@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { observeDesktopTheme } from './appearance-observer';
 
 // No Node, filesystem, arbitrary IPC, or credentials cross this bridge.
 if (process.isMainFrame) {
+  if (typeof document !== 'undefined') observeDesktopTheme(document, theme => ipcRenderer.send('desktop:appearance', theme));
   const local = ipcRenderer.sendSync('desktop:bridge-mode') === 'local';
   contextBridge.exposeInMainWorld('riDesktop', Object.freeze({
     platform: process.platform,

@@ -14,6 +14,7 @@ import type { Notification } from 'electron';
 import Database from 'better-sqlite3';
 import { AcceptanceFixture, api, eventually } from './acceptance-fixture';
 import { desktopPackageLayout } from './package-layout';
+import { assertLocalIsolation, assertSameNativeWindow, localPage, nativeWindowSnapshot } from './acceptance-surfaces';
 import { ensureServiceStatus, serviceRequest, serviceStatus, stopService, type ServiceSession } from '../src/lib/service/client';
 
 const sourceHome = process.argv.includes('--source-home');
@@ -28,13 +29,9 @@ const seenCapabilities: string[] = [];
 let failure: unknown;
 
 async function companion(fixture: AcceptanceFixture) {
-  let page: Page | undefined;
-  await eventually(async () => {
-    page = fixture.app?.windows().find(window => window.url().startsWith('data:') && window.url().includes('Ri%20on%20this%20device'));
-    return !!page;
-  }, 'trusted local companion window');
-  await page!.locator('#heading').waitFor();
-  return page!;
+  const page = await localPage(fixture.app!, 'companion');
+  await page.locator('#heading').waitFor();
+  return page;
 }
 async function openCompanion(fixture: AcceptanceFixture) {
   await fixture.app!.evaluate(({ Menu, BrowserWindow }) => {
@@ -134,11 +131,14 @@ void (async () => {
     home.select();
     await home.launchRaw();
     const initial = await companion(home);
+    const initialWindow = await nativeWindowSnapshot(home.app!);
+    await assertLocalIsolation(home.app!, initial, 'companion');
     await initial.screenshot({ path: path.join(home.base, 'first-run.png') });
     assert.equal(fs.existsSync(path.join(home.root, 'data.db')), false);
     assert.equal(await serviceStatus(), null);
     await initial.locator('#create-home').click();
     const homePage = await mainPage(home);
+    assertSameNativeWindow(initialWindow, await nativeWindowSnapshot(home.app!));
     await homePage.screenshot({ path: path.join(home.base, 'home.png') });
     assert.equal(await homePage.evaluate(() => typeof window.riDesktop?.settings), 'function');
     assert.equal((await serviceStatus())?.role, 'home');
@@ -168,6 +168,8 @@ void (async () => {
     }
     await connected.launchRaw();
     const setup = await companion(connected);
+    const connectedWindow = await nativeWindowSnapshot(connected.app!);
+    await assertLocalIsolation(connected.app!, setup, 'companion');
     assert.equal(fs.existsSync(path.join(connected.root, 'data.db')), false);
     assert.equal((await serviceStatus())?.role ?? null, sourceHome ? 'first-run' : null);
     if (sourceHome) passed('Existing unchosen control service still opens first-run setup without a database');
@@ -181,9 +183,8 @@ void (async () => {
     passed('Remote Home pairing rejects an untrusted local TLS certificate without altering OS trust');
     await setup.getByLabel('Pairing link', { exact: true }).fill(`${proxyOrigin}/#token=${pair.plaintext}`);
     await setup.getByRole('button', { name: 'Connect', exact: true }).click();
-    await setup.waitForFunction(() => !(document.getElementById('connect-home') as HTMLButtonElement)?.disabled, undefined, { timeout: 60_000 });
-    assert.equal(await setup.getByRole('alert').textContent(), '', 'Home pairing must complete before remote navigation');
     const page = await mainPage(connected, proxyOrigin);
+    assertSameNativeWindow(connectedWindow, await nativeWindowSnapshot(connected.app!));
     assert.equal((await api<{ id: string }>(page, '/api/home')).id, expectedHome.id);
     assert.equal((await api<{ body: string }>(page, `/api/notes/${sharedNote.id}`)).body, 'Stored only on the disposable Home.');
     await page.locator('aside:visible').first().waitFor();
@@ -195,14 +196,19 @@ void (async () => {
     assert.equal(fs.existsSync(path.join(connected.root, '.config/worker.json')), false);
     assert.equal(fs.existsSync(path.join(connected.root, 'data.db')), false);
     assert.deepEqual(seenCapabilities, []);
-    passed('Connected viewer opens real Home UI with no local task database, worker, or privileged bridge');
+    passed('First-run setup and remote Home share one native window without resize, local task database, worker, or privileged remote bridge');
 
     await remoteNotificationConsent(page, pair.device.id);
 
     // Control only the human consent dialog response. Enrollment, service,
     // worker stream, stop, persisted preference and reconnect are real.
     await consentToExecution(connected);
+    const viewerBeforeSettings = { url: page.url(), timeOrigin: await page.evaluate(() => performance.timeOrigin) };
     const controls = await openCompanion(connected);
+    assertSameNativeWindow(connectedWindow, await nativeWindowSnapshot(connected.app!));
+    assert.equal(page.url(), viewerBeforeSettings.url);
+    assert.equal(await page.evaluate(() => performance.timeOrigin), viewerBeforeSettings.timeOrigin);
+    await assertLocalIsolation(connected.app!, controls, 'companion');
     await controls.locator('#execution > summary').click();
     await controls.getByRole('button', { name: 'Enable local execution', exact: true }).click();
     await waitWorker('connected');

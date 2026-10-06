@@ -1,3 +1,5 @@
+import type { BrowserWindow } from 'electron';
+import { createLocalWindow } from './local-window';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { companionWindow } from './companion-window';
 import { companionPage } from './companion-page';
@@ -5,16 +7,28 @@ import { companionPage } from './companion-page';
 const mocks = vi.hoisted(() => ({ handler: vi.fn(), window: undefined as unknown, options: undefined as unknown }));
 vi.mock('electron', () => ({
   ipcMain: { handle: (_name: string, handler: unknown) => { mocks.handler = handler as typeof mocks.handler; } },
-  BrowserWindow: class {
-    webContents = { mainFrame: { url: '' }, setWindowOpenHandler: vi.fn(), on: vi.fn(), session: { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } };
+  WebContentsView: class {
+    webContents = {
+      mainFrame: { url: '' }, setWindowOpenHandler: vi.fn(), on: vi.fn(),
+      session: { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() },
+      loadURL: (url: string) => { this.webContents.mainFrame.url = url; return Promise.resolve(); },
+      isDestroyed: () => false, focus: vi.fn(), close: vi.fn(),
+    };
     constructor(options: unknown) { mocks.window = this; mocks.options = options; }
-    loadURL(url: string) { this.webContents.mainFrame.url = url; return Promise.resolve(); }
-    on() {} show() {} focus() {} restore() {} destroy() {} isDestroyed() { return false; } isMinimized() { return false; }
+    setBounds() {} setVisible() {}
   },
 }));
+const parent = {
+  contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+  webContents: { focus: vi.fn(), isDestroyed: () => false },
+  on: vi.fn(), removeListener: vi.fn(), getContentBounds: () => ({ x: 30, y: 40, width: 1000, height: 800 }),
+  isDestroyed: () => false, isMinimized: () => false, isVisible: () => true,
+};
+function localHost() { return createLocalWindow({ window: () => parent as unknown as BrowserWindow }); }
+
 const action = vi.fn();
 function event() { const window = mocks.window as { webContents: { mainFrame: { url: string } } }; return { sender: window.webContents, senderFrame: window.webContents.mainFrame }; }
-beforeEach(async () => { vi.clearAllMocks(); action.mockResolvedValue({ role: 'first-run' }); await companionWindow(action).show(); });
+beforeEach(async () => { vi.clearAllMocks(); action.mockResolvedValue({ role: 'first-run' }); await companionWindow(action, localHost()).show(); });
 it('keeps setup and service control inaccessible to remote Home pages and subframes', async () => {
   expect(mocks.options).toMatchObject({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false } });
   await expect(mocks.handler(event(), 'status')).resolves.toEqual({ role: 'first-run' });

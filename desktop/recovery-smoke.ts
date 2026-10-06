@@ -6,14 +6,14 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import electron from 'electron';
-import { _electron, type ElectronApplication, type Page } from 'playwright-core';
+import { _electron, type ElectronApplication } from 'playwright-core';
 import { waitForHome } from './first-run';
 import { demoEnvironment } from './config';
 import { installationEnvironment, localInstallation } from './installation';
 import { ensureService, serviceStatus, stopService } from '../src/lib/service/client';
 import { installedRuntime } from '../src/lib/service/runtime';
 import { desktopPackageLayout } from './package-layout';
-import { eventually } from './acceptance-fixture';
+import { assertLocalIsolation, assertSameNativeWindow, localPage, nativeWindowSnapshot, viewerPage } from './acceptance-surfaces';
 
 const repo = path.resolve(__dirname, '..');
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-recovery-smoke-'));
@@ -39,13 +39,9 @@ async function openRecovery() {
     if (!item?.enabled) throw new Error('The service and recovery menu is unavailable');
     item.click(item, BrowserWindow.getAllWindows()[0], {} as never);
   });
-  let page: Page | undefined;
-  await eventually(async () => {
-    page = instance!.windows().find(candidate => candidate.url().includes('Ri%20local%20installation'));
-    return !!page;
-  }, 'local recovery page');
-  await page!.locator('#status').waitFor();
-  return page!;
+  const page = await localPage(instance!, 'maintenance');
+  await page.locator('#status').waitFor();
+  return page;
 }
 async function mainSmoke() {
 try {
@@ -54,12 +50,16 @@ try {
   fs.mkdirSync(path.join(root, '.config'), { recursive: true });
   fs.writeFileSync(path.join(root, '.config/local-service.json'), JSON.stringify({ version: 1, port: 0 }));
   instance = await _electron.launch({ executablePath, args, env: { ...env, RI_DESKTOP_SMOKE: '1', RI_DESKTOP_RECOVERY_SMOKE: '1' }, timeout: 240_000 });
-  const main = await instance.firstWindow();
-  const setup = instance.windows().find(page => page !== main) ?? await instance.waitForEvent('window', { predicate: page => page !== main, timeout: 240_000 });
+  await instance.firstWindow();
+  const main = await viewerPage(instance);
+  const initialWindow = await nativeWindowSnapshot(instance);
+  const setup = await localPage(instance, 'companion');
   await setup.waitForFunction(() => document.getElementById('connection-error')?.textContent?.includes('endpoint configuration'));
   let recovery = await openRecovery();
   recovery.on('console', message => { if (message.type() === 'error') console.error('[recovery-ui]', message.text()); });
-  console.info('Recovery window loaded');
+  console.info('Recovery view loaded inside Ri');
+  assertSameNativeWindow(initialWindow, await nativeWindowSnapshot(instance));
+  await assertLocalIsolation(instance, recovery, 'maintenance');
   await recovery.getByText('Service needs attention', { exact: true }).waitFor();
   await recovery.getByRole('button', { name: 'Recover service', exact: true }).waitFor();
   assert.match(await recovery.locator('#reason').innerText(), /endpoint configuration/);
@@ -68,7 +68,7 @@ try {
   select(env);
   const failed = await serviceStatus();
   assert.equal(failed?.phase, 'failed');
-  assert.equal(await main.locator('body').innerText().then(text => text.includes('Starting Ri')), true);
+  assert.equal(main.url(), 'about:blank', 'Failed startup must not replace the viewer with privileged recovery content');
   // Read-only verification must not create a mistyped path.
   const absent = path.join(base, 'does-not-exist');
   await recovery.locator('#choose-installation > summary').click();
@@ -88,6 +88,7 @@ try {
   });
   await recovery.getByRole('button', { name: 'Recover service', exact: true }).click();
   await waitForHome(main);
+  assertSameNativeWindow(initialWindow, await nativeWindowSnapshot(instance));
   const running = await serviceStatus();
   assert.equal(running?.phase, 'running'); assert.notEqual(running?.runId, failed?.runId);
   for (const dir of [advanced.root, advanced.config, advanced.work]) fs.mkdirSync(dir, { recursive: true });
@@ -100,7 +101,11 @@ try {
   await ensureService({ repo, node: process.execPath, env: { ...associationEnv, RI_RUNTIME_REPO: repo } });
   assert.equal(installedRuntime(), null);
   select(env);
+  const viewerBeforeRecovery = { url: main.url(), timeOrigin: await main.evaluate(() => performance.timeOrigin) };
   recovery = await openRecovery();
+  assertSameNativeWindow(initialWindow, await nativeWindowSnapshot(instance));
+  assert.equal(main.url(), viewerBeforeRecovery.url);
+  assert.equal(await main.evaluate(() => performance.timeOrigin), viewerBeforeRecovery.timeOrigin);
   await recovery.locator('#choose-installation > summary').click();
   await recovery.getByText('Separate database, configuration or work folders', { exact: true }).click();
   for (const [key, value] of Object.entries(advanced)) await recovery.locator(`#${key}`).fill(value);
@@ -133,7 +138,8 @@ try {
   assert.equal((await serviceStatus())?.runId, running?.runId, 'Quitting recovery stopped the shared service');
   instance = await _electron.launch({ executablePath, args: [...args, '--ri-use-saved-installation'],
     env: { ...env, RI_DESKTOP_SMOKE: '1' }, timeout: 240_000 });
-  const associatedPage = await instance.firstWindow();
+  await instance.firstWindow();
+  const associatedPage = await viewerPage(instance);
   await waitForHome(associatedPage);
   select(associationEnv);
   const associated = await serviceStatus();

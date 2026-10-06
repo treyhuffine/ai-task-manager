@@ -32,10 +32,14 @@ export function rebaseResourceLinks(root, sourceRoot) {
   return links.length;
 }
 
-/** New companion releases must contain both role setup and supervised worker.
+/** New companion releases must contain role setup, supervised worker and the
+ * offline appearance assets used before a Home or Next.js can start.
  * Validate at publication, without rejecting prior Home-only rollback runtimes. */
 export function assertCompanionPackage(server, shell) {
-  for (const file of [path.join(server, 'dist/desktop/connection-setup-entry.cjs'), path.join(server, 'dist/service/worker.cjs'), path.join(shell, 'companion-preload.cjs'), path.join(shell, 'local-preload.cjs')]) {
+  const serverFiles = ['dist/desktop/connection-setup-entry.cjs', 'dist/service/worker.cjs', 'src/styles/theme.css',
+    'public/fonts/inter-latin.woff2', 'public/fonts/OFL.txt', 'public/brand/ri-mark-white.svg'];
+  const shellFiles = ['companion-preload.cjs', 'local-preload.cjs'];
+  for (const file of [...serverFiles.map(file => path.join(server, file)), ...shellFiles.map(file => path.join(shell, file))]) {
     if (!fs.existsSync(file) || !fs.lstatSync(file).isFile()) throw new Error(`Companion package entry is missing or unsafe: ${file}`);
   }
 }

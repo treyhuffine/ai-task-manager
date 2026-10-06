@@ -30,6 +30,8 @@ import { DesktopActivity } from './activity';
 import { desktopActivityPath, type DesktopActivitySnapshot } from '../src/lib/sessions/desktop-activity-contract';
 import { companionWindow } from './companion-window';
 import { createLocalWindow } from './local-window';
+import { desktopAppearance, localPageAssets } from './appearance';
+import { startingPage } from './local-page-style';
 import { createStartupVisibility } from './startup-visibility';
 import { discoverInstallation, type DiscoveredInstallation } from './discover-installation';
 import { setupRequest } from './setup-client';
@@ -138,30 +140,34 @@ let refreshApplicationMenu: (() => void) | undefined;
 let activityPresentation = '';
 const pendingLinks: string[] = [];
 
-// Local controls keep a separate, privileged renderer. They share one native
-// window and temporarily replace the viewer without unloading its drafts.
+// Local setup has its own sandbox and session inside the persistent window.
+const appearance = desktopAppearance(path.join(profile, 'appearance.json'));
+let pageAssets: ReturnType<typeof localPageAssets> | undefined;
 const localSurface = createLocalWindow({
-  onShow: () => {
-    if (quitting) { localSurface.close(); return; }
-    visibilityRevision++; window?.hide();
-  },
-  onUserClose: () => {
-    if (quitting) return;
-    if (appOrigin) startupVisibility.showViewer();
-    else void quit();
-  },
+  window: () => window,
+  onShow: () => { if (quitting) localSurface.close(); else sendLocalTheme(); },
+  onError: error => { if (!quitting) dialog.showErrorBox('Desktop settings', error.message); },
 });
 const startupVisibility = createStartupVisibility({
   viewer: () => window, local: localSurface, quitting: () => quitting,
-  revealViewer: () => { visibilityRevision++; revealWindow(window); },
-  prepareViewerForBackground,
+  revealWindow: () => { visibilityRevision++; revealWindow(window); },
+  focusViewer: () => { if (window && !window.isDestroyed()) window.webContents.focus(); },
+  backgroundWindow: () => backgroundWindow(window, process.platform, !!tray && !tray.isDestroyed()),
+  canCoverViewer,
 });
-function dialogWindow() {
-  return localSurface.get('companion') ?? localSurface.get('maintenance') ?? window!;
-}
+function dialogWindow() { return window!; }
 function showAppWindow() {
   if (appOrigin) startupVisibility.showViewer();
   else showWindow();
+}
+function localStyleOptions() {
+  pageAssets ??= localPageAssets(repo);
+  return { ...pageAssets, theme: appearance.get(), platform: process.platform };
+}
+function sendLocalTheme() {
+  for (const id of ['loading', 'companion', 'maintenance'] as const) {
+    localSurface.get(id)?.webContents.send('desktop:theme', appearance.get());
+  }
 }
 let discovered: DiscoveredInstallation | null = null;
 let discovery: { expires: number; result: Promise<DiscoveredInstallation | null> } | undefined;
@@ -175,15 +181,14 @@ function detectedInstallation() {
   return discovery.result;
 }
 function setupPageOptions(view: 'auto' | 'settings' = 'auto') {
-  const logo = fs.readFileSync(path.join(repo, 'public/brand/ri-mark-white.svg'));
-  return { view, logoDataUrl: `data:image/svg+xml;base64,${logo.toString('base64')}` };
+  return { ...localStyleOptions(), view };
 }
 
 async function showSetup(view: 'auto' | 'settings' = 'auto') {
   await startupVisibility.showLocal(() => companion.show(setupPageOptions(view)));
 }
 async function showRecovery() {
-  await startupVisibility.showLocal(() => maintenance.show());
+  await startupVisibility.showLocal(() => maintenance.show(localStyleOptions()));
 }
 
 function requestQuickCapture() {
@@ -226,8 +231,8 @@ async function hideWindow() {
   await startupVisibility.hide();
 }
 
-async function prepareViewerForBackground() {
-  if (quitting || preparingClose || navigating || updatingShell || preparation || backgroundPending || !window || window.isDestroyed()) return;
+async function canCoverViewer(): Promise<boolean> {
+  if (quitting || preparingClose || navigating || updatingShell || preparation || backgroundPending || !window || window.isDestroyed()) return false;
   backgroundPending = true;
   const current = window;
   const revision = visibilityRevision;
@@ -241,14 +246,14 @@ async function prepareViewerForBackground() {
         current.webContents.send('desktop:prepare-background', nonce);
       });
     }
-    if (quitting || preparingClose || navigating || updatingShell || preparation || current.isDestroyed() || revision !== visibilityRevision) return;
+    if (quitting || preparingClose || navigating || updatingShell || preparation || current.isDestroyed() || revision !== visibilityRevision) return false;
     if (!ready) {
-      showWindow();
+      showAppWindow();
       await dialog.showMessageBox(current, { type: 'info', message: 'Keep Ri visible while voice input is active',
-        detail: 'Finish or cancel voice input before closing this window. If Ri is still loading, try again shortly.', buttons: ['Keep open'] });
-      return;
+        detail: 'Finish or cancel voice input before opening desktop settings or hiding Ri. If Ri is still loading, try again shortly.', buttons: ['Keep open'] });
+      return false;
     }
-    backgroundWindow(current, process.platform, !!tray && !tray.isDestroyed());
+    return true;
   } finally { backgroundPending = false; }
 }
 
@@ -832,7 +837,7 @@ async function start() {
   } catch { /* first window or disconnected display */ }
   window = new BrowserWindow({ ...bounds, show: false, minWidth: 800, minHeight: 600, title: APP_NAME, icon,
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 12, y: 12 } } : {}),
-    backgroundColor: '#181a18', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), session: ses, nodeIntegration: false, contextIsolation: true, sandbox: true, webviewTag: false } });
+    backgroundColor: appearance.get() === 'dark' ? '#09090b' : '#ffffff', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), session: ses, nodeIntegration: false, contextIsolation: true, sandbox: true, webviewTag: false } });
   let boundsTimer: ReturnType<typeof setTimeout> | undefined;
   const saveBounds = () => {
     clearTimeout(boundsTimer);
@@ -852,6 +857,14 @@ async function start() {
   });
   window.on('close', event => { if (!quitting) { event.preventDefault(); void hideWindow(); } });
   window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) captureReady = false; });
+  ipcMain.on('desktop:appearance', (event, theme: unknown) => {
+    if (!trustedViewerFrame({ senderId: event.sender.id, windowId: window?.webContents.id,
+      mainFrame: event.senderFrame === window?.webContents.mainFrame, url: event.senderFrame?.url ?? '', origin: appOrigin })) return;
+    if (appearance.set(theme)) {
+      window?.setBackgroundColor(appearance.get() === 'dark' ? '#09090b' : '#ffffff');
+      sendLocalTheme();
+    }
+  });
   ipcMain.on('desktop:capture-ready', event => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) return;
     captureReady = true; deliverCapture();
@@ -889,9 +902,7 @@ async function start() {
     if (!notifications) throw new Error('The local service has not connected yet.');
     return notifications.action(action as DesktopNotificationAction);
   });
-  const logo = fs.readFileSync(path.join(repo, 'public/brand/ri-mark-white.svg'), 'utf8');
-  const loading = `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"></head><body style="margin:0;background:#181a18;color:#f5f2ea;display:grid;place-items:center;height:100vh;font:15px system-ui"><div style="text-align:center"><img alt="${APP_NAME}" width="64" src="data:image/svg+xml;base64,${Buffer.from(logo).toString('base64')}"><p>Starting ${APP_NAME}</p><p style="color:#aeb3aa">Opening your Ri…</p></div></body></html>`;
-  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loading)}`);
+  await localSurface.show({ id: 'loading', html: startingPage(randomUUID().replaceAll('-', ''), localStyleOptions()) });
   const actions = {
     show: showWindow, hide: hideWindow, quit: () => { void quit(); },
     capture: requestQuickCapture,

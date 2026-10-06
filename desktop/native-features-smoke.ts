@@ -14,6 +14,7 @@ import type { AwakeStatus } from '../src/lib/service/awake-settings';
 import { installedRuntime } from '../src/lib/service/runtime';
 import { serviceStatus } from '../src/lib/service/client';
 import { acceptance, api, bounded, eventually } from './acceptance-fixture';
+import { assertLocalIsolation, assertSameNativeWindow, localPage, nativeWindowSnapshot } from './acceptance-surfaces';
 
 interface NativeState {
   shortcuts: Map<string, () => void>;
@@ -192,24 +193,26 @@ void acceptance('native-features-smoke', async fixture => {
     await capture.locator('textarea').fill(recoveredText);
     await capture.getByText('Draft saved on this device.', { exact: true }).waitFor();
     await app.evaluate(() => { const state = (globalThis as NativeGlobal).riNativeAcceptance; state.dialogs = []; });
+    const beforeSettings = await nativeWindowSnapshot(app);
     await menu('ri-desktop-preferences');
-    let desktopControls: typeof page | undefined;
-    await eventually(async () => {
-      desktopControls = app.windows().find(candidate => candidate.url().includes('Ri%20on%20this%20device'));
-      return !!desktopControls;
-    }, 'trusted local desktop settings');
-    await desktopControls!.locator('#settings:not([hidden])').waitFor();
+    const desktopControls = await localPage(app, 'companion');
+    await desktopControls.locator('#settings:not([hidden])').waitFor();
+    assertSameNativeWindow(beforeSettings, await nativeWindowSnapshot(app));
+    await assertLocalIsolation(app, desktopControls, 'companion');
     assert.equal(page.url(), url);
     assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin, 'Desktop Settings must preserve the authenticated document');
     assert.equal(await capture.locator('textarea').inputValue(), recoveredText, 'Opening local settings must preserve the live capture draft');
     const controlsOpen = await state();
     assert.equal(controlsOpen.filter(window => window.visible && !window.minimized).length, 1, 'Settings and the viewer must not appear as competing windows');
-    assert.equal(controlsOpen.find(window => window.id === windowId)?.visible, false);
+    assert.equal(controlsOpen.length, 1, 'Settings must not create a second native window');
+    assert.equal(controlsOpen[0].id, windowId);
+    assert.equal(controlsOpen[0].visible, true);
     assert.equal((await app.evaluate(() => (globalThis as NativeGlobal).riNativeAcceptance.dialogs)).length, 0);
     await menu('ri-quick-capture'); await foreground(); await capture.waitFor();
     assert.equal(await capture.locator('textarea').inputValue(), recoveredText);
     assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin);
-    fixture.check('Desktop Settings uses one visible local window while preserving the authenticated renderer and live capture draft');
+    assertSameNativeWindow(beforeSettings, await nativeWindowSnapshot(app));
+    fixture.check('Desktop Settings and capture share the identical native window, bounds and title bar while preserving the authenticated document, draft and local privilege boundary');
 
     // A genuine navigation still exercises the durable draft recovery path.
     await fixture.navigate('/?settings=general');

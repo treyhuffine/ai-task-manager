@@ -1,7 +1,7 @@
 import { ipcMain, dialog } from 'electron';
 import { randomBytes } from 'node:crypto';
-import { maintenancePage } from './maintenance-page';
-import { createLocalWindow, type LocalWindow } from './local-window';
+import { maintenancePage, type MaintenancePageOptions } from './maintenance-page';
+import type { LocalWindow } from './local-window';
 
 export interface MaintenanceActions {
   status(): Promise<unknown>;
@@ -15,8 +15,8 @@ export interface MaintenanceActions {
   back?(): Promise<unknown>;
 }
 
-/** A separate local window never inherits the authenticated app session. */
-export function maintenanceWindow(actions: MaintenanceActions, host: LocalWindow = createLocalWindow()) {
+/** The isolated local view never inherits the authenticated app session. */
+export function maintenanceWindow(actions: MaintenanceActions, host: LocalWindow) {
   let busy = false;
   ipcMain.handle('desktop:maintenance', async (event, action: unknown, value?: unknown) => {
     if (!host.owns('maintenance', event)) throw new Error('Untrusted maintenance window');
@@ -28,7 +28,7 @@ export function maintenanceWindow(actions: MaintenanceActions, host: LocalWindow
       acquired = true;
       if (action === 'browse') {
         if (!['root', 'database', 'config', 'work'].includes(String(value))) throw new Error('Unknown installation path.');
-        const result = await dialog.showOpenDialog(host.get('maintenance')!, { title: value === 'database' ? 'Choose the existing SQLite database' : 'Choose the existing installation folder', properties: [value === 'database' ? 'openFile' : 'openDirectory'] });
+        const result = await dialog.showOpenDialog(host.parent('maintenance')!, { title: value === 'database' ? 'Choose the existing SQLite database' : 'Choose the existing installation folder', properties: [value === 'database' ? 'openFile' : 'openDirectory'] });
         return { path: result.canceled ? undefined : result.filePaths[0] };
       }
       if (typeof action !== 'string' || !['retry', 'recover', 'logs', 'copy', 'inspect', 'use', 'default', 'back'].includes(action)) throw new Error('Unknown maintenance action.');
@@ -39,10 +39,10 @@ export function maintenanceWindow(actions: MaintenanceActions, host: LocalWindow
     finally { if (acquired) busy = false; }
   });
   return {
-    async show() {
+    async show(options: MaintenancePageOptions = {}) {
       if (host.get('maintenance')) { host.reveal(); return; }
-      await host.show({ id: 'maintenance', title: 'Ri settings', width: 800, height: 850,
-        html: maintenancePage(randomBytes(24).toString('hex')) });
+      await host.show({ id: 'maintenance',
+        html: maintenancePage(randomBytes(24).toString('hex'), options) });
     },
     close() { host.close('maintenance'); },
   };

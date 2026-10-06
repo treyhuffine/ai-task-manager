@@ -43,6 +43,8 @@ run('pnpm', ['--filter', 'ai-task-manager', 'deploy', '--prod', '--legacy', '--i
 fs.cpSync(deployed, server, { recursive: true, verbatimSymlinks: true, mode: fs.constants.COPYFILE_FICLONE });
 rebaseResourceLinks(server, deployed);
 fs.rmSync(deployed, { recursive: true, force: true });
+fs.mkdirSync(path.join(server, 'src/styles'), { recursive: true });
+fs.copyFileSync(path.join(repo, 'src/styles/theme.css'), path.join(server, 'src/styles/theme.css'));
 for (const name of ['public', 'drizzle', 'skills', 'dist']) fs.cpSync(path.join(repo, name), path.join(server, name), { recursive: true });
 if (process.argv.includes('--with-speech')) stageSpeechHelper(path.join(repo, 'release/speech-helper'), path.join(server, 'speech-helper'));
 fs.cpSync(path.join(repo, '.next-desktop'), path.join(server, '.next-desktop'), {

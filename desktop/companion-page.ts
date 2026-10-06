@@ -1,22 +1,17 @@
-export interface CompanionPageOptions {
+import { localPageStyle, type LocalPageStyleOptions } from './local-page-style';
+
+export interface CompanionPageOptions extends LocalPageStyleOptions {
   view?: 'auto' | 'settings' | 'connect' | 'help';
-  logoDataUrl?: string;
 }
 
 /** Trusted local UI. Dynamic values are rendered as text, never HTML. */
 export function companionPage(nonce: string, options: CompanionPageOptions = {}) {
-  if (!/^[a-zA-Z0-9]+$/.test(nonce)) throw new Error('Invalid page nonce');
+  const style = localPageStyle(nonce, options);
   const view = options.view ?? 'auto';
   if (!['auto', 'settings', 'connect', 'help'].includes(view)) throw new Error('Invalid companion view');
-  const logo = options.logoDataUrl;
-  if (logo && (logo.length > 200_000 || !/^data:image\/(?:png|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/.test(logo))) throw new Error('Invalid logo image');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>Ri on this device</title>
-<style nonce="${nonce}">
-:root{color-scheme:dark}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:#181a18;color:#f5f2ea;font:14px/1.6 system-ui;-webkit-font-smoothing:antialiased}main{max-width:620px;margin:auto;padding:40px 36px 28px}.brand{display:flex;align-items:center;gap:10px;margin-bottom:28px;font-weight:650;font-size:19px}.brand img{width:32px;height:32px}h1{font-size:29px;line-height:1.2;font-weight:600;letter-spacing:-.6px;margin:0 0 12px}h2{font-size:17px;line-height:1.4;margin:0 0 8px}p{color:#bdc5bb;margin:8px 0 16px}button,input{font:inherit}button{border:1px solid transparent;border-radius:8px;background:#e3ead9;color:#20261e;padding:11px 16px;cursor:pointer;font-weight:550}button.secondary{background:transparent;border-color:#50574c;color:#f5f2ea}button.link{border:0;background:none;color:#bdc5bb;padding:5px 0;font-size:13px;font-weight:400;text-decoration:underline;text-underline-offset:4px}button:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid #b9d998;outline-offset:4px}.choices{display:grid;gap:10px;margin:24px 0 18px}.choices button{text-align:center}.hint{font-size:13px;line-height:1.6}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}label{display:block;margin-top:14px}input[type=url],input[type=text]{display:block;width:100%;padding:11px 12px;margin-top:7px;background:#22271f;border:1px solid #50574c;border-radius:7px;color:inherit}input[type=checkbox]{margin:4px 10px 0 0;accent-color:#b9d998}.check{display:flex;align-items:flex-start;line-height:1.5}.check span{flex:1}.card{border:1px solid #434a40;border-radius:12px;padding:20px;margin:24px 0}.card p:last-child{margin-bottom:0}.help p{margin-bottom:18px}.help h2{margin-top:24px}.help ol{color:#bdc5bb;padding-left:22px}.help li{padding:3px 0}details{border-top:1px solid #343b30;padding:16px 0}summary{cursor:pointer;font-weight:550}details>p:first-of-type{margin-top:12px}.nested{border-top:0;padding:8px 0 0}.nested summary{font-size:13px;color:#bdc5bb;font-weight:400}.nested p{font-size:12px;overflow-wrap:anywhere}.footer{margin-top:26px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}#back{margin:0 0 20px;text-decoration:none}#error{color:#ffb7ad;white-space:pre-wrap;overflow-wrap:anywhere}#error:empty{display:none}#status{font-weight:550;margin:0 0 8px}#connection-message,#worker-reason{overflow-wrap:anywhere}#progress{color:#bdc5bb}#detected{padding:16px;background:#20261e}.muted{color:#bdc5bb}.compact{margin-top:12px}@media(max-width:540px){main{padding:30px 24px}h1{font-size:27px}}
-</style></head><body><main>
-<div class="brand">${logo ? `<img src="${logo}" alt="">` : ''}<span>Ri</span></div>
+  return `<!doctype html><html ${style.attributes} data-ri-local-view="companion"><head><meta charset="utf-8">
+${style.head}<title>Ri</title></head><body>${style.chrome}<main>
+${style.brand}
 <button id="back" class="link" hidden>‹ Back</button>
 <h1 id="heading">Welcome to Ri</h1><p id="intro">A place for your tasks, notes and conversations.</p>
 <p id="error" role="alert"></p><p id="progress" role="status" hidden></p>
@@ -57,6 +52,7 @@ export function companionPage(nonce: string, options: CompanionPageOptions = {})
 <footer id="footer" class="footer"><button id="help-link" class="link">Using Ri on multiple computers</button><button id="settings-link" class="link" hidden>Settings</button><button id="refresh" class="link" hidden>Refresh status</button></footer>
 <details id="advanced" class="nested"><summary>Advanced</summary><p>Already have a local installation, or need help with its service?</p><button id="recovery" class="link">Existing installation and recovery</button></details>
 </main><script nonce="${nonce}">
+${style.script}
 const $=id=>document.getElementById(id);
 let view='${view}',returnView='auto',state=null,busy=false,captureEdited=false,connectionFailed=false;
 $('run-work').checked=false;
