@@ -19,7 +19,7 @@ import { intro, outro, log, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { APP_NAME } from '@/constants/app';
 import { DEFAULT_PORT, DEV_PORT, getRunningPort } from '@/lib/auth/port';
-import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
+import { APP_ROOT_ENV, resolveDevAppRoot } from '@/lib/config/paths';
 import { probeHealth } from '../lib/server';
 import { serviceStatus, stopService } from '@/lib/service/client';
 import {
@@ -40,12 +40,11 @@ export async function stopCommand(opts: StopOptions) {
   intro(pc.bgCyan(pc.black(` ${APP_NAME} stop `)));
 
   // Mirror `start --dev`: route this process at the dev data root so we read the
-  // dev instance's persisted lastPort (and default). Precedence matches start —
-  // an explicit env override wins over the --dev auto-set. Must run before
-  // getRunningPort(), which reads config.json from whatever root is active.
-  if (opts.dev && !process.env[APP_ROOT_ENV]) {
-    process.env[APP_ROOT_ENV] = getDevAppRoot();
-  }
+  // dev instance's persisted lastPort (and default). Precedence matches start:
+  // an explicit non-production root wins, and --dev never means production
+  // (resolveDevAppRoot). Must run before getRunningPort(), which reads
+  // config.json from whatever root is active.
+  if (opts.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
 
   const service = await serviceStatus();
   if (service && (!opts.port || Number(opts.port) === Number(new URL(service.origin ?? 'https://localhost').port))) {

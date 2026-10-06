@@ -70,7 +70,29 @@ function homeDir(): string {
 export function getAppRoot(): string {
   const override = process.env[APP_ROOT_ENV];
   if (override) return override;
+  return getProductionAppRoot();
+}
+
+/**
+ * The production home, `~/<app-short-id>`: where every path helper lands
+ * when nothing overrides it. Development launchers refuse to open it.
+ */
+export function getProductionAppRoot(): string {
   return path.join(homeDir(), APP_SHORT_ID);
+}
+
+/**
+ * The home a development launch opens (`pnpm dev`, and `--dev` on `start`,
+ * `stop`, `service`, `tls`, `perf`): an explicit `<APP>_ROOT` unless it names
+ * the production home, else the dev home. A harness session's `ri` launcher
+ * pins the home that started the session (src/lib/executor/session-cli.ts),
+ * so from a production session's shell `ri stop --dev` still means the dev
+ * home, never production.
+ */
+export function resolveDevAppRoot(): string {
+  const override = process.env[APP_ROOT_ENV];
+  if (override && path.resolve(override) !== path.resolve(getProductionAppRoot())) return override;
+  return getDevAppRoot();
 }
 
 /**

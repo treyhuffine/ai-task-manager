@@ -11,16 +11,14 @@ import type { Command } from 'commander';
 import { intro, outro, log } from '@clack/prompts';
 import pc from 'picocolors';
 import { APP_NAME } from '@/constants/app';
-import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
+import { APP_ROOT_ENV, resolveDevAppRoot } from '@/lib/config/paths';
 
 interface TlsCommandOptions {
   dev?: boolean;
 }
 
 function routeDevRoot(opts: TlsCommandOptions): void {
-  if (opts.dev && !process.env[APP_ROOT_ENV]) {
-    process.env[APP_ROOT_ENV] = getDevAppRoot();
-  }
+  if (opts.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
 }
 
 /** Symbol + color for a per-target outcome. */

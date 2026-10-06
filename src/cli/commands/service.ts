@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Command } from 'commander';
-import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
+import { APP_ROOT_ENV, resolveDevAppRoot } from '@/lib/config/paths';
 import { ensureServiceStatus, serviceRequest, serviceStatus, stopService } from '@/lib/service/client';
 import { readAwakePreferences } from '@/lib/service/awake';
 import { servicePaths } from '@/lib/service/paths';
@@ -23,7 +23,7 @@ export function registerServiceCommand(program: Command) {
     .action(async (options: { dev?: boolean; home?: boolean }) => {
       // Resolve the identity before runtime lookup or service discovery, just
       // as the foreground `start --dev` command does.
-      if (options.dev && !process.env[APP_ROOT_ENV]) process.env[APP_ROOT_ENV] = getDevAppRoot();
+      if (options.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
       if (options.home && (await import('@/lib/service/role')).resolveServiceRole().role !== 'home') {
         (await import('@/lib/service/desktop-role-intent')).writeDesktopHomeIntent();
       }

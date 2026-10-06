@@ -73,6 +73,9 @@ describe('P2.7 session authority', () => {
     // checks and wires them where the session starts.
     expect(spec.agentFolders?.references[0]?.path).toBe(newRef);
     expect(spec.extraArgs).not.toContain(newRef);
+    // Nor the home's `ri` launcher: a session elsewhere keeps its device's.
+    expect(spec.env.PATH).toBeUndefined();
+    expect(spec.env.RI_SESSION_CLI).toBeUndefined();
     const fake = (await import('@/test/fixtures/fake-harness')).installFakeHarness('claude');
     const runner = await import('@/lib/runner/local-runner');
     // This probe inspects spawn configuration. Event persistence is covered

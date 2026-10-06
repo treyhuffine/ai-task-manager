@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import type { Command } from 'commander';
 import pc from 'picocolors';
-import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
+import { APP_ROOT_ENV, resolveDevAppRoot } from '@/lib/config/paths';
 import { perfLogPaths, SLOW_STATEMENT_MS, STALL_MS } from '@/lib/perf/recorder';
 import { parseDuration, summarizePerfLog, type PerfLabelRow, type PerfSummary } from '@/lib/perf/summary';
 
@@ -27,7 +27,7 @@ export function registerPerfCommand(program: Command): void {
     .option('--dev', 'read the dev home')
     .option('--json', 'print the summary as JSON')
     .action((opts: PerfOptions) => {
-      if (opts.dev && !process.env[APP_ROOT_ENV]) process.env[APP_ROOT_ENV] = getDevAppRoot();
+      if (opts.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
       const window = parseDuration(opts.since);
       const top = Number.parseInt(opts.top, 10);
       if (window === null || !Number.isInteger(top) || top < 1) {

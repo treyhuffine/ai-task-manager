@@ -32,7 +32,7 @@ import type { Http2GatewayHandle } from '../http2-gateway/index';
 import { resetDb } from '@/lib/db';
 import { getVoiceEnabled } from '@/lib/config/voice';
 import { getIsOnboarded, markOnboarded } from '@/lib/config/onboarded';
-import { APP_ROOT_ENV, getDevAppRoot } from '@/lib/config/paths';
+import { APP_ROOT_ENV, resolveDevAppRoot } from '@/lib/config/paths';
 import {
   isPortlessInstalled,
   isOurServerRunning,
@@ -94,7 +94,7 @@ function resolvePortless(opt: StartOptions['portless']): PortlessConfig | null {
 }
 
 export async function startCommand(opts: StartOptions) {
-  if (opts.dev && !process.env[APP_ROOT_ENV]) process.env[APP_ROOT_ENV] = getDevAppRoot();
+  if (opts.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
   const service = await serviceStatus();
   if (service) {
     if (service.phase !== 'running') throw new Error(`Ri service is ${service.phase}. Use ri service status for details.`);
@@ -113,14 +113,12 @@ export async function startCommand(opts: StartOptions) {
 }
 
 async function startForegroundCommand(opts: StartOptions) {
-  // Isolate dev data from prod. When --dev is passed and the user hasn't
-  // already pinned a root via the standard env override, route this process
-  // (and any child processes we spawn — Next, voice, CLI subcommands) to the
-  // dev data root. Precedence: explicit env > --dev auto-set > prod default.
-  // Set before any path helper runs so downstream callers see the dev root.
-  if (opts.dev && !process.env[APP_ROOT_ENV]) {
-    process.env[APP_ROOT_ENV] = getDevAppRoot();
-  }
+  // Isolate dev data from prod. When --dev is passed, route this process
+  // (and any child processes we spawn: Next, voice, CLI subcommands) to the
+  // dev data root. Precedence: an explicit non-production root, then the dev
+  // root. --dev never means production (resolveDevAppRoot). Set before any
+  // path helper runs so downstream callers see the dev root.
+  if (opts.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
 
   // Propagate --hot into the Next child as NEXT_PUBLIC_HOT so the client
   // bundle gets it at build/compile time. Set before any spawn — Next reads

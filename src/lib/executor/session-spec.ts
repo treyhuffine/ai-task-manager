@@ -45,6 +45,7 @@ import { HOME_ADDRESS_SCHEME } from '@/lib/workers/protocol';
 import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import type { SessionSpec } from '@/lib/runner/types';
 import { prepareAgentMainChatSpawn, skillDirsWriteIntoCwd } from './agent-main-chat';
+import { SESSION_CLI_ENV, ensureSessionCli, sessionPath } from './session-cli';
 import { planSessionInstructions } from './session-instructions';
 import { renderSkillBuilderBrief } from '@/lib/skills/builder-brief';
 import { sessionSkillPlan } from '@/lib/skills/exclusions';
@@ -456,5 +457,18 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
   // See src/lib/orchestrator/session-credential.ts.
   const credential = sessionCredential(args.chatSessionId);
   if (credential) spec.env[SESSION_CREDENTIAL_ENV] = credential;
+  // And `ri` in its shell acts on this home through this server's CLI
+  // (session-cli.ts). A session on a connected device keeps that device's.
+  if (target.isHome) {
+    try {
+      const cli = ensureSessionCli();
+      if (cli) {
+        spec.env.PATH = sessionPath(cli.binDir);
+        spec.env[SESSION_CLI_ENV] = cli.launcher;
+      }
+    } catch (err) {
+      console.error('[executor] session CLI launcher failed:', err);
+    }
+  }
   return spec;
 }
