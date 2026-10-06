@@ -1,0 +1,358 @@
+--- a/host/src/index.tsx
++++ b/host/src/index.tsx
+@@ -2,7 +2,7 @@
+ import type { Tool } from "@modelcontextprotocol/client";
+ import { Component, type ErrorInfo, type ReactNode, Suspense, use, useEffect, useMemo, useRef, useState } from "react";
+ import { createRoot } from "react-dom/client";
+-import { callTool, connectToServer, hasAppHtml, initializeApp, loadSandboxProxy, log, newAppBridge, type ServerInfo, type ToolCallInfo, type ModelContext, type AppMessage } from "./implementation";
++import { callTool, getUiResource, connectToServer, hasAppHtml, initializeApp, loadSandboxProxy, log, newAppBridge, type ServerInfo, type ToolCallInfo, type ModelContext, type AppMessage } from "./implementation";
+ import { getTheme, toggleTheme, onThemeChange, type Theme } from "./theme";
+ import styles from "./index.module.css";
+ import { AccountPresets } from './account-presets';
+@@ -141,7 +141,7 @@
+       <header className={styles.demoIntro}>
+         <p>Ri Plugin UI · Milestone 0A</p>
+         <h1>Try real MCP Apps</h1>
+-        <p>{ACCOUNT_HANDLE ? 'This view is bound to the account selected in Ri. Tool calls use its current access and approvals.' : RI_PARENT_ORIGIN ? "Connect to hosted Excalidraw, Microsoft Flint, tldraw and a public building-data service. Chat about any open result. Enable updates to change the sample diagram or scenario with your agent." : "Try the pinned local Excalidraw fallback and official Scenario Modeler with synthetic inputs."}</p>
++        <p>{ACCOUNT_HANDLE ? 'This view is bound to the account selected in Ri. Tool calls use its current access and approvals.' : RI_PARENT_ORIGIN ? "Connect to hosted Excalidraw, Microsoft Flint, tldraw and a public building-data service. Chat about any open result. Enable updates to revise a chart, canvas, building view or scenario with your agent." : "Try the pinned local Excalidraw fallback and official Scenario Modeler with synthetic inputs."}</p>
+         <p>Results stay in this tab's memory. Reload, End session or 30 minutes without opening another result ends the view session. Each Open or Run button makes a new tool call.</p>
+         {sessionEnded && <p role="status" className={styles.sessionEnded}>Session ended. Previous results were discarded. No tool call was replayed. Choose an example to start again.</p>}
+         {toolCalls.length > 0 && <button onClick={endSession}>End session</button>}
+@@ -587,9 +587,11 @@
+   const [viewError, setViewError] = useState<string | null>(null);
+   const [displayMode, setDisplayMode] = useState<"inline" | "fullscreen">("inline");
+   const invocationId = toolCallInfo.invocationId;
+-  const [rendered, setRendered] = useState({ epoch: 0, input: toolCallInfo.input, resultPromise: toolCallInfo.resultPromise });
++  const [rendered, setRendered] = useState({ epoch: 0, input: toolCallInfo.input, resultPromise: toolCallInfo.resultPromise, tool: toolCallInfo.tool, appResourcePromise: toolCallInfo.appResourcePromise });
+   const renderedRef = useRef(rendered);
+   renderedRef.current = rendered;
++  const interactiveReady = useRef(false);
++  const viewUnavailable = useRef(false);
+   const diagramAcknowledgement = useRef<string | null>(null);
+   const diagramApplying = useRef(false);
+   const publishing = useRef(0);
+@@ -600,9 +602,14 @@
+   const pendingApply = useRef<{ turnId: string; inputs: Record<string, number>; timer: number } | null>(null);
+   const isScenario = toolCallInfo.tool.name === "get-scenario-data";
+   const isDiagram = !ACCOUNT_HANDLE && !!RI_PARENT_ORIGIN && toolCallInfo.tool.name === 'create_view';
++  const isOtherView = !ACCOUNT_HANDLE && !!RI_PARENT_ORIGIN && ['create_chart_view', 'render_map', 'render_table', 'exec'].includes(toolCallInfo.tool.name);
++  const isCanvas = isOtherView && toolCallInfo.tool.name === 'exec';
++  const canvasHasRendered = useRef(false);
++  const canvasHasSaved = useRef(false);
++  const canvasApplying = useRef<string | null>(null);
+   const accountName = ACCOUNT_HANDLE ? ({ asana: 'Asana', figma: 'Figma', posthog: 'PostHog' } as Record<string, string>)[toolCallInfo.serverInfo.name.split(' · ')[0]] : null;
+   const publicApp = accountName ?? (toolCallInfo.serverInfo.tools.has('exec') ? 'tldraw' : toolCallInfo.serverInfo.tools.has("get_building_profile") ? "Building explorer" : toolCallInfo.serverInfo.tools.has("create_chart_view") ? "Flint charts" : toolCallInfo.serverInfo.tools.has("create_view") ? "Excalidraw" : null);
+-  const publicView = accountName === 'Asana' ? 'Tasks' : accountName === 'Figma' || toolCallInfo.tool.name === 'exec' ? 'Canvas' : accountName === 'PostHog' ? 'Query' : toolCallInfo.tool.name === "create_view" ? "Diagram" : toolCallInfo.tool.name === "render_map" ? "Map" : toolCallInfo.tool.name === "render_table" ? "Table" : "Chart";
++  const publicView = accountName === 'Asana' ? 'Tasks' : accountName === 'Figma' || toolCallInfo.tool.name === 'exec' ? 'Canvas' : accountName === 'PostHog' ? 'Query' : toolCallInfo.tool.name === "create_view" ? "Diagram" : rendered.tool.name === "render_map" ? "Map" : rendered.tool.name === "render_table" ? "Table" : "Chart";
+   const latestPublicContext = useRef<ModelContext | null>(null);
+   const latestPublicText = useRef("");
+   const latestPublicResult = useRef<unknown>(null);
+@@ -610,7 +617,7 @@
+   async function publishPublicContext() {
+     if (!publicApp) return;
+     const generation = ++publishing.current;
+-    if (isDiagram) {
++    if (isDiagram || isCanvas) {
+       const delay = diagramSettlesAt.current - Date.now();
+       if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
+       if (generation !== publishing.current) return;
+@@ -644,31 +651,43 @@
+     }
+     if (generation !== publishing.current) return;
+     const text = JSON.stringify({ sourceApp: publicApp, ...(currentDiagram ? { currentDiagram } : {}), viewInput: renderedRef.current.input, toolResult: latestPublicResult.current, latestUiContext: latestPublicContext.current }, null, 2).slice(0, 12000);
+-    const signature = text + JSON.stringify(diagram);
++    let update;
++    if (isOtherView) {
++      try { const response = await fetch(new URL(`api/view?invocationId=${invocationId}`, location.href)); const state = response.ok ? await response.json() : null; if (generation !== publishing.current) return; if (state?.ready && interactiveReady.current && (!isCanvas || canvasHasRendered.current && canvasHasSaved.current && Array.isArray(latestPublicContext.current?.structuredContent?.shapes))) update = { version: state.version }; } catch {}
++    }
++    const signature = text + JSON.stringify(diagram) + JSON.stringify(update) + (ACCOUNT_HANDLE ? String(interactiveReady.current) : '');
+     if (signature === latestPublicText.current) return;
+     latestPublicText.current = signature;
+     revision.current++;
+     const context = { invocationId, revision: revision.current, kind: ACCOUNT_HANDLE ? 'account' : 'public', app: publicApp, view: publicView, text };
+     // A running older Ri can still read this attachment during deployment.
+     notifyRi({ kind: 'ri-evaluation-context', context });
++    if (update) notifyRi({ kind: 'ri-evaluation-context', context: { ...context, update } });
++    if (ACCOUNT_HANDLE && interactiveReady.current) notifyRi({ kind: 'ri-evaluation-context', context: { ...context, operation: { toolName: toolCallInfo.tool.name } } });
+     if (diagram) notifyRi({ kind: 'ri-evaluation-context', context: { ...context, diagram } });
+   }
+
+   function receiveContext(context: ModelContext | null) {
+     setModelContext(context);
+     if (publicApp) {
+-      const changed = JSON.stringify(latestPublicContext.current) !== JSON.stringify(context);
+-      latestPublicContext.current = context;
++      const canvasShapes = context?.structuredContent?.shapes;
++      if (isCanvas && Array.isArray(canvasShapes) && canvasShapes.length > 0) canvasHasRendered.current = true;
++      // The canvas emits changing execution/status prose for an unchanged
++      // scene. Only its actual structured state invalidates a pending edit.
++      const data = isCanvas && Array.isArray(canvasShapes) ? { structuredContent: { shapes: canvasShapes } } : context;
++      const changed = JSON.stringify(latestPublicContext.current) !== JSON.stringify(data);
++      latestPublicContext.current = data;
+       // Invalidate an in-flight reply immediately, before waiting for a save.
+-      if (isDiagram && changed) {
++      if ((isDiagram || isCanvas) && changed) {
+         revision.current++;
+         // The editor saves after a two-second debounce. Remove the write
+         // capability until its actual checkpoint has caught up with the UI.
+-        diagramSettlesAt.current = Date.now() + 2300;
++        diagramSettlesAt.current = Date.now() + (isDiagram ? 2300 : 700);
+         const text = JSON.stringify({ sourceApp: publicApp, latestUiContext: context }, null, 2).slice(0, 12000);
+         notifyRi({ kind: 'ri-evaluation-context', context: { invocationId, revision: revision.current, kind: 'public', app: publicApp, view: publicView, text } });
+       }
+-      void publishPublicContext(); return;
++      void publishPublicContext();
++      return;
+     }
+     const inputs = context?.structuredContent?.inputs;
+     if (!isScenario || !sampleInputs(inputs)) return;
+@@ -688,10 +707,10 @@
+     async function onParentMessage(event: MessageEvent) {
+       if (!RI_PARENT_ORIGIN || event.source !== window.parent || event.origin !== RI_PARENT_ORIGIN) return;
+       const message = event.data;
+-      if ((!isScenario && !isDiagram) || message?.kind !== "ri-evaluation-tool-result" || message.invocationId !== invocationId || !/^[a-f0-9-]{36}$/.test(message.turnId)) return;
++      if ((!isScenario && !isDiagram && !isOtherView && !ACCOUNT_HANDLE) || message?.kind !== "ri-evaluation-tool-result" || message.invocationId !== invocationId || !/^[a-f0-9-]{36}$/.test(message.turnId)) return;
+       const failed = () => notifyRi({ kind: "ri-evaluation-apply-failed", invocationId, turnId: message.turnId });
+       if (message.revision !== revision.current || !appBridgeRef.current || pendingApply.current || diagramApplying.current) { failed(); return; }
+-      const diagramFrame = isDiagram ? iframeRef.current : null;
++      const diagramFrame = isDiagram || isCanvas ? iframeRef.current : null;
+       try {
+         if (diagramFrame) {
+           diagramApplying.current = true;
+@@ -699,15 +718,48 @@
+           if (document.activeElement === diagramFrame) diagramFrame.blur();
+           // The qualified Excalidraw editor debounces checkpoint saves for
+           // two seconds. Let pending manual edits settle before committing.
+-          await new Promise(resolve => setTimeout(resolve, 2300));
++          await new Promise(resolve => setTimeout(resolve, isDiagram ? 2300 : 700));
+           if (message.revision !== revision.current) throw new Error('The diagram changed');
+         }
+         const prefix = location.pathname.match(/^\/s\/[a-f0-9]{64}\//)?.[0];
+         if (!prefix) throw new Error("Not a remote example session");
+-        const suffix = isDiagram ? `?invocationId=${invocationId}` : '';
++        if (ACCOUNT_HANDLE) {
++          const payload = message.capture;
++          if (payload?.kind !== 'view' || payload.invocationId !== invocationId || payload.toolName !== toolCallInfo.tool.name || !payload.result || !payload.input) throw new Error('This result belongs to another account view');
++          latestPublicContext.current = null;
++          diagramAcknowledgement.current = message.turnId;
++          setRendered(previous => ({ ...previous, epoch: previous.epoch + 1, input: payload.input, resultPromise: Promise.resolve(payload.result) }));
++          return;
++        }
++        const suffix = isDiagram || isOtherView ? `?invocationId=${invocationId}` : '';
+         const response = await fetch(prefix + "chat/" + message.turnId + "/result" + suffix);
+         if (!response.ok) throw new Error("Captured result unavailable");
+         const payload = await response.json();
++        if (isOtherView) {
++          if (message.revision !== revision.current || payload.kind !== 'view' || payload.invocationId !== invocationId || !payload.result || !payload.input) throw new Error('The view changed');
++          const tool = toolCallInfo.serverInfo.tools.get(payload.toolName);
++          const uri = tool && getToolUiResourceUri(tool);
++          if (!tool || !uri) throw new Error('No compatible UI resource was declared');
++          const appResourcePromise = getUiResource(toolCallInfo.serverInfo, uri);
++          await appResourcePromise;
++          if (message.revision !== revision.current) throw new Error('The view changed');
++          const committed = await fetch(prefix + 'chat/' + message.turnId + '/apply' + suffix, { method: 'POST' });
++          if (!committed.ok) throw new Error('The view changed');
++          latestPublicContext.current = null;
++          if (isCanvas) {
++            canvasApplying.current = message.turnId;
++            latestPublicResult.current = { content: payload.result.content, structuredContent: payload.result.structuredContent };
++            // This qualified canvas resets its previous exec guard on a
++            // result notification. Reset it before scheduling the next input,
++            // otherwise it cancels that input as a duplicate of the last exec.
++            await appBridgeRef.current.sendToolResult(payload.result);
++            await appBridgeRef.current.sendToolInput({ arguments: payload.input });
++          } else {
++            diagramAcknowledgement.current = message.turnId;
++            setRendered(previous => ({ ...previous, epoch: previous.epoch + 1, tool, appResourcePromise, input: payload.input, resultPromise: Promise.resolve(payload.result) }));
++          }
++          return;
++        }
+         if (isDiagram) {
+           if (message.revision !== revision.current || payload.kind !== 'diagram' || payload.invocationId !== invocationId || typeof payload.checkpointId !== 'string' || !payload.result) throw new Error('The diagram changed');
+           const committed = await fetch(prefix + 'chat/' + message.turnId + '/apply' + suffix, { method: 'POST' });
+@@ -718,7 +770,7 @@
+           latestPublicContext.current = null;
+           latestPublicResult.current = { content: payload.result.content, structuredContent: payload.result.structuredContent };
+           diagramAcknowledgement.current = message.turnId;
+-          setRendered(previous => ({ epoch: previous.epoch + 1, input: { elements: JSON.stringify([{ type: 'restoreCheckpoint', id: payload.checkpointId }]) }, resultPromise: Promise.resolve(payload.result) }));
++          setRendered(previous => ({ ...previous, epoch: previous.epoch + 1, input: { elements: JSON.stringify([{ type: 'restoreCheckpoint', id: payload.checkpointId }]) }, resultPromise: Promise.resolve(payload.result) }));
+           return;
+         }
+         if (message.revision !== revision.current || !sampleInputs(payload.inputs) || !payload.result || !appBridgeRef.current) throw new Error("The scenario changed");
+@@ -731,26 +783,38 @@
+         // Deliver the original, captured tool result. No new tool call here.
+         await appBridgeRef.current.sendToolResult(payload.result);
+       } catch { if (pendingApply.current) window.clearTimeout(pendingApply.current.timer); pendingApply.current = null; failed(); }
+-      finally { diagramApplying.current = false; if (diagramFrame) diagramFrame.style.pointerEvents = ''; }
++      finally { diagramApplying.current = false; if (diagramFrame && !canvasApplying.current) diagramFrame.style.pointerEvents = ''; }
+     }
+     window.addEventListener("message", onParentMessage);
+     return () => {
+       window.removeEventListener("message", onParentMessage);
+       if (pendingApply.current) window.clearTimeout(pendingApply.current.timer);
++      if (isOtherView) void fetch(new URL(`api/view/close?invocationId=${invocationId}`, location.href), { method: 'POST' }).catch(() => {});
+       if (isDiagram) void fetch(new URL(`api/diagram/close?invocationId=${invocationId}`, location.href), { method: 'POST' }).catch(() => {});
+       notifyRi({ kind: "ri-evaluation-context-closed", invocationId });
+     };
+-  }, [invocationId, isScenario, isDiagram]);
++  }, [invocationId, isScenario, isDiagram, isOtherView]);
+
+   useEffect(() => {
+     const iframe = iframeRef.current!;
++    interactiveReady.current = false;
+     let disposed = false;
++    const unavailable = (event: MessageEvent) => {
++      if (!isCanvas || event.source !== iframe.contentWindow || !iframe.src || event.origin !== new URL(iframe.src).origin || event.data?.method !== 'ri-evaluation/view-unavailable' || event.data.params?.reason !== 'tldraw-license') return;
++      viewUnavailable.current = true;
++      interactiveReady.current = false;
++      setViewError("tldraw's hosted canvas stopped at its SDK license check. The provider needs a valid license for this host. Captured canvas data remains available below");
++      void fetch(new URL(`api/view/close?invocationId=${invocationId}`, location.href), { method: 'POST' }).catch(() => {});
++      if (canvasApplying.current) { notifyRi({ kind: 'ri-evaluation-apply-failed', invocationId, turnId: canvasApplying.current }); canvasApplying.current = null; }
++      void publishPublicContext();
++    };
++    window.addEventListener('message', unavailable);
+     let bridge: ReturnType<typeof newAppBridge> | null = null;
+     if (publicApp) void rendered.resultPromise.then(result => { if (!disposed && !result.isError) { latestPublicResult.current = { content: result.content, structuredContent: result.structuredContent }; void publishPublicContext(); } }).catch(() => {});
+
+     // First get CSP and permissions from resource, then load sandbox
+     // CSP is set via HTTP headers (tamper-proof), permissions via iframe allow attribute
+-    toolCallInfo.appResourcePromise.then(({ csp, permissions }) => {
++    rendered.appResourcePromise.then(({ csp, permissions }) => {
+       if (disposed) return;
+       loadSandboxProxy(iframe, csp, permissions).then((firstTime) => {
+         // The `firstTime` check guards against React Strict Mode's double
+@@ -773,8 +837,22 @@
+           });
+           appBridgeRef.current = appBridge;
+           bridge = appBridge;
+-          void initializeApp(iframe, appBridge, { ...toolCallInfo, input: rendered.input, resultPromise: rendered.resultPromise }).then(() => {
+-            if (disposed || !diagramAcknowledgement.current) return;
++          void initializeApp(iframe, appBridge, { ...toolCallInfo, tool: rendered.tool, appResourcePromise: rendered.appResourcePromise, input: rendered.input, resultPromise: rendered.resultPromise, onAppToolResult: (name, args, result) => {
++            if (name === 'save_checkpoint' && isCanvas && !result.isError) { canvasHasSaved.current = true; void publishPublicContext(); }
++            if (name !== '_exec_callback' || !canvasApplying.current) return;
++            const turnId = canvasApplying.current; canvasApplying.current = null;
++            if (iframeRef.current) iframeRef.current.style.pointerEvents = '';
++            const success = !result.isError && (args.result as { success?: boolean } | undefined)?.success === true;
++            notifyRi({ kind: success ? 'ri-evaluation-applied' : 'ri-evaluation-apply-failed', invocationId, turnId });
++          } }).then(async () => {
++            // This app has a five-second production license check. Do not
++            // offer agent edits while a provisional canvas can disappear.
++            if (isCanvas) await new Promise(resolve => setTimeout(resolve, 6500));
++            if (disposed || viewUnavailable.current) return;
++            interactiveReady.current = true;
++            if (new URLSearchParams(location.search).has('example')) iframe.scrollIntoView({ block: 'start' });
++            void publishPublicContext();
++            if (!diagramAcknowledgement.current) return;
+             const turnId = diagramAcknowledgement.current;
+             diagramAcknowledgement.current = null;
+             iframe.scrollIntoView({ block: 'start' });
+@@ -788,7 +866,7 @@
+       }).catch((err) => setViewError(String(err)));
+     }).catch((err) => setViewError(String(err)));
+
+-    return () => { disposed = true; void bridge?.close(); };
++    return () => { disposed = true; window.removeEventListener('message', unavailable); void bridge?.close(); };
+   }, [toolCallInfo, rendered.epoch]);
+
+   // Graceful teardown: wait for guest to respond before unmounting
+@@ -855,7 +933,7 @@
+         <span>{toolCallInfo.serverInfo.name} · Temporary view</span>
+       </div>}
+       {viewError && <p role="alert">View unavailable: {viewError}. The tool result is still available below.</p>}
+-      <iframe key={rendered.epoch} title={`${toolCallInfo.serverInfo.name} interactive result`} ref={iframeRef} />
++      <iframe hidden={!!viewError} key={rendered.epoch} title={`${toolCallInfo.serverInfo.name} interactive result`} ref={iframeRef} />
+       {messages.length > 0 && (
+         <CollapsiblePanel
+           icon="💬"
+--- a/host/src/implementation.ts
++++ b/host/src/implementation.ts
+@@ -103,6 +103,7 @@
+   input: Record<string, unknown>;
+   resultPromise: Promise<CallToolResult>;
+   appResourcePromise?: Promise<UiResourceData>;
++  onAppToolResult?: (name: string, args: Record<string, unknown>, result: CallToolResult) => void;
+ }
+
+
+@@ -138,7 +139,7 @@
+ }
+
+
+-async function getUiResource(serverInfo: ServerInfo, uri: string): Promise<UiResourceData> {
++export async function getUiResource(serverInfo: ServerInfo, uri: string): Promise<UiResourceData> {
+   log.info("Reading UI resource:", uri);
+   const resource = await serverInfo.client.readResource({ uri });
+
+@@ -227,7 +228,7 @@
+ export async function initializeApp(
+   iframe: HTMLIFrameElement,
+   appBridge: AppBridge,
+-  { serverInfo, input, resultPromise, appResourcePromise }: Required<ToolCallInfo>,
++  { serverInfo, input, resultPromise, appResourcePromise, onAppToolResult }: Required<ToolCallInfo>,
+ ): Promise<void> {
+   const appInitializedPromise = hookInitializedCallback(appBridge);
+
+@@ -242,6 +243,7 @@
+   // connect() installs AppBridge's default callback using client.request.
+   // Override it before loading guest HTML, so callbacks cannot bypass callTool's
+   // invocation wrapper. Give every explicit UI operation its own captured ID.
++  const canvasCheckpoints = new Set<string>();
+   appBridge.oncalltool = async (params) => {
+     const tool = serverInfo.tools.get(params.name);
+     if (!tool || tool._meta?.ui && (tool._meta.ui as { visibility?: string[] }).visibility?.every(value => value === 'model')) throw new Error('This tool is unavailable to the app');
+@@ -249,7 +251,18 @@
+       const checkpoint = ((await resultPromise).structuredContent as { checkpointId?: unknown } | undefined)?.checkpointId;
+       if (!['read_checkpoint', 'save_checkpoint'].includes(params.name) || typeof checkpoint !== 'string' || params.arguments?.id !== checkpoint) throw new Error('This callback belongs to a different diagram checkpoint');
+     }
+-    return serverInfo.client.callTool({ ...params, _meta: { ...params._meta, 'ri/evaluationAudience': 'app', 'ri/evaluationInvocation': newInvocationId() } }) as Promise<CallToolResult>;
++    if (!new URLSearchParams(location.search).has('account') && serverInfo.tools.has('exec')) {
++      const canvas = ((await resultPromise).structuredContent as { canvasId?: unknown } | undefined)?.canvasId;
++      if (!['_get_canvas_state', '_exec_callback', 'save_checkpoint', 'read_checkpoint'].includes(params.name) || params.arguments?.canvasId !== undefined && params.arguments.canvasId !== canvas || params.name === '_exec_callback' && (params.arguments?.result as { canvasId?: unknown } | undefined)?.canvasId !== undefined && (params.arguments?.result as { canvasId?: unknown } | undefined)?.canvasId !== canvas) throw new Error('This callback belongs to a different canvas');
++    }
++    if (!new URLSearchParams(location.search).has('account') && serverInfo.tools.has('exec') && params.name === 'read_checkpoint' && !canvasCheckpoints.has(String(params.arguments?.checkpointId))) throw new Error('This checkpoint belongs to another canvas');
++    const result = await serverInfo.client.callTool({ ...params, _meta: { ...params._meta, 'ri/evaluationAudience': 'app', 'ri/evaluationInvocation': newInvocationId() } }) as CallToolResult;
++    if (!result.isError && serverInfo.tools.has('exec')) {
++      const checkpoint = params.name === 'save_checkpoint' ? params.arguments?.checkpointId : params.name === '_get_canvas_state' ? (result.structuredContent as { checkpointId?: string } | undefined)?.checkpointId : undefined;
++      if (typeof checkpoint === 'string') canvasCheckpoints.add(checkpoint);
++    }
++    onAppToolResult?.(params.name, params.arguments ?? {}, result);
++    return result;
+   };
+
+   // Load inner iframe HTML with CSP and permissions metadata
+--- a/host/src/sandbox.ts
++++ b/host/src/sandbox.ts
+@@ -48,6 +48,20 @@
+ // based on the permissions requested by the app
+ document.body.appendChild(inner);
+
++// The hosted tldraw build can initialize and run code before its SDK license
++// gate removes the editor. Report that exact failure, without relaying DOM,
++// resource contents or any new authority out of the sandbox.
++let licenseMonitor: ReturnType<typeof setInterval> | undefined;
++function watchHostedLicenseGate() {
++  if (licenseMonitor) clearInterval(licenseMonitor);
++  let checks = 0;
++  licenseMonitor = setInterval(() => {
++    const blocked = inner.contentDocument?.querySelector('[data-tldraw] [data-testid="tl-license-expired"]');
++    if (blocked) window.parent.postMessage({ method: 'ri-evaluation/view-unavailable', params: { reason: 'tldraw-license' } }, EXPECTED_HOST_ORIGIN);
++    if (blocked || ++checks >= 80) { clearInterval(licenseMonitor); licenseMonitor = undefined; }
++  }, 250);
++}
++
+ const RESOURCE_READY_NOTIFICATION: McpUiSandboxResourceReadyNotification["method"] =
+   "ui/notifications/sandbox-resource-ready";
+ const PROXY_READY_NOTIFICATION: McpUiSandboxProxyReadyNotification["method"] =
+@@ -101,10 +115,12 @@
+           doc.open();
+           doc.write(html);
+           doc.close();
++          watchHostedLicenseGate();
+         } else {
+           // Fallback to srcdoc if document is not accessible
+           console.warn("[Sandbox] document.write not available, falling back to srcdoc");
+           inner.srcdoc = html;
++          inner.addEventListener("load", watchHostedLicenseGate, { once: true });
+         }
+       }
+     } else {

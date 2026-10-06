@@ -18,6 +18,7 @@ const browser = await chromium.launch({ executablePath, headless: true, chromium
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
 const page = await context.newPage()
 page.setDefaultTimeout(20000)
+const chatTicket = randomUUID(); let chatSource;
 const handle = randomUUID(), checks = [], methods = [], widgetRequests = [], executions = []
 let approved = false, ended = false, closing = false
 const ledger = new Map()
@@ -68,7 +69,7 @@ try {
     const originals = names.some(name => !owned(name)) ? await (await route.fetch({ url: testOrigin + url.pathname + url.search })).json() : []
     const replies = await Promise.all(names.map(async (name, index) => {
       if (!owned(name)) return originals[index]
-      const input = inputs[index] ?? {}
+      const input = url.searchParams.get('batch') === '1' ? inputs[index] ?? {} : inputs
       let data
       if (name === 'pluginEvaluation.accounts') data = ['one', 'two'].map(id => ({ providerId: 'posthog', serverId: id, label: `Synthetic analytics ${id}`, available: true, interactiveTools: 1, status: 'Interactive views discovered' }))
       else if (name === 'pluginEvaluation.launchAccount') {
@@ -76,12 +77,22 @@ try {
         const minted = await (await fetch('http://127.0.0.1:48885/__launch', { method: 'POST', headers: { 'x-ri-evaluation-key': config.key } })).json()
         data = { url: config.hostOrigin + '/s/' + minted.token + '/index.html?account=' + handle, handle, account: 'Synthetic analytics two', providerId: 'posthog', expiresAt: minted.expiresAt }
       } else if (name === 'pluginEvaluation.accountRpc') data = rpc(input)
+      else if (name === 'pluginEvaluation.chat') {
+        assert.equal(input.allowChanges, true); assert.equal(input.context.app, 'PostHog'); assert.equal(input.context.operation.toolName, 'query');
+        assert(!input.context.text.includes('PRIVATE_WIDGET_PAYLOAD'));
+        chatSource = input.context.invocationId;
+        data = { text: 'Controlled account chat proposal. Review this query.', turnId: input.turnId, context: input.context, tool: { status: 'approval', ticket: chatTicket, toolName: 'query', arguments: { query: 'updated sample' }, approvalIds: ['controlled-chat-approval'] } };
+      } else if (name === 'pluginEvaluation.accountChatCapture') {
+        assert.equal(input.ticket, chatTicket); assert.equal(input.retryApproval, true);
+        executions.push('chat:query');
+        data = { kind: 'view', invocationId: chatSource, toolName: 'query', input: { query: 'updated sample' }, result: { content: [{ type: 'text', text: 'Updated sample 84' }], structuredContent: { label: 'Updated sample: 84' }, _meta: { privateUi: 'PRIVATE_WIDGET_PAYLOAD' } } };
+      }
       else if (name === 'connectors.approvePost') { approved = input.body.decision === 'approve'; data = { ok: true } }
       else if (name === 'pluginEvaluation.endAccount') { ended = true; data = { ok: true } }
       else throw new Error('Unexpected fixture request')
       return { result: { data } }
     }))
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(replies) })
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(url.searchParams.get('batch') === '1' ? replies : replies[0]) })
   })
   await context.addInitScript(origin => { if (location.origin === origin) localStorage.setItem('ri.client.apiTransport', 'http') }, config.parentOrigin)
   await page.goto(config.parentOrigin + '/?settings=plugins#token=' + encodeURIComponent(token))
@@ -116,6 +127,21 @@ try {
   assert.deepEqual(executions, ['query', 'filter'])
   assert.equal(widgetRequests.find(value => value.name === 'filter').audience, 'app')
   pass('A nested widget calls an app-only tool through its selected account channel')
+  await page.getByRole('button', { name: 'Chat about result', exact: true }).click();
+  const chat = page.getByRole('region', { name: 'Temporary demo chat' });
+  const permission = chat.getByRole('checkbox', { name: 'Allow calls on this account', exact: true });
+  assert.equal(await permission.isChecked(), false); await permission.check();
+  await chat.getByRole('textbox', { name: 'Message the demo agent' }).fill('Run the updated sample query');
+  await chat.getByRole('button', { name: 'Send demo message' }).click();
+  await chat.getByText('Review this account action before it runs.', { exact: true }).waitFor();
+  assert.deepEqual(executions, ['query', 'filter']);
+  await chat.getByRole('button', { name: 'Approve once', exact: true }).click();
+  await chat.getByText('Applied to this view through MCP', { exact: true }).waitFor();
+  const revisedProxy = await (await host.getByTitle('posthog · Synthetic analytics interactive result').elementHandle()).contentFrame();
+  const revised = await (await revisedProxy.locator('iframe').elementHandle()).contentFrame();
+  await revised.getByText('Updated sample: 84', { exact: true }).waitFor();
+  assert.deepEqual(executions, ['query', 'filter', 'chat:query']);
+  pass('The account demo chat requires explicit permission and approval, then renders one captured result without sending private metadata to the agent');
   const before = methods.length
   await page.evaluate(value => window.postMessage(value, '*'), { kind: 'ri-account-rpc', handle, channel: randomUUID(), rpc: { id: 900, method: 'tools/list' } })
   await page.waitForTimeout(250)
@@ -125,7 +151,7 @@ try {
   await host.evaluate(() => location.reload())
   await host.getByRole('status').filter({ hasText: 'Session ended.' }).waitFor()
   await host.getByRole('button', { name: 'Run and show result' }).waitFor()
-  assert.deepEqual(executions, ['query', 'filter'])
+  assert.deepEqual(executions, ['query', 'filter', 'chat:query'])
   assert.equal(await host.locator('iframe').count(), 0)
   pass('Reload starts a new discovery channel, discards the result and never repeats either tool')
   await page.screenshot({ path: join(root, 'evidence/ri-account-fixture.png') })

@@ -14,7 +14,7 @@ export { accountRpcSchema } from '@/lib/plugins/evaluation-contract';
 type Rpc = z.infer<typeof accountRpcSchema>;
 type ToolResult = { content: unknown[]; structuredContent?: unknown; _meta?: Record<string, unknown>; isError?: boolean };
 type Reply = { result: unknown; approvalIds?: string[] };
-type Delivery = { fingerprint: string; status: 'pending' | 'captured' | 'approval' | 'unknown'; promise: Promise<Reply> };
+type Delivery = { input?: Rpc; fingerprint: string; status: 'pending' | 'captured' | 'approval' | 'unknown'; promise: Promise<Reply> };
 interface Session { viewer: string; owner: string; expires: number; view: McpViewConnection; deliveries: Map<string, Delivery>; bytes: number }
 const globals = globalThis as typeof globalThis & { __riAccountEvaluations?: Map<string, Session> };
 const sessions = globals.__riAccountEvaluations ??= new Map();
@@ -95,7 +95,7 @@ export async function accountEvaluationRpc(value: Rpc, viewer: string): Promise<
     if (!(input.retryApproval && prior.status === 'approval')) return currentReply(prior);
   }
   if (!prior && session.deliveries.size >= 80) fail('The temporary view call limit was reached.', 429);
-  const delivery = { fingerprint: digest, status: 'pending' as Delivery['status'], promise: null as unknown as Promise<Reply> };
+  const delivery = { input, fingerprint: digest, status: 'pending' as Delivery['status'], promise: null as unknown as Promise<Reply> };
   session.deliveries.set(key, delivery);
   delivery.promise = (async () => {
     let captured: unknown;
@@ -123,4 +123,16 @@ export async function accountEvaluationRpc(value: Rpc, viewer: string): Promise<
     await assertAccountEvaluation(input.handle, viewer);
     return reply;
   }
+}
+
+/** Admit a chat to the exact captured UI invocation, never by matching arguments. */
+export async function accountViewInvocation(handle: string, viewer: string, invocationId: string) {
+  const session = await assertAccountEvaluation(handle, viewer);
+  const delivery = session.deliveries.get(invocationId);
+  if (!delivery || delivery.status !== 'captured' || delivery.input?.audience !== 'model') fail('Attach a completed interactive result from this account.', 409);
+  const tool = enabledTools(session).find(tool => tool.name === delivery.input?.name);
+  if (!tool || !uiUri(tool) || !mcpToolVisible(tool, 'model')) fail('This result no longer has an available interactive tool.');
+  const reply = await delivery.promise;
+  if ((reply.result as ToolResult)?.isError) fail('This result did not complete successfully.', 409);
+  return { session, tool, input: delivery.input, result: reply.result as ToolResult };
 }

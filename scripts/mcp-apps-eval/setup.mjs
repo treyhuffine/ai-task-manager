@@ -40,6 +40,8 @@ run('git', ['apply', '--check', join(here, 'account-demos.patch')])
 run('git', ['apply', join(here, 'account-demos.patch')])
 run('git', ['apply', '--check', join(here, 'diagram-chat.patch')])
 run('git', ['apply', join(here, 'diagram-chat.patch')])
+run('git', ['apply', '--check', join(here, 'view-chat.patch')])
+run('git', ['apply', join(here, 'view-chat.patch')])
 for (const project of projects) {
   cpSync(join(here, 'locks', project + '.yaml'), join(root, project, 'pnpm-lock.yaml'))
   run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], join(root, project))

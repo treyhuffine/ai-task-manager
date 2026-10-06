@@ -7,12 +7,12 @@ October 5, 2026. Open Settings > Plugins at your Home's normal HTTPS URL. The ex
 | Excalidraw | Hosted diagram with interactive editing, expansion and opt-in agent updates | Live tested over Beamd. Editing sends checkpoints upstream. [Diagram chat follow-up](plugins-evaluation-excalidraw-chat.md). |
 | Microsoft Flint | Hosted chart with synthetic revenue, chart options and themes | Live tested over Beamd. |
 | Building explorer | Public Dutch building lookup, map and sortable table | Live tested over Beamd. Public records are read only. |
-| tldraw | Hosted canvas with a fixed sample script and editable label | Live tested over Beamd. Edits update attached context without repeating the initial execution. External discovery can time out, shown locally. |
+| tldraw | Hosted canvas with a fixed sample script and editable label | The server returns real canvas data, but its SDK license gate removes the canvas on this HTTPS sandbox after five seconds. Ri shows a local explanation and captured data. Continued interactive use is not qualified. |
 | Asana | Discovered task/project preview or search workflow | Account required. Registered OAuth client and exact redirect URL required. Authenticated Ri UI qualification pending. |
 | Figma | Interactive tools actually advertised to the selected Ri connection | OAuth plus client admission required. A Figma account or tool-only connection does not establish portable UI support. Authenticated Ri qualification pending. |
 | PostHog | Discovered query/analytics UI with schema-derived inputs | OAuth or personal API key. Authenticated Ri UI qualification pending. Existing OAuth accounts remain valid. |
 
-The official Scenario Modeler also remains available in the preset host with opt-in calculation changes. Excalidraw now supports opt-in updates to the attached sample diagram using only its public reference and rendering tools. The other third-party demo chats remain read only, with no tool access. They see only context explicitly attached by the human. App-requested messages are staged for normal Send, and typing is preserved. This evaluation does not attach results to ordinary Ri conversations or provide generic document persistence.
+The official Scenario Modeler also remains available in the preset host with opt-in calculation changes. Excalidraw now supports opt-in updates to the attached sample diagram using only its public reference and rendering tools. Flint and the building explorer now also have opt-in agent operations. The tldraw adapter is implemented, but its current license failure withholds edit permission. Account result chats can call the originating model-visible interactive tool on the selected account after an explicit grant, through the existing gateway and account policies. [All-app chat details](plugins-evaluation-agent-views.md). They see only context explicitly attached by the human. App-requested messages are staged for normal Send, and typing is preserved. This evaluation does not attach results to ordinary Ri conversations or provide generic document persistence.
 
 ## Connect an account
 
@@ -44,7 +44,7 @@ Public table-row launches claim a one-time preset in their capability session. A
 
 ## Reproduce verification
 
-Build and start using the [evaluation README](../scripts/mcp-apps-eval/README.md). The fifth source overlay preserves the existing pinned dependency set. Full public/chat verification uses the separately built synthetic Ri Home:
+Build and start using the [evaluation README](../scripts/mcp-apps-eval/README.md). The source overlays preserve the existing pinned dependency set. Full public/chat verification uses the separately built synthetic Ri Home:
 
 ```sh
 RI_ROOT=/private/tmp/ri-plugin-ui-check RI_MCP_APPS_TEST_HOME_ORIGIN=http://127.0.0.1:48887 node --import tsx scripts/mcp-apps-eval/verify-remote.mjs --chat

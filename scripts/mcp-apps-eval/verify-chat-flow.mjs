@@ -123,7 +123,7 @@ export async function verifyChatFlow({ page, context, host, scenario, config, pa
     captured?.()
     if (gate) await gate
     const reply = { text: 'Controlled test reply using the real captured sample calculation.', turnId: input.turnId, context: input.context, tool }
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ result: { data: reply } }]) })
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(new URL(route.request().url()).searchParams.get('batch') === '1' ? [{ result: { data: reply } }] : { result: { data: reply } }) })
   })
   try {
     await updates.check()

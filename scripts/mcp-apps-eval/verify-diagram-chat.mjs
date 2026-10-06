@@ -159,7 +159,7 @@ try {
       assert.equal(tool.status, 'ready')
       captured()
       await pending
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ result: { data: { text: 'Controlled reply with a real captured Excalidraw result.', turnId: input.turnId, context: input.context, tool } } }]) })
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(new URL(route.request().url()).searchParams.get('batch') === '1' ? [{ result: { data: { text: 'Controlled reply with a real captured Excalidraw result.', turnId: input.turnId, context: input.context, tool } } }] : { result: { data: { text: 'Controlled reply with a real captured Excalidraw result.', turnId: input.turnId, context: input.context, tool } } }) })
     })
     async function hold(text) {
       label = text

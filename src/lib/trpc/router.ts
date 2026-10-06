@@ -10,6 +10,7 @@ import * as s from './schemas';
 import { terminalSubscriptions } from './terminal-subscription';
 import { hasWebSocketRuntime, publishApplicationRouter } from './ws-runtime';
 import { launchPluginEvaluation, pluginEvaluationStatus } from '@/lib/server/operations/plugins/evaluation';
+import { accountChatCapture } from '@/lib/server/operations/plugins/account-chat';
 import { chatWithPluginEvaluation } from '@/lib/server/operations/plugins/evaluation-chat';
 import { evaluationChatInputSchema } from '@/lib/plugins/evaluation-contract';
 import { accountEvaluationCatalog, accountEvaluationRpc, accountRpcSchema, endAccountEvaluation, launchAccountEvaluation } from '@/lib/server/operations/plugins/account-evaluation';
@@ -40,6 +41,7 @@ export const appRouter = router({
     accounts: p.query(() => accountEvaluationCatalog()),
     launchAccount: p.input(z.object({ parentOrigin: z.string().url(), serverId: z.string().min(1) }).strict()).mutation(({ input, ctx }) => launchAccountEvaluation(input.parentOrigin, input.serverId, ctx.key!.apiKeyId)),
     accountRpc: p.input(accountRpcSchema).mutation(({ input, ctx }) => accountEvaluationRpc(input, ctx.key!.apiKeyId)),
+    accountChatCapture: p.input(z.object({ ticket: z.uuid(), retryApproval: z.boolean().optional() }).strict()).mutation(({ input, ctx }) => accountChatCapture(input.ticket, ctx.key!.apiKeyId, input.retryApproval)),
     endAccount: p.input(z.object({ handle: z.uuid() }).strict()).mutation(({ input, ctx }) => endAccountEvaluation(input.handle, ctx.key!.apiKeyId)),
   }),
   tasks: router({

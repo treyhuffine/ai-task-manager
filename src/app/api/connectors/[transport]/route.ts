@@ -27,6 +27,7 @@ import { createMcpHandler } from 'mcp-handler';
 import { serveMcp, type McpToolRegistrar } from '@connectors/engine/mcp';
 import type { AccountChoice } from '@connectors/engine';
 import type { NextRequest } from 'next/server';
+import { serveAccountChat } from '@/lib/server/operations/plugins/account-chat';
 import { APP_NAME } from '@/constants/app';
 import {
   getConnectorRuntime,
@@ -190,6 +191,12 @@ function callingChat(req: NextRequest): string | null {
 }
 
 function handle(req: NextRequest): Promise<Response> {
+  const ticket = new URL(req.url).searchParams.get('evaluation');
+  if (ticket) {
+    const key = getRequestKey(req.headers);
+    if (key?.scope !== 'viewer' || key.location !== 'home' || !z.string().uuid().safeParse(ticket).success) return Promise.resolve(new Response('This demo gateway is restricted to its Home harness.', { status: 403 }));
+    return createMcpHandler(async server => { await serveAccountChat(server as unknown as McpToolRegistrar, ticket); }, { serverInfo: { name: 'account_demo', version: '1' } }, { basePath: '/api/connectors', maxDuration: 120 })(req);
+  }
   const ws = new URL(req.url).searchParams.get('ws');
   return buildHandler(ws, callingChat(req))(req);
 }

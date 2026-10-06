@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { root } from './config.mjs'
 import { PUBLIC_SERVERS, createPublicProxy, validPublicCsp } from './public-servers.mjs'
+import { admitViewTurn, viewContext, capturedView, viewChatRpc } from './view-chat.mjs'
 import { admitDiagramTurn, capturedDiagram, diagramChatRpc, diagramContext } from './diagram-chat.mjs'
 
 const LOCAL_HOST = 'http://ri-mcp-apps.127.0.0.1.nip.io:48880'
@@ -156,21 +157,30 @@ export function createRemoteServers(config, now = Date.now, { scenarioPort = 488
         if (!entry) { reply(res, 410, 'Example session ended'); return }
         if (url.pathname === '/__chat/begin') {
           const diagram = input.allowChanges === true ? admitDiagramTurn(entry.session, input.context) : null
-          const publicView = ['public', 'account'].includes(input.context?.kind) && ['Excalidraw', 'Flint charts', 'Building explorer', 'tldraw', 'Asana', 'Figma', 'PostHog'].includes(input.context.app) && typeof input.context.text === 'string' && input.context.text.length <= 12000 && (input.allowChanges === false || !!diagram)
+          const view = input.allowChanges === true ? admitViewTurn(entry.session, input.context) : null
+          const publicView = ['public', 'account'].includes(input.context?.kind) && ['Excalidraw', 'Flint charts', 'Building explorer', 'tldraw', 'Asana', 'Figma', 'PostHog'].includes(input.context.app) && typeof input.context.text === 'string' && input.context.text.length <= 12000 && (input.allowChanges === false || !!diagram || !!view)
           if (!publicView && (!validScenarioInputs(input.inputs) || typeof input.allowChanges !== 'boolean')) { reply(res, 400, 'Invalid example context'); return }
           if (entry.session.turns.has(input.turnId)) { reply(res, 409, 'This turn was already registered'); return }
           if (entry.session.turns.size >= 20) { reply(res, 429, 'Open a new example session after twenty chat turns'); return }
-          entry.session.turns.set(input.turnId, { turnId: input.turnId, status: 'unused', base: input.inputs, publicView, diagram, allowChanges: diagram ? true : publicView ? false : input.allowChanges })
+          entry.session.turns.set(input.turnId, { turnId: input.turnId, status: 'unused', base: input.inputs, publicView, diagram, view, allowChanges: diagram || view ? true : publicView ? false : input.allowChanges })
           reply(res, 200, '{}', 'application/json')
         } else {
           const turn = entry.session.turns.get(input.turnId)
           if (!turn) { reply(res, 404, 'Unknown turn'); return }
-          reply(res, 200, JSON.stringify({ status: turn.status, ...(turn.status === 'ready' ? turn.diagram ? { diagram: { invocationId: turn.diagram.invocationId, checkpointId: turn.checkpointId } } : { inputs: turn.inputs } : {}) }), 'application/json')
+          reply(res, 200, JSON.stringify({ status: turn.status, ...(turn.status === 'ready' ? turn.view ? { view: { invocationId: turn.view.invocationId } } : turn.diagram ? { diagram: { invocationId: turn.diagram.invocationId, checkpointId: turn.checkpointId } } : { inputs: turn.inputs } : {}) }), 'application/json')
         }
         return
       }
       const entry = sessionFor(url.pathname)
       if (!entry) { reply(res, 410, 'Example session ended. Return to Ri to open a new session.'); return }
+      if (entry.path === '/api/view' && req.method === 'GET') {
+        const context = viewContext(entry.session, url.searchParams.get('invocationId'))
+        reply(res, context ? 200 : 404, context ? JSON.stringify(context) : 'No attached view', 'application/json'); return
+      }
+      if (entry.path === '/api/view/close' && req.method === 'POST') {
+        for (const state of entry.session.publicServers?.values() ?? []) state.views?.delete(url.searchParams.get('invocationId'))
+        reply(res, 204, ''); return
+      }
       if (entry.path === '/api/diagram' && req.method === 'GET') {
         const context = diagramContext(entry.session, url.searchParams.get('invocationId'))
         reply(res, context ? 200 : 404, context ? JSON.stringify(context) : 'No attached diagram', 'application/json'); return
@@ -215,17 +225,17 @@ export function createRemoteServers(config, now = Date.now, { scenarioPort = 488
         const turnId = entry.path.split('/')[2]
         const turn = entry.session.turns.get(turnId)
         if (!turn) { reply(res, 404, 'Unknown turn'); return }
-        if (turn.diagram) {
+        if (turn.diagram || turn.view) {
           if (entry.path.endsWith('/mcp') && req.method === 'POST') {
             const chunks = []; let size = 0
             for await (const chunk of req) { size += chunk.length; if (size > 65536) { reply(res, 413, 'Input too large'); return } chunks.push(chunk) }
             let rpc
             try { rpc = JSON.parse(Buffer.concat(chunks)) } catch { reply(res, 400, 'Invalid JSON'); return }
-            const response = await diagramChatRpc(publicProxy, entry.session, turn, rpc)
+            const response = await (turn.view ? viewChatRpc : diagramChatRpc)(publicProxy, entry.session, turn, rpc)
             res.writeHead(response.status, response.headers); res.end(response.body)
           } else if (entry.path.endsWith('/mcp') && req.method === 'DELETE') reply(res, 204, '')
           else if (entry.path.endsWith('/result') && req.method === 'GET' || entry.path.endsWith('/apply') && req.method === 'POST') {
-            const payload = capturedDiagram(entry.session, turn, url.searchParams.get('invocationId'), entry.path.endsWith('/apply'))
+            const payload = (turn.view ? capturedView : capturedDiagram)(entry.session, turn, url.searchParams.get('invocationId'), entry.path.endsWith('/apply'))
             reply(res, payload ? 200 : 409, payload ? JSON.stringify(payload) : 'The diagram or its access changed. No call was replayed.', 'application/json')
           } else reply(res, 405, 'Method not supported')
         }

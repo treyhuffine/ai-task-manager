@@ -59,6 +59,7 @@ export function publicRequestAllowed(name, rpc, state) {
   if (name === 'buildings' && tool === 'render_table') return boundedJson(args, 32768)
   if (name === 'tldraw') {
     if (tool === 'exec') return args.code === TLDRAW_CODE && args.canvasId === undefined && Object.keys(args).every(key => key === 'code')
+      || state.permittedScripts?.get(rpc.params._meta['ri/evaluationInvocation'])?.code === args.code && state.permittedScripts?.get(rpc.params._meta['ri/evaluationInvocation'])?.canvasId === args.canvasId && state.canvases.has(args.canvasId) && Object.keys(args).every(key => ['code', 'canvasId'].includes(key))
     if (tool === '_get_canvas_state') return state.canvases.has(args.canvasId)
     if (tool === 'read_checkpoint') return state.checkpoints.has(args.checkpointId)
     if (tool === '_exec_callback') return args.channel === 'exec' && args.result && typeof args.result.success === 'boolean'
@@ -113,7 +114,7 @@ export function createPublicProxy(send = httpsMcpRequest) {
     session.publicServers ??= new Map()
     let state = session.publicServers.get(name)
     if (!state) {
-      state = { checkpoints: new Set(), checkpointVersions: new Map(), diagrams: new Map(), canvases: new Set(), deliveries: new Map(), requestId: 0, protocolVersion: undefined, sessionId: undefined }
+      state = { checkpoints: new Set(), checkpointVersions: new Map(), diagrams: new Map(), views: new Map(), canvases: new Set(), deliveries: new Map(), requestId: 0, protocolVersion: undefined, sessionId: undefined }
       session.publicServers.set(name, state)
     }
     if (!publicRequestAllowed(name, rpc, state)) return failure(rpc, 'Unsupported public example operation')
@@ -137,6 +138,12 @@ export function createPublicProxy(send = httpsMcpRequest) {
       checkpointWrite.pending++
       state.checkpointVersions.set(rpc.params.arguments.id, checkpointWrite)
     }
+    const canvasWrites = isCall && name === 'tldraw' && toolName(rpc) === 'save_checkpoint' ? [...state.views.values()].filter(view => view.canvasId === rpc.params.arguments.canvasId) : []
+    for (const view of canvasWrites) {
+      const fingerprint = createHash('sha256').update(JSON.stringify([rpc.params.arguments.shapesJson, rpc.params.arguments.assetsJson, rpc.params.arguments.bindingsJson])).digest('hex')
+      if (view.fingerprint !== fingerprint) view.version++
+      view.fingerprint = fingerprint; view.pending++
+    }
     async function execute() {
       try {
         const forwarded = structuredClone(rpc)
@@ -153,7 +160,7 @@ export function createPublicProxy(send = httpsMcpRequest) {
           state.sessionId = response.headers['mcp-session-id']
           state.protocolVersion = parsed.result.protocolVersion
         }
-        if (rpc.method === 'tools/list' && parsed.result?.tools) parsed.result.tools = parsed.result.tools.filter(tool => server.tools.includes(tool.name))
+        if (rpc.method === 'tools/list' && parsed.result?.tools) { parsed.result.tools = parsed.result.tools.filter(tool => server.tools.includes(tool.name)); state.tools = parsed.result.tools }
         if (rpc.method === 'resources/list' && parsed.result?.resources) parsed.result.resources = parsed.result.resources.filter(resource => server.resources.includes(resource.uri))
         if (rpc.method === 'resources/read' && parsed.result) {
           const contents = parsed.result.contents
@@ -171,14 +178,16 @@ export function createPublicProxy(send = httpsMcpRequest) {
           }
         }
         if (checkpointWrite && (response.status !== 200 || !parsed.result || parsed.result.isError)) checkpointWrite.unknown = true
+        if (isCall && ['flint', 'buildings', 'tldraw'].includes(name) && ['create_chart_view', 'render_map', 'render_table', 'exec'].includes(toolName(rpc)) && parsed.result && !parsed.result.isError) state.views.set(invocation, { toolName: toolName(rpc), version: 0, canvasId: parsed.result.structuredContent?.canvasId, pending: 0, unknown: false })
+        if (canvasWrites.length && (response.status !== 200 || !parsed.result || parsed.result.isError)) for (const view of canvasWrites) view.unknown = true
         if (isCall && name === 'tldraw' && !parsed.result?.isError) {
           const canvas = parsed.result?.structuredContent?.canvasId
           if (toolName(rpc) === 'exec' && typeof canvas === 'string' && canvas.length <= 128) state.canvases.add(canvas)
           if (toolName(rpc) === 'save_checkpoint') state.checkpoints.add(rpc.params.arguments.checkpointId)
         }
         return { status: response.status, rpc: parsed }
-      } catch { if (checkpointWrite) checkpointWrite.unknown = true; return null }
-      finally { if (checkpointWrite) checkpointWrite.pending-- }
+      } catch { if (checkpointWrite) checkpointWrite.unknown = true; for (const view of canvasWrites) view.unknown = true; return null }
+      finally { if (checkpointWrite) checkpointWrite.pending--; for (const view of canvasWrites) view.pending-- }
     }
     const pending = execute()
     if (isCall) state.deliveries.set(invocation, { fingerprint, promise: pending.then(saved => {

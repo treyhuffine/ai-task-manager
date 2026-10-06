@@ -1,0 +1,115 @@
+{
+  "publicAgent": {
+    "checkedAt": "2026-10-06T00:32:52.902Z",
+    "checks": [
+      "Microsoft Flint explicitly opens a real public result with its own update capability",
+      "Real Claude updates Microsoft Flint through MCP, the actual UI changes, and the next draft is preserved",
+      "Read-only Claude sees the updated Microsoft Flint context",
+      "Microsoft Flint reload ends its session without replaying the original call",
+      "Building explorer explicitly opens a real public result with its own update capability",
+      "Real Claude updates Building explorer through MCP, the actual UI changes, and the next draft is preserved",
+      "Read-only Claude sees the updated Building explorer context",
+      "Building explorer reload ends its session without replaying the original call",
+      "tldraw reports its hosted SDK license failure and retains bounded captured canvas data",
+      "Read-only Claude can discuss the captured tldraw data without a hidden edit grant",
+      "Reload of the blocked tldraw result ends its session without replay"
+    ],
+    "syntheticHome": true,
+    "realPublicServers": true,
+    "realClaudeHarness": true,
+    "limitations": [
+      "tldraw hosted SDK license gate blocks the HTTPS sandbox"
+    ],
+    "calls": [
+      "create_chart_view",
+      "get_building_profile",
+      "render_map",
+      "exec",
+      "_exec_callback",
+      "save_checkpoint",
+      "save_checkpoint"
+    ]
+  },
+  "accountFixture": {
+    "testedAt": "2026-10-06T00:32:33.197Z",
+    "mode": "Controlled account protocol fixtures in the actual built Ri UI",
+    "checks": [
+      "Seven rows and explicit multi-account selection open the real account bridge without a tool call",
+      "The actual Ri approval overlay retries the same gated invocation and renders its captured result once",
+      "A nested widget calls an app-only tool through its selected account channel",
+      "The account demo chat requires explicit permission and approval, then renders one captured result without sending private metadata to the agent",
+      "Wrong-frame requests are ignored and the isolated app origins receive no Ri cookie",
+      "Reload starts a new discovery channel, discards the result and never repeats either tool",
+      "Returning to Plugins revokes the temporary account handle"
+    ],
+    "executions": [
+      "query",
+      "filter",
+      "chat:query"
+    ]
+  },
+  "renderer": {
+    "testedAt": "2026-10-06T00:33:58.791Z",
+    "mode": "synthetic-parent",
+    "checks": [
+      "The HTTPS view discovers four public servers and the local scenario without invoking a tool",
+      "Ri cookies do not reach either HTTPS example origin",
+      "Scenario sliders, comparison and reset work over Beamd",
+      "The real app retains its nested sandbox, DOM isolation and lack of desktop IPC",
+      "Excalidraw editing and return preserve the same invocation over HTTPS",
+      "The public Flint app renders sample revenue and its theme control changes the actual chart",
+      "A real public building lookup feeds the third-party map app",
+      "The third-party table renders the actual building data",
+      "The hosted tldraw license gate fails locally with a visible explanation and retained text",
+      "Reload ends the example session without replaying a tool",
+      "No Ri cookie or Authorization header is sent to the examples"
+    ],
+    "browserCalls": [
+      "get-scenario-data",
+      "create_view",
+      "read_checkpoint",
+      "save_checkpoint",
+      "create_chart_view",
+      "save_checkpoint",
+      "get_building_profile",
+      "render_map",
+      "read_checkpoint",
+      "get_building_profile",
+      "render_table",
+      "exec",
+      "_exec_callback",
+      "save_checkpoint",
+      "save_checkpoint"
+    ],
+    "chatVerification": null
+  },
+  "excalidrawRegression": {
+    "testedAt": "2026-10-06T00:11:53.373Z",
+    "mode": "isolated-ri",
+    "checks": [
+      "Opening the Excalidraw row captures one real public invocation and its owned checkpoint",
+      "A real Claude MCP update adds Done to the same diagram while preserving manual edits and typing",
+      "The remounted guest cannot read an older checkpoint through its current view bridge",
+      "A subsequent read-only Claude reply sees the actual agent-updated checkpoint and the manual note",
+      "Revoking the update checkbox while a reply is pending keeps the captured fork out of the view",
+      "A newer manual edit defeats a stale agent result without replaying the accepted call",
+      "A second chat attaches the updated diagram explicitly with an independent draft and update permission",
+      "Reload discards the diagram and temporary chats without rerunning create_view"
+    ],
+    "harness": "claude",
+    "upstream": "https://mcp.excalidraw.com/mcp"
+  },
+  "validation": {
+    "riUnitTests": 26,
+    "protocolUnitTests": 16,
+    "typecheck": "passed",
+    "targetedLint": "passed",
+    "isolatedProductionBuild": "passed",
+    "isolatedCliBuild": "passed",
+    "pinnedOverlayReproduction": "all three final host files match"
+  },
+  "compatibility": {
+    "tldraw": "Hosted SDK license gate blocks continued rendering on the HTTPS sandbox. Read-only captured context and explicit local fallback passed. Continued interactive use is not qualified.",
+    "accounts": "No Asana, Figma or PostHog account connected in this Home. Shared per-provider adapter and controlled UI tests passed. Live provider qualification remains pending."
+  }
+}

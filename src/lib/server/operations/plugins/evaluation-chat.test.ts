@@ -118,3 +118,15 @@ it('enables only Excalidraw reference and rendering tools for an explicitly gran
   }));
   for (const changed of [{ ...context, diagram: undefined }, { ...context, kind: 'account' as const }, { ...context, app: 'Figma' as const }]) expect(() => chatWithPluginEvaluation({ ...input, turnId: randomUUID(), context: changed })).toThrow();
 });
+
+it.each(['Flint charts', 'Building explorer', 'tldraw'] as const)('uses the bounded view adapter for %s only after explicit permission', async app => {
+  const context = { invocationId: randomUUID(), revision: 2, kind: 'public' as const, app, view: 'Chart' as const, text: 'Explicitly attached synthetic/public view', update: { version: 3 } };
+  const input = { ...turn(), context, allowChanges: true };
+  const tool = { status: 'ready', view: { invocationId: context.invocationId } };
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/begin') ? {} : tool)));
+  expect((await chatWithPluginEvaluation(input)).tool).toEqual(tool);
+  expect(runHarnessText).toHaveBeenCalledWith(expect.objectContaining({
+    allowedTools: ['mcp__view_demo__create_chart_view', 'mcp__view_demo__show_building', 'mcp__view_demo__update_canvas'],
+    mcpServers: [expect.objectContaining({ name: 'view_demo' })], system: expect.stringContaining('Preserve manual edits'),
+  }));
+});

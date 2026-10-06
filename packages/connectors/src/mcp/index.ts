@@ -4,3 +4,4 @@ export { ingestMcpServer, ingestMcpServers, mcpToolVisible } from './ingest';
 export type { McpClientLike, McpToolDef, IngestMcpOptions, IngestMcpResult } from './ingest';
 export { beginMcpOAuth, connectMcpClient, finishMcpOAuth } from './client';
 export type { ConnectMcpOptions, ConnectedMcpClient } from './client';
+export { jsonSchemaToZodObject } from './json-schema';

@@ -5,10 +5,11 @@ import { useMutation } from '@tanstack/react-query';
 import { MessageCircle, Send, Tag, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MessageResponse } from '@/components/ai-elements/message';
-import { trpc } from '@/lib/trpc/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 import { allowsEvaluationChanges, evaluationContextSchema, type EvaluationContext } from '@/lib/plugins/evaluation-contract';
 
-type Message = { role: 'user' | 'assistant'; text: string; turnId: string; status?: string };
+type Approval = { invocationId: string; revision: number; ticket: string; toolName: string; arguments: Record<string, unknown>; approvalIds: string[] };
+type Message = { role: 'user' | 'assistant'; text: string; turnId: string; status?: string; approval?: Approval };
 type Conversation = { draft: string; messages: Message[]; contextId: string | null; allowChanges: boolean };
 function emptyChat(): Conversation { return { draft: '', messages: [], contextId: null, allowChanges: false }; }
 function viewName(context: EvaluationContext) { return 'inputs' in context ? 'Scenario Modeler' : `${context.app} · ${context.view}`; }
@@ -27,7 +28,7 @@ export function EvaluationChat({ viewUrl, frame }: { viewUrl: string; frame: Ref
   const everOpened = useRef(false);
   const selectedRef = useRef(selected);
   const log = useRef<HTMLDivElement>(null);
-  const pending = useRef<{ turnId: string; invocationId: string; index: number; timer: number; diagram: boolean } | null>(null);
+  const pending = useRef<{ turnId: string; invocationId: string; index: number; timer: number; label: string } | null>(null);
   useEffect(() => { chatsRef.current = chats; }, [chats]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
 
@@ -72,7 +73,7 @@ export function EvaluationChat({ viewUrl, frame }: { viewUrl: string; frame: Ref
         const applying = pending.current;
         if (applying && ['ri-evaluation-applied', 'ri-evaluation-apply-failed'].includes(message?.kind) && applying.turnId === message.turnId && applying.invocationId === message.invocationId) {
           window.clearTimeout(applying.timer);
-          toolStatus(applying.index, message.turnId, message.kind === 'ri-evaluation-applied' ? applying.diagram ? 'Applied to this diagram through MCP' : 'Applied to this scenario through MCP' : 'The view could not apply the captured result. No call was repeated.');
+          toolStatus(applying.index, message.turnId, message.kind === 'ri-evaluation-applied' ? `Applied to this ${applying.label} through MCP` : 'The view could not apply the captured result. No call was repeated.');
           pending.current = null; setBusy(false);
         }
       }
@@ -103,26 +104,51 @@ export function EvaluationChat({ viewUrl, frame }: { viewUrl: string; frame: Ref
         history: conversation.messages.slice(-12).map(({ role, text }) => ({ role, text })),
       });
       const diagram = !!result.tool.diagram && 'kind' in context && context.app === 'Excalidraw' && result.tool.diagram.invocationId === context.invocationId;
-      let status = result.tool.status === 'unknown' ? 'Tool outcome unknown. No call was repeated.' : diagram ? 'Prepared a diagram revision through MCP' : 'kind' in context ? 'Read the attached third-party context. No new server call.' : result.tool.status === 'ready' ? 'Read the sample data through MCP' : 'No server tool was called';
-      const changed = diagram || 'inputs' in context && result.tool.inputs && Object.keys(context.inputs).some(key => context.inputs[key as keyof typeof context.inputs] !== result.tool.inputs![key as keyof typeof context.inputs]);
+      const view = result.tool.view?.invocationId === context.invocationId;
+      const label = 'inputs' in context ? 'scenario' : context.app === 'Excalidraw' ? 'diagram' : context.app === 'tldraw' ? 'canvas' : context.app === 'Flint charts' ? 'chart' : 'view';
+      const approval = result.tool.status === 'approval' && result.tool.ticket && result.tool.toolName && result.tool.approvalIds?.length ? { invocationId: context.invocationId, revision: context.revision, ticket: result.tool.ticket, toolName: result.tool.toolName, arguments: result.tool.arguments ?? {}, approvalIds: result.tool.approvalIds } : undefined;
+      let status = approval ? 'Review this account action before it runs.' : view ? 'Prepared a view result through MCP' : result.tool.status === 'unknown' ? 'Tool outcome unknown. No call was repeated.' : diagram ? 'Prepared a diagram revision through MCP' : 'kind' in context ? 'Read the attached third-party context. No new server call.' : result.tool.status === 'ready' ? 'Read the sample data through MCP' : 'No server tool was called';
+      const changed = view || diagram || 'inputs' in context && result.tool.inputs && Object.keys(context.inputs).some(key => context.inputs[key as keyof typeof context.inputs] !== result.tool.inputs![key as keyof typeof context.inputs]);
       const current = contextRef.current[context.invocationId];
       const canApply = changed && conversation.allowChanges && chatsRef.current[index].allowChanges && chatsRef.current[index].contextId === context.invocationId && current?.revision === context.revision && frame.current?.src === viewUrl;
-      if (changed && !canApply) status = `The ${diagram ? 'diagram' : 'scenario'} or its access changed. The result was not applied.`;
+      if (changed && !canApply) status = `The ${label} or its access changed. The result was not applied.`;
       if (canApply) status = 'Applying the captured MCP result…';
-      patch(index, chat => ({ ...chat, messages: [...chat.messages, { role: 'assistant' as const, text: result.text, turnId, status }].slice(-24) }));
+      patch(index, chat => ({ ...chat, messages: [...chat.messages, { role: 'assistant' as const, text: result.text, turnId, status, approval }].slice(-24) }));
       if (canApply) {
         const timer = window.setTimeout(() => {
           toolStatus(index, turnId, 'Calculated, but the view did not acknowledge the result');
           pending.current = null; setBusy(false);
         }, 15000);
-        pending.current = { turnId, invocationId: context.invocationId, index, timer, diagram };
-        frame.current!.contentWindow?.postMessage({ kind: 'ri-evaluation-tool-result', invocationId: context.invocationId, revision: context.revision, turnId }, new URL(viewUrl).origin);
+        pending.current = { turnId, invocationId: context.invocationId, index, timer, label };
+        const capture = result.tool.ticket ? await trpcClient.pluginEvaluation.accountChatCapture.mutate({ ticket: result.tool.ticket }) : undefined;
+        if (chatsRef.current[index].contextId !== context.invocationId || !chatsRef.current[index].allowChanges || contextRef.current[context.invocationId]?.revision !== context.revision) { window.clearTimeout(timer); pending.current = null; toolStatus(index, turnId, 'The view or its access changed. The captured result was not applied.'); setBusy(false); return; }
+        frame.current!.contentWindow?.postMessage({ capture, kind: 'ri-evaluation-tool-result', invocationId: context.invocationId, revision: context.revision, turnId }, new URL(viewUrl).origin);
       } else setBusy(false);
     } catch (failure) {
+      if (pending.current?.turnId === turnId) { window.clearTimeout(pending.current.timer); pending.current = null; }
       setError(failure instanceof Error ? failure.message : 'The sample chat could not finish.');
       patch(index, chat => ({ ...chat, draft: chat.draft || text }));
       setBusy(false);
     }
+  }
+
+  async function decide(index: number, message: Message, approve: boolean) {
+    if (!message.approval || busy) return;
+    const approval = message.approval;
+    const conversation = chatsRef.current[index];
+    const context = conversation.contextId ? contextRef.current[conversation.contextId] : undefined;
+    if (approve && (!context || context.invocationId !== approval.invocationId || context.revision !== approval.revision || !conversation.allowChanges)) { setError('Attach the originating result and enable its updates before approving.'); return; }
+    setBusy(true); setError(null);
+    try {
+      await trpcClient.connectors.approvePost.mutate({ body: { ids: approval.approvalIds, decision: approve ? 'approve' : 'deny' } });
+      if (!approve) { patch(index, chat => ({ ...chat, messages: chat.messages.map(value => value.turnId === message.turnId ? { ...value, approval: undefined, status: 'Declined. No account tool was run.' } : value) })); setBusy(false); return; }
+      const capture = await trpcClient.pluginEvaluation.accountChatCapture.mutate({ ticket: approval.ticket, retryApproval: true });
+      patch(index, chat => ({ ...chat, messages: chat.messages.map(value => value.turnId === message.turnId ? { ...value, approval: undefined, status: 'Account call completed. Applying its captured result…' } : value) }));
+      if (capture.invocationId !== context!.invocationId || chatsRef.current[index].contextId !== context!.invocationId || !chatsRef.current[index].allowChanges || contextRef.current[context!.invocationId]?.revision !== context!.revision || frame.current?.src !== viewUrl) { toolStatus(index, message.turnId, 'The account call completed, but the view or its access changed. Its result was not applied.'); setBusy(false); return; }
+      const timer = window.setTimeout(() => { pending.current = null; toolStatus(index, message.turnId, 'The account call completed, but its view did not acknowledge the result.'); setBusy(false); }, 15000);
+      pending.current = { turnId: message.turnId, invocationId: context!.invocationId, index, timer, label: 'view' };
+      frame.current?.contentWindow?.postMessage({ kind: 'ri-evaluation-tool-result', capture, invocationId: context!.invocationId, revision: context!.revision, turnId: message.turnId }, new URL(viewUrl).origin);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'The account action could not finish. No accepted call was repeated.'); setBusy(false); }
   }
 
   const chat = chats[selected];
@@ -143,13 +169,14 @@ export function EvaluationChat({ viewUrl, frame }: { viewUrl: string; frame: Ref
             <span><Tag className="mr-1 inline size-3" />{context ? viewName(context) + ('inputs' in context ? ` · Growth ${context.inputs.monthlyGrowthRate}%` : '') : 'Attached result · View closed'}</span>
             <Button size="icon" variant="ghost" className="size-6" aria-label={context && 'kind' in context ? 'Remove result context' : 'Remove scenario context'} onClick={() => patch(selected, value => ({ ...value, contextId: null, allowChanges: false }))}><X className="size-3" /></Button>
           </div> : Object.keys(contexts).length > 1 ? <div className="flex flex-wrap gap-1">{Object.values(contexts).map(value => <Button key={value.invocationId} variant="outline" size="sm" onClick={() => patch(selected, chat => ({ ...chat, contextId: value.invocationId, allowChanges: false }))}><Tag className="size-3" />Attach {viewName(value)}</Button>)}</div> : <Button variant="outline" size="sm" disabled={!latest} onClick={() => patch(selected, value => ({ ...value, contextId: latest, allowChanges: false }))}><Tag className="size-3" />{latest && contexts[latest] && 'kind' in contexts[latest] ? 'Attach result' : 'Attach scenario'}</Button>}
-          {context && !allowsEvaluationChanges(context) ? <p className="text-xs text-muted-foreground">Read only. The agent can discuss this result, but cannot change this app or its records.</p> : context && <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={chat.allowChanges} onChange={event => patch(selected, value => ({ ...value, allowChanges: event.target.checked }))} />{'kind' in context ? 'Allow updates to this diagram' : 'Allow updates to the sample scenario'}</label>}
+          {context && !allowsEvaluationChanges(context) ? <p className="text-xs text-muted-foreground">Read only. The agent can discuss this result, but cannot change this app or its records.</p> : context && <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={chat.allowChanges} onChange={event => patch(selected, value => ({ ...value, allowChanges: event.target.checked }))} />{'kind' in context ? context.app === 'Excalidraw' ? 'Allow updates to this diagram' : context.app === 'Flint charts' ? 'Allow updates to this chart' : context.app === 'tldraw' ? 'Allow updates to this canvas' : context.kind === 'account' ? 'Allow calls on this account' : 'Allow changes to this building view' : 'Allow updates to the sample scenario'}</label>}
         </div>
         <div ref={log} role="log" aria-label={`Demo chat ${selected + 1} messages`} className="min-h-20 flex-1 space-y-3 overflow-y-auto px-4 pb-3">
-          {!chat.messages.length && <p className="text-xs text-muted-foreground">{context ? 'inputs' in context ? 'Ask about the current sliders. Try “What growth rate do you see?”' : allowsEvaluationChanges(context) ? 'Enable updates, then try “Add a green Done step after Execute.”' : 'Ask about the displayed data or the latest information shared by this app.' : 'Open an example and attach its context here.'}</p>}
+          {!chat.messages.length && <p className="text-xs text-muted-foreground">{context ? 'inputs' in context ? 'Ask about the current sliders. Try “What growth rate do you see?”' : allowsEvaluationChanges(context) ? context.app === 'Excalidraw' ? 'Enable updates, then try “Add a green Done step after Execute.”' : context.app === 'Flint charts' ? 'Enable updates, then try “Change this to a line chart.”' : context.app === 'tldraw' ? 'Enable updates, then try “Add a green Done box.”' : context.app === 'Building explorer' ? 'Enable view changes, then try “Show Gustav Mahlerlaan 10 in a table.”' : 'Enable account calls, then ask the agent to revise this workflow. Account approvals still apply.' : 'Ask about the displayed data or the latest information shared by this app.' : 'Open an example and attach its context here.'}</p>}
           {chat.messages.map((message, index) => <div key={index} className={message.role === 'user' ? 'ml-6 rounded-lg bg-muted px-3 py-2' : 'mr-2 px-1 py-1'}>
             <p className="mb-1 text-[10px] font-medium text-muted-foreground">{message.role === 'user' ? 'You' : 'Agent'}</p>
             {message.role === 'assistant' ? <MessageResponse mode="static" className="break-words text-xs">{message.text}</MessageResponse> : <p className="whitespace-pre-wrap break-words text-xs">{message.text}</p>}
+            {message.approval && <div className="mt-2 space-y-2 rounded-md border border-border p-2"><p className="text-xs font-medium">{message.approval.toolName}</p><pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words text-[10px]">{JSON.stringify(message.approval.arguments, null, 2).slice(0, 4000)}</pre><div className="flex gap-2"><Button size="sm" disabled={busy} onClick={() => void decide(selected, message, true)}>Approve once</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => void decide(selected, message, false)}>Decline</Button></div></div>}
             {message.status && <p role="status" className="mt-2 text-[10px] text-muted-foreground">{message.status}</p>}
           </div>)}
           {busy && <p role="status" className="text-xs text-muted-foreground">Reading the attached example…</p>}
