@@ -15,8 +15,7 @@
  * `RI_SESSION_CLI`. The PATH is enough for a plain shell (Claude Code's).
  * A login shell (Codex runs `zsh -lc`) rebuilds PATH with the system folders
  * first, where macOS's own `/usr/bin/ri` (Ruby's documentation tool) wins,
- * so the production `ri` installed in `~/.local/bin` hands off to
- * `RI_SESSION_CLI` when it's set (scripts/release/ri.sh). The launcher pins
+ * so there `"$RI_SESSION_CLI"` is the way to Ri's CLI. The launcher pins
  * this home (and this server's database, config and work folders when it
  * overrides them), this server's checkout for code and migrations, and its
  * Node. A shell that sets RI_ROOT itself still chooses its own home. A

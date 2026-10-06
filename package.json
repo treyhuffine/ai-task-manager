@@ -55,7 +55,6 @@
     "dev:seed": "tsx scripts/seed-dev/seed.ts",
     "dev:reseed": "tsx scripts/seed-dev/reseed.ts",
     "ri:dev": "env -u RI_SESSION_CREDENTIAL -u RI_SESSION_CLI -u RI_DB_PATH -u RI_CONFIG_DIR -u RI_WORK_DIR RI_ROOT=\"$HOME/ri-dev\" tsx src/cli/index.ts",
-    "release": "tsx scripts/release/release.ts",
     "backup": "tsx scripts/backup-home.ts",
     "test": "vitest run",
     "test:watch": "vitest",
