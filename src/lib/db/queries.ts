@@ -8,6 +8,7 @@ import nodePath from 'node:path';
 import os from 'node:os';
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { getDb, getRawDb } from '@/lib/db';
+import { processState } from '@/lib/process-state';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
   home, devices, deviceGrants, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
@@ -6472,19 +6473,37 @@ export function revokeApiKey(id: string, reason?: string): ApiKeyRecord | null {
   );
 }
 
+/** How often a key's "last used" is written while it keeps being used. */
+const TOUCH_INTERVAL_MS = 60_000;
+
+/**
+ * When each key was last written, and from where. Process-wide because the
+ * proxy (HTTP) and the WebSocket host touch keys from different bundles.
+ */
+const touched = processState('api-keys.touched', () => new Map<string, { at: number; ip: string | null; userAgent: string | null }>());
+
+/**
+ * Record that a key was used. Written at most once a minute per key while it
+ * keeps coming from the same place: every authenticated request calls this,
+ * and the write is what a request waits on (holding the server's one thread)
+ * whenever another process has the database's write lock. Settings shows the
+ * time to the day, so a minute loses nothing.
+ */
 export function touchApiKey(
   id: string,
   meta: { ip?: string | null; userAgent?: string | null } = {},
+  now = Date.now(),
 ): void {
-  const db = getDb();
-  db.update(apiKeys)
-    .set({
-      lastUsedAt: new Date().toISOString(),
-      lastUsedIp: meta.ip ?? null,
-      lastUsedUserAgent: meta.userAgent ?? null,
-    })
+  const ip = meta.ip ?? null;
+  const userAgent = meta.userAgent ?? null;
+  const last = touched.get(id);
+  if (last && now - last.at < TOUCH_INTERVAL_MS && last.ip === ip && last.userAgent === userAgent) return;
+  getDb()
+    .update(apiKeys)
+    .set({ lastUsedAt: new Date(now).toISOString(), lastUsedIp: ip, lastUsedUserAgent: userAgent })
     .where(eq(apiKeys.id, id))
     .run();
+  touched.set(id, { at: now, ip, userAgent });
 }
 
 // ─── Workspaces ───────────────────────────────────────────────
