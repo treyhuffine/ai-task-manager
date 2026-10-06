@@ -1,4 +1,4 @@
-import { ensureCalendarProvider } from '@/lib/deck/calendar-connector';
+import { ensureCalendarProvider } from '@/lib/deck/calendar-integration';
 import { reconcileDeckWithExternalChanges } from '@/lib/deck/reconcile-external';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
@@ -7,7 +7,7 @@ import { z as rpcZ } from 'zod/v4';
  * Re-check today's deck against the live calendar and adapt it to external
  * changes (a new meeting shrinks the day → bump the lowest-priority item,
  * narrated + reversible). Deterministic, no model call. A heartbeat or the
- * scheduler calls this on a cadence; no-op until a calendar connector exists.
+ * scheduler calls this on a cadence; no-op until a calendar integration exists.
  */
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
   try {

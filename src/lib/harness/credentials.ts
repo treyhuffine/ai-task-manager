@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { aesGcmSecretBox, generateSecretKey } from '@connectors/engine/crypto';
+import { aesGcmSecretBox, generateSecretKey } from '@integrations/engine/crypto';
 import { getConfigDir } from '@/lib/config/paths';
 
 interface StoredCredentials {

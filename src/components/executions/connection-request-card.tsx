@@ -1,20 +1,20 @@
 'use client';
 
-import { ConnectorLogo } from '@/components/connectors/connector-logo';
+import { IntegrationLogo } from '@/components/integrations/integration-logo';
 import { openSettings } from '@/components/settings/settings-store';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useConnectionCardAction, useConnectorStatus, useSaveSignInApp } from '@/hooks/use-connection-requests';
+import { useConnectionCardAction, useIntegrationStatus, useSaveSignInApp } from '@/hooks/use-connection-requests';
 import { useSessionEvents } from '@/hooks/use-execution';
 import { apiErrorText } from '@/lib/api/client';
 import type { ChatEventRecord } from '@/lib/api/dto/records';
-import { openConnectorAuthorization } from '@/lib/client/desktop';
+import { openIntegrationAuthorization } from '@/lib/client/desktop';
 import {
 	DEVELOPER_CONSOLES,
 	describeAccounts,
 	looksLikeEmail,
 	type ConnectionRequestView,
 	type ConnectionResponseView,
-} from '@/lib/connectors/connection-catalog';
+} from '@/lib/integrations/connection-catalog';
 import { cn } from '@/lib/utils';
 import { Bot, Check, Copy, ExternalLink, KeyRound, Loader2, Plug, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -62,14 +62,14 @@ function currentReturnPath(): string {
 
 /**
  * A Connect card in chat: an agent asked for a service it needs, or a connection stopped working.
- * The server wrote it (lib/connectors/connection-requests.ts). What the card offers follows the
+ * The server wrote it (lib/integrations/connection-requests.ts). What the card offers follows the
  * provider's live state: a one-click sign-in, a one-time sign-in app setup, or a key field. Keys
  * and app secrets go straight to the encrypted store, never into the chat or to the agent.
  */
 export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRecord; sessionId?: string }) {
   const view = asView(event);
   const response = useCardResponse(sessionId, event.id);
-  const { data: status } = useConnectorStatus(!!view && !response);
+  const { data: status } = useIntegrationStatus(!!view && !response);
   const action = useConnectionCardAction(event.id);
   // A sign-in this card started came back with an error: say so here.
   const [notice, setNotice] = useState<string | null>(() => signInReturn(event.id)?.notice ?? null);
@@ -97,7 +97,7 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
     run({ action: 'sign_in', returnTo: currentReturnPath() }, async (result) => {
       if ('done' in result) return;
       sessionStorage.setItem(PENDING_SIGN_IN_KEY, event.id);
-      await openConnectorAuthorization(result.authorizationUrl);
+      await openIntegrationAuthorization(result.authorizationUrl);
       // The desktop app signs in in the system browser: the page stays here until the card updates.
       if (result.desktopFlowId) setNotice('Finish signing in in your browser.');
     });
@@ -115,7 +115,7 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
   return (
     <div className={cn('overflow-hidden rounded-xl border bg-card text-[11px]', resolved ? 'border-border' : 'border-sky-500/40')}>
       <div className={cn('flex items-center gap-2.5 border-b px-3 py-2', resolved ? 'border-border/60 bg-muted/20' : 'border-sky-500/20 bg-sky-500/5')}>
-        <ConnectorLogo providerId={view.providerId} name={view.providerName} size={24} className="rounded-md" />
+        <IntegrationLogo providerId={view.providerId} name={view.providerName} size={24} className="rounded-md" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <KindIcon kind={view.kind} />

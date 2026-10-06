@@ -1,6 +1,6 @@
 # Todoist through the official MCP server
 
-Todoist is a built-in connector backed by Doist's hosted MCP service at
+Todoist is a built-in integration backed by Doist's hosted MCP service at
 `https://ai.todoist.net/mcp`. Users choose Todoist and sign in through their
 browser. The app discovers tool schemas and forwards calls instead of maintaining
 its own Todoist REST implementation.
@@ -11,13 +11,13 @@ Choose Todoist in Settings, select Connect, and complete Todoist's browser conse
 The MCP SDK discovers the authorization server and dynamically registers a public
 client, using authorization code with PKCE. No personal API token or manually
 configured OAuth client is needed. Desktop uses the existing desktop OAuth callback
-flow. Web uses `/api/connectors/mcp-oauth/:serverId`.
+flow. Web uses `/api/integrations/mcp-oauth/:serverId`.
 
 After consent, the app discovers the server's tool schemas. Assignments, project
 and section moves, comments, completed tasks, and other tools become available
-through the same connector permissions as the rest of the app. The available tools
+through the same integration permissions as the rest of the app. The available tools
 come from the server, rather than a hardcoded list copied from Claude. Discovery
-runs whenever the connector runtime is rebuilt, including after connecting or
+runs whenever the integration runtime is rebuilt, including after connecting or
 testing the connection.
 
 The task picker reads `find-tasks`, follows upstream cursors, and normalizes the
@@ -28,8 +28,8 @@ structured task results. Existing `todoist:<task-id>` picker keys are unchanged.
 The built-in provider and toolkit IDs remain `todoist`. Existing personal-token
 connections require browser sign-in once. The old token is never sent to the MCP
 server. Reconnecting retains the connection ID, account ID, and saved connection
-metadata, so agent connector selections and account pins remain valid. This
-connector supports one Todoist account. If several legacy connections exist,
+metadata, so agent integration selections and account pins remain valid. This
+integration supports one Todoist account. If several legacy connections exist,
 disconnect the extra accounts before reconnecting.
 
 Only discovered `todoist.<upstream-tool-name>` actions are exposed. There are no
@@ -47,11 +47,11 @@ derived connection. Connecting again requires new browser consent.
 
 ## Host responsibilities and extension points
 
-`packages/connectors/src/providers/hosted-mcp.ts` is the catalog of built-in hosted
+`packages/integrations/src/providers/hosted-mcp.ts` is the catalog of built-in hosted
 services. A catalog entry pins the provider ID, display name, and official endpoint.
-`src/lib/connectors/hosted-mcp.ts` validates that identity and preserves existing
+`src/lib/integrations/hosted-mcp.ts` validates that identity and preserves existing
 connection metadata. The connect route, OAuth storage, runtime ingestion, health
-checks, and connector UI share this path with the other built-in hosted services.
+checks, and integration UI share this path with the other built-in hosted services.
 
 To add another provider-maintained service, add its pinned hosted catalog entry
 and a provider catalog row with `method: 'mcp'`, plus its display metadata. Verify
@@ -71,7 +71,7 @@ in the MCP server store. The host registers credentials for output redaction,
 including rotated tokens. Tool errors propagate as failed actions. A lost response
 to a mutation is marked indeterminate, so callers must check state before retrying.
 
-The host still owns authentication, local encrypted storage, agent connector
+The host still owns authentication, local encrypted storage, agent integration
 scopes, approval policies, and the task picker. Provider-maintained tools reduce
 API maintenance but do not remove the need to validate integration behavior.
 
@@ -83,18 +83,18 @@ failures, task-picker pagination and priority normalization, absence of old acti
 aliases, exact-action approval preferences, UI sign-in states, and disconnect
 cleanup during concurrent tool discovery.
 
-Run the connector engine and relevant host tests with:
+Run the integration engine and relevant host tests with:
 
 ```sh
-pnpm --filter @connectors/engine test
-pnpm --filter @connectors/engine typecheck
-pnpm test src/lib/connectors src/components/settings/sections/connectors/provider-detail.test.ts src/app/api/connectors/hosted-routes.test.ts src/app/api/connectors/test/route.test.ts src/lib/executions/task-rank.test.ts
+pnpm --filter @integrations/engine test
+pnpm --filter @integrations/engine typecheck
+pnpm test src/lib/integrations src/components/settings/sections/integrations/provider-detail.test.ts src/app/api/integrations/hosted-routes.test.ts src/app/api/integrations/test/route.test.ts src/lib/executions/task-rank.test.ts
 ```
 
 Public Todoist OAuth discovery metadata has been checked against the implemented
 flow. A real account consent and live task operation still require browser sign-in.
 
-The connector package typecheck passes. The full app typecheck currently reports
+The integration package typecheck passes. The full app typecheck currently reports
 missing installed dependencies for `electron`, `electron-updater`, and `tar`,
 with related errors in the existing desktop and service modules.
 

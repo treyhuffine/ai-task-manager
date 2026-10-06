@@ -1,6 +1,6 @@
 # Team/Enterprise Product Direction
 
-> Historical direction, not an additional build plan. The [homes build specification](homes-spec.md#9-teams-without-mandatory-ai) defines team behavior and tasks, replacing the bidirectional sync assumptions below. A team can use tasks, notes, and supported connectors without AI.
+> Historical direction, not an additional build plan. The [homes build specification](homes-spec.md#9-teams-without-mandatory-ai) defines team behavior and tasks, replacing the bidirectional sync assumptions below. A team can use tasks, notes, and supported integrations without AI.
 
 ## Model
 - **Personal instance** = your AI assistant. Where you live and execute. Pulls in only YOUR tasks from connected sources.

@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { setConnectorRequestsEnabled } from '@/lib/connectors/request-settings';
+import { setIntegrationRequestsEnabled } from '@/lib/integrations/request-settings';
 
 /**
  * An agent's main chat at spawn (docs/agents-view-spec.md Phase 6): its
@@ -129,14 +129,14 @@ describe('the brief', () => {
     expect(brief).toContain('None yet.');
   });
 
-  it('mentions connectors and the browser only when they are attached', async () => {
+  it('mentions integrations and the browser only when they are attached', async () => {
     const { renderAgentMainChatBrief } = await import('@/lib/orchestrator/harness-surface');
     const ws = { id: 'ws-1', name: 'ri', cwd: FOLDER, isGit: true, purpose: null, instructions: null };
-    const bare = renderAgentMainChatBrief(ws, { connectors: false, browser: false });
-    expect(bare).not.toContain('`connectors` MCP');
+    const bare = renderAgentMainChatBrief(ws, { integrations: false, browser: false });
+    expect(bare).not.toContain('`integrations` MCP');
     expect(bare).not.toContain('## Browser');
-    const full = renderAgentMainChatBrief(ws, { connectors: true, browser: true });
-    expect(full).toContain('`connectors` MCP server is attached with only the external');
+    const full = renderAgentMainChatBrief(ws, { integrations: true, browser: true });
+    expect(full).toContain('`integrations` MCP server is attached with only the external');
     expect(full).toContain('## Browser');
   });
 });
@@ -180,32 +180,32 @@ describe('prepareAgentMainChatSpawn', () => {
     expect(spawn.instructions).toContain('Never edit files in this folder');
   });
 
-  it("gets the agent's connector scopes, only where the harness isolates MCP, like its executions", async () => {
+  it("gets the agent's integration scopes, only where the harness isolates MCP, like its executions", async () => {
     const seeded = await seed();
-    seeded.q.setWorkspaceConnectorScopes(seeded.ws.id, [{ toolkitId: 'github' }]);
+    seeded.q.setWorkspaceIntegrationScopes(seeded.ws.id, [{ toolkitId: 'github' }]);
     const strict = await prepare(seeded);
-    const connectors = strict.config.mcpServers!.find((s) => s.name === 'connectors');
-    expect(connectors).toBeTruthy();
-    expect(JSON.stringify(connectors)).toContain(seeded.ws.id);
-    expect(strict.instructions).toContain('`connectors` MCP server is attached');
+    const integrations = strict.config.mcpServers!.find((s) => s.name === 'integrations');
+    expect(integrations).toBeTruthy();
+    expect(JSON.stringify(integrations)).toContain(seeded.ws.id);
+    expect(strict.instructions).toContain('`integrations` MCP server is attached');
 
     const loose = await prepare(seeded, { strictMcpIsolation: false, providerType: 'codex' });
-    expect(loose.config.mcpServers!.some((s) => s.name === 'connectors')).toBe(false);
+    expect(loose.config.mcpServers!.some((s) => s.name === 'integrations')).toBe(false);
     expect(loose.warnings.join('\n')).toContain('connectors are unavailable');
   });
 
-  it('with no scopes, attaches connectors only while agents may ask for connections', async () => {
+  it('with no scopes, attaches integrations only while agents may ask for connections', async () => {
     // On (the default): the endpoint serves just `request_connection` for this agent.
     const asking = await prepare(await seed());
-    const connectors = asking.config.mcpServers!.find((s) => s.name === 'connectors') as { url?: string } | undefined;
-    expect(connectors?.url).toContain('?ws=');
+    const integrations = asking.config.mcpServers!.find((s) => s.name === 'integrations') as { url?: string } | undefined;
+    expect(integrations?.url).toContain('?ws=');
     // Off: nothing to attach.
-    setConnectorRequestsEnabled(false);
+    setIntegrationRequestsEnabled(false);
     try {
       const off = await prepare(await seed());
-      expect(off.config.mcpServers!.some((s) => s.name === 'connectors')).toBe(false);
+      expect(off.config.mcpServers!.some((s) => s.name === 'integrations')).toBe(false);
     } finally {
-      setConnectorRequestsEnabled(true);
+      setIntegrationRequestsEnabled(true);
     }
   });
 
@@ -257,8 +257,8 @@ describe('prepareAgentMainChatSpawn', () => {
       'the git write guard is prompt-only (this harness ignores tool filtering)',
       '1 reference folder(s) announced in the prompt, but not fenced off',
     ]));
-    // No MCP on Antigravity, so no connectors or browser either.
-    expect(spawn.config.mcpServers?.some((server) => server.name === 'connectors' || server.name === 'browser') ?? false)
+    // No MCP on Antigravity, so no integrations or browser either.
+    expect(spawn.config.mcpServers?.some((server) => server.name === 'integrations' || server.name === 'browser') ?? false)
       .toBe(false);
   });
 });
@@ -269,14 +269,14 @@ describe('on a connected device (P2.7)', () => {
     fs.writeFileSync(path.join(ROOT, 'SOUL.md'), 'Dry, direct.\n');
     const { renderAgentMainChatBrief } = await import('@/lib/orchestrator/harness-surface');
     const ws = { id: 'ws-1', name: 'ri', cwd: FOLDER, isGit: true, purpose: null, instructions: null };
-    const elsewhere = renderAgentMainChatBrief(ws, { connectors: false, browser: false, elsewhere: { folder: '/Users/trey/code/ri' } });
+    const elsewhere = renderAgentMainChatBrief(ws, { integrations: false, browser: false, elsewhere: { folder: '/Users/trey/code/ri' } });
     expect(elsewhere).toContain('### USER.md\n\nTrey. Prefers terse answers.');
     expect(elsewhere).toContain('### SOUL.md\n\nDry, direct.');
     expect(elsewhere).toContain('`read_memory`');
     expect(elsewhere).toContain('`submit_memory_finding`');
     expect(elsewhere).toContain('- Folder: `/Users/trey/code/ri`');
     expect(elsewhere).not.toContain(ROOT);
-    const atHome = renderAgentMainChatBrief(ws, { connectors: false, browser: false });
+    const atHome = renderAgentMainChatBrief(ws, { integrations: false, browser: false });
     expect(atHome).toContain(path.join(ROOT, 'USER.md'));
     expect(atHome).not.toContain('Trey. Prefers terse answers.');
   });

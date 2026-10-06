@@ -31,7 +31,7 @@ describe('notification history states', () => {
     expect(notificationHistoryItem(sent, channel()).detail).toContain('operating system reported showing');
     const push = notificationHistoryItem(sent, channel({ kind: 'web_push', config: {} }));
     expect(push.detail).toContain('At least one browser push service'); expect(push.detail).toContain('does not confirm every device');
-    expect(notificationHistoryItem(sent, channel({ kind: 'connector', providerId: 'telegram', config: {} })).detail).toContain('Telegram accepted');
+    expect(notificationHistoryItem(sent, channel({ kind: 'integration', providerId: 'telegram', config: {} })).detail).toContain('Telegram accepted');
     expect(push.detail).not.toContain('old failed');
   });
   it.each([

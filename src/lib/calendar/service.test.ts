@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ getConnectorRuntime: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getIntegrationRuntime: vi.fn() }));
 
-vi.mock('@/lib/connectors/runtime', () => ({
-  getConnectorOwnerId: () => 'local',
-  getConnectorRuntime: mocks.getConnectorRuntime,
+vi.mock('@/lib/integrations/runtime', () => ({
+  getIntegrationOwnerId: () => 'local',
+  getIntegrationRuntime: mocks.getIntegrationRuntime,
 }));
 
 vi.mock('@/lib/db/queries', () => ({
@@ -23,13 +23,13 @@ function makeRuntime(
 ) {
   const runAction = vi.fn(async (action: string, input: Record<string, unknown>) => handlers[action](input));
   const runtime = { listConnections: async () => connections, runAction };
-  mocks.getConnectorRuntime.mockResolvedValue(runtime);
+  mocks.getIntegrationRuntime.mockResolvedValue(runtime);
   return { runAction };
 }
 
 beforeEach(() => {
   clearCalendarRangeCache();
-  mocks.getConnectorRuntime.mockReset();
+  mocks.getIntegrationRuntime.mockReset();
 });
 
 describe('getCalendarRange', () => {
@@ -156,7 +156,7 @@ describe('getCalendarRange', () => {
   });
 
   it('runtime unavailable → error, not a fake open day marked ok', async () => {
-    mocks.getConnectorRuntime.mockRejectedValue(new Error('boom'));
+    mocks.getIntegrationRuntime.mockRejectedValue(new Error('boom'));
     const r = await getCalendarRange({ start: DATE });
     expect(r.status).toBe('error');
     expect(r.providers).toEqual([]);

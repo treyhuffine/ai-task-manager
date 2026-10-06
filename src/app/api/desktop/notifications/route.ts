@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { isDesktopRequest } from '@/lib/connectors/desktop-oauth';
+import { isDesktopRequest } from '@/lib/integrations/desktop-oauth';
 import { isInstallationOwner } from '@/lib/service/owner-auth';
 import { servicePaths } from '@/lib/service/paths';
 import { desktopNotificationAction, desktopNotificationStatus } from '@/lib/notifications/desktop-api';

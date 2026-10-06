@@ -6,7 +6,7 @@
  * The folder belongs to the user, so nothing is written into it. The brief
  * goes through the session instructions file (in the work dir), and
  * orchestrator actions go through the session's MCP config. The chat gets
- * the same scope as the agent's executions: its connector scopes, the agent
+ * the same scope as the agent's executions: its integration scopes, the agent
  * browser when enabled, and its reference folders. In a git agent the file-editing tools are
  * denied, since the checkout is what every execution's worktree branches
  * from. That guard is argv tool filtering, which only Claude enforces, so
@@ -15,12 +15,13 @@
  * Kept out of `adapter.ts` so it can be tested without spawning a harness.
  */
 
+import { INTEGRATION_LABELS } from '@/constants/integrations';
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
 import type { WorkspaceRecord } from '@/db/types';
-import { connectorRequestsEnabled } from '@/lib/connectors/request-settings';
+import { integrationRequestsEnabled } from '@/lib/integrations/request-settings';
 import {
   browserMcpServer,
-  connectorsMcpServer,
+  integrationsMcpServer,
   ORCHESTRATOR_DISALLOWED_TOOLS,
   orchestratorMcpServer,
   renderAgentMainChatBrief,
@@ -40,7 +41,7 @@ export interface AgentMainChatSpawnArgs {
   workspace: WorkspaceRecord;
   /** The agentex provider id (`claude`, `codex`, ...). */
   providerType: string;
-  /** The harness can exclude ambient MCP config (gates connectors and browser, like executions). */
+  /** The harness can exclude ambient MCP config (gates integrations and browser, like executions). */
   strictMcpIsolation: boolean;
   /** The app-level agent browser switch (`isBrowserEnabled`). */
   appBrowserEnabled: boolean;
@@ -84,14 +85,14 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
   const orchestrator = orchestratorMcpServer(args.port, { sessionId: args.chatSessionId });
   if (orchestrator) servers.push(orchestrator);
   // The agent's accounts, or at least `request_connection` so it can ask for one it needs.
-  const hasScopes = ws.connectorScopes.length > 0;
-  const wantsConnectors = hasScopes || connectorRequestsEnabled();
-  const connectors = wantsConnectors && args.strictMcpIsolation
-    ? connectorsMcpServer(args.port, { workspaceId: ws.id, sessionId: args.chatSessionId })
+  const hasScopes = ws.integrationScopes.length > 0;
+  const wantsIntegrations = hasScopes || integrationRequestsEnabled();
+  const integrations = wantsIntegrations && args.strictMcpIsolation
+    ? integrationsMcpServer(args.port, { workspaceId: ws.id, sessionId: args.chatSessionId })
     : null;
-  if (connectors) servers.push(connectors);
+  if (integrations) servers.push(integrations);
   if (hasScopes && !args.strictMcpIsolation) {
-    warnings.push('connectors are unavailable (this harness does not enforce strict MCP tool-filtering)');
+    warnings.push(`${INTEGRATION_LABELS.plural.toLowerCase()} are unavailable (this harness does not enforce strict MCP tool-filtering)`);
   }
   // Same isolated per-workspace profile the agent's executions browse with.
   const browser = args.strictMcpIsolation && args.appBrowserEnabled && ws.browserEnabled
@@ -126,7 +127,7 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
     {
       name: 'agent brief',
       text: renderAgentMainChatBrief(ws, {
-        connectors: !!connectors,
+        integrations: !!integrations,
         browser: !!browser,
         ...(args.elsewhere ? { elsewhere: { folder: args.elsewhere.folder } } : {}),
       }),

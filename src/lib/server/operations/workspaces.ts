@@ -1,5 +1,5 @@
 import type { CreateWorkspaceInput, WorkspaceStatus } from '@/db/types';
-import { parseConnectorScopes, validateConnectorScopes } from '@/lib/connectors/scopes';
+import { parseIntegrationScopes, validateIntegrationScopes } from '@/lib/integrations/scopes';
 import { archiveWorkspace, createWorkspace, listWorkspaces, WorkspaceFieldError } from '@/lib/db/queries';
 import { workspaces } from '@/lib/db/schema';
 import { reply, searchParams, type OperationContext } from '@/lib/server/operation';
@@ -44,20 +44,20 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     const isGit = body.isGit ?? (await detectIsGit(cwd));
     const baseBranch = isGit ? body.baseBranch ?? (await detectBaseBranch(cwd, body.remoteName ?? 'origin')) : null;
 
-    // Connector scopes are optional at create. Validate identically to the edit path (no stored
+    // Integration scopes are optional at create. Validate identically to the edit path (no stored
     // scopes to preserve yet, no live sessions to recycle); fail-closed on a bad pin.
-    let connectorScopes: CreateWorkspaceInput['connectorScopes'] | undefined;
-    if (body.connectorScopes !== undefined) {
-      const parsed = parseConnectorScopes(body.connectorScopes);
+    let integrationScopes: CreateWorkspaceInput['integrationScopes'] | undefined;
+    if (body.integrationScopes !== undefined) {
+      const parsed = parseIntegrationScopes(body.integrationScopes);
       if (!parsed) {
         return reply(
-          { error: 'connectorScopes must be an array of { toolkitId, accounts? }, where each account is an email, label, account id or { accountId, authConfigId? }' },
+          { error: 'integrationScopes must be an array of { toolkitId, accounts? }, where each account is an email, label, account id or { accountId, authConfigId? }' },
           { status: 400 },
         );
       }
-      const result = await validateConnectorScopes(parsed);
+      const result = await validateIntegrationScopes(parsed);
       if (!result.ok) return reply({ error: result.error }, { status: 400 });
-      connectorScopes = result.scopes;
+      integrationScopes = result.scopes;
     }
 
     const row = createWorkspace({
@@ -81,7 +81,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
       ...(body.instructions !== undefined ? { instructions: body.instructions } : {}),
       status: body.status ?? 'active',
       browserEnabled: body.browserEnabled ?? true,
-      ...(connectorScopes !== undefined ? { connectorScopes } : {}),
+      ...(integrationScopes !== undefined ? { integrationScopes } : {}),
     });
     // The folder is this device's setup for the agent, kept in the folder's
     // own `.ri.local.json` (docs/homes-spec.md §4). If that fails after the
@@ -107,4 +107,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
 }
 
 export const GETInput = rpcZ.object({ query: rpcZ.object({ "status": rpcZ.string().optional() }).strict().optional() }).strict().default({});
-export const POSTInput = rpcZ.object({ body: createInsertSchema(workspaces).pick({ "name": true, "status": true, "slug": true, "emoji": true, "cwd": true, "isGit": true, "baseBranch": true, "remoteName": true, "worktreeRoot": true, "setupCommand": true, "teardownCommand": true, "startCommand": true, "createdAt": true, "updatedAt": true, "areaId": true, "purpose": true, "instructions": true, "defaultDeviceId": true, "position": true, "collapsed": true, "skipLiveConfirm": true, "browserEnabled": true, "archivedAt": true }).partial().extend({ "filesToCopy": rpcZ.array(rpcZ.string()).optional(), "connectorScopes": rpcZ.array(rpcZ.object({ "toolkitId": rpcZ.string(), "accounts": rpcZ.array(rpcZ.object({ "accountId": rpcZ.string(), "authConfigId": rpcZ.string().optional() }).strict()).optional(), "account": rpcZ.object({ "accountId": rpcZ.string(), "authConfigId": rpcZ.string().optional() }).strict().optional() }).strict()).optional(), "attachments": rpcZ.union([rpcZ.null(), rpcZ.array(rpcZ.object({ "fileName": rpcZ.string(), "originalName": rpcZ.string(), "mimeType": rpcZ.string(), "size": rpcZ.number().finite(), "uploadedAt": rpcZ.string() }).strict())]).optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ body: createInsertSchema(workspaces).pick({ "name": true, "status": true, "slug": true, "emoji": true, "cwd": true, "isGit": true, "baseBranch": true, "remoteName": true, "worktreeRoot": true, "setupCommand": true, "teardownCommand": true, "startCommand": true, "createdAt": true, "updatedAt": true, "areaId": true, "purpose": true, "instructions": true, "defaultDeviceId": true, "position": true, "collapsed": true, "skipLiveConfirm": true, "browserEnabled": true, "archivedAt": true }).partial().extend({ "filesToCopy": rpcZ.array(rpcZ.string()).optional(), "integrationScopes": rpcZ.array(rpcZ.object({ "toolkitId": rpcZ.string(), "accounts": rpcZ.array(rpcZ.object({ "accountId": rpcZ.string(), "authConfigId": rpcZ.string().optional() }).strict()).optional(), "account": rpcZ.object({ "accountId": rpcZ.string(), "authConfigId": rpcZ.string().optional() }).strict().optional() }).strict()).optional(), "attachments": rpcZ.union([rpcZ.null(), rpcZ.array(rpcZ.object({ "fileName": rpcZ.string(), "originalName": rpcZ.string(), "mimeType": rpcZ.string(), "size": rpcZ.number().finite(), "uploadedAt": rpcZ.string() }).strict())]).optional() }).strict().default({}) }).strict();

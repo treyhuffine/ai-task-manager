@@ -177,7 +177,7 @@ Copy rules (hard requirements):
 Not building, on purpose:
 
 - **A rules engine.** No user-authored if-this-then-that routing. The agent plus telemetry is the mechanism. Users who want determinism can edit the sweep trigger's prompt (the user-owned hook).
-- **Auto-ingesting firehoses.** The visible stream holds things a human meant to capture. Connector-sourced signal (email, Slack, calendar) stays out of the stream. When connectors ship, they get their own ingestion boundary and reuse the reconciliation engine behind a stricter trust wall. Existing Pocket and Pebble Index webhook items are deliberate user pushes and stay.
+- **Auto-ingesting firehoses.** The visible stream holds things a human meant to capture. Integration-sourced signal (email, Slack, calendar) stays out of the stream. When integrations ship, they get their own ingestion boundary and reuse the reconciliation engine behind a stricter trust wall. Existing Pocket and Pebble Index webhook items are deliberate user pushes and stay.
 - **The stream as a destination.** No feed mechanics, no pinning, no folders, no stream-native organization. It is a ledger with a queue on top.
 - **A second review surface.** The digest lives on the deck and the stream tab. No new top-level destination.
 - **A tagging system, a knowledge graph, or perfect semantic organization in v1.**
@@ -590,7 +590,7 @@ Decisions an implementer must not re-litigate:
 6. **Sweep cadence defaults**: 20-minute rolling debounce, pending threshold 10, morning sweep before deck generation. All constants in one module (`src/lib/stream-triage/constants.ts`).
 7. **No normalized-text column in v1.** `rawText` is immutable, display cleanup lives in derived artifacts. If transcript correction ships later, add `normalizedText` additively then.
 8. **Image capture text**: the existing behavior (vision extraction into `rawText`, original image in attachments) is correct and the sweep depends on it. Verify consistency in T0.5, do not redesign.
-9. **Connector ingestion** is out of scope. The `origin`/`externalSource` fields are the seam. Design when connectors ship.
+9. **Integration ingestion** is out of scope. The `origin`/`externalSource` fields are the seam. Design when integrations ship.
 10. **Team context** is out of scope, but `triage_decisions.actor` and `stream_links` are deliberately compatible with future multi-principal attribution.
 11. **Brain dump is not a mode.** The universal composer expands. Multi-thought input is handled by splitting (multiple decisions per capture), not by a separate content type. `brain-dump-modal.tsx` is deleted if unmounted.
 12. **Confidence never gates autonomy and is never shown.** Measured acceptance gates autonomy.

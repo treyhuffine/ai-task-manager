@@ -1,5 +1,5 @@
 import type { Session } from 'electron';
-import { callbackParams, safeReturnPath, type DesktopOAuthResult } from '../src/lib/connectors/desktop-oauth';
+import { callbackParams, safeReturnPath, type DesktopOAuthResult } from '../src/lib/integrations/desktop-oauth';
 
 export function parseDeepLink(raw: string): URLSearchParams | null {
   try {
@@ -22,7 +22,7 @@ export async function watchOAuthResults(ses: Session, origin: string, signal: Ab
   while (!signal.aborted) {
     try {
       const response = await ses.fetch(`${origin}/api/desktop/oauth/events?after=${cursor}`, { signal });
-      if (!response.ok || !response.body) throw new Error('Could not watch connector sign-in');
+      if (!response.ok || !response.body) throw new Error('Could not watch OAuth sign-in');
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';

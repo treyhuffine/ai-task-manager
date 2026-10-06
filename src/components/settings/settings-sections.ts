@@ -1,3 +1,4 @@
+import { INTEGRATION_LABELS } from '@/constants/integrations';
 import {
   User,
   SlidersHorizontal,
@@ -83,13 +84,13 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
   },
   {
     // Plugins: everything agents can be extended with, skills and
-    // connectors (docs/skills.md). Links from before the rename still say
+    // integrations (docs/skills.md). Links from before the rename still say
     // `?settings=connectors`, which `sectionFromParam` maps here.
     id: 'plugins',
     label: 'Plugins',
     icon: Plug,
     title: 'Plugins',
-    description: 'Connectors let your agents act in your accounts. Skills teach them how to do things.',
+    description: `${INTEGRATION_LABELS.plural} let your agents act in your accounts. Skills teach them how to do things.`,
   },
   {
     id: 'models',
@@ -161,7 +162,11 @@ export function isSectionId(value: string | null | undefined): value is SectionI
   return !!value && ALL_SECTIONS.some((s) => s.id === value);
 }
 
-/** Old section ids that links (an OAuth return, a bookmark) may still carry. */
+/**
+ * Old section ids that links (an OAuth return, a bookmark) may still carry.
+ * Keys are values from saved links, so they keep their old spelling through
+ * any rename (docs/integrations-naming.md).
+ */
 const SECTION_ALIASES: Readonly<Record<string, SectionId>> = { connectors: 'plugins' };
 
 /** The section a `?settings=` value names, following renamed ids. */

@@ -1,6 +1,6 @@
-import { connectorEndpointSelection, type HostedEndpointSelection } from '@/lib/client/connector-endpoint';
+import { integrationEndpointSelection, type HostedEndpointSelection } from '@/lib/client/integration-endpoint';
 import type { RouterInputs, RouterOutputs } from '@/lib/trpc/router';
-import type { HostedMcpEndpointSetup } from '@connectors/engine/providers';
+import type { HostedMcpEndpointSetup } from '@integrations/engine/providers';
 
 export interface ConnectionRequestAccount {
   serverId?: string;
@@ -36,19 +36,19 @@ export function selectRequestAccount(options: ConnectionRequestOptions, connecti
     authConfigId: selected.authConfigId, endpointConfig: selected.endpointConfig, configured: selected.configured } : options;
 }
 
-type OAuthStart = RouterOutputs['connectors']['connectPost'];
+type OAuthStart = RouterOutputs['integrations']['connectPost'];
 type Field<T, Key extends PropertyKey> = T extends unknown ? Key extends keyof T ? T[Key] : never : never;
 type StartResponse = {
   authorizationUrl?: Field<OAuthStart, 'authorizationUrl'>;
   authUrl?: Field<OAuthStart, 'authUrl'>;
   requiresAuth?: Field<OAuthStart, 'requiresAuth'>;
-  connection?: Pick<RouterOutputs['connectors']['connectDirectPost']['connection'], 'id'>;
+  connection?: Pick<RouterOutputs['integrations']['connectDirectPost']['connection'], 'id'>;
 };
 export type ConnectionPostArgs =
-  | [path: '/connectors/connect', body: RouterInputs['connectors']['connectPost']['body']]
-  | [path: '/connectors/connectDirect', body: RouterInputs['connectors']['connectDirectPost']['body']];
+  | [path: '/integrations/connect', body: RouterInputs['integrations']['connectPost']['body']]
+  | [path: '/integrations/connectDirect', body: RouterInputs['integrations']['connectDirectPost']['body']];
 
-/** Use the same declared authentication path as the connector's Settings form. */
+/** Use the same declared authentication path as the integration's Settings form. */
 export async function requestConnection(options: ConnectionRequestOptions, deps: {
   post: (...args: ConnectionPostArgs) => Promise<StartResponse>;
   openAuthorization: (url: string) => Promise<unknown>;
@@ -57,11 +57,11 @@ export async function requestConnection(options: ConnectionRequestOptions, deps:
   if (options.oauthRegistration === 'registered' && options.configured === false) {
     throw new Error('Set up an OAuth app in Settings before connecting.');
   }
-  const endpoint = connectorEndpointSelection(options.endpointConfig, options);
+  const endpoint = integrationEndpointSelection(options.endpointConfig, options);
   if (options.authKind !== 'oauth') {
     const token = options.token?.trim();
     if (options.authKind === 'bearer' && !token) throw new Error('A connection token is required.');
-    const result = await deps.post('/connectors/connectDirect', {
+    const result = await deps.post('/integrations/connectDirect', {
       providerId: options.providerId,
       fields: options.authKind === 'bearer' ? { token: token ?? '' } : {},
       ...(options.existingConnectionId ? { existingConnectionId: options.existingConnectionId } : {}),
@@ -71,7 +71,7 @@ export async function requestConnection(options: ConnectionRequestOptions, deps:
     if (!result.connection) throw new Error('The connection could not be verified. Try connecting again.');
     return 'Connected. You can return to your conversation.';
   }
-  const result = await deps.post('/connectors/connect', {
+  const result = await deps.post('/integrations/connect', {
     providerId: options.providerId, scopes: options.scopes,
     authConfigId: options.authConfigId, existingConnectionId: options.existingConnectionId,
     ...(options.serverId ? { serverId: options.serverId } : {}),

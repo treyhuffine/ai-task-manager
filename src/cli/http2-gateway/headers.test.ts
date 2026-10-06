@@ -103,8 +103,8 @@ describe('rewriteLocation', () => {
     // Next builds absolute URLs (e.g. OAuth callbacks) from its loopback HTTP
     // connection → `http://<publichost>/…`. The browser is on https, so the
     // scheme must be upgraded or it bounces to a plaintext URL on the TLS port.
-    expect(rewriteLocation('http://localhost:4224/?settings=connectors', cfg)).toBe(
-      'https://localhost:4224/?settings=connectors',
+    expect(rewriteLocation('http://localhost:4224/?settings=plugins', cfg)).toBe(
+      'https://localhost:4224/?settings=plugins',
     );
     // Already-https public URL is unchanged; a different external host is not touched.
     expect(rewriteLocation('https://localhost:4224/x', cfg)).toBe('https://localhost:4224/x');

@@ -59,7 +59,7 @@ const expected = (cwd: string, sourceFolder: string | null): ExecutionEnvironmen
   baseBranch: 'main',
   baseSha: 'abc123',
   references: recorded(),
-  tools: { connectors: false, browser: true },
+  tools: { integrations: false, browser: true },
   harness: 'claude',
   model: 'fake-model',
   permissionMode: 'ask',

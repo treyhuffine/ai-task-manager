@@ -19,7 +19,7 @@ import { baseUrlSnapshot as snapshot } from '@/lib/auth/base-url-snapshot';
 import { openAndSaveBeamdBaseUrl } from '@/lib/auth/beamd-base-url';
 import { setAutoTunnel, setRunningPort } from '@/lib/auth/bootstrap';
 import { portFromRequestUrl } from '@/lib/auth/port';
-import { invalidateConnectorRuntime } from '@/lib/connectors/runtime';
+import { invalidateIntegrationRuntime } from '@/lib/integrations/runtime';
 import { BeamdCliError, beamdConnectedServer } from '@/lib/preview/beamd/cli';
 import { z } from 'zod';
 
@@ -56,9 +56,9 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     const port = portFromRequestUrl(request.url);
     setRunningPort(port);
     await openAndSaveBeamdBaseUrl(port);
-    // The tunnel is now the externally-reachable URL the connector OAuth
+    // The tunnel is now the externally-reachable URL the integration OAuth
     // redirect derives from — rebuild the runtime so it picks it up.
-    invalidateConnectorRuntime();
+    invalidateIntegrationRuntime();
     setAutoTunnel(true);
     return reply(snapshot());
   } catch (err) {

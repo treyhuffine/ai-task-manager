@@ -16,7 +16,7 @@ V1 is **scheduled tasks**. That's it.
 - **One in-process 60s tick** processes due schedules through the same `executor.dispatch()` path the UI already uses.
 - **Scheduled runs surface as executions** in the existing 4-col view with a provenance chip. The existing unread machinery is the review surface — no new state machine.
 - **Skills** as procedural memory at `<brain>/.claude/skills/` (global) and `<workspace>/.claude/skills/` (per-workspace) — Claude Code's native hierarchy.
-- **Webhook intake** for inbound triggers from external systems. No native connectors and no MCP marketplace in V1.
+- **Webhook intake** for inbound triggers from external systems. No native integrations and no MCP marketplace in V1.
 - **Activity timeline + cost rollup** — one page that answers "what's the AI been up to and what is it costing me?"
 - **Decisions as notes** — no new entity. The existing `notes` table covers them.
 
@@ -30,7 +30,7 @@ What this is *not*:
 - A heartbeat reflex. (Moved to V2.)
 - A Redis/BullMQ queue. (SQLite + setInterval is the right size.)
 - Anthropic Routines as host. (Runs in Anthropic's cloud, can't see local state.)
-- A native connector catalog or MCP marketplace. (Webhook intake only.)
+- A native integration catalog or MCP marketplace. (Webhook intake only.)
 - Goals / projects / work-packets as new schemas. (Notes / tasks / convention via `MEMORY.md` until patterns demand otherwise.)
 
 ---
@@ -310,7 +310,7 @@ Future hooks if patterns demand:
 
 For V1: the convention is the agent's prompt + `MEMORY.md` telling it to write decisions as notes with the `"Decision:"` title prefix. No schema change, no new table.
 
-### 4.7 Connectors
+### 4.7 Integrations
 
 **V1 ships only webhook intake.**
 
@@ -364,7 +364,7 @@ Migrations:
 - One Drizzle migration for `chat_sessions.triggered_by_schedule_run_id`.
 - One for `schedules` + `schedule_runs`.
 
-That's the whole schema delta for V1. No new columns on `agents` (heartbeat is V2). No `nudges` or `heartbeat_config` tables. No `connectors` table.
+That's the whole schema delta for V1. No new columns on `agents` (heartbeat is V2). No `nudges` or `heartbeat_config` tables. No `integrations` table.
 
 New orchestrator actions:
 - `list_schedules`, `get_schedule`, `list_schedule_runs`, `run_schedule_now`
@@ -470,7 +470,7 @@ These are essential for the `report_blocked → move on` behavior that makes sel
 - **Skill curation** — the AI notices "I keep doing this pattern" and writes/updates a SKILL.md file. Idle-triggered. Always reviewable, never deletes.
 - **Memory consolidation** — periodic distillation of recent activity into `MEMORY.md`. Probably a scheduled run with a special prompt; not a runtime mode.
 
-### 8.6 Connectors as a real surface (V2+)
+### 8.6 Integrations as a real surface (V2+)
 
 Webhook intake + MCP support layered on top. Either build native adapters for high-value integrations (Gmail, Linear) or rely on the MCP ecosystem. Decided per-integration based on usage signal.
 
@@ -520,7 +520,7 @@ Putting these in writing so they don't sneak back in:
 9. **"Dream mode" as a primitive.** Overnight work is a schedule at 3am.
 10. **A context engine.** See §6. The agent queries what it needs.
 11. **Bootstrap files as a new invention.** Reuse what exists (`MEMORY.md`, workspace `CLAUDE.md`). Author content; don't manufacture file conventions.
-12. **Native connector adapters in V1.** Gmail, Linear, Todoist, Notion, Calendar, GitHub — none. Webhook intake only.
+12. **Native integration adapters in V1.** Gmail, Linear, Todoist, Notion, Calendar, GitHub — none. Webhook intake only.
 13. **A native MCP marketplace.** Document patterns; don't curate.
 14. **Decisions / completions / summaries as new entities.** Notes cover all of it.
 15. **Multi-state action protocol in V1.** No `request_input` / `report_blocked` / `continue_work`. End of turn = unread.
@@ -586,7 +586,7 @@ Five summary points:
 
 4. **It separates code-controlled mechanism from data-controlled configuration.** The tick is code; what runs on each tick is data. The system can't be broken by an agent or user clobbering a row.
 
-5. **It avoids inventing things the agent or Claude Code already does for free.** No context engine (agent queries). No bootstrap file system (MEMORY.md + workspace CLAUDE.md already exist). No new entities for decisions/completions (notes cover it). No native connector adapters (webhook intake is the substrate; MCP/native comes later as needed).
+5. **It avoids inventing things the agent or Claude Code already does for free.** No context engine (agent queries). No bootstrap file system (MEMORY.md + workspace CLAUDE.md already exist). No new entities for decisions/completions (notes cover it). No native integration adapters (webhook intake is the substrate; MCP/native comes later as needed).
 
 The pieces beyond V1 — heartbeat, goals, work queue, autonomous loops, the full world model, ingestion at scale, synthesis, multi-agent — all build on this foundation. None require revisiting the V1 substrate; they're new layers on top.
 

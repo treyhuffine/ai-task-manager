@@ -45,11 +45,11 @@ The laptop's home is inventoried before the consolidation rehearsal (P5.1), from
 
 `src/lib/home/backup.ts`, driven by `scripts/home-backup.ts`:
 
-- `backup <root> <out>`: a checksummed copy of the database, attachments, `.archive`, persona and memory files, user skills, and `.config` apart from what belongs to the machine (`browser/`, `tls/`, `cli-config.json`, connector locks). Every other top-level entry is listed in the manifest with the reason it was left out.
+- `backup <root> <out>`: a checksummed copy of the database, attachments, `.archive`, persona and memory files, user skills, and `.config` apart from what belongs to the machine (`browser/`, `tls/`, `cli-config.json`, integration locks). Every other top-level entry is listed in the manifest with the reason it was left out.
 - The source is only read. A database with `-wal`/`-shm` files may be in use, so it is copied with SQLite's online backup in one step (a stepped backup restarts whenever another connection writes, and a running home always writes). A database without them is cloned. Opening a WAL database read-only creates those files, which the tests caught.
 - `verify <dir>` checks every file's size and checksum, `quick_check`, and every table's row count against the manifest.
 - `restore <dir> <new-root>` refuses a root that already has a database and verifies what it wrote.
-- `dev-copy <root>` (`src/lib/home/dev-copy.ts`) makes a restored copy safe to boot, as §10.4 requires. It clears the token and tunnel, revokes every key, disables schedules and notification channels, removes connector credentials and push subscriptions, clears every chat's native session id (Claude Code resumes a session by id from any folder, so the copy's first message would append to production's transcript), and moves every folder path under `<root>/.detached/` so provisioning, continuing or scripts fail as "folder missing" instead of touching production's repositories.
+- `dev-copy <root>` (`src/lib/home/dev-copy.ts`) makes a restored copy safe to boot, as §10.4 requires. It clears the token and tunnel, revokes every key, disables schedules and notification channels, removes integration credentials and push subscriptions, clears every chat's native session id (Claude Code resumes a session by id from any folder, so the copy's first message would append to production's transcript), and moves every folder path under `<root>/.detached/` so provisioning, continuing or scripts fail as "folder missing" instead of touching production's repositories.
 - `pnpm iso <root> -- pnpm tsx scripts/home-backup.ts open-check` opens a restored root through the app and reads it through the shared queries.
 
 Rehearsed 2026-09-24 on production: backup 16.6 s (660 files, 5.6 GB, `quick_check` ok), verify 3.6 s, restore 11.5 s, `dev-copy` (6 keys revoked, 10 schedules disabled, 427 native sessions and 209 folder paths detached), then `open-check` read 613 tasks and 247 notes. The production root's listing was identical before and after. The baseline backup is `~/ri-backups/ri-20260924T210433Z`, and the rehearsal copy was deleted.
@@ -83,7 +83,7 @@ The worker connection fixtures (a fake worker and a home served over HTTP for re
 - `ActionContext.caller` says whether the caller holds the home's own key: the one `ensureLocalToken` minted and keeps in this root's config (`src/lib/auth/host-key.ts`), which the home's CLI and its sessions use. A key's `deviceType` label never decides it, and the device APIs no longer let anyone set `host`. It is permission to act on the home's folders, not proof of where the caller physically is.
 - Actions a connected device can't run, and why:
   - Folder paths resolve on the home: `create_workspace`, and `list_skills` with a folder. A connected device sets up its own folders through its local setup (P1.4).
-  - The trusted local CLI only, as for MCP: `repair_attachment_metadata`, bare-path reference folders, and connector scopes or the browser switch in `update_workspace`.
+  - The trusted local CLI only, as for MCP: `repair_attachment_metadata`, bare-path reference folders, and integration scopes or the browser switch in `update_workspace`.
   - `ri browser` drives the browser on the machine it runs on, so it stays refused on a connected device.
 - `ri trigger run` and `ri run cancel` on a connected device run inside the home's server. On the home itself they still run in the CLI process, which is gap 1 in P0.4, fixed in P2.4.
 
@@ -159,7 +159,7 @@ Written before P2 code, as the review asked. It refines the P0.3 records below; 
 ### Credentials
 
 - **Worker key.** An `api_keys` row with `device_id` set and a worker scope, issued only by redeeming an enrollment grant (P2.2). A viewing key never gains it. The worker routes accept only worker keys, and a worker key reaches nothing else. The device the worker acts as comes from the key, never from a field it sends.
-- **Session tokens for sessions on a worker.** A harness on the laptop still calls the home's orchestrator, connector and browser servers. Giving it the worker key would let a session act as the worker, so the home mints a token per session instead. The token is bound to the chat, the device and the placement generation, reaches only those servers, and resolves to that session as the actor, with location `elsewhere`. The home's own sessions keep using the home's key.
+- **Session tokens for sessions on a worker.** A harness on the laptop still calls the home's orchestrator, integration and browser servers. Giving it the worker key would let a session act as the worker, so the home mints a token per session instead. The token is bound to the chat, the device and the placement generation, reaches only those servers, and resolves to that session as the actor, with location `elsewhere`. The home's own sessions keep using the home's key.
 
 ### Connection
 
@@ -196,7 +196,7 @@ interface WorkerCommand {
   - `uncertain`: see below.
   - `cancelled`: withdrawn before `sent`. A `sent` command can't be cancelled. Stopping the execution is the way out.
 - **`send` carries everything to start or resume the session:**
-  - the session spec (harness, model, permission mode and its provider config, instructions, reference aliases and descriptions, the orchestrator and connector servers with the session's token, first-turn brief), plus the chat's current native session id;
+  - the session spec (harness, model, permission mode and its provider config, instructions, reference aliases and descriptions, the orchestrator and integration servers with the session's token, first-turn brief), plus the chat's current native session id;
   - the text as the harness should receive it, with markers and sender label already applied;
   - attachments as `{ fileName, originalName, mimeType, size, sha256 }`, which the worker downloads through the worker attachment route (see Attachments and artifacts). A home disk path is never sent;
   - the `runId` the home created for the turn.
@@ -573,14 +573,14 @@ P2.7 gives a session on a connected device what a session at home has, without a
 ### The home's servers, reached with a session token
 
 - **Session token.** For a session elsewhere, the home mints `ri_session_<chat>.<device>.<generation>.<signature>`, signed with the home's key (HMAC, as the session credential is). The signature also covers the worker enrollment it was issued to. It carries no authority of its own: the proxy accepts it only while that chat is active and placed on that device at that generation, and while the enrollment it was issued to is that device's current one. Archiving the chat, a move, a new generation, or turning off the device's local execution ends every token for it, and enrolling the device again doesn't bring one back, with nothing to revoke (the last three since the P2.7 to P2.9 review).
-- **Where it reaches.** Only the three servers a harness uses: the orchestrator MCP, the connectors MCP and the browser MCP, and on each only the session's own scope. An execution reaches connectors for its own agent's allowlist (`?ws=` its agent) and the browser in its own agent's profile (`?profile=ws-<agent>`). An agent's main chat also reaches the orchestrator MCP. Anything else is 403. The actor is the session, from the token, with location `elsewhere`, so path-taking actions refuse it as they refuse any caller elsewhere.
+- **Where it reaches.** Only the three servers a harness uses: the orchestrator MCP, the integrations MCP and the browser MCP, and on each only the session's own scope. An execution reaches integrations for its own agent's allowlist (`?ws=` its agent) and the browser in its own agent's profile (`?profile=ws-<agent>`). An agent's main chat also reaches the orchestrator MCP. Anything else is 403. The actor is the session, from the token, with location `elsewhere`, so path-taking actions refuse it as they refuse any caller elsewhere.
 - **Addressed through the worker.** The home doesn't know the address a device reaches it by, and shouldn't guess. It sends each server as `ri-home:/api/...` with the token, and the worker puts its own home address in front before starting the harness. The token never touches argv: agentex stages MCP configs as a 0600 file.
 
 ### The environment manifest
 
 The spec (§4.3) asks for a resolved environment manifest per execution: source folder, working folder, connected folders, Git checkpoint and capabilities, in the session instructions and in a readable local file outside the repository.
 
-- **The home decides what's expected**: the agent, the home and device names, the working folder, the mode (a worktree, live in the agent's folder, or a plain folder), the branch and base, the reference aliases with their descriptions, and what the session can use (harness, model, permission mode, connectors, browser).
+- **The home decides what's expected**: the agent, the home and device names, the working folder, the mode (a worktree, live in the agent's folder, or a plain folder), the branch and base, the reference aliases with their descriptions, and what the session can use (harness, model, permission mode, integrations, browser).
 - **The device running it resolves what only it knows**, when the session starts: the agent's folder from its own setup files, each reference from the agent's local setup (`resolveSetups`, as the setup reports do), and the checked-out branch and commit. A reference that's omitted, unset or missing is listed as such, never replaced. A worker never starts against the home's cached copy of its own paths.
 - **Delivered twice.** Written to `<workDir>/session-instructions/<chat>.environment.json`, beside the session instructions and outside every repository, and rendered as a short "Your environment" block at the end of the session instructions, which names the file. Written when the session starts, so a change to the agent applies to the next session, never mid-turn.
 - Every execution gets it, at home too.
@@ -1185,7 +1185,7 @@ The gate: the personal journey works without pasted commands after installation,
 1. **P5.4 The companion.** Today a device joins by pasted commands and runs its worker in an open terminal, which is exactly what the gate rules out. The desktop branch (`ai-task-manager/session-ca52f4`, `docs/desktop.md`) already has what this needs: one local service shared by the CLI and Electron (`src/lib/service/`), launchd and systemd adapters (a LaunchAgent per data root, restarted on an unsuccessful exit), staged runtimes outside the app bundle, and coordinated updates and maintenance. So nothing separate is built here. The plan, simple to follow later: one service per device. On the home it runs Ri, on any other device it runs the worker.
    - [x] **Merge the desktop work into this branch** (297d4ab, the desktop branch at 2d5a37d, with main as of b369b20). Done in a scratch worktree, so the dev home never ran a half-merged tree, then fast-forwarded. See "P5.4 Merging the desktop branch" below.
    - [ ] **The role, before anything starts.** Resolve home versus connected device before Electron starts a local service or opens a database, keeping this branch's `assertMayOpenDatabase` and the desktop's maintenance and database-access locking (desktop.md, handoff item 1). On a connected device the service runs `worker run`, under the same lifecycle, status, stop and update.
-   - [ ] **The other handoff items**: maintenance admission, draining and idle-harness closing kept with the split runner, and remote workers joining coordinated updates (2). Local filesystem, service, notification and OAuth capabilities kept from remote home and team pages (3). Deferred notification delivery carried into `deliverRow` (4). Connector account allowlists and owner and session authorization kept through the home and harness routing (5).
+   - [ ] **The other handoff items**: maintenance admission, draining and idle-harness closing kept with the split runner, and remote workers joining coordinated updates (2). Local filesystem, service, notification and OAuth capabilities kept from remote home and team pages (3). Deferred notification delivery carried into `deliverRow` (4). Integration account allowlists and owner and session authorization kept through the home and harness routing (5).
    - [ ] **What the app adds for a connected device**: connected, working or stopped at a glance, Open Ri, Stop local execution, joining a home by code or link without a terminal, and the browser association for This Mac (spec §3.1).
 2. **P5.5 The stranger test**, once the companion exists. Its script and what counts as coaching are written first.
 3. **P5.1 Consolidation rehearsal** on isolated copies of the Mini's production home and the laptop's home. The laptop's copy is a consistent backup Trey makes there, the one step that needs him.
@@ -1582,7 +1582,7 @@ Reads are not persisted: tree, file, diff, status, diff stats, folder discovery 
 
 Today `ensureHarnessSession` and `dispatch` mix two jobs. The split:
 
-**The home prepares a session spec**, a plain serializable description: harness, permission mode and its provider config, model, variant and effort, the orchestrator, connector and browser servers (with home URLs and credentials suited to where the session runs), agent instructions, reference aliases and descriptions, the session credential, the chat's current native session id, and any first-turn brief. Everything that needs the database is resolved here.
+**The home prepares a session spec**, a plain serializable description: harness, permission mode and its provider config, model, variant and effort, the orchestrator, integration and browser servers (with home URLs and credentials suited to where the session runs), agent instructions, reference aliases and descriptions, the session credential, the chat's current native session id, and any first-turn brief. Everything that needs the database is resolved here.
 
 **The runner turns a spec into a running harness** on its device. It has no database access:
 
@@ -1636,7 +1636,7 @@ Found while mapping. Each is fixed where its phase lands.
 2. `archive_workspace` (`registry.ts:1468`) archives in the database only. The REST route also kills terminals and closes sessions (P2.4). Fixed in P2.4.
 3. The takeover block exists only in the messages route. Commit, PR, resolve-conflicts, help-with-error, the scheduler, coalesce and health redispatch still dispatch. Owner routing replaces it (P2.4, P4.5). Fixed in P2.4.
 4. The event seam is partial. Reconcile replays, Codex replay, user messages, run rows and every live-state publish bypass `EventWriter` (P2.1). Fixed in P2.1: every replay path writes through a writer, and live state publishes only from the home sink. User messages and run rows are the home's own records.
-5. Orchestrator, connector and browser server URLs for harness sessions are `http://localhost:<port>` with the local bearer token (`harness-surface.ts:623,646,670`), so a harness can only run beside the server today (P2.7). Fixed in P2.7: a session elsewhere gets them at its worker's address for the home, with a session token.
+5. Orchestrator, integration and browser server URLs for harness sessions are `http://localhost:<port>` with the local bearer token (`harness-surface.ts:623,646,670`), so a harness can only run beside the server today (P2.7). Fixed in P2.7: a session elsewhere gets them at its worker's address for the home, with a session token.
 6. Preview uses `worktreePath ?? workspace.cwd` (`preview/service.ts:117`), so it can start in the source checkout while a worktree is still being prepared (P3.5).
 7. A quiet heartbeat archives its chat without closing the harness (`heartbeat/quiet.ts:40`), and handles have no idle timeout (P2.1). Fixed in P2.1.
 8. Interrupt leaves pending prompts registered. Only close rejects them (`adapter.ts:815,872`) (P2.4). Fixed in P2.4.

@@ -50,7 +50,7 @@ export interface CondensedEvent {
 const DROP_SOURCES = new Set(['system', 'thinking', 'recap', 'rate_limit', 'unknown']);
 
 /**
- * Connector approval and connection rows: the text already says what paused or was asked for and
+ * Integration approval and connection rows: the text already says what paused or was asked for and
  * what the user decided. Their input only adds ids, which an agent has no business holding (only
  * the user answers these, from the card in chat).
  */

@@ -1,4 +1,4 @@
-import { HOSTED_MCP_PROVIDERS } from '@connectors/engine/providers';
+import { HOSTED_MCP_PROVIDERS } from '@integrations/engine/providers';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,8 +7,8 @@ import ConnectPage from './page';
 import { requestConnection, selectRequestAccount } from './request-connection';
 
 const savedServers = vi.hoisted(() => ({ entries: [] as Array<Record<string, unknown>>, statuses: [] as Array<Record<string, unknown>>, previous: [] as Array<Record<string, unknown>> }));
-vi.mock('@/lib/connectors/runtime', () => ({ getMcpServerStore: () => ({ list: () => savedServers.entries }), getProviderStatuses: async () => savedServers.statuses,
-  getConnectorOwnerId: () => 'local', getConnectorConnectionStore: () => ({ list: async () => savedServers.previous }),
+vi.mock('@/lib/integrations/runtime', () => ({ getMcpServerStore: () => ({ list: () => savedServers.entries }), getProviderStatuses: async () => savedServers.statuses,
+  getIntegrationOwnerId: () => 'local', getIntegrationConnectionStore: () => ({ list: async () => savedServers.previous }),
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 beforeEach(() => { savedServers.entries = []; savedServers.statuses = []; savedServers.previous = []; });
@@ -23,7 +23,7 @@ describe('account-specific agent connection requests', () => {
     expect(options.authConfigId).toBeUndefined();
     const post = vi.fn(async () => ({ authUrl: 'https://vendor.example/authorize' }));
     await requestConnection(options, { post, openAuthorization: vi.fn() });
-    expect(post).toHaveBeenCalledWith('/connectors/connect', expect.objectContaining({ existingConnectionId: 'old-Work', authConfigId: undefined }));
+    expect(post).toHaveBeenCalledWith('/integrations/connect', expect.objectContaining({ existingConnectionId: 'old-Work', authConfigId: undefined }));
   });
   it('requires a choice and replaces only the selected bearer account token', async () => {
     savedServers.entries = ['Personal', 'Work'].map(label => ({
@@ -40,7 +40,7 @@ describe('account-specific agent connection requests', () => {
     await expect(requestConnection({ ...page.props, token: 'work-token' }, { post, openAuthorization })).rejects.toThrow('Choose the account');
     expect(post).not.toHaveBeenCalled();
     await requestConnection({ ...selectRequestAccount(page.props, 'connection-Work'), token: 'work-token' }, { post, openAuthorization });
-    expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connectDirect', {
+    expect(post).toHaveBeenCalledExactlyOnceWith('/integrations/connectDirect', {
       providerId: 'github', fields: { token: 'work-token' }, serverId: 'server-Work', existingConnectionId: 'connection-Work',
     });
   });
@@ -57,7 +57,7 @@ describe('account-specific agent connection requests', () => {
     expect(page.props).toMatchObject({ authConfigId: 'app-Work', serverId: 'server-Work', existingConnectionId: 'connection-Work' });
     const post = vi.fn(async () => ({ authUrl: 'https://vendor.example/authorize' }));
     await requestConnection(page.props, { post, openAuthorization: vi.fn() });
-    expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connect', {
+    expect(post).toHaveBeenCalledExactlyOnceWith('/integrations/connect', {
       providerId: 'slack', scopes: [], authConfigId: 'app-Work', serverId: 'server-Work', existingConnectionId: 'connection-Work',
     });
   });
@@ -71,7 +71,7 @@ describe('account-specific agent connection requests', () => {
     expect(page.props.endpointConfig).toMatchObject({ locked: true, selectedId: 'eu' });
     const post = vi.fn(async () => ({ authUrl: 'https://vendor.example/authorize' }));
     await requestConnection({ ...page.props, endpointId: 'us' }, { post, openAuthorization: vi.fn() });
-    expect(post).toHaveBeenCalledWith('/connectors/connect', expect.objectContaining({ endpointId: 'eu', serverId: 'eu', existingConnectionId: 'connection-eu' }));
+    expect(post).toHaveBeenCalledWith('/integrations/connect', expect.objectContaining({ endpointId: 'eu', serverId: 'eu', existingConnectionId: 'connection-eu' }));
     expect(() => selectRequestAccount(page.props, 'removed-account')).toThrow('no longer available');
   });
 });
@@ -91,7 +91,7 @@ describe('connection requests from agent conversations', () => {
     const region = definition.endpoint?.kind === 'region' ? definition.endpoint.options[0] : undefined;
     const selection = region ? { endpointId: region.id } : {};
     expect(await requestConnection({ ...page.props, ...selection, token: '  fixture-token  ' }, { post, openAuthorization })).toContain('Connected.');
-    expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connectDirect', {
+    expect(post).toHaveBeenCalledExactlyOnceWith('/integrations/connectDirect', {
       providerId: provider, fields: { token: 'fixture-token' }, existingConnectionId: 'existing-account', ...selection,
     });
     expect(openAuthorization).not.toHaveBeenCalled();
@@ -108,7 +108,7 @@ describe('connection requests from agent conversations', () => {
     const post = vi.fn(async () => ({ authorizationUrl: 'https://vendor.example/authorize' }));
     const openAuthorization = vi.fn();
     expect(await requestConnection(page.props, { post, openAuthorization })).toContain('in your browser');
-    expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connect', { providerId: provider, scopes: ['read'], authConfigId: 'pinned-client', existingConnectionId: 'saved-id' });
+    expect(post).toHaveBeenCalledExactlyOnceWith('/integrations/connect', { providerId: provider, scopes: ['read'], authConfigId: 'pinned-client', existingConnectionId: 'saved-id' });
     expect(openAuthorization).toHaveBeenCalledExactlyOnceWith('https://vendor.example/authorize');
   });
 
@@ -124,7 +124,7 @@ describe('connection requests from agent conversations', () => {
     const post = vi.fn(async () => ({ connection: { id: `hosted-${provider}` } }));
     const openAuthorization = vi.fn();
     expect(await requestConnection({ ...page.props, token: 'must-not-be-forwarded' }, { post, openAuthorization })).toContain('Connected.');
-    expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connectDirect', { providerId: provider, fields: {} });
+    expect(post).toHaveBeenCalledExactlyOnceWith('/integrations/connectDirect', { providerId: provider, fields: {} });
     expect(openAuthorization).not.toHaveBeenCalled();
   });
 
@@ -136,12 +136,12 @@ describe('connection requests from agent conversations', () => {
     const post = vi.fn(async () => ({ connection: { id: 'verified' } }));
     const openAuthorization = vi.fn();
     await requestConnection({ ...options, token: 'must-not-be-forwarded' }, { post, openAuthorization });
-    expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connectDirect', { providerId: 'public-fixture', fields: {} });
+    expect(post).toHaveBeenCalledExactlyOnceWith('/integrations/connectDirect', { providerId: 'public-fixture', fields: {} });
     expect(openAuthorization).not.toHaveBeenCalled();
   });
 
   it.each(HOSTED_MCP_PROVIDERS.filter(provider => provider.auth?.kind === 'oauth' && provider.auth.registration === 'registered').map(provider => provider.id))('sends %s to Settings until a registered app is usable', async provider => {
-    savedServers.statuses = [{ id: provider, configured: false, mcp: { oauthRegistration: 'registered', redirectUri: `https://app.example/api/connectors/mcp-oauth/builtin_${provider}` } }];
+    savedServers.statuses = [{ id: provider, configured: false, mcp: { oauthRegistration: 'registered', redirectUri: `https://app.example/api/integrations/mcp-oauth/builtin_${provider}` } }];
     const page = await ConnectPage({ searchParams: Promise.resolve({ provider, client: 'query-client' }) });
     expect(page.props).toMatchObject({ oauthRegistration: 'registered', configured: false });
     const html = renderToStaticMarkup(page);
@@ -163,7 +163,7 @@ describe('connection requests from agent conversations', () => {
       connectionId: 'saved-connection', authConfigId: 'saved-client',
       url: environment?.url ?? definition.url, auth: { kind: 'oauth' }, enabled: true,
     }];
-    savedServers.statuses = [{ id: provider, configured: true, mcp: { oauthRegistration: 'registered', authConfigId: 'saved-client', redirectUri: `https://app.example/api/connectors/mcp-oauth/builtin_${provider}` } }];
+    savedServers.statuses = [{ id: provider, configured: true, mcp: { oauthRegistration: 'registered', authConfigId: 'saved-client', redirectUri: `https://app.example/api/integrations/mcp-oauth/builtin_${provider}` } }];
     const page = await ConnectPage({ searchParams: Promise.resolve({ provider, client: 'other-query-client', connection: 'saved-connection', endpointId: 'production' }) });
     expect(page.props).toMatchObject({ oauthRegistration: 'registered', configured: true, authConfigId: 'saved-client' });
     if (environment) expect(page.props.endpointConfig).toMatchObject({ locked: true, selectedId: environment.id });
@@ -177,7 +177,7 @@ describe('connection requests from agent conversations', () => {
     const post = vi.fn(async () => ({ authorizationUrl: 'https://vendor.example/authorize' }));
     const openAuthorization = vi.fn();
     await requestConnection({ ...page.props, endpointId: 'production' }, { post, openAuthorization });
-    expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connect', {
+    expect(post).toHaveBeenCalledExactlyOnceWith('/integrations/connect', {
       providerId: provider, scopes: [], authConfigId: 'saved-client', existingConnectionId: 'saved-connection', serverId: 'saved-server',
       ...(environment ? { endpointId: environment.id } : {}),
     });
@@ -203,7 +203,7 @@ describe('connection requests from agent conversations', () => {
     await expect(requestConnection(page.props, { post, openAuthorization })).rejects.toThrow('Choose workspace region');
     expect(post).not.toHaveBeenCalled();
     await requestConnection({ ...page.props, endpointId: 'eu' }, { post, openAuthorization });
-    expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connect', { providerId: 'intercom', endpointId: 'eu', scopes: [], authConfigId: undefined, existingConnectionId: undefined });
+    expect(post).toHaveBeenCalledExactlyOnceWith('/integrations/connect', { providerId: 'intercom', endpointId: 'eu', scopes: [], authConfigId: undefined, existingConnectionId: undefined });
   });
 
   it('pins reconnects to the saved region and offers a clear path to change it', async () => {
@@ -216,7 +216,7 @@ describe('connection requests from agent conversations', () => {
     expect(html).not.toContain('<select');
     const post = vi.fn(async () => ({ authorizationUrl: 'https://vendor.example/authorize' }));
     await requestConnection({ ...page.props, endpointId: 'us' }, { post, openAuthorization: vi.fn() });
-    expect(post).toHaveBeenCalledWith('/connectors/connect', expect.objectContaining({ endpointId: 'eu' }));
+    expect(post).toHaveBeenCalledWith('/integrations/connect', expect.objectContaining({ endpointId: 'eu' }));
   });
 
   it('requires a user-selected Smartsheet region instead of trusting a conversation URL', async () => {
@@ -233,7 +233,7 @@ describe('connection requests from agent conversations', () => {
     await expect(requestConnection({ ...page.props, token: 'fixture-token' }, { post, openAuthorization })).rejects.toThrow('Choose smartsheet region');
     expect(post).not.toHaveBeenCalled();
     await requestConnection({ ...page.props, token: 'fixture-token', endpointId: 'au' }, { post, openAuthorization });
-    expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connectDirect', {
+    expect(post).toHaveBeenCalledExactlyOnceWith('/integrations/connectDirect', {
       providerId: 'smartsheet', fields: { token: 'fixture-token' }, endpointId: 'au',
     });
     expect(openAuthorization).not.toHaveBeenCalled();
@@ -255,7 +255,7 @@ describe('connection requests from agent conversations', () => {
     const post = vi.fn(async () => ({ connection: { id: 'saved-smartsheet-connection' } }));
     const openAuthorization = vi.fn();
     await requestConnection({ ...page.props, endpointId: 'au', token: 'replacement-token' }, { post, openAuthorization });
-    expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connectDirect', {
+    expect(post).toHaveBeenCalledExactlyOnceWith('/integrations/connectDirect', {
       providerId: 'smartsheet', fields: { token: 'replacement-token' }, endpointId: 'eu',
       serverId: 'saved-smartsheet', existingConnectionId: 'saved-smartsheet-connection',
     });
@@ -275,7 +275,7 @@ describe('connection requests from agent conversations', () => {
     await expect(requestConnection(page.props, { post, openAuthorization: vi.fn() })).rejects.toThrow('Enter your instance url');
     expect(post).not.toHaveBeenCalled();
     await requestConnection({ ...page.props, instanceUrl: ' https://team.example ' }, { post, openAuthorization: vi.fn() });
-    expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connect', { providerId: 'n8n', instanceUrl: 'https://team.example', scopes: [], authConfigId: undefined, existingConnectionId: undefined });
+    expect(post).toHaveBeenCalledExactlyOnceWith('/integrations/connect', { providerId: 'n8n', instanceUrl: 'https://team.example', scopes: [], authConfigId: undefined, existingConnectionId: undefined });
   });
 
   it('also forwards configured endpoint choices through a direct credential connection', async () => {
@@ -285,7 +285,7 @@ describe('connection requests from agent conversations', () => {
       providerId: 'instance-fixture', authKind: 'bearer', scopes: [], token: 'fixture-token', instanceUrl: 'https://team.example',
       endpointConfig: { kind: 'instance', label: 'Instance URL', placeholder: '', locked: false },
     }, { post, openAuthorization });
-    expect(post).toHaveBeenCalledExactlyOnceWith('/connectors/connectDirect', { providerId: 'instance-fixture', fields: { token: 'fixture-token' }, instanceUrl: 'https://team.example' });
+    expect(post).toHaveBeenCalledExactlyOnceWith('/integrations/connectDirect', { providerId: 'instance-fixture', fields: { token: 'fixture-token' }, instanceUrl: 'https://team.example' });
     expect(openAuthorization).not.toHaveBeenCalled();
   });
 

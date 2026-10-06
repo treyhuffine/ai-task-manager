@@ -17,12 +17,12 @@ on:
       - 'src/proxy*'
       - 'src/lib/stt/**'
       - 'src/lib/client/**'
-      - 'src/lib/connectors/**'
+      - 'src/lib/integrations/**'
       - 'src/lib/notifications/**'
       - 'src/service/**'
       - 'src/app/api/service/**'
       - 'src/app/api/desktop/**'
-      - 'src/app/api/connectors/**'
+      - 'src/app/api/integrations/**'
       - 'src/app/api/notifications/**'
       - 'src/app/api/transcribe/**'
       - 'src/app/manifest.ts'
@@ -39,7 +39,7 @@ on:
       - 'public/notifications-sw.js'
       - 'public/offline.html'
       - 'scripts/smoke-phone-web-app.ts'
-      - 'packages/connectors/**'
+      - 'packages/integrations/**'
       - 'next.config.ts'
       - 'tsconfig*.json'
       - 'src/types/**'
@@ -106,7 +106,7 @@ jobs:
       - run: pnpm ts
       - run: pnpm test
       - run: pnpm desktop:test
-      - run: pnpm --filter @connectors/engine test
+      - run: pnpm --filter @integrations/engine test
       # Includes a frozen helper for each native target, but never downloads a
       # model or starts speech inference without the user's installation choice.
       - run: pnpm speech:build

@@ -573,7 +573,7 @@ describe('notifications', () => {
     const q = await import('@/lib/db/queries');
     const channel = q.createNotificationChannel({
       userId: 'local',
-      kind: 'connector',
+      kind: 'integration',
       providerId: 'test',
       config: {},
       events: ['execution.finished'],
@@ -591,7 +591,7 @@ describe('notifications', () => {
     const sent: string[] = [];
     const deps = {
       resolveAdapter: () => ({
-        kind: 'connector' as const,
+        kind: 'integration' as const,
         providerId: 'test',
         async deliver(_channel: unknown, rendered: { title: string }) {
           sent.push(rendered.title);

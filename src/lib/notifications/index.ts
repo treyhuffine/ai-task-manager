@@ -1,5 +1,5 @@
 /**
- * The Notifier — the app's push layer over connectors (spec §2). One-way dependency on connectors;
+ * The Notifier — the app's push layer over integrations (spec §2). One-way dependency on integrations;
  * the engine never hears the word "channel". Public surface: `notify()` + the event catalog + types.
  */
 export { notify } from './notify';

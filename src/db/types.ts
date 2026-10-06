@@ -208,7 +208,7 @@ export type WorkspaceRecord = WithCamelAttachments<InferSelectModel<typeof works
 export type CreateWorkspaceInput = WithCamelAttachments<PolicyOptional<Omit<InferInsertModel<typeof workspaces>, 'id'>, 'status' | 'filesToCopy' | 'collapsed' | 'skipLiveConfirm' | 'browserEnabled'>>;
 export type UpdateWorkspaceInput = Partial<Omit<CreateWorkspaceInput, 'createdAt'>>;
 export type WorkspaceStatus = WorkspaceRecord['status'];
-export type { WorkspaceConnectorScope, WorkspaceConnectorScopeAccount } from '@/lib/db/schema';
+export type { WorkspaceIntegrationScope, WorkspaceIntegrationScopeAccount } from '@/lib/db/schema';
 
 /**
  * Workspace row + aggregated info from its child sessions. The list view
@@ -393,11 +393,11 @@ export type ChatEventSource =
   | 'background_task'
   | 'permission_request' | 'permission_response'
   | 'question_request' | 'question_response'
-  // Connector actions that paused on "Ask first" (connectors/approval-events.ts):
+  // Integration actions that paused on "Ask first" (integrations/approval-events.ts):
   // the request renders as an approval card, the response records the user's
   // decision so the card reads correctly after a reload or restart.
   | 'approval_request' | 'approval_response'
-  // Connecting accounts from chat (connectors/connection-requests.ts): the
+  // Connecting accounts from chat (integrations/connection-requests.ts): the
   // request renders as a Connect card, the response records the user's answer.
   | 'connection_request' | 'connection_response'
   | 'auth_required'
@@ -518,7 +518,7 @@ export interface StreamFilter {
   offset?: number;
 }
 
-// ─── Notifications (docs/connectors-email-and-notifier-spec.md §2) ──
+// ─── Notifications (docs/integrations-email-and-notifier-spec.md §2) ──
 
 export type NotificationChannelRecord = InferSelectModel<typeof notificationChannels>;
 export type CreateNotificationChannelInput = PolicyOptional<Omit<InferInsertModel<typeof notificationChannels>, 'id'>, 'enabled'> & { id?: string };

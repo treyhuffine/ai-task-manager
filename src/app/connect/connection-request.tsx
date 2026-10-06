@@ -1,13 +1,13 @@
 'use client';
 import { trpcClient } from '@/lib/trpc/client';
 
-import { connectorMeta } from '@/components/connectors/connector-meta';
-import { HostedEndpointFields } from '@/components/connectors/hosted-endpoint-fields';
+import { integrationMeta } from '@/components/integrations/integration-meta';
+import { HostedEndpointFields } from '@/components/integrations/hosted-endpoint-fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { apiErrorText } from '@/lib/api/client';
-import { connectorEndpointReady, type HostedEndpointSelection } from '@/lib/client/connector-endpoint';
-import { openConnectorAuthorization } from '@/lib/client/desktop';
+import { integrationEndpointReady, type HostedEndpointSelection } from '@/lib/client/integration-endpoint';
+import { openIntegrationAuthorization } from '@/lib/client/desktop';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
@@ -34,7 +34,7 @@ export function ConnectionRequest(props: ConnectionRequestProps) {
   const oauth = props.authKind === 'oauth';
   const registered = props.oauthRegistration === 'registered';
   const needsSetup = registered && !needsAccountChoice && options.configured === false;
-  const meta = connectorMeta(props.providerId);
+  const meta = integrationMeta(props.providerId);
   const setup = bearer || props.endpointConfig ? meta.setup : undefined;
 
   async function connect(event: FormEvent) {
@@ -43,7 +43,7 @@ export function ConnectionRequest(props: ConnectionRequestProps) {
     setMessage('');
     try {
       const result = await requestConnection({ ...selectRequestAccount(props, selectedAccountId || undefined), ...endpointSelection, token }, {
-        post: (...[path, body]) => path === '/connectors/connect' ? trpcClient.connectors.connectPost.mutate({ body }) : trpcClient.connectors.connectDirectPost.mutate({ body }), openAuthorization: openConnectorAuthorization,
+        post: (...[path, body]) => path === '/integrations/connect' ? trpcClient.integrations.connectPost.mutate({ body }) : trpcClient.integrations.connectDirectPost.mutate({ body }), openAuthorization: openIntegrationAuthorization,
       });
       setToken('');
       setMessage(result);
@@ -82,7 +82,7 @@ export function ConnectionRequest(props: ConnectionRequestProps) {
           <Input id="connection-token" type="password" autoComplete="off" value={token} onChange={event => setToken(event.target.value)} disabled={busy} required />
         </div>
       </>}
-      <Button type="submit" disabled={busy || needsAccountChoice || !props.providerId || (bearer && !token.trim()) || !connectorEndpointReady(options.endpointConfig, endpointSelection)}>
+      <Button type="submit" disabled={busy || needsAccountChoice || !props.providerId || (bearer && !token.trim()) || !integrationEndpointReady(options.endpointConfig, endpointSelection)}>
         {busy ? oauth ? 'Preparing sign-in…' : 'Connecting…' : oauth ? 'Continue to sign-in' : `Connect ${props.displayName}`}
       </Button>
     </form>}

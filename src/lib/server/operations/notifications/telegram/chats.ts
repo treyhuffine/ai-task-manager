@@ -1,4 +1,4 @@
-import { getConnectorOwnerId, getConnectorRuntime } from '@/lib/connectors/runtime';
+import { getIntegrationOwnerId, getIntegrationRuntime } from '@/lib/integrations/runtime';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 
@@ -22,10 +22,10 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: Operat
   const connectionId = new URL(request.url).searchParams.get('connectionId');
   if (!connectionId) return reply({ error: 'connectionId required' }, { status: 400 });
 
-  const outcome = await (await getConnectorRuntime()).runAction<{ updates: unknown[] }>(
+  const outcome = await (await getIntegrationRuntime()).runAction<{ updates: unknown[] }>(
     'telegram.get_updates',
     {},
-    { ownerId: getConnectorOwnerId(), connectionId, caller: { type: 'app', id: 'notifier' } },
+    { ownerId: getIntegrationOwnerId(), connectionId, caller: { type: 'app', id: 'notifier' } },
   );
   if (!outcome.ok) {
     return reply({ error: outcome.reason === 'error' ? outcome.message : outcome.reason }, { status: 400 });

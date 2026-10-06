@@ -1,5 +1,5 @@
 /**
- * Notifier web-push service worker (docs/connectors-email-and-notifier-spec.md §2.11).
+ * Notifier web-push service worker (docs/integrations-email-and-notifier-spec.md §2.11).
  * Renders incoming pushes and deep-links on click. Payload: { title, body, url }.
  * The only cached response is a fixed public connection-help page. Never cache
  * application pages, API responses, attachments, credentials, or mutations.

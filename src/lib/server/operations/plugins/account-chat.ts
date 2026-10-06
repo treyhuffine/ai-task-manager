@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { jsonSchemaToZodObject, mcpToolVisible, type McpToolRegistrar } from '@connectors/engine/mcp';
-import { getConnectorRuntime } from '@/lib/connectors/runtime';
+import { jsonSchemaToZodObject, mcpToolVisible, type McpToolRegistrar } from '@integrations/engine/mcp';
+import { getIntegrationRuntime } from '@/lib/integrations/runtime';
 import { OperationError } from '@/lib/server/operation';
 import { accountEvaluationRpc, accountViewInvocation } from './account-evaluation';
 
@@ -28,7 +28,7 @@ async function checked(ticket: string) {
 export async function serveAccountChat(server: McpToolRegistrar, ticket: string) {
   const { turn, view } = await checked(ticket);
   const id = `${view.session.view.snapshot.providerId}.${turn.toolName}`;
-  const action = (await getConnectorRuntime()).getToolkits().flatMap(toolkit => toolkit.actions).find(action => action.id === id);
+  const action = (await getIntegrationRuntime()).getToolkits().flatMap(toolkit => toolkit.actions).find(action => action.id === id);
   if (!action || action.modelVisible === false) fail('The account tool is unavailable.');
   // The ordinary toolkit merges schemas across accounts. This pinned view
   // advertises only the selected connection's actual tool definition.

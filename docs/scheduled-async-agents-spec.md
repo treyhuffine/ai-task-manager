@@ -20,7 +20,7 @@ The v1 substrate is small but load-bearing:
 - **Context engine** — on every scheduled dispatch, inject a structured world snapshot (bootstrap files loaded verbatim + structured state queried from the DB). 4-8k token budget for the dynamic portion; bootstrap files always intact.
 - **Bootstrap files** (3, hardcoded for v1): `<brain>/COMPANY.md` (user's standing context), `<workspace>/.ri/WORKSPACE.md` (per-workspace context), `<brain>/HEARTBEAT.md` (standing supervisory instructions).
 - **Decisions** as a directory convention — `<brain>/decisions/YYYY-MM-DD-<slug>.md`, one file per decision, light UI (list + open + mark-reversed). No new table.
-- **Connectors substrate** — outbound via user-registered MCP servers, inbound via webhook-triggered schedules.
+- **Integrations substrate** — outbound via user-registered MCP servers, inbound via webhook-triggered schedules.
 
 That's v1. What sits beyond v1 — the full **world model** (organizational memory), the **self-improvement loop**, **ingestion at scale**, **provenance traversal**, **multi-agent role specialization** — is named in §10 as direction. The v1 substrate is built so each of those is additive rather than a rewrite.
 
@@ -387,7 +387,7 @@ UI: a "Decisions" tab on the brain / settings surface that lists recent files ne
 
 If patterns emerge (search across decisions, link decisions to tasks/projects, scoring), we'd consider promotion to a schema in v2. For v1: the convention + the light UI + the context-engine inclusion is enough.
 
-### 3.9 Connectors
+### 3.9 Integrations
 
 The minimum substrate, no native integrations:
 
@@ -540,7 +540,7 @@ Clicking any schedule_run takes you to the chat_session it created (or continued
 - `list_decisions` / `get_decision` orchestrator actions
 - Per-schedule context scope enforcement
 
-**Phase 4 — Context engine refinement + connector docs (~1-2 weeks)**
+**Phase 4 — Context engine refinement + integration docs (~1-2 weeks)**
 - Context engine token budgeting + truncation rules
 - `describe_world` orchestrator action
 - Catch-up runs (bounded)
@@ -603,7 +603,7 @@ The data model already supports multiple agents (`agents.kind`, `agents.name`, `
 
 - Per-agent HEARTBEAT.md (vs the shared one) — easy
 - Per-agent skill libraries (probably scoped by config field) — easy
-- Per-agent tool permissions and connector access — needs design
+- Per-agent tool permissions and integration access — needs design
 - A UX for "which agent does this conversation belong to / which agent should handle this task" — needs design
 - Inter-agent delegation patterns (does the marketing agent assign work to the dev agent?) — needs design
 
@@ -656,7 +656,7 @@ These are tempting and wrong. Putting them in writing so they don't sneak back i
 - **BullMQ / Redis-backed queue.** None of the comparable projects (OpenClaw, Hermes, Paperclip, GBrain) chose Redis for this. Don't take on the infra.
 - **OS cron.** The scheduler has to know about session state, worktrees, executor lifecycle. Putting it in OS cron means duplicating all of that.
 - **Anthropic Routines (as host).** Routines run in Anthropic's cloud, can't see local workspaces, daily-capped. We host our own.
-- **A native connector marketplace.** MCP layer handles this. We document patterns; we don't curate.
+- **A native integration marketplace.** MCP layer handles this. We document patterns; we don't curate.
 - **Auto-action on external systems by default.** "Draft don't send" until trust is earned through experience.
 - **Goals / projects / work-packets as new tables in v1.** Convention via markdown first; schema if patterns demand.
 - **Cost tracking deferred.** Has to ship in v1. Without it, autonomy is untrustable.

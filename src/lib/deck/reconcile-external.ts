@@ -11,7 +11,7 @@
  *
  * It's deterministic (no model call) and safe to run on a cadence. A heartbeat
  * or the scheduler calls it via `POST /api/deck/reconcile` or the
- * `reconcile_deck` orchestrator action. Until a calendar connector registers a
+ * `reconcile_deck` orchestrator action. Until a calendar integration registers a
  * provider it's a no-op (there's nothing external to react to).
  */
 
@@ -75,7 +75,7 @@ export async function reconcileDeckWithExternalChanges(
   if (!deck) {
     return { changed: false, deck: null, decisions: [], summary: 'No active deck for today.' };
   }
-  // No connector → nothing external to react to. (Inert until calendar lands.)
+  // No integration → nothing external to react to. (Inert until calendar lands.)
   if (!hasCalendarProvider()) {
     return { changed: false, deck, decisions: [], summary: 'No calendar connected.' };
   }

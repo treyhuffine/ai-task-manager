@@ -38,9 +38,9 @@ const nextConfig: NextConfig = {
     "@agentex/workspace",
     "@agentex/github",
   ],
-  // The connector engine is a workspace package shipped as raw TS (zod-only core);
+  // The integration engine is a workspace package shipped as raw TS (zod-only core);
   // Next must transpile it (and its subpath exports) to consume it from routes.
-  transpilePackages: ["@connectors/engine"],
+  transpilePackages: ["@integrations/engine"],
   // Honor NEXT_DIST_DIR so the smoke-test server can boot alongside a
   // running `pnpm dev` without fighting for `.next/dev/lock`.
   distDir,

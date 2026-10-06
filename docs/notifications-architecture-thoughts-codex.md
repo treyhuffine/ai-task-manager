@@ -1,14 +1,14 @@
-# Notifications + Connectors Architecture Notes
+# Notifications + Integrations Architecture Notes
 
 **Status:** Recommendation / review notes  
 **Date:** 2026-06-23  
-**Related:** `docs/connectors-email-and-notifier-spec.md`, `docs/connectors-module-spec.md`
+**Related:** `docs/integrations-email-and-notifier-spec.md`, `docs/integrations-module-spec.md`
 
 ## Executive judgment
 
 The right architecture is:
 
-1. **Connectors remain the action/delivery layer.** They know how to call Telegram, Slack,
+1. **Integrations remain the action/delivery layer.** They know how to call Telegram, Slack,
    Gmail, Outlook, etc. They should not know what a Ri notification is.
 2. **Notifier lives in the app.** It decides when an app event should reach the user, which
    channels are eligible, how the event is rendered, and how delivery is retried/audited.
@@ -27,13 +27,13 @@ The clean boundary is:
 ```txt
 app domain event
   -> app notifier
-    -> connector-backed channel adapter
-      -> connector runtime action
+    -> integration-backed channel adapter
+      -> integration runtime action
     -> native channel adapter
       -> web push / future in-app center
 ```
 
-Connectors should expose verbs such as:
+Integrations should expose verbs such as:
 
 - `telegram.send_message`
 - `slack.post_message`
@@ -52,7 +52,7 @@ Notifier should own:
 - digest routing
 - settings UI
 
-This one-way dependency is important. The engine can spin out as a generic connector runtime, and
+This one-way dependency is important. The engine can spin out as a generic integration runtime, and
 the app can still define opinionated product behavior like quiet hours, digests, lifecycle events,
 and user notification preferences.
 
@@ -146,7 +146,7 @@ once without double-sending.
 The standard robust pattern is:
 
 1. **Domain event occurs.**
-   Example: an execution finishes, an agent asks for input, a connector action needs approval, or a
+   Example: an execution finishes, an agent asks for input, an integration action needs approval, or a
    schedule completes.
 
 2. **Notifier receives a presentation-neutral event.**
@@ -180,7 +180,7 @@ The standard robust pattern is:
    and body.
 
 7. **Adapter sends.**
-   Connector-backed adapters call `runtime.runAction(...)`.
+   Integration-backed adapters call `runtime.runAction(...)`.
    Native adapters call local app infrastructure such as `web-push`.
 
 8. **Status is recorded.**
@@ -196,7 +196,7 @@ The proposed event catalog is good:
 
 - `execution.needs_input`
 - `execution.finished`
-- `connector.approval_required`
+- `integration.approval_required`
 - `schedule.run_completed`
 - `deck.surfaced`
 
@@ -211,12 +211,12 @@ Recommended emission points:
 - `execution.needs_input`: after a `permission_request` or `question_request` chat event is persisted,
   not merely when in-memory pending input changes.
 - `execution.finished`: from the shared run terminal path, covering manual and scheduled runs.
-- `connector.approval_required`: when the connector approval policy registers a pending approval.
+- `integration.approval_required`: when the integration approval policy registers a pending approval.
 - `schedule.run_completed`: for orchestrator-target scheduled runs that do not already produce an
   execution-finished notification.
 - `deck.surfaced`: when proactive deck logic writes a durable deck/change record.
 
-## Trusted connector dispatch
+## Trusted integration dispatch
 
 Notifier sends are app-driven. It would be bad UX to ask the user to approve every notification that
 the app itself is trying to send.
@@ -237,8 +237,8 @@ Then in the host approval policy:
 
 - allow `{ type: 'app', id: 'notifier' }` only for explicit delivery actions;
 - optionally require `connectionId` to match an enabled notification channel;
-- keep normal agent/MCP connector calls gated;
-- audit all notifier connector calls through `onActionRun`.
+- keep normal agent/MCP integration calls gated;
+- audit all notifier integration calls through `onActionRun`.
 
 Do not implement this as "all app callers bypass approval." That would be too broad.
 
@@ -255,7 +255,7 @@ interface NotificationChannelAdapter {
 }
 ```
 
-For connector-backed channels, make the adapter explicit:
+For integration-backed channels, make the adapter explicit:
 
 ```ts
 const TELEGRAM_NOTIFICATION_ADAPTER = {
@@ -270,12 +270,12 @@ const TELEGRAM_NOTIFICATION_ADAPTER = {
 };
 ```
 
-Do not make notifier dynamically infer arbitrary connector tools. Notification delivery is product
+Do not make notifier dynamically infer arbitrary integration tools. Notification delivery is product
 infrastructure, not free-form agent behavior. It should use an allowlisted set of delivery actions.
 
 ## Web push
 
-Web push is not a connector and should not be forced into connector abstractions.
+Web push is not an integration and should not be forced into integration abstractions.
 
 Recommended shape:
 
@@ -341,7 +341,7 @@ for sending. Treat generic IMAP/SMTP as an engine extension after the notificati
    - insert/upsert delivery;
    - claim pending deliveries;
    - mark sent/failed;
-   - cleanup channels for deleted connector connection;
+   - cleanup channels for deleted integration connection;
    - cleanup schedule bindings for deleted notification channel.
 
 3. Add `src/lib/notifications`:
@@ -353,7 +353,7 @@ for sending. Treat generic IMAP/SMTP as an engine extension after the notificati
    - `adapters/telegram.ts`;
    - `adapters/web-push.ts`.
 
-4. Wire trusted connector dispatch:
+4. Wire trusted integration dispatch:
    - add allowlist to `appApprovalPolicy`;
    - pass `caller: { type: 'app', id: 'notifier' }`;
    - only allow known delivery actions.
@@ -361,7 +361,7 @@ for sending. Treat generic IMAP/SMTP as an engine extension after the notificati
 5. Wire emission points:
    - pending input after durable request event;
    - run terminal helper for both manual and scheduled runs;
-   - connector approval pending registration;
+   - integration approval pending registration;
    - schedule digest completion;
    - deck later.
 
@@ -376,7 +376,7 @@ for sending. Treat generic IMAP/SMTP as an engine extension after the notificati
    - duplicate `dedupeKey` does not double-send;
    - disabled channels are skipped;
    - channel deletion cleans schedule bindings;
-   - connector disconnect disables/deletes connector-backed channels;
+   - integration disconnect disables/deletes integration-backed channels;
    - notifier caller bypasses approval only for allowlisted delivery actions;
    - failed delivery records `lastError` and can retry.
 
@@ -386,7 +386,7 @@ for sending. Treat generic IMAP/SMTP as an engine extension after the notificati
 export const notificationChannels = sqliteTable('notification_channels', {
   id: text().primaryKey(),
   userId: text().notNull().default('local'),
-  kind: text({ enum: ['connector', 'web_push', 'in_app'] }).notNull(),
+  kind: text({ enum: ['integration', 'web_push', 'in_app'] }).notNull(),
   providerId: text(),
   actionId: text(),
   connectionId: text(),
@@ -445,7 +445,7 @@ The exact names can change. The important distinction is:
 Keep the notifier simple, but make delivery durable.
 
 Do not build a generic event bus yet. Do not normalize tiny preference lists yet. Do not make generic
-IMAP/SMTP a blocker. Do not let the connector engine learn app notification concepts.
+IMAP/SMTP a blocker. Do not let the integration engine learn app notification concepts.
 
 Build a small app-layer notifier with:
 
@@ -454,9 +454,9 @@ Build a small app-layer notifier with:
 - structured channel config;
 - an outbox/delivery table;
 - explicit adapter registry;
-- narrow trusted connector dispatch;
+- narrow trusted integration dispatch;
 - web push as native app infrastructure;
-- connector-backed delivery for Telegram first.
+- integration-backed delivery for Telegram first.
 
 That is the right-sized architecture: simple where the data is small, durable where side effects can
-fail, and cleanly layered so connectors can grow independently from app notification policy.
+fail, and cleanly layered so integrations can grow independently from app notification policy.

@@ -32,6 +32,7 @@
  * retired on 2026-10-05: the stored value is no longer read.
  */
 
+import { INTEGRATION_LABELS } from '@/constants/integrations';
 import fs from 'node:fs';
 import path from 'node:path';
 // agentex is ESM-only (no CJS condition); a static value import crashes the
@@ -53,13 +54,13 @@ import {
 import { readAuthConfig } from '@/lib/auth/config-file';
 import { SOUL_MD_FILENAME, USER_MD_FILENAME } from '@/lib/config/personalization-templates';
 import { SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
-import { connectorRequestsEnabled } from '@/lib/connectors/request-settings';
+import { integrationRequestsEnabled } from '@/lib/integrations/request-settings';
 import { DEFAULT_ORCHESTRATOR_NAME } from '@/lib/orchestrator/name';
 import type { WorkspaceRecord } from '@/db/types';
 import { KNOWN_HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
 
 export const ORCHESTRATOR_MCP_SERVER_NAME = 'orchestrator';
-export const CONNECTORS_MCP_SERVER_NAME = 'connectors';
+export const INTEGRATIONS_MCP_SERVER_NAME = 'integrations';
 
 // Every harness reads the shared AGENTS.md. Decide explicitly whether its
 // native instruction file may also be written when Claude needs its pointer.
@@ -240,7 +241,7 @@ You are the conductor over the executing agents:
   worktree has uncommitted or unpushed work, and says so. Only pass
   \`force\` when the user has said that work can go.
 - \`update_workspace\`: edit an agent's name, emoji, area, \`purpose\` or
-  standing \`instructions\` when the user asks. Connector access and the
+  standing \`instructions\` when the user asks. ${INTEGRATION_LABELS.singular} access and the
   browser can only be changed in the app.
 - \`get_pending_input\` / \`answer_pending_input\`: when a session is
   \`awaitingInput\`, its turn is **blocked**: queued messages won't reach it
@@ -264,8 +265,8 @@ You have a real browser (\`browser_read\`, \`browser_act\`, and friends) that
 reads and acts on web pages using the sites the user has signed the agent
 browser into. Reach for it when a plain fetch cannot get the content: a
 paywalled or login-gated page, a JS-heavy page, filling a form, posting, or
-pulling a file down. Prefer a first-party connector when one exists for the job
-(read Gmail through the Gmail connector, not the browser). The loop is read then
+pulling a file down. Prefer a first-party ${INTEGRATION_LABELS.singular.toLowerCase()} when one exists for the job
+(read Gmail through the Gmail ${INTEGRATION_LABELS.singular.toLowerCase()}, not the browser). The loop is read then
 act: \`browser_read\` returns a snapshot with \`[ref=..]\` ids, you act on a
 ref. If a result carries a \`blocked\` login or challenge signal, stop and hand
 back to the user, never automate a login. The \`${AGENT_BROWSER_SKILL_NAME}\`
@@ -382,7 +383,7 @@ Plugins) via \`list_skills\`, \`get_skill\`, \`create_skill\`, \`save_skill\`,
 Use these MCP tools for every read and write. Reading files in your home dir
 for ambient context is fine. Writing through anything but the tools is not.
 
-The \`${CONNECTORS_MCP_SERVER_NAME}\` MCP server is also attached when the user has connected
+The \`${INTEGRATIONS_MCP_SERVER_NAME}\` MCP server is also attached when the user has connected
 external accounts, typed tools to act on them (e.g. \`gmail__send_email\`,
 \`google_calendar__create_event\`, \`slack__post_message\`), provider-namespaced.
 When several accounts of a provider are connected, pass \`account\`. A tool may
@@ -390,7 +391,7 @@ return a structured next-step (authorization_required, choose_account,
 additional_permission_required, approval_required) instead of a result. Relay
 it and retry after the user acts. Never improvise an auth flow. For
 approval_required the user gets an approval card in this chat: stop and wait.
-A note arrives when they decide, naming which calls to retry and which not to.${connectorRequestsEnabled() ? `
+A note arrives when they decide, naming which calls to retry and which not to.${integrationRequestsEnabled() ? `
 
 ${REQUEST_CONNECTION_BRIEF}` : ''}`;
 }
@@ -436,8 +437,8 @@ in the source repo, not here.`;
 
 /** What an agent's main chat can reach, which changes what its brief says. */
 export interface AgentMainChatReach {
-  /** The connectors MCP is attached, carrying only this agent's scopes. */
-  connectors: boolean;
+  /** The integrations MCP is attached, carrying only this agent's scopes. */
+  integrations: boolean;
   /** The agent browser MCP is attached. */
   browser: boolean;
   /**
@@ -511,7 +512,7 @@ home's main chat keeps the file.`;
  */
 export function renderAgentMainChatBrief(
   ws: Pick<WorkspaceRecord, 'id' | 'name' | 'cwd' | 'isGit' | 'purpose' | 'instructions'>,
-  reach: AgentMainChatReach = { connectors: false, browser: false },
+  reach: AgentMainChatReach = { integrations: false, browser: false },
 ): string {
   const appRoot = getAppRoot();
   const id = ws.id;
@@ -545,14 +546,14 @@ chat.`;
 
 The \`${ORCHESTRATOR_MCP_SERVER_NAME}\` MCP server is attached: one typed tool per ${APP_NAME}
 action. Use it for every read and write of ${APP_NAME} data.`,
-    reach.connectors
-      ? `The \`${CONNECTORS_MCP_SERVER_NAME}\` MCP server is attached with only the external
+    reach.integrations
+      ? `The \`${INTEGRATIONS_MCP_SERVER_NAME}\` MCP server is attached with only the external
 accounts this agent may use. A tool may return a structured next step
 (authorization_required, choose_account, additional_permission_required,
 approval_required) instead of a result. Relay it and retry after the user
 acts. Never improvise an auth flow. For approval_required the user gets an
 approval card in this chat: stop and wait. A note arrives when they decide,
-naming which calls to retry and which not to.${connectorRequestsEnabled() ? `
+naming which calls to retry and which not to.${integrationRequestsEnabled() ? `
 
 ${REQUEST_CONNECTION_BRIEF}` : ''}`
       : '',
@@ -677,27 +678,27 @@ export function orchestratorMcpServer(
 }
 
 /**
- * The connectors MCP as a typed agentex `McpServerConfig` — the engine's actions (Gmail, Slack,
+ * The integrations MCP as a typed agentex `McpServerConfig` — the engine's actions (Gmail, Slack,
  * …) projected over the SAME gated `runAction`. Same localhost + local-bearer pattern as the
  * orchestrator server (agentex stages it as a 0600 `--mcp-config`). Tools appear to the harness
- * as `mcp__connectors__*`. Returns null (no attachment) when no local token exists yet.
+ * as `mcp__integrations__*`. Returns null (no attachment) when no local token exists yet.
  */
-export function connectorsMcpServer(
+export function integrationsMcpServer(
   port = resolveServerPort(),
   opts: { workspaceId?: string; sessionId?: string | null } = {},
 ): McpServerConfig | null {
   const token = readAuthConfig()?.localToken;
   if (!token) return null;
-  // A `?ws=<id>` scopes the endpoint to a workspace's connector allowlist (executions). Omitted =
+  // A `?ws=<id>` scopes the endpoint to a workspace's integration allowlist (executions). Omitted =
   // the broad connected set (orchestrator/content). The route derives the actual filter from the
   // validated workspace id, never from a client-asserted scope (spec §6b).
-  const base = `http://localhost:${port}/api/connectors/mcp`;
+  const base = `http://localhost:${port}/api/integrations/mcp`;
   const url = opts.workspaceId ? `${base}?ws=${encodeURIComponent(opts.workspaceId)}` : base;
   // Which chat is calling, so an action paused on "Ask first" shows its approval card in that
-  // chat and the user's grant matches that chat's retry (see connectors/approval.ts).
+  // chat and the user's grant matches that chat's retry (see integrations/approval.ts).
   const credential = opts.sessionId ? sessionCredential(opts.sessionId, token) : null;
   return {
-    name: CONNECTORS_MCP_SERVER_NAME,
+    name: INTEGRATIONS_MCP_SERVER_NAME,
     type: 'http',
     url,
     headers: {
@@ -817,7 +818,7 @@ export const ORCHESTRATOR_DISALLOWED_TOOLS = ['Write', 'Edit', 'NotebookEdit'];
  * `strictMcpConfig` so the session's MCP surface is exactly what we attach (a
  * stray `.mcp.json` in the data root, e.g. from the level-3 smoke, or
  * user-level servers can't leak in), and attach the orchestrator and
- * connectors MCP servers (skipped with a warning when no local token exists
+ * integrations MCP servers (skipped with a warning when no local token exists
  * yet).
  *
  * Typed config, not argv — agentex maps it per provider. Providers
@@ -831,11 +832,11 @@ export function orchestratorSessionConfig(
     disallowedTools: [...ORCHESTRATOR_DISALLOWED_TOOLS],
     strictMcpConfig: true,
   };
-  // Attach the orchestrator MCP (tasks/notes/deck/…) + the connectors MCP (Gmail/Slack/…),
+  // Attach the orchestrator MCP (tasks/notes/deck/…) + the integrations MCP (Gmail/Slack/…),
   // both over localhost + the local bearer. Each routes through its own gated runtime.
   const servers = [
     orchestratorMcpServer(opts.port, { sessionId: opts.sessionId }),
-    connectorsMcpServer(opts.port, { sessionId: opts.sessionId }),
+    integrationsMcpServer(opts.port, { sessionId: opts.sessionId }),
   ].filter(
     (s): s is McpServerConfig => s !== null,
   );

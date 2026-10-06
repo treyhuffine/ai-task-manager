@@ -157,7 +157,7 @@ proxy and the tRPC fetch adapter. It covers compact list DTOs, verbatim bodies,
 batching, bounded attention reads, nullable patches, write validation,
 lifecycle conflicts/replay, recurring completion, deletion, scoped callers,
 host-only controls and drain/offline admission. It also exercises workspace
-updates, chat/scratchpad reads and writes, references, devices, connector
+updates, chat/scratchpad reads and writes, references, devices, integration
 preferences, service settings and Home identity.
 
 Cache and draft regressions cover optimistic edits/removal/rollback, lane

@@ -68,9 +68,9 @@ describe('a session token', () => {
     const q = await import('@/lib/db/queries');
     const chat = q.getChatSession(executionChat)!;
     const may = (pathname: string, query = '') => sessionMayReach(chat, pathname, new URLSearchParams(query));
-    expect(may('/api/connectors/mcp', `ws=${agentId}`)).toBe(true);
-    expect(may('/api/connectors/mcp', 'ws=another-agent')).toBe(false);
-    expect(may('/api/connectors/mcp')).toBe(false);
+    expect(may('/api/integrations/mcp', `ws=${agentId}`)).toBe(true);
+    expect(may('/api/integrations/mcp', 'ws=another-agent')).toBe(false);
+    expect(may('/api/integrations/mcp')).toBe(false);
     expect(may('/api/orchestrator/browser/mcp', `profile=ws-${agentId}`)).toBe(true);
     expect(may('/api/orchestrator/browser/mcp')).toBe(false);
     expect(may('/api/orchestrator/browser/mcp', 'profile=default')).toBe(false);
@@ -93,7 +93,7 @@ describe('the proxy, given a session token', () => {
 
   it("lets it through to its session's servers as that session, from elsewhere", async () => {
     const { proxy } = await import('@/proxy');
-    const res = proxy(request(`/api/connectors/mcp?ws=${agentId}`, token, { 'x-ri-session-chat-id': 'forged' }));
+    const res = proxy(request(`/api/integrations/mcp?ws=${agentId}`, token, { 'x-ri-session-chat-id': 'forged' }));
     expect(passes(res)).toBe(true);
     expect(forwarded(res, 'x-ri-api-key-scope')).toBe('session');
     expect(forwarded(res, 'x-ri-session-chat-id')).toBe(executionChat);
@@ -105,10 +105,10 @@ describe('the proxy, given a session token', () => {
   it('refuses it anywhere else, and once it no longer holds', async () => {
     const { proxy } = await import('@/proxy');
     expect(proxy(request('/api/tasks', token)).status).toBe(403);
-    expect(proxy(request('/api/connectors/mcp?ws=another-agent', token)).status).toBe(403);
+    expect(proxy(request('/api/integrations/mcp?ws=another-agent', token)).status).toBe(403);
     expect(proxy(request('/api/workers/me', token)).status).toBe(403);
     const q = await import('@/lib/db/queries');
     q.createPlacement({ executionId, deviceId, startReason: 'continued' });
-    expect(proxy(request(`/api/connectors/mcp?ws=${agentId}`, token)).status).toBe(401);
+    expect(proxy(request(`/api/integrations/mcp?ws=${agentId}`, token)).status).toBe(401);
   });
 });

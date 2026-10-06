@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isDesktopRequest } from '@/lib/connectors/desktop-oauth';
+import { isDesktopRequest } from '@/lib/integrations/desktop-oauth';
 import { isInstallationOwner } from '@/lib/service/owner-auth';
 import { listRailSessions } from '@/lib/db/queries';
 import { listRunningSessions, listSessionsWithPending } from '@/lib/executor/status-snapshot';

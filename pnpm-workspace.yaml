@@ -3,7 +3,7 @@
 # untracked clones under /examples (gitignored reference material), whose git
 # deps then break `pnpm install` for everyone. List packages one-by-one here.
 packages:
-  - "packages/connectors"
+  - "packages/integrations"
 allowBuilds:
   better-sqlite3: true
   electron: true

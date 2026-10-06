@@ -1,4 +1,4 @@
-import { getConnectorOwnerId, getConnectorRuntime } from '@/lib/connectors/runtime';
+import { getIntegrationOwnerId, getIntegrationRuntime } from '@/lib/integrations/runtime';
 import { createNotificationChannel, listNotificationChannels } from '@/lib/db/queries';
 import { defaultChannelEvents } from '@/lib/notifications/events';
 import { getNotifierUserId } from '@/lib/notifications/user';
@@ -26,10 +26,10 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     return reply({ error: 'connectionId + token required' }, { status: 400 });
   }
 
-  const outcome = await (await getConnectorRuntime()).runAction<{ updates: unknown[] }>(
+  const outcome = await (await getIntegrationRuntime()).runAction<{ updates: unknown[] }>(
     'telegram.get_updates',
     {},
-    { ownerId: getConnectorOwnerId(), connectionId: body.connectionId, caller: { type: 'app', id: 'notifier' } },
+    { ownerId: getIntegrationOwnerId(), connectionId: body.connectionId, caller: { type: 'app', id: 'notifier' } },
   );
   if (!outcome.ok) {
     return reply({ error: outcome.reason === 'error' ? outcome.message : outcome.reason }, { status: 400 });
@@ -61,7 +61,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
 
   const channel = createNotificationChannel({
     userId,
-    kind: 'connector',
+    kind: 'integration',
     providerId: 'telegram',
     connectionId: body.connectionId,
     label: name,

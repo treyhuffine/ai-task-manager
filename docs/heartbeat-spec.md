@@ -36,7 +36,7 @@ You configure it in Settings > Heartbeat, or from a chip on the deck.
 | The heartbeat is a trigger row, the fifth app-managed ("reserved") trigger. | A trigger already has every setting needed: prompt, interval, active hours, timezone, program, model, effort, a no-overlap policy, and result delivery. The Triggers screen and run history already work with it. No schema changes. |
 | Your instructions go in the trigger's `prompt`. The ground rules live in code. | You edit plain instructions and can't accidentally delete the limits. The ground rules can improve with the app. |
 | No modes. | Choosing a mode is a decision that buys nothing. Your instructions already say what it should do. |
-| Hard limits: it never deletes, never sends anything outside Ri, and never completes a task. | Deletes can't be undone. Outward sends leave your control, and connector sends already ask first under the write policy. Completing a task is your acceptance, per the lifecycle rule that a finished agent run never completes a task. |
+| Hard limits: it never deletes, never sends anything outside Ri, and never completes a task. | Deletes can't be undone. Outward sends leave your control, and integration sends already ask first under the write policy. Completing a task is your acceptance, per the lifecycle rule that a finished agent run never completes a task. |
 | A quiet check-in is detected by a fixed reply, `HEARTBEAT_OK`, and its chat is archived. | Archived chats never reach Unread. A check-in that changed anything is never treated as quiet, even if it replies `HEARTBEAT_OK`. |
 
 ## 4. Configuration and data

@@ -1,7 +1,7 @@
 /**
  * What a session's stream carries (the per-session route, and the page
  * stream): on open, the chat events missed since `lastEventId`; then every
- * chat event, runtime, background task, pending input, connector approval,
+ * chat event, runtime, background task, pending input, integration approval,
  * reconcile, delivery and transfer change as it's published; and the current ephemeral state as
  * a seed, then `ready`. Returns the unsubscribe.
  *
@@ -22,7 +22,7 @@ import { subscribe, sessionChannel, type SessionStreamMessage } from '@/lib/real
 import { chatEventsPosition, listChatEventsToResume } from '@/lib/db/queries';
 import * as executor from '@/lib/executor/adapter';
 import { listForSession as listPendingForSession } from '@/lib/executor/live-state';
-import { listPendingApprovals } from '@/lib/connectors/approval';
+import { listPendingApprovals } from '@/lib/integrations/approval';
 import type { ChatEventRecord } from '@/db/types';
 
 export type FeedEmit = (event: string, data: unknown, id?: string) => void;
@@ -44,7 +44,7 @@ export function openSessionFeed(
       case 'runtime': emit('runtime', { running: message.running }); break;
       case 'background_tasks': emit('background_tasks', { active: message.active, taskIds: message.taskIds }); break;
       case 'pending_input': emit('pending_input', { pending: message.pending }); break;
-      case 'connector_approvals': emit('connector_approvals', { pending: message.pending }); break;
+      case 'integration_approvals': emit('integration_approvals', { pending: message.pending }); break;
       case 'reconcile': emit('reconcile', { status: message.status, replayed: message.replayed }); break;
       case 'delivery': emit('delivery', { eventId: message.eventId, delivery: message.delivery }); break;
       case 'transfer': emit('transfer', { transfer: message.transfer }); break;
@@ -70,8 +70,8 @@ export function openSessionFeed(
   emit('runtime', { running: executor.isRunning(sessionId) });
   emit('background_tasks', { active: executor.hasBackgroundTasks(sessionId), taskIds: executor.listBackgroundTaskIds(sessionId) });
   emit('pending_input', { pending: listPendingForSession(sessionId) });
-  // Live connector approval ids: approval cards offer buttons only for these.
-  emit('connector_approvals', { pending: listPendingApprovals({ sessionId }).map((p) => p.id) });
+  // Live integration approval ids: approval cards offer buttons only for these.
+  emit('integration_approvals', { pending: listPendingApprovals({ sessionId }).map((p) => p.id) });
   emit('ready', { sessionId, resumed, position: chatEventsPosition(sessionId) });
   return unsubscribe;
 }

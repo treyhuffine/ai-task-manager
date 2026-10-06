@@ -2,13 +2,14 @@
  * The day-shape service — one normalized calendar read for every consumer:
  * `GET /api/calendar` (UI surfaces), the `get_day_shape` orchestrator action
  * (agents), and the deck's provider seam (generation + reconcile, via
- * `src/lib/deck/calendar-connector.ts`).
+ * `src/lib/deck/calendar-integration.ts`).
  *
  * Reads the primary calendar of every connected Google + Microsoft connection
  * on demand — no background polling — behind a short in-process TTL cache.
- * Server-only. The connectors runtime is imported lazily inside the fetch so
+ * Server-only. The integrations runtime is imported lazily inside the fetch so
  * this module never drags it into the CLI boot graph (see smoke:boot).
  */
+import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { availableMinutes, computeFreeGaps, parseHhMm } from '@/lib/deck/calendar';
 import { todayLocalDate } from '@/lib/deck/date';
 import { getWorkdayBounds } from '@/lib/db/queries';
@@ -95,7 +96,7 @@ async function fetchRange(start: string, days: number): Promise<CalendarRangeRes
     const all = await runtime.listConnections({ ownerId });
     connections = all.filter((c) => c.providerId === 'google' || c.providerId === 'microsoft');
   } catch (err) {
-    console.warn('[calendar] connectors runtime unavailable', err);
+    console.warn(`[calendar] ${INTEGRATION_LABELS.plural.toLowerCase()} runtime unavailable`, err);
     return finalize('error', [], []);
   }
 
@@ -121,14 +122,14 @@ async function fetchRange(start: string, days: number): Promise<CalendarRangeRes
 }
 
 async function importRuntime() {
-  // Lazy: the connectors runtime is heavy and ESM-leaning — only load it when
+  // Lazy: the integrations runtime is heavy and ESM-leaning — only load it when
   // a calendar read actually fires, never at module-eval (CLI boot stays clean).
-  const { getConnectorRuntime, getConnectorOwnerId } = await import('@/lib/connectors/runtime');
-  return { runtime: await getConnectorRuntime(), ownerId: getConnectorOwnerId() };
+  const { getIntegrationRuntime, getIntegrationOwnerId } = await import('@/lib/integrations/runtime');
+  return { runtime: await getIntegrationRuntime(), ownerId: getIntegrationOwnerId() };
 }
 
 interface RuntimeLike {
-  // Method syntax (bivariant) so the real ConnectorRuntime stays assignable.
+  // Method syntax (bivariant) so the real IntegrationRuntime stays assignable.
   runAction(action: string, input: unknown, ctx: unknown): Promise<unknown>;
 }
 

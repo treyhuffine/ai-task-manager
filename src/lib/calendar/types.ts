@@ -4,7 +4,7 @@
  * `CalendarEvent` is what surfaces render (identity, attribution, join links,
  * RSVP state). The deck's planning layer keeps consuming derived busy blocks
  * (`CalendarBlock`) via `eventToBlock` in `./events`. No table backs these
- * types: events are fetched live from the connectors and cached briefly in
+ * types: events are fetched live from the integrations and cached briefly in
  * memory (`./service`), so this file stays client-safe and dependency-free.
  */
 

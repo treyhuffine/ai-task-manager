@@ -51,7 +51,7 @@ against "glance and start."
 - **Triggers** — morning cron trigger seeded at boot, default on at 04:00
   (`src/lib/deck/trigger.ts`, `instrumentation.ts:184`). Lazy `ensureTodaysDeck` on
   `GET /api/deck` with in-process dedupe. Google Calendar provider registered at boot
-  (`instrumentation.ts:161`, `src/lib/deck/calendar-connector.ts`).
+  (`instrumentation.ts:161`, `src/lib/deck/calendar-integration.ts`).
 - **Client** — `DeckContainer` (`src/components/deck/deck-container.tsx`, 782 lines):
   local `useState` + raw `api.*` calls, not TanStack Query. Hydration joins persisted
   `items[].taskId` against `useTasks({status:'active', limit:50})` and silently drops

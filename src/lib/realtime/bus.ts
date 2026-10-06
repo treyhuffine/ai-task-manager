@@ -41,11 +41,11 @@ export type SessionStreamMessage =
   | { kind: 'background_tasks'; active: boolean; taskIds: string[] }
   | { kind: 'pending_input'; pending: PendingInput[] }
   /**
-   * Ids of this chat's connector approvals still waiting on the user (see
-   * connectors/approval.ts). Last-write-wins, replayed in full on connect, so
+   * Ids of this chat's integration approvals still waiting on the user (see
+   * integrations/approval.ts). Last-write-wins, replayed in full on connect, so
    * an approval card only offers buttons while its request is actually live.
    */
-  | { kind: 'connector_approvals'; pending: string[] }
+  | { kind: 'integration_approvals'; pending: string[] }
   /**
    * Reconcile lifecycle. Server-side replay of Claude's on-disk JSONL
    * runs in the background; `started` lets the UI show a "Syncing…"
@@ -164,8 +164,8 @@ export function publishPendingInput(sessionId: string, pending: PendingInput[]):
   publishGlobal({ kind: 'session_updated', sessionId, reason: 'pending_input' });
 }
 
-export function publishConnectorApprovals(sessionId: string, pending: string[]): void {
-  publish(sessionChannel(sessionId), { kind: 'connector_approvals', pending });
+export function publishIntegrationApprovals(sessionId: string, pending: string[]): void {
+  publish(sessionChannel(sessionId), { kind: 'integration_approvals', pending });
 }
 
 export function publishDelivery(sessionId: string, eventId: string, delivery: unknown): void {

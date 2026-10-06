@@ -14,7 +14,7 @@ import { z as rpcZ } from 'zod/v4';
 
 import { baseUrlSnapshot as snapshot } from '@/lib/auth/base-url-snapshot';
 import { clearRemoteBaseUrl, setRemoteBaseUrl } from '@/lib/auth/bootstrap';
-import { invalidateConnectorRuntime } from '@/lib/connectors/runtime';
+import { invalidateIntegrationRuntime } from '@/lib/integrations/runtime';
 
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   return reply(snapshot());
@@ -30,9 +30,9 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
     } else {
       return reply({ error: 'baseUrl must be a string or null' }, { status: 400 });
     }
-    // The connector OAuth redirect derives from this URL and is baked into the
+    // The integration OAuth redirect derives from this URL and is baked into the
     // cached runtime's auth configs — rebuild so it reflects the new value.
-    invalidateConnectorRuntime();
+    invalidateIntegrationRuntime();
     return reply(snapshot());
   } catch (err) {
     return reply(
@@ -44,7 +44,7 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
 
 export async function DELETE(_rpcInput: rpcZ.infer<typeof DELETEInput>, _request: OperationContext) {
   clearRemoteBaseUrl();
-  invalidateConnectorRuntime();
+  invalidateIntegrationRuntime();
   return reply(snapshot());
 }
 

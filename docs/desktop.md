@@ -48,7 +48,7 @@ The desktop implementation owns C1-C9 and coordinates changes to Homes enrollmen
 - `desktop/connection-setup.ts` verifies the Home and device sign-in before persisting a connection. Pairing requires normally trusted HTTPS. Explicit source development may use loopback HTTP. Credentials cross a bounded ordinary-Node stdin/private-IPC boundary, never command arguments, logs or the local setup page. Copied Home-host or worker credentials cannot sign in as a companion.
 - The shared service supervises a separate worker child under its existing exclusive worker lock. Intentional Stop persists for that enrollment. GUI quit, network interruption and a protocol mismatch do not erase journals or create another Home. Revocation stops execution. Shutdown verifies child-process identity before cleaning up descendants, without signalling unrelated processes.
 - A connected Home renderer receives platform metadata, guarded save/capture controls and validated external-browser opening. It cannot operate the local service, updater, native OAuth, filesystem recovery or preferences. Ri on This Device is a separate local sandboxed window with an exact sender/frame/URL check. It owns enrollment, stop/resume, login, notification consent, global capture preferences and update actions. Existing authenticated Home APIs still route folder setup, file views, terminals and known-editor opening through the owning worker. Pairing binds the renderer to its verified device. The local companion does not add an unrestricted folder or command bridge.
-- Native alerts use the shared notification outbox. Remote claims require the authenticated device's sign-in key and a channel derived from that device. The local installation must also grant OS presentation. A Home channel preference alone cannot enable native alerts on a computer. Electron denies Chromium notification requests to prevent a second presentation path, and its remaining permission grants require the actual main frame and expected origin. Remote connector OAuth follows the Home's web callback path. The private native callback capability remains local-Home-only.
+- Native alerts use the shared notification outbox. Remote claims require the authenticated device's sign-in key and a channel derived from that device. The local installation must also grant OS presentation. A Home channel preference alone cannot enable native alerts on a computer. Electron denies Chromium notification requests to prevent a second presentation path, and its remaining permission grants require the actual main frame and expected origin. Remote integration OAuth follows the Home's web callback path. The private native callback capability remains local-Home-only.
 - A renewed sign-in to the same Home preserves device identity, enrollment, folders and journals. A changed address requires an explicitly stopped worker and verifies the same Home identity. A declined save/reconnect handshake leaves the existing viewer and its drafts open for retry.
 - Release envelope 1 and minimum-updater 1 remain parseable by existing updaters. `server/ri-compatibility.json` is included in the existing signed runtime inventory/hash. Current supported contracts are worker protocol 4, API/native bridge 1, and config/command/event journal format 1. This bridge does not promise protocol 3 support.
 - Package identities come from the verified runtime manifest. Source identities are explicitly marked. Authenticated worker reports are retained per enrollment, so a missing or corrupt report never proves an offline worker idle for an incompatible update. Compatible patch releases can proceed without forcing all machines to match versions.
@@ -124,11 +124,11 @@ Record participant, artifact build IDs, OS/architecture, date, each result, any 
 
 ### Main integration and Homes handoff, 28 September 2026
 
-The upstream OAuth return changes are main commits `13933e8` and `1d5f335`. They were already on local main and `origin/main` when this integration began. GitHub had no separate OAuth PR in either configured repository. The eight standalone desktop commits through `6f4ddd2` had not yet landed. Five textual conflicts were resolved in connector connect/callback, MCP callback/reconnect, and common MCP authorization.
+The upstream OAuth return changes are main commits `13933e8` and `1d5f335`. They were already on local main and `origin/main` when this integration began. GitHub had no separate OAuth PR in either configured repository. The eight standalone desktop commits through `6f4ddd2` had not yet landed. Five textual conflicts were resolved in integration connect/callback, MCP callback/reconnect, and common MCP authorization.
 
 The combined behavior preserves both designs. A browser or phone records its trusted initiating origin and in-app path against OAuth state, so a callback handled internally as localhost returns to the page that started it. Missing origin metadata uses a relative Location. Native desktop initiation still requires the private capability, uses its loopback or hosted/deep-link callback, and binds state to the desktop channel. Public web callbacks cannot exchange native state. Denial consumes valid web state and returns a coarse result, with replay rejected. Electron still accepts only the verified local service origin and pinned certificate. A non-localhost browser return does not grant that remote page native capabilities or select a remote Home.
 
-MCP authorization now persists an optional `callbackChannel` in its existing sealed JSON state. New flows use explicit web/desktop binding, allowing a web flow to finish with its original registered callback even if the configured public URL changes during consent. Legacy untagged flows retain the prior redirect-URI check. The native return-path helper also rejects paths that normalize to a protocol-relative destination, including encoded dot segments. Main's connector account-set restrictions remain intact. These changes require no SQLite migration.
+MCP authorization now persists an optional `callbackChannel` in its existing sealed JSON state. New flows use explicit web/desktop binding, allowing a web flow to finish with its original registered callback even if the configured public URL changes during consent. Legacy untagged flows retain the prior redirect-URI check. The native return-path helper also rejects paths that normalize to a protocol-relative destination, including encoded dot segments. Main's integration account-set restrictions remain intact. These changes require no SQLite migration.
 
 The separate Homes branch was reviewed at `15149a7`, without modifying it or rerunning its acceptance suite. Its recorded P2/P3/P4 work is complete, while P5 adoption/companion and P6/P7 Teams remain unchecked. It does not block landing standalone desktop. The next implementation step is for that branch to incorporate the updated main, then integrate these boundaries:
 
@@ -136,15 +136,15 @@ The separate Homes branch was reviewed at `15149a7`, without modifying it or rer
 2. Keep maintenance admission, draining and safe idle-harness closing when adopting the split runner. Remote worker compatibility must join coordinated updates.
 3. Keep local filesystem, service, native notification and OAuth capabilities isolated from remote Home/team pages.
 4. Preserve deferred notification delivery. Homes' new `deliverRow` currently marks delivery sent unconditionally after the adapter returns. Carry desktop's `if (result.deferred) return` into that path so queued native/browser presentation is acknowledged by the client, not prematurely by the dispatcher.
-5. Preserve main's connector account allowlists and owner/session authorization through the Home and harness routing changes.
+5. Preserve main's integration account allowlists and owner/session authorization through the Home and harness routing changes.
 
 The desktop-only changes since `e7a4520` overlap Homes in 18 files: `instrumentation.ts`, `next.config.ts`, `package.json`, `pnpm-lock.yaml`, `src/app/layout.tsx`, `src/cli/commands/start.ts`, `src/cli/index.ts`, `src/components/dashboard/dashboard.tsx`, `src/components/executions/execution-composer.tsx`, `src/components/settings/sections/general-section.tsx`, `src/components/workspaces/bucket-config.tsx`, `src/contexts/dashboard-context.tsx`, `src/hooks/use-voice-input.ts`, `src/lib/db/index.ts`, `src/lib/db/queries.ts`, `src/lib/executor/adapter.ts`, `src/lib/notifications/notify.ts` and `src/proxy.ts`. This supersedes the earlier ten-file snapshot below. Use a normal three-way merge and verify behavior at these boundaries, even where Git merges cleanly.
 
 #### Integration verification
 
-The final merged application suite passed 2,744 tests with 25 existing skips, the desktop suite passed all 247 tests, and the connector engine passed all 320 tests. Root and connector typechecks and changed-source lint passed. The editor retains two existing unused-variable lint warnings. One application test initially exceeded its five-second timeout while three suites and the build were running together. Its isolated rerun passed, followed by complete application-suite runs with four workers, including the final focus correction. No assertion or timeout was relaxed.
+The final merged application suite passed 2,744 tests with 25 existing skips, the desktop suite passed all 247 tests, and the integration engine passed all 320 tests. Root and integration typechecks and changed-source lint passed. The editor retains two existing unused-variable lint warnings. One application test initially exceeded its five-second timeout while three suites and the build were running together. Its isolated rerun passed, followed by complete application-suite runs with four workers, including the final focus correction. No assertion or timeout was relaxed.
 
-The new `pnpm desktop:oauth-smoke` runs the packaged viewer and background service in disposable homes with local mock providers. It passed native discovery, client registration and PKCE through loopback, public-callback rejection of native state, reconnect through Electron's `open-url` event, replay rejection, independent owner-client web authorization returning to its recorded remote origin, and relative return without origin metadata. The client verifies the fixture CA and never receives the native capability. Remote-origin metadata is synthetic and redirects are not followed. Real consent, provider registrations, phone/tunnel access and OS deep-link dispatch remain release qualification. CI includes this driver and watches the connector implementation paths.
+The new `pnpm desktop:oauth-smoke` runs the packaged viewer and background service in disposable homes with local mock providers. It passed native discovery, client registration and PKCE through loopback, public-callback rejection of native state, reconnect through Electron's `open-url` event, replay rejection, independent owner-client web authorization returning to its recorded remote origin, and relative return without origin metadata. The client verifies the fixture CA and never receives the native capability. Remote-origin metadata is synthetic and redirects are not followed. Real consent, provider registrations, phone/tunnel access and OS deep-link dispatch remain release qualification. CI includes this driver and watches the integration implementation paths.
 
 The packaged interaction run exposed delayed chat autofocus stealing focus from Quick Capture after Back navigation. A traced rerun passed its input assertion but still recorded the unwanted focus transfer, so passing the rerun alone was not treated as a fix. Automatic editor focus, including saved-draft hydration, now checks the current input, dialog, visibility and mount state in the final animation frame before synchronously focusing ProseMirror. Intentional focus shortcuts and user-requested draft restoration retain their existing behavior. Twenty new deterministic regressions cover these guards, including a search dialog whose role wrapper has no layout box. The packaged driver also rejects a background editor taking focus after the capture textarea, even when the text assertion succeeds.
 
@@ -165,7 +165,7 @@ Implementation began from main `e7a4520` and is now reconciled with `b369b20`. K
 - [x] S5: Separate local desktop OAuth initiation from browser/phone initiation, preserve tool reconnect flows, and harden tunnel destination ownership and local native capabilities.
 - [x] S6: Implement the local update coordinator, release verification, maintenance admission, complete checkpoint, exclusive migration/bootstrap, validation, crash recovery and in-app/CLI controls. Preserve new writes across failed updates.
 - [x] S7: Complete release configuration, desktop diagnostics/permissions/window behavior, optional voice configuration, and documented operator setup. Actual publisher signing, provider registrations and public hosting require their real external configuration.
-- [x] S8: Reconcile this checklist with the full document, run application/desktop/connector checks and isolated package/service/update smoke tests, and record platform or live-provider checks that require external hardware/accounts.
+- [x] S8: Reconcile this checklist with the full document, run application/desktop/integration checks and isolated package/service/update smoke tests, and record platform or live-provider checks that require external hardware/accounts.
 
 Managed speech is now implemented as an optional packaged helper with explicit model installation, described below. Remote worker and Teams integration (D13 and the corresponding parts of D1/D9/D14 and U4) is conditional on adopting the experimental design. Standalone implementation must remain useful without that branch.
 
@@ -180,7 +180,7 @@ The S1-S8 delivery was the service and desktop foundation, not completion of eve
 - [x] S13: Package an optional managed Parakeet helper and pinned verified models, with installation, readiness, cancellation, repair/removal, bounded ownership and format tests.
 - [x] S14: Integrate the independent changes, run focused and whole-app validation plus packaged lifecycle checks, reconcile the original requirements, and commit verified work on the desktop branch.
 
-The reviewed desktop source began at `dc318c5` on `ai-task-manager/session-ca52f4`. The related multi-machine implementation was reviewed at `183391a` on `ai-task-manager/session-e4aa22`. Landing preparation also adopts its `@agentex/workspace` 0.0.5 dependency fix and repairs a pre-existing connector-test typecheck error. Its results are identified separately from tests run here. These are dated snapshots, not claims about the future state of either branch.
+The reviewed desktop source began at `dc318c5` on `ai-task-manager/session-ca52f4`. The related multi-machine implementation was reviewed at `183391a` on `ai-task-manager/session-e4aa22`. Landing preparation also adopts its `@agentex/workspace` 0.0.5 dependency fix and repairs a pre-existing integration-test typecheck error. Its results are identified separately from tests run here. These are dated snapshots, not claims about the future state of either branch.
 
 The other execution worktree was rechecked at `29205f0` (P4.1/P4.4, with additional uncommitted owner Git work). Main remained `e7a4520`. Its changes since the common ancestor overlap this implementation in `instrumentation.ts`, `package.json`, `pnpm-lock.yaml`, `src/app/layout.tsx`, `src/cli/commands/start.ts`, `src/cli/index.ts`, `src/hooks/use-voice-input.ts`, `src/lib/db/index.ts`, `src/lib/executor/adapter.ts` and `src/proxy.ts`. Its branch predates the desktop foundation, so a direct tip-to-tip diff misleadingly shows desktop files as absent. Use a normal three-way merge, not that diff as a patch.
 
@@ -214,7 +214,7 @@ This pass extends the independent desktop implementation without adopting the ex
 
 The new tests use temporary installations and retain small reports/screenshots while removing their staged runtime copies after verified service cleanup. Native interaction tests exercise the packaged app, its real save guard and background service. Automation uses renderer links and native reload rather than CDP navigation commands that can race Electron's navigation interception. Forced renderer failure is checked independently of Playwright's page handle, which becomes unusable after a crash. Fault tests inject disk-space, copy and durability failures without filling the host's disk.
 
-**Native notifications:** Settings > Notifications offers a desktop opt-in and uses the existing event matrix and trigger/digest destination bindings. This adds no schema migration. The existing `in_app` channel holds a deterministic destination for the selected installation, and the existing delivery outbox remains authoritative. Main-process polling continues while the window is minimized or unfocused. Full GUI quit stops polling, even when the service remains running. Recent pending alerts are considered on reopening, and alerts older than 24 hours expire. Phone browser push and connector delivery remain separate choices. Enabling native alerts removes only this Electron profile's previous web-push subscription, avoiding duplicate alerts without unsubscribing other devices.
+**Native notifications:** Settings > Notifications offers a desktop opt-in and uses the existing event matrix and trigger/digest destination bindings. This adds no schema migration. The existing `in_app` channel holds a deterministic destination for the selected installation, and the existing delivery outbox remains authoritative. Main-process polling continues while the window is minimized or unfocused. Full GUI quit stops polling, even when the service remains running. Recent pending alerts are considered on reopening, and alerts older than 24 hours expire. Phone browser push and integration delivery remain separate choices. Enabling native alerts removes only this Electron profile's previous web-push subscription, avoiding duplicate alerts without unsubscribing other devices.
 
 The local notification API requires both the installation owner credential and the private desktop capability. Ordinary authenticated browser/phone clients cannot claim the queue. The preload exposes only status, enable, disable and test. It accepts no arbitrary notification text, filesystem path or native action. Notification clicks restore/focus the window and pass same-origin application navigation through the existing save handshake. API/static paths, external destinations, encoded path escapes and pairing fragments are rejected or removed. A copied installation's old destination remains visible and removable, but its controls cannot operate the new local destination accidentally.
 
@@ -261,8 +261,8 @@ These checks cover S15-S19 on `ai-task-manager/session-ca52f4`. Hardware evidenc
 | --- | --- |
 | Application suite | 2,504 passed, 25 existing skips across 272 passing files and two skipped files. Includes notification ownership/outbox tests, checkpoint space/copy/fsync faults, installer ordering and runtime symlink escape regressions. |
 | Desktop suite | 139 passed across 22 files, including the native notification controller, trusted request headers, platform safeguards, speech packaging and artifact/signing verification. |
-| Connector suite | 301 passed across 49 files. |
-| TypeScript and lint | Root and connector typechecks passed. Changed-source ESLint reports no errors and one existing unused-function warning in `queries.ts`. The historical whole-repository lint limitations below remain separate. |
+| Integration suite | 301 passed across 49 files. |
+| TypeScript and lint | Root and integration typechecks passed. Changed-source ESLint reports no errors and one existing unused-function warning in `queries.ts`. The historical whole-repository lint limitations below remain separate. |
 | Production package | Frontend, CLI, controller and shell builds passed. Matching app/headless manifest `c305737df6a5e81925eea55305cac316b959d659e61d41a86fb92d5ca14a0ba7`, 81,580 entries and 3,943 portable links. Runtime archive: 469,150,374 bytes. Native SQLite/vector/PTY and bundled CLI probes passed. |
 | Actual artifact correspondence | The final runtime tar and Electron Builder ZIP passed complete content, mode, link and archive validation. Runtime tar SHA-256: `ab3537d13c2912f47b52aa23593b2f2e9786ffb3b5942e944538731594fe1f19`. Builder ZIP: 635,259,296 bytes, including ZIP64 and CRC/header checks. These are unsigned candidate checks, not a signed installer round trip. |
 | Packaged interaction | Six checks passed on the final package: search/create/editor/full-page saves, native reload, focus-chat and Back, rail/capture/Escape, persisted search/slideout closing, and authenticated upload/native download with exact contents. Electron's DownloadItem reported all 41 bytes completed. Screenshots inspected. Voice and execution/terminal shortcuts remain separate provider/workbench qualification. |
@@ -454,7 +454,7 @@ export RI_ROOT="$HOME/ri-headless"
 
 The archive contains the CLI and service but no Electron GUI. Its contents must be obtained from the trusted publisher and checked against that publisher's authenticated release metadata before executing bundled code. Linux requires the normal native runtime dependencies plus `lsof`, `ps`, `tar`, and the chosen harness/tool executables. Installation is per user, never an implicit root service. `service uninstall` removes only the matching owned job and retains data, staged versions and recovery material. Removing the GUI alone does not uninstall an independently staged backend.
 
-Use `service configure --file /absolute/path/settings.json` for headless setup, or Settings > Updates > Runtime setup. Supported values are absolute `CLAUDE_COMMAND`, `CODEX_COMMAND`, `CURSOR_COMMAND`, `OPENCODE_COMMAND`, `ANTIGRAVITY_COMMAND`, optional PATH directories (`paths`), `LOCAL_SPEECH_TO_TEXT_URL`, `GROQ_API_KEY`, and the embeddings-only `OPENAI_API_KEY`. Secrets are encrypted with a private machine configuration key. Settings and that key are included in the checkpoint. Restart the service after changing environment settings. Harness subscription authentication remains on the execution host under the same OS user. SSH Claude sign-in can use the vendor's copied URL/returned-code flow. Connector consent runs in the phone/browser with a reachable registered callback to the host.
+Use `service configure --file /absolute/path/settings.json` for headless setup, or Settings > Updates > Runtime setup. Supported values are absolute `CLAUDE_COMMAND`, `CODEX_COMMAND`, `CURSOR_COMMAND`, `OPENCODE_COMMAND`, `ANTIGRAVITY_COMMAND`, optional PATH directories (`paths`), `LOCAL_SPEECH_TO_TEXT_URL`, `GROQ_API_KEY`, and the embeddings-only `OPENAI_API_KEY`. Secrets are encrypted with a private machine configuration key. Settings and that key are included in the checkpoint. Restart the service after changing environment settings. Harness subscription authentication remains on the execution host under the same OS user. SSH Claude sign-in can use the vendor's copied URL/returned-code flow. Integration consent runs in the phone/browser with a reachable registered callback to the host.
 
 Phone availability requires a running service, an awake/reachable host, and a public HTTPS tunnel or an equivalent reachable endpoint. Local Electron h2 certificate pinning is separate from the phone's normal HTTPS trust. Use the existing Remote Access/pairing settings. The service validates tunnel destinations rather than taking over another instance's named tunnel. Host availability can opt into sleep inhibition while on external power. High availability, unattended encrypted reboot and offline database replication are not provided.
 
@@ -515,8 +515,8 @@ These results describe the S1-S8 foundation at `c4c62a0`. The independent featur
 | --- | --- |
 | Application suite | 2,284 passed and 25 existing skips across 249 files, including withdrawal, fast-download progress and live-profile checkpoint regressions. |
 | Desktop suite | 28 passed across 9 files. |
-| Connector engine suite | 301 passed across 49 files, including web/desktop channel binding and replay/denial checks. |
-| Root and connector TypeScript | Passed. |
+| Integration engine suite | 301 passed across 49 files, including web/desktop channel binding and replay/denial checks. |
+| Root and integration TypeScript | Passed. |
 | Production frontend, CLI, controller and shell builds | Passed. |
 | Runtime packaging | Native SQLite/vector/PTY and bundled CLI probes pass. Complete runtime manifests and 3,924 portable dependency links verified. |
 | Packaged native lifecycle | Real immediate-edit quit and reopen passed after correcting macOS shutdown order. Reattachment took 385 ms in the final local fixture. The same controller/run ID and origin remain, and the final title/body persist. h2, eight open SSE streams with a 3 ms API request, wrong-certificate rejection, mock OAuth/PKCE, replay rejection, uploaded-SVG prevention and bundled CLI also pass. These timings are local observations, not performance guarantees. |
@@ -530,9 +530,9 @@ Reproduce using disposable homes:
 ```sh
 pnpm test
 pnpm desktop:test
-pnpm --filter @connectors/engine test
+pnpm --filter @integrations/engine test
 pnpm ts
-pnpm --filter @connectors/engine typecheck
+pnpm --filter @integrations/engine typecheck
 pnpm desktop:package
 RI_DESKTOP_PACKAGE=release/desktop/mac-arm64/Ri.app pnpm desktop:smoke
 pnpm exec tsx desktop/update-smoke.ts
@@ -552,9 +552,9 @@ These pre-review checks cover the S9-S14 additions through `1484636`. The subseq
 | --- | --- |
 | Application suite | 2,428 passed, 25 existing skips, across 264 passing files and two skipped files. |
 | Desktop suite | 64 passed across 14 files, including real SQLite interrupted-update rollback/forward recovery, first-initialization retry boundaries, and refusal of malformed or unrelated records. |
-| Connector engine suite | 301 passed across 49 files. |
+| Integration engine suite | 301 passed across 49 files. |
 | Python decoder boundaries | Three passed, including playlist rejection and supported audio container decoding. |
-| TypeScript and builds | Root and connector checks, production Next, CLI, controller and desktop builds pass. |
+| TypeScript and builds | Root and integration checks, production Next, CLI, controller and desktop builds pass. |
 | Changed-source lint | No errors. Two existing unused-import warnings remain in command input and quick capture. The earlier whole-project lint limits above still apply. |
 | Packaged recovery and association | A deliberately failed first setup recovers before its first DB open. The real native picker verifies advanced paths, saves its selection, closes safely and reopens using that saved identity. The attached source/CLI owner retains its runtime, no extra database is created, and GUI quit preserves both services. The recovery screenshot was inspected. |
 | Phone browser smoke | Real Chromium validates manifest/icons, the public-only offline cache, offline API failure, reconnect and gateway fallback. Worker/cache-denial and bounded notification-activation regressions pass. No physical-phone claim. |
@@ -607,7 +607,7 @@ The review covers the complete `e7a4520..1484636` implementation, including the 
 | P2 | A preload resume listener passed Electron's IPC event into page callbacks. The bridge now invokes the callback without the event or sender. | A preload regression verifies the renderer receives no arguments and cleanup removes the exact wrapper. |
 | P2 | ONNX Runtime's independent telemetry initialization was still enabled and could create a session sidecar during native imports. Telemetry is now disabled before import, as well as through the runtime API before inference. Build probes use an isolated working directory. | Reproduced the native sidecar in a disposable directory. Five Python tests and the relocated frozen helper verify that a conflicting ambient setting is overridden and no telemetry files are created. This is separate from Hugging Face's preference. |
 
-The scope also included service admission and locks, database history validation/checkpoints, attachment sandboxing, bounded bodies, cookie origins, OAuth channel binding/replay, connector reconnects, Beamd destination ownership, renderer IPC/trust, optional model download/auth/cancellation, public-only offline caching, notification activation, and the conditional Homes/Teams boundary. No production home, login job, real provider consent, live tunnel, or public publisher was changed during this review.
+The scope also included service admission and locks, database history validation/checkpoints, attachment sandboxing, bounded bodies, cookie origins, OAuth channel binding/replay, integration reconnects, Beamd destination ownership, renderer IPC/trust, optional model download/auth/cancellation, public-only offline caching, notification activation, and the conditional Homes/Teams boundary. No production home, login job, real provider consent, live tunnel, or public publisher was changed during this review.
 
 On macOS, native Squirrel staging is an activation boundary: it can arm installation on the next launch. A withdrawal after that handoff cannot reliably revoke an already staged update through supported APIs. Ri checks eligibility immediately before handoff and refuses an explicit installation after a later withdrawal, but does not promise to undo the OS updater's staged state.
 
@@ -617,8 +617,8 @@ Fresh review verification:
 | --- | --- |
 | Application suite | 2,453 passed and 25 existing skips across 270 passing files and two skipped files, including the final helper progress regression. |
 | Desktop suite | 88 passed across 18 files, including native resolver behavior, publisher freshness, asynchronous installation and preload isolation. |
-| Connector engine suite | 301 passed across 49 files. Total JavaScript/TypeScript tests: 2,842 passed and 25 existing skips. |
-| TypeScript and builds | Root and connector typechecks, production Next, CLI, controller and Electron builds pass. The frozen offline lockfile check passes. |
+| Integration engine suite | 301 passed across 49 files. Total JavaScript/TypeScript tests: 2,842 passed and 25 existing skips. |
+| TypeScript and builds | Root and integration typechecks, production Next, CLI, controller and Electron builds pass. The frozen offline lockfile check passes. |
 | Python and frozen speech helper | Five Python tests pass. The rebuilt, relocated native helper transcribes WAV, WebM, MP4 and Ogg and rejects unauthorized requests, playlists and 600 seconds plus one sample. Parent-exit cleanup, telemetry suppression and all 11 source notice/provenance files pass. Helper executable SHA-256: `7163e135914c3b9456691d029966cc4f356076b1fcd1fac069857159ba455872`. |
 | Phone browser smoke | Chromium parses the actual manifest and service worker, caches only `/offline.html`, refuses offline private API access, reconnects and displays the gateway fallback. This uses a local fixture, not a physical phone. |
 | Packaged recovery and association | Failed first setup recovers. The native picker verifies custom root/database/config/work paths, persists the selection and reopens it. Both services survive GUI quit. The recovery screenshot was visually checked. |
@@ -761,11 +761,11 @@ Use **Tools > Install Terminal Command…** to install an optional command. The 
 
 Desktop onboarding installs shipped skills only inside the desktop home. The global skill setting is disabled in the desktop UI, and that API cannot install/remove global skills or clean other project links in desktop mode. Existing global harness logins and executables are still shared system resources.
 
-### Connector sign-in
+### Integration sign-in
 
-From Connectors, sign-in opens the system browser. Native clients supporting PKCE receive a temporary `http://127.0.0.1:<port>/oauth/callback` listener. This is the standard native OAuth loopback pattern and needs no certificate or OS trust change. State and PKCE are checked, states are single-use, and waiting listeners expire after ten minutes. A new attempt replaces the previous waiting attempt for that provider. Cancel is available in the connector screen.
+From Integrations, sign-in opens the system browser. Native clients supporting PKCE receive a temporary `http://127.0.0.1:<port>/oauth/callback` listener. This is the standard native OAuth loopback pattern and needs no certificate or OS trust change. State and PKCE are checked, states are single-use, and waiting listeners expire after ten minutes. A new attempt replaces the previous waiting attempt for that provider. Cancel is available in the integration screen.
 
-The callback exchanges the code server-side and saves credentials through the existing encrypted store. An authenticated event stream informs Electron, which restores/focuses the window and returns to the connector screen. The system browser does not need the app's cookie. OAuth-protected MCP servers use the same return mechanism, dynamic client registration, and their own persisted single-use state.
+The callback exchanges the code server-side and saves credentials through the existing encrypted store. An authenticated event stream informs Electron, which restores/focuses the window and returns to the integration screen. The system browser does not need the app's cookie. OAuth-protected MCP servers use the same return mechanism, dynamic client registration, and their own persisted single-use state.
 
 OAuth clients still need to be registered with each provider. No provider client IDs or secrets are invented or bundled by this change. For native clients, use a desktop/native registration that supports loopback redirects with dynamic ports. The Advanced setup panel explains the required callback for each provider. A return relay is implemented for fixed HTTPS redirects, as described below. This is not proof that every provider permits that client/deployment configuration. An OAuth process interrupted by quitting the app must be started again.
 
@@ -810,7 +810,7 @@ Existing application hotkeys and the standard Electron editing/window menus rema
 
 ### Code footprint and isolation
 
-Most new implementation is in `desktop/`, `src/service/` and `src/lib/service/`: shell, lifecycle, release verification, staging, checkpoint/recovery, packaging and probes. Shared changes add connector/MCP initiation and state validation, desktop-only authenticated API endpoints, skill/onboarding isolation, drag regions, and packaged migration-resource lookup. The task/note domain model and database schema remain unchanged.
+Most new implementation is in `desktop/`, `src/service/` and `src/lib/service/`: shell, lifecycle, release verification, staging, checkpoint/recovery, packaging and probes. Shared changes add integration/MCP initiation and state validation, desktop-only authenticated API endpoints, skill/onboarding isolation, drag regions, and packaged migration-resource lookup. The task/note domain model and database schema remain unchanged.
 
 The initial audit counted 22 modified shared `src/` files, 226 added and 94 removed lines, excluding new files and build configuration. This is a historical size reference, not the total final diff. The standalone implementation also changes shared attachment/auth boundaries, editor save lifecycle, OAuth initiation, voice configuration and remote-client behavior. It cannot all be implemented inside a window wrapper.
 
@@ -927,7 +927,7 @@ A teammate can use a browser or phone without a personal Home, worker, repositor
 
 Electron must maintain clear connection/space identity and credential/cache separation when presenting personal and team surfaces. Enforce authorization on every API, orchestrator action and attachment, not only in navigation. Opening a team on a phone does not navigate the laptop or change execution ownership. Personal planning may project assigned team obligations, with private overlays remaining personal.
 
-Shared-body autosave requires content revisions, ordered writes, retained drafts and explicit conflict resolution. A stale write must stop autosave rather than silently replace focused text or retry against a new revision. A save-on-quit implementation must preserve this contract. Publish only a deliberately selected result and audience, never a full private transcript or automatic task completion merely because an execution ended. Connector administration and credentials remain scoped to the relevant authority, including after membership revocation.
+Shared-body autosave requires content revisions, ordered writes, retained drafts and explicit conflict resolution. A stale write must stop autosave rather than silently replace focused text or retry against a new revision. A save-on-quit implementation must preserve this contract. Publish only a deliberately selected result and audience, never a full private transcript or automatic task completion merely because an execution ended. Integration administration and credentials remain scoped to the relevant authority, including after membership revocation.
 
 ### Authorization across desktop, phone and headless Home
 
@@ -936,7 +936,7 @@ Shared-body autosave requires content revisions, ordered writes, retained drafts
 | Electron attached to a service on the same computer | System browser with supported native-client PKCE/loopback, or a validated registered HTTPS flow |
 | Phone/browser or Electron attached to a remote Home | Browser on the user's device, registered reachable HTTPS callback to the Home, server-side code exchange and storage |
 | SSH/terminal setup on a headless Home | A browser link opened on another device, or provider-supported device authorization. No GUI browser on the server is required for these flows |
-| Harness execution on a worker | Provider-supported authentication on that execution machine, independently of connector OAuth. Do not replicate Home credentials indiscriminately |
+| Harness execution on a worker | Provider-supported authentication on that execution machine, independently of integration OAuth. Do not replicate Home credentials indiscriminately |
 
 Use one initiation service for settings, reconnect, expired credentials, tool-generated links and incremental consent. Persist the initiating surface, provider/client and validated return target with state, PKCE, expiry and single-use completion. Public/native registrations, provider-specific redirect rules and confidential clients are different cases. A fixed hosted exchange may be required for particular providers. Device authorization exists only where the provider supports it, and human browser consent can still be required. [Native OAuth](https://www.rfc-editor.org/rfc/rfc8252), [device authorization](https://www.rfc-editor.org/rfc/rfc8628), [server-side browser authorization](https://developers.google.com/identity/protocols/oauth2/web-server).
 
@@ -1099,7 +1099,7 @@ The audit inventoried **252 API route files**, traced the desktop-sensitive subs
 | F02 | P1 | Quitting immediately after editing loses the latest text | Runtime. Shared save debounce plus desktop shutdown behavior. |
 | F03 | P1 | Closing the last window stops the backend and all services it hosts | Code and existing shutdown smoke. Desktop lifecycle limitation. |
 | F04 | P1 | A phone connected to the desktop backend receives desktop OAuth callbacks | Code. Desktop integration regression for remote clients. |
-| F05 | P1 | Tool-generated reconnect and extra-consent links bypass desktop OAuth initiation | Code. Connector integration gap. |
+| F05 | P1 | Tool-generated reconnect and extra-consent links bypass desktop OAuth initiation | Code. Integration integration gap. |
 | F06 | P1 | Fallback port changes separate drafts and preferences into another browser origin | Runtime. Desktop storage reliability defect. |
 | F07 | P1 for phone hosting | Tunnel reuse does not establish ownership of the correct backend port | Code. Actual Beamd collision/rebind behavior still needs a live test. |
 | F08 | P1 for distribution | The bundle is unsigned, with no managed release/update/recovery pipeline | Code. Current target is macOS arm64 only. |
@@ -1109,7 +1109,7 @@ The audit inventoried **252 API route files**, traced the desktop-sensitive subs
 | F12 | P2 | Cookie authentication lacks an independent cross-origin mutation defense | Runtime under an explicitly trusted HTTPS-preview fixture. The default HTTP-preview probe did not succeed. |
 | F13 | P2, required for safe updates | Existing snapshots are not a complete recoverable app-home backup | Code. Attachments, configuration, encryption keys, and in-progress work need a recovery policy. |
 | F14 | P2 | Native permissions, notifications, file dialogs, and lifecycle UX need completion | Code plus limited capability probes. Several clean-machine OS interactions remain untested. |
-| F15 | P1 release gate, partly resolved during landing | The repository's complete validation is not green | The eight Git tests and connector typecheck are fixed in the landing changes. Broad source lint still has existing errors. See the fresh results below. |
+| F15 | P1 release gate, partly resolved during landing | The repository's complete validation is not green | The eight Git tests and integration typecheck are fixed in the landing changes. Broad source lint still has existing errors. See the fresh results below. |
 
 **F01: opening an uploaded SVG grants it the app's web authority.** [The MIME allowlist](../src/lib/attachments/mime.ts) accepts SVG at line 55. [The attachment route](../src/app/api/attachments/[fileName]/route.ts), lines 57-69, serves it inline as `image/svg+xml`, without a document sandbox or restrictive CSP. In the packaged app the probe uploaded a benign SVG, navigated to its attachment URL, and observed its script run. The script then fetched `/api/user-state` successfully with status 200.
 
@@ -1129,9 +1129,9 @@ That backend owns more than HTTP pages. [Instrumentation](../instrumentation.ts)
 
 The scheduler already has locking and recovery, but its [documented at-most-once dispatch](../src/lib/scheduler/runner.ts) advances the next slot before dispatch. A crash in that gap loses the slot. Previously running jobs are reaped on startup. Do not promise uninterrupted execution or automatic replay of every missed schedule. Define catch-up, retry, and idempotency policy before adding automatic restarts.
 
-**F04 and F05: callback selection must be per initiating client and common to every authorization path.** [Connector connect](../src/app/api/connectors/connect/route.ts), line 31, and [MCP initiation](../src/lib/connectors/mcp-authorization.ts), line 19, select the desktop flow using the backend-wide `RI_DESKTOP` flag. [The normal connector callback](../src/app/api/connectors/callback/route.ts) returns 404 in that mode. A phone using this backend therefore gets a loopback or custom-scheme return intended for the Mac. The phone's `127.0.0.1` is the phone, not the Mac.
+**F04 and F05: callback selection must be per initiating client and common to every authorization path.** [Integration connect](../src/app/api/integrations/connect/route.ts), line 31, and [MCP initiation](../src/lib/integrations/mcp-authorization.ts), line 19, select the desktop flow using the backend-wide `RI_DESKTOP` flag. [The normal integration callback](../src/app/api/integrations/callback/route.ts) returns 404 in that mode. A phone using this backend therefore gets a loopback or custom-scheme return intended for the Mac. The phone's `127.0.0.1` is the phone, not the Mac.
 
-Separately, [the connector engine](../packages/connectors/src/core/runtime.ts) constructs `auth_required` and `needs_consent` URLs internally from stored client configuration. Those paths do not arm the desktop callback manager used by the Settings connect action. Explicit connection smoke coverage does not establish that reconnect or extra scopes work.
+Separately, [the integration engine](../packages/integrations/src/core/runtime.ts) constructs `auth_required` and `needs_consent` URLs internally from stored client configuration. Those paths do not arm the desktop callback manager used by the Settings connect action. Explicit connection smoke coverage does not establish that reconnect or extra scopes work.
 
 Use one authorization initiation service for settings, tools, expired credentials, and incremental consent. Record the initiating surface and validated return destination with the flow. Local desktop clients can use public/native-client PKCE loopback flows. Remote browsers need a registered public HTTPS callback reaching the authoritative backend. Preserve state, expiry, single use, PKCE, issuer/provider validation, and safe return-path handling. Test multiple simultaneous flows, denial, expiry, revocation, app restart, and callback delivery to the wrong app instance.
 
@@ -1186,9 +1186,9 @@ Nevertheless, the cookie/API design has no independent protection once an untrus
 
 **F13: distinguish a database snapshot from restoring the product.** [Online DB backup](../src/lib/backup/index.ts) correctly uses SQLite's backup API. [The existing snapshot](../src/lib/export/snapshot.ts) intentionally excludes attachments and does not provide a complete configuration/key backup. The markdown mirror is useful export, but is not a complete substitute for the canonical database and all runtime state.
 
-A desktop recovery flow should inventory SQLite, attachments, authored home files, connector/configuration keys, and recoverable work. Never copy a live SQLite file alone as the backup strategy. Preserve uncommitted worktrees even though `.work` is broadly described as scratch. Define retention, encryption, restoration verification, pre-migration snapshots, and what uninstall removes. Keep backups outside the application bundle.
+A desktop recovery flow should inventory SQLite, attachments, authored home files, integration/configuration keys, and recoverable work. Never copy a live SQLite file alone as the backup strategy. Preserve uncommitted worktrees even though `.work` is broadly described as scratch. Define retention, encryption, restoration verification, pre-migration snapshots, and what uninstall removes. Keep backups outside the application bundle.
 
-Connector secrets are encrypted, but their encryption key is a restricted-permission file in the same configuration tree. That is useful protection against accidental plaintext disclosure, not against an attacker who can read the whole home as the same OS user. Consider OS-backed key protection with explicit export/recovery semantics. Also make shared config writes atomic and serialized: [config-file.ts](../src/lib/auth/config-file.ts), line 124, currently writes JSON in place, and CLI/server writes can overlap. [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
+Integration secrets are encrypted, but their encryption key is a restricted-permission file in the same configuration tree. That is useful protection against accidental plaintext disclosure, not against an attacker who can read the whole home as the same OS user. Consider OS-backed key protection with explicit export/recovery semantics. Also make shared config writes atomic and serialized: [config-file.ts](../src/lib/auth/config-file.ts), line 124, currently writes JSON in place, and CLI/server writes can overlap. [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
 
 **F14: desktop integration needs a complete user-visible contract.**
 
@@ -1217,16 +1217,16 @@ Phone microphone recordings can be sent through Ri to the Mac's speech helper. T
 
 ## Audit verification and product coverage
 
-**Original audit results, before landing fixes, are recorded here for provenance.** The final verification section below records the passing application suite and connector typecheck after the targeted fixes.
+**Original audit results, before landing fixes, are recorded here for provenance.** The final verification section below records the passing application suite and integration typecheck after the targeted fixes.
 
 | Check | Result |
 | --- | --- |
 | Application `pnpm test` | **2,183 passed, 8 failed, 25 skipped**, across 230 files. Isolated app home. Optional live-browser integration was not enabled. |
 | Desktop `pnpm desktop:test` | **19 passed**, across 7 files. |
-| Connector engine tests | **299 passed**, across 49 files. |
+| Integration engine tests | **299 passed**, across 49 files. |
 | Combined automated test count | **2,501 passed, 8 failed, 25 skipped.** These are not 2,501 end-to-end feature checks. |
 | Application `pnpm ts` | Passed. |
-| Connector engine typecheck | Failed at `packages/connectors/src/__tests__/google-workspace.test.ts:145`, TS2532, possibly undefined. This package is excluded from the root tsconfig. |
+| Integration engine typecheck | Failed at `packages/integrations/src/__tests__/google-workspace.test.ts:145`, TS2532, possibly undefined. This package is excluded from the root tsconfig. |
 | Normal `pnpm lint` (original audit) | Interrupted after scanning generated desktop artifacts. The consolidation change adds exclusions for these directories. See the landing verification below for the subsequent run. |
 | Explicit source lint | **132 errors and 106 warnings**. Reported diagnostics were in unchanged source files, not the desktop-modified files. They still prevent a clean release gate. |
 | Added audit probe lint | Passed. |
@@ -1239,7 +1239,7 @@ The audit reproduced the same dependency call failing from this worktree and suc
 
 The reproducible packaged probe is [desktop/audit-probe.ts](../desktop/audit-probe.ts). Run it after producing the current package with `pnpm exec tsx desktop/audit-probe.ts`. It creates its own home under `.electron-demo`, prints booleans/statuses rather than credentials, and leaves `.electron-demo/audit-results.json`. It observes the current defects, so successful completion means the observations completed, not that those defects are fixed. Convert the cases into passing security/save regressions when implementing the fixes.
 
-**Coverage across the product is recorded explicitly.** “Shared suite” refers to the automated application/connector tests above and does not imply that each row has full UI coverage.
+**Coverage across the product is recorded explicitly.** “Shared suite” refers to the automated application/integration tests above and does not imply that each row has full UI coverage.
 
 | Facet | Evidence reviewed or exercised | Remaining acceptance work |
 | --- | --- | --- |
@@ -1247,7 +1247,7 @@ The reproducible packaged probe is [desktop/audit-probe.ts](../desktop/audit-pro
 | Rich editor and chat drafts | Debounces, optimistic updates, draft persistence/unmount paths, origin probe | Image paste, drag/drop, IME, undo, draft crash recovery and accessibility |
 | Search and embeddings | Native vector packaging, key-gated indexing/search, shared suite | Real embeddings configuration, offline fallback, large-home performance |
 | Capture and stream triage | Routes, STT routing, trigger startup and shared tests | Actual iOS Shortcut/media ingest, cancellation, long uploads and duplicate deliveries |
-| Deck, calendar and heartbeat | Instrumentation, harness one-shot path, connector tests, scheduler ownership | Live account timezone/DST, sleep/missed-slot behavior and offline recovery |
+| Deck, calendar and heartbeat | Instrumentation, harness one-shot path, integration tests, scheduler ownership | Live account timezone/DST, sleep/missed-slot behavior and offline recovery |
 | Harness chat and execution | Credential/runtime discovery, capability reporting, reconciliation and permission machinery | Each supported harness from Finder, authenticated session, tools, cancel/resume, crash mid-turn |
 | Agent folders and Git | Full-suite failures traced, dependency reproduction, real packaged Git endpoints | Worktree create/merge/conflict, credential helpers, repository disappearance and external changes |
 | GitHub and pull requests | Host dependency and shared package/API architecture | Real gh login, repository permissions and account switching |
@@ -1256,7 +1256,7 @@ The reproducible packaged probe is [desktop/audit-probe.ts](../desktop/audit-pro
 | Agent browser | Discovery, CDP/profile process ownership, existing tests | Real installed browser/profile, authentication, update/reconnect and cleanup |
 | Files and reference folders | Path/open/picker routing and shared suite | TCC denial, external/removable paths, symlinks, Finder and editor integration |
 | Attachments and entity history | Upload/serve/storage paths, SVG reproduction, shared suite | Safe active-document policy, preview/download/export and large-file behavior |
-| Connectors and MCP | 299 engine tests, desktop mocks, authorization code paths | Live providers, refresh/revocation, tool-emitted reauth, phone flows and concurrent accounts |
+| Integrations and MCP | 299 engine tests, desktop mocks, authorization code paths | Live providers, refresh/revocation, tool-emitted reauth, phone flows and concurrent accounts |
 | Orchestrator CLI and both MCP surfaces | Shared registry, caller credentials, remote trust model, bundled CLI smoke | Desktop runtime ownership across concurrent CLI/HTTP calls and restarts |
 | Notifications | Adapter/service-worker code, capability probe | Real OS/browser permission, delivery, action clicks, deduplication and phone installation |
 | Pairing, devices and authentication | Token/cookie middleware, profile isolation and cross-origin probes | Complete per-device revoke/expiry/re-pair, QR camera and remote recovery |
@@ -1331,7 +1331,7 @@ The original packaged smoke demonstrated h2, eight SSE streams, certificate reje
 
 **Historical foundation landing.** This table records the earlier demo landing, not the new standalone implementation. Fresh standalone verification is recorded near the top of this document.
 
-The landing change adds generated desktop directories to ESLint's ignore list, labels the README entry as an experimental isolated demo, adopts the existing upstream `@agentex/workspace` 0.0.5 fix, and corrects a test-only array-index type assertion in the connector suite. Three new real-SDK/mock-provider web callback regressions cover successful state/PKCE completion, foreign state/replay, denial, and expiry. They establish web-mode compatibility of the shared MCP changes, separately from live provider certification.
+The landing change adds generated desktop directories to ESLint's ignore list, labels the README entry as an experimental isolated demo, adopts the existing upstream `@agentex/workspace` 0.0.5 fix, and corrects a test-only array-index type assertion in the integration suite. Three new real-SDK/mock-provider web callback regressions cover successful state/PKCE completion, foreign state/replay, denial, and expiry. They establish web-mode compatibility of the shared MCP changes, separately from live provider certification.
 
 The current local main (`c42e77d`) was merged into the desktop worktree without conflicts before these checks. The unrelated untracked `docs/execution-ui-proposal.md` in the main checkout is outside this change. No production service, home data, or multi-device worktree was modified.
 
@@ -1339,10 +1339,10 @@ The current local main (`c42e77d`) was merged into the desktop worktree without 
 | --- | --- |
 | Application suite after the dependency fix | 2,200 passed, 25 skipped, zero failed, across 231 files |
 | Desktop suite including web MCP regressions | 22 passed across 8 files |
-| Connector engine suite | 299 passed across 49 files |
+| Integration engine suite | 299 passed across 49 files |
 | Combined tests | 2,521 passed, 25 skipped, zero failed |
 | Root TypeScript | Passed |
-| Connector TypeScript | Passed after the test-only assertion fix |
+| Integration TypeScript | Passed after the test-only assertion fix |
 | Changed-source ESLint | Passed. Existing broad-lint diagnostics are outside the desktop implementation changes |
 | Whole-repository ESLint | Completes with generated output excluded. Still fails with 132 pre-existing errors and 118 warnings |
 | CLI and desktop shell build | Passed |
@@ -1355,9 +1355,9 @@ Reproduce the focused validation from the checkout containing `desktop/`:
 ```sh
 pnpm desktop:test
 pnpm test
-pnpm --filter @connectors/engine test
+pnpm --filter @integrations/engine test
 pnpm ts
-pnpm --filter @connectors/engine typecheck
+pnpm --filter @integrations/engine typecheck
 pnpm desktop:package
 RI_DESKTOP_PACKAGE=release/desktop/mac-arm64/Ri.app pnpm desktop:smoke
 ```

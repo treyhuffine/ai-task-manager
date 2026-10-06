@@ -3,7 +3,7 @@
 import { trpcClient } from '@/lib/trpc/client';
 import { rpcQuery } from '@/lib/trpc/request-options';
 /**
- * Notifications settings (docs/connectors-email-and-notifier-spec.md §2.6/§2.11).
+ * Notifications settings (docs/integrations-email-and-notifier-spec.md §2.6/§2.11).
  *
  * Organized as a guided flow rather than a wall of cards:
  *   1. Status     — one line telling you whether you're set up + what to fix.
@@ -17,7 +17,7 @@ import { rpcQuery } from '@/lib/trpc/request-options';
  * Telegram channels are one per chat. The remote/tunnel URL is edited in Devices;
  * here it is shown read-only with a jump to that section.
  */
-import { ConnectorLogo } from '@/components/connectors/connector-logo';
+import { IntegrationLogo } from '@/components/integrations/integration-logo';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 import { setSettingsSection } from '@/components/settings/settings-store';
 import { Badge } from '@/components/ui/badge';
@@ -105,7 +105,7 @@ export function NotificationsSection() {
   const refresh = useCallback(async () => {
     const [ch, cn, dg, bu] = await Promise.all([
       trpcClient.notifications.channelsGet.query({}),
-      trpcClient.connectors.connectionsGet.query({}),
+      trpcClient.integrations.connectionsGet.query({}),
       trpcClient.notifications.digestsGet.query({}),
       trpcClient.settings.baseUrlGet.query({}),
     ]);
@@ -195,7 +195,7 @@ export function NotificationsSection() {
   const addTelegram = () =>
     run(async () => {
       await trpcClient.notifications.channelsPost.mutate({body: {
-        kind: 'connector',
+        kind: 'integration',
         providerId: 'telegram',
         connectionId: newConnId,
         ...(newLabel.trim() ? { label: newLabel.trim() } : {}),
@@ -284,12 +284,12 @@ export function NotificationsSection() {
   const channelType = (c: NotificationChannelRecord): string => {
     if (isDesktopNotificationChannel(c)) return 'Desktop';
     if (c.kind === 'web_push') return 'Web push';
-    if (c.kind === 'connector' && c.providerId) return c.providerId.charAt(0).toUpperCase() + c.providerId.slice(1);
+    if (c.kind === 'integration' && c.providerId) return c.providerId.charAt(0).toUpperCase() + c.providerId.slice(1);
     return c.kind;
   };
   const channelDetail = (c: NotificationChannelRecord): string | null => {
     if (c.label) return c.label;
-    if (c.kind === 'connector' && c.providerId === 'telegram') {
+    if (c.kind === 'integration' && c.providerId === 'telegram') {
       return String((c.config as { chatId?: unknown }).chatId ?? '') || null;
     }
     return null;
@@ -299,10 +299,10 @@ export function NotificationsSection() {
     return detail ? `${channelType(c)} · ${detail}` : channelType(c);
   };
   const channelShort = (c: NotificationChannelRecord): string => channelDetail(c) ?? channelType(c);
-  // Real brand logo for connector channels (Telegram, …); a Globe tile for web push.
+  // Real brand logo for integration channels (Telegram, …); a Globe tile for web push.
   const channelVisual = (c: NotificationChannelRecord, size = 36) => {
-    if (c.kind === 'connector' && c.providerId) {
-      return <ConnectorLogo providerId={c.providerId} name={channelType(c)} size={size} />;
+    if (c.kind === 'integration' && c.providerId) {
+      return <IntegrationLogo providerId={c.providerId} name={channelType(c)} size={size} />;
     }
     return (
       <span
@@ -320,7 +320,7 @@ export function NotificationsSection() {
   const routedEventCount = MATRIX.filter((e) =>
     channels.some((c) => c.enabled && (c.events ?? []).includes(e.type)),
   ).length;
-  const hasExternalChannel = channels.some((c) => c.kind === 'connector');
+  const hasExternalChannel = channels.some((c) => c.kind === 'integration');
   const externalLinksUnreachable = hasExternalChannel && !baseUrls.tunnel;
 
   if (isLoading) {
@@ -437,7 +437,7 @@ export function NotificationsSection() {
               addTgOpen && 'bg-muted/40',
             )}
           >
-            <ConnectorLogo providerId="telegram" name="Telegram" size={36} />
+            <IntegrationLogo providerId="telegram" name="Telegram" size={36} />
             <div className="min-w-0 flex-1">
               <div className="text-xs font-semibold text-foreground">Connect Telegram</div>
               <div className="text-[11px] text-muted-foreground">Alerts in a Telegram chat</div>

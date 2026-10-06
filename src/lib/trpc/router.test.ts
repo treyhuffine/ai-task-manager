@@ -174,8 +174,8 @@ describe('typed UI API over the authenticated HTTP adapter', () => {
     const paired = await client.devices.create.mutate({ body: { name: 'Native viewer', kind: 'phone' } });
     expect(paired.plaintext).toBeTruthy();
     expect(await client.devices.update.mutate({ params: { id: paired.device.id }, body: { name: 'Renamed phone' } })).toMatchObject({ name: 'Renamed phone' });
-    expect(await client.connectors.requestSettingsPatch.mutate({ body: { requestsEnabled: false } })).toEqual({ requestsEnabled: false });
-    expect(await client.connectors.requestSettingsGet.query({})).toEqual({ requestsEnabled: false });
+    expect(await client.integrations.requestSettingsPatch.mutate({ body: { requestsEnabled: false } })).toEqual({ requestsEnabled: false });
+    expect(await client.integrations.requestSettingsGet.query({})).toEqual({ requestsEnabled: false });
     expect(await client.home.info.query({})).toMatchObject({ id: expect.any(String), host: { id: expect.any(String) } });
   });
 

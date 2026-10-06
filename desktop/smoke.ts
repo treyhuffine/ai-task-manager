@@ -143,7 +143,7 @@ try {
   await page.evaluate(async () => fetch('/api/user-state', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ onboardedAt: new Date().toISOString() }) }));
   oauthFixture = await mockMcp();
   const connect = await page.evaluate(async (url) => {
-    const response = await fetch('/api/connectors/mcp-servers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Desktop OAuth smoke', url, auth: { kind: 'oauth' } }) });
+    const response = await fetch('/api/integrations/mcp-servers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Desktop OAuth smoke', url, auth: { kind: 'oauth' } }) });
     const body = await response.json();
     if (!response.ok) throw new Error(JSON.stringify(body));
     return body;
@@ -161,15 +161,15 @@ try {
   await page.locator('p').filter({ hasText: /^Connected$/ }).waitFor({ timeout: 60_000 });
   assert.equal(oauthFixture.exchanges, 1);
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMinimized()), false);
-  const stored = fs.readFileSync(path.join(root, '.config/connectors/mcp-servers.json'), 'utf8');
+  const stored = fs.readFileSync(path.join(root, '.config/integrations/mcp-servers.json'), 'utf8');
   assert(!stored.includes(oauthFixture.token), 'OAuth token was stored unencrypted');
   assert.equal(await page.evaluate(async (id) => {
-    const response = await fetch('/api/connectors/mcp-servers');
+    const response = await fetch('/api/integrations/mcp-servers');
     const { servers } = await response.json();
     return servers.find((s: { id: string }) => s.id === id)?.lastStatus;
   }, connect.entry.id), 'ok');
   // Retry the same connection through the custom-protocol return path.
-  const again = await page.evaluate(async (id) => (await (await fetch(`/api/connectors/mcp-servers/${id}`, { method: 'POST' })).json()), connect.entry.id);
+  const again = await page.evaluate(async (id) => (await (await fetch(`/api/integrations/mcp-servers/${id}`, { method: 'POST' })).json()), connect.entry.id);
   assert(again.authUrl, JSON.stringify(again));
   const consent = await fetch(again.authUrl, { redirect: 'manual' });
   const callback = new URL(consent.headers.get('location')!);

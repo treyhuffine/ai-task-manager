@@ -272,7 +272,7 @@ Putting all three in the entity's `body` field would conflate ownership (user wr
 
 ### What stays in source systems
 
-Some external data shouldn't be mirrored even as raw events: full email bodies, document content, large media files, real-time streams. These stay in their source systems and are queried on demand via integration tools. The integration layer is hybrid by intent — mirror what's worth synthesizing, query what's too large or too live to mirror.
+Some external data shouldn't be mirrored even as raw events: full email bodies, document content, large media files, real-time streams. These stay in their source systems and are queried on demand vian integration tools. The integration layer is hybrid by intent — mirror what's worth synthesizing, query what's too large or too live to mirror.
 
 ### The principle
 

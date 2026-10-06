@@ -6,11 +6,12 @@
  *
  * Orchestration sessions run in the app data root and act through the typed
  * action surface. Execution sessions fail closed on MCP and get their
- * agent's connectors, browser, instructions and reference folders. An
+ * agent's integrations, browser, instructions and reference folders. An
  * agent's main chat runs in the agent's own folder with its brief in the
  * session instructions (agent-main-chat.ts).
  */
 
+import { INTEGRATION_LABELS } from '@/constants/integrations';
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
 import type { EffortLevel, PermissionMode, WorkspaceRecord } from '@/db/types';
 import type { ResolvedReferenceFolder } from '@/db/types';
@@ -28,7 +29,7 @@ import { APP_NAME } from '@/constants/app';
 import type { ExecutionEnvironment, ExpectedAgentFolders } from '@/lib/runner/environment';
 import {
   browserMcpServer,
-  connectorsMcpServer,
+  integrationsMcpServer,
   installOrchestratorSurface,
   orchestratorSessionConfig,
   renderContentFocusPrompt,
@@ -38,7 +39,7 @@ import { isBrowserEnabled } from '@/lib/browser/config';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
 import { buildReferenceFolderSessionConfig, referenceFolderProviderWiring } from '@/lib/reference-folders/session-config';
 import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
-import { connectorRequestsEnabled } from '@/lib/connectors/request-settings';
+import { integrationRequestsEnabled } from '@/lib/integrations/request-settings';
 import { mintSessionToken } from '@/lib/auth/session-token';
 import { HOME_ADDRESS_SCHEME } from '@/lib/workers/protocol';
 import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
@@ -152,7 +153,7 @@ function expectedEnvironment(input: {
     baseBranch: workspace.baseBranch ?? null,
     baseSha: execution?.baseSha ?? null,
     references: folders.references,
-    tools: { connectors: urls.some((u) => u.includes('/api/connectors/')), browser: urls.some((u) => u.includes('/browser/')) },
+    tools: { integrations: urls.some((u) => u.includes('/api/integrations/')), browser: urls.some((u) => u.includes('/browser/')) },
     harness: args.harness,
     model: args.model,
     permissionMode: args.permissionMode,
@@ -165,7 +166,7 @@ export interface SessionSpecInput {
   cwd: string;
   /** chat_sessions.type — orchestration sessions get the data-root surface. */
   sessionType: 'orchestration' | 'content' | 'execution';
-  /** The session's workspace (for execution connector scoping); null for workspace-less. */
+  /** The session's workspace (for execution integration scoping); null for workspace-less. */
   workspaceId: string | null;
   /**
    * For `content` sessions: the entity the in-document chat is focused on
@@ -198,7 +199,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
   // The capabilities of the harness on the device that will run it: probed
   // here for the home's own, from its worker's report for a connected one.
   const caps = await harnessCapabilitiesOn(target, args.harness, target.isHome ? args.cwd : undefined);
-  // The orchestrator, connector and browser servers are built for this home's
+  // The orchestrator, integration and browser servers are built for this home's
   // own sessions, at its localhost with its key. A session elsewhere reaches
   // them at the home's address with its own token (P2.7).
   const reachFromElsewhere = () => {
@@ -317,23 +318,23 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
   }
 
   // Execution (workspace coding/agent) sessions: fail closed on MCP, and attach the
-  // workspace-scoped connectors endpoint when the workspace opted in — but ONLY on a harness that
+  // workspace-scoped integrations endpoint when the workspace opted in — but ONLY on a harness that
   // actually enforces strict MCP (Claude Code today; Codex ignores these fields). See spec §3/§6c.
   if (args.sessionType === 'execution') {
     const workspace = args.workspaceId ? getWorkspace(args.workspaceId) ?? null : null;
     if (caps.strictMcpIsolation) {
       spec.strictMcpConfig = true; // no ambient/user/repo MCP leaks into the worktree agent
       const servers: McpServerConfig[] = [];
-      // Workspace-scoped connectors (opt-in via the workspace's connector allowlist). With none
+      // Workspace-scoped integrations (opt-in via the workspace's integration allowlist). With none
       // allowed yet, still attached while agents may ask for connections, so the execution has
       // `request_connection` (and nothing else) when a task needs an account.
-      const scopes = workspace?.connectorScopes ?? [];
-      if ((scopes.length > 0 || connectorRequestsEnabled()) && args.workspaceId) {
-        const connectors = connectorsMcpServer(undefined, {
+      const scopes = workspace?.integrationScopes ?? [];
+      if ((scopes.length > 0 || integrationRequestsEnabled()) && args.workspaceId) {
+        const integrations = integrationsMcpServer(undefined, {
           workspaceId: args.workspaceId,
           sessionId: args.chatSessionId,
         });
-        if (connectors) servers.push(connectors);
+        if (integrations) servers.push(integrations);
       }
       // Agent browser, when the app allows it AND the workspace opted in (default
       // on). Executions browse an ISOLATED per-workspace profile so an autonomous
@@ -347,9 +348,9 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
       }
       if (servers.length > 0) spec.mcpServers = servers;
       if (!target.isHome) reachFromElsewhere();
-    } else if ((workspace?.connectorScopes.length ?? 0) > 0) {
+    } else if ((workspace?.integrationScopes.length ?? 0) > 0) {
       console.warn(
-        `[executor] execution on provider "${providerType}": connectors are unavailable ` +
+        `[executor] execution on provider "${providerType}": ${INTEGRATION_LABELS.plural.toLowerCase()} are unavailable ` +
           '(this harness does not enforce strict MCP tool-filtering).',
       );
     }

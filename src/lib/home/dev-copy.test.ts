@@ -31,9 +31,9 @@ beforeAll(async () => {
   process.env.RI_ROOT = ROOT;
   process.env.RI_DB_PATH = DB;
   process.env.RI_CONFIG_DIR = CONFIG;
-  fs.mkdirSync(path.join(CONFIG, 'connectors'), { recursive: true });
+  fs.mkdirSync(path.join(CONFIG, 'integrations'), { recursive: true });
   fs.mkdirSync(path.join(CONFIG, 'notifications'), { recursive: true });
-  fs.writeFileSync(path.join(CONFIG, 'connectors', 'key'), 'sealing-key');
+  fs.writeFileSync(path.join(CONFIG, 'integrations', 'key'), 'sealing-key');
   fs.writeFileSync(path.join(CONFIG, 'notifications', 'vapid.json'), '{}');
   fs.writeFileSync(
     path.join(CONFIG, 'config.json'),
@@ -99,6 +99,8 @@ afterAll(() => {
 
 describe('prepareDevelopmentCopy', () => {
   it('cuts every link back to the original', () => {
+    fs.mkdirSync(path.join(CONFIG, 'connectors'));
+    fs.writeFileSync(path.join(CONFIG, 'connectors', 'key'), 'old-snapshot-key');
     const report = prepareDevelopmentCopy(ROOT);
 
     const config = JSON.parse(fs.readFileSync(path.join(CONFIG, 'config.json'), 'utf8'));
@@ -107,9 +109,10 @@ describe('prepareDevelopmentCopy', () => {
     expect(config.autoTunnel).toBe(false);
     expect(config.globalSkillEnabled).toBe(false);
     expect(config.voiceEnabled).toBe(true);
+    expect(fs.existsSync(path.join(CONFIG, 'integrations'))).toBe(false);
     expect(fs.existsSync(path.join(CONFIG, 'connectors'))).toBe(false);
     expect(fs.existsSync(path.join(CONFIG, 'notifications'))).toBe(false);
-    expect(report.removed.sort()).toEqual(['.config/connectors', '.config/notifications']);
+    expect(report.removed.sort()).toEqual(['.config/connectors', '.config/integrations', '.config/notifications']);
 
     const db = new Database(DB, { readonly: true });
     const one = <T>(sql: string, ...p: unknown[]) => db.prepare(sql).get(...p) as T;

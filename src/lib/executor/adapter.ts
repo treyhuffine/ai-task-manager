@@ -730,7 +730,7 @@ export async function close(
 }
 
 /**
- * Recycle every live session that carries a workspace's scope (spec §6f). Called after its connector
+ * Recycle every live session that carries a workspace's scope (spec §6f). Called after its integration
  * scopes, browser switch, instructions or reference folders change, so the change takes effect now
  * rather than next session (the harness caches its tool list and instructions otherwise). A session
  * mid-turn is recycled when the turn ends. A no-op for sessions that aren't currently live.
@@ -768,7 +768,7 @@ export async function recycleAppMainChats(): Promise<void> {
  * removed folder takes effect now rather than whenever the session happens to
  * restart. Session config (`instructionsFile`, `--add-dir`, the deny rules) is
  * fixed at spawn, so without this the running agent keeps the old list
- * indefinitely — the same problem connector scopes solve via
+ * indefinitely — the same problem integration scopes solve via
  * `recycleWorkspaceSessions`.
  *
  * A global reference (`workspaceId === null`) is visible everywhere, so it has

@@ -88,7 +88,7 @@ Reuses Ri's existing two-tier split with almost no new infrastructure.
 - Non-secret flags extend `AuthConfig` and land in `.config/config.json` at 0600 via `writeAuthConfig`: `browserEnabled`, `browserChromiumPath`, `browserHeadlessDefault`, `browserIdleCloseMs`.
 - The agent profile (cookies, session) lives in `.config/browser/profiles/`, which is precious-local (not synced, not lost). This is a correction from an earlier draft that put it in `.work`, which is safe-to-delete scratch and would lose your logins.
 - The pidfile, socket, and the regenerable read-spill live in `.work/browser/`.
-- Any real secret (a cloud key, an extension pairing secret) uses a sealed store copying the connectors recipe (a 0600 key file, `aesGcmSecretBox`, atomic write plus file lock), never `config.json`.
+- Any real secret (a cloud key, an extension pairing secret) uses a sealed store copying the integrations recipe (a 0600 key file, `aesGcmSecretBox`, atomic write plus file lock), never `config.json`.
 
 Two path helpers get added beside the existing ones, `getBrowserProfilesDir()` under `.config` and `getBrowserWorkDir()` under `.work`.
 
@@ -101,7 +101,7 @@ What Ri keeps, because it adds safety without restricting the agent or creating 
 - Oversight, not restriction. A lean audit trail (which pages, which acts, which downloads) that rides the existing execution and transcript UI, and a kill switch that closes the agent browser and stops everything. These let you see and stop, they never block a capability.
 - A silent private-network floor. The agent browser cannot be steered to localhost, your router admin, or a cloud metadata endpoint. This restricts nothing you would ever legitimately browse and closes the one hole unrelated to your logins.
 
-The one honest caveat, stated so it is a knowing choice. The risk login scope does not cover is prompt injection acting within the scope. A malicious page the agent reads could try to make it act in an account the profile is logged into. The mitigation lives in your framework, it is proportional to what you log in and give write power to. A profile with a Medium subscription and a burner account is low stakes. A profile with your primary email and send access is high stakes. The real knob is which accounts you hand the agent, and the audit trail and kill switch are there to see and stop anything that goes wrong. For the day you do log in something sensitive, an opt-in "ask before acting on this site" seatbelt, off by default, is the planned follow-up. It is not built yet. It would cover every act on that site (not one kind of act), through an approval card in chat like connector writes, and keep its per-profile site list in a file under `.config/browser/`. Until then, the way to keep an agent off a site is to not log its browser in, or to turn its browser off.
+The one honest caveat, stated so it is a knowing choice. The risk login scope does not cover is prompt injection acting within the scope. A malicious page the agent reads could try to make it act in an account the profile is logged into. The mitigation lives in your framework, it is proportional to what you log in and give write power to. A profile with a Medium subscription and a burner account is low stakes. A profile with your primary email and send access is high stakes. The real knob is which accounts you hand the agent, and the audit trail and kill switch are there to see and stop anything that goes wrong. For the day you do log in something sensitive, an opt-in "ask before acting on this site" seatbelt, off by default, is the planned follow-up. It is not built yet. It would cover every act on that site (not one kind of act), through an approval card in chat like integration writes, and keep its per-profile site list in a file under `.config/browser/`. Until then, the way to keep an agent off a site is to not log its browser in, or to turn its browser off.
 
 ### Evaluate follows the same model
 
@@ -110,7 +110,7 @@ The one honest caveat, stated so it is a knowing choice. The risk login scope do
 - Clicks and typing can already change an account's email, add an admin, or export data. Evaluate is a faster route to the same places, not a new place.
 - The risk exists only where a login exists. On a site the profile is not signed into, a script can do nothing the page's own scripts couldn't.
 - The gate was never a wall. On the home, `ri agent browser_act` from an agent's shell runs as a trusted local caller, so any agent with a shell could already evaluate anywhere. The gate only blocked well-behaved agents.
-- It is the connector rule again: connecting an account is the user saying act there.
+- It is the integration rule again: connecting an account is the user saying act there.
 - Each agent browses its own profile (`ws-<workspaceId>`), so login scope is already per agent.
 
 What evaluate adds is held by guards that block nothing a legitimate script needs (`src/lib/browser/evaluate.ts`):
@@ -176,4 +176,4 @@ Later, opt-in adapters behind the same two verbs.
 
 ---
 
-Anchors verified against the current tree: `defineAction` at `types.ts:57`, `ctx.remote` at `registry.ts:346`, `writeAuthConfig` at `auth/config-file.ts:73`, the SecretBox recipe in `connectors/runtime.ts`, and the `.config` versus `.work` split in `config/paths.ts`. No Playwright or readability dependency exists yet, both are new.
+Anchors verified against the current tree: `defineAction` at `types.ts:57`, `ctx.remote` at `registry.ts:346`, `writeAuthConfig` at `auth/config-file.ts:73`, the SecretBox recipe in `integrations/runtime.ts`, and the `.config` versus `.work` split in `config/paths.ts`. No Playwright or readability dependency exists yet, both are new.

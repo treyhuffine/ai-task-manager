@@ -74,7 +74,7 @@ const TYPING_MS = 650;
  * said what you're working on) area suggestions. See
  * docs/main-chat-onboarding.md.
  *
- * Progress is kept per browser, so a reload or a connector's sign-in redirect
+ * Progress is kept per browser, so a reload or an integration's sign-in redirect
  * comes back to the same step. Finishing or skipping records
  * `orchestratorIntroducedAt` (and `onboardedAt` for a new home), and the chat
  * opens on the usual intro after.

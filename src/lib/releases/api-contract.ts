@@ -15,5 +15,5 @@ export function apiCompatibilityIssue(header: string | null, supported: readonly
 /** These authenticated transports negotiate their own protocol. This does
  * not bypass authentication or the scope checks that protect those routes. */
 export function hasIndependentProtocol(pathname: string): boolean {
-  return /^\/api\/(?:orchestrator\/(?:browser\/)?|connectors\/)?(?:mcp|sse|message|messages)$/.test(pathname);
+  return /^\/api\/(?:orchestrator\/(?:browser\/)?|integrations\/)?(?:mcp|sse|message|messages)$/.test(pathname);
 }

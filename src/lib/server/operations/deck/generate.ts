@@ -1,6 +1,6 @@
 import { deckGenerationContextSchema } from '@/lib/ai/deck-generation';
 import { generateDeck } from '@/lib/ai/generate-deck';
-import { ensureCalendarProvider } from '@/lib/deck/calendar-connector';
+import { ensureCalendarProvider } from '@/lib/deck/calendar-integration';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 

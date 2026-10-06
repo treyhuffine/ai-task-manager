@@ -29,7 +29,7 @@ export type LaunchSourceKind =
   | 'task'
   | 'note'
   /** A task read live from a connected provider. */
-  | 'connector'
+  | 'integration'
   | 'chat'
   | 'external';
 
@@ -63,9 +63,9 @@ export interface LaunchSourceItem {
   /** Provider session not yet in Ri — imported on demand at launch. */
   externalKey?: string | null;
   externalSource?: ExternalAgentSource | null;
-  /** Display name of the connector a `connector` item came from ("Todoist"). */
+  /** Display name of the integration a `integration` item came from ("Todoist"). */
   providerLabel?: string | null;
-  /** Toolkit id of that connector ("todoist") — drives its brand mark. */
+  /** Toolkit id of that integration ("todoist") — drives its brand mark. */
   toolkitId?: string | null;
   /** Preserve the selected account when an external task becomes context. */
   connectionId?: string | null;
@@ -110,7 +110,7 @@ function chipId(chipKind: LaunchChipKind, item: LaunchSourceItem): string {
 
 function contextHeadingPrefix(item: LaunchSourceItem): string {
   if (item.kind === 'note') return 'Note';
-  if (item.kind === 'connector') {
+  if (item.kind === 'integration') {
     return item.providerLabel ? `${item.providerLabel} task` : 'External task';
   }
   return 'Task';
@@ -118,7 +118,7 @@ function contextHeadingPrefix(item: LaunchSourceItem): string {
 
 function taskContextBody(item: LaunchSourceItem): string {
   const body = (item.body ?? '').trim();
-  if (item.kind !== 'connector') return body;
+  if (item.kind !== 'integration') return body;
   // Account IDs are routing metadata, not an inferred default. Keep them in
   // the prompt so a subsequent tool call can address the selected account.
   const provenance = [
@@ -195,7 +195,7 @@ export function chipsForItem(item: LaunchSourceItem): LaunchChip[] {
 
     case 'task':
     case 'note':
-    case 'connector':
+    case 'integration':
       return [
         {
           id: chipId('context', item),
@@ -204,7 +204,7 @@ export function chipsForItem(item: LaunchSourceItem): LaunchChip[] {
           label: item.title,
           detail: item.subtitle ?? null,
           context: {
-            // Connector items name their provider in the heading ("Todoist
+            // Integration items name their provider in the heading ("Todoist
             // task: …") so the agent can tell an external system's task from
             // one that lives in this app and is safe to edit directly.
             heading: `${contextHeadingPrefix(item)}: ${item.title}`,

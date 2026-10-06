@@ -87,7 +87,7 @@ Both runtimes agree: the human logs in once into a dedicated profile, and the ag
 
 - Dedicated, loopback-only profile. Never the personal browser profile. Driving a logged-in browser means acting as the user, so scope profiles per use case (a `medium` profile signed into only Medium).
 - SSRF fail-closed for private networks. `allowPrivateUrls` is opt-in.
-- Reads run ungated. `act` and navigation to non-allowlisted origins route through Ri's existing approval gate, the same one connector mutations use.
+- Reads run ungated. `act` and navigation to non-allowlisted origins route through Ri's existing approval gate, the same one integration mutations use.
 
 ### 3.6 Portability (a `ri browser doctor` checklist)
 
@@ -118,14 +118,14 @@ Ranked recommendations, derived from where OpenClaw and Hermes both ship a capab
 
 ### Tier 1, BUILD
 
-1. **Proactive notifications plus send-and-wait.** Push a reminder, digest, or decision to the user's channel (Telegram, Slack, iMessage, ntfy), and support send-and-wait so triage and approvals can happen off-app from a trigger fire. Both runtimes rank this number one or two. Ri already has the transports via connectors, but the agent is still reactive. This is the single biggest lever, and it lines up with the existing `notifications-architecture-thoughts-codex.md` and `deck-proactive-spec.md`.
+1. **Proactive notifications plus send-and-wait.** Push a reminder, digest, or decision to the user's channel (Telegram, Slack, iMessage, ntfy), and support send-and-wait so triage and approvals can happen off-app from a trigger fire. Both runtimes rank this number one or two. Ri already has the transports vian integrations, but the agent is still reactive. This is the single biggest lever, and it lines up with the existing `notifications-architecture-thoughts-codex.md` and `deck-proactive-spec.md`.
 2. **Capture and enrichment pipeline.** `web_fetch` plus readability, `summarize` (URL, YouTube, podcast, PDF), and `document-extract` or `vision_analyze` over uploaded attachments. Ri has a stream inbox and attachments but no way to turn a link or a PDF into a clean note or task. Highest-fit gap for a notes app, and it pairs with the browser capability for paywalled reads.
 3. **Structured ask (`clarify` or `ask_user`).** A native batched multiple-choice question rendered in the app, distinct from the permission gate. Low effort, high leverage for deck picks and triage without freeform back-and-forth.
 
 ### Tier 2, STRONG
 
 4. **Inward subagent orchestration** (`delegate_task` plus `execute_code`). Ri has executions for code. The same idea aimed at the brain enables bulk operations (parallel re-triage of the stream, batch enrich many tasks) with less context bloat.
-5. **MCP client host plus propose-MCP** (mcporter, `setup_mcp`, optional-mcps). Let users attach any external tool (Notion, Linear, Asana) at runtime instead of hand-writing each connector. An extensibility multiplier both runtimes lean on.
+5. **MCP client host plus propose-MCP** (mcporter, `setup_mcp`, optional-mcps). Let users attach any external tool (Notion, Linear, Asana) at runtime instead of hand-writing each integration. An extensibility multiplier both runtimes lean on.
 6. **Knowledge-vault memory** (memory-wiki, auto-capture and auto-recall). The richer version of `MEMORY.md`: a linked, auto-curated knowledge base with pre-reply recall. Ri already has the vector substrate.
 
 ### Tier 3, LATER
@@ -181,7 +181,7 @@ Within each theme the rows are ordered by verdict priority (BUILD, then STRONG, 
 | Send-and-wait (conversations_turn, messages_send export) | OC+HM | BUILD | Send and block for a correlated reply | Off-app triage and approvals |
 | ask_user / clarify | OC+HM | BUILD | Ask a single or multi-select or open question, batchable | Deck and triage decisions |
 | Channel adapters (delivery) | OC+HM | STRONG | Deliver via Telegram, Slack, Discord, Signal, iMessage, ntfy, SMS, WhatsApp, Matrix, Teams | Use as notify backends only |
-| Mail (gog Gmail, himalaya IMAP) | OC | HAVE | Read and send mail | Covered by connectors |
+| Mail (gog Gmail, himalaya IMAP) | OC | HAVE | Read and send mail | Covered by integrations |
 | Meeting bots (Meet, Teams, Zoom join and transcript) | OC+HM | LATER | Join a meeting as a guest and transcribe | Capture source |
 | Voice-call, phone (Twilio, Telnyx, Plivo) | OC | SKIP | Place phone calls | Off-thesis |
 | Channel adapters (as host) | OC+HM | SKIP | Be a full chat presence on 25-plus platforms | Ri is not a chatbot host |
@@ -208,7 +208,7 @@ Within each theme the rows are ordered by verdict priority (BUILD, then STRONG, 
 | session_search | OC+HM | HAVE | Full-text search over past sessions | search_sessions |
 | todo | HM | HAVE | Per-session multi-step task list | Tasks |
 | goals (get, create, update) | OC | HAVE | Thread-level goals | Tasks and outcomes |
-| Note-vault connectors (notion, obsidian, apple-notes, bear) | OC | LATER | Read and write external note vaults | Import path |
+| Note-vault integrations (notion, obsidian, apple-notes, bear) | OC | LATER | Read and write external note vaults | Import path |
 
 ### Code, shell, execution, sandboxes
 
@@ -248,11 +248,11 @@ Within each theme the rows are ordered by verdict priority (BUILD, then STRONG, 
 | Capability | Source | Verdict | What the agent can do | Ri note |
 |---|---|---|---|---|
 | MCP client host (mcporter, setup_mcp, dynamic tools) | OC+HM | STRONG | Load any external MCP server's tools at runtime | Bring-your-own tools |
-| Optional MCPs (Notion, Linear, Asana, Airtable, Jira, Figma, Stripe, Sentry, and more) | HM | STRONG | One-enable connectors to popular products | Two-way integration |
+| Optional MCPs (Notion, Linear, Asana, Airtable, Jira, Figma, Stripe, Sentry, and more) | HM | STRONG | One-enable integrations to popular products | Two-way integration |
 | clawhub, skill-creator | OC | LATER | Search, install, and publish skills | Skill marketplace |
-| Task-app connectors (apple-reminders, things-mac, trello) | OC | LATER | Read and write external task managers | Import path |
-| github, gh-issues | OC | HAVE | Issues, PRs, CI, spawn fix agents | Executions and connectors |
-| Google Workspace (gog) | OC | HAVE | Gmail, Calendar, Drive, Sheets, Docs | Connectors |
+| Task-app integrations (apple-reminders, things-mac, trello) | OC | LATER | Read and write external task managers | Import path |
+| github, gh-issues | OC | HAVE | Issues, PRs, CI, spawn fix agents | Executions and integrations |
+| Google Workspace (gog) | OC | HAVE | Gmail, Calendar, Drive, Sheets, Docs | Integrations |
 | migrate-claude, migrate-hermes, gateway config | OC | SKIP | Import from other agents, read gateway config | Infra |
 | oracle, model-usage, ordercli, gemini, open-prose | OC | SKIP | Second-model review, cost logs, food ordering, misc | Off-thesis (oracle is a possible LATER) |
 
@@ -285,7 +285,7 @@ Within each theme the rows are ordered by verdict priority (BUILD, then STRONG, 
 
 | Capability | Source | Verdict | What the agent can do | Ri note |
 |---|---|---|---|---|
-| Secret brokers (1Password, HashiCorp Vault) | OC | LATER | Resolve secret refs with an approval policy and audit log | Useful for connector credentials |
+| Secret brokers (1Password, HashiCorp Vault) | OC | LATER | Resolve secret refs with an approval policy and audit log | Useful for integration credentials |
 | Approval and guardrails (dangerous-tools, url and path safety, injection patterns) | OC+HM | HAVE | Gate risky tool calls and unsafe URLs | Approval gate |
 | healthcheck | OC | SKIP | Audit and harden a host | Off-thesis |
 
@@ -309,7 +309,7 @@ This keeps the surface the agent sees small and stable while the backends undern
 
 - Which Tier 1 capability lands first, notify or capture. Notify aligns with existing proactive-deck specs. Capture has the tightest fit with notes and attachments.
 - Whether the browser MVP ships as its own change before the wider capability work, so `medium-review` can run end to end.
-- Whether notify reuses the existing connector transports directly, or introduces a thin notify capability that treats connectors as adapters (recommended, for the send-and-wait semantics).
+- Whether notify reuses the existing integration transports directly, or introduces a thin notify capability that treats integrations as adapters (recommended, for the send-and-wait semantics).
 - How runtime detection should behave when both OpenClaw and Hermes are present on a host.
 
 Suggested first change: the browser MVP from section 3.7 (the `cdp` adapter, the Settings-backed config block, `ri browser login` and `doctor`, and the rewritten `medium-review` skill), on a branch, as the reference implementation of the pattern in section 6.

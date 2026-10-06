@@ -164,7 +164,7 @@ history in. Adding it means writing a reader for Cursor's transcript format.
 
 ## Jira and Asana are unverified against live accounts
 
-Both are wired into `src/lib/connectors/task-sources.ts` with defaults that need
+Both are wired into `src/lib/integrations/task-sources.ts` with defaults that need
 no user input (Jira: `assignee = currentUser() AND statusCategory != Done`;
 Asana: resolve a workspace gid first, then list). Neither has been exercised
 against a real connection — the mappers are written against each toolkit's

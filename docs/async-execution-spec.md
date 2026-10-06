@@ -8,12 +8,12 @@ Date: 2026-05-22
 ## TL;DR
 
 1. The goal is to move the app from **AI-as-copilot** (you type, AI responds) toward **AI-as-coworker** (AI has presence, picks up scheduled work, lives between your sessions). v1 ships the substrate; the autonomy gradient extends in v2+.
-2. **Build the confident core in one push**: schedules + runs + connectors + skills (harness-agnostic) + cost tracking + rate leases + destructive-action pre-gate + budget guardrails. These belong together.
+2. **Build the confident core in one push**: schedules + runs + integrations + skills (harness-agnostic) + cost tracking + rate leases + destructive-action pre-gate + budget guardrails. These belong together.
 3. **Schedules trigger work; the orchestrator agent executes.** Cron, interval, webhook, or internal-event triggers. Schedules dispatch through the same `executor.dispatch()` path user messages already use.
-4. **One unified `runs` table** for all executions — manual, cron, webhook, connector. Simple status enum (`queued | running | completed | failed | skipped`). The richer completion vocabulary (awaiting_input, blocked, continue_work) is deferred until autonomous loops pressure it.
+4. **One unified `runs` table** for all executions — manual, cron, webhook, integration. Simple status enum (`queued | running | completed | failed | skipped`). The richer completion vocabulary (awaiting_input, blocked, continue_work) is deferred until autonomous loops pressure it.
 5. **No new review-gate state.** Scheduled runs surface in the existing executions view with a trigger badge. "Needs review" is just unread (existing `last_outcome_event_at` vs `last_viewed_at` machinery).
 6. **Heartbeat deferred to v2**, alongside the notifications primitive it needs. v1 users can simulate it with a supervisor-style schedule that runs every 30 min. We promote heartbeat to its own primitive when usage patterns warrant.
-7. **First connector ships in v1** (Gmail or Linear, decided at build time) so the system is real out of the box. Other connectors (and MCP-server-as-connector path) are documented patterns that come later.
+7. **First integration ships in v1** (Gmail or Linear, decided at build time) so the system is real out of the box. Other integrations (and MCP-server-as-integration path) are documented patterns that come later.
 8. **Harness-agnostic skill + subagent locations.** This app runs on Claude Code, Codex, and OpenClaw via `@agentex/agent`. Skills live at `<brain>/skills/` and `<workspace>/.ri/skills/`, never inside `.claude/`. Workspace skills commit to git.
 
 ---
@@ -48,13 +48,13 @@ v1 ships the foundation for co-worker. Self-directed sits on top of v1 without r
 
 **Gaps v1 fills**:
 - Scheduler tick (alongside health sweep)
-- `schedules`, `runs`, `connectors` tables
+- `schedules`, `runs`, `integrations` tables
 - Webhook endpoints
 - Cost capture + budget guardrails
 - Rate leases for Anthropic API throughput
 - Destructive-action pre-gate
 - Harness-agnostic skill discovery
-- First connector (Gmail or Linear)
+- First integration (Gmail or Linear)
 - TopHud + PowerRail extensions
 
 ---
@@ -140,29 +140,29 @@ Provenance: a new column `chat_sessions.triggered_by_run_id` (nullable FK) so sc
 
 For isolated-session runs, each fire creates a fresh `chat_sessions` row; they group in the UI by `schedule_id` (a "weekly retro — 4 runs" affordance). For persistent-session schedules, all runs land in the same session as additional turns; the conversation IS the history.
 
-### 3.4 Connectors
+### 3.4 Integrations
 
 External integrations (Gmail, Linear, Todoist, Notion, Calendar, GitHub). Two trigger paths plus an outbound path:
 
 | Pattern  | Example                                       | Implementation                                                       |
 |----------|-----------------------------------------------|----------------------------------------------------------------------|
-| Pull     | "Fetch Gmail every 30 min"                    | `every` schedule + connector-specific skill                          |
-| Push     | "Linear webhook on issue created"             | POST to `/api/connectors/:id/webhook` → enqueues run                 |
-| Sync-out | "Mark Linear ticket done when our task done"  | Hook on `complete_task` → fire-and-forget connector outbound (not a run) |
+| Pull     | "Fetch Gmail every 30 min"                    | `every` schedule + integration-specific skill                          |
+| Push     | "Linear webhook on issue created"             | POST to `/api/integrations/:id/webhook` → enqueues run                 |
+| Sync-out | "Mark Linear ticket done when our task done"  | Hook on `complete_task` → fire-and-forget integration outbound (not a run) |
 
-Each native connector ships:
+Each native integration ships:
 - Typed actions added to the orchestrator action registry (`gmail.list_recent`, etc.)
-- A skill (`<brain>/skills/connector-gmail/SKILL.md`)
+- A skill (`<brain>/skills/integration-gmail/SKILL.md`)
 - Webhook payload schema (for push)
-- OAuth flow handled by CLI (`ri connector add gmail`)
+- OAuth flow handled by CLI (`ri integration add gmail`)
 
 **Webhook split**:
 - `/api/triggers/:public_id` — user-defined schedule webhooks. Auth: HMAC-SHA256.
-- `/api/connectors/:id/webhook` — connector-platform webhooks (Gmail Pub/Sub, Linear HMAC). Different auth schemes per platform; keeping these split means no incompatible-auth merge.
+- `/api/integrations/:id/webhook` — integration-platform webhooks (Gmail Pub/Sub, Linear HMAC). Different auth schemes per platform; keeping these split means no incompatible-auth merge.
 
-**MCP servers as the BYO escape hatch**: users with niche needs (or who want a connector we haven't built natively) can register external MCP servers via existing config; the orchestrator's tool list picks them up. We document the pattern. Native connectors are for the common cases where one-click OAuth + a curated skill beat BYO MCP setup.
+**MCP servers as the BYO escape hatch**: users with niche needs (or who want an integration we haven't built natively) can register external MCP servers via existing config; the orchestrator's tool list picks them up. We document the pattern. Native integrations are for the common cases where one-click OAuth + a curated skill beat BYO MCP setup.
 
-**First v1 connector**: Gmail or Linear, decided at build time. Both have merit; Linear's HMAC auth is simpler, Gmail's reach is broader. Open question.
+**First v1 integration**: Gmail or Linear, decided at build time. Both have merit; Linear's HMAC auth is simpler, Gmail's reach is broader. Open question.
 
 ### 3.5 Skills + subagents — harness-agnostic
 
@@ -190,7 +190,7 @@ What skills are *not*: not code, not a permission boundary, not pipelines. Markd
 | `manual`      | 3           | User-initiated runs                                         |
 | `cron`        | 1           | Scheduled work, serialized                                  |
 | `webhook`     | 3           | External event-driven                                       |
-| `connector`   | 2           | Connector pulls                                             |
+| `integration`   | 2           | Integration pulls                                             |
 | `<session_id>`| 1           | Per-execution-session — chat sessions are inherently serial |
 
 **Layer 2 — rate leases (Anthropic API throughput)**:
@@ -221,11 +221,11 @@ In-flight runs at the 100% threshold are allowed to complete. New runs from that
 
 ### 3.9 PowerRail / executions integration
 
-- **PowerRail (left nav)**: gains "Schedules" group per workspace; "Connectors" group at brain level.
-- **Executions list**: shows manual + scheduled + webhook + connector runs interleaved, newest first. Filter pills: `all | manual | scheduled | webhook | connector | unread`.
+- **PowerRail (left nav)**: gains "Schedules" group per workspace; "Integrations" group at brain level.
+- **Executions list**: shows manual + scheduled + webhook + integration runs interleaved, newest first. Filter pills: `all | manual | scheduled | webhook | integration | unread`.
 - **Execution view (4-col)**: identical regardless of trigger. Header gains one row when scheduled: "Triggered by `morning-triage` at 9:00 · next run 9:00 tomorrow."
 - **TopHud strip**: active runs count · today's spend · unread count · budget % (if >50%).
-- **No separate "Automation" tab.** Configuration lives where it's used (per workspace for workspace-scoped schedules, brain-level for connectors).
+- **No separate "Automation" tab.** Configuration lives where it's used (per workspace for workspace-scoped schedules, brain-level for integrations).
 
 ---
 
@@ -282,7 +282,7 @@ export const schedules = sqliteTable('schedules', {
   last_run_id: text('last_run_id'),
   disabled_reason: text('disabled_reason'),
 
-  connector_id: text('connector_id').references(() => connectors.id),
+  integration_id: text('integration_id').references(() => integrations.id),
 
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
@@ -291,7 +291,7 @@ export const schedules = sqliteTable('schedules', {
 export const runs = sqliteTable('runs', {
   id: text('id').primaryKey(),
   schedule_id: text('schedule_id').references(() => schedules.id),
-  connector_id: text('connector_id').references(() => connectors.id),
+  integration_id: text('integration_id').references(() => integrations.id),
   workspace_id: text('workspace_id').references(() => workspaces.id),
   chat_session_id: text('chat_session_id').references(() => chatSessions.id),
   agent_id: text('agent_id').references(() => agents.id).notNull(),
@@ -333,7 +333,7 @@ export const runs = sqliteTable('runs', {
   created_at: text('created_at').notNull(),
 });
 
-export const connectors = sqliteTable('connectors', {
+export const integrations = sqliteTable('integrations', {
   id: text('id').primaryKey(),
   kind: text('kind', {
     enum: ['gmail', 'linear', 'todoist', 'notion', 'calendar', 'github'],
@@ -372,7 +372,7 @@ monthly_budget_usd: real('monthly_budget_usd'),
 - `runs(status, lane)` — concurrency check
 - `runs(schedule_id, status)` — per-schedule history
 - `runs(trigger, started_at)` — activity timeline
-- `connectors(enabled, last_sync_at)` — connector dashboard
+- `integrations(enabled, last_sync_at)` — integration dashboard
 
 ---
 
@@ -389,10 +389,10 @@ monthly_budget_usd: real('monthly_budget_usd'),
 | `list_runs`            | Filters: status, schedule_id, agent_id, since    | No       | No         |
 | `get_run`              | Fetch one with usage rollup                      | No       | No         |
 | `cancel_run`           | Best-effort SIGTERM, marks `cancelled`           | Yes      | No         |
-| `list_connectors`      | List configured connectors                       | No       | No         |
-| `create_connector`     | Add connector (CLI initiates OAuth)              | Yes      | No         |
-| `update_connector`     | Patch config / enable / disable                  | Yes      | No         |
-| `delete_connector`     | Remove + revoke tokens                           | Yes      | No         |
+| `list_integrations`      | List configured integrations                       | No       | No         |
+| `create_integration`     | Add integration (CLI initiates OAuth)              | Yes      | No         |
+| `update_integration`     | Patch config / enable / disable                  | Yes      | No         |
+| `delete_integration`     | Remove + revoke tokens                           | Yes      | No         |
 | `approve_action`       | Pre-approve a destructive action in current run  | Yes      | Yes        |
 
 The destructive-action pre-gate lives on the dispatcher, not as a separate orchestrator action — it inspects the registry's `destructive: true` tag on every action invocation.
@@ -416,18 +416,18 @@ ri runs                                       # all runs, paginated
 ri runs --unread                              # what needs my attention
 ri run show / cancel
 
-ri connector add gmail                        # OAuth via CLI
-ri connector list / show / sync / disable
+ri integration add gmail                        # OAuth via CLI
+ri integration list / show / sync / disable
 
 ri spend                                      # today/week/month
-ri spend --by agent / schedule / connector
+ri spend --by agent / schedule / integration
 ```
 
 ### 6.2 Dashboard
 
-- **PowerRail (left)**: `Schedules` per workspace, `Connectors` at brain level, `Brain` group as today.
+- **PowerRail (left)**: `Schedules` per workspace, `Integrations` at brain level, `Brain` group as today.
 - **Schedules list / detail**: name, cadence, lane, next fire, last status, toggle; detail = Tiptap prompt editor + next-runs preview + run history.
-- **Connectors list / detail**: kind, status, last sync, webhook URL (if push), re-auth action.
+- **Integrations list / detail**: kind, status, last sync, webhook URL (if push), re-auth action.
 - **Runs view**: extends existing executions view with trigger badge + filter pills. Bundled group when multiple unread runs of the same schedule accumulate ("morning-triage · 3 unread").
 - **TopHud strip**: today's spend · active runs · unread · budget % (when >50%).
 
@@ -450,7 +450,7 @@ Single form, top to bottom:
 - **Single-machine scale.** Lane model extends to multi-machine but we're not building that.
 - **Cost tracking is client-side estimate** from `@agentex/agent`'s bundled price tables. Truth is the Anthropic Admin API; we don't fetch it in v1.
 - **Simple status enum.** No `awaiting_input` / `blocked` / `continue_work` vocabulary in v1. The autonomous loop in v2 will pressure us to add it; the migration is additive (new enum values + new actions, no in-flight breakage).
-- **No real-time Gmail push in v1** if Gmail is the first connector. Pull every 30 min; Pub/Sub push later.
+- **No real-time Gmail push in v1** if Gmail is the first integration. Pull every 30 min; Pub/Sub push later.
 - **Heartbeat absent.** Users wanting a supervisor pulse write a schedule that runs every 30 min with a supervisor-style prompt. When the pattern matures, we promote it to a proper primitive.
 
 ---
@@ -460,14 +460,14 @@ Single form, top to bottom:
 Each of these is intentionally out of v1 with a note on why:
 
 - **Heartbeat as a primitive**. v1 users simulate it with a schedule. Promote when we know what the right cadence + output shape + cost model is. Needs notifications first.
-- **Notifications table**. Global inbox primitive — heartbeat output, run state transitions, connector events, cost alerts. Build with heartbeat.
+- **Notifications table**. Global inbox primitive — heartbeat output, run state transitions, integration events, cost alerts. Build with heartbeat.
 - **4-state completion protocol** (`awaiting_input`, `blocked`, `continue_work`). Locks the orchestrator contract; right time is when autonomous loops genuinely need it. Migration is additive.
 - **Subagent lineage** (`parent_run_id`, `depth` on runs). Add when multi-agent coordination exists. Today, Claude Code subagents are within-turn and roll up into parent run's cost.
 - **Goals entity**. Load-bearing for self-directed autonomy. Shape: title, description, area_id, target_date, success_criteria, status, parent_goal_id.
 - **Work queue + `tasks.ai_eligible` flag**. The "agent picks from a queue" pattern. Build after goals.
 - **Self-directed autonomy mode**. Needs goals + queue + a few weeks of co-worker usage to inform the design.
 - **Decisions surface**. Either a note type or a separate table; defer the decision (no pun intended).
-- **Additional connectors**: Linear, Todoist, Notion, Calendar, GitHub (whichever wasn't shipped first).
+- **Additional integrations**: Linear, Todoist, Notion, Calendar, GitHub (whichever wasn't shipped first).
 - **Schedule templates UI**. Pre-baked schedules as one-click create. Useful after we see what people actually create.
 - **Activity timeline view as its own page**. v1 surfaces activity through the extended executions view. Promote to its own surface if filtering / rollups grow beyond what fits there.
 - **Per-skill or per-action-class autonomy levels**. Finer-grained trust than `off/semi/full`. Build when the destructive-action pre-gate proves too coarse.
@@ -479,7 +479,7 @@ Each of these is intentionally out of v1 with a note on why:
 
 These don't block v1 — most are decisions made at build time or after a few weeks of usage:
 
-1. **First connector**: Gmail or Linear? Linear is easier (HMAC, no OAuth), Gmail has broader reach. Decide at build time.
+1. **First integration**: Gmail or Linear? Linear is easier (HMAC, no OAuth), Gmail has broader reach. Decide at build time.
 2. **Notifications table name** (when we build it in v2): `notifications`, `agent_signals`, `inbox_items`?
 3. **Heartbeat output destination** (when we build it): write to notifications, or to a special-typed `chat_event` on the orchestrator session? Tradeoff is reusing existing chat machinery vs polluting the chat transcript.
 4. **Destructive action registry**: what specifically gets tagged `destructive: true`? Start opinionated (`send_email`, `merge_pr`, `delete_*`, `publish_*`, anything writing to external systems), expand as patterns emerge.
@@ -500,7 +500,7 @@ These are tempting and wrong. Putting them in writing so they don't sneak back i
 2. **Proposal staging on every entity write.** All writes go through the live query layer. Review is post-hoc (via unread); destructive actions have an explicit pre-gate.
 3. **External worker pool / Redis / BullMQ.** SQLite is the broker. Single in-process tick.
 4. **External cron / systemd timers / k8s CronJobs.** Scheduler lives in `instrumentation.ts`.
-5. **A separate "Automation" or "Connectors" tab.** Configuration lives where it's used; executions live where executions already live.
+5. **A separate "Automation" or "Integrations" tab.** Configuration lives where it's used; executions live where executions already live.
 6. **OS cron triggering CLI commands.** Same reason: scheduler needs to know about session state, worktrees, executor lifecycle.
 7. **Anthropic Routines.** Cloud-hosted, can't see local workspaces, daily-capped. Wrong host.
 8. **Predictive / AI-decides-when scheduling.** Schedules are explicit. Agent can `update_schedule` but no adaptive timing in v1.
@@ -520,7 +520,7 @@ These are tempting and wrong. Putting them in writing so they don't sneak back i
 
 Implementation order within v1, no ship gates between them:
 
-1. **Schema migrations** — `schedules`, `runs`, `connectors`, column additions.
+1. **Schema migrations** — `schedules`, `runs`, `integrations`, column additions.
 2. **Scheduler tick** in `instrumentation.ts` + file lock + `next_run_at` advance semantics.
 3. **`runs` dispatch path** — create chat_session, attach to schedule, call `executor.dispatch`.
 4. **Cost capture** from `@agentex/agent` `result` event into `runs.{tokens, cost_usd}`.
@@ -531,7 +531,7 @@ Implementation order within v1, no ship gates between them:
 9. **Runs view extension** — trigger badge + filter pills + bundling.
 10. **TopHud extension** — spend, runs, unread, budget %.
 11. **Webhook endpoint** `/api/triggers/:public_id` with HMAC.
-12. **First connector** (Gmail or Linear) — OAuth flow, sync skill, webhook handler, actions in orchestrator registry.
+12. **First integration** (Gmail or Linear) — OAuth flow, sync skill, webhook handler, actions in orchestrator registry.
 13. **CLI surface** for everything.
 14. **Skills harness-agnostic loading** — verify/complete `@agentex/agent` integration.
 
@@ -551,9 +551,9 @@ Estimated effort: 6-8 focused weeks. Ships as one release.
 - `src/lib/orchestrator/registry.ts` — new actions + `destructive: true` tags
 - `src/lib/pricing/models.json` — provider/model → cents per million tokens
 - `src/lib/pricing/models.ts` — loader + cost computation
-- `src/lib/connectors/<kind>/` — per-connector OAuth + sync + webhook handler
+- `src/lib/integrations/<kind>/` — per-integration OAuth + sync + webhook handler
 - `src/app/api/triggers/[public_id]/route.ts` — schedule webhooks
-- `src/app/api/connectors/[id]/webhook/route.ts` — connector webhooks
+- `src/app/api/integrations/[id]/webhook/route.ts` — integration webhooks
 - `src/app/(...)/schedules/` — schedule CRUD pages
-- `src/app/(...)/connectors/` — connector CRUD pages
+- `src/app/(...)/integrations/` — integration CRUD pages
 - `instrumentation.ts` — scheduler + health sweep startup

@@ -31,7 +31,7 @@ access.
 
 Today the only workaround is to make the other folder a workspace, which drags
 in a rail entry, worktrees per execution, `filesToCopy`, setup and teardown
-scripts, preview targets, and connector scopes. That is a large amount of
+scripts, preview targets, and integration scopes. That is a large amount of
 machinery for "please grep this," and it is exactly the kind of structure that
 rots. The other workaround is to physically copy folders inside the working
 tree, which pollutes the file tree and the `@` picker.
@@ -221,7 +221,7 @@ zero-reference sessions pay nothing.
 
 Session config is fixed at spawn, so every mutation route calls
 `recycleForReferenceFolderChange` — otherwise a running agent keeps the old
-folder list until it happens to restart. This is the same problem connector
+folder list until it happens to restart. This is the same problem integration
 scopes solve with `recycleWorkspaceSessions`, and a global reference recycles
 every workspace's execution sessions rather than one. The instruction file is
 deleted when the session closes, so `.work/reference-folders/` doesn't

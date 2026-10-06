@@ -1,8 +1,9 @@
 'use client';
 
+import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { EmojiPicker } from '@/components/shared/emoji-picker';
 import { Switch } from '@/components/ui/switch';
-import type { Attachment, WorkspaceConnectorScope } from '@/db/types';
+import type { Attachment, WorkspaceIntegrationScope } from '@/db/types';
 import { useAreas } from '@/hooks/use-areas';
 import { useCreateWorkspace } from '@/hooks/use-workspaces';
 import { apiErrorBody, apiErrorStatus } from '@/lib/api/client';
@@ -13,7 +14,7 @@ import { DEFAULT_FILES_TO_COPY } from '@/lib/workspaces/defaults';
 import { ImagePlus, Loader2, SmilePlus, Trash2, X } from 'lucide-react';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ConnectorScopePicker } from './connector-scope-picker';
+import { IntegrationScopePicker } from './integration-scope-picker';
 import { FilesToCopySection } from './files-to-copy-section';
 import { FolderPicker } from './folder-picker';
 import { WorktreeScriptsSection } from './worktree-scripts-section';
@@ -41,7 +42,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
   const [setupCommand, setSetupCommand] = useState('');
   const [startCommand, setStartCommand] = useState('');
   const [teardownCommand, setTeardownCommand] = useState('');
-  const [connectorScopes, setConnectorScopes] = useState<WorkspaceConnectorScope[]>([]);
+  const [integrationScopes, setIntegrationScopes] = useState<WorkspaceIntegrationScope[]>([]);
   const [browserEnabled, setBrowserEnabled] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +69,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
     setSetupCommand('');
     setStartCommand('');
     setTeardownCommand('');
-    setConnectorScopes([]);
+    setIntegrationScopes([]);
     setBrowserEnabled(true);
     setError(null);
     nameUserEditedRef.current = false;
@@ -179,7 +180,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         setupCommand: setupCommand.trim() || null,
         startCommand: startCommand.trim() || null,
         teardownCommand: teardownCommand.trim() || null,
-        connectorScopes,
+        integrationScopes,
         browserEnabled,
       },
       {
@@ -197,7 +198,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         },
       },
     );
-  }, [name, cwd, areaId, emoji, attachment, filesToCopy, setupCommand, startCommand, teardownCommand, connectorScopes, browserEnabled, createWs, reset, onOpenChange]);
+  }, [name, cwd, areaId, emoji, attachment, filesToCopy, setupCommand, startCommand, teardownCommand, integrationScopes, browserEnabled, createWs, reset, onOpenChange]);
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
@@ -396,13 +397,13 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
 
                   <div>
                     <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                      Connectors (optional)
+                      {INTEGRATION_LABELS.plural} (optional)
                     </label>
                     <p className="mb-2 text-[10px] text-muted-foreground/70">
                       Services this agent may use, in its executions and its main chat. The app&apos;s main chat always
                       has every connected service. You can change this later in the agent&apos;s setup.
                     </p>
-                    <ConnectorScopePicker scopes={connectorScopes} onChange={setConnectorScopes} disabled={createWs.isPending} />
+                    <IntegrationScopePicker scopes={integrationScopes} onChange={setIntegrationScopes} disabled={createWs.isPending} />
                   </div>
 
                   <label className="flex cursor-pointer items-center justify-between gap-3">

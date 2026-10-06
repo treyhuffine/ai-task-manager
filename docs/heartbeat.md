@@ -45,7 +45,7 @@ The app puts these rules in front of your instructions on every check-in. Editin
 - If nothing needs attention and nothing changed, reply `HEARTBEAT_OK` and nothing else.
 - Otherwise, reply with a short report: one line on what it checked and found fine, then **Did** (each change) and **Needs you** (each question or offer), each line followed by its task, note, or execution chip on its own line, with ids copied exactly from tool results.
 
-These rules are prompt-level. The agent is told to follow them, but the app doesn't block the underlying actions. What protects you is that every change is listed and can be undone (below). Outward actions on connectors (sending email, posting to Slack) still ask for approval under the connector write policy, whoever calls them.
+These rules are prompt-level. The agent is told to follow them, but the app doesn't block the underlying actions. What protects you is that every change is listed and can be undone (below). Outward actions on integrations (sending email, posting to Slack) still ask for approval under the integration write policy, whoever calls them.
 
 ## What you see after a check-in
 

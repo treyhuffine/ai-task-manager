@@ -20,7 +20,7 @@ Three buckets of follow-up work, ordered by impact-per-effort:
 | **Robustness** | Tool-call cache leak (`event-hooks.ts`), schedule-edit CLI completeness, webhook secret encryption at rest, webhook replay protection | Medium risk — touches design decisions or threat-model choices |
 | **Upstream** | Five proposals to `@agentex/agent` (see `docs/agentex-feedback.md`) | Owned by the SDK maintainers, not us |
 
-The V2 candidates (heartbeat, lanes, pre-gate, connectors, goals, etc.) live in `docs/async-agents-v1.md §10`; this doc covers the V1.5 / cleanup tier instead.
+The V2 candidates (heartbeat, lanes, pre-gate, integrations, goals, etc.) live in `docs/async-agents-v1.md §10`; this doc covers the V1.5 / cleanup tier instead.
 
 ---
 
@@ -381,7 +381,7 @@ For posterity, the things that have been considered and intentionally NOT added 
 - **Concurrency lanes** — V2. The global rate-lease is enough until real contention shows up.
 - **Multi-state action protocol (`request_input`, etc.)** — V2 with autonomous loops.
 - **Goals entity** — V2 with self-directed autonomy.
-- **First native connector (Gmail / Linear)** — V2. Webhook intake is the V1 substrate; the polish UX comes later.
+- **First native integration (Gmail / Linear)** — V2. Webhook intake is the V1 substrate; the polish UX comes later.
 - **"Continuous chat" mode for recurring schedules** — V1 derives behavior from `kind` + `targetKind`; a `continuous_chat: boolean` column is a non-breaking V2 addition if a use case emerges.
 
 ---

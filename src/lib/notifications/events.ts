@@ -1,3 +1,4 @@
+import { INTEGRATION_LABELS } from '@/constants/integrations';
 /**
  * The event catalog — the SINGLE source of truth for notification event types (spec §2.4). The
  * `NotificationEventType` union derives from this array, the settings UI maps over it, `render()`
@@ -32,9 +33,9 @@ export const EVENT_CATALOG = [
     defaultOn: true,
   },
   {
-    type: 'connector.approval_required',
+    type: 'integration.approval_required',
     label: 'Approval needed',
-    description: 'A connector action needs your approval before it runs.',
+    description: `A ${INTEGRATION_LABELS.singular.toLowerCase()} action needs your approval before it runs.`,
     routing: 'matrix',
     defaultOn: true,
   },

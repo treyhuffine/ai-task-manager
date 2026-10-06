@@ -1,6 +1,6 @@
 /**
  * VAPID keypair for web push (spec §2.11). Generated once and stored in `.config/notifications`
- * (precious, never synced, mode 0600 — mirrors the connectors at-rest key). The PUBLIC key is
+ * (precious, never synced, mode 0600 — mirrors the integrations at-rest key). The PUBLIC key is
  * handed to the browser to subscribe; the PRIVATE key signs pushes server-side and never leaves.
  * Server-only (fs + the `web-push` lib).
  */

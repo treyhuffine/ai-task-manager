@@ -79,7 +79,7 @@ export function InteractiveExamples() {
                 {needsAccount && selected && <p role="status" className="text-[11px] text-muted-foreground">{selected.label}: {selected.status}</p>}
                 <div className="flex flex-wrap gap-1">
                   {needsAccount ? <>
-                    <Button size="xs" variant="outline" onClick={() => openSettings('plugins', { anchor: `connectors:${demo.id}` })}>{choices.length ? 'Manage accounts' : 'Connect account'}</Button>
+                    <Button size="xs" variant="outline" onClick={() => openSettings('plugins', { anchor: `integrations:${demo.id}` })}>{choices.length ? 'Manage accounts' : 'Connect account'}</Button>
                     <Button size="xs" disabled={!status.data?.available || !selected?.available || !selected.interactiveTools || launchAccount.isPending} onClick={() => void open(undefined, selected?.serverId)}>Try interactive view</Button>
                   </> : <Button size="xs" variant="outline" disabled={!status.data?.available || launch.isPending} onClick={() => void open(demo.id as 'excalidraw' | 'flint' | 'buildings' | 'tldraw')}>Open demo</Button>}
                 </div>

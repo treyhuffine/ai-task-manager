@@ -276,7 +276,7 @@ Guardrails:
 
 - **Silent promotion with no digest.** This is Mem 1.0. Retrieval-time trust breaks are unrecoverable.
 - **Over-promotion.** Covered above. Prompt for restraint, measure for it, celebrate journal.
-- **Auto-ingesting firehoses.** Mem's own postmortem: piping email in automatically produced noise that drowned intent. Webhook sources (Pocket) are deliberate user pushes. Keep that bar. The stream is for things a human meant to capture. Connector-sourced signal belongs in the connectors and notifier designs, not dumped here.
+- **Auto-ingesting firehoses.** Mem's own postmortem: piping email in automatically produced noise that drowned intent. Webhook sources (Pocket) are deliberate user pushes. Keep that bar. The stream is for things a human meant to capture. Integration-sourced signal belongs in the integrations and notifier designs, not dumped here.
 - **The stream becoming a destination.** No feed mechanics, no scrolling engagement, no stream-native organization features. It is a log with a queue on top. The moment it grows folders or pinning, the problem the product exists to delete has been recreated inside it.
 - **Confident judgment scores.** All-3s effort estimates are worse than none.
 - **A new review surface.** The digest lives on the deck. Do not build a second inbox to review what the agent did with the first one.

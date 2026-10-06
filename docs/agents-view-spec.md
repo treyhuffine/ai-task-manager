@@ -20,7 +20,7 @@ The execution view redesign comes next and is out of scope here, but this work m
 Locked during alignment on 2026-09-22.
 
 1. **The UI says "agent"** for what the code calls a workspace. This is a copy change. Whether the code follows is open (§3).
-2. **An agent is a scope:** where it lives (its folder), what it can use (connectors, browser, reference folders), its purpose, and its instructions. There is **one stable persona** across all agents. No reusable personas.
+2. **An agent is a scope:** where it lives (its folder), what it can use (integrations, browser, reference folders), its purpose, and its instructions. There is **one stable persona** across all agents. No reusable personas.
 3. **Clicking an agent's name opens the agent view.** The chevron folds its execution list.
 4. **Agent view layout:** chat on the left, tools on the right as tabs: **Overview** (default), **Files**, **Terminal**, **Preview**, **Setup**.
 5. **The agent's main chat manages work:** see, answer, steer, start, close out. In a git agent it never edits the checkout. Code changes go through executions so it cannot collide with running worktrees. Agents that are not git repos may act directly.
@@ -28,7 +28,7 @@ Locked during alignment on 2026-09-22.
 7. **Both the app's main chat and an agent's main chat may message any execution directly.** No chain of command. The execution transcript is the shared record, and every message records who sent it.
 8. **The old `agents` table is deleted.** The engine moves onto chats, triggers and runs as a `harness` column.
 9. **Code that says "agent" but means the engine says "harness".**
-10. **Pins** in the agent view are pinned executions. The **Connectors** section may later be renamed Plugins. That is a label change.
+10. **Pins** in the agent view are pinned executions. The **Integrations** section may later be renamed Plugins. That is a label change.
 11. **Ships as a trial.** The new click behavior and the agent view sit behind a client preference with one click back to the old behavior.
 12. **Each phase lands as its own commit(s) on `main`** in the live checkout.
 
@@ -42,7 +42,7 @@ Not decided. None of these block the phases below.
 - **The `ri agent <action>` CLI namespace.** It means "the command group agents use to call Ri". With "agent" meaning a scope in the UI, `ri agent list_workspaces` reads oddly. Changing it breaks every skill that learned it. Decide together with the rename above.
 - **The app's main chat as an agent record** (a "home agent"). Nothing in this project needs it. The main chat stays a chat with no workspace.
 - **A shared persona layer** that reaches every chat (how Trey works, standing preferences). Today each chat type gets different instructions (§5.6). Follow-up work.
-- **Connectors vs Plugins naming.** Decided 2026-09-30: the catalog is Plugins, and Skills and Connectors keep their names inside it. See docs/skills.md.
+- **Integrations vs Plugins naming.** Decided 2026-09-30: the catalog is Plugins, and Skills and Integrations keep their names inside it. See docs/skills.md.
 - **Whether an agent main chat's replies count as unread in the rail.** Default for this spec: no, same as the app's main chat.
 
 ---
@@ -223,7 +223,7 @@ Leave "agent" where it means the AI in general: "agent browser", the "Agent (tri
   - `WORKSPACE_PURPOSE_MAX` / `WORKSPACE_INSTRUCTIONS_MAX` and `WorkspaceFieldError` (code `invalid_params`) in `queries.ts`. Values are trimmed, blank means none (null), the cap is measured after trimming, non-text is rejected. Messages read "Purpose is 501 characters. The limit is 500." The create and update routes return them as a plain 400.
 - [x] `createWorkspace` / `updateWorkspace` accept both. Types follow from the schema. `POST /api/workspaces` passes them through too.
 - [x] Execution chats receive `instructions` through the session `instructionsFile`, merged with the reference-folder block in `adapter.ts`. Harnesses that ignore session instructions log the same warning the reference-folder path logs.
-  - The per-session file is now generic: `src/lib/executor/session-instructions.ts` (`planSessionInstructions`, `writeSessionInstructions`, `clearSessionInstructions`, and the provider check moved here from the reference-folder module). The block comes from `src/lib/executor/prompts/agent-instructions.ts`, ahead of the reference-folder block. Editing instructions recycles the agent's live execution sessions (the next message resumes the same chat), the same as connector-scope and reference-folder edits.
+  - The per-session file is now generic: `src/lib/executor/session-instructions.ts` (`planSessionInstructions`, `writeSessionInstructions`, `clearSessionInstructions`, and the provider check moved here from the reference-folder module). The block comes from `src/lib/executor/prompts/agent-instructions.ts`, ahead of the reference-folder block. Editing instructions recycles the agent's live execution sessions (the next message resumes the same chat), the same as integration-scope and reference-folder edits.
 - [x] The agent main chat's brief includes purpose and instructions (Phase 6).
   - Landed with Phase 6: `renderAgentMainChatBrief` in `harness-surface.ts`. Name and purpose edits recycle only the agent's main chat, since executions never receive them.
 - [x] Tests: caps, round-trip, delivery into an execution's instructions file.
@@ -263,8 +263,8 @@ One registry generates both surfaces, so every item lands on both.
   - Retry safety without a new table: the chat id and the prompt's event id are UUIDv8s derived from `sha256("ri:start_execution:<kind>:<workspaceId>:<requestId>")`. A retry finds the chat already there and skips the create. It resends the prompt under the same event id, which the messages route already dedupes. `requestId` is scoped per agent, so two agents reusing one id never collide. `permissionMode` is PATCHed before the prompt, and only when it differs from the session default. Server refusals map to `not_found`, `conflict` (with the route's reason, e.g. a task that cannot start) or `invalid_params`.
 - [x] `archive_execution`: `sessionId`, optional `force`. Goes through the server's archive route. A dirty worktree without `force` fails with `conflict` and says what would be lost. Archiving an archived execution succeeds as a no-op.
   - Refuses non-execution chats with `invalid_params`. The conflict carries the route's detail and a `force: true` suggestion.
-- [x] `update_workspace`: `name`, `emoji`, `areaId`, `purpose`, `instructions`, `connectorScopes`, `browserEnabled`. **The folder, scripts (setup, teardown, start) and files-to-copy are not in this action.** Those execute commands or move files on the machine, so they stay in the app UI.
-  - `connectorScopes` and `browserEnabled` widen what the agent can reach, so they need the trusted local CLI (`ctx.remote === false`). Over MCP, or with the transport unset, they fail with `invalid_params`. Plain fields go through `PATCH /api/workspaces/:id` (so an instructions change recycles live sessions). Scopes go through `PUT /api/workspaces/:id/connector-scopes`, which validates toolkits and resolves each service's optional `accounts` (emails, labels, account ids or `{ accountId, authConfigId }` pins, see docs/connectors-workspace-scoping-spec.md §4 and §6e). Validation messages come back as `invalid_params`.
+- [x] `update_workspace`: `name`, `emoji`, `areaId`, `purpose`, `instructions`, `integrationScopes`, `browserEnabled`. **The folder, scripts (setup, teardown, start) and files-to-copy are not in this action.** Those execute commands or move files on the machine, so they stay in the app UI.
+  - `integrationScopes` and `browserEnabled` widen what the agent can reach, so they need the trusted local CLI (`ctx.remote === false`). Over MCP, or with the transport unset, they fail with `invalid_params`. Plain fields go through `PATCH /api/workspaces/:id` (so an instructions change recycles live sessions). Scopes go through `PUT /api/workspaces/:id/integration-scopes`, which validates toolkits and resolves each service's optional `accounts` (emails, labels, account ids or `{ accountId, authConfigId }` pins, see docs/integrations-workspace-scoping-spec.md §4 and §6e). Validation messages come back as `invalid_params`.
 - [x] `get_workspace` and `list_workspaces` return `purpose` and `instructions`.
   - They return the full row, so the new columns came along. `create_workspace` also takes both. `list_workspace_sessions` now lists executions only, so an agent's main chat never shows up as work.
 
@@ -341,15 +341,15 @@ One registry generates both surfaces, so every item lands on both.
   - `renderAgentMainChatBrief`. It also reuses the orchestrator brief's shared sections (the domain brief was split into named sections, and the app main chat's brief was verified byte-identical before and after). Home-relative paths (`@USER.md`, `attachments/`) are absolute here, since the working directory is the agent's folder.
 - [x] Write guard for git agents: the same `disallowedTools` as the orchestrator. On Codex it is prompt-only, and the adapter logs it.
   - Only Claude enforces argv tool filtering, so every other harness gets the prompt-only warning. A non-git agent has no guard, and its brief still sends building to an execution, editing directly only when the user asks for that edit in the chat.
-- [x] Connectors: the agent's connector scopes, the same set its executions get.
+- [x] Integrations: the agent's integration scopes, the same set its executions get.
   - Same gate as executions: attached only when the agent has scopes and the harness isolates MCP. **Decision:** "the same set its executions get" applied to the rest of the scope too, so the main chat also gets the agent browser (the isolated `ws-<id>` profile, when the app and the agent allow it) and the agent's reference folders (read-only). Scope and reference-folder edits recycle the main chat along with the executions.
 - [x] It can use the full orchestrator surface (tasks, notes, deck). The brief keeps it focused on its agent.
 - [x] Labels: none while live, retrospective summary at archive (the existing orchestration rule).
   - Unchanged code: the messages route never titles orchestration chats, and `retireMainChat` derives the retrospective label.
 - [x] Verify it stays out of Needs Review and the rail.
   - `src/lib/db/main-chats.test.ts`: not a Needs Review candidate even with an unread reply, not in `listRailSessions`, not in `listWorkspaceExecutions`. Session search is executions only.
-- [x] Tests: brief contents, write guard on git versus non-git, no files created in the agent folder, connector scoping.
-  - `src/lib/executor/agent-main-chat.test.ts` (brief, credentialed MCP, guard on git vs plain and Claude vs Codex, connectors, browser, reference folders, folder byte-for-byte unchanged, first-message fallback), `adapter.resolve-cwd.test.ts`, `adapter.recycle.test.ts`, `app/api/workspaces/[id]/route.test.ts`.
+- [x] Tests: brief contents, write guard on git versus non-git, no files created in the agent folder, integration scoping.
+  - `src/lib/executor/agent-main-chat.test.ts` (brief, credentialed MCP, guard on git vs plain and Claude vs Codex, integrations, browser, reference folders, folder byte-for-byte unchanged, first-message fallback), `adapter.resolve-cwd.test.ts`, `adapter.recycle.test.ts`, `app/api/workspaces/[id]/route.test.ts`.
 - [x] Recycles wait for the turn to end. (Added.) A settings change recycles live sessions so the next message respawns with the new config, but recycling closes the handle, and a main chat that edits its own agent through `update_workspace` would have cut off the turn making the edit. The same was true of an execution mid-turn when the app's main chat edited its agent's instructions (a Phase 3 regression). `recycleWhenIdle` recycles idle sessions now and running ones when the turn ends, once, however many changes land. Name and purpose recycle only the main chat, and instructions, browser and folder recycle everything.
 
 **Done when:** an agent's main chat runs in its folder, can see and steer that agent's executions, and has left no files behind in the folder.
@@ -406,7 +406,7 @@ One registry generates both surfaces, so every item lands on both.
   - `src/components/agents/agent-setup.tsx`. Adds Purpose and Instructions with live counters against the caps. Saving sends only the fields that changed, because instructions, the browser and the folder recycle live sessions (verified: editing purpose sends `{"purpose": ...}` alone). An untouched form follows edits made elsewhere, such as the main chat's `update_workspace`, and unsaved edits are never overwritten. The Start script is the preview command, so it lives in "Scripts and preview". The sheet is deleted, and every setup opener (status and history views, Needs Review, row menus, the execution preview pane) opens this tab. The rail row's hover button opened it too, until it became an open arrow that opens the agent's view (the gear read as settings, when the action is going into the agent).
   - Basics: name, icon, area, purpose
   - Instructions
-  - Connectors
+  - Integrations
   - Browser
   - Reference folders
   - Folder and git
@@ -431,7 +431,7 @@ One registry generates both surfaces, so every item lands on both.
 
 **Status 2026-09-22:** landed. Every tab exercised on dev (port 42241) against a git agent (`demo-app`, with three executions, a pinned one, an unread one, a linked task and a running preview) and a plain folder (`field-notes`). Screenshots in light and dark for every tab are in `personal/agents-view-screenshots/` (gitignored, not in the repo). Found and fixed along the way:
 - The PR routes (`/api/sessions/:id/pr`, `/prs`) returned 500 for a repo with no GitHub remote. They now answer "no PR", as their contracts promise for missing gh.
-- The Connectors section said scopes only reach executions. Its copy now says the main chat too.
+- The Integrations section said scopes only reach executions. Its copy now says the main chat too.
 - An intermittent React hydration warning naming a Radix popover id showed up twice in scripted runs and never in nine direct loads. Left for a follow-up with that evidence.
 
 ### Phase 8: Rail and navigation
@@ -462,7 +462,7 @@ One registry generates both surfaces, so every item lands on both.
 
   Find them with `grep -rnE "['\">][^'\"<>]*\b[Ww]orkspaces?\b" src/components src/app`. Code identifiers keep "workspace".
   - That grep misses JSX text on its own line, so the sweep ran on every string literal, template and JSX text node through the TypeScript compiler. About 80 strings changed, each reworded rather than swapped (for example "Plain folder, not a git repo", "clone the repo", and "the agent's setup" where the old copy said workspace settings). Copy that called the running engine an "agent" now avoids the word where it would read as the scope. The welcome step and settings header say "harness".
-  - **Kept on purpose:** the connector category "Workspace" (Google Workspace and Microsoft 365), beamd's own "workspace" slug, and REST error messages about the `workspace` resource, which the CLI and agents read and which match `/api/workspaces`. Three server strings that surface as product copy did change (the preview's start-command hint, the macOS folder picker title, the imported-chat error).
+  - **Kept on purpose:** the integration category "Workspace" (Google Workspace and Microsoft 365), beamd's own "workspace" slug, and REST error messages about the `workspace` resource, which the CLI and agents read and which match `/api/workspaces`. Three server strings that surface as product copy did change (the preview's start-command hint, the macOS folder picker title, the imported-chat error).
 - [x] The "agent in the UI" half of the AGENTS.md glossary. (Added.)
 
 **Done when:** you can go Home → agent → execution → agent → Home with clicks, the breadcrumb, the hotkey and the browser back button, and no user-visible "workspace" remains.
@@ -526,8 +526,8 @@ Recorded so they are not lost:
 - **Renaming `workspaces` to `agents` in code, and the `ri agent` namespace** (§3).
 - **A home agent record** for the app's main chat (§3).
 - **A shared persona layer** reaching every chat (§3).
-- **Several agents sharing one folder.** If it becomes real, split scope fields (name, icon, area, purpose, instructions, connectors, browser, rail order) from folder fields (path, git, worktree root, scripts, files to copy). Reference folders are a judgment call, since they can point at another workspace.
-- ~~**Renaming Connectors to Plugins.**~~ Decided 2026-09-30, docs/skills.md: Plugins is the catalog, Connectors stays the kind.
+- **Several agents sharing one folder.** If it becomes real, split scope fields (name, icon, area, purpose, instructions, integrations, browser, rail order) from folder fields (path, git, worktree root, scripts, files to copy). Reference folders are a judgment call, since they can point at another workspace.
+- ~~**Renaming Integrations to Plugins.**~~ Decided 2026-09-30, docs/skills.md: Plugins is the catalog, Integrations stays the kind.
 
 Found during the work and left open:
 

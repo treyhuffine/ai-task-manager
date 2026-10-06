@@ -10,7 +10,7 @@
  *   1. Deterministic context — DB queries for active/deadline/recurring
  *      tasks, areas, recent completions.
  *   2. AI context gathering — an agentic pass runs hybrid search over the
- *      knowledge base (plus read-only connector tools) for anything the
+ *      knowledge base (plus read-only integration tools) for anything the
  *      task list alone doesn't surface.
  *   3. Structured generation — emits the ranked deck.
  *
@@ -37,7 +37,7 @@ import {
   formatGap,
 } from '@/lib/deck/calendar';
 import { readDeckInstructions } from '@/lib/deck/instructions';
-import { getReadOnlyConnectorToolNames } from '@/lib/deck/connector-tools';
+import { getReadOnlyIntegrationToolNames } from '@/lib/deck/integration-tools';
 import {
   runHarnessText,
   runHarnessJson,
@@ -47,9 +47,9 @@ import {
 } from '@/lib/harness/one-shot';
 import {
   orchestratorMcpServer,
-  connectorsMcpServer,
+  integrationsMcpServer,
   ORCHESTRATOR_MCP_SERVER_NAME,
-  CONNECTORS_MCP_SERVER_NAME,
+  INTEGRATIONS_MCP_SERVER_NAME,
 } from '@/lib/orchestrator/harness-surface';
 import {
   DECK_GENERATION_TASK_LIMIT,
@@ -337,7 +337,7 @@ export async function generateDeck(
   }));
 
   // ─── Today's time — sizing context ───
-  // Calendar is empty until a connector registers a provider; until then this
+  // Calendar is empty until an integration registers a provider; until then this
   // degrades to "a full workday", and an explicit time budget (context or
   // user_state) still drives sizing.
   const forDate = todayLocalDate();
@@ -378,7 +378,7 @@ export async function generateDeck(
 
   // The gathering pass runs through the default harness. Tools (the
   // orchestrator `search` + `get_day_shape` actions and the user's
-  // read-only connector actions) attach as MCP servers when the harness
+  // read-only integration actions) attach as MCP servers when the harness
   // supports it; otherwise the run sits at the app root where the
   // installed AGENTS.md surface routes the same actions through the CLI
   // (Bash stays available on that path for exactly this reason).
@@ -402,20 +402,20 @@ export async function generateDeck(
       skipPermissions?: boolean;
     };
     if (harnessSupportsMcp(providerType)) {
-      const servers = [orchestratorMcpServer(), connectorsMcpServer()].filter(
+      const servers = [orchestratorMcpServer(), integrationsMcpServer()].filter(
         (s): s is McpServerConfig => s !== null,
       );
-      const connectorAllow = (await getReadOnlyConnectorToolNames()).map(
-        (name) => `mcp__${CONNECTORS_MCP_SERVER_NAME}__${name}`,
+      const integrationAllow = (await getReadOnlyIntegrationToolNames()).map(
+        (name) => `mcp__${INTEGRATIONS_MCP_SERVER_NAME}__${name}`,
       );
       toolConfig = {
         mcpServers: servers,
         // Gathering is strictly read-only: search, day shape, and the
-        // non-mutating connector actions. Everything else is denied.
+        // non-mutating integration actions. Everything else is denied.
         allowedTools: [
           `mcp__${ORCHESTRATOR_MCP_SERVER_NAME}__search`,
           `mcp__${ORCHESTRATOR_MCP_SERVER_NAME}__get_day_shape`,
-          ...connectorAllow,
+          ...integrationAllow,
         ],
         disallowedTools: ['Write', 'Edit', 'NotebookEdit', 'Bash'],
       };

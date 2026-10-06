@@ -1,5 +1,5 @@
 import { getActiveDeckForDate, getLatestDeck, listDecks } from '@/lib/db/queries';
-import { ensureCalendarProvider } from '@/lib/deck/calendar-connector';
+import { ensureCalendarProvider } from '@/lib/deck/calendar-integration';
 import { todayLocalDate } from '@/lib/deck/date';
 import { ensureTodaysDeck } from '@/lib/deck/ensure-todays-deck';
 import { reply, searchParams, type OperationContext } from '@/lib/server/operation';

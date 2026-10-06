@@ -180,7 +180,7 @@ describe('orchestrator trigger + run actions', () => {
   async function seedTelegramChannel() {
     const queries = await import('@/lib/db/queries');
     return queries.createNotificationChannel({
-      kind: 'connector', providerId: 'telegram', connectionId: 'conn-1',
+      kind: 'integration', providerId: 'telegram', connectionId: 'conn-1',
       config: { chatId: '42' }, events: [],
     });
   }

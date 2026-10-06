@@ -912,8 +912,8 @@ Rules:
 - Cursor plan mode uses Cursor mode configuration
 - Unsupported fields are not passed and are not shown in UI
 - In-chat model, variant, effort, and mode changes are validated independently
-- App-managed connectors attach only when the harness advertises the required MCP capability
-- Strict connector scoping fails closed when strict isolation is required but unavailable
+- App-managed integrations attach only when the harness advertises the required MCP capability
+- Strict integration scoping fails closed when strict isolation is required but unavailable
 
 ## 9. Persistence and migration
 
@@ -1716,7 +1716,7 @@ When implemented:
 
 Strict isolation must not be advertised until a test proves that global and repository MCP servers cannot leak into a strict app-managed session.
 
-If OpenCode configuration merging prevents this guarantee, keep `strictMcpIsolation` false and disable strict connector-scoped execution on OpenCode.
+If OpenCode configuration merging prevents this guarantee, keep `strictMcpIsolation` false and disable strict integration-scoped execution on OpenCode.
 
 ## 13. Agentex Cursor implementation
 
@@ -2017,7 +2017,7 @@ Generate these through the registry. Do not hardcode them in execution component
 - A failed permission response interrupts the turn
 - SSE loss triggers pending-request reconciliation and a bounded watchdog
 - OpenCode native `always` is never sent while multiple chats can share a pooled project instance
-- Connector scoping fails closed where the product promises scope isolation
+- Integration scoping fails closed where the product promises scope isolation
 - Unsupported strict isolation is visible in capability metadata
 
 ## 16. Telemetry and pricing
@@ -2784,7 +2784,7 @@ Exit criteria:
 - [ ] `[APP]` Start a new same-harness chat when a selection change cannot safely resume
 - [ ] `[APP]` Make overlapping-send behavior capability-driven
 - [ ] `[APP]` Make stop-task visibility capability-driven
-- [ ] `[APP]` Make connector attachment capability-driven
+- [ ] `[APP]` Make integration attachment capability-driven
 - [ ] `[APP]` Make reconcile behavior capability-driven
 - [ ] `[APP]` Make resume label and command registry-driven
 - [ ] `[APP]` Add capability matrix tests
@@ -2804,14 +2804,14 @@ Exit criteria:
 - [ ] `[AX]` Test cleanup of app-managed MCP entries
 - [ ] `[AX]` Determine whether strict ambient MCP exclusion is provable
 - [ ] `[AX]` Advertise strict isolation only after a proving test
-- [ ] `[APP]` Enable OpenCode workspace connectors only for supported isolation level
+- [ ] `[APP]` Enable OpenCode workspace integrations only for supported isolation level
 - [ ] `[APP]` Keep Cursor app MCP disabled until an isolated configuration contract exists
 - [ ] `[DOC]` Document the exact MCP security guarantees per harness
 
 Exit criteria:
 
 - Product wording matches tested isolation behavior
-- No harness receives scoped connectors under a false strictness claim
+- No harness receives scoped integrations under a false strictness claim
 
 ### Milestone 14: Real-binary verification and release
 
@@ -2945,7 +2945,7 @@ Added 2026-10-01 against Agentex 0.0.39. Google's Antigravity CLI (`agy`) replac
 | Instructions | Agentex reads `instructionsFile` in the session and sends it ahead of the first message of a conversation it starts, so Antigravity is in `SESSION_INSTRUCTIONS_PROVIDERS`. Agent instructions, reference folders and an agent main chat's brief all arrive. Reference folders are `prompt-only` (no `--add-dir` or tool filters). A successful resume keeps its original instructions. Agentex must fix missing instructions when a requested resume starts a new conversation, before publication |
 | Orchestrator surface | Antigravity reads the data root's `AGENTS.md`. It is deliberately not in `installInstructions`' runtimes, because its native file is a full `GEMINI.md` copy and the app root carries one rules file |
 | Skills | Workspace skills from `.agents/skills`, global from `~/.agents/skills`. Ri's own skills arrive as `skillDirs`, which agentex links into `~/.gemini/antigravity-cli/skills`, never the chat's folder, so an agent main chat still gets them |
-| MCP | None (`mcp: false`). Agentex passes no MCP servers to `agy`, so connectors, the agent browser and the orchestrator MCP don't reach it, the same as Codex, Cursor and OpenCode. Executions skip connectors and the browser up front because `strictMcpIsolation` is false |
+| MCP | None (`mcp: false`). Agentex passes no MCP servers to `agy`, so integrations, the agent browser and the orchestrator MCP don't reach it, the same as Codex, Cursor and OpenCode. Executions skip integrations and the browser up front because `strictMcpIsolation` is false |
 | Background AI | `CHEAPEST_MODEL.antigravity` is explicitly null. One-shots fail clearly before launch because agy ignores the required tool filters and MCP isolation. Automatic titles use the existing snippet fallback. No other harness is silently substituted |
 | Reconciliation | No durable catch-up. `reconcileSession` reports `unsupported_provider`, as for Cursor |
 | Sign-in loss mid-chat | Agentex emits `auth_required` with `loginCommand: "agy"`. The transcript banner is provider-aware: it names the command, checks the sign-in again on request through `/api/harness/auth`, and offers Resend once it holds. Only Claude keeps the in-app login button |

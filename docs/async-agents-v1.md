@@ -2,7 +2,7 @@
 
 > **The plan.** Ship the smallest substrate that lets the AI act when the human isn't at the keyboard. Schedules trigger work, runs record what happened, the rest of the app already knows how to display executions.
 >
-> **Status.** Final V1 design, synthesized from two parallel design passes. Locks the V1 surface. Heartbeat, connectors, pre-gate, lanes, goals all deferred to V2 — none require revisiting V1.
+> **Status.** Final V1 design, synthesized from two parallel design passes. Locks the V1 surface. Heartbeat, integrations, pre-gate, lanes, goals all deferred to V2 — none require revisiting V1.
 
 ---
 
@@ -20,7 +20,7 @@ V1 ships **scheduled tasks**. One new tick, two new tables, one new column.
 - **Cost capture + budget guardrails** from `@agentex/agent`'s `result` event
 - **Decisions as notes** — no new entity
 
-That's it. No connectors. No heartbeat. No pre-gate. No lanes. No context engine.
+That's it. No integrations. No heartbeat. No pre-gate. No lanes. No context engine.
 
 What this is not:
 - A pipeline DSL
@@ -29,7 +29,7 @@ What this is not:
 - A Redis/BullMQ queue
 - An Anthropic Routines host
 - A context-injection layer (see §6)
-- A native connector marketplace
+- A native integration marketplace
 - A multi-state action protocol (V2+)
 
 ---
@@ -251,7 +251,7 @@ The seed `MEMORY.md` template instructs the agent to write decisions as notes wi
 
 A schedule with `kind='webhook'` gets a unique `webhook_public_id` + `webhook_secret_hash` on creation. External services POST to `/api/triggers/:public_id` with HMAC-SHA256; the runner verifies, fires the schedule, passes the payload through as `trigger_payload` available to the prompt.
 
-Single auth scheme (HMAC-SHA256) for V1. Per-platform signatures (GitHub-style, Linear-style) layer in later if we build native connectors.
+Single auth scheme (HMAC-SHA256) for V1. Per-platform signatures (GitHub-style, Linear-style) layer in later if we build native integrations.
 
 ### 4.7 Cost capture + budget guardrails
 
@@ -545,10 +545,10 @@ Estimated effort: 4–6 focused weeks. Ships as one release.
 Each of these is intentionally out of V1 with a note on why and how it slots in.
 
 - **Pre-gate for destructive actions.** Tag actions in registry + dispatcher gate + `approve_action` agent-only action. V1 ships without it; V1 schedules can do anything the registry allows. V2 adds the safety net. Migration: additive — new column on actions, new check in dispatch path.
-- **Concurrency lanes.** Per-trigger-type ordering (`manual`, `cron`, `webhook`, `connector`, `session`). V1 has only the global rate-lease semaphore. V2 adds lanes when we see real contention. Migration: additive — lane column on schedules + runs, check in dispatch.
+- **Concurrency lanes.** Per-trigger-type ordering (`manual`, `cron`, `webhook`, `integration`, `session`). V1 has only the global rate-lease semaphore. V2 adds lanes when we see real contention. Migration: additive — lane column on schedules + runs, check in dispatch.
 - **Heartbeat as a primitive.** ~~Columns on `agents` + `processHeartbeats()` sibling call in the tick + `<brain>/HEARTBEAT.md` file + notifications table.~~ **Shipped 2026-09-22, differently:** an app-managed trigger whose prompt is the user's instructions, wrapped in ground rules at dispatch, with quiet check-ins archived out of Unread. No new tables or columns. See `docs/heartbeat.md`.
-- **First connector** (Gmail or Linear). Native OAuth flow + typed actions + sync skill + webhook handler. V1 has webhook intake only — external services can already POST to schedule webhooks. V2 ships the polished UX.
-- **Notifications table.** Global inbox primitive — heartbeat output, run state transitions, connector events, cost alerts. Build with heartbeat in V2.
+- **First integration** (Gmail or Linear). Native OAuth flow + typed actions + sync skill + webhook handler. V1 has webhook intake only — external services can already POST to schedule webhooks. V2 ships the polished UX.
+- **Notifications table.** Global inbox primitive — heartbeat output, run state transitions, integration events, cost alerts. Build with heartbeat in V2.
 - **Multi-state action protocol** (`request_input`, `report_blocked`, `continue_work`). Locks the orchestrator contract; right time is when autonomous loops genuinely need it. Migration: additive — new agent-only actions, new run statuses.
 - **Goals entity.** Title, description, area_id, target_date, success_criteria, status, parent_goal_id. Load-bearing for self-directed autonomy.
 - **Work queue + `tasks.ai_eligible` flag.** The "agent picks from a queue" pattern. Build after goals.
@@ -607,7 +607,7 @@ Putting these in writing so they don't sneak back in:
 9. **"Dream mode" as a primitive.** A schedule prompt at most.
 10. **A context engine.** See §5.
 11. **Bootstrap files as new inventions.** Reuse `MEMORY.md` + workspace `CLAUDE.md`.
-12. **Native connector adapters in V1.** Webhook intake only.
+12. **Native integration adapters in V1.** Webhook intake only.
 13. **A native MCP marketplace.** Document patterns; don't curate.
 14. **Decisions / completions / summaries as new entities.** Notes cover all of it.
 15. **Multi-state action protocol in V1.** End of turn = unread.
@@ -657,13 +657,13 @@ Five summary points:
 
 2. **It's the smallest thing that's useful.** Two new tables, one new column, one new tick, one new endpoint, two new UI surfaces. Phase 1 of one phase.
 
-3. **It treats AI as co-worker-in-waiting.** Scaffolding for presence (heartbeat in V2), pre-gate (V2), connectors (V2), goals + work queue (V2), self-directed (V3+) all sit on top of V1 without revisiting it.
+3. **It treats AI as co-worker-in-waiting.** Scaffolding for presence (heartbeat in V2), pre-gate (V2), integrations (V2), goals + work queue (V2), self-directed (V3+) all sit on top of V1 without revisiting it.
 
 4. **It separates code-controlled mechanism from data-controlled configuration.** The tick is code; what runs on each tick is data. The system can't be broken by an agent or user clobbering a row.
 
-5. **It avoids inventing things Claude Code or the agent already does for free.** No context engine (agent queries). No bootstrap file system (`MEMORY.md` + workspace `CLAUDE.md` already exist). No new entities for decisions/completions (notes cover it). No native connector adapters (webhook intake is the substrate; native + MCP come later).
+5. **It avoids inventing things Claude Code or the agent already does for free.** No context engine (agent queries). No bootstrap file system (`MEMORY.md` + workspace `CLAUDE.md` already exist). No new entities for decisions/completions (notes cover it). No native integration adapters (webhook intake is the substrate; native + MCP come later).
 
-The pieces beyond V1 — heartbeat, pre-gate, lanes, connectors, goals, work queue, autonomous loops, the full world model — all build on this foundation. None require revisiting the V1 substrate.
+The pieces beyond V1 — heartbeat, pre-gate, lanes, integrations, goals, work queue, autonomous loops, the full world model — all build on this foundation. None require revisiting the V1 substrate.
 
 ---
 
@@ -687,6 +687,6 @@ The pieces beyond V1 — heartbeat, pre-gate, lanes, connectors, goals, work que
 
 ## The one-line version
 
-> **V1 ships scheduled tasks: `schedules` + `runs`, one 60s tick, webhook intake, cost capture, budget guardrails. Decisions are notes. Review is unread. Skills are harness-agnostic. Heartbeat, pre-gate, lanes, connectors, goals — all V2.**
+> **V1 ships scheduled tasks: `schedules` + `runs`, one 60s tick, webhook intake, cost capture, budget guardrails. Decisions are notes. Review is unread. Skills are harness-agnostic. Heartbeat, pre-gate, lanes, integrations, goals — all V2.**
 
 Everything else is variations on that theme.

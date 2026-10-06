@@ -3,7 +3,7 @@ import {
   startClaudeLogin,
   waitForClaudeLogin,
 } from '@/lib/auth/claude';
-import { isDesktopRequest } from '@/lib/connectors/desktop-oauth';
+import { isDesktopRequest } from '@/lib/integrations/desktop-oauth';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 

@@ -14,7 +14,7 @@
  * the script adds it (as "Team Calendar") before running them.
  *
  * The `accounts` cases connect three stand-in Google accounts (fake tokens, written straight into the
- * dev home's connector store) and check the cards an agent with no access gets: one card per service,
+ * dev home's integration store) and check the cards an agent with no access gets: one card per service,
  * the account the user named checked, an address that isn't connected asking to connect it. A case
  * with `allow` then answers its card with those accounts and checks the agent got exactly them.
  *
@@ -39,7 +39,7 @@ interface Case {
   /** For `declined`: the follow-up asked in the same chat after "Not now". */
   followUp?: string;
   phase: 'baseline' | 'connected' | 'accounts';
-  /** Run in an execution of an agent with no connector access, instead of the main chat. */
+  /** Run in an execution of an agent with no integration access, instead of the main chat. */
   inAgent?: boolean;
   /** With `inAgent`: a new agent for this case alone, so earlier grants don't carry over. */
   freshAgent?: boolean;
@@ -77,7 +77,7 @@ const CASES: Case[] = [
   { id: 'pasted-email', phase: 'baseline', expect: 'no_ask', prompt: "Summarize this email in one line: 'Hi Trey, the Q3 numbers are in. Revenue is up 18%, churn is down to 2.1%, and the new plan launched on time. Deck on Friday. Ana'" },
   { id: 'launch-plan', phase: 'baseline', expect: 'no_ask', prompt: 'Draft a short launch plan for a new onboarding flow. Just reply here, no need to save it.' },
   { id: 'arithmetic', phase: 'baseline', expect: 'no_ask', prompt: "What's 17 times 23?" },
-  { id: 'ri-note', phase: 'baseline', expect: 'no_ask', prompt: 'Write a note titled "Connector ideas" saying we should try Linear next.' },
+  { id: 'ri-note', phase: 'baseline', expect: 'no_ask', prompt: 'Write a note titled "Integration ideas" saying we should try Linear next.' },
   // Should ask the user which one first: more than one service could fit.
   { id: 'calendar-which', phase: 'baseline', expect: 'ask_user_first', prompt: "What's on my calendar tomorrow?" },
   { id: 'email-which', phase: 'baseline', expect: 'ask_user_first', prompt: 'Check my email for anything from the bank.' },
@@ -250,7 +250,7 @@ interface Result {
 
 let sharedAgentId: string | null = null;
 
-/** An agent with its own folder and no connector access, for the `inAgent` cases. */
+/** An agent with its own folder and no integration access, for the `inAgent` cases. */
 async function createAgent(): Promise<string> {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-eval-agent-'));
   const created = await call<{ workspace?: { id: string }; id?: string }>('POST', '/workspaces', { name: `eval-agent-${path.basename(cwd).slice(-6)}`, cwd });
@@ -287,11 +287,11 @@ function checkCards(checks: CardCheck[], cards: ObservedCard[]): string | null {
 async function allowAndCheck(sessionId: string, agentId: string, card: ObservedCard, emails: string[]): Promise<string | null> {
   const ids = emails.map((email) => GOOGLE_ACCOUNTS.find((a) => a.email === email)!.accountId);
   const count = (await events(sessionId)).length;
-  await call('POST', `/connectors/requests/${card.id}`, { action: 'allow', accounts: ids });
+  await call('POST', `/integrations/requests/${card.id}`, { action: 'allow', accounts: ids });
   await settle(sessionId, count);
-  const ws = await call<{ connectorScopes?: { toolkitId: string; accounts?: { accountId: string }[] }[] }>('GET', `/workspaces/${agentId}`);
+  const ws = await call<{ integrationScopes?: { toolkitId: string; accounts?: { accountId: string }[] }[] }>('GET', `/workspaces/${agentId}`);
   for (const toolkitId of card.toolkitIds) {
-    const scope = ws.connectorScopes?.find((sc) => sc.toolkitId === toolkitId);
+    const scope = ws.integrationScopes?.find((sc) => sc.toolkitId === toolkitId);
     const pinned = (scope?.accounts ?? []).map((a) => a.accountId).sort();
     if (!scope || pinned.join() !== [...ids].sort().join()) return `${toolkitId} access is [${pinned.join(', ') || (scope ? 'all accounts' : 'none')}], expected [${ids.join(', ')}]`;
   }
@@ -301,11 +301,11 @@ async function allowAndCheck(sessionId: string, agentId: string, card: ObservedC
   return null;
 }
 
-/** Connect the stand-in Google accounts in the dev home's own encrypted connector store. */
+/** Connect the stand-in Google accounts in the dev home's own encrypted integration store. */
 async function seedGoogleAccounts(): Promise<void> {
-  const { fileStore } = await import('@connectors/engine/store');
-  const { aesGcmSecretBox } = await import('@connectors/engine/crypto');
-  const dir = path.join(resolvedHome, '.config', 'connectors');
+  const { fileStore } = await import('@integrations/engine/store');
+  const { aesGcmSecretBox } = await import('@integrations/engine/crypto');
+  const dir = path.join(resolvedHome, '.config', 'integrations');
   const key = fs.readFileSync(path.join(dir, 'key'), 'utf8').trim();
   const store = fileStore({ dir });
   const box = aesGcmSecretBox({ key });
@@ -348,7 +348,7 @@ async function runCase(c: Case): Promise<Result> {
       const card = first.cards[0];
       if (!card) return done(false, 'no first card to decline');
       const count = (await events(session.id)).length;
-      await call('POST', `/connectors/requests/${card.id}`, { action: 'decline' });
+      await call('POST', `/integrations/requests/${card.id}`, { action: 'decline' });
       await settle(session.id, count);
       const beforeFollowUp = first.cards.length;
       await sendAndSettle(session.id, c.followUp!);
@@ -372,7 +372,7 @@ async function main() {
         console.log('Skipping connected cases (no --mcp-url).');
         continue;
       }
-      await call('POST', '/connectors/mcp-servers', { name: 'Team Calendar', url, auth: { kind: 'none' } }).catch((e) => console.log(`(MCP server: ${e.message})`));
+      await call('POST', '/integrations/mcp-servers', { name: 'Team Calendar', url, auth: { kind: 'none' } }).catch((e) => console.log(`(MCP server: ${e.message})`));
     }
     if (phase === 'accounts') await seedGoogleAccounts();
     for (const c of batch) {

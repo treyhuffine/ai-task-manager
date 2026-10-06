@@ -90,7 +90,7 @@ Two things make the fallback cheap. `docs/chat-sessions.md` already lists "machi
 
 Right, and the resolution is to stop looking for one truth. Split the agent into what is the same everywhere and what is per machine:
 
-- **Same everywhere, in the home:** name, instructions, scripts, connectors, base branch, and the git remote. This is the agent's identity. The remote is its fingerprint.
+- **Same everywhere, in the home:** name, instructions, scripts, integrations, base branch, and the git remote. This is the agent's identity. The remote is its fingerprint.
 - **Per machine, one row per computer:** the folder. The machine reports it, the home records it.
 
 The database holds facts per (agent, computer), never a single path. Truth is per machine by design, which is exactly what the spec's `workspace_folders` encodes (§6.5). The feel: the first time you pick "This MacBook" for an agent, Ri looks where Claude Code and Codex already ran on that machine, matches the remote, and asks once, "Use ~/dev/insiderfinance?" One tap. The question never comes back.

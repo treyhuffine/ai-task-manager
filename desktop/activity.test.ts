@@ -114,6 +114,6 @@ describe('native activity wire contract', () => {
 
   it('only creates fixed session navigation, with no supplied native operation or origin', () => {
     expect(desktopActivityPath('019a0000-cafe-7000-a123-123456789012')).toBe('/?session=019a0000-cafe-7000-a123-123456789012');
-    for (const id of ['', 'https://evil.example', '/api/service/update', 's1&settings=connectors', '../secret', 's1#pairing', 's1\n']) expect(desktopActivityPath(id)).toBe('/');
+    for (const id of ['', 'https://evil.example', '/api/service/update', 's1&settings=integrations', '../secret', 's1#pairing', 's1\n']) expect(desktopActivityPath(id)).toBe('/');
   });
 });

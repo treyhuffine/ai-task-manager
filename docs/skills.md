@@ -89,14 +89,14 @@ the skill's chats follow it.
 ## Naming: Plugins
 
 The Settings section is **Plugins** (`?settings=plugins`; the old
-`?settings=connectors` still opens it, since OAuth returns and links carry
+`?settings=integrations` still opens it, since OAuth returns and links carry
 it). It has two tabs named for the two kinds, as the rest of the market names
-them: **Connectors** (access to your accounts, the default tab) and
+them: **Integrations** (access to your accounts, the default tab) and
 **Skills** (know-how). The tab labels live in one list in
 `src/components/settings/sections/plugins-section.tsx`, so renaming a kind is
-one line. The database keeps "connectors" for the connections it stores,
+one line. The database keeps "integrations" for the connections it stores,
 which is what they are. The rail's entry is **Connect apps**, which opens
-Plugins on its Connectors tab. Links about a skill open the Skills tab
+Plugins on its Integrations tab. Links about a skill open the Skills tab
 (`openSettings('plugins', { anchor: 'skills' })`).
 
 Why, as of September 2026:
@@ -107,9 +107,9 @@ Why, as of September 2026:
   GitHub Copilot's Agent Plugins 1.0 (August 2026), and OpenAI, whose
   ChatGPT App Directory became the Plugin Directory in July 2026 (reported,
   not confirmed first-hand).
-- Nobody renamed connectors to plugins. Claude's own directory (Customize)
-  has three tabs: Skills, Connectors, Plugins. A connector stays a single
-  authenticated connection, and a plugin bundles skills and connectors.
+- Nobody renamed integrations to plugins. Claude's own directory (Customize)
+  has three tabs: Skills, Integrations, Plugins. An integration stays a single
+  authenticated connection, and a plugin bundles skills and integrations.
 
 ## The builder
 
@@ -203,4 +203,4 @@ home backups and comparisons include `skill-drafts` (`src/lib/home/`).
   hand-made skills before this, too). Global and project skills work there as
   anywhere, from that device's own folders.
 - **Plugin bundles.** Installing Claude Code or Cursor plugins (skills plus
-  connectors plus commands) as one unit.
+  integrations plus commands) as one unit.

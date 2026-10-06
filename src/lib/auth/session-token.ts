@@ -1,6 +1,6 @@
 /**
  * Session tokens: how a harness session on a connected device reaches the
- * home's orchestrator, connectors and browser servers (docs/homes-build.md,
+ * home's orchestrator, integrations and browser servers (docs/homes-build.md,
  * P2.7).
  *
  * A session at home uses the home's own key. A session elsewhere must not:
@@ -96,13 +96,13 @@ export function verifySessionToken(
 
 /** The servers a session is given, by path, and the scope each is locked to. */
 const ORCHESTRATOR_MCP = '/api/orchestrator/mcp';
-const CONNECTORS_MCP = '/api/connectors/mcp';
+const INTEGRATIONS_MCP = '/api/integrations/mcp';
 const BROWSER_MCP = '/api/orchestrator/browser/mcp';
 
 /**
  * Whether a session may make this request: one of the servers it's given,
  * in its own scope, and nothing else. An execution gets its agent's
- * connectors and its agent's browser profile. An agent's main chat gets the
+ * integrations and its agent's browser profile. An agent's main chat gets the
  * orchestrator too. Other chats never run elsewhere and get nothing.
  */
 export function sessionMayReach(chat: ChatSessionRecord, pathname: string, params: URLSearchParams): boolean {
@@ -113,7 +113,7 @@ export function sessionMayReach(chat: ChatSessionRecord, pathname: string, param
   switch (pathname) {
     case ORCHESTRATOR_MCP:
       return isAgentMainChat;
-    case CONNECTORS_MCP:
+    case INTEGRATIONS_MCP:
       return agent !== null && params.get('ws') === agent;
     case BROWSER_MCP:
       return params.get('profile') === (agent ? `ws-${agent}` : 'execution');

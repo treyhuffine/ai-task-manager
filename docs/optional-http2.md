@@ -149,7 +149,7 @@ A follow-up review found deeper trust-ownership and a few remaining edge bugs
   valid supplied cert is rejected at load. A probe failure is only tolerated when
   it is specifically an untrusted chain; a failed health check, h2-negotiation
   failure, or connection error stays fatal.
-- **OAuth redirect URIs use the public origin.** `getConnectorRedirectUri()` fell
+- **OAuth redirect URIs use the public origin.** `getIntegrationRedirectUri()` fell
   back to `http://localhost:<getRunningPort()>`, which is the private Next port
   under `--http2`. It now uses the remote tunnel or `getLocalBaseUrl()` (the
   public HTTPS origin), so provider callbacks are reachable.

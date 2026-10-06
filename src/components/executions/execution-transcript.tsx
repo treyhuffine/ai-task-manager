@@ -11,7 +11,7 @@ import { hot } from '@/lib/_debug/hot-path';
 import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
 import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 import { useTranscriptDensity } from '@/lib/client/transcript-density';
-import { coalesceApprovalRequests } from '@/lib/executions/connector-approvals';
+import { coalesceApprovalRequests } from '@/lib/executions/integration-approvals';
 import { NO_RESPONSE_REQUESTED } from '@/lib/executions/conversation';
 import { partitionSubagentEvents } from '@/lib/executions/subagent';
 import { isPlumbingTool } from '@/lib/executions/tool-display';
@@ -88,7 +88,7 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
   );
   const hasEvents = topLevel.length > 0;
 
-  // A batch of the same paused connector action (eight parallel calendar
+  // A batch of the same paused integration action (eight parallel calendar
   // deletes) folds into one approval card: the batch's first request row
   // stays in the flow as the card, the rest ride along in `approvalGroups`.
   const { events: flowEvents, groups: approvalGroups } = useMemo(

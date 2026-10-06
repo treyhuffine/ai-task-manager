@@ -90,7 +90,7 @@ const CHIP_ICON: Record<LaunchSourceKind, React.ComponentType<{ size?: number; c
   branch: GitBranch,
   task: SquareCheckBig,
   note: SquareCheckBig,
-  connector: Plug,
+  integration: Plug,
   chat: MessageSquare,
   external: ArrowDownToLine,
 };

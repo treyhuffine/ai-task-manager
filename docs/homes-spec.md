@@ -179,7 +179,7 @@ Decided after gates B and C (§12.1): an agent's folders on every device are kep
 
 What the home keeps:
 
-- **The agent**: its name, purpose, standing instructions, files to copy, scripts and connector scope. Unchanged.
+- **The agent**: its name, purpose, standing instructions, files to copy, scripts and integration scope. Unchanged.
 - **Linked folders**: what the agent uses beside its project, defined once, each with an alias and a description, for one agent or for every agent. A linked folder is a folder, or another agent's project folder.
 - **Per device**: the agent's project folder there, and where each linked folder is there, or that the device goes without it. A linked folder for every agent has one place per device, so every agent on that device uses it, and changing it there changes it for all of them.
 
@@ -326,7 +326,7 @@ Enforce these boundaries in the server/action layer and again at worker dispatch
 
 A folder mapping describes the environment. It is not a filesystem sandbox. Preserve existing harness permission modes and enforce the selected mode through the harness's supported controls. During local execution enrollment, clearly distinguish a sandboxed setup from trusted device access. Do not promise folder confinement where the harness cannot enforce it.
 
-Treat task bodies, comments, connector content, and other agents' messages as content with an identified source. Filtering dangerous phrases is not the enforcement mechanism.
+Treat task bodies, comments, integration content, and other agents' messages as content with an identified source. Filtering dangerous phrases is not the enforcement mechanism.
 
 Expose only execution-scoped file/diff views to remote clients. Keep local native-editor opening in the companion. Provide the scoped in-app terminals in section 5.6 through personal authorization, never team membership. Existing preview support must preserve authentication and browser-origin boundaries, and must never advertise a worker's localhost URL as reachable from a phone. A general remote-machine shell service and a new preview tunneling platform remain outside this build.
 
@@ -424,7 +424,7 @@ After actual use, test native transfer on two real devices if handoff quality is
 
 ### 9.1 Standalone team product
 
-A team space uses the same application with a separate shared authority and member identities. Its first release includes tasks, notes, shared Areas, assignment, keyword search, attachments, activity attribution, invitations, and supported connector use. Reuse the existing Area concept for organization within the team. Areas do not introduce a new permissions boundary.
+A team space uses the same application with a separate shared authority and member identities. Its first release includes tasks, notes, shared Areas, assignment, keyword search, attachments, activity attribution, invitations, and supported integration use. Reuse the existing Area concept for organization within the team. Areas do not introduce a new permissions boundary.
 
 Create a new space with its own data root. Do not turn an existing personal home into a team by flipping a flag over private data.
 
@@ -435,8 +435,8 @@ Initial roles are:
 
 | Role | Authority |
 | --- | --- |
-| Owner | Membership, invitations, space settings, connector administration, and ordinary shared work |
-| Member | Read shared content, create/edit tasks, notes and team Areas, organize shared records, assign work, change task status, and use explicitly published connector features |
+| Owner | Membership, invitations, space settings, integration administration, and ordinary shared work |
+| Member | Read shared content, create/edit tasks, notes and team Areas, organize shared records, assign work, change task status, and use explicitly published integration features |
 
 All published team records are visible to members in this release. Private per-item sharing and corporate device compliance are outside scope.
 
@@ -444,7 +444,7 @@ Use expiring invitations, member-bound credentials, and revocation. Checking per
 
 Preserve human/agent/system attribution for changes inside Ri, whether initiated locally or remotely. Team history identifies the responsible member and whether an agent acted, for example Trey changed this versus Trey's agent changed this. Extend existing version/lifecycle metadata with member identity and authenticated actor context. Do not expose private session contents or rely on a caller's unsupported claim to be human. This is for explaining task/note edits, status changes, and published actions. It does not alter Git authorship or add per-keystroke/code-edit surveillance.
 
-### 9.2 AI and connectors
+### 9.2 AI and integrations
 
 The initial team product runs without AI. Disable model-dependent onboarding, background model dispatch, embeddings, AI triage, and AI schedules at the execution boundary. An ambient API key must not override this setting. Keyword search and ordinary CRUD continue to work.
 
@@ -452,13 +452,13 @@ Team-hosted agents and execution are not part of this release. Personal agents m
 
 Future team AI must be additive to existing space records. Do not expose an Enable AI control until a concrete team capability exists.
 
-Run the first team pilot with shared tasks and notes before making connectors a requirement. Keep the bounded connector flow in the build, after that pilot. Reuse the current deterministic task-source connector adapter:
+Run the first team pilot with shared tasks and notes before making integrations a requirement. Keep the bounded integration flow in the build, after that pilot. Reuse the current deterministic task-source integration adapter:
 
 1. An owner connects a supported task provider for the space.
 2. Members browse/search the published task-source list.
 3. A member attaches a selected external task link and visible summary to a shared task.
 
-The connection is explicitly for shared use. Credentials stay on the space host. Do not expose unrestricted connector actions to members. This feature does not implement bidirectional external-provider sync or promise a human UI for every connector toolkit.
+The connection is explicitly for shared use. Credentials stay on the space host. Do not expose unrestricted integration actions to members. This feature does not implement bidirectional external-provider sync or promise a human UI for every integration toolkit.
 
 ### 9.3 Connect a personal home
 
@@ -483,7 +483,7 @@ The named team view provides ordinary human browsing, filtering, and search of a
 | Shared, owned by space | Private, owned by personal home |
 | --- | --- |
 | Title, body, team Area, assignment, status, hard deadline, published attachments and results | Personal Area, ordering, energy/effort, snooze, reminders, private context, personal subtasks, linked private notes, and personal agent/execution associations |
-| A deliberately published summary or PR link | Raw execution conversation, persona, local paths, personal connector credentials |
+| A deliberately published summary or PR link | Raw execution conversation, persona, local paths, personal integration credentials |
 
 Team Areas and personal Areas are independent identities. A shared task may belong to Acme's Engineering Area while the person organizes it under Work in My Ri. The shared Area remains source metadata, and the personal Area belongs to the private overlay. Matching names never merge identities, and renaming or changing the personal Area never changes the team's organization. The person may use one personal Area for a whole team, several Areas, an existing Work Area, or none. Joining a team requires none of these choices. Do not build automatic Area replication or team-to-personal Area mapping rules for this release.
 
@@ -499,7 +499,7 @@ Receiving an assignment never dispatches a personal execution by itself. Tasks d
 
 Link the resulting personal execution to the shared task without duplicating either. An agent helping with Acme work remains one personal agent in the rail, and can help with other work too. Team naming, task linkage, personal Area membership, or device selection never changes the agent or execution's ownership or visibility. The team UI presents shared work and published results, not personal agent inventories or execution transcripts. A team-only participant needs no agent to complete the same task manually.
 
-Team text, connector results, and future comments are data. They cannot address a personal worker command endpoint or grant execution rights.
+Team text, integration results, and future comments are data. They cannot address a personal worker command endpoint or grant execution rights.
 
 When the work is ready, Publish result selects the summary, PR link, or attachment to share and shows the audience. Changing shared task status is also an authorized space command. Do not automatically share the transcript or mark a team task done merely because a personal execution ended.
 
@@ -548,7 +548,7 @@ Do not merge SQLite files or delete a source root as part of setup. Development 
 
 Use a guided, stopped export/import. Live database replication is unnecessary.
 
-Stop source writers and scheduling. Transfer the consistent database, attachments, persona/memory, required configuration, skills, and connector secret material through protected backup storage. Inventory native transcripts and unpublished code separately if they are not included.
+Stop source writers and scheduling. Transfer the consistent database, attachments, persona/memory, required configuration, skills, and integration secret material through protected backup storage. Inventory native transcripts and unpublished code separately if they are not included.
 
 Restore and verify the destination with the same home ID. Relink only paths belonging to the moved host. Leave other devices' local configurations alone. Verify harness authentication and local project setup separately from data restoration.
 
@@ -568,7 +568,7 @@ A worktree isolates code, not data. Before booting or running any migration or m
 
 Development homes and workers have their own identities, credentials, local associations, and remote addresses. Use separate project checkouts/worktrees and test Git remotes or deliberately selected feature branches. Do not enroll production workers, change production folder associations, push the production branch, or modify production harness transcripts and provider indexes. Harness testing uses fixtures or fresh development sessions and must not stop existing production sessions.
 
-Begin real-work dogfooding as soon as the P2 flow works. Use new real tasks and selected copies of existing context in the development home. If restoring a production backup for rehearsal, use a separate copy, assign development authority and credentials, and disable inherited schedules, connectors, and other outward actions before its first normal boot. Automated tests use separate disposable roots from the manual dogfood instance.
+Begin real-work dogfooding as soon as the P2 flow works. Use new real tasks and selected copies of existing context in the development home. If restoring a production backup for rehearsal, use a separate copy, assign development authority and credentials, and disable inherited schedules, integrations, and other outward actions before its first normal boot. Automated tests use separate disposable roots from the manual dogfood instance.
 
 Rehearse consolidation, migrations, retirement, and rollback on isolated copies. Keep the original homes intact. Passing the release gates prepares a later production cutover, but does not authorize one. Actual production migration or deployment requires a separate instruction after reviewing the development result and recovery procedure.
 
@@ -612,7 +612,7 @@ Passed on 2026-09-25 with the real MacBook and iPhone against the dev home. Ther
 - [x] P2.5 Materialize input attachments and upload retained output/artifacts. `dispatch` now decides where a message's files are, since only it knows where the chat runs. A chat at home gets home paths, and a chat on a connected device gets its markers with each file's name, size and sha256, never a home path. The worker fetches each through a route scoped to that send, checks it, keeps it outside the repository, and gives the harness its own path before the message goes in. Retained output: Ri keeps no file a harness produces today (the browser, which does keep files, runs at home), so the artifact upload stays specified for its first producer, and the home drops any file a device's event names. Tests: 8 over real HTTP, 3 for the send handler, 1 end to end with the worker in its own process, 1 for a chat at home. Live on the dev home: real Claude on the stand-in laptop read an attached image and text file from its own copies. See the [build notes](homes-build.md#p25-attached-files).
 - [x] P2.6 Enforce actor/target/ownership checks and preserve sender labels. Reject agent attempts to answer human permission requests. Every command to a connected device carries its actor from credentials: a chat's signed session credential makes it that agent, and otherwise the key makes it a person (for actions, only the home's own CLI counts as a person without a session). Only a person approves a permission. An agent can deny one or answer a question. The home refuses an agent approval before it leaves (403 `human_only`), and the runner holding the prompt refuses it again, so one that got past the home is refused on the laptop. The action answers in the server as its caller rather than through the route with the home's key. The home marks a queued command stale instead of sending it when its placement changed while the device was away, which the worker couldn't know, and fails its run. Sender labels travel in the send's text. Found live and fixed: a stopped worker left its harness sessions running, and idle sessions on a worker never closed. Tests: 3 through the real route and action, 3 end to end with the worker in its own process, and more. Live on the dev home: an agent's approval of real Claude's prompt on the stand-in laptop was refused, and the person's went through. See the [build notes](homes-build.md#p26-who-is-acting).
 - [x] P2 review: 11 reproducible failures in P2.1–P2.6 found by review (a worker finishing another chat's run, recovery before authentication, the home's restart failing laptop runs, torn journal tails, events without generations, runs left running after a worker crash, setup scripts in a live checkout, forged live state, duplicate runs from overlapping retries, re-enrollment leaving runs running, old results charged to new runs) are fixed, with the review's probes kept as regressions. Live on the dev home: a home restart and a worker crash in the middle of real Claude turns on the stand-in laptop each left the run in the right state. See the [build notes](homes-build.md#p2-review-fixes). The re-review's two further findings are fixed too: a dispatch the home stopped before saving its send is reaped at boot, and a turn's cost goes to the message that opened it. One placement probe is recorded as a P4 acceptance check ([build notes](homes-build.md#p2-re-review-fixes)).
-- [x] P2.7 Supply resolved local environment and home persona without writing managed instructions into source repositories. Route worker memory findings to home-side updates. A session elsewhere reaches the home's orchestrator, connectors and browser servers at the address its worker uses, with a token of its own: signed by the home, valid only while the session is placed there at that generation and the worker is enrolled, and only for that session's servers in its own scope. Every execution gets its resolved environment (working folder, the agent's folder, branch and base, connected folders including those left out, tools), resolved from the running device's own setup files when the session starts, written beside the session instructions outside the repository, and added to them. A main chat elsewhere gets the persona as text and memory through `read_memory` and `submit_memory_finding`, which sends a finding to the home's main chat to record. Tests: 5 for the token through the real proxy, 1 end to end with the worker in its own process, 3 for resolution, 2 for delivery at home and on a laptop, 2 for the brief elsewhere, 3 for memory through a real server. Live on the dev home: real Claude on the stand-in laptop used the home's browser server with its token and described its laptop environment. See the [build notes](homes-build.md#p27-sessions-elsewhere-the-homes-servers-the-environment-persona-and-memory).
+- [x] P2.7 Supply resolved local environment and home persona without writing managed instructions into source repositories. Route worker memory findings to home-side updates. A session elsewhere reaches the home's orchestrator, integrations and browser servers at the address its worker uses, with a token of its own: signed by the home, valid only while the session is placed there at that generation and the worker is enrolled, and only for that session's servers in its own scope. Every execution gets its resolved environment (working folder, the agent's folder, branch and base, connected folders including those left out, tools), resolved from the running device's own setup files when the session starts, written beside the session instructions outside the repository, and added to them. A main chat elsewhere gets the persona as text and memory through `read_memory` and `submit_memory_finding`, which sends a finding to the home's main chat to record. Tests: 5 for the token through the real proxy, 1 end to end with the worker in its own process, 3 for resolution, 2 for delivery at home and on a laptop, 2 for the brief elsewhere, 3 for memory through a real server. Live on the dev home: real Claude on the stand-in laptop used the home's browser server with its token and described its laptop environment. See the [build notes](homes-build.md#p27-sessions-elsewhere-the-homes-servers-the-environment-persona-and-memory).
 - [x] P2.8 Test home outage, worker crash, reconnect, revocation, replay, stale approval, ambiguous acknowledgement, and continued output from an already-running disconnected turn. Each is tested, end to end with the worker in its own process where it matters: a home that stops mid-turn and comes back gets the turn's output and completed run in order. A crashed worker's cut-off turns are reported and its leftover harness stopped on restart. Resent commands and events apply once. A revoked worker recovers nothing. A stale approval changes nothing. A lost acknowledgement is resent and recorded once. Three gaps were fixed: turning off a device's local execution now settles its work at home (queued commands cancelled, sent ones uncertain, its runs failed with the reason), a stopping worker's prompts leave the home, and a restarted worker stops the harnesses a crash left running. Live on the dev home: after a SIGKILL mid-turn, the restarted stand-in worker stopped the orphaned Claude and reported the turn cut off. See the [build notes](homes-build.md#p28-faults).
 - [x] P2.9 Reuse local provider history discovery/parsing on connected devices to import explicitly selected terminal sessions read-only. Preserve device-qualified identity and freshness, deduplicate known Ri bindings, and verify that unselected history stays local. The history import's discovery and reading run on the worker with no database. It lists sessions without their content or place, and reads a chosen one a window at a time from where the home left off, starting over when the transcript was rewritten. At home, imports are keyed by device, harness and native id (migration 0007), go read-only into the agent set up in that folder there, are placed on that device, and sync on open and on reconnect while it's connected, keeping what they have while it's away. A session Ri already runs there is recognized rather than imported, and "Continue here" is refused for a session that lives elsewhere. The import panel picks whose history. Claude and Codex import. OpenCode serves history from a running process, so it's listed but not imported from another device yet. Tests: 4 end to end with the worker in its own process and its own Claude history. Live on the dev home: a real terminal session on the stand-in imported, and a later exchange arrived on open. See the [build notes](homes-build.md#p29-terminal-history-from-connected-devices).
 - [x] P2.7 to P2.9 review: 7 reproducible failures found by review are fixed, with its probes kept as regressions. A session token outlived its archived chat, and came back when its device enrolled again. A reference folder moved on the laptop left the harness reading and guarding the old path. Cleanup after a worker crash could stop a process Ri never started. A transcript rewritten during an import could leave old events certified by the new file's hash. A selected transcript replaced by a link was followed. A heartbeat read as its worker was turned off restored its live state. The live check found two more, both fixed: a home restart marked laptop executions as stuck setups, and retrying one built a worktree on the home. A re-check found four more, fixed: cached reference paths wired when a laptop had no single setup for the agent, one await left after the final enrollment check, the home importer not checking a transcript's folder, and two workers sharing one root. See the [build notes](homes-build.md#p27-to-p29-review-fixes).
@@ -665,10 +665,10 @@ Passed on 2026-09-25 with the real MacBook and iPhone against the dev home. Ther
 - [ ] P6.4 Add atomic content-revision checks to shared-body writes, ordered autosaves, retained drafts, and explicit conflict resolution in the direct team UI and agent actions. Reuse version history, without presence locks or live co-editing.
 - [ ] P6.5 Test invitation expiry/reuse, removal, forged actors, attachment access, simultaneous edits, and zero model calls with an ambient API key present. Verify member and human/agent attribution for local and remote changes.
 
-**Dogfood gate D:** a Family or small-team development space includes a non-AI participant doing real shared work from a phone. They do not encounter worker, harness, or workspace setup. Shared tasks and notes are useful before adding connectors.
+**Dogfood gate D:** a Family or small-team development space includes a non-AI participant doing real shared work from a phone. They do not encounter worker, harness, or workspace setup. Shared tasks and notes are useful before adding integrations.
 
 - [ ] P6.6 After that pilot, expose the bounded non-AI task-source browsing/attachment flow with owner-managed credentials and member-scoped operations.
-- [ ] P6.7 Verify connector administration boundaries, credential isolation, published-source access, and zero model calls in the connector flow.
+- [ ] P6.7 Verify integration administration boundaries, credential isolation, published-source access, and zero model calls in the integration flow.
 
 ### P7. Shared obligations inside personal Ri
 
@@ -724,7 +724,7 @@ Do not turn these questions into speculative backlog checkboxes. Record the prob
 | Continue here with owned background tools or a preview | Source processes are confirmed stopped before publication and ownership changes. Unrelated processes stay running |
 | Transfer fails at any stage | One clear owner, preserved code/history, safe retry/resume |
 | Persona changes at home | Applied on a new/explicitly refreshed personal session, no independent replica |
-| No-AI team has no harness and an API key in its environment | Task/note/Area CRUD and search work with zero model calls before connectors are added. The later connector slice meets the same no-AI requirement |
+| No-AI team has no harness and an API key in its environment | Task/note/Area CRUD and search work with zero model calls before integrations are added. The later integration slice meets the same no-AI requirement |
 | Person joins a team with many Areas | Assigned work enters My Ri with team labels. No personal Areas or agents are created, and no mapping is required |
 | Same shared task opens from My Ri and its team | One shared identity and consistent shared edits, with private planning visible only to its owner |
 | Person organizes Acme / Engineering under personal Work | Team Area stays unchanged. Renaming either Area does not rename or merge the other |

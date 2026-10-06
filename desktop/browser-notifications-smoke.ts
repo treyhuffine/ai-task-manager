@@ -64,20 +64,20 @@ const browserBoundaryScript = `(() => {
 function seedHistory(databaseFile: string, webPushChannel: string) {
   const db = new Database(databaseFile, { fileMustExist: true });
   db.pragma('busy_timeout = 5000');
-  const desktopChannel = 'history-smoke-desktop'; const connectorChannel = 'history-smoke-connector';
+  const desktopChannel = 'history-smoke-desktop'; const integrationChannel = 'history-smoke-integration';
   const cases: { title: string; status: NotificationDeliveryRecord['status']; historyStatus: NotificationHistoryStatus; channelId: string; attempts: number; receipt?: string; error?: string }[] = [
     { title: 'History browser queued', status: 'pending', historyStatus: 'queued', channelId: webPushChannel, attempts: 0 },
     { title: 'History browser accepted', status: 'sent', historyStatus: 'sent', channelId: webPushChannel, attempts: 1, receipt: sensitive },
-    { title: 'History connector failed', status: 'failed', historyStatus: 'failed', channelId: connectorChannel, attempts: 1, error: `network timeout ${sensitive}` },
+    { title: 'History integration failed', status: 'failed', historyStatus: 'failed', channelId: integrationChannel, attempts: 1, error: `network timeout ${sensitive}` },
     { title: 'History desktop uncertain', status: 'skipped', historyStatus: 'uncertain', channelId: desktopChannel, attempts: 1, receipt: `desktop:${sensitive}`, error: sensitive },
     { title: 'History desktop expired', status: 'skipped', historyStatus: 'expired', channelId: desktopChannel, attempts: 0, error: 'This desktop alert expired while the app was closed.' },
-    { title: 'History connector skipped', status: 'skipped', historyStatus: 'skipped', channelId: connectorChannel, attempts: 0, error: sensitive },
+    { title: 'History integration skipped', status: 'skipped', historyStatus: 'skipped', channelId: integrationChannel, attempts: 0, error: sensitive },
   ];
   try {
     db.transaction(() => {
       const insertChannel = db.prepare('INSERT INTO notification_channels (id, user_id, kind, label, provider_id, connection_id, config, events, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
       insertChannel.run(desktopChannel, 'local', 'in_app', 'History desktop', null, null, JSON.stringify({ surface: 'desktop', private: sensitive }), '[]', 0);
-      insertChannel.run(connectorChannel, 'local', 'connector', 'History Telegram', 'telegram', sensitive, JSON.stringify({ chatId: sensitive }), '[]', 0);
+      insertChannel.run(integrationChannel, 'local', 'integration', 'History Telegram', 'telegram', sensitive, JSON.stringify({ chatId: sensitive }), '[]', 0);
       const insert = db.prepare('INSERT INTO notification_deliveries (id, user_id, event_type, dedupe_key, channel_id, status, attempts, event, rendered, provider_message_id, last_error, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
       for (const [index, item] of cases.entries()) {
         const id = `history-smoke-${index}`;
@@ -85,7 +85,7 @@ function seedHistory(databaseFile: string, webPushChannel: string) {
         insert.run(id, 'local', event.type, id, item.channelId, item.status, item.attempts, JSON.stringify(event), JSON.stringify({ title: item.title, body: sensitive, url: event.url }), item.receipt ?? null, item.error ?? null, item.status === 'sent' ? new Date().toISOString() : null);
       }
     })();
-    return { cases, desktopChannel, connectorChannel };
+    return { cases, desktopChannel, integrationChannel };
   } finally { db.close(); }
 }
 

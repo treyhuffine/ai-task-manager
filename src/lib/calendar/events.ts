@@ -10,7 +10,7 @@
 import type { CalendarBlock } from '@/lib/db/schema';
 import type { CalendarEvent, CalendarProviderId } from './types';
 
-/** `google_calendar.list_events` output item (packages/connectors). */
+/** `google_calendar.list_events` output item (packages/integrations). */
 export interface RawGoogleEvent {
   id?: string;
   summary?: string;
@@ -25,7 +25,7 @@ export interface RawGoogleEvent {
   responseStatus?: string;
 }
 
-/** `outlook_calendar.list_events` output item (packages/connectors). */
+/** `outlook_calendar.list_events` output item (packages/integrations). */
 export interface RawOutlookEvent {
   id?: string;
   subject?: string;

@@ -7,6 +7,9 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   const { validationBoot } = await import('@/lib/service/validation-boot');
   if (validationBoot()) return;
+  // Convert integration storage before config readers or stores can create new state.
+  const { migrateIntegrationStorage } = await import('@/lib/integrations/storage');
+  migrateIntegrationStorage();
   // Labels the background work below in the perf log (docs/server-perf-log.md).
   const { perfScope } = await import('@/lib/perf/recorder');
   const { registerWebSocketRuntime } = await import('@/lib/trpc/ws-server');
@@ -239,12 +242,12 @@ export async function register() {
     console.warn('[preview] provider/idle-evict init failed', err);
   }
 
-  // Wire the live calendar connector into the deck's calendar seam so the
+  // Wire the live calendar integration into the deck's calendar seam so the
   // proactive deck sizes/slots against the user's real day. No-op until a
-  // calendar is connected; the connector isn't loaded until a deck generation
+  // calendar is connected; the integration isn't loaded until a deck generation
   // actually reads the calendar.
   try {
-    const { ensureCalendarProvider } = await import('@/lib/deck/calendar-connector');
+    const { ensureCalendarProvider } = await import('@/lib/deck/calendar-integration');
     ensureCalendarProvider();
   } catch (err) {
     console.warn('[calendar] provider init failed', err);

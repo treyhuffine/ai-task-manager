@@ -67,7 +67,7 @@ Unread is a good review surface. It is not a good review contract.
 
 Add a general `runs` table now, but keep it intentionally small.
 
-Do not call it `schedule_runs` unless we are comfortable renaming later. The future system will have manual runs, scheduled runs, webhook runs, connector runs, heartbeat-initiated followups, and queue runs. A generic `runs` table is the better durable primitive.
+Do not call it `schedule_runs` unless we are comfortable renaming later. The future system will have manual runs, scheduled runs, webhook runs, integration runs, heartbeat-initiated followups, and queue runs. A generic `runs` table is the better durable primitive.
 
 Minimum fields:
 
@@ -77,7 +77,7 @@ export const runs = sqliteTable('runs', {
 
   // provenance
   trigger: text('trigger', {
-    enum: ['manual', 'schedule', 'webhook', 'connector', 'queue'],
+    enum: ['manual', 'schedule', 'webhook', 'integration', 'queue'],
   }).notNull(),
   schedule_id: text('schedule_id').references(() => schedules.id),
   workspace_id: text('workspace_id').references(() => workspaces.id),

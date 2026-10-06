@@ -65,8 +65,8 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
     enabled,
   });
   const connections = useQuery({
-    queryKey: ['connectors', 'connections'],
-    queryFn: () => trpcClient.connectors.connectionsGet.query({}),
+    queryKey: ['integrations', 'connections'],
+    queryFn: () => trpcClient.integrations.connectionsGet.query({}),
     enabled,
   });
   const browser = useQuery({
@@ -105,7 +105,7 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
     const modelDone = !!userState?.defaultHarness;
     const remoteDone = !!baseUrls.data?.tunnel;
     const notificationsDone = (channels.data?.channels.length ?? 0) > 0;
-    const connectorsDone = (connections.data?.connections.length ?? 0) > 0;
+    const integrationsDone = (connections.data?.connections.length ?? 0) > 0;
     // Done when the capability is on and a browser is available. Signing into a
     // site is the optional next step, surfaced in the Browser tab itself.
     const browserDone = !!browser.data?.enabled && (browser.data?.config.detected.length ?? 0) > 0;
@@ -115,7 +115,8 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
       { id: 'model', section: 'models', label: 'Pick a default model', hint: 'Choose one in the Models tab any time.', done: modelDone },
       { id: 'remote', section: 'devices', label: 'Set a remote URL', hint: 'Set your remote URL in the Devices tab any time.', done: remoteDone },
       { id: 'notifications', section: 'notifications', label: 'Turn on notifications', hint: 'Add a channel in the Notifications tab any time.', done: notificationsDone },
-      { id: 'connectors', section: 'plugins', label: 'Connect an app', hint: 'Connect one in Plugins any time.', done: connectorsDone },
+      // Ids are saved in DISMISS_KEY, so this one keeps its pre-rename spelling.
+      { id: 'connectors', section: 'plugins', label: 'Connect an app', hint: 'Connect one in Plugins any time.', done: integrationsDone },
       { id: 'browser', section: 'browser', label: 'Set up the agent browser', hint: 'Pick a browser and sign into sites in the Browser tab any time.', done: browserDone },
     ];
     return base.map((i) => ({ ...i, dismissed: dismissed.has(i.id) }));

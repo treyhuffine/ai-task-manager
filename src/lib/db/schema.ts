@@ -54,12 +54,12 @@ const timestamps = {
 };
 
 /**
- * Pins a connector scope to one account. The engine's connection natural key is
+ * Pins an integration scope to one account. The engine's connection natural key is
  * `(ownerId, providerId, accountId, authConfigId)` — so `accountId` alone is NOT unique when the
  * same account is connected through two OAuth clients. We carry `authConfigId` too so the pin always
  * resolves to exactly one connection. `authConfigId` undefined = the provider's default client.
  */
-export interface WorkspaceConnectorScopeAccount {
+export interface WorkspaceIntegrationScopeAccount {
   /** Stable engine accountId — survives disconnect/reconnect of the same account. */
   accountId: string;
   /** The AuthConfig (OAuth client) that minted the pinned connection; undefined = default client. */
@@ -67,24 +67,24 @@ export interface WorkspaceConnectorScopeAccount {
 }
 
 /**
- * One entry in a workspace's connector allowlist (docs/connectors-workspace-scoping-spec.md §4).
+ * One entry in a workspace's integration allowlist (docs/integrations-workspace-scoping-spec.md §4).
  * `toolkitId` is the service grain (e.g. `gmail`, `google_calendar`, `mcp_linear`). `accounts`
  * limits the service to a set of account pins:
  *   - omitted / empty → every connected account, including ones connected later
  *   - one pin → hard-pinned to that account (the model never chooses)
  *   - two or more → the model may choose, but only within this set
  * Stored as a JSON array on the workspace row; resolved to live connection ids at session-build
- * time. Read it through `scopePins` (src/lib/connectors/scope-pins.ts), which also understands the
+ * time. Read it through `scopePins` (src/lib/integrations/scope-pins.ts), which also understands the
  * legacy single `account` field.
  */
-export interface WorkspaceConnectorScope {
+export interface WorkspaceIntegrationScope {
   toolkitId: string;
-  accounts?: WorkspaceConnectorScopeAccount[];
+  accounts?: WorkspaceIntegrationScopeAccount[];
   /**
    * @deprecated Legacy single-account pin, written before multi-account scopes. Still read (it is
    * normalized into `accounts` on read and on every write), never written.
    */
-  account?: WorkspaceConnectorScopeAccount;
+  account?: WorkspaceIntegrationScopeAccount;
 }
 
 // Stored chats, triggers and runs use every harness known to the registry,
@@ -626,7 +626,7 @@ export const decks = sqliteTable(
     // The calendar busy-blocks this deck was sized/slotted against. Lets the
     // mid-day reconcile (Phase 3) diff live calendar vs. what the deck assumed
     // and adapt only to genuine external changes. Empty until a calendar
-    // connector registers a provider.
+    // integration registers a provider.
     calendarSnapshot: text({ mode: 'json' }).$type<CalendarBlock[]>().notNull().default([]),
   },
   (table) => [
@@ -681,7 +681,7 @@ export interface DeckChange {
 /**
  * A busy block on the user's calendar for a given day. The deck is sized and
  * slotted against these (Phase 2) and the mid-day reconcile diffs against them
- * (Phase 3). Provided by a calendar connector via the provider seam in
+ * (Phase 3). Provided by a calendar integration via the provider seam in
  * `src/lib/deck/calendar.ts`; empty until one is registered.
  */
 export interface CalendarBlock {
@@ -1124,10 +1124,10 @@ export const workspaces = sqliteTable(
     // the worktree; add the gitignored local override (`beamd.local.yaml`) to
     // this list if you want that to travel too.
     filesToCopy: text({ mode: 'json' }).$type<string[]>().notNull(),
-    // Connector allowlist for this workspace's executions (service-grain, optional account set).
-    // Empty = no connectors for executions. See docs/connectors-workspace-scoping-spec.md.
-    connectorScopes: text({ mode: 'json' })
-      .$type<WorkspaceConnectorScope[]>()
+    // Integration allowlist for this workspace's executions (service-grain, optional account set).
+    // Empty = no integrations for executions. See docs/integrations-workspace-scoping-spec.md.
+    integrationScopes: text({ mode: 'json' })
+      .$type<WorkspaceIntegrationScope[]>()
       .notNull()
       .default([]),
     // Worktree lifecycle scripts (all optional). Ri runs each as `sh -lc` in
@@ -1191,7 +1191,7 @@ export const workspaces = sqliteTable(
 //
 // Points at either another workspace (`targetWorkspaceId`) or a bare path on
 // disk (`path`), never both. Forcing every consultable folder to be a full
-// workspace drags in worktrees, previews, and connector scopes for something
+// workspace drags in worktrees, previews, and integration scopes for something
 // that only needs to be grepped.
 //
 // `workspaceId` NULL means the reference is global and visible from every
@@ -2186,7 +2186,7 @@ export const triggers = sqliteTable(
     // null). Used by the trigger detail view to render context.
     disabledReason: text(),
 
-    // Notifier digest binding (docs/connectors-email-and-notifier-spec.md §2.9):
+    // Notifier digest binding (docs/integrations-email-and-notifier-spec.md §2.9):
     // notification_channel ids that this trigger's result is delivered to when an
     // orchestrator-target run completes (`trigger.run_completed`, binding routing).
     deliverResultTo: text({ mode: 'json' }).$type<string[]>().notNull().default([]),
@@ -2330,9 +2330,9 @@ export interface RunArtifactRef {
   id: string;
 }
 
-// ─── Notifications (the app push layer over connectors) ───────────
-// See docs/connectors-email-and-notifier-spec.md §2. The Notifier lives in
-// the app (src/lib/notifications), depends on connectors one-way, and decides
+// ─── Notifications (the app push layer over integrations) ───────────
+// See docs/integrations-email-and-notifier-spec.md §2. The Notifier lives in
+// the app (src/lib/notifications), depends on integrations one-way, and decides
 // WHEN/WHERE an app event reaches the user. Three concerns, three tables:
 //   - notification_channels   = user preference/config (where + which events)
 //   - web_push_subscriptions  = browser push endpoints
@@ -2367,14 +2367,14 @@ export const notificationChannels = sqliteTable(
     id: text().primaryKey(),
     ...timestamps,
     userId: text().notNull().default('local'),
-    kind: text({ enum: ['connector', 'web_push', 'in_app'] }).notNull(),
+    kind: text({ enum: ['integration', 'web_push', 'in_app'] }).notNull(),
     // Optional human name for the channel ("My phone", "Team room"). UI falls back to a derived label.
     label: text(),
-    // kind 'connector' — WHICH connector (telegram/slack/…). The actionId
+    // kind 'integration' — WHICH integration (telegram/slack/…). The actionId
     // (telegram.send_message) lives in the adapter registry, NOT this row.
     providerId: text(),
-    // kind 'connector' — the engine connection id. NO Drizzle FK: the connection
-    // lives in the engine's store (.config/connectors), not this DB; the
+    // kind 'integration' — the engine connection id. NO Drizzle FK: the connection
+    // lives in the engine's store (.config/integrations), not this DB; the
     // disconnect cascade is app-level (deleteChannelsForConnection).
     connectionId: text(),
     // Structured target per kind: Telegram {chatId}, Slack {channel}, web_push {} (fans to subs).

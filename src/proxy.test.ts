@@ -109,7 +109,7 @@ describe('browser API compatibility before handlers', () => {
       expect(proxy(request('/api/tasks', token)).status).toBe(426);
       expect(passesThrough(proxy(request('/api/version', token)))).toBe(true);
       expect(proxy(request('/api/version')).status).toBe(401);
-      for (const endpoint of ['/api/mcp', '/api/connectors/mcp', '/api/webhooks/example', '/api/connectors/callback']) expect(passesThrough(proxy(request(endpoint, token)))).toBe(true);
+      for (const endpoint of ['/api/mcp', '/api/integrations/mcp', '/api/webhooks/example', '/api/integrations/callback']) expect(passesThrough(proxy(request(endpoint, token)))).toBe(true);
     } finally { CURRENT_COMPATIBILITY.apiProtocols = before; }
   });
 });

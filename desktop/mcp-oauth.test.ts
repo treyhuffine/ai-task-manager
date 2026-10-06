@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { makeMcpOAuthProvider, type McpOAuthState } from '../src/lib/connectors/mcp-oauth';
+import { makeMcpOAuthProvider, type McpOAuthState } from '../src/lib/integrations/mcp-oauth';
 
 it('persists unpredictable state and PKCE, restores the callback, and clears consumed secrets', async () => {
   let saved: McpOAuthState = {};

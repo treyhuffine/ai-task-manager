@@ -1,4 +1,4 @@
-import { desktopEnabled, desktopOAuth } from '@/lib/connectors/desktop-oauth';
+import { desktopEnabled, desktopOAuth } from '@/lib/integrations/desktop-oauth';
 
 export const dynamic = 'force-dynamic';
 export function GET(request: Request) {

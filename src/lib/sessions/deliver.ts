@@ -1,7 +1,7 @@
 /**
  * Hand app-composed text to a session's harness as a new turn (or into the running one: concurrent
  * sends queue natively, see the messages route). Used for app notices that should move a waiting
- * agent along, like connector approvals telling it the user decided. Mirrors the messages route's
+ * agent along, like integration approvals telling it the user decided. Mirrors the messages route's
  * dispatch (preparation hold, worktree self-heal, release once a chat elsewhere has it queued).
  *
  * Fire-and-forget: the caller has already persisted whatever the transcript should show.

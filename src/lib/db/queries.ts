@@ -40,7 +40,7 @@ import type {
   WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord, ExecutionTransferRecord, NativeSessionRecord, ReviewCheckoutRecord,
   WorkspaceSetupRecord, SetupReferenceReport, FolderLinkRecord,
   Attachment,
-  WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceConnectorScope,
+  WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceIntegrationScope,
   ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
   ExecutionRecord, ExecutionReviewRecord, ExecutionReviewContext, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution, ExecutionLocation,
   PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl,
@@ -84,7 +84,7 @@ import { deriveAttachments } from '@/lib/attachments/derive';
 import { AttachmentMetadataRepairError, planNoteAttachmentMetadataRepair } from '@/lib/attachments/repair-metadata';
 import { publishChatEvent } from '@/lib/realtime/bus';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
-import { normalizeConnectorScopes } from '@/lib/connectors/scope-pins';
+import { normalizeIntegrationScopes } from '@/lib/integrations/scope-pins';
 import {
   normalizeTaskStatus,
   canApply,
@@ -6543,16 +6543,16 @@ export function listWorkspaces(filter: { status?: WorkspaceStatus } = {}): Works
 }
 
 /**
- * Every workspace row leaves the query layer with its connector scopes in the current shape: a
- * legacy single `account` pin folded into `accounts` (docs/connectors-workspace-scoping-spec.md §4).
+ * Every workspace row leaves the query layer with its integration scopes in the current shape: a
+ * legacy single `account` pin folded into `accounts` (docs/integrations-workspace-scoping-spec.md §4).
  * The column is JSON, so old rows are rewritten on read rather than by a migration, and the next
  * scope save stores the new shape.
  */
-function readWorkspaceRow<R extends { connectorScopes: WorkspaceConnectorScope[] }>(row: R): R;
-function readWorkspaceRow<R extends { connectorScopes: WorkspaceConnectorScope[] }>(row: R | undefined): R | undefined;
-function readWorkspaceRow<R extends { connectorScopes: WorkspaceConnectorScope[] }>(row: R | undefined): R | undefined {
+function readWorkspaceRow<R extends { integrationScopes: WorkspaceIntegrationScope[] }>(row: R): R;
+function readWorkspaceRow<R extends { integrationScopes: WorkspaceIntegrationScope[] }>(row: R | undefined): R | undefined;
+function readWorkspaceRow<R extends { integrationScopes: WorkspaceIntegrationScope[] }>(row: R | undefined): R | undefined {
   if (!row) return row;
-  return { ...row, connectorScopes: normalizeConnectorScopes(row.connectorScopes) };
+  return { ...row, integrationScopes: normalizeIntegrationScopes(row.integrationScopes) };
 }
 
 export function getWorkspace(id: string): WorkspaceRecord | undefined {
@@ -6677,16 +6677,16 @@ export function updateWorkspace(id: string, input: UpdateWorkspaceInput): Worksp
 }
 
 /**
- * Replace a workspace's connector allowlist (docs/connectors-workspace-scoping-spec.md §6e). The
+ * Replace a workspace's integration allowlist (docs/integrations-workspace-scoping-spec.md §6e). The
  * raw storage primitive only — validation (reject-unknown / preserve-dormant) and active-session
- * recycling live at the route, which can reach the (async) connector runtime + executor.
+ * recycling live at the route, which can reach the (async) integration runtime + executor.
  */
-export function setWorkspaceConnectorScopes(
+export function setWorkspaceIntegrationScopes(
   id: string,
-  scopes: WorkspaceConnectorScope[],
+  scopes: WorkspaceIntegrationScope[],
 ): WorkspaceRecord | null {
   // Only ever write the current shape (`accounts`, never the legacy single `account`).
-  return updateWorkspace(id, { connectorScopes: normalizeConnectorScopes(scopes) });
+  return updateWorkspace(id, { integrationScopes: normalizeIntegrationScopes(scopes) });
 }
 
 export function archiveWorkspace(id: string): WorkspaceRecord | null {
@@ -8849,7 +8849,7 @@ export function getLastChatEventBySource(
  */
 /**
  * A session's events of the given sources, oldest first. Narrow by design: connection cards read
- * their own requests and decisions with it (connectors/connection-requests.ts). Rides the
+ * their own requests and decisions with it (integrations/connection-requests.ts). Rides the
  * (session_id, created_at) index, so it scans one chat, never the whole table.
  */
 export function listSessionEventsBySource(sessionId: string, sources: readonly string[]): ChatEventRecord[] {
@@ -9845,7 +9845,7 @@ export function countActiveRuns(): number {
   return row?.count ?? 0;
 }
 
-// ─── Notifications (docs/connectors-email-and-notifier-spec.md §2) ──────────────
+// ─── Notifications (docs/integrations-email-and-notifier-spec.md §2) ──────────────
 // The Notifier's data layer: channels (preference/config), web-push subscriptions
 // (browser endpoints), and deliveries (the durable outbox). No raw SQL elsewhere.
 

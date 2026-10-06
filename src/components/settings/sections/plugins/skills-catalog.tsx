@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LOCATION_GROUPS, displayPath } from '@/components/skills/location-copy';
 import { cn } from '@/lib/utils';
-import { CatalogTile, Chip, GroupHeading } from '../connectors/parts';
+import { CatalogTile, Chip, GroupHeading } from '../integrations/parts';
 
 function SkillLogo() {
   return (

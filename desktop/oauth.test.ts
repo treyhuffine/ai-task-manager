@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DesktopOAuthManager, callbackParams, safeReturnPath, desktopRelayFor } from '../src/lib/connectors/desktop-oauth';
+import { DesktopOAuthManager, callbackParams, safeReturnPath, desktopRelayFor } from '../src/lib/integrations/desktop-oauth';
 import { parseDeepLink, resultLocation } from './oauth-client';
 import { relayResponse } from './relay/server.mjs';
 

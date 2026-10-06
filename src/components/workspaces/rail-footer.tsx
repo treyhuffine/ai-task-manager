@@ -2,7 +2,7 @@
 
 import { Plug, Settings } from 'lucide-react';
 import { openSettings } from '@/components/settings/settings-store';
-import { CONNECTOR_ICONS } from '@/components/connectors/connector-icon-data';
+import { INTEGRATION_ICONS } from '@/components/integrations/integration-icon-data';
 import { cn } from '@/lib/utils';
 
 // The bottom of the rail: what you set up rather than visit. Settings, and
@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 // below the work instead of above it. Bottom left is where people look for
 // settings.
 //
-// Connect apps opens Settings → Plugins on its Connectors tab (Gmail, Notion,
+// Connect apps opens Settings → Plugins on its Integrations tab (Gmail, Notion,
 // Linear, ... and remote MCP servers). The collapsed rail keeps only the
 // gear. Connect apps needs its words.
 //
@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 // the shortcuts stay global, and theme still toggles from the command palette
 // and Settings → General, so nothing is stranded by dropping them.
 
-/** Apps in the stack: live connectors with a brand mark, drawn as app icons. */
+/** Apps in the stack: live integrations with a brand mark, drawn as app icons. */
 const APPS = ['linear', 'notion', 'gmail'] as const;
 
 /** Where each tile goes on hover and focus: the stack fans out. */
@@ -29,7 +29,7 @@ const FAN = [
 ];
 
 function AppTile({ id, className }: { id: (typeof APPS)[number]; className?: string }) {
-  const icon = CONNECTOR_ICONS[id];
+  const icon = INTEGRATION_ICONS[id];
   return (
     <span
       className={cn(
@@ -74,7 +74,7 @@ export function RailFooter({ collapsed }: { collapsed: boolean }) {
       </button>
       <button
         type="button"
-        onClick={() => openSettings('plugins', { anchor: 'connectors' })}
+        onClick={() => openSettings('plugins', { anchor: 'integrations' })}
         aria-label="Connect apps"
         title="Connect apps like Gmail, Notion and Linear"
         className="group min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/60 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 transition-colors"

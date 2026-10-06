@@ -45,8 +45,8 @@ function seedHome() {
   write('USER.md', '# me');
   write('SOUL.md', '# voice');
   write('.config/config.json', '{"version":1,"localToken":"ri_live_secret"}');
-  write('.config/connectors/key', 'sealing-key');
-  write('.config/connectors/locks/a.lock', 'lock');
+  write('.config/integrations/key', 'sealing-key');
+  write('.config/integrations/locks/a.lock', 'lock');
   write('.config/notifications/vapid.json', '{}');
   write('.config/browser/profiles/agent/Cookies', 'cookies');
   write('.config/tls/leaf.pem', 'cert');
@@ -80,7 +80,7 @@ describe('createHomeBackup', () => {
       [
         '.archive/old.md',
         '.config/config.json',
-        '.config/connectors/key',
+        '.config/integrations/key',
         '.config/notifications/vapid.json',
         'MEMORY.md',
         'SOUL.md',

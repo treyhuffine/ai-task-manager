@@ -14,7 +14,7 @@ export interface RiDesktop {
 
 declare global { interface Window { riDesktop?: RiDesktop } }
 
-export async function openConnectorAuthorization(url: string) {
+export async function openIntegrationAuthorization(url: string) {
   if (window.riDesktop) await window.riDesktop.openExternal(url);
   else window.location.assign(url);
 }

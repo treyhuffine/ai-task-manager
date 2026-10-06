@@ -1,14 +1,14 @@
 /**
- * Telegram ConnectorChannel adapter — delivers a notification by invoking the connector engine's
+ * Telegram IntegrationChannel adapter — delivers a notification by invoking the integration engine's
  * `telegram.send_message` verb with the NARROW notifier caller (auto-allowed by the host approval
  * policy; agent sends stay gated — spec §2.3). The chat_id is the channel's pinned `config.chatId`.
  */
-import { getConnectorRuntime, getConnectorOwnerId } from '@/lib/connectors/runtime';
+import { getIntegrationRuntime, getIntegrationOwnerId } from '@/lib/integrations/runtime';
 import type { NotificationChannelAdapter } from '../types';
 import { NOTIFIER_CALLER } from '../caller';
 
 export const telegramAdapter: NotificationChannelAdapter = {
-  kind: 'connector',
+  kind: 'integration',
   providerId: 'telegram',
 
   validateConfig(channel) {
@@ -23,11 +23,11 @@ export const telegramAdapter: NotificationChannelAdapter = {
     // Plain text — Telegram auto-links bare URLs, so no parse_mode escaping needed.
     const text = [rendered.title, '', rendered.body, rendered.url].filter((p) => p !== '').join('\n');
 
-    const outcome = await (await getConnectorRuntime()).runAction<{ messageId?: number | string }>(
+    const outcome = await (await getIntegrationRuntime()).runAction<{ messageId?: number | string }>(
       'telegram.send_message',
       { chatId, text },
       {
-        ownerId: getConnectorOwnerId(),
+        ownerId: getIntegrationOwnerId(),
         ...(channel.connectionId ? { connectionId: channel.connectionId } : {}),
         caller: NOTIFIER_CALLER,
       },

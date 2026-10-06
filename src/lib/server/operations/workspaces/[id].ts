@@ -31,8 +31,8 @@ class WorkspaceMissingError extends Error { }
 export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
-    // `connectorScopes` is security-relevant (it governs what a workspace's executions may touch) and
-    // must go through PUT /connector-scopes, which validates pins and recycles live sessions. Strip it
+    // `integrationScopes` is security-relevant (it governs what a workspace's executions may touch) and
+    // must go through PUT /integration-scopes, which validates pins and recycles live sessions. Strip it
     // here so the generic PATCH can't write scopes unvalidated and without a session recycle.
     const raw = rpcInput.body;
     // Check the whole patch before changing anything, so a bad field can't

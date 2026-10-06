@@ -1,4 +1,4 @@
-import { createRedactor } from '@connectors/engine';
+import { createRedactor } from '@integrations/engine';
 
 interface RuntimeRedactionState {
   redactor: ReturnType<typeof createRedactor>;

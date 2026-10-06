@@ -143,7 +143,7 @@ When used alone, the realtime gateway owns the public listener. With an outer HT
 
 Only `/api/realtime/socket` is handled by the experiment. Proxy normal HTTP methods, status codes, redirects, multiple Set-Cookie headers, streamed bodies, cancellation, and compression headers correctly. Do not buffer whole uploads or responses. Preserve the original public host and scheme under the explicit forwarding policy in section 9. Do not manufacture HTTPS or redirect local HTTP to HTTPS.
 
-Next can construct `NextRequest.url` from its private listening address even when forwarded headers are present. Rewrite a response Location only when its authority matches the known private backend, substituting the validated public origin and retaining its path/query/fragment. Preserve unrelated external OAuth redirects. Test the connector OAuth callback and MCP OAuth callback error paths, which construct redirects from the request origin. Do not attempt arbitrary response-body URL rewriting.
+Next can construct `NextRequest.url` from its private listening address even when forwarded headers are present. Rewrite a response Location only when its authority matches the known private backend, substituting the validated public origin and retaining its path/query/fragment. Preserve unrelated external OAuth redirects. Test the integration OAuth callback and MCP OAuth callback error paths, which construct redirects from the request origin. Do not attempt arbitrary response-body URL rewriting.
 
 An ordinary HTTP request to the socket path receives a small 426 response. The socket endpoint is not a Next App Router route.
 

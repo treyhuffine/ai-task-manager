@@ -87,7 +87,7 @@ What exists today, so the task list below is precise about reuse vs. net-new.
 - **UI** — `src/components/deck/deck-container.tsx` orchestrates intake → deck.
   `CheckInIntake`, `DeckStack`, `DeckMoreOptions` (alternatives), `PreviousDeckPreview`,
   `DeckDayBar`. Client deck shape `DeckPlan` at `src/types/dashboard.ts:171`.
-- **Calendar** — stub tab only; real data arrives via the connectors work
+- **Calendar** — stub tab only; real data arrives via the integrations work
   (separate in-flight effort).
 
 ## Target model — the deck's lifecycle
@@ -169,11 +169,11 @@ New query helpers in `src/lib/db/queries.ts`: `getActiveDeckForDate(date)`,
 - Keep `regenerate_deck`, the chat tool, and `POST /api/deck/generate` — they remain
   the **manual** path, now writing versions instead of clobbering.
 
-### 4. Calendar provider interface (decoupled from the connector)
+### 4. Calendar provider interface (decoupled from the integration)
 A thin read interface the deck consumes, so generation + heartbeat can be built and
-tested against a stub before the real connector lands:
+tested against a stub before the real integration lands:
 `getCalendarEventsForDay(date): Promise<CalendarBlock[]>` where
-`CalendarBlock = { start, end, title, source }`. Implemented later by the connectors
+`CalendarBlock = { start, end, title, source }`. Implemented later by the integrations
 layer; ships first as a stub returning `[]` (deck degrades gracefully to "a normal
 day"). Derived helper `computeFreeGaps(blocks, workdayBounds)`.
 
@@ -193,7 +193,7 @@ explicitly-prioritized item?)? time-sensitive? is the user in a focus block?
 Includes an **interrupt budget** (target ≈ 0–2/day; more = miscalibration) and
 **batching** (report net change per tick, not per event). The bar is **learned**:
 dismiss a class repeatedly → it demotes toward silent. Built calendar-shaped but
-generalizes to every future connector (Slack, email, reassignments).
+generalizes to every future integration (Slack, email, reassignments).
 
 **"What gives" is AI-decided, not rule-coded.** When a calendar delta forces
 something off today, the model chooses what bumps under *light guidance* in the
@@ -223,20 +223,20 @@ reversible so a wrong call is one tap to fix.
   (carry/defer/drop) in generation, bumped lane + revert UI, demote the check-in.
   **This alone kills the reactive model and delivers the morning "it's already
   right" moment.**
-- **Phase 2 — Calendar (size + slot).** Provider interface + stub → real connector;
+- **Phase 2 — Calendar (size + slot).** Provider interface + stub → real integration;
   sizing and slotting in generation; slot rendering.
 - **Phase 3 — Mid-day + router (lands with the heartbeat).** Heartbeat hook,
   **4AM cron trigger**, `change-router`, AI-decided auto-bump on calendar delta,
   digest + priority-banner interrupt, focus-gating, learned bar.
 - **Phase 4 — Delight.** Meeting-derived prep/follow-up task suggestions; honest
-  deadline math surfacing; router learning across all connectors.
+  deadline math surfacing; router learning across all integrations.
 
 ## Out of scope / deferred
 - ~~Changing the deck's model provider~~ Done since: both AI phases in
   `generate-deck.ts` run through the user's default subscription harness
   (`src/lib/harness/one-shot.ts`), no direct model-API billing. The
   reconciliation step may later warrant a stronger model — separate decision.
-- The connectors/auth layer itself (separate in-flight effort; this spec only
+- The integrations/auth layer itself (separate in-flight effort; this spec only
   defines the read interface it must satisfy).
 - Multi-day / weekly planning. This is strictly "today."
 
@@ -304,7 +304,7 @@ Tags: `[reuse]` extends existing code · `[new]` net-new · `[cal]` needs calend
   per-item `slot`. Honest deadline-math note.
 - [ ] **2.4** `[ui]` Render slots so the deck reads against the real day; surface the
   day's timeslots.
-- [ ] **2.5** `[cal]` Wire the stub to the real calendar connector when it lands.
+- [ ] **2.5** `[cal]` Wire the stub to the real calendar integration when it lands.
 
 ### Phase 3 — Mid-day + change-router (lands with the heartbeat)
 - [ ] **3.1** `[new]` **4AM cron trigger** — deck-schedule manager creates/owns a
@@ -326,19 +326,19 @@ Tags: `[reuse]` extends existing code · `[new]` net-new · `[cal]` needs calend
 ### Phase 4 — Delight
 - [ ] **4.1** Meeting-derived prep/follow-up task **suggestions** (never silent
   creation).
-- [ ] **4.2** Generalize the router across connectors (Slack/email/reassignments).
+- [ ] **4.2** Generalize the router across integrations (Slack/email/reassignments).
 
 ---
 
-## Build-now pass (pre-connector) — 2026-06-18
+## Build-now pass (pre-integration) — 2026-06-18
 
 Phase 1 shipped. This pass builds everything in Phases 2–3 that does **not** need
-the calendar connector or the app heartbeat, against a **calendar provider seam**
-(stub today) so it lights up the moment a connector registers a real provider.
+the calendar integration or the app heartbeat, against a **calendar provider seam**
+(stub today) so it lights up the moment an integration registers a real provider.
 
 **Building now:**
 - **Calendar seam** — `src/lib/deck/calendar.ts`: `getCalendarEventsForDay` (stub
-  `[]` + `setCalendarProvider` registry for connectors), `computeFreeGaps`,
+  `[]` + `setCalendarProvider` registry for integrations), `computeFreeGaps`,
   `availableMinutes`. Pure-function tests.
 - **Workday bounds + manual time budget** — `user_state.workdayStart/End` (default
   09:00–18:00) + reuse existing `user_state.availableMinutes`. Sizing works with
@@ -361,11 +361,11 @@ the calendar connector or the app heartbeat, against a **calendar provider seam*
   brief/bumped handling for `bumped`/`calendar`-sourced changes.
 
 **Still deferred (genuinely blocked):**
-- Real calendar feed → the **connector** (the seam is ready for it).
+- Real calendar feed → the **integration** (the seam is ready for it).
 - Heartbeat *cadence* that auto-calls reconcile → the **heartbeat** (reconcile is
   callable now; scheduler can stand in).
 - Router-learning *persistence* (dismiss→demote over time) → needs real signal
   volume; the `mutedKinds` input exists as the hook.
-- Phase 4 (prep-task suggestions, non-calendar connectors).
+- Phase 4 (prep-task suggestions, non-calendar integrations).
 </content>
 </invoke>

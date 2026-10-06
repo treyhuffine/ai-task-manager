@@ -20,7 +20,7 @@ interface AppResponse { status: number; location?: string; text: string }
 void acceptance('oauth-smoke', async fixture => {
   // The test uses only dynamically registered mock clients, never inherited BYO clients.
   for (const key of new Set([...Object.keys(fixture.env), ...Object.keys(process.env)])) {
-    if (/^(?:CONNECTORS_|GOOGLE_CLIENT_|RI_DESKTOP_OAUTH_RELAY)/.test(key)) {
+    if (/^(?:INTEGRATIONS_|GOOGLE_CLIENT_|RI_DESKTOP_OAUTH_RELAY)/.test(key)) {
       delete fixture.env[key]; delete process.env[key];
     }
   }
@@ -79,21 +79,21 @@ void acceptance('oauth-smoke', async fixture => {
       return new URL(location);
     };
     const connectedServer = async (id: string) => {
-      const status = await requestApp('/api/connectors/mcp-servers');
+      const status = await requestApp('/api/integrations/mcp-servers');
       assert.equal(status.status, 200, 'Could not read fixture MCP status');
       const { servers } = JSON.parse(status.text) as { servers: { id: string; lastStatus?: string }[] };
       return servers.some(server => server.id === id && server.lastStatus === 'ok');
     };
 
     const nativeProvider = await newProvider();
-    const native = await api<Authorization>(page, '/api/connectors/mcp-servers', 'POST', {
+    const native = await api<Authorization>(page, '/api/integrations/mcp-servers', 'POST', {
       name: 'Native OAuth fixture', url: nativeProvider.url, auth: { kind: 'oauth' },
     });
     assert(native.desktopFlowId && native.entry, 'Trusted renderer did not receive a native flow');
     const callback = await consent(native, nativeProvider);
     assert(callback.protocol === 'http:' && callback.hostname === '127.0.0.1' && callback.pathname === '/oauth/callback', 'Native OAuth did not choose a loopback listener');
     assert(nativeProvider.registrations.length > 0, 'Native OAuth skipped dynamic client registration');
-    const webAttempt = await requestApp(`/api/connectors/mcp-oauth/${native.entry.id}${callback.search}`);
+    const webAttempt = await requestApp(`/api/integrations/mcp-oauth/${native.entry.id}${callback.search}`);
     assert.equal(webAttempt.status, 400, 'Public web callback accepted native OAuth state');
     assert.equal(nativeProvider.exchanges, 0, 'Rejected web callback exchanged the native code');
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
@@ -106,7 +106,7 @@ void acceptance('oauth-smoke', async fixture => {
     fixture.check('Native discovery, DCR and PKCE complete through loopback after the public web callback rejects the same state');
 
     await fixture.navigate('/');
-    const again = await api<Authorization>(page, `/api/connectors/mcp-servers/${native.entry.id}`, 'POST', {});
+    const again = await api<Authorization>(page, `/api/integrations/mcp-servers/${native.entry.id}`, 'POST', {});
     assert(again.desktopFlowId, 'Native reconnect did not create a desktop flow');
     const againCallback = await consent(again, nativeProvider);
     const deepLink = `ri://oauth/callback?${againCallback.searchParams}`;
@@ -128,7 +128,7 @@ void acceptance('oauth-smoke', async fixture => {
 
     const webFlow = async (name: string, startingOrigin?: string) => {
       const provider = await newProvider();
-      const response = await requestApp('/api/connectors/mcp-servers', {
+      const response = await requestApp('/api/integrations/mcp-servers', {
         method: 'POST', origin: startingOrigin,
         body: { name, url: provider.url, auth: { kind: 'oauth' } },
       });
@@ -136,7 +136,7 @@ void acceptance('oauth-smoke', async fixture => {
       const result = JSON.parse(response.text) as Authorization;
       assert(!result.desktopFlowId && result.entry, 'Ordinary owner client received a native callback');
       const callback = await consent(result, provider);
-      assert(callback.origin === origin && callback.pathname === `/api/connectors/mcp-oauth/${result.entry.id}`, 'Web OAuth callback did not target the fixture service');
+      assert(callback.origin === origin && callback.pathname === `/api/integrations/mcp-oauth/${result.entry.id}`, 'Web OAuth callback did not target the fixture service');
       const completed = await requestApp(`${callback.pathname}${callback.search}`);
       assert.equal(completed.status, 307, 'Web OAuth callback did not return a redirect');
       assert.equal(provider.exchanges, 1, 'Web OAuth did not exchange exactly once');

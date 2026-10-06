@@ -94,7 +94,7 @@ action needed.
 - `*.attachments` on areas/stream/tasks/decks/workspaces/executions/chatEvents/notes (180, 234, 441, 725, 1365, 1477)
 - `tasks.contextTags` (437), `.foldedHeadings` (442); `notes.foldedHeadings` (1478), `.contextTags` (1482); `stream`/`decks` contextTags (581)
 - `decks.items` (583), `.alternatives` (584), `.changes` (606), `.calendarSnapshot` (611)
-- `workspaces.connectorScopes` (743), `executions.previewUrls` (966)
+- `workspaces.integrationScopes` (743), `executions.previewUrls` (966)
 - `triggers.deliverResultTo` (1759), `notificationChannels.events` (1946)
 - `agents.config` (865), `notificationChannels.config` (1944) `{}`
 

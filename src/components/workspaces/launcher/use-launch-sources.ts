@@ -13,7 +13,7 @@ import { trpc, trpcClient } from '@/lib/trpc/client';
 import { rpcOptions, rpcQuery } from '@/lib/trpc/request-options';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import { connectorProviderScopes, connectorTaskGroups } from './launch-connector-sources';
+import { integrationProviderScopes, integrationTaskGroups } from './launch-integration-sources';
 import { BASE_FETCH_LIMIT } from './launch-paging';
 
 /** Shared with the settings Imports panel so the two never double-scan. */
@@ -68,12 +68,12 @@ export function useLaunchSuggestions({
 }
 
 export interface LaunchSourceGroup {
-  /** Unique per group. Distinct from `kind` because every connected connector
-   *  gets its OWN group (`connector:todoist`) rather than sharing one. */
+  /** Unique per group. Distinct from `kind` because every connected integration
+   *  gets its OWN group (`integration:todoist`) rather than sharing one. */
   id: string;
   kind: LaunchSourceKind;
   label: string;
-  /** Set on connector groups — drives the per-provider scope filter + logo. */
+  /** Set on integration groups — drives the per-provider scope filter + logo. */
   toolkitId?: string;
   items: LaunchSourceItem[];
   isLoading: boolean;
@@ -108,7 +108,7 @@ export interface LaunchSourceGroup {
 export interface LaunchSourcesResult {
   groups: LaunchSourceGroup[];
   /** Connected task providers, for the Tasks scope row. Stable across queries. */
-  connectorSources: { toolkitId: string; providerLabel: string }[];
+  integrationSources: { toolkitId: string; providerLabel: string }[];
   /** Every task provider we support, for the "connect more" CTA. */
   supportedSources: { toolkitId: string; providerLabel: string }[];
 }
@@ -175,13 +175,13 @@ export function useLaunchSources({
    * with itself — an offset page fetched after a task was completed would
    * skip a row.
    */
-  limits?: { task?: number; chat?: number; connector?: number };
+  limits?: { task?: number; chat?: number; integration?: number };
 }): LaunchSourcesResult {
   const trimmed = query.trim();
   const gitEnabled = enabled && isGit;
   const taskLimit = limits?.task ?? BASE_FETCH_LIMIT;
   const chatLimit = limits?.chat ?? BASE_FETCH_LIMIT;
-  const connectorLimit = limits?.connector ?? BASE_FETCH_LIMIT;
+  const integrationLimit = limits?.integration ?? BASE_FETCH_LIMIT;
   const prs = useWorkspacePRs(gitEnabled ? workspaceId : null);
   const issues = useWorkspaceIssues(gitEnabled ? workspaceId : null);
   const branches = useWorkspaceBranches(gitEnabled ? workspaceId : null);
@@ -238,10 +238,10 @@ export function useLaunchSources({
   // Live reads from connected task providers. Hits the network per query, so
   // it's debounced by the same trimmed-query key the other server-side sources
   // use. Returns an empty payload (not an error) when nothing is connected.
-  const connectorTasks = useQuery({
-    queryKey: ['launcher', 'connector-tasks', trimmed, connectorLimit],
+  const integrationTasks = useQuery({
+    queryKey: ['launcher', 'integration-tasks', trimmed, integrationLimit],
     queryFn: () =>
-      trpcClient.connectors.tasksGet.query({query: rpcQuery({ ...(trimmed ? { q: trimmed } : {}), limit: String(connectorLimit) })}, rpcOptions({ timeoutMs: 20_000 })),
+      trpcClient.integrations.tasksGet.query({query: rpcQuery({ ...(trimmed ? { q: trimmed } : {}), limit: String(integrationLimit) })}, rpcOptions({ timeoutMs: 20_000 })),
     enabled,
     staleTime: 30_000,
     placeholderData: keepPreviousData,
@@ -321,7 +321,7 @@ export function useLaunchSources({
       error: errorMessage(tasks.error),
       // NOT re-ranked. `sortKey` is a fractional index the user sets by
       // dragging tasks into priority buckets, so it is an *explicit* statement
-      // of what matters — which beats the due-date heuristic the connectors
+      // of what matters — which beats the due-date heuristic the integrations
       // get ranked by. Those providers give us no comparable signal, so they
       // get inferred urgency; here we'd be overriding the user with a guess.
       // The due badge still renders, so an overdue item is visible without
@@ -336,10 +336,10 @@ export function useLaunchSources({
       })),
     });
 
-    groups.push(...connectorTaskGroups(connectorTasks.data, {
-      isLoading: connectorTasks.isLoading,
-      isFetching: connectorTasks.isFetching,
-      error: errorMessage(connectorTasks.error),
+    groups.push(...integrationTaskGroups(integrationTasks.data, {
+      isLoading: integrationTasks.isLoading,
+      isFetching: integrationTasks.isFetching,
+      error: errorMessage(integrationTasks.error),
     }));
 
     {
@@ -461,7 +461,7 @@ export function useLaunchSources({
     // said Tasks came first — two different answers to "what matters most".
     const order: LaunchSourceKind[] = [
       'task',
-      'connector',
+      'integration',
       'pr',
       'issue',
       'branch',
@@ -477,10 +477,10 @@ export function useLaunchSources({
     return {
       groups: groups
         .filter((g) => g.isLoading || g.error || g.items.length > 0 || g.keepWhenEmpty)
-        // Stable, so connectors keep their discovered order within their rank.
+        // Stable, so integrations keep their discovered order within their rank.
         .sort((a, b) => rank(a.kind) - rank(b.kind)),
-      connectorSources: connectorProviderScopes(connectorTasks.data),
-      supportedSources: connectorTasks.data?.supported ?? [],
+      integrationSources: integrationProviderScopes(integrationTasks.data),
+      supportedSources: integrationTasks.data?.supported ?? [],
     };
   }, [
     isGit,
@@ -495,6 +495,6 @@ export function useLaunchSources({
     chats.data, chats.isLoading, chats.isFetching, chats.error,
     recentChats.data, recentChats.isLoading, recentChats.isFetching, recentChats.error,
     discovery.data, discovery.isLoading, discovery.isFetching, discovery.error,
-    connectorTasks.data, connectorTasks.isLoading, connectorTasks.isFetching, connectorTasks.error,
+    integrationTasks.data, integrationTasks.isLoading, integrationTasks.isFetching, integrationTasks.error,
   ]);
 }

@@ -36,9 +36,9 @@ The evaluation should answer: which actual workflow is easier, whether opening i
 | Standalone reference-host demo | No Ri changes or migration |
 | Development-only Ri view with session memory | No schema migration, with explicit loss of the view session on restart/expiry |
 | Reopen interactive results after restart and across viewers | Likely a small additive persistence migration, subject to the final storage design |
-| Rename stored connector keys or credential directories | Separate migration, excluded from both the demo and initial UI scope |
+| Rename stored integration keys or credential directories | Separate migration, excluded from both the demo and initial UI scope |
 
-The current `onActionRun` callback in `src/lib/connectors/runtime.ts` logs a completion summary. Its event type carries previews, not an existing durable private UI-result archive. Therefore a supported replayable view probably needs new persistence, but this does not make a migration necessary for trying the experience.
+The current `onActionRun` callback in `src/lib/integrations/runtime.ts` logs a completion summary. Its event type carries previews, not an existing durable private UI-result archive. Therefore a supported replayable view probably needs new persistence, but this does not make a migration necessary for trying the experience.
 
 ## What the research establishes
 
@@ -69,15 +69,15 @@ Initial architecture review used checkout `7701d5cddcc7` and the connected agent
 
 | Existing seam | Finding |
 | --- | --- |
-| `src/components/settings/sections/plugins-section.tsx` | Plugins already exists in Settings, with Connectors and Skills tabs. It is a grouping, not a bundle installer. |
+| `src/components/settings/sections/plugins-section.tsx` | Plugins already exists in Settings, with Integrations and Skills tabs. It is a grouping, not a bundle installer. |
 | `src/components/workspaces/rail-footer.tsx` | Connect apps opens that Settings section. The collapsed rail omits the entry. Replace this existing entry instead of adding a duplicate. |
 | `src/lib/client/active-view.ts`, `src/types/dashboard.ts`, `src/contexts/dashboard-context.tsx` | URL-owned navigation already supports home, agent, execution and skill views. Extend this mechanism. |
 | `docs/skills.md`, `src/lib/skills/manage.ts` | New skills are drafts outside normal harness discovery. Installing determines availability by location. Builder/try chats, ref changes, links and file management already exist. Preserve them. |
-| `src/app/api/connectors/[transport]/route.ts` | Ri already acts as an MCP gateway, with calling-chat attribution, workspace access checks and account binding. A new general gateway is unnecessary. |
-| `src/lib/connectors/runtime.ts`, `mcp-lifecycle.ts` | Existing runtime handles discovery, OAuth, per-account transports, redaction, approval and revocation. Use the same path for view actions. |
-| `packages/connectors/src/mcp/client.ts` | Tool definitions are cloned during discovery, but the typed surface has no UI contract. The client exposes list/call/close, has no resource read surface, and drops result `_meta`. |
-| `packages/connectors/src/mcp/ingest.ts`, `serve.ts` | Ingestion preserves `structuredContent` inside its own result wrapper. Serving projects actions to descriptions/schemas and JSON text. It does not forward UI metadata or original MCP result shape. |
-| `src/lib/connectors/mcp-capabilities.ts` | Capability fingerprints omit `_meta.ui`, so a UI resource/visibility change is not currently tracked. |
+| `src/app/api/integrations/[transport]/route.ts` | Ri already acts as an MCP gateway, with calling-chat attribution, workspace access checks and account binding. A new general gateway is unnecessary. |
+| `src/lib/integrations/runtime.ts`, `mcp-lifecycle.ts` | Existing runtime handles discovery, OAuth, per-account transports, redaction, approval and revocation. Use the same path for view actions. |
+| `packages/integrations/src/mcp/client.ts` | Tool definitions are cloned during discovery, but the typed surface has no UI contract. The client exposes list/call/close, has no resource read surface, and drops result `_meta`. |
+| `packages/integrations/src/mcp/ingest.ts`, `serve.ts` | Ingestion preserves `structuredContent` inside its own result wrapper. Serving projects actions to descriptions/schemas and JSON text. It does not forward UI metadata or original MCP result shape. |
+| `src/lib/integrations/mcp-capabilities.ts` | Capability fingerprints omit `_meta.ui`, so a UI resource/visibility change is not currently tracked. |
 | `src/lib/runner/parse.ts`, `chat_events` | Transcript events include tool call IDs and raw harness events, but normalized tool-result content is a string. This is useful for correlation, not an authoritative UI payload channel. |
 | agentex `packages/agent/src/types.ts` | Normalized results similarly expose string content, call identity and raw data. Rendering should not require each harness to preserve UI-private metadata. The reference folder is read-only in this workspace. |
 
@@ -98,11 +98,11 @@ I favor **integrations** as the internal domain name. It describes a durable job
 
 A skill-only plugin has no integration. A public MCP service may need no signed-in account. An integration may support several connections. Multiple future plugins may reuse one integration. These distinctions keep account setup independent of packaging.
 
-**There is no `connectors` table to rename.** The engine persists connections and sealed credentials under `path.join(getConfigDir(), 'connectors')`, including separate server and auth configuration stores. SQLite contains such fields as `workspaces.connectorScopes` and notification-channel references. Skills are filesystem resources. Calling this a database rename understates both the actual storage model and the compatibility surface.
+**There is no `integrations` table to rename.** The engine persists connections and sealed credentials under `path.join(getConfigDir(), 'integrations')`, including separate server and auth configuration stores. SQLite contains such fields as `workspaces.integrationScopes` and notification-channel references. Skills are filesystem resources. Calling this a database rename understates both the actual storage model and the compatibility surface.
 
 Recommended scope:
 
-1. Use Plugins in primary navigation. Use Accounts for account management within a plugin. Remove Connectors from new user-facing copy. Use Integrations in technical/domain descriptions where necessary.
+1. Use Plugins in primary navigation. Use Accounts for account management within a plugin. Remove Integrations from new user-facing copy. Use Integrations in technical/domain descriptions where necessary.
 2. Use integration terminology in new internal APIs and modules. A mechanical rename of existing private symbols/modules can be a separate change, with compilation and persistence regressions.
 3. Retain existing serialized keys, encrypted-store location, OAuth callbacks, tool IDs and public orchestrator actions for this feature. The name on disk does not make the product feel stale.
 4. Do not add an `integrations` SQLite table just to relabel existing connections, and do not migrate credentials into SQLite for this project.
@@ -136,7 +136,7 @@ Use in chat prepares a removable, named capability reference in the intended com
 
 For skills, reuse the existing builder and explicit Try flow. Every New skill starts under `<app-root>/skill-drafts` with a `draft:<name>` ref. Its Try chat can explicitly attach that draft, but normal chats cannot discover it. Installation moves it to Ri, Global or a project and follows the changed ref and existing chats. Uninstall returns it to drafts. Route all writes, installs, moves and uninstalls through `src/lib/skills/manage.ts`, with lifecycle moves through `moveSkill`. Do not add a plugin-level enable switch or bypass validation.
 
-Existing `?settings=plugins`, `?settings=connectors`, provider anchors and skill links continue to reach the corresponding surface. OAuth return paths preserve their target. Settings provides a shortcut to the same manager, not an independent second catalog.
+Existing `?settings=plugins`, `?settings=integrations`, provider anchors and skill links continue to reach the corresponding surface. OAuth return paths preserve their target. Settings provides a shortcut to the same manager, not an independent second catalog.
 
 ### Views appear where they help
 
@@ -282,7 +282,7 @@ Exit: an existing user finds every current capability without migrating or recon
 
 ### 2. Preserve UI contracts in the integration runtime
 
-- [ ] Extend `packages/connectors/src/mcp/{client,ingest,serve}.ts` and runtime types with distinct model and UI result channels, resource access and capability negotiation.
+- [ ] Extend `packages/integrations/src/mcp/{client,ingest,serve}.ts` and runtime types with distinct model and UI result channels, resource access and capability negotiation.
 - [ ] Track UI metadata changes in `mcp-capabilities.ts` and the existing server store. Resolve resource/visibility definitions per connection.
 - [ ] Enforce model/app visibility independently of whether the current harness can display UI.
 - [ ] Preserve current native action behavior, multi-account selection, schema validation, redaction, approval, tool overrides and revocation.
@@ -325,14 +325,14 @@ Exit: a person can discover a useful capability, connect only if needed, open or
 - [ ] Run browser/desktop scenarios for iframe escape attempts, wrong-frame messages, cookies, local-network access, IPC denial, CSP, mixed content and teardown.
 - [ ] Exercise OAuth cancellation/return/reconnect, multiple accounts, missing permissions, disabled servers, capability changes, remote runners and offline Home behavior.
 - [ ] Verify keyboard/focus, narrow layouts, draft preservation, Back/Forward, refresh and opening the same result in two viewers.
-- [ ] Run relevant existing connector/skill/navigation suites, `pnpm ts`, appropriate lint and production build. Separate pre-existing failures from new failures with current evidence.
-- [ ] Update `docs/skills.md`, the connector/current architecture docs and end-user help. Publish the supported protocol/features and explicitly qualified providers.
+- [ ] Run relevant existing integration/skill/navigation suites, `pnpm ts`, appropriate lint and production build. Separate pre-existing failures from new failures with current evidence.
+- [ ] Update `docs/skills.md`, the integration/current architecture docs and end-user help. Publish the supported protocol/features and explicitly qualified providers.
 
 Exit: a release record distinguishes tested compatibility from intended support. No reconnect, skill relocation, public tool rename or change to task/execution semantics is required by this release.
 
 ### 7. Optional internal naming cleanup
 
-- [ ] Rename private connector modules/types/package references to integrations in one cohesive mechanical change if the maintenance value warrants it.
+- [ ] Rename private integration modules/types/package references to integrations in one cohesive mechanical change if the maintenance value warrants it.
 - [ ] Keep persisted/wire names compatible. If storage names must change, implement and rehearse the independent migration described above, including rollback and decryptability checks.
 
 This is not a blocker for embedded views. There is no reason to combine credential migration with the first third-party iframe release.

@@ -5,7 +5,7 @@ there, without leaving for Settings. Before this, an agent could only say "I can
 calendar" (it only gets tools for accounts already connected), and a connection that stopped working
 hit the same dead end as approvals did: the tool said "the app is prompting the user" and nothing did.
 
-Built on the approval card machinery (`docs/connector-approvals.md`): the server writes the card
+Built on the approval card machinery (`docs/integration-approvals.md`): the server writes the card
 into the chat that needs it, only a person can answer it, the answer is recorded, and the agent is
 woken with a note.
 
@@ -13,23 +13,23 @@ woken with a note.
 
 The chat never decides. It displays whatever card rows the server writes, in three cases:
 
-1. **The agent asks.** It calls `request_connection(service, reason, account?)` on the connectors
+1. **The agent asks.** It calls `request_connection(service, reason, account?)` on the integrations
    MCP, once per service. The only model judgment in the whole flow is making that call. The tool exists in every chat (main chat,
    agent chats, executions), even with nothing connected, because an agent can't ask for what it
    doesn't know is possible.
-2. **A connection stopped working.** A connector call returns `authorization_required` or
-   `additional_permission_required` and the connectors route's pause hook writes a Reconnect or More
+2. **A connection stopped working.** An integration call returns `authorization_required` or
+   `additional_permission_required` and the integrations route's pause hook writes a Reconnect or More
    access card (`recordPausedConnection`). Automatic, no agent involved. This includes a rejected
    API key: the engine used to report that as `provider_not_configured` (it has no sign-in app to
    rebuild), which read as a setup problem in Ri. It now returns `auth_required` with the host's
    connect page for that connection, so the card asks for the key again, and re-entering it updates
    the same connection.
 3. **Connected, but not for this agent.** Either path above resolves to "Let this agent use it",
-   which changes the agent's connector access (the same setting the Agents view writes).
+   which changes the agent's integration access (the same setting the Agents view writes).
 
 ### When the agent should ask
 
-Stated in the tool description, the connectors MCP's server instructions, and one line of the chat
+Stated in the tool description, the integrations MCP's server instructions, and one line of the chat
 briefs. Ask only when all three hold:
 
 1. **Need.** Finishing the user's current request needs data or an action in a specific outside
@@ -40,7 +40,7 @@ briefs. Ask only when all three hold:
    Without that, "look it up on the Team Calendar" reads like a vague calendar and the agent asks
    which one instead of asking for access.
 3. **No substitute.** Nothing it has covers it. Ri's own tasks, notes, deck and stream never need a
-   connector, and neither does pasted content.
+   integration, and neither does pasted content.
 
 If more than one service could fit (Google or Outlook calendar), ask the user which first.
 
@@ -89,7 +89,7 @@ of the request, never a guess:
 - **Allow for this agent lists the accounts.** One account is named on the card. With several, each
   gets a checkbox: the account the agent named comes checked, and with none named nothing is, so the
   user picks rather than handing over every inbox at once. Allow is disabled until one is checked.
-- **The grant is exactly the checked accounts.** They're added to the agent's connector access as
+- **The grant is exactly the checked accounts.** They're added to the agent's integration access as
   account pins (the same pins the Agents view writes), merged into any pins it already has. A service
   it already has for every account is left alone. Nothing grants "all accounts" from a card.
 - **Everything names them.** The answer row, the card's footer and the agent's note say which
@@ -134,24 +134,24 @@ a connection or an allow, the server waits for the asking chat's current turn to
 10 minutes), recycles its process (`recycleWhenIdle`, which resumes the same conversation), and
 then sends the note: "The user connected Gmail on me@example.com. Its tools are available now.
 Continue." A decline sends the note without a reload. A connection made for an agent, or an allow, is
-added to that agent's connector access, pinned to exactly those accounts, which also recycles that
+added to that agent's integration access, pinned to exactly those accounts, which also recycles that
 agent's sessions. A Reconnect or More access card never changes an agent's access: it restores a
 connection the agent already uses (and lists every service of the provider, so granting from it would
 hand the agent all of them).
 
 ## Off switch
 
-Settings, Connectors, "Agents can ask to connect accounts". On by default, stored as
-`connectorRequestsEnabled` in the app's `config.json`. Off removes `request_connection` (and its
-brief lines) from chats started afterwards, and executions without connector access no longer get
-the connectors MCP at all. Reconnect cards still show, since they come from a failed call, not an
+Settings, Integrations, "Agents can ask to connect accounts". On by default, stored as
+`integrationRequestsEnabled` in the app's `config.json`. Off removes `request_connection` (and its
+brief lines) from chats started afterwards, and executions without integration access no longer get
+the integrations MCP at all. Reconnect cards still show, since they come from a failed call, not an
 agent's ask.
 
 ## Security
 
 - Only a person answers a card. The card routes refuse agent session credentials, the proxy keeps
   session tokens to their own MCP servers, and no agent tool reaches them. The residual shared-key
-  risk is the same as for approvals (`docs/connector-approvals.md`).
+  risk is the same as for approvals (`docs/integration-approvals.md`).
 - An agent can only ask. Every completion is a human act: the provider's sign-in page, a key typed
   into the card, or the allow click.
 - An agent never writes a sign-in app. It could otherwise choose where sign-in codes and tokens go
@@ -164,7 +164,7 @@ agent's ask.
 home: requests that should ask, ones that shouldn't (Ri's own data, pasted content, no outside
 service), ones that should ask the user which service first, and a "Not now" that must stick. Its
 last phase connects three stand-in Google accounts (fake tokens, straight into the dev home's
-connector store) and checks an agent with no access asks per service, checks the account the user
+integration store) and checks an agent with no access asks per service, checks the account the user
 named, asks to connect an address that isn't connected, and gets exactly the account allowed. It
 grades each and prints a summary. Rerun it after changing the rule's wording.
 

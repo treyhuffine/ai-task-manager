@@ -1,6 +1,6 @@
-import { getHostedMcpProvider, PROVIDER_CATALOG } from '@connectors/engine/providers';
-import { hostedMcpConnectionId, hostedMcpEndpointSetup } from '@/lib/connectors/hosted-mcp';
-import { getConnectorConnectionStore, getConnectorOwnerId, getMcpServerStore, getProviderStatuses } from '@/lib/connectors/runtime';
+import { getHostedMcpProvider, PROVIDER_CATALOG } from '@integrations/engine/providers';
+import { hostedMcpConnectionId, hostedMcpEndpointSetup } from '@/lib/integrations/hosted-mcp';
+import { getIntegrationConnectionStore, getIntegrationOwnerId, getMcpServerStore, getProviderStatuses } from '@/lib/integrations/runtime';
 import { ConnectionRequest } from './connection-request';
 import type { ConnectionRequestAccount } from './request-connection';
 
@@ -21,7 +21,7 @@ export default async function ConnectPage({ searchParams }: {
     configured: registered ? status?.mcp?.accounts?.find(account => account.serverId === server.id)?.configured ?? status?.configured ?? false : true,
   })) : [];
   if (hosted) {
-    const previous = await getConnectorConnectionStore().list({ ownerId: getConnectorOwnerId(), providerId });
+    const previous = await getIntegrationConnectionStore().list({ ownerId: getIntegrationOwnerId(), providerId });
     for (const connection of previous) {
       if (accounts.some(account => account.connectionId === connection.id)) continue;
       accounts.push({ connectionId: connection.id, label: connection.email || connection.label || connection.accountId,

@@ -140,7 +140,7 @@ export function EvaluationChat({ viewUrl, frame }: { viewUrl: string; frame: Ref
     if (approve && (!context || context.invocationId !== approval.invocationId || context.revision !== approval.revision || !conversation.allowChanges)) { setError('Attach the originating result and enable its updates before approving.'); return; }
     setBusy(true); setError(null);
     try {
-      await trpcClient.connectors.approvePost.mutate({ body: { ids: approval.approvalIds, decision: approve ? 'approve' : 'deny' } });
+      await trpcClient.integrations.approvePost.mutate({ body: { ids: approval.approvalIds, decision: approve ? 'approve' : 'deny' } });
       if (!approve) { patch(index, chat => ({ ...chat, messages: chat.messages.map(value => value.turnId === message.turnId ? { ...value, approval: undefined, status: 'Declined. No account tool was run.' } : value) })); setBusy(false); return; }
       const capture = await trpcClient.pluginEvaluation.accountChatCapture.mutate({ ticket: approval.ticket, retryApproval: true });
       patch(index, chat => ({ ...chat, messages: chat.messages.map(value => value.turnId === message.turnId ? { ...value, approval: undefined, status: 'Account call completed. Applying its captured result…' } : value) }));

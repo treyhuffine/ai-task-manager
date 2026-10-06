@@ -4,7 +4,7 @@ import { EmojiPicker } from '@/components/shared/emoji-picker';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Switch } from '@/components/ui/switch';
 import { FilesToCopySection } from '@/components/workspaces/files-to-copy-section';
-import { WorkspaceConnectorsSection } from '@/components/workspaces/workspace-connectors-section';
+import { WorkspaceIntegrationsSection } from '@/components/workspaces/workspace-integrations-section';
 import { WorktreeScriptsSection } from '@/components/workspaces/worktree-scripts-section';
 import { useDashboard } from '@/contexts/dashboard-context';
 import type { Attachment, UpdateWorkspaceInput, WorkspaceRecord } from '@/db/types';
@@ -27,7 +27,7 @@ import { AgentSkillsSection } from './agent-skills-section';
 const PURPOSE_MAX = 500;
 const INSTRUCTIONS_MAX = 20_000;
 
-/** The fields the Save button writes. Skills, connectors and folders save themselves. */
+/** The fields the Save button writes. Skills, integrations and folders save themselves. */
 interface SetupForm {
   name: string;
   emoji: string | null;
@@ -300,7 +300,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
 
           <AgentSkillsSection workspace={workspace} />
 
-          <WorkspaceConnectorsSection workspaceId={workspace.id} />
+          <WorkspaceIntegrationsSection workspaceId={workspace.id} />
 
           <Section title="Browser">
             <label className="flex items-start justify-between gap-3 cursor-pointer">

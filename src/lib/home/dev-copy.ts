@@ -1,7 +1,7 @@
 /**
  * Turn a restored copy of a home into a development copy that cannot act on
  * the original (docs/homes-spec.md §10.4): "assign development authority and
- * credentials, and disable inherited schedules, connectors, and other
+ * credentials, and disable inherited schedules, integrations, and other
  * outward actions before its first normal boot."
  *
  * A restored copy still holds everything that points back at the original:
@@ -9,7 +9,7 @@
  * - **Credentials and address.** The host token, every paired device's key,
  *   and the tunnel name. Booting it would answer on production's address or
  *   accept production's phones.
- * - **Outward actions.** Schedules, connector credentials, notification
+ * - **Outward actions.** Schedules, integration credentials, notification
  *   channels, and web push subscriptions reach real services and devices.
  * - **Native sessions.** A chat's `external_session_id` resumes a harness
  *   conversation by id. Claude Code finds a session by id from any folder,
@@ -53,7 +53,9 @@ const CONFIG_RESETS: Record<string, unknown> = {
 };
 
 /** `.config` entries removed from a development copy: outward credentials. */
-const CONFIG_REMOVED = ['connectors', 'notifications', 'agents', 'sources'];
+// Older snapshots can still carry the pre-rename store. Strip it before boot
+// can convert it into an active integration store in the development copy.
+const CONFIG_REMOVED = ['integrations', 'connectors', 'notifications', 'agents', 'sources'];
 
 export interface DevCopyReport {
   root: string;

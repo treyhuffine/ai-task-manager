@@ -10,6 +10,6 @@ export default defineConfig({
   splitting: false,
   shims: true,
   external: ['electron'],
-  noExternal: [/^@connectors\/engine(?:\/.*)?$/, 'electron-updater', 'zod'],
+  noExternal: [/^@integrations\/engine(?:\/.*)?$/, 'electron-updater', 'zod'],
   tsconfig: 'tsconfig.json',
 });

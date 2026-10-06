@@ -41,7 +41,7 @@ export interface ExecutionEnvironment {
   baseBranch: string | null;
   baseSha: string | null;
   references: EnvironmentReference[];
-  tools: { connectors: boolean; browser: boolean };
+  tools: { integrations: boolean; browser: boolean };
   harness: string;
   model: string | null;
   permissionMode: string;
@@ -153,7 +153,7 @@ export function renderEnvironment(env: ResolvedEnvironment, file: string): strin
       lines.push(`  - ${ref.alias}: ${where}${ref.description ? `. ${ref.description}` : ''}`);
     }
   }
-  const tools = [env.tools.connectors ? 'connectors' : null, env.tools.browser ? 'the agent browser' : null].filter(Boolean);
+  const tools = [env.tools.integrations ? 'integrations' : null, env.tools.browser ? 'the agent browser' : null].filter(Boolean);
   lines.push(`- Tools from ${env.homeName}: ${tools.length > 0 ? tools.join(' and ') : 'none'}.`);
   return lines.join('\n');
 }

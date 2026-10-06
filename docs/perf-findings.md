@@ -122,7 +122,7 @@ Every note/task detail page and slideout mount fetches the full snapshot list (e
 
 ### B8. [LOW] Stream list carries externalPayload audit blobs
 
-`listStream` selects all columns including externalPayload (full inbound webhook payload kept for audit/replay) while the UI renders rawText, status, media, source, outcomes, attachments. Magnitude today is unproven (local stream table empty), but it scales the hot capture surface as connectors land.
+`listStream` selects all columns including externalPayload (full inbound webhook payload kept for audit/replay) while the UI renders rawText, status, media, source, outcomes, attachments. Magnitude today is unproven (local stream table empty), but it scales the hot capture surface as integrations land.
 
 **Fix.** Exclude externalPayload (and dismissedBy/externalId) from the list projection, keep on `getStream(id)`. This also changes the orchestrator `list_stream` action output (`registry.ts:389`), do it deliberately on both surfaces with a trimmed list type rather than silently narrowing the shared type.
 
@@ -204,9 +204,9 @@ RichEditor (with `createLowlight(common)`, ~37 highlight.js grammars) is statica
 
 ### D7. [MEDIUM] Settings modal statically bundles all 10 sections, and its heavy leaves have second import paths
 
-`settings-modal.tsx:22-31` statically imports every section though the modal starts closed. The two heavy leaves are ALSO reachable outside settings: qrcode via ExecutionView, ViewerArea, PreviewPane, OpenOnDevice (`open-on-device.tsx:19`), and connector-icon-data via MobileAgentsView, WorkspaceCreateModal, ConnectorScopePicker (`connector-scope-picker.tsx:15`).
+`settings-modal.tsx:22-31` statically imports every section though the modal starts closed. The two heavy leaves are ALSO reachable outside settings: qrcode via ExecutionView, ViewerArea, PreviewPane, OpenOnDevice (`open-on-device.tsx:19`), and integration-icon-data via MobileAgentsView, WorkspaceCreateModal, IntegrationScopePicker (`integration-scope-picker.tsx:15`).
 
-**Fix.** Dynamic sections keyed by active SectionId (render on first visit, keep mounted), PLUS lazy-load the shared leaves themselves (dynamic 'qrcode' import inside qr-code.tsx, dynamic ConnectorLogo/icon data), which covers all present and future consumers.
+**Fix.** Dynamic sections keyed by active SectionId (render on first visit, keep mounted), PLUS lazy-load the shared leaves themselves (dynamic 'qrcode' import inside qr-code.tsx, dynamic IntegrationLogo/icon data), which covers all present and future consumers.
 
 ### D8. [LOW] Shiki's buffer polyfill and a 254KB chunk emitted five times
 

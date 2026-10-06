@@ -63,7 +63,7 @@ try {
   })
   await context.route(config.parentOrigin + '/api/trpc/**', async route => {
     const url = new URL(route.request().url()), names = url.pathname.slice('/api/trpc/'.length).split(',')
-    const owned = name => name.startsWith('pluginEvaluation.') && name !== 'pluginEvaluation.status' || name === 'connectors.approvePost'
+    const owned = name => name.startsWith('pluginEvaluation.') && name !== 'pluginEvaluation.status' || name === 'integrations.approvePost'
     if (!names.some(owned)) return route.fallback()
     const inputs = route.request().postData() ? route.request().postDataJSON() : JSON.parse(url.searchParams.get('input') || '{}')
     const originals = names.some(name => !owned(name)) ? await (await route.fetch({ url: testOrigin + url.pathname + url.search })).json() : []
@@ -87,7 +87,7 @@ try {
         executions.push('chat:query');
         data = { kind: 'view', invocationId: chatSource, toolName: 'query', input: { query: 'updated sample' }, result: { content: [{ type: 'text', text: 'Updated sample 84' }], structuredContent: { label: 'Updated sample: 84' }, _meta: { privateUi: 'PRIVATE_WIDGET_PAYLOAD' } } };
       }
-      else if (name === 'connectors.approvePost') { approved = input.body.decision === 'approve'; data = { ok: true } }
+      else if (name === 'integrations.approvePost') { approved = input.body.decision === 'approve'; data = { ok: true } }
       else if (name === 'pluginEvaluation.endAccount') { ended = true; data = { ok: true } }
       else throw new Error('Unexpected fixture request')
       return { result: { data } }

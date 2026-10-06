@@ -580,7 +580,7 @@ Don't pull these into V1 even if they feel close:
 - Pre-gate for destructive actions
 - Concurrency lanes (only global rate-lease in V1)
 - Heartbeat as a primitive (simulate with a 30-min supervisor schedule in V1)
-- First native connector (Gmail / Linear) — webhook intake is the V1 substrate
+- First native integration (Gmail / Linear) — webhook intake is the V1 substrate
 - Notifications table
 - Multi-state action protocol (`request_input`, `report_blocked`, `continue_work`)
 - Goals entity

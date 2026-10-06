@@ -10,6 +10,7 @@
  * markdown-mirror sync, attachment derivation).
  */
 
+import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { AttachmentMetadataRepairError, MAX_ATTACHMENT_METADATA_REPAIRS, REPAIR_ATTACHMENT_FILE_NAME } from '@/lib/attachments/repair-metadata';
 import { actorFromAction } from '@/lib/auth/actor';
 import {
@@ -1227,7 +1228,7 @@ const regenerate_deck_action = defineAction({
     // Register the calendar provider for this process (the CLI subprocess
     // doesn't run instrumentation, so the web-path boot registration doesn't
     // reach it). Idempotent + no-op when no calendar is connected.
-    const { ensureCalendarProvider } = await import('@/lib/deck/calendar-connector');
+    const { ensureCalendarProvider } = await import('@/lib/deck/calendar-integration');
     ensureCalendarProvider();
     const { generateDeck } = await import('@/lib/ai/generate-deck');
     return generateDeck(input);
@@ -1240,7 +1241,7 @@ const reconcile_deck_action = defineAction({
     "Re-check today's deck against the live calendar and adapt it to external changes " +
     '(e.g. a new meeting shrinks the day → bump the lowest-priority item, narrated and ' +
     'reversible). Deterministic, no model call, safe to run on a cadence. No-op until a ' +
-    'calendar connector is registered.',
+    `calendar ${INTEGRATION_LABELS.singular.toLowerCase()} is registered.`,
   params: {
     in_focus: z.boolean().optional(),
   },
@@ -1248,7 +1249,7 @@ const reconcile_deck_action = defineAction({
   handler: async (_ctx, input) => {
     // Ensure the calendar provider is registered in this process (CLI
     // subprocess doesn't run instrumentation). Idempotent.
-    const { ensureCalendarProvider } = await import('@/lib/deck/calendar-connector');
+    const { ensureCalendarProvider } = await import('@/lib/deck/calendar-integration');
     ensureCalendarProvider();
     const { reconcileDeckWithExternalChanges } = await import('@/lib/deck/reconcile-external');
     return reconcileDeckWithExternalChanges({ inFocus: input.in_focus });
@@ -1270,7 +1271,7 @@ const get_day_shape_action = defineAction({
     days: z.number().int().min(1).max(7).optional().describe('Range length, defaults to 1'),
   },
   handler: async (_ctx, { date, days }) => {
-    // Lazy: the day-shape service reaches the connectors runtime — keep it out
+    // Lazy: the day-shape service reaches the integrations runtime — keep it out
     // of the CLI boot graph (same pattern as the deck actions above).
     const { getCalendarRange } = await import('@/lib/calendar/service');
     const { formatGap } = await import('@/lib/deck/calendar');
@@ -1438,12 +1439,12 @@ const update_workspace_action = defineAction({
   description:
     'Edit a workspace (the user calls it an agent): name, emoji, area, `purpose` (a sentence, 500 characters ' +
     'max), standing `instructions` (delivered to every execution it starts, 20,000 characters max), ' +
-    'connector access, the agent browser, and `defaultDeviceId`, the device its new executions run on ' +
+    `${INTEGRATION_LABELS.singular.toLowerCase()} access, the agent browser, and \`defaultDeviceId\`, the device its new executions run on ` +
     '(one it is set up on, see get_workspace runOn, or null to go back to the automatic choice). ' +
     'Pass null to clear purpose or instructions. Its folder, ' +
     'scripts and files-to-copy are not editable here: they run commands or move files on the machine, so ' +
-    'they stay in the app. Connector access and the browser can only be changed from the app or the local ' +
-    'CLI, not over MCP. `connectorScopes` replaces the whole list: one entry per service, each optionally ' +
+    `they stay in the app. ${INTEGRATION_LABELS.singular} access and the browser can only be changed from the app or the local ` +
+    'CLI, not over MCP. `integrationScopes` replaces the whole list: one entry per service, each optionally ' +
     'limited to some of the connected accounts. Goes through the app server so live sessions pick the change up.',
   params: {
     id: z.string().min(1),
@@ -1452,7 +1453,7 @@ const update_workspace_action = defineAction({
     areaId: z.string().nullable().optional(),
     purpose: z.string().nullable().optional(),
     instructions: z.string().nullable().optional(),
-    connectorScopes: z
+    integrationScopes: z
       .array(
         z.object({
           toolkitId: z.string().min(1).describe('The service id, e.g. gmail, google_calendar, slack.'),
@@ -1485,17 +1486,17 @@ const update_workspace_action = defineAction({
   mutating: true,
   cli: { positional: ['id'] },
   handler: async (ctx, input) => {
-    const { id, connectorScopes, defaultDeviceId, ...fields } = input;
+    const { id, integrationScopes, defaultDeviceId, ...fields } = input;
     if (!getWorkspace(id)) throw new ActionError('not_found', `Workspace not found: ${id}`);
-    // Granting connector access or the browser widens what this agent's
+    // Granting integration access or the browser widens what this agent's
     // executions can reach. Over MCP the caller is a harness session that
     // reads untrusted content (web pages, email), so an injected instruction
     // must not be able to grant itself tools. Default to the remote rule when
     // the transport is unknown.
-    if ((connectorScopes !== undefined || fields.browserEnabled !== undefined) && ctx.remote !== false) {
+    if ((integrationScopes !== undefined || fields.browserEnabled !== undefined) && ctx.remote !== false) {
       throw new ActionError(
         'invalid_params',
-        'Connector access and the agent browser can only be changed from the app or the local CLI, not over MCP.',
+        `${INTEGRATION_LABELS.singular} access and the agent browser can only be changed from the app or the local CLI, not over MCP.`,
         'Ask the user to change it in the agent\'s Setup tab.',
       );
     }
@@ -1506,14 +1507,14 @@ const update_workspace_action = defineAction({
       if (defaultDeviceId !== undefined) {
         await serverFetch(`/workspaces/${id}/run-on`, { method: 'PUT', body: JSON.stringify({ defaultDeviceId }) });
       }
-      if (connectorScopes !== undefined) {
+      if (integrationScopes !== undefined) {
         // Fold the legacy single `account` into `accounts`. The route resolves identifiers (email,
         // label, account id) against the live connections and answers 400 when one doesn't match.
-        const scopes = connectorScopes.map(({ toolkitId, accounts, account }) => {
+        const scopes = integrationScopes.map(({ toolkitId, accounts, account }) => {
           const refs = [...(accounts ?? []), ...(account ? [account] : [])];
           return refs.length > 0 ? { toolkitId, accounts: refs } : { toolkitId };
         });
-        await serverFetch(`/workspaces/${id}/connector-scopes`, {
+        await serverFetch(`/workspaces/${id}/integration-scopes`, {
           method: 'PUT',
           body: JSON.stringify({ scopes }),
         });
@@ -2842,9 +2843,9 @@ const archive_execution_action = defineAction({
 const list_notification_channels_action = defineAction({
   name: 'list_notification_channels',
   description:
-    "List the user's notification channels (Telegram connector, web push, in-app). Returns each channel's id, provider, label, target config and enabled state. Use the id to bind a trigger's result digest via create_trigger / update_trigger deliver_result_to. Channels themselves are created in the app UI (Telegram linking needs an OAuth-style claim flow).",
+    `List the user's notification channels (Telegram ${INTEGRATION_LABELS.singular.toLowerCase()}, web push, in-app). Returns each channel's id, provider, label, target config and enabled state. Use the id to bind a trigger's result digest via create_trigger / update_trigger deliver_result_to. Channels themselves are created in the app UI (Telegram linking needs an OAuth-style claim flow).`,
   params: {
-    kind: z.enum(['connector', 'web_push', 'in_app']).optional(),
+    kind: z.enum(['integration', 'web_push', 'in_app']).optional(),
     providerId: z.string().min(1).optional(),
     enabled: z.boolean().optional(),
   },

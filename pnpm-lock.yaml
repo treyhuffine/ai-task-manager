@@ -68,9 +68,9 @@ importers:
       '@codemirror/view':
         specifier: ^6.42.1
         version: 6.42.1
-      '@connectors/engine':
+      '@integrations/engine':
         specifier: workspace:*
-        version: link:packages/connectors
+        version: link:packages/integrations
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -442,7 +442,7 @@ importers:
         specifier: 3.4.0
         version: 3.4.0
 
-  packages/connectors:
+  packages/integrations:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.0

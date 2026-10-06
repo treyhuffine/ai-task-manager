@@ -113,7 +113,7 @@ describe('one public offline page, never an authenticated cache', () => {
     ['POST', 'navigate', '/tasks'],
     ['GET', 'cors', '/api/tasks'],
     ['GET', 'navigate', '/api/attachments/private.svg'],
-    ['GET', 'navigate', '/api/connectors/callback?code=secret'],
+    ['GET', 'navigate', '/api/integrations/callback?code=secret'],
     ['GET', 'navigate', '/_next/static/chunk.js'],
     ['GET', 'navigate', 'https://external.example/'],
   ])('does not intercept %s %s %s', (method, mode, path) => {

@@ -2,7 +2,7 @@
  * The main chat's first-run conversation, as data: which steps there are, in
  * what order, which apply to this home, what the user answered, and how that
  * survives a reload or an OAuth round trip (the browser leaves the app to
- * sign in to a connector). The rendering is `main-chat-onboarding.tsx`. Full
+ * sign in to an integration). The rendering is `main-chat-onboarding.tsx`. Full
  * flow: docs/main-chat-onboarding.md.
  */
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { openSettings } from '@/components/settings/settings-store';
 
@@ -22,7 +23,7 @@ export function CalendarConnectPrompt({ onConnect }: { onConnect?: () => void })
         }}
         className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
       >
-        Open connector settings
+        Open {INTEGRATION_LABELS.singular.toLowerCase()} settings
       </button>
     </div>
   );

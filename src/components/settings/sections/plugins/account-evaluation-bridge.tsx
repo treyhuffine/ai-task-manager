@@ -76,7 +76,7 @@ export function AccountEvaluationBridge({ handle, url, account, frame }: {
     if (busy !== null || value.channel !== currentChannel.current) return;
     setBusy(value.id); setError(null);
     try {
-      await trpcClient.connectors.approvePost.mutate({ body: { ids: value.approvalIds, decision: approve ? 'approve' : 'deny' } });
+      await trpcClient.integrations.approvePost.mutate({ body: { ids: value.approvalIds, decision: approve ? 'approve' : 'deny' } });
       if (approve) {
         const reply = await trpcClient.pluginEvaluation.accountRpc.mutate({ ...value.input, retryApproval: true });
         if (reply.approvalIds?.length) throw new Error('The account or approval changed. Review it again before running.');

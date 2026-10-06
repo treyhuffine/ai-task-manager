@@ -1,5 +1,5 @@
 /**
- * Notifier outbox behavior (docs/connectors-email-and-notifier-spec.md §2.15/§2.16). Exercises the
+ * Notifier outbox behavior (docs/integrations-email-and-notifier-spec.md §2.15/§2.16). Exercises the
  * real DB + notify() pipeline with an injected fake adapter (no real Telegram/web-push). Proves the
  * properties typecheck can't: idempotency, fan-out, matrix vs binding routing, self-healing retry,
  * and the cascades.
@@ -38,7 +38,7 @@ async function mod() {
 function fakeAdapter(opts: { fail?: () => boolean } = {}) {
   const calls: Array<{ channelId: string; title: string }> = [];
   const adapter: NotificationChannelAdapter = {
-    kind: 'connector',
+    kind: 'integration',
     providerId: 'test',
     async deliver(channel, rendered) {
       if (opts.fail?.()) throw new Error('boom');
@@ -65,9 +65,9 @@ describe('notify() outbox', () => {
   it('fans out to subscribed enabled channels only (skips unsubscribed + disabled)', async () => {
     const { queries, notify } = await mod();
     const { adapter, calls } = fakeAdapter();
-    queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'test', config: {}, events: ['execution.finished'], enabled: true });
-    queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'test', config: {}, events: ['execution.needs_input'], enabled: true }); // not subscribed
-    queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'test', config: {}, events: ['execution.finished'], enabled: false }); // disabled
+    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: ['execution.finished'], enabled: true });
+    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: ['execution.needs_input'], enabled: true }); // not subscribed
+    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: ['execution.finished'], enabled: false }); // disabled
 
     await notify(evt(), {}, { resolveAdapter: () => adapter });
 
@@ -81,7 +81,7 @@ describe('notify() outbox', () => {
   it('is idempotent on (dedupeKey, channelId) — a re-fire never double-sends', async () => {
     const { queries, notify } = await mod();
     const { adapter, calls, deps } = fakeAdapter();
-    queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'test', config: {}, events: ['execution.finished'], enabled: true });
+    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: ['execution.finished'], enabled: true });
 
     await notify(evt(), {}, deps);
     await notify(evt(), {}, deps); // same dedupeKey (reconcile replay / restart)
@@ -94,7 +94,7 @@ describe('notify() outbox', () => {
     const { queries, notify } = await mod();
     let down = true;
     const { adapter, calls } = fakeAdapter({ fail: () => down });
-    queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'test', config: {}, events: ['execution.finished'], enabled: true });
+    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: ['execution.finished'], enabled: true });
 
     await notify(evt(), {}, { resolveAdapter: () => adapter });
     let d = queries.listNotificationDeliveries('local');
@@ -112,7 +112,7 @@ describe('notify() outbox', () => {
   it('binding routing delivers to deliverTo channels, ignoring their events[] matrix', async () => {
     const { queries, notify } = await mod();
     const { adapter, calls } = fakeAdapter();
-    const ch = queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'test', config: {}, events: [], enabled: true });
+    const ch = queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: [], enabled: true });
 
     await notify(
       evt({ type: 'trigger.run_completed', dedupeKey: 'trigger.run_completed:run9' }),
@@ -125,7 +125,7 @@ describe('notify() outbox', () => {
 
   it('marks a delivery failed when no adapter resolves', async () => {
     const { queries, notify } = await mod();
-    queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'unknown', config: {}, events: ['execution.finished'], enabled: true });
+    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'unknown', config: {}, events: ['execution.finished'], enabled: true });
     await notify(evt(), {}, { resolveAdapter: () => undefined });
     const d = queries.listNotificationDeliveries('local');
     expect(d[0]!.status).toBe('failed');
@@ -136,8 +136,8 @@ describe('notify() outbox', () => {
 describe('cascades', () => {
   it('deleteChannelsForConnection drops channels for a removed connection', async () => {
     const { queries } = await mod();
-    queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'telegram', connectionId: 'conn1', config: {}, events: [], enabled: true });
-    queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'telegram', connectionId: 'conn2', config: {}, events: [], enabled: true });
+    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'telegram', connectionId: 'conn1', config: {}, events: [], enabled: true });
+    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'telegram', connectionId: 'conn2', config: {}, events: [], enabled: true });
     const removed = queries.deleteChannelsForConnection('conn1');
     expect(removed).toBe(1);
     expect(queries.listNotificationChannels({ userId: 'local' })).toHaveLength(1);
@@ -145,7 +145,7 @@ describe('cascades', () => {
 
   it('deleting a channel scrubs it from trigger deliverResultTo bindings', async () => {
     const { queries } = await mod();
-    const ch = queries.createNotificationChannel({ userId: 'local', kind: 'connector', providerId: 'telegram', config: {}, events: [], enabled: true });
+    const ch = queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'telegram', config: {}, events: [], enabled: true });
     const sched = queries.createTrigger({
       userId: 'local', name: 'digest', harness: 'claude', targetKind: 'orchestrator', prompt: 'summarize',
       kind: 'cron', cronExpression: '0 9 * * *', timezone: 'UTC', deliverResultTo: [ch.id],

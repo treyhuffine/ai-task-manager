@@ -293,9 +293,9 @@ describe('update_workspace', () => {
     }));
   });
 
-  it('keeps connector access and the browser out of reach over MCP', async () => {
+  it('keeps integration access and the browser out of reach over MCP', async () => {
     const { ws } = await seed();
-    for (const change of [{ connectorScopes: [{ toolkitId: 'gmail' }] }, { browserEnabled: true }]) {
+    for (const change of [{ integrationScopes: [{ toolkitId: 'gmail' }] }, { browserEnabled: true }]) {
       const envelope = await run('update_workspace', { id: ws.id, ...change }, { remote: true });
       expect(envelope).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
     }
@@ -304,12 +304,12 @@ describe('update_workspace', () => {
     expect(serverFetch).not.toHaveBeenCalled();
   });
 
-  it('lets the local CLI change connector access through the validating route', async () => {
+  it('lets the local CLI change integration access through the validating route', async () => {
     const { ws } = await seed();
     serverFetch.mockResolvedValue({});
-    const envelope = await run('update_workspace', { id: ws.id, connectorScopes: [{ toolkitId: 'github' }] }, { remote: false });
+    const envelope = await run('update_workspace', { id: ws.id, integrationScopes: [{ toolkitId: 'github' }] }, { remote: false });
     expect(envelope.ok).toBe(true);
-    expect(serverFetch).toHaveBeenCalledWith(`/workspaces/${ws.id}/connector-scopes`, expect.objectContaining({
+    expect(serverFetch).toHaveBeenCalledWith(`/workspaces/${ws.id}/integration-scopes`, expect.objectContaining({
       method: 'PUT',
       body: JSON.stringify({ scopes: [{ toolkitId: 'github' }] }),
     }));
@@ -320,14 +320,14 @@ describe('update_workspace', () => {
     serverFetch.mockResolvedValue({});
     const envelope = await run('update_workspace', {
       id: ws.id,
-      connectorScopes: [
+      integrationScopes: [
         { toolkitId: 'gmail', accounts: ['work@gmail.com', { accountId: 'sub-side', authConfigId: 'cfg-team' }] },
         { toolkitId: 'google_calendar', account: 'personal@gmail.com' },
         { toolkitId: 'slack', accounts: [], account: null },
       ],
     }, { remote: false });
     expect(envelope.ok).toBe(true);
-    expect(serverFetch).toHaveBeenCalledWith(`/workspaces/${ws.id}/connector-scopes`, expect.objectContaining({
+    expect(serverFetch).toHaveBeenCalledWith(`/workspaces/${ws.id}/integration-scopes`, expect.objectContaining({
       method: 'PUT',
       body: JSON.stringify({
         scopes: [
@@ -346,7 +346,7 @@ describe('update_workspace', () => {
     serverFetch.mockRejectedValueOnce(new ServerResponseError(400, JSON.stringify({ error: message }), 'PUT → 400'));
     expect(await run('update_workspace', {
       id: ws.id,
-      connectorScopes: [{ toolkitId: 'gmail', accounts: ['nobody@gmail.com'] }],
+      integrationScopes: [{ toolkitId: 'gmail', accounts: ['nobody@gmail.com'] }],
     }, { remote: false })).toMatchObject({ ok: false, error: { code: 'invalid_params', message } });
   });
 

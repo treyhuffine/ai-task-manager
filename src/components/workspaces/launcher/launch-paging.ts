@@ -11,7 +11,7 @@ import type { LaunchSourceItem } from '@/lib/executions/launch-draft';
  * Two modes, because "there are more rows" means two different things:
  *
  *   - **Several sources share the list** (the All tab, or Tasks with
- *     connectors). Breadth wins: every source gets a couple of rows out of a
+ *     integrations). Breadth wins: every source gets a couple of rows out of a
  *     shared budget, and the overflow affordance *narrows* to that source.
  *   - **One source owns the list** (any narrowed tab). Depth wins: rows come
  *     a page at a time and the affordance reveals the next page in place.
@@ -63,7 +63,7 @@ export interface PageableGroup {
   /**
    * The source capped the list itself, so `items.length` is a floor on what
    * exists rather than the total. Set by server-backed groups (local tasks,
-   * chat search, connector tasks) whose fetch limit grows with the page count.
+   * chat search, integration tasks) whose fetch limit grows with the page count.
    */
   truncated?: boolean;
 }

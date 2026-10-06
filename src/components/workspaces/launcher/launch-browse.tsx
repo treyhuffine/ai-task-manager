@@ -16,7 +16,7 @@ import {
   Search,
   SquareCheckBig,
 } from 'lucide-react';
-import { ConnectorLogo } from '@/components/connectors/connector-logo';
+import { IntegrationLogo } from '@/components/integrations/integration-logo';
 import { openSettings } from '@/components/settings/settings-store';
 import { DueBand, dueBand, dueLabel } from '@/lib/executions/task-rank';
 import { cn } from '@/lib/utils';
@@ -38,7 +38,7 @@ const KIND_ICON: Record<LaunchSourceKind, React.ComponentType<{ size?: number; c
   branch: GitBranch,
   task: SquareCheckBig,
   note: SquareCheckBig,
-  connector: Plug,
+  integration: Plug,
   chat: MessageSquare,
   external: ArrowDownToLine,
 };
@@ -46,7 +46,7 @@ const KIND_ICON: Record<LaunchSourceKind, React.ComponentType<{ size?: number; c
 const KIND_ICON_CLASS: Partial<Record<LaunchSourceKind, string>> = {
   pr: 'text-emerald-500/80',
   issue: 'text-emerald-500/80',
-  connector: 'text-sky-500/80',
+  integration: 'text-sky-500/80',
   external: 'text-amber-500/80',
 };
 
@@ -66,8 +66,8 @@ interface BrowseTab {
  * starting from a specific PR or branch is the specialist one. `All` stays
  * first and default since cross-source search is the reason the panel exists.
  *
- * There is deliberately NO "Connectors" tab. "Connector" is our word — a user
- * has *Todoist* tasks, not connector tasks — and lumping every provider under
+ * There is deliberately NO "Integrations" tab. "Integration" is our word — a user
+ * has *Todoist* tasks, not integration tasks — and lumping every provider under
  * one tab would bury Todoist under Jira, which is the same burying problem
  * a shared Tasks group already caused. Providers are instead a scope row
  * *inside* Tasks (see SCOPE_ALL), which keeps the tab bar from growing without
@@ -75,7 +75,7 @@ interface BrowseTab {
  */
 const TABS: BrowseTab[] = [
   { id: 'all', label: 'All', kinds: [] },
-  { id: 'task', label: 'Tasks', kinds: ['task', 'connector'] },
+  { id: 'task', label: 'Tasks', kinds: ['task', 'integration'] },
   { id: 'pr', label: 'PRs', kinds: ['pr'], gitOnly: true },
   { id: 'issue', label: 'Issues', kinds: ['issue'], gitOnly: true },
   { id: 'branch', label: 'Branches', kinds: ['branch'], gitOnly: true },
@@ -84,7 +84,7 @@ const TABS: BrowseTab[] = [
 ];
 
 const SCOPE_ALL = 'all';
-/** Scope value for tasks that live in this app rather than a connector. */
+/** Scope value for tasks that live in this app rather than an integration. */
 const SCOPE_LOCAL = 'local';
 
 /** How close to the bottom of the list counts as "keep going". */
@@ -129,25 +129,25 @@ export function LaunchBrowse({
   const listRef = useRef<HTMLDivElement>(null);
 
   // Server-backed sources fetch to the depth the user has actually paged to,
-  // so a resting panel stays as cheap as it was. Connector groups share one
+  // so a resting panel stays as cheap as it was. Integration groups share one
   // limit because the endpoint applies it per provider — paging Todoist also
   // deepens Linear, which costs one extra provider call and keeps the wire
   // contract to a single number.
   const limits = useMemo(() => {
-    const connectorPages = Math.max(
+    const integrationPages = Math.max(
       1,
       ...Object.entries(pages)
-        .filter(([id]) => id.startsWith('connector:'))
+        .filter(([id]) => id.startsWith('integration:'))
         .map(([, n]) => n),
     );
     return {
       task: fetchLimit(pages, 'task'),
       chat: fetchLimit(pages, 'chat'),
-      connector: fetchLimit({ connector: connectorPages }, 'connector'),
+      integration: fetchLimit({ integration: integrationPages }, 'integration'),
     };
   }, [pages]);
 
-  const { groups: allGroups, connectorSources, supportedSources } = useLaunchSources({
+  const { groups: allGroups, integrationSources, supportedSources } = useLaunchSources({
     workspaceId,
     workspaceCwd,
     query,
@@ -161,24 +161,24 @@ export function LaunchBrowse({
   const activeTab = tabs.find((t) => t.id === tab) ?? tabs[0];
 
   // The scope row is Tasks-only, and only earns its space when there's more
-  // than one place tasks can come from. With no connectors it never appears.
+  // than one place tasks can come from. With no integrations it never appears.
   const scopes = useMemo(
     () =>
-      connectorSources.length === 0
+      integrationSources.length === 0
         ? []
         : [
             { id: SCOPE_ALL, label: 'All' },
             { id: SCOPE_LOCAL, label: 'This app' },
-            ...connectorSources.map((s) => ({ id: s.toolkitId, label: s.providerLabel })),
+            ...integrationSources.map((s) => ({ id: s.toolkitId, label: s.providerLabel })),
           ],
-    [connectorSources],
+    [integrationSources],
   );
   // Task providers we support but the user hasn't connected. Naming them beats
   // a bare "+": the CTA tells you what you'd gain before you click it.
   const connectMore = useMemo(() => {
-    const connected = new Set(connectorSources.map((s) => s.toolkitId));
+    const connected = new Set(integrationSources.map((s) => s.toolkitId));
     return supportedSources.filter((s) => !connected.has(s.toolkitId));
-  }, [supportedSources, connectorSources]);
+  }, [supportedSources, integrationSources]);
 
   // The row shows on Tasks as a filter, and on All as a shortcut. On All the
   // All/This-app pills would be meaningless (narrowing "everything" to local
@@ -210,7 +210,7 @@ export function LaunchBrowse({
         ? allGroups.filter((g) => g.isLoading || g.error || g.items.length > 0)
         : allGroups.filter((g) => activeTab.kinds.includes(g.kind));
     if (effectiveScope === SCOPE_ALL) return byTab;
-    if (effectiveScope === SCOPE_LOCAL) return byTab.filter((g) => g.kind !== 'connector');
+    if (effectiveScope === SCOPE_LOCAL) return byTab.filter((g) => g.kind !== 'integration');
     return byTab.filter((g) => g.toolkitId === effectiveScope);
   }, [allGroups, activeTab, effectiveScope]);
 
@@ -360,7 +360,7 @@ export function LaunchBrowse({
         </div>
       )}
 
-      {/* Source scope. Connector pills are their brand mark alone until
+      {/* Source scope. Integration pills are their brand mark alone until
           selected, which is what lets this row survive many connections:
           a labelled pill costs ~70px and overflows by the fourth provider,
           a mark costs ~24px and a dozen still fit. Brand marks are designed
@@ -369,26 +369,26 @@ export function LaunchBrowse({
       {showScopeRow && (
         <div className="flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-border/70 px-1.5 py-1">
           {visibleScopes.map((s) => {
-            const isConnector = s.id !== SCOPE_ALL && s.id !== SCOPE_LOCAL;
+            const isIntegration = s.id !== SCOPE_ALL && s.id !== SCOPE_LOCAL;
             const selected = s.id === effectiveScope;
             return (
               <button
                 key={s.id}
                 type="button"
                 onClick={() => selectScope(s.id)}
-                title={isConnector ? (isTaskTab ? s.label : `Show ${s.label} tasks`) : undefined}
+                title={isIntegration ? (isTaskTab ? s.label : `Show ${s.label} tasks`) : undefined}
                 aria-label={s.label}
                 aria-pressed={selected}
                 className={cn(
                   'inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border py-0.5 text-[10.5px] font-medium transition-colors',
-                  isConnector && !selected ? 'px-1.5' : 'px-2',
+                  isIntegration && !selected ? 'px-1.5' : 'px-2',
                   selected
                     ? 'border-primary/40 bg-primary/10 text-foreground'
                     : 'border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground',
                 )}
               >
-                {isConnector && <ConnectorLogo providerId={s.id} name={s.label} size={12} />}
-                {(!isConnector || selected) && s.label}
+                {isIntegration && <IntegrationLogo providerId={s.id} name={s.label} size={12} />}
+                {(!isIntegration || selected) && s.label}
               </button>
             );
           })}
@@ -422,9 +422,9 @@ export function LaunchBrowse({
         )}
 
         {/* Tasks with nothing connected: name the capability rather than
-            leaving it invisible. Someone who has never opened connector
+            leaving it invisible. Someone who has never opened integration
             settings has no way to learn this list can span Todoist and Jira. */}
-        {activeTab.id === 'task' && connectorSources.length === 0 && !anyLoading && (
+        {activeTab.id === 'task' && integrationSources.length === 0 && !anyLoading && (
           <button
             type="button"
             onClick={() => openSettings('plugins')}
@@ -439,7 +439,7 @@ export function LaunchBrowse({
           <div key={group.id} className="mb-1.5 last:mb-0">
             <div className="flex items-center gap-1.5 px-2 py-1">
               {group.toolkitId && (
-                <ConnectorLogo providerId={group.toolkitId} name={group.label} size={11} />
+                <IntegrationLogo providerId={group.toolkitId} name={group.label} size={11} />
               )}
               <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
                 {group.label}
@@ -502,7 +502,7 @@ export function LaunchBrowse({
                   >
                     {item.toolkitId ? (
                       <span className="mt-0.5 flex-shrink-0">
-                        <ConnectorLogo
+                        <IntegrationLogo
                           providerId={item.toolkitId}
                           name={item.providerLabel ?? item.toolkitId}
                           size={12}
@@ -572,13 +572,13 @@ export function LaunchBrowse({
               <button
                 type="button"
                 onClick={() => {
-                  // Jump to the tab that owns this group. Connector groups all
+                  // Jump to the tab that owns this group. Integration groups all
                   // live under Tasks, so also scope to that provider — the
                   // click means "show me the rest of THIS list".
                   const owner = tabs.find((t) => t.kinds.includes(group.kind));
                   if (owner) setTab(owner.id);
                   // Narrowing to exactly this source is what gives it the whole
-                  // list: a connector scopes to its toolkit, local tasks to
+                  // list: an integration scopes to its toolkit, local tasks to
                   // "This app".
                   setScope(
                     group.toolkitId ?? (group.kind === 'task' ? SCOPE_LOCAL : SCOPE_ALL),

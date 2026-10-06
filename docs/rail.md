@@ -16,7 +16,7 @@ Reworked 2026-10-05 from a rail that listed every execution even when collapsed,
 | Create, Search | Create opens the launcher with no agent picked (a new execution anywhere). Search opens chat search (every transcript). | Sticky under the home row |
 | Agents, Recent | Agents is the agent tree with each agent's executions. Recent is every execution newest first, archived included, with an agent filter. | Sticky |
 | The list | Pinned, then the chosen tab's list. Every row carries the same status dot (`chat-status.tsx`: needs input, working, unread, background), unread titles are bold, and no row shows diff stats (they don't help decide where to go, they live in the execution's header). In Recent the dot sits on the agent's avatar, which tells agents apart in a mixed list, and an active execution reads the rail's live record rather than the once-a-minute history feed. | Scrolls |
-| Footer | Settings, then Connect apps (Settings, Plugins, Connectors). | Fixed |
+| Footer | Settings, then Connect apps (Settings, Plugins, Integrations). | Fixed |
 
 The places are visited now and then, so they give their room back once you scroll into the list. Create, Search and the tabs are the list's own controls, so they stay with it. The list's own sticky toolbar (selecting executions to archive) pins under them through the `--rail-sticky-top` variable the rail sets.
 

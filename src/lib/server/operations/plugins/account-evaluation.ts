@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod/v4';
-import { mcpToolVisible, type McpToolDef } from '@connectors/engine/mcp';
+import { mcpToolVisible, type McpToolDef } from '@integrations/engine/mcp';
 import { ACCOUNT_DEMOS, type AccountDemo } from '@/lib/plugins/demo-catalog';
-import { getConnectorOwnerId, getConnectorRuntime, getMcpServerStore, getMcpViewConnection, type McpViewConnection } from '@/lib/connectors/runtime';
-import { hostedMcpConnectionId } from '@/lib/connectors/hosted-mcp';
-import { isCurrentMcpTransport } from '@/lib/connectors/mcp-lifecycle';
-import { listPendingApprovals } from '@/lib/connectors/approval';
+import { getIntegrationOwnerId, getIntegrationRuntime, getMcpServerStore, getMcpViewConnection, type McpViewConnection } from '@/lib/integrations/runtime';
+import { hostedMcpConnectionId } from '@/lib/integrations/hosted-mcp';
+import { isCurrentMcpTransport } from '@/lib/integrations/mcp-lifecycle';
+import { listPendingApprovals } from '@/lib/integrations/approval';
 import { OperationError } from '@/lib/server/operation';
 import { launchPluginEvaluation } from './evaluation';
 import { accountRpcSchema } from '@/lib/plugins/evaluation-contract';
@@ -40,16 +40,16 @@ export async function launchAccountEvaluation(parentOrigin: string, serverId: st
   if (sessions.size >= 32) fail('Too many temporary views are open. Close one and try again.', 429);
   const launched = await launchPluginEvaluation(parentOrigin);
   const handle = randomUUID();
-  sessions.set(handle, { viewer, owner: getConnectorOwnerId(), expires: Date.parse(launched.expiresAt), view, deliveries: new Map(), bytes: 0 });
+  sessions.set(handle, { viewer, owner: getIntegrationOwnerId(), expires: Date.parse(launched.expiresAt), view, deliveries: new Map(), bytes: 0 });
   return { ...launched, url: `${launched.url}?account=${handle}`, handle, account: view.snapshot.displayName, providerId: view.snapshot.providerId! };
 }
 
 export async function assertAccountEvaluation(handle: string, viewer: string) {
   prune();
   const session = sessions.get(handle);
-  if (!session || session.viewer !== viewer || session.owner !== getConnectorOwnerId()) fail('This temporary account view ended. Open a new view explicitly.', 410);
+  if (!session || session.viewer !== viewer || session.owner !== getIntegrationOwnerId()) fail('This temporary account view ended. Open a new view explicitly.', 410);
   if (!isCurrentMcpTransport(session.view.snapshot, getMcpServerStore())) fail('This account or its access changed. Reconnect before opening a new view.');
-  const connections = await (await getConnectorRuntime()).listConnections({ ownerId: session.owner });
+  const connections = await (await getIntegrationRuntime()).listConnections({ ownerId: session.owner });
   if (!connections.some(value => value.id === hostedMcpConnectionId(session.view.snapshot) && value.status === 'active')) fail('This account is no longer connected.');
   return session;
 }
@@ -99,7 +99,7 @@ export async function accountEvaluationRpc(value: Rpc, viewer: string): Promise<
   session.deliveries.set(key, delivery);
   delivery.promise = (async () => {
     let captured: unknown;
-    const outcome = await (await getConnectorRuntime()).runAction(`${session.view.snapshot.providerId}.${input.name}`, input.arguments ?? {}, {
+    const outcome = await (await getIntegrationRuntime()).runAction(`${session.view.snapshot.providerId}.${input.name}`, input.arguments ?? {}, {
       ownerId: session.owner, connectionId: hostedMcpConnectionId(session.view.snapshot), caller: { type: 'app' },
       toolAudience: input.audience, captureOriginalResult: result => { captured = result; },
     });

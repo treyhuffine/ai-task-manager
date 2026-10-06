@@ -12,7 +12,7 @@ import { installFakeHarness, type FakeHarness } from '@/test/fixtures/fake-harne
 
 const generateDeck = vi.fn();
 vi.mock('@/lib/ai/generate-deck', () => ({ generateDeck: (...args: unknown[]) => generateDeck(...args) }));
-vi.mock('@/lib/deck/calendar-connector', () => ({ ensureCalendarProvider: () => {} }));
+vi.mock('@/lib/deck/calendar-integration', () => ({ ensureCalendarProvider: () => {} }));
 
 let home: TestHome;
 let fake: FakeHarness;

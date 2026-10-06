@@ -24,7 +24,7 @@ function insert(channelId: string, id: string, userId = 'history-owner', created
 
 it('returns only the current user’s latest 100 deliveries in stable order, with a private response', async () => {
   queries.createNotificationChannel({ id: 'own', userId: 'history-owner', kind: 'web_push', label: 'My browsers', config: { endpoint: 'endpoint-secret' } });
-  queries.createNotificationChannel({ id: 'other', userId: 'other-owner', kind: 'connector', providerId: 'telegram', label: 'other-owner-secret' });
+  queries.createNotificationChannel({ id: 'other', userId: 'other-owner', kind: 'integration', providerId: 'telegram', label: 'other-owner-secret' });
   for (let i = 0; i < 105; i++) insert('own', `delivery-${String(i).padStart(3, '0')}`);
   insert('other', 'other-delivery-secret', 'other-owner', '2026-09-27T00:00:00.000Z');
   queries.markDeliveryFailed('delivery-104', '403 endpoint-secret token-secret Authorization: Bearer provider-secret');

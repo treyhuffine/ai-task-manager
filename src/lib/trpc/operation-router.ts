@@ -4,24 +4,24 @@ import * as operation2 from "@/lib/server/operations/calendar";
 import * as operation3 from "@/lib/server/operations/claude-auth/login";
 import * as operation4 from "@/lib/server/operations/claude-auth/status";
 import * as operation5 from "@/lib/server/operations/claude-auth/stuck-sessions";
-import * as operation9 from "@/lib/server/operations/connectors/approve";
-import * as operation10 from "@/lib/server/operations/connectors/auth-configs";
-import * as operation11 from "@/lib/server/operations/connectors/auth-configs/default";
-import * as operation0 from "@/lib/server/operations/connectors/connect";
-import * as operation6 from "@/lib/server/operations/connectors/connectDirect";
-import * as operation12 from "@/lib/server/operations/connectors/connections";
-import * as operation7 from "@/lib/server/operations/connectors/disconnect";
-import * as operation13 from "@/lib/server/operations/connectors/mcp-servers";
-import * as operation8 from "@/lib/server/operations/connectors/mcp-servers/[id]";
-import * as operation14 from "@/lib/server/operations/connectors/pending-approvals";
-import * as operation15 from "@/lib/server/operations/connectors/request-settings";
-import * as operation16 from "@/lib/server/operations/connectors/requests/[eventId]";
-import * as operation17 from "@/lib/server/operations/connectors/run";
-import * as operation18 from "@/lib/server/operations/connectors/status";
-import * as operation19 from "@/lib/server/operations/connectors/tasks";
-import * as operation20 from "@/lib/server/operations/connectors/test";
-import * as operation21 from "@/lib/server/operations/connectors/toolkits";
-import * as operation22 from "@/lib/server/operations/connectors/write-policy";
+import * as operation9 from "@/lib/server/operations/integrations/approve";
+import * as operation10 from "@/lib/server/operations/integrations/auth-configs";
+import * as operation11 from "@/lib/server/operations/integrations/auth-configs/default";
+import * as operation0 from "@/lib/server/operations/integrations/connect";
+import * as operation6 from "@/lib/server/operations/integrations/connectDirect";
+import * as operation12 from "@/lib/server/operations/integrations/connections";
+import * as operation7 from "@/lib/server/operations/integrations/disconnect";
+import * as operation13 from "@/lib/server/operations/integrations/mcp-servers";
+import * as operation8 from "@/lib/server/operations/integrations/mcp-servers/[id]";
+import * as operation14 from "@/lib/server/operations/integrations/pending-approvals";
+import * as operation15 from "@/lib/server/operations/integrations/request-settings";
+import * as operation16 from "@/lib/server/operations/integrations/requests/[eventId]";
+import * as operation17 from "@/lib/server/operations/integrations/run";
+import * as operation18 from "@/lib/server/operations/integrations/status";
+import * as operation19 from "@/lib/server/operations/integrations/tasks";
+import * as operation20 from "@/lib/server/operations/integrations/test";
+import * as operation21 from "@/lib/server/operations/integrations/toolkits";
+import * as operation22 from "@/lib/server/operations/integrations/write-policy";
 import * as operation23 from "@/lib/server/operations/deck";
 import * as operation24 from "@/lib/server/operations/deck/[id]";
 import * as operation25 from "@/lib/server/operations/deck/[id]/revert";
@@ -231,7 +231,7 @@ import * as operation227 from "@/lib/server/operations/workspaces/[id]/chat";
 import * as operation229 from "@/lib/server/operations/workspaces/[id]/chat/history";
 import * as operation228 from "@/lib/server/operations/workspaces/[id]/chat/new";
 import * as operation230 from "@/lib/server/operations/workspaces/[id]/chat/resume";
-import * as operation231 from "@/lib/server/operations/workspaces/[id]/connector-scopes";
+import * as operation231 from "@/lib/server/operations/workspaces/[id]/integration-scopes";
 import * as operation221 from "@/lib/server/operations/workspaces/[id]/dir";
 import * as operation214 from "@/lib/server/operations/workspaces/[id]/file";
 import * as operation219 from "@/lib/server/operations/workspaces/[id]/file/create";
@@ -268,32 +268,32 @@ export const taskProcedures = {
 };
 
 export const internalRouters = {
-  connectors: router({
-    connectPost: p.input(operation0.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation0.POST(input, operationContext(ctx.request, input, "/connectors/connect")))),
-    connectDirectPost: p.input(operation6.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation6.POST(input, operationContext(ctx.request, input, "/connectors/connectDirect")))),
-    disconnectPost: p.input(operation7.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation7.POST(input, operationContext(ctx.request, input, "/connectors/disconnect")))),
-    mcpServersPatch: p.input(operation8.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation8.PATCH(input, operationContext(ctx.request, input, "/connectors/mcp-servers/[id]")))),
-    mcpServerPost: p.input(operation8.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation8.POST(input, operationContext(ctx.request, input, "/connectors/mcp-servers/[id]")))),
-    mcpServersDelete: p.input(operation8.DELETEInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation8.DELETE(input, operationContext(ctx.request, input, "/connectors/mcp-servers/[id]")))),
-    approvePost: p.input(operation9.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation9.POST(input, operationContext(ctx.request, input, "/connectors/approve")))),
-    authConfigsGet: p.input(operation10.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation10.GET(input, operationContext(ctx.request, input, "/connectors/auth-configs")))),
-    authConfigsPost: p.input(operation10.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation10.POST(input, operationContext(ctx.request, input, "/connectors/auth-configs")))),
-    authConfigsDelete: p.input(operation10.DELETEInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation10.DELETE(input, operationContext(ctx.request, input, "/connectors/auth-configs")))),
-    authConfigsDefaultPost: p.input(operation11.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation11.POST(input, operationContext(ctx.request, input, "/connectors/auth-configs/default")))),
-    connectionsGet: p.input(operation12.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation12.GET(input, operationContext(ctx.request, input, "/connectors/connections")))),
-    mcpServersGet: p.input(operation13.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation13.GET(input, operationContext(ctx.request, input, "/connectors/mcp-servers")))),
-    mcpServersPost: p.input(operation13.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation13.POST(input, operationContext(ctx.request, input, "/connectors/mcp-servers")))),
-    pendingApprovalsGet: p.input(operation14.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation14.GET(input, operationContext(ctx.request, input, "/connectors/pending-approvals")))),
-    requestSettingsGet: p.input(operation15.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation15.GET(input, operationContext(ctx.request, input, "/connectors/request-settings")))),
-    requestSettingsPatch: p.input(operation15.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation15.PATCH(input, operationContext(ctx.request, input, "/connectors/request-settings")))),
-    requestsEventIdPost: p.input(operation16.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation16.POST(input, operationContext(ctx.request, input, "/connectors/requests/[eventId]")))),
-    runPost: p.input(operation17.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation17.POST(input, operationContext(ctx.request, input, "/connectors/run")))),
-    statusGet: p.input(operation18.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation18.GET(input, operationContext(ctx.request, input, "/connectors/status")))),
-    tasksGet: p.input(operation19.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation19.GET(input, operationContext(ctx.request, input, "/connectors/tasks")))),
-    testPost: p.input(operation20.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation20.POST(input, operationContext(ctx.request, input, "/connectors/test")))),
-    toolkitsGet: p.input(operation21.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation21.GET(input, operationContext(ctx.request, input, "/connectors/toolkits")))),
-    writePolicyGet: p.input(operation22.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation22.GET(input, operationContext(ctx.request, input, "/connectors/write-policy")))),
-    writePolicyPost: p.input(operation22.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation22.POST(input, operationContext(ctx.request, input, "/connectors/write-policy")))),
+  integrations: router({
+    connectPost: p.input(operation0.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation0.POST(input, operationContext(ctx.request, input, "/integrations/connect")))),
+    connectDirectPost: p.input(operation6.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation6.POST(input, operationContext(ctx.request, input, "/integrations/connectDirect")))),
+    disconnectPost: p.input(operation7.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation7.POST(input, operationContext(ctx.request, input, "/integrations/disconnect")))),
+    mcpServersPatch: p.input(operation8.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation8.PATCH(input, operationContext(ctx.request, input, "/integrations/mcp-servers/[id]")))),
+    mcpServerPost: p.input(operation8.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation8.POST(input, operationContext(ctx.request, input, "/integrations/mcp-servers/[id]")))),
+    mcpServersDelete: p.input(operation8.DELETEInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation8.DELETE(input, operationContext(ctx.request, input, "/integrations/mcp-servers/[id]")))),
+    approvePost: p.input(operation9.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation9.POST(input, operationContext(ctx.request, input, "/integrations/approve")))),
+    authConfigsGet: p.input(operation10.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation10.GET(input, operationContext(ctx.request, input, "/integrations/auth-configs")))),
+    authConfigsPost: p.input(operation10.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation10.POST(input, operationContext(ctx.request, input, "/integrations/auth-configs")))),
+    authConfigsDelete: p.input(operation10.DELETEInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation10.DELETE(input, operationContext(ctx.request, input, "/integrations/auth-configs")))),
+    authConfigsDefaultPost: p.input(operation11.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation11.POST(input, operationContext(ctx.request, input, "/integrations/auth-configs/default")))),
+    connectionsGet: p.input(operation12.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation12.GET(input, operationContext(ctx.request, input, "/integrations/connections")))),
+    mcpServersGet: p.input(operation13.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation13.GET(input, operationContext(ctx.request, input, "/integrations/mcp-servers")))),
+    mcpServersPost: p.input(operation13.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation13.POST(input, operationContext(ctx.request, input, "/integrations/mcp-servers")))),
+    pendingApprovalsGet: p.input(operation14.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation14.GET(input, operationContext(ctx.request, input, "/integrations/pending-approvals")))),
+    requestSettingsGet: p.input(operation15.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation15.GET(input, operationContext(ctx.request, input, "/integrations/request-settings")))),
+    requestSettingsPatch: p.input(operation15.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation15.PATCH(input, operationContext(ctx.request, input, "/integrations/request-settings")))),
+    requestsEventIdPost: p.input(operation16.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation16.POST(input, operationContext(ctx.request, input, "/integrations/requests/[eventId]")))),
+    runPost: p.input(operation17.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation17.POST(input, operationContext(ctx.request, input, "/integrations/run")))),
+    statusGet: p.input(operation18.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation18.GET(input, operationContext(ctx.request, input, "/integrations/status")))),
+    tasksGet: p.input(operation19.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation19.GET(input, operationContext(ctx.request, input, "/integrations/tasks")))),
+    testPost: p.input(operation20.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation20.POST(input, operationContext(ctx.request, input, "/integrations/test")))),
+    toolkitsGet: p.input(operation21.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation21.GET(input, operationContext(ctx.request, input, "/integrations/toolkits")))),
+    writePolicyGet: p.input(operation22.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation22.GET(input, operationContext(ctx.request, input, "/integrations/write-policy")))),
+    writePolicyPost: p.input(operation22.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation22.POST(input, operationContext(ctx.request, input, "/integrations/write-policy")))),
   }),
   browser: router({
     list: p.input(operation1.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation1.GET(input, operationContext(ctx.request, input, "/browser")))),
@@ -635,7 +635,7 @@ export const internalRouters = {
     chatNewPost: p.input(operation228.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation228.POST(input, operationContext(ctx.request, input, "/workspaces/[id]/chat/new")))),
     chatHistoryGet: p.input(operation229.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation229.GET(input, operationContext(ctx.request, input, "/workspaces/[id]/chat/history")))),
     chatResumePost: p.input(operation230.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation230.POST(input, operationContext(ctx.request, input, "/workspaces/[id]/chat/resume")))),
-    connectorScopesPut: p.input(operation231.PUTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation231.PUT(input, operationContext(ctx.request, input, "/workspaces/[id]/connector-scopes")))),
+    integrationScopesPut: p.input(operation231.PUTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation231.PUT(input, operationContext(ctx.request, input, "/workspaces/[id]/integration-scopes")))),
     foldersGet: p.input(operation232.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation232.GET(input, operationContext(ctx.request, input, "/workspaces/[id]/folders")))),
     foldersPost: p.input(operation232.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation232.POST(input, operationContext(ctx.request, input, "/workspaces/[id]/folders")))),
     foldersDeviceIdPut: p.input(operation233.PUTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation233.PUT(input, operationContext(ctx.request, input, "/workspaces/[id]/folders/[deviceId]")))),

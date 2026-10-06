@@ -3,25 +3,25 @@ import type { RouterInputs, RouterOutputs } from '@/lib/trpc/router';
 
 export type ConnectionCardAction = 'sign_in' | 'key' | 'allow' | 'decline';
 
-export type ConnectionCardBody = RouterInputs['connectors']['requestsEventIdPost']['body'];
+export type ConnectionCardBody = RouterInputs['integrations']['requestsEventIdPost']['body'];
 
-export type ConnectionCardResult = RouterOutputs['connectors']['requestsEventIdPost'];
+export type ConnectionCardResult = RouterOutputs['integrations']['requestsEventIdPost'];
 
-export type ConnectorStatusResponse = RouterOutputs['connectors']['statusGet'];
+export type IntegrationStatusResponse = RouterOutputs['integrations']['statusGet'];
 
 export const connectionRequestsApi = {
   /** Answer a Connect card: start a sign-in, submit a key, allow an agent, or say not now. */
   act: (eventId: string, body: ConnectionCardBody) =>
-    trpcClient.connectors.requestsEventIdPost.mutate({params: {eventId: eventId}, body: body}),
+    trpcClient.integrations.requestsEventIdPost.mutate({params: {eventId: eventId}, body: body}),
 
   /** Which providers can connect in one click, and the redirect URI a new sign-in app registers. */
-  status: () => trpcClient.connectors.statusGet.query({}),
+  status: () => trpcClient.integrations.statusGet.query({}),
 
   /** Save a sign-in app for a provider, the same way Settings does. */
   addSignInApp: (body: { providerId: string; label: string; oauth: { clientId: string; redirectUri: string }; clientSecret?: string }) =>
-    trpcClient.connectors.authConfigsPost.mutate({body: body}),
+    trpcClient.integrations.authConfigsPost.mutate({body: body}),
 
-  settings: () => trpcClient.connectors.requestSettingsGet.query({}),
+  settings: () => trpcClient.integrations.requestSettingsGet.query({}),
   setRequestsEnabled: (requestsEnabled: boolean) =>
-    trpcClient.connectors.requestSettingsPatch.mutate({body: { requestsEnabled }}),
+    trpcClient.integrations.requestSettingsPatch.mutate({body: { requestsEnabled }}),
 };

@@ -1,13 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { NextRequest } from 'next/server';
-import { makeHarness } from '../packages/connectors/src/__tests__/_harness';
-import { desktopOAuth } from '../src/lib/connectors/desktop-oauth';
+import { makeHarness } from '../packages/integrations/src/__tests__/_harness';
+import { desktopOAuth } from '../src/lib/integrations/desktop-oauth';
 
 const mocked = vi.hoisted(() => ({ runtime: vi.fn() }));
-vi.mock('@/lib/connectors/runtime', () => ({ getConnectorRuntime: mocked.runtime }));
-import { POST } from '../src/app/api/connectors/connect/route';
-import { GET } from '../src/app/api/connectors/callback/route';
+vi.mock('@/lib/integrations/runtime', () => ({ getIntegrationRuntime: mocked.runtime }));
+import { POST } from '../src/app/api/integrations/connect/route';
+import { GET } from '../src/app/api/integrations/callback/route';
 
 afterEach(() => { desktopOAuth().close(); vi.unstubAllEnvs(); });
 
@@ -15,7 +15,7 @@ it('connects through the real engine using the temporary redirect and matching P
   vi.stubEnv('RI_DESKTOP', '1');
   vi.stubEnv('RI_DESKTOP_CLIENT_SECRET', 'native-fixture-capability');
   const harness = makeHarness(); mocked.runtime.mockResolvedValue(harness.runtime);
-  const response = await POST(new NextRequest('https://localhost/api/connectors/connect', {
+  const response = await POST(new NextRequest('https://localhost/api/integrations/connect', {
     method: 'POST', headers: { 'x-ri-desktop-client': 'native-fixture-capability' }, body: JSON.stringify({ providerId: 'google', scopes: ['openid', 'email'], returnTo: '/welcome' }),
   }));
   expect(response.status).toBe(200);
@@ -39,7 +39,7 @@ it('connects through the real engine using the temporary redirect and matching P
 it('returns web sign-in to its initiating origin and path even when Next sees localhost', async () => {
   vi.stubEnv('RI_DESKTOP', '');
   const harness = makeHarness(); mocked.runtime.mockResolvedValue(harness.runtime);
-  const response = await POST(new NextRequest('http://localhost:4224/api/connectors/connect', {
+  const response = await POST(new NextRequest('http://localhost:4224/api/integrations/connect', {
     method: 'POST', headers: { origin: 'https://app.example', 'sec-fetch-site': 'same-origin' },
     body: JSON.stringify({ providerId: 'google', returnTo: '/welcome?step=connect' }),
   }));
@@ -47,7 +47,7 @@ it('returns web sign-in to its initiating origin and path even when Next sees lo
   expect(response.status).toBe(200);
   expect(result.desktopFlowId).toBeUndefined();
   expect(response.headers.get('set-cookie')).toBeNull();
-  const completed = await GET(new NextRequest(`http://localhost:4224/api/connectors/callback?code=c&state=${result.requestId}`));
+  const completed = await GET(new NextRequest(`http://localhost:4224/api/integrations/callback?code=c&state=${result.requestId}`));
   const back = new URL(completed.headers.get('location')!);
   expect(back.origin).toBe('https://app.example');
   expect(back.pathname).toBe('/welcome');
@@ -60,7 +60,7 @@ it('uses the web callback for a phone on a desktop-capable backend', async () =>
   vi.stubEnv('RI_DESKTOP', '1');
   vi.stubEnv('RI_DESKTOP_CLIENT_SECRET', 'native-fixture-capability');
   const harness = makeHarness(); mocked.runtime.mockResolvedValue(harness.runtime);
-  const response = await POST(new NextRequest('http://localhost:4224/api/connectors/connect', {
+  const response = await POST(new NextRequest('http://localhost:4224/api/integrations/connect', {
     method: 'POST', headers: { 'x-ri-desktop-client': 'untrusted-claim', origin: 'https://home.example', 'sec-fetch-site': 'same-origin' },
     body: JSON.stringify({ providerId: 'google', returnTo: '/welcome' }),
   }));
@@ -68,7 +68,7 @@ it('uses the web callback for a phone on a desktop-capable backend', async () =>
   expect(response.status).toBe(200);
   expect(result.desktopFlowId).toBeUndefined();
   expect(new URL(result.authorizationUrl).searchParams.get('redirect_uri')).toBe('http://127.0.0.1:0/callback');
-  const completed = await GET(new NextRequest(`http://localhost:4224/api/connectors/callback?code=c&state=${result.requestId}`));
+  const completed = await GET(new NextRequest(`http://localhost:4224/api/integrations/callback?code=c&state=${result.requestId}`));
   const back = new URL(completed.headers.get('location')!);
   expect(back.origin).toBe('https://home.example');
   expect(back.pathname).toBe('/welcome');
@@ -78,12 +78,12 @@ it('uses the web callback for a phone on a desktop-capable backend', async () =>
 
 it('uses a relative callback fallback without a trusted initiating origin', async () => {
   const harness = makeHarness(); mocked.runtime.mockResolvedValue(harness.runtime);
-  const response = await POST(new NextRequest('http://localhost:4224/api/connectors/connect', {
+  const response = await POST(new NextRequest('http://localhost:4224/api/integrations/connect', {
     method: 'POST', headers: { origin: 'https://untrusted.example', 'sec-fetch-site': 'cross-site' },
     body: JSON.stringify({ providerId: 'google', returnTo: '/a/..//untrusted.example' }),
   }));
   const result = await response.json();
-  const completed = await GET(new NextRequest(`http://localhost:4224/api/connectors/callback?code=c&state=${result.requestId}`));
+  const completed = await GET(new NextRequest(`http://localhost:4224/api/integrations/callback?code=c&state=${result.requestId}`));
   expect(completed.headers.get('location')).toMatch(/^\/\?settings=plugins&connected=/);
   expect(harness.env.exchangeCount).toBe(1);
 });
@@ -91,12 +91,12 @@ it('uses a relative callback fallback without a trusted initiating origin', asyn
 it('validates and consumes web denial state while returning only a coarse error to the remote page', async () => {
   vi.stubEnv('RI_DESKTOP_CLIENT_SECRET', 'native-fixture-capability');
   const harness = makeHarness(); mocked.runtime.mockResolvedValue(harness.runtime);
-  const response = await POST(new NextRequest('http://localhost:4224/api/connectors/connect', {
+  const response = await POST(new NextRequest('http://localhost:4224/api/integrations/connect', {
     method: 'POST', headers: { origin: 'https://home.example', 'sec-fetch-site': 'same-origin' },
     body: JSON.stringify({ providerId: 'google', returnTo: '/welcome' }),
   }));
   const result = await response.json();
-  const callback = new NextRequest(`http://localhost:4224/api/connectors/callback?error=private-provider-detail&state=${result.requestId}`);
+  const callback = new NextRequest(`http://localhost:4224/api/integrations/callback?error=private-provider-detail&state=${result.requestId}`);
   const denied = await GET(callback);
   expect(denied.headers.get('location')).toBe('https://home.example/welcome?error=authorization_cancelled');
   expect((await GET(callback)).headers.get('location')).toBe('/?settings=plugins&error=invalid_state');
@@ -106,13 +106,13 @@ it('validates and consumes web denial state while returning only a coarse error 
 it.each(['code=c', 'error=access_denied'])('rejects a native state on the public callback (%s)', async (query) => {
   vi.stubEnv('RI_DESKTOP_CLIENT_SECRET', 'native-fixture-capability');
   const harness = makeHarness(); mocked.runtime.mockResolvedValue(harness.runtime);
-  const response = await POST(new NextRequest('https://localhost/api/connectors/connect', {
+  const response = await POST(new NextRequest('https://localhost/api/integrations/connect', {
     method: 'POST', headers: { 'x-ri-desktop-client': 'native-fixture-capability' },
     body: JSON.stringify({ providerId: 'google' }),
   }));
   const result = await response.json();
   expect(result.desktopFlowId).toBeTruthy();
-  const rejected = await GET(new NextRequest(`http://localhost:4224/api/connectors/callback?${query}&state=${result.requestId}`));
+  const rejected = await GET(new NextRequest(`http://localhost:4224/api/integrations/callback?${query}&state=${result.requestId}`));
   const back = new URL(rejected.headers.get('location')!, 'https://home.example');
   expect(back.searchParams.has('error')).toBe(true);
   expect(back.searchParams.has('connected')).toBe(false);

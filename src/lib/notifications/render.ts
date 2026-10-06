@@ -10,7 +10,7 @@ import { getRemoteBaseUrl, getLanBaseUrl } from '@/lib/auth/bootstrap';
 import type { NotificationEvent, RenderedNotification } from './types';
 
 /** Channel kinds reached OFF this device — they need an absolute URL. */
-const EXTERNAL_KINDS = new Set<NotificationChannelRecord['kind']>(['connector']);
+const EXTERNAL_KINDS = new Set<NotificationChannelRecord['kind']>(['integration']);
 
 export function render(event: NotificationEvent, channel: NotificationChannelRecord): RenderedNotification {
   return { title: event.title, body: event.body, url: resolveUrl(event.url, channel.kind) };

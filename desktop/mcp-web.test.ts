@@ -3,25 +3,25 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
-import { makeMcpOAuthProvider, type McpOAuthState } from '../src/lib/connectors/mcp-oauth';
-import { mcpServerStore, type McpServerStore } from '../src/lib/connectors/mcp-servers';
-import { desktopOAuth } from '../src/lib/connectors/desktop-oauth';
+import { makeMcpOAuthProvider, type McpOAuthState } from '../src/lib/integrations/mcp-oauth';
+import { mcpServerStore, type McpServerStore } from '../src/lib/integrations/mcp-servers';
+import { desktopOAuth } from '../src/lib/integrations/desktop-oauth';
 import { mockMcp } from './mock-mcp';
 
 const mocks = vi.hoisted(() => ({ store: vi.fn(), rebuild: vi.fn(), invalidate: vi.fn(), redirectOrigin: 'https://home.example' }));
 const webOrigin = 'https://home.example';
 const pageOrigin = 'https://phone.beamd.run';
-vi.mock('@/lib/connectors/runtime', () => ({
+vi.mock('@/lib/integrations/runtime', () => ({
   getMcpServerStore: mocks.store,
-  getMcpOAuthRedirectUrl: (sid: string) => `${mocks.redirectOrigin}/api/connectors/mcp-oauth/${sid}`,
-  getConnectorRuntime: mocks.rebuild,
-  invalidateConnectorRuntime: mocks.invalidate,
+  getMcpOAuthRedirectUrl: (sid: string) => `${mocks.redirectOrigin}/api/integrations/mcp-oauth/${sid}`,
+  getIntegrationRuntime: mocks.rebuild,
+  invalidateIntegrationRuntime: mocks.invalidate,
   MCP_TIMEOUT_MS: 5000,
   withTimeout: <T,>(operation: Promise<T>) => operation,
   mcpOAuthProviderFor: (entry: { id: string }, onRedirect?: (url: URL) => void, options?: { redirectUri?: string; interactive?: boolean; callbackChannel?: 'web' | 'desktop' }) => {
     const store: McpServerStore = mocks.store();
     return makeMcpOAuthProvider({
-      redirectUrl: options?.redirectUri ?? `${mocks.redirectOrigin}/api/connectors/mcp-oauth/${entry.id}`,
+      redirectUrl: options?.redirectUri ?? `${mocks.redirectOrigin}/api/integrations/mcp-oauth/${entry.id}`,
       clientName: 'Ri web regression',
       load: async () => (await store.getOAuthState(entry.id) ?? {}) as McpOAuthState,
       compareAndSave: (revision, state) => store.compareAndSetOAuthState(entry.id, revision,
@@ -32,8 +32,8 @@ vi.mock('@/lib/connectors/runtime', () => ({
     });
   },
 }));
-import { beginMcpAuthorization } from '../src/lib/connectors/mcp-authorization';
-import { GET } from '../src/app/api/connectors/mcp-oauth/[sid]/route';
+import { beginMcpAuthorization } from '../src/lib/integrations/mcp-authorization';
+import { GET } from '../src/app/api/integrations/mcp-oauth/[sid]/route';
 
 let dir: string;
 let store: McpServerStore;
@@ -64,7 +64,7 @@ afterEach(() => {
 
 async function authorize(recordOrigin = true) {
   const entry = await store.create({ slug: 'fixture', displayName: 'Fixture', url: provider.url, auth: { kind: 'oauth' } });
-  const request = recordOrigin ? new Request('http://localhost:4224/api/connectors/mcp-servers', {
+  const request = recordOrigin ? new Request('http://localhost:4224/api/integrations/mcp-servers', {
     method: 'POST', headers: { origin: pageOrigin, 'sec-fetch-site': 'same-origin' },
   }) : undefined;
   const result = await beginMcpAuthorization(entry, request);
@@ -72,7 +72,7 @@ async function authorize(recordOrigin = true) {
   if (!result.requiresAuth) throw new Error('Expected authorization');
   expect(result.desktopFlowId).toBeUndefined();
   const authorization = new URL(result.authUrl);
-  expect(authorization.searchParams.get('redirect_uri')).toBe(`${webOrigin}/api/connectors/mcp-oauth/${entry.id}`);
+  expect(authorization.searchParams.get('redirect_uri')).toBe(`${webOrigin}/api/integrations/mcp-oauth/${entry.id}`);
   const consent = await fetch(authorization, { redirect: 'manual' });
   const callback = new URL(consent.headers.get('location')!);
   // Next reports its internal address even when the browser reached the callback through HTTPS.
@@ -142,7 +142,7 @@ it('completes a web flow after the configured remote origin changes and returns 
 
 it('rejects desktop MCP state at the web callback without consuming its native authorization', async () => {
   const entry = await store.create({ slug: 'native', displayName: 'Native fixture', url: provider.url, auth: { kind: 'oauth' } });
-  const result = await beginMcpAuthorization(entry, new Request('https://localhost/api/connectors/mcp-servers', {
+  const result = await beginMcpAuthorization(entry, new Request('https://localhost/api/integrations/mcp-servers', {
     method: 'POST', headers: { 'x-ri-desktop-client': 'native-client-only' },
   }));
   expect(result.requiresAuth).toBe(true);
@@ -153,7 +153,7 @@ it('rejects desktop MCP state at the web callback without consuming its native a
   expect((await store.getOAuthState(entry.id))?.callbackChannel).toBe('desktop');
   const consent = await fetch(authorization, { redirect: 'manual' });
   const nativeCallback = new URL(consent.headers.get('location')!);
-  const response = await GET(new NextRequest(`http://localhost:4224/api/connectors/mcp-oauth/${entry.id}${nativeCallback.search}`), {
+  const response = await GET(new NextRequest(`http://localhost:4224/api/integrations/mcp-oauth/${entry.id}${nativeCallback.search}`), {
     params: Promise.resolve({ sid: entry.id }),
   });
   expect(response.status).toBe(400);

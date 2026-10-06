@@ -111,20 +111,20 @@ export function proxy(request: NextRequest) {
     return nextWithoutKeyHeaders(request);
   }
 
-  // `/api/connectors/callback` is the OAuth redirect target. The provider
+  // `/api/integrations/callback` is the OAuth redirect target. The provider
   // (Google, etc.) sends the user's browser here with `?code&state`; that
   // navigation cannot carry the app's Bearer token. The handler's own security
   // is the single-use, unguessable `state` it validates against the stored
   // AuthRequest — a strictly weaker, single-purpose credential. Exempted so the
   // round-trip completes.
-  if (request.nextUrl.pathname === '/api/connectors/callback') {
+  if (request.nextUrl.pathname === '/api/integrations/callback') {
     return nextWithoutKeyHeaders(request);
   }
 
-  // `/api/connectors/mcp-oauth/<sid>` is the OAuth redirect target for an ingested MCP server.
-  // Same rationale as the connectors callback: the provider redirects the user's browser here
+  // `/api/integrations/mcp-oauth/<sid>` is the OAuth redirect target for an ingested MCP server.
+  // Same rationale as the integrations callback: the provider redirects the user's browser here
   // without the app Bearer; the SDK's single-use authorization code + PKCE verifier are the auth.
-  if (request.nextUrl.pathname.startsWith('/api/connectors/mcp-oauth/')) {
+  if (request.nextUrl.pathname.startsWith('/api/integrations/mcp-oauth/')) {
     return nextWithoutKeyHeaders(request);
   }
 

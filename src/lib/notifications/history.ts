@@ -1,15 +1,16 @@
+import { INTEGRATION_LABELS } from '@/constants/integrations';
 import type { NotificationChannelRecord, NotificationDeliveryRecord, NotificationDeliveryStatus, StoredRenderedNotification } from '@/db/types';
 import { isDesktopNotificationChannel } from './desktop-contract';
 import { eventCatalogEntry } from './events';
 
 export const NOTIFICATION_HISTORY_LIMIT = 100;
 export type NotificationHistoryStatus = Exclude<NotificationDeliveryStatus, 'pending'> | 'queued' | 'uncertain' | 'expired';
-export type NotificationHistoryChannelType = 'desktop' | 'web_push' | 'telegram' | 'in_app' | 'connector' | 'unknown';
+export type NotificationHistoryChannelType = 'desktop' | 'web_push' | 'telegram' | 'in_app' | 'integration' | 'unknown';
 export const NOTIFICATION_HISTORY_STATUS_LABELS = {
   queued: 'Queued', sent: 'Sent', failed: 'Failed', uncertain: 'Uncertain', expired: 'Expired', skipped: 'Skipped',
 } satisfies Record<NotificationHistoryStatus, string>;
 export const NOTIFICATION_HISTORY_CHANNEL_LABELS = {
-  desktop: 'Desktop', web_push: 'Browser push', telegram: 'Telegram', in_app: 'In-app', connector: 'Connector', unknown: 'Unavailable channel',
+  desktop: 'Desktop', web_push: 'Browser push', telegram: 'Telegram', in_app: 'In-app', integration: INTEGRATION_LABELS.singular, unknown: 'Unavailable channel',
 } satisfies Record<NotificationHistoryChannelType, string>;
 
 /** Deliberately omit event bodies, links, credentials, receipts and raw errors. */
@@ -29,7 +30,7 @@ function displayText(value: string | null | undefined, fallback: string, limit: 
 function channelType(channel?: NotificationChannelRecord): NotificationHistoryChannelType {
   if (!channel) return 'unknown';
   if (isDesktopNotificationChannel(channel)) return 'desktop';
-  if (channel.kind === 'connector') return channel.providerId === 'telegram' ? 'telegram' : 'connector';
+  if (channel.kind === 'integration') return channel.providerId === 'telegram' ? 'telegram' : 'integration';
   return channel.kind;
 }
 

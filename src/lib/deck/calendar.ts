@@ -3,7 +3,7 @@
  *
  * The deck is "your tasks poured into the real gaps of your real day" — so it
  * needs to know the day's busy blocks. That data arrives via a calendar
- * connector (separate, in-flight). This module is the boundary the connector
+ * integration (separate, in-flight). This module is the boundary the integration
  * plugs into: until one registers a provider, `getCalendarEventsForDay`
  * returns no events and the deck degrades gracefully to "a normal day".
  *
@@ -29,13 +29,13 @@ export interface WorkdayBounds {
   workdayEnd: string;
 }
 
-// ─── Provider registry (connector injection point) ──────────────
+// ─── Provider registry (integration injection point) ──────────────
 
 export type CalendarProvider = (date: string) => Promise<CalendarBlock[]>;
 
 let provider: CalendarProvider | null = null;
 
-/** A calendar connector registers its reader here. Pass null to unregister. */
+/** A calendar integration registers its reader here. Pass null to unregister. */
 export function setCalendarProvider(fn: CalendarProvider | null): void {
   provider = fn;
 }

@@ -10,9 +10,9 @@
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createRedactor } from '@connectors/engine';
-import { connectMcpClient } from '@connectors/engine/mcp';
-import { captureTaskPickerContract, TASK_PICKER_QUALIFICATION_READS, type TaskPickerQualificationProvider } from '../src/lib/connectors/task-picker-contract';
+import { createRedactor } from '@integrations/engine';
+import { connectMcpClient } from '@integrations/engine/mcp';
+import { captureTaskPickerContract, TASK_PICKER_QUALIFICATION_READS, type TaskPickerQualificationProvider } from '../src/lib/integrations/task-picker-contract';
 
 const redactor = createRedactor();
 
@@ -39,10 +39,10 @@ async function main() {
   try { await fs.lstat(outputPath); throw new Error('The output file already exists. Choose a new path.'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
 
-  const { getMcpServerStore, mcpAuthHeaders, withTimeout, MCP_TIMEOUT_MS } = await import('../src/lib/connectors/runtime');
-  const { hostedMcpDefinition } = await import('../src/lib/connectors/hosted-mcp');
-  const { isCurrentMcpTransport } = await import('../src/lib/connectors/mcp-lifecycle');
-  const { registerMcpSecrets } = await import('../src/lib/connectors/mcp-secrets');
+  const { getMcpServerStore, mcpAuthHeaders, withTimeout, MCP_TIMEOUT_MS } = await import('../src/lib/integrations/runtime');
+  const { hostedMcpDefinition } = await import('../src/lib/integrations/hosted-mcp');
+  const { isCurrentMcpTransport } = await import('../src/lib/integrations/mcp-lifecycle');
+  const { registerMcpSecrets } = await import('../src/lib/integrations/mcp-secrets');
   const store = getMcpServerStore();
   const entry = store.get(serverId);
   const definition = entry ? hostedMcpDefinition(entry) : undefined;

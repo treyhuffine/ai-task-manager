@@ -7,7 +7,7 @@ import { renderAppRootAgentsMd } from '@/lib/config/agents-md-template';
 import {
   installOrchestratorSurface,
   orchestratorMcpServer,
-  connectorsMcpServer,
+  integrationsMcpServer,
   browserMcpServer,
   orchestratorSessionConfig,
   renderOrchestratorBrief,
@@ -252,7 +252,7 @@ describe('orchestratorSessionConfig', () => {
     });
   });
 
-  it('attaches the orchestrator + connectors MCP servers', () => {
+  it('attaches the orchestrator + integrations MCP servers', () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
     const config = orchestratorSessionConfig({ port: 5151 });
@@ -266,9 +266,9 @@ describe('orchestratorSessionConfig', () => {
         headers: { Authorization: 'Bearer tok_test_123' },
       },
       {
-        name: 'connectors',
+        name: 'integrations',
         type: 'http',
-        url: 'http://localhost:5151/api/connectors/mcp',
+        url: 'http://localhost:5151/api/integrations/mcp',
         headers: { Authorization: 'Bearer tok_test_123' },
       },
     ]);
@@ -308,23 +308,23 @@ describe('orchestratorMcpServer', () => {
   });
 });
 
-describe('connectorsMcpServer', () => {
+describe('integrationsMcpServer', () => {
   it('returns null without a local token', () => {
     fs.mkdirSync(root, { recursive: true });
-    expect(connectorsMcpServer(4224)).toBeNull();
+    expect(integrationsMcpServer(4224)).toBeNull();
   });
 
   it('appends ?ws=<id> for a workspace-scoped endpoint; bare otherwise (spec §6b)', () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
     // McpServerConfig is a union (http | stdio); toMatchObject reads `url` without narrowing.
-    expect(connectorsMcpServer(5151)).toMatchObject({
+    expect(integrationsMcpServer(5151)).toMatchObject({
       type: 'http',
-      url: 'http://localhost:5151/api/connectors/mcp',
+      url: 'http://localhost:5151/api/integrations/mcp',
     });
-    expect(connectorsMcpServer(5151, { workspaceId: 'ws-123' })).toMatchObject({
+    expect(integrationsMcpServer(5151, { workspaceId: 'ws-123' })).toMatchObject({
       type: 'http',
-      url: 'http://localhost:5151/api/connectors/mcp?ws=ws-123',
+      url: 'http://localhost:5151/api/integrations/mcp?ws=ws-123',
     });
   });
 
@@ -332,20 +332,20 @@ describe('connectorsMcpServer', () => {
     fs.mkdirSync(root, { recursive: true });
     seedToken();
     const { verifySessionCredential } = await import('./session-credential');
-    const bare = connectorsMcpServer(5151) as { headers: Record<string, string> };
+    const bare = integrationsMcpServer(5151) as { headers: Record<string, string> };
     expect(bare.headers).toEqual({ Authorization: 'Bearer tok_test_123' });
 
-    const scoped = connectorsMcpServer(5151, { workspaceId: 'ws-123', sessionId: 'chat-42' }) as {
+    const scoped = integrationsMcpServer(5151, { workspaceId: 'ws-123', sessionId: 'chat-42' }) as {
       headers: Record<string, string>;
     };
     expect(verifySessionCredential(scoped.headers['x-ri-session'], 'tok_test_123')).toBe('chat-42');
 
-    // The orchestrator chat threads its session through to the connectors server too.
+    // The orchestrator chat threads its session through to the integrations server too.
     const config = orchestratorSessionConfig({ port: 5151, sessionId: 'chat-42' });
-    const connectors = config.mcpServers?.find((server) => server.name === 'connectors') as
+    const integrations = config.mcpServers?.find((server) => server.name === 'integrations') as
       | { headers: Record<string, string> }
       | undefined;
-    expect(verifySessionCredential(connectors?.headers['x-ri-session'], 'tok_test_123')).toBe('chat-42');
+    expect(verifySessionCredential(integrations?.headers['x-ri-session'], 'tok_test_123')).toBe('chat-42');
   });
 });
 

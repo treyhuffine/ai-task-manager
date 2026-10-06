@@ -41,7 +41,7 @@ export interface DeliveryResult {
  */
 export interface NotificationChannelAdapter {
   kind: NotificationChannelRecord['kind'];
-  /** Present for connector adapters (telegram/slack/…); absent for web_push/in_app. */
+  /** Present for integration adapters (telegram/slack/…); absent for web_push/in_app. */
   providerId?: string;
   validateConfig?(channel: NotificationChannelRecord): void;
   deliver(channel: NotificationChannelRecord, rendered: RenderedNotification): Promise<DeliveryResult>;

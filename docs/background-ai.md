@@ -53,7 +53,7 @@ slugs have no stable cheap alias.
 ### Tool wiring per harness
 
 Claude supports MCP attachment (`capabilities.mcp`), so tool-using calls
-attach the orchestrator MCP (and the connectors MCP where relevant) over
+attach the orchestrator MCP (and the integrations MCP where relevant) over
 localhost + the local bearer token. Codex has no MCP wiring in agentex yet:
 call sites check `harnessSupportsMcp()` and fall back to running at the app
 data root, where the installed AGENTS.md surface routes the same actions
@@ -65,7 +65,7 @@ disappears and the allowlists light up there too.
 
 | Feature | File | Tier | Tools |
 | --- | --- | --- | --- |
-| Deck context gathering | `src/lib/ai/generate-deck.ts` | standard | `search`, `get_day_shape`, read-only connector actions |
+| Deck context gathering | `src/lib/ai/generate-deck.ts` | standard | `search`, `get_day_shape`, read-only integration actions |
 | Deck structured generation | `src/lib/ai/generate-deck.ts` | standard | none (JSON) |
 | Stream urgency lane | `src/lib/stream-triage/urgency.ts` | fast | none (JSON) |
 | Image-capture extraction | `src/lib/capture/extract-image.ts` | standard | file reads (images already saved to the attachments dir) |

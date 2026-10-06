@@ -44,8 +44,8 @@ export interface AuthConfig {
   /** Whether agents may ask the user to connect an account from chat (the
    *  `request_connection` tool and its Connect card). Null = on, false = off.
    *  Reconnect cards for a connection that stopped working show either way.
-   *  See `src/lib/connectors/connection-requests.ts`. */
-  connectorRequestsEnabled: boolean | null;
+   *  See `src/lib/integrations/connection-requests.ts`. */
+  integrationRequestsEnabled: boolean | null;
   /** Absolute path to the Chromium-family binary the agent browser drives.
    *  Null = autodetect (Chrome, Brave, Edge, Chromium). */
   browserChromiumPath: string | null;
@@ -86,7 +86,7 @@ export function readAuthConfig(): AuthConfig | null {
       autoTunnel: parsed.autoTunnel ?? null,
       tunnelName: parsed.tunnelName ?? null,
       browserEnabled: parsed.browserEnabled ?? null,
-      connectorRequestsEnabled: parsed.connectorRequestsEnabled ?? null,
+      integrationRequestsEnabled: parsed.integrationRequestsEnabled ?? null,
       browserChromiumPath: parsed.browserChromiumPath ?? null,
       browserHeadlessDefault: parsed.browserHeadlessDefault ?? null,
       browserIdleCloseMs: parsed.browserIdleCloseMs ?? null,
@@ -133,7 +133,7 @@ function writeLockedConfig(config: Partial<AuthConfig>): AuthConfig {
     autoTunnel: pick('autoTunnel'),
     tunnelName: pick('tunnelName'),
     browserEnabled: pick('browserEnabled'),
-    connectorRequestsEnabled: pick('connectorRequestsEnabled'),
+    integrationRequestsEnabled: pick('integrationRequestsEnabled'),
     browserChromiumPath: pick('browserChromiumPath'),
     browserHeadlessDefault: pick('browserHeadlessDefault'),
     browserIdleCloseMs: pick('browserIdleCloseMs'),

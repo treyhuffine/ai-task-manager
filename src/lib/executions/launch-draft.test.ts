@@ -212,9 +212,9 @@ describe('canLaunch', () => {
   });
 });
 
-describe('connector tasks', () => {
-  const connectorTask = (label: string): LaunchSourceItem => ({
-    kind: 'connector',
+describe('integration tasks', () => {
+  const integrationTask = (label: string): LaunchSourceItem => ({
+    kind: 'integration',
     key: `todoist:99`,
     title: 'Renew domain',
     subtitle: 'Todoist · tomorrow',
@@ -223,7 +223,7 @@ describe('connector tasks', () => {
   });
 
   it('attaches as context and names its provider in the heading', () => {
-    const chips = chipsForItem(connectorTask('Todoist'));
+    const chips = chipsForItem(integrationTask('Todoist'));
     expect(chips).toHaveLength(1);
     expect(chips[0].chipKind).toBe('context');
     // The agent must be able to tell an external task from a local one, since
@@ -232,12 +232,12 @@ describe('connector tasks', () => {
   });
 
   it('falls back to a neutral prefix when the provider is unknown', () => {
-    const chips = chipsForItem({ ...connectorTask('Todoist'), providerLabel: null });
+    const chips = chipsForItem({ ...integrationTask('Todoist'), providerLabel: null });
     expect(chips[0].context?.heading).toBe('External task: Renew domain');
   });
 
   it('composes into the prompt alongside a local task', () => {
-    const chips = applyPick(applyPick([], task('Local one')), connectorTask('Linear'));
+    const chips = applyPick(applyPick([], task('Local one')), integrationTask('Linear'));
     const out = composePrompt('do both', chips);
     expect(out).toContain('### Task: Local one');
     expect(out).toContain('### Linear task: Renew domain');

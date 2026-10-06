@@ -18,7 +18,7 @@
  * `pnpm iso` so it can only ever touch the restored root. It does not start a
  * server, the scheduler, or any harness.
  *
- * Backups contain secrets (the host token, connector keys). They are written
+ * Backups contain secrets (the host token, integration keys). They are written
  * 0700/0600. Keep them in private storage.
  */
 

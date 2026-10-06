@@ -161,7 +161,7 @@ is frozen and doesn't get these):
 - `archive_execution` — close out through the server's archive route. A
   dirty worktree fails with `conflict` and a `force` suggestion.
 - `update_workspace` — an agent's name, emoji, area, purpose and standing
-  instructions. Connector scopes and the browser widen what the agent can
+  instructions. Integration scopes and the browser widen what the agent can
   reach, so they need the trusted local CLI (`ctx.remote === false`). The
   folder, scripts and files-to-copy stay in the app.
 - `get_pending_input` / `answer_pending_input` — fetch and resolve the
@@ -228,7 +228,7 @@ set and no execution:
   `skillDirs` go to `~/.gemini/antigravity-cli/skills`, never the folder).
   Cursor and OpenCode drop session instructions, so the brief rides the
   first message of a fresh chat.
-- **Scope.** The same as its executions: its connector scopes (when the
+- **Scope.** The same as its executions: its integration scopes (when the
   harness isolates MCP), the agent browser on the isolated `ws-<id>`
   profile, and its reference folders.
 - **Building is an execution.** When the user asks the main chat to build,
@@ -246,7 +246,7 @@ set and no execution:
   non-git agent has no guard, and its brief edits a file directly only when
   the user asks for that edit in the chat.
 - **Recycling.** Session config is fixed at spawn. Instructions, browser,
-  folder, connector-scope and reference-folder edits recycle the agent's
+  folder, integration-scope and reference-folder edits recycle the agent's
   executions and main chat, and name and purpose edits recycle only the
   main chat. A session mid-turn is recycled when the turn ends
   (`recycleWhenIdle`), so a chat editing its own agent never cuts itself

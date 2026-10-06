@@ -95,8 +95,8 @@ describe('PATCH /api/workspaces/:id scope fields', () => {
     expect(recycleWorkspaceSessions).not.toHaveBeenCalled();
   });
 
-  it('still refuses to write connector scopes through the generic PATCH', async () => {
-    await patch({ connectorScopes: [{ toolkitId: 'github' }, { toolkitId: 'gmail', accounts: ['me@x.com'] }], purpose: 'x' });
+  it('still refuses to write integration scopes through the generic PATCH', async () => {
+    await patch({ integrationScopes: [{ toolkitId: 'github' }, { toolkitId: 'gmail', accounts: ['me@x.com'] }], purpose: 'x' });
     expect(updateWorkspace).toHaveBeenCalledWith('ws-1', { purpose: 'x' });
   });
 });

@@ -1,4 +1,4 @@
-import { callbackParams, desktopEnabled, desktopOAuth } from '@/lib/connectors/desktop-oauth';
+import { callbackParams, desktopEnabled, desktopOAuth } from '@/lib/integrations/desktop-oauth';
 
 export async function POST(request: Request) {
   if (!desktopEnabled()) return new Response('Not found', { status: 404 });

@@ -215,4 +215,4 @@ Each phase is independently shippable and independently valuable. Phase 1 fixes 
 1. Cadence default for the reconciler: twice daily is a guess. Should it also fire when pending count crosses a size threshold?
 2. When a cluster merges into an existing task, subtask versus body-append is a judgment call per case. Does the agent decide freely, or do we constrain to subtask-only initially for predictability?
 3. Should `dismissed` items ever re-enter reconciliation (e.g. a later capture makes an old dismissed fragment relevant)? The ledger makes this possible. Recommendation: yes, but only as supporting context for clusters, never resurrected on their own.
-4. External high-volume sources (future email or Slack connectors) may need a pre-stream filter so the reconciler is not drowned. Out of scope here, but the `origin`/`externalSource` fields are the seam.
+4. External high-volume sources (future email or Slack integrations) may need a pre-stream filter so the reconciler is not drowned. Out of scope here, but the `origin`/`externalSource` fields are the seam.

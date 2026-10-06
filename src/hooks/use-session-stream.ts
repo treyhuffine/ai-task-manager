@@ -17,7 +17,7 @@ import {
 import type { MessageDelivery } from '@/lib/workers/delivery';
 import { noteDeliveryUpdate } from '@/lib/query/delivery-fence';
 import { pageStream } from '@/lib/realtime/page-stream';
-import { connectorApprovalsKey } from '@/hooks/use-connector-approvals';
+import { integrationApprovalsKey } from '@/hooks/use-integration-approvals';
 
 /**
  * Subscribes to the session's frames and folds every frame into
@@ -27,7 +27,7 @@ import { connectorApprovalsKey } from '@/hooks/use-connector-approvals';
  *   - `runtime`      → replaces `['session', id, 'runtime-status']`
  *   - `background_tasks` → updates the detached-work axis of runtime status
  *   - `pending_input`→ replaces `['session', id, 'pending-input']`
- *   - `connector_approvals` → replaces `['session', id, 'connector-approvals']`
+ *   - `integration_approvals` → replaces `['session', id, 'integration-approvals']`
  *
  * Replaces the three independent polls (3s/2s/1.5s) those caches used
  * to drive. Snapshot fetches still fire on mount + window focus as a
@@ -54,7 +54,7 @@ export function useSessionStream(sessionId: string | null): void {
     const deliveriesKey = ['session', sessionId, 'deliveries'] as const;
     const runtimeKey = ['session', sessionId, 'runtime-status'] as const;
     const pendingKey = ['session', sessionId, 'pending-input'] as const;
-    const approvalsKey = connectorApprovalsKey(sessionId);
+    const approvalsKey = integrationApprovalsKey(sessionId);
     const reconcilingKey = ['session', sessionId, 'reconciling'] as const;
     // Tier-1 tree refresh. Resolved at fire time rather than closed over,
     // because the tree is cached per *execution* and the scope depends on
@@ -171,8 +171,8 @@ export function useSessionStream(sessionId: string | null): void {
       invalidateRail();
     };
 
-    // Live connector approval ids: approval cards offer buttons only for these.
-    const handleConnectorApprovals = (frame: unknown) => {
+    // Live integration approval ids: approval cards offer buttons only for these.
+    const handleIntegrationApprovals = (frame: unknown) => {
       const data = frame as { pending: string[] };
       queryClient.setQueryData<string[]>(approvalsKey, data.pending);
     };
@@ -247,7 +247,7 @@ export function useSessionStream(sessionId: string | null): void {
       runtime: handleRuntime,
       background_tasks: handleBackgroundTasks,
       pending_input: handlePendingInput,
-      connector_approvals: handleConnectorApprovals,
+      integration_approvals: handleIntegrationApprovals,
       reconcile: handleReconcile,
       ready: handleReady,
     };

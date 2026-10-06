@@ -22,7 +22,7 @@ import {
 	parseEntitySegments,
 	type EntitySegment
 } from '@/lib/entity-refs/parse-markers';
-import { approvalResponseView } from '@/lib/executions/connector-approvals';
+import { approvalResponseView } from '@/lib/executions/integration-approvals';
 import { computeEditDiff } from '@/lib/executions/edit-diff';
 import { extractPullRequestUrl } from '@/lib/executions/pr-link';
 import { describeToolCall, describeToolResult, fileTargetPath, isSubagentTool, type ToolGlyph } from '@/lib/executions/tool-display';
@@ -60,7 +60,7 @@ import {
 import { useMemo, useState, type ReactNode } from 'react';
 import { backgroundTaskOutcomePresentation } from './background-task-presentation';
 import { ConnectionRequestCard } from './connection-request-card';
-import { ConnectorApprovalCard } from './connector-approval-card';
+import { IntegrationApprovalCard } from './integration-approval-card';
 import { DiffLines, FileChip } from './file-chip';
 
 interface ExecutionEventProps {
@@ -111,8 +111,8 @@ interface ExecutionEventProps {
   nestedAncestorCallIds?: ReadonlySet<string>;
   /**
    * For an `approval_request` leader row: every request row its card
-   * covers (a batch of the same connector action folds into one card, see
-   * lib/executions/connector-approvals.ts). Absent → the row stands alone.
+   * covers (a batch of the same integration action folds into one card, see
+   * lib/executions/integration-approvals.ts). Absent → the row stands alone.
    */
   approvalGroup?: readonly ChatEventRecord[];
 }
@@ -522,7 +522,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
 
     case 'approval_request':
       return (
-        <ConnectorApprovalCard
+        <IntegrationApprovalCard
           rows={approvalGroup ?? [event]}
           sessionId={sessionId}
           isLatest={isLatestUnresolved ?? false}

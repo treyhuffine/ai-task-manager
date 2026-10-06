@@ -72,7 +72,7 @@ The visible Stream contains things the user intentionally externalized:
 - Explicit brain dumps
 - Ambiguous or multi-thought content intentionally sent to the Stream from chat
 
-Email, Slack, GitHub, calendar changes, meeting transcripts, and other connector payloads do not appear in the visible Stream by default. They enter through a separate integration-event boundary and can use the same reconciliation engine.
+Email, Slack, GitHub, calendar changes, meeting transcripts, and other integration payloads do not appear in the visible Stream by default. They enter through a separate integration-event boundary and can use the same reconciliation engine.
 
 This preserves three important properties:
 
@@ -143,7 +143,7 @@ The Deck is never blocked by Stream review. A review can appear near the Deck wh
 - Keep unresolved capture review small and finite
 - Make every agent action attributable, inspectable, correctable, and undoable
 - Learn autonomy from actual acceptance, correction, rejection, and undo behavior
-- Keep connector ingestion separate from the user's visible Stream
+- Keep integration ingestion separate from the user's visible Stream
 
 ### 3.2 Non-goals
 
@@ -154,7 +154,7 @@ The Deck is never blocked by Stream review. A review can appear near the Deck wh
 - Replacing the Deck's prioritization system
 - Automatically sending messages or changing external systems from a Stream capture
 - Building a full generalized knowledge graph in this project
-- Mixing untrusted connector payloads into the user-capture prompt without isolation
+- Mixing untrusted integration payloads into the user-capture prompt without isolation
 - Perfect semantic organization on the first release
 
 ### 3.3 The right-sized lovable release
@@ -174,7 +174,7 @@ The first lovable release does not require:
 
 - Automatic merges
 - Automatic rewrites of existing notes
-- Broad connector expansion
+- Broad integration expansion
 - A generalized review platform for every agent mutation
 - A new task-ranking system
 - A native mobile offline queue
@@ -439,7 +439,7 @@ Policy is evaluated per action type. A single global confidence threshold is not
 | Infer hard deadline | Propose unless external evidence is explicit |
 | Settle as memory | Auto-apply, visible and reversible |
 | Dismiss or delete user content | Never automatic |
-| External side effect | Follow connector permission and approval policy |
+| External side effect | Follow integration permission and approval policy |
 
 Autonomy can increase when the same action type is repeatedly accepted without correction. It must decrease quickly after rejection, correction, or undo.
 
@@ -612,13 +612,13 @@ Constraints and indexes:
 
 ### 8.6 New `integration_events` table
 
-Purpose: hold untrusted connector input outside the personal Stream.
+Purpose: hold untrusted integration input outside the personal Stream.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | text PK | UUIDv7 |
 | `created_at`, `updated_at` | timestamps | Shared spread |
-| `connector_id` | text FK nullable | Installed connector identity |
+| `integration_id` | text FK nullable | Installed integration identity |
 | `workspace_id` | text FK nullable | Workspace scope when known |
 | `provider` | text | `gmail`, `slack`, `github`, `calendar`, and others |
 | `external_id` | text | Upstream dedupe id |
@@ -636,7 +636,7 @@ Constraints and indexes:
 
 - Unique composite on provider, external id, and event type
 - `(status, created_at)`
-- `(connector_id, occurred_at)`
+- `(integration_id, occurred_at)`
 - `(workspace_id, occurred_at)`
 
 ### 8.7 Entity version integration
@@ -746,15 +746,15 @@ The service owns:
 
 Route handlers do not coordinate multi-step writes themselves.
 
-### 10.2 Separate connector ingestion
+### 10.2 Separate integration ingestion
 
-Webhook and connector routes write `integration_events`, not Stream rows.
+Webhook and integration routes write `integration_events`, not Stream rows.
 
-The connector ingestion service owns:
+The integration ingestion service owns:
 
 - Provider authentication and signature verification
 - Upstream dedupe
-- Workspace and connector scoping
+- Workspace and integration scoping
 - Raw payload retention
 - Safe text extraction
 - Prompt-injection boundary labels
@@ -1048,7 +1048,7 @@ Build a local evaluation corpus from consented or synthetic examples covering:
 - Low-intent idea
 - Emotional or reflective thought that should settle
 - Failed transcription
-- Adversarial connector content
+- Adversarial integration content
 
 Expected output is an operation graph, not only a class label.
 
@@ -1082,7 +1082,7 @@ Phase 0: Contract and safety
   -> Phase 3: Shadow reconciliation
   -> Phase 4: Lovable product surface
   -> Phase 5: Graduated automation
-  -> Phase 6: Separate connector ingestion
+  -> Phase 6: Separate integration ingestion
   -> Phase 7: Legacy cleanup
 ```
 
@@ -1658,26 +1658,26 @@ Phase 0: Contract and safety
 
 **Depends on:** STREAM-08, STREAM-09, STREAM-14
 
-### STREAM-17: Separate connector ingestion
+### STREAM-17: Separate integration ingestion
 
 **Goal:** let real work flow in without polluting or compromising the personal Stream.
 
 **Likely files:**
 
-- Connector webhook routes
+- Integration webhook routes
 - `src/app/api/webhooks/pocket/route.ts`
 - New integration-event ingestion service
 - Reconciliation context and policy
-- Connector tests
+- Integration tests
 
 **Tasks:**
 
 - [ ] Route new webhook content to `integration_events`
 - [ ] Preserve upstream dedupe and raw payload audit
-- [ ] Mark all connector content untrusted by default
+- [ ] Mark all integration content untrusted by default
 - [ ] Extract safe content separately from raw payload
 - [ ] Use integration-scoped triage runs
-- [ ] Prevent connector text from modifying instructions or permissions
+- [ ] Prevent integration text from modifying instructions or permissions
 - [ ] Create provenance links from integration events to accepted entities
 - [ ] Keep integration events out of Recent Captures
 - [ ] Provide a separate diagnostic or source filter for advanced users
@@ -1685,10 +1685,10 @@ Phase 0: Contract and safety
 
 **Acceptance:**
 
-- [ ] New connector traffic creates no visible Stream rows by default
+- [ ] New integration traffic creates no visible Stream rows by default
 - [ ] Duplicate webhook delivery creates one integration event
 - [ ] Prompt-injection fixtures cannot cause unauthorized action
-- [ ] Accepted connector-derived tasks retain full source provenance
+- [ ] Accepted integration-derived tasks retain full source provenance
 
 **Depends on:** STREAM-02, STREAM-09, STREAM-10
 
@@ -1740,7 +1740,7 @@ Phase 0: Contract and safety
 8. Recent Captures and brain-dump summaries
 9. Needs your call, Deck prompt, and notifications
 10. Chat and orchestrator contract update
-11. Connector-event separation
+11. Integration-event separation
 12. Legacy cleanup after rollout gates pass
 
 ## 21. Final release checklist
@@ -1782,7 +1782,7 @@ Phase 0: Contract and safety
 - [ ] Every V1 automatic action is undoable
 - [ ] Corrections feed operation-specific metrics
 - [ ] Propose-only kill switch works
-- [ ] Connector content is isolated and untrusted
+- [ ] Integration content is isolated and untrusted
 - [ ] No automatic merge ships without its gate
 
 ### Quality

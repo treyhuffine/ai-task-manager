@@ -49,10 +49,10 @@ One shared day model, rendered at three densities:
 
 ## Current state (grounded, verified 2026-07-19)
 
-- **Connector toolkits** — `packages/connectors/src/providers/google/calendar.ts`
+- **Integration toolkits** — `packages/integrations/src/providers/google/calendar.ts`
   (`google_calendar`: `list_calendars`, `list_events` with `timeMin`/`timeMax`,
   `get_event`, `create_event`, `update_event`, `delete_event`) and
-  `packages/connectors/src/providers/microsoft/calendar.ts` (`outlook_calendar`:
+  `packages/integrations/src/providers/microsoft/calendar.ts` (`outlook_calendar`:
   `list_events` — **no time-range params, hits `/me/events`**, plus event CRUD).
   Google's `eventSummary` returns only `{id, summary, start, end, status,
   htmlLink}` — no transparency, attendees, location, or hangoutLink. Outlook's
@@ -62,7 +62,7 @@ One shared day model, rendered at three densities:
   (`setCalendarProvider`/`hasCalendarProvider`/`getCalendarEventsForDay`) +
   pure gap math (`computeFreeGaps`, `availableMinutes`, `formatGap`,
   `minutesToLabel`, `formatMinutes`, `parseHhMm`). Fully tested.
-- **Live wiring** — `src/lib/deck/calendar-connector.ts`:
+- **Live wiring** — `src/lib/deck/calendar-integration.ts`:
   `ensureCalendarProvider()` registers a **Google-only** day-fetcher
   (first Google connection, `primary` calendar). Skips all-day + cancelled.
   Documented v1 gap at lines 89–91: **declined and free-transparency events
@@ -98,7 +98,7 @@ One shared day model, rendered at three densities:
   Cross-surface sync must therefore be explicit (CustomEvent, see 3.2).
 - **Orchestrator** — `update_deck` action exists (items/alternatives/framing).
   **No `get_day_shape` action** — agents outside deck generation must read raw
-  connector events and do their own free/busy math, which the deck prompt
+  integration events and do their own free/busy math, which the deck prompt
   itself forbids ("never do free/busy math yourself").
 - **Tests** — vitest (`pnpm test`), colocated `*.test.ts`
   (`src/lib/deck/calendar.test.ts` is the pattern).
@@ -198,7 +198,7 @@ Events carry real instants; the client renders in browser tz.
 **API route**: `GET /api/calendar?start=YYYY-MM-DD&days=N` (N clamped 1–14,
 default 1, `start` defaults to today; `&fresh=1` busts the cache). Same
 Bearer-auth middleware as every `/api` route; client always uses the `api`
-client. No new query functions in `queries.ts` — this route reads connectors,
+client. No new query functions in `queries.ts` — this route reads integrations,
 not SQLite, so the queries-layer rule doesn't apply.
 
 **Orchestrator action** `get_day_shape` (registry.ts, non-mutating):
@@ -209,7 +209,7 @@ params: { date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 ```
 
 Handler dynamic-imports the service (same lazy pattern as
-`calendar-connector.ts` — never static-import the connectors runtime), calls
+`calendar-integration.ts` — never static-import the integrations runtime), calls
 `getCalendarRange`, returns the agent-trimmed shape:
 
 ```ts
@@ -227,7 +227,7 @@ time or availability. Never compute free/busy from raw calendar events
 yourself."`
 
 **Deck seam rewire**: `ensureCalendarProvider()` in
-`src/lib/deck/calendar-connector.ts` now registers
+`src/lib/deck/calendar-integration.ts` now registers
 `(date) => getCalendarRange({start: date, days: 1})` mapped to busy
 `CalendarBlock[]`. Deck generation and reconcile are **untouched** — they keep
 consuming `getCalendarEventsForDay`. This single change gives the deck:
@@ -313,7 +313,7 @@ surfaces.
 
 **Empty state** (`status === 'no_providers'`): centered `Calendar` icon +
 `Connect your calendar` + `See your day here and let the deck plan around it`
-+ button `Open connector settings` → `openSettings('connectors')`.
++ button `Open integration settings` → `openSettings('integrations')`.
 
 **Day view** (`DayView`, the default):
 
@@ -487,7 +487,7 @@ copy rule), no hardcoded product or user names (open-source rule).
   not.
 - No new global hotkey (⌘K letters are contested) — palette command only.
 - Read-only: no event create/edit/delete UI anywhere in this spec.
-- `GET /api/calendar` reads connectors directly (no `queries.ts` involvement,
+- `GET /api/calendar` reads integrations directly (no `queries.ts` involvement,
   no new tables, no migrations — the only schema-file edits are JSON-column
   **type** additions: `DeckItem.slotSource`, `DeckChange.kind 'unslotted'`).
 
@@ -501,11 +501,11 @@ copy rule), no hardcoded product or user names (open-source rule).
   write-back: prefer (guides AI) → protect (refuses AI slotting) → published
   (real event, protects from humans).
 - **Write-back** (`Protect this time`, event creation via chat/NL using the
-  existing `create_event` connector actions). Separate trust decision.
+  existing `create_event` integration actions). Separate trust decision.
 - **Cross-panel drag** (deck list → calendar) — needs a dashboard-level
   DndContext refactor.
 - **Multi-calendar selection** (non-primary calendars via `list_calendars`) —
-  settings UI, connector param plumb-through.
+  settings UI, integration param plumb-through.
 - **Week hour grid, month view** — month is decided against, not just
   deferred.
 - **`calendar_events` mirror table** — only when one of: week-instant/offline,
@@ -518,20 +518,20 @@ copy rule), no hardcoded product or user names (open-source rule).
 ## Task list
 
 Tags: `[new]` net-new · `[reuse]` extends existing · `[ui]` front-end ·
-`[conn]` connectors package. Every task ends with `pnpm ts` clean; test tasks
+`[conn]` integrations package. Every task ends with `pnpm ts` clean; test tasks
 run `pnpm test`. Order within a phase is the dependency order.
 
 ### Phase 0 — Day-shape service + agent parity (foundation, no UI)
 
 - [x] **0.1** `[conn]` Enrich `google_calendar` event output: extend `RawEvent`
-  + `eventSummary` in `packages/connectors/src/providers/google/calendar.ts`
+  + `eventSummary` in `packages/integrations/src/providers/google/calendar.ts`
   with `transparency`, `location`, `hangoutLink`,
   `conferenceData.entryPoints[]` (first `video` uri), and the `self: true`
   attendee's `responseStatus`. Output gains `{transparency?, location?,
   joinUrl?, responseStatus?}`. Additive only — existing consumers unaffected.
-  Update the connectors package tests' fixtures.
+  Update the integrations package tests' fixtures.
 - [x] **0.2** `[conn]` Range + enrichment for `outlook_calendar.list_events`
-  (`packages/connectors/src/providers/microsoft/calendar.ts`): add optional
+  (`packages/integrations/src/providers/microsoft/calendar.ts`): add optional
   `startDateTime`/`endDateTime` inputs; when present, hit
   `/me/calendarView?startDateTime=&endDateTime=` (expands recurrences) instead
   of `/me/events`; `$select` adds `isAllDay,showAs,responseStatus,isCancelled,
@@ -547,18 +547,18 @@ run `pnpm test`. Order within a phase is the dependency order.
   oof, cancelled, all-day, no-attendees) and both mappers from captured
   fixture JSON.
 - [x] **0.4** `[new]` `src/lib/calendar/service.ts`: `getCalendarRange` per §A —
-  all google+microsoft connections via the connectors runtime (lazy dynamic
-  import, same pattern as `calendar-connector.ts`), merge/sort/normalize,
+  all google+microsoft connections via the integrations runtime (lazy dynamic
+  import, same pattern as `calendar-integration.ts`), merge/sort/normalize,
   per-day shape via `computeFreeGaps`/`availableMinutes` (imported from
   `@/lib/deck/calendar`) + `user_state` workday bounds, status semantics
   (`no_providers | ok | degraded | error`), 60s TTL map cache with `fresh`
   bypass, `asOf`. Colocated `service.test.ts` with a mocked runtime: merge
   across providers, each status case, cache hit/expiry/fresh.
-- [x] **0.5** `[reuse]` Rewire the deck seam: `src/lib/deck/calendar-connector.ts`
+- [x] **0.5** `[reuse]` Rewire the deck seam: `src/lib/deck/calendar-integration.ts`
   `ensureCalendarProvider()` now registers
   `getCalendarRange({start: date, days: 1})` → `days[0].events.filter(countsAsBusy)`
   → `CalendarBlock[]`. Delete `fetchGoogleCalendarDay` + the v1-gap comment
-  (the gap is fixed). Update `calendar-connector.test.ts`. Acceptance: deck
+  (the gap is fixed). Update `calendar-integration.test.ts`. Acceptance: deck
   generation/reconcile now see Outlook + multi-connection + declined-fixed
   data with zero changes to `generate-deck.ts`/`reconcile-external.ts`.
 - [x] **0.6** `[new]` Route `src/app/api/calendar/route.ts`: `GET` per §A
@@ -611,7 +611,7 @@ run `pnpm test`. Order within a phase is the dependency order.
 - [x] **2.1** `[new]` `[ui]` `src/components/calendar/calendar-panel.tsx`:
   header (date nav, Day|Week segmented, plan-layer eye toggle persisted to
   `ri.calendar.showPlanLayer`, refresh + `Updated {h:mm}` tooltip,
-  stale/degraded dot), empty state with `openSettings('connectors')`, view
+  stale/degraded dot), empty state with `openSettings('integrations')`, view
   switching. Deck data via TanStack `['deck', 'active']`.
 - [x] **2.2** `[reuse]` `[ui]` `content-panel.tsx`: route `activeTab ===
   'calendar'` to `CalendarPanel` instead of `MoreTabContent`. Add the
@@ -665,7 +665,7 @@ run `pnpm test`. Order within a phase is the dependency order.
 ### Ship checklist
 
 - [x] `pnpm ts` and `pnpm test` clean, `pnpm smoke:boot` still resolves (new
-  lazy imports must not drag the connectors runtime into the CLI boot graph).
+  lazy imports must not drag the integrations runtime into the CLI boot graph).
 - [x] `pnpm build` clean.
 - [x] Deck regen on a calendar-connected day: slots render in strip, tab, and
   pills consistently, `get_day_shape` (orchestrator) matches the tab's gaps.
@@ -721,7 +721,7 @@ This section records why, so future readers know it was a cut, not a gap.
   assigning times.
 
 **What survived unchanged** (the deterministic majority of the build): the
-day-shape service, connectors enrichment, `get_day_shape` agent action, HUD
+day-shape service, integrations enrichment, `get_day_shape` agent action, HUD
 next-boundary button + peek, day strip (commitments + gaps + now line), day
 view, week capacity view, mobile, reconcile's meeting-shrank-the-day bumping
 (now on effort bands).
@@ -829,7 +829,7 @@ value would appear, dismiss forever; chrome never nags.** Three pieces: a
 dismissible one-line invite in the deck strip's slot (`ri.calendar.inviteDismissed`,
 permanent), a skippable Connect step in the onboarding wizard (calendar-only
 scopes, Google + Microsoft), and the HUD stays silent until a calendar
-exists. Supporting mechanics: `POST /connectors/connect` accepts a
+exists. Supporting mechanics: `POST /integrations/connect` accepts a
 same-origin `returnTo` parked in a short-lived HttpOnly cookie the callback
 honors and clears (so onboarding OAuth returns to `/welcome`), and the
 wizard persists state + step in sessionStorage to survive the OAuth

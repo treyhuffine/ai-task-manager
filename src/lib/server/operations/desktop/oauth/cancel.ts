@@ -1,4 +1,4 @@
-import { desktopEnabled, desktopOAuth } from '@/lib/connectors/desktop-oauth';
+import { desktopEnabled, desktopOAuth } from '@/lib/integrations/desktop-oauth';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z } from 'zod/v4';
 export const POSTInput = z.object({ body: z.object({ id: z.string() }).strict() }).strict();

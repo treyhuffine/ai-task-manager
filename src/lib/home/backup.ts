@@ -4,7 +4,7 @@
  * `ri snapshot` copies the database and the markdown mirror only. This is the
  * backup a move or a rollback can rely on (docs/homes-spec.md §10.2, §10.3):
  * the database, attachments, persona and memory, user skills, and the machine
- * config a restored home needs to keep working (connector secrets, VAPID keys,
+ * config a restored home needs to keep working (integration secrets, VAPID keys,
  * the host token), with a checksum per file.
  *
  * Layout of a backup directory (0700, files 0600):
@@ -12,7 +12,7 @@
  *   manifest.json        what was copied, checksums, row counts, what was skipped
  *   data.db              consistent copy through SQLite's online backup API
  *   attachments/ .archive/ skills/ CLAUDE.md MEMORY.md ...
- *   .config/config.json .config/connectors/ ...
+ *   .config/config.json .config/integrations/ ...
  *
  * The source root is only read. Its database is copied without opening it
  * through `getDb()`, which would run migrations and boot-time backfills
@@ -51,7 +51,7 @@ const CONTENT_FILES = [
  * which must never travel, or a restored copy would take itself for the
  * original host), a worker's key for its home (`worker.json`), the agent
  * browser's profiles (logins), local TLS material, CLI editor preference,
- * and connector lock files.
+ * and integration lock files.
  */
 const CONFIG_MACHINE_LOCAL = new Set(['browser', 'tls', 'cli-config.json', 'machine.json', 'worker.json']);
 const CONFIG_SKIPPED_NAMES = new Set(['locks']);

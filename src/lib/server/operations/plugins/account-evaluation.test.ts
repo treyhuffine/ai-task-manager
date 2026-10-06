@@ -3,13 +3,13 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ run: vi.fn(), current: vi.fn(), connections: vi.fn(), read: vi.fn(), view: vi.fn(), approvals: vi.fn(), servers: vi.fn(), toolkits: vi.fn() }));
-vi.mock('@/lib/connectors/runtime', async () => { return ({
-  getConnectorOwnerId: () => 'owner', getConnectorRuntime: async () => ({ getToolkits: () => mocks.toolkits(), runAction: mocks.run, listConnections: mocks.connections }),
+vi.mock('@/lib/integrations/runtime', async () => { return ({
+  getIntegrationOwnerId: () => 'owner', getIntegrationRuntime: async () => ({ getToolkits: () => mocks.toolkits(), runAction: mocks.run, listConnections: mocks.connections }),
   getMcpServerStore: () => ({ list: mocks.servers }), getMcpViewConnection: mocks.view,
 }); });
-vi.mock('@/lib/connectors/mcp-lifecycle', () => ({ isCurrentMcpTransport: mocks.current }));
-vi.mock('@/lib/connectors/hosted-mcp', () => ({ hostedMcpConnectionId: (value: { connectionId: string }) => value.connectionId }));
-vi.mock('@/lib/connectors/approval', () => ({ listPendingApprovals: mocks.approvals }));
+vi.mock('@/lib/integrations/mcp-lifecycle', () => ({ isCurrentMcpTransport: mocks.current }));
+vi.mock('@/lib/integrations/hosted-mcp', () => ({ hostedMcpConnectionId: (value: { connectionId: string }) => value.connectionId }));
+vi.mock('@/lib/integrations/approval', () => ({ listPendingApprovals: mocks.approvals }));
 vi.mock('./evaluation', () => ({ launchPluginEvaluation: async () => ({ url: 'https://examples.test/s/sample/index.html', expiresAt: new Date(Date.now() + 60000).toISOString() }) }));
 import { accountEvaluationCatalog, accountEvaluationRpc, endAccountEvaluation, launchAccountEvaluation } from './account-evaluation';
 

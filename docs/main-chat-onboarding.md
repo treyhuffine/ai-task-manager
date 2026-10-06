@@ -93,7 +93,7 @@ Three things start in the background so the steps that need them rarely wait:
   reads. Sending a message replaces the conversation with the real transcript, as it does the usual
   intro.
 - **Connecting reuses Settings.** Every way of connecting already lives on a provider's page in
-  Settings, Plugins. An app tile opens that page directly (`anchor: 'connectors:<id>'`), and closing
+  Settings, Plugins. An app tile opens that page directly (`anchor: 'integrations:<id>'`), and closing
   Settings or returning from a sign-in page refreshes what the step shows.
 - **Art is made in the app.** "Make art" draws soft color fields from a seed
   (`src/lib/orchestrator/art.ts`), instantly and for free, uploaded as SVG only if kept.
@@ -108,7 +108,7 @@ Three things start in the background so the steps that need them rarely wait:
   end or skipping sets it, so the next empty chat opens on the usual intro. The conversation that
   just finished stays up, starters and all, until the chat is used.
 - Progress is kept per browser and per home (`localStorage` `ri.mainChat.onboarding:<homeId>`), so a reload or a
-  connector's sign-in redirect comes back to the same step. Answers are saved as each step finishes.
+  integration's sign-in redirect comes back to the same step. Answers are saved as each step finishes.
 - A home set up before this (`onboarded_at` set, no `orchestrator_introduced_at`) sees it on its
   next empty main chat, without the harness step: press New in the chat bar.
 - Someone who types into the composer instead leaves it unfinished, and the next empty chat offers

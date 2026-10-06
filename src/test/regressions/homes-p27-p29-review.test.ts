@@ -131,22 +131,22 @@ describe('P2.7 session authority', () => {
   it('rejects the token after its execution and chat are archived', async () => {
     const q = await import('@/lib/db/queries');
     const { proxy } = await import('@/proxy');
-    expect(proxy(request(`/api/connectors/mcp?ws=${agentId}`)).status).toBe(200);
+    expect(proxy(request(`/api/integrations/mcp?ws=${agentId}`)).status).toBe(200);
     q.archiveExecution(executionId);
     expect(q.getChatSession(chatId)?.status).toBe('archived');
-    expect(proxy(request(`/api/connectors/mcp?ws=${agentId}`)).status).toBe(401);
+    expect(proxy(request(`/api/integrations/mcp?ws=${agentId}`)).status).toBe(401);
   });
 
   it('does not revive a revoked enrollment token when that device enrolls again', async () => {
     const q = await import('@/lib/db/queries');
     const { proxy } = await import('@/proxy');
     (await import('@/lib/workers/retire')).retireWorker(keyId, deviceId, 'review revocation');
-    expect(proxy(request(`/api/connectors/mcp?ws=${agentId}`)).status).toBe(401);
+    expect(proxy(request(`/api/integrations/mcp?ws=${agentId}`)).status).toBe(401);
     const grant = q.createDeviceGrant({ kind: 'enroll', deviceId, deviceName: null, createdByApiKeyId: null });
     const fresh = (await import('@/lib/workers/enroll')).enrollWorker({ secret: grant.secret, name: 'Review laptop' });
     expect(fresh.key.id).not.toBe(keyId);
     expect(q.getWorkerDevice(keyId)).toBeNull();
-    expect(proxy(request(`/api/connectors/mcp?ws=${agentId}`)).status).toBe(401);
+    expect(proxy(request(`/api/integrations/mcp?ws=${agentId}`)).status).toBe(401);
   });
 
   it('keeps query parsing aligned, rejects route escapes, and rejects forged dotted tokens', async () => {
@@ -154,16 +154,16 @@ describe('P2.7 session authority', () => {
     for (const method of ['GET', 'POST', 'DELETE', 'PUT']) {
       for (const url of [
         '/api/tasks', '/api/workers/me', '/api/orchestrator/mcp',
-        '/api/connectors/mcp?ws=other', `/api/connectors/mcp?ws=other&ws=${agentId}`,
-        `/api/connectors/mcp?ws=${agentId}%26ws%3Dother`,
-        `/api/connectors/mcp/?ws=${agentId}`, `/api/connectors/%6dcp?ws=${agentId}`,
-        `/api/connectors/mcp/../run?ws=${agentId}`,
+        '/api/integrations/mcp?ws=other', `/api/integrations/mcp?ws=other&ws=${agentId}`,
+        `/api/integrations/mcp?ws=${agentId}%26ws%3Dother`,
+        `/api/integrations/mcp/?ws=${agentId}`, `/api/integrations/%6dcp?ws=${agentId}`,
+        `/api/integrations/mcp/../run?ws=${agentId}`,
         `/api/orchestrator/browser/mcp?profile=default&profile=ws-${agentId}`,
       ]) expect(proxy(request(url, token, method)).status, `${method} ${url}`).toBe(403);
     }
     for (const url of [
-      `/api/connectors/mcp?ws=${agentId}&ws=other`,
-      `/api/connectors/mcp?%77s=${agentId}`,
+      `/api/integrations/mcp?ws=${agentId}&ws=other`,
+      `/api/integrations/mcp?%77s=${agentId}`,
       `/api/orchestrator/browser/mcp?profile=ws-${agentId}&profile=default`,
     ]) {
       expect(proxy(request(url)).status).toBe(200);
@@ -172,7 +172,7 @@ describe('P2.7 session authority', () => {
       expect(parsed.get('ws') ?? parsed.get('profile')).toMatch(new RegExp(agentId));
     }
     for (const bad of [token + '.extra', token.slice(0, -1), token + '=', token.replace(`.${deviceId}.`, '.forged.'), 'ri_session_...']) {
-      expect(proxy(request(`/api/connectors/mcp?ws=${agentId}`, bad)).status).toBe(401);
+      expect(proxy(request(`/api/integrations/mcp?ws=${agentId}`, bad)).status).toBe(401);
     }
   });
 });
