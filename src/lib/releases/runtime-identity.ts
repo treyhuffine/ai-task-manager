@@ -18,8 +18,21 @@ export function readRuntimeCompatibility(repo: string): RuntimeCompatibility | n
   if (!fs.existsSync(file)) return null;
   return RuntimeCompatibilitySchema.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
 }
+declare global { var __riServedRelease: PeerRelease | undefined; }
+/** The Home's server pins what it serves before Next loads. Next reads
+ * BUILD_ID once at boot, but agents rebuild a source Home's checkout in place
+ * while the old server keeps running. Read per request, one `pnpm build` would
+ * announce two releases nothing serves (the missing-BUILD_ID fallback, then
+ * the new id), and every open viewer would reload for each (ServiceConnection). */
+export function pinServedRelease(repo = runtimeRepository()): PeerRelease {
+  return globalThis.__riServedRelease ??= runtimePeerRelease(repo);
+}
 const identities = new Map<string, { stamp: string; release: PeerRelease['release'] }>();
-export function runtimeReleaseIdentity(repo = runtimeRepository()): PeerRelease['release'] {
+/** Without a repo: this process's release, pinned in the Home's server. With
+ * one: that installation as it is on disk now. */
+export function runtimeReleaseIdentity(repo?: string): PeerRelease['release'] {
+  if (repo === undefined && globalThis.__riServedRelease) return globalThis.__riServedRelease.release;
+  repo ??= runtimeRepository();
   const file = path.join(repo, '..', 'runtime-manifest.json');
   if (fs.existsSync(file)) {
     const stat = fs.statSync(file);
@@ -38,7 +51,9 @@ export function runtimeReleaseIdentity(repo = runtimeRepository()): PeerRelease[
   const nextBuild = path.join(repo, process.env.NEXT_DIST_DIR ?? '.next', 'BUILD_ID');
   return { version: packageJson.version, build: fs.existsSync(nextBuild) ? `source:${fs.readFileSync(nextBuild, 'utf8').trim()}` : `source:${packageJson.version}`, source: 'source' };
 }
-export function runtimePeerRelease(repo = runtimeRepository()): PeerRelease {
+export function runtimePeerRelease(repo?: string): PeerRelease {
+  if (repo === undefined && globalThis.__riServedRelease) return globalThis.__riServedRelease;
+  repo ??= runtimeRepository();
   return { release: runtimeReleaseIdentity(repo), compatibility: readRuntimeCompatibility(repo) ?? CURRENT_COMPATIBILITY };
 }
 export function workerUpdateCompatibility(repo: string): string[] {

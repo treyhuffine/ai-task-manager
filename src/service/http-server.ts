@@ -10,6 +10,7 @@ import { DEFAULT_PORT } from '@/lib/auth/port';
 import { beginPerfScope, stopPerfRecorder } from '@/lib/perf/recorder';
 import { startServerPerfLog } from '@/lib/perf/server';
 import { requestLabel } from '@/lib/perf/labels';
+import { pinServedRelease } from '@/lib/releases/runtime-identity';
 
 process.env.RI_TRPC_WS_HOST = '1';
 Object.assign(process.env, { NODE_ENV: process.env.RI_DESKTOP_MODE === 'development' ? 'development' : 'production' });
@@ -29,6 +30,8 @@ async function start() {
   // Before Next loads, so boot's own statements are timed too. A validating
   // server is a rehearsal and would only add noise to the Home's log.
   if (process.env.RI_SERVICE_VALIDATING !== '1') startServerPerfLog();
+  // Before Next reads BUILD_ID, so /version names the build actually served.
+  pinServedRelease();
   await application.prepare();
   const server = http.createServer((request, response) => {
     let pathname: string;

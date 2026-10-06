@@ -7,8 +7,9 @@ const mocks = vi.hoisted(() => ({
   handle: vi.fn(async () => {}),
   maintenance: vi.fn(() => null),
   activity: vi.fn(() => vi.fn()),
+  pinnedBeforePrepare: undefined as unknown,
 }));
-vi.mock('next', () => ({ default: () => ({ prepare: async () => {}, getRequestHandler: () => mocks.handle, close: async () => {} }) }));
+vi.mock('next', () => ({ default: () => ({ prepare: async () => { mocks.pinnedBeforePrepare = globalThis.__riServedRelease; }, getRequestHandler: () => mocks.handle, close: async () => {} }) }));
 vi.mock('node:http', () => ({ default: { createServer: (listener: typeof mocks.listener) => {
   if (!listener) return new EventEmitter();
   mocks.listener = listener;
@@ -42,4 +43,8 @@ it.each(['//', '//[', 'http://['])('rejects malformed request target %s without 
   // The same request boundary still handles subsequent ordinary traffic.
   request('/api/health');
   expect(mocks.handle).toHaveBeenCalledOnce();
+});
+it('pins the served release before Next reads its build', () => {
+  expect(mocks.pinnedBeforePrepare).toMatchObject({ release: { build: expect.any(String) } });
+  expect(globalThis.__riServedRelease).toBe(mocks.pinnedBeforePrepare);
 });

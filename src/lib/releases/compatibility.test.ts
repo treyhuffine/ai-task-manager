@@ -3,10 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CURRENT_COMPATIBILITY as current, legacyCompatibility, negotiateWorker, localFormatReasons, compatibilityMessage } from './compatibility';
-import { runtimeReleaseIdentity, runtimeRepository, workerUpdateCompatibility, readRuntimeCompatibility } from './runtime-identity';
+import { pinServedRelease, runtimePeerRelease, runtimeReleaseIdentity, runtimeRepository, workerUpdateCompatibility, readRuntimeCompatibility } from './runtime-identity';
 import { createRuntimeManifest, verifyRuntime } from '@/lib/service/runtime';
 const roots: string[] = [];
-afterEach(() => { vi.unstubAllEnvs(); for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { vi.unstubAllEnvs(); globalThis.__riServedRelease = undefined; for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 function temporary() { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-compatibility-')); roots.push(root); return root; }
 it('bridges the protocol-4 release in either direction without pretending protocol 3 works', () => {
   expect(negotiateWorker(current, legacyCompatibility(4))).toMatchObject({ compatible: true, protocol: 4, capabilities: ['worker.protocol4'] });
@@ -50,6 +50,25 @@ it('uses the actual packaged identity and inventory-authenticated compatibility 
   expect(() => verifyRuntime(root)).toThrow(/files do not match/);
 });
 
+it('keeps naming the served build while the checkout is rebuilt under the server', () => {
+  const repo = temporary();
+  const buildId = path.join(repo, '.next', 'BUILD_ID');
+  fs.mkdirSync(path.dirname(buildId), { recursive: true });
+  fs.writeFileSync(buildId, 'served\n');
+  vi.stubEnv('RI_RUNTIME_REPO', repo);
+  vi.stubEnv('NEXT_DIST_DIR', '.next');
+  expect(runtimeReleaseIdentity().build).toBe('source:served');
+  expect(pinServedRelease().release.build).toBe('source:served');
+  // `next build` first clears the dist dir, then writes a new id.
+  fs.rmSync(buildId);
+  expect(runtimeReleaseIdentity().build).toBe('source:served');
+  fs.writeFileSync(buildId, 'rebuilt\n');
+  expect(runtimeReleaseIdentity().build).toBe('source:served');
+  expect(runtimePeerRelease()).toBe(pinServedRelease());
+  // An explicit installation is read as it is on disk now.
+  expect(runtimeReleaseIdentity(repo).build).toBe('source:rebuilt');
+  expect(runtimePeerRelease(repo).release.build).toBe('source:rebuilt');
+});
 
 it('finds the packaged desktop setup release independently of Electron working directory', () => {
   const entry = process.argv[1];
