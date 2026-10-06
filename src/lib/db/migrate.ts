@@ -1,5 +1,50 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
+import { processState } from '@/lib/process-state';
+
+/**
+ * Who may apply migrations to an existing home. The server applies them when
+ * it starts (instrumentation.ts), as do `ri start`, which opens the database
+ * before it launches the server, and `pnpm db:migrate`. Any other process that
+ * opens a database with migrations still to apply refuses and changes nothing
+ * (`PendingMigrationsError`). An agent's `ri agent` command, run from a
+ * checkout that holds a new or draft migration, must not upgrade a running
+ * home's database underneath it: a home's schema changes only when it starts
+ * (docs/environments.md). A brand-new database is always set up.
+ */
+const migrationPolicy = processState('db.migration-policy', () => ({ allowed: false }));
+
+/** Let this process apply pending migrations. Call before the database opens. */
+export function allowMigrations(allowed = true): void {
+  migrationPolicy.allowed = allowed;
+}
+
+export function migrationsAllowed(): boolean {
+  return migrationPolicy.allowed;
+}
+
+export class PendingMigrationsError extends Error {
+  constructor(public dbPath: string, public pending: string[]) {
+    const count = pending.length === 1 ? 'one database change' : `${pending.length} database changes`;
+    super(
+      `This code has ${count} that ${pending.length === 1 ? "isn't" : "aren't"} applied to ${dbPath} yet (${pending.join(', ')}). ` +
+        `Ri applies database changes when it starts, so restart Ri to apply ${pending.length === 1 ? 'it' : 'them'}. Nothing was changed.`,
+    );
+    this.name = 'PendingMigrationsError';
+  }
+}
+
+/** The tags of the last `count` migrations in a folder, for messages. */
+export function pendingMigrationTags(migrationsFolder: string, count: number): string[] {
+  try {
+    const journal = JSON.parse(fs.readFileSync(path.join(migrationsFolder, 'meta/_journal.json'), 'utf8')) as { entries: Array<{ tag: string }> };
+    return journal.entries.slice(journal.entries.length - count).map((entry) => entry.tag);
+  } catch {
+    return [`${count} migration${count === 1 ? '' : 's'}`];
+  }
+}
 
 /**
  * Apply pending Drizzle migrations with foreign-key enforcement OFF, verify

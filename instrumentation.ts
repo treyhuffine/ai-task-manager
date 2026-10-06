@@ -5,6 +5,9 @@
 
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+  // A home's database changes when its server starts, and only then.
+  const { allowMigrations } = await import('@/lib/db/migrate');
+  allowMigrations();
   const { validationBoot } = await import('@/lib/service/validation-boot');
   if (validationBoot()) return;
   // Convert integration storage before config readers or stores can create new state.

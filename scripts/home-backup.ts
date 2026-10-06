@@ -119,6 +119,8 @@ async function main(): Promise<void> {
     }
     const { getDb, resetDb } = await import('../src/lib/db');
     const queries = await import('../src/lib/db/queries');
+    // Opening a restored copy the way its server would, migrations included.
+    (await import('../src/lib/db/migrate')).allowMigrations();
     getDb();
     const tasks = queries.listTasks({});
     const notes = queries.listNotes({});

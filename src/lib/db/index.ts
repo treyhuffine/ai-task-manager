@@ -6,7 +6,8 @@ import path from 'path';
 import { getDbPath, ensureBrainDir, DB_PATH_ENV } from '@/lib/config/paths';
 import { assertMayOpenDatabase } from '@/lib/config/role';
 import * as schema from './schema';
-import { runMigrations, inspectMigrationHistory } from './migrate';
+import { runMigrations, inspectMigrationHistory, migrationsAllowed, PendingMigrationsError, pendingMigrationTags } from './migrate';
+import { runtimeRepository } from '@/lib/releases/runtime-identity';
 import { acquireDatabaseAccess } from '@/lib/service/maintenance';
 import { processState } from '@/lib/process-state';
 
@@ -388,12 +389,19 @@ export function getDb(dbPath?: string): DB {
   try { sqlite = new Database(resolvedPath); } catch (error) { access(); throw error; }
   try {
     sqliteVec.load(sqlite);
-    // Packaged harness commands run in the agent's folder, outside the app.
+    // Migrations come from this code's own install, never the shell's folder:
+    // harness commands run in an agent's folder, outside the app, and a
+    // checkout's working tree may hold a draft.
     const assetsRoot = process.env.RI_RUNTIME_REPO ??
-      (process.env.RI_DESKTOP === '1' ? process.env.RI_DESKTOP_REPO : undefined) ?? process.cwd();
-    inspectMigrationHistory(sqlite, path.resolve(assetsRoot, 'drizzle'));
+      (process.env.RI_DESKTOP === '1' ? process.env.RI_DESKTOP_REPO : undefined) ?? runtimeRepository();
+    const migrationsFolder = path.resolve(assetsRoot, 'drizzle');
+    const history = inspectMigrationHistory(sqlite, migrationsFolder);
+    // Only a starting server (or `pnpm db:migrate`) upgrades an existing home.
+    if (history.applied > 0 && history.pending.length > 0 && !migrationsAllowed()) {
+      throw new PendingMigrationsError(resolvedPath, pendingMigrationTags(migrationsFolder, history.pending.length));
+    }
     sqlite.pragma('journal_mode = WAL');
-    initDatabase(sqlite, path.resolve(assetsRoot, 'drizzle'));
+    initDatabase(sqlite, migrationsFolder);
     // A connection to another path, if any, closes once this one is ready.
     closeConnection();
     connection.current = { sqlite, path: resolvedPath, release: access };

@@ -12,6 +12,10 @@
  * Targets `RI_DB_PATH` / `RI_ROOT` like the app. Run it with the app stopped.
  */
 import { getDb, getDefaultDbPath, getRawDb, resetDb } from '../src/lib/db';
+import { allowMigrations } from '../src/lib/db/migrate';
+
+// Applying migrations is this script's whole job.
+allowMigrations();
 
 const dbPath = getDefaultDbPath();
 getDb(dbPath);

@@ -190,7 +190,11 @@ describe('migration fixtures', () => {
       old.close();
 
       const { getDb, getRawDb } = await import('@/lib/db');
-      getDb();
+      // As a starting server does: only it may upgrade an existing home.
+      const { allowMigrations, migrationsAllowed } = await import('@/lib/db/migrate');
+      const wasAllowed = migrationsAllowed();
+      allowMigrations();
+      try { getDb(); } finally { allowMigrations(wasAllowed); }
       const upgraded = (getRawDb().prepare("PRAGMA table_info('workspaces')").all() as { name: string }[]).map(
         (c) => c.name,
       );

@@ -30,6 +30,7 @@ import {
 } from '@/lib/server-runtime/record';
 import type { Http2GatewayHandle } from '../http2-gateway/index';
 import { resetDb } from '@/lib/db';
+import { allowMigrations } from '@/lib/db/migrate';
 import { getVoiceEnabled } from '@/lib/config/voice';
 import { getIsOnboarded, markOnboarded } from '@/lib/config/onboarded';
 import { APP_ROOT_ENV, resolveDevAppRoot } from '@/lib/config/paths';
@@ -95,6 +96,9 @@ function resolvePortless(opt: StartOptions['portless']): PortlessConfig | null {
 
 export async function startCommand(opts: StartOptions) {
   if (opts.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
+  // Starting is when a home's database may change: this process opens it
+  // before the server does (src/lib/db/migrate.ts).
+  allowMigrations();
   const service = await serviceStatus();
   if (service) {
     if (service.phase !== 'running') throw new Error(`Ri service is ${service.phase}. Use ri service status for details.`);

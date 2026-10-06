@@ -9,6 +9,7 @@ import { createRuntimeManifest, installedRuntime, stageRuntime, verifyRuntime } 
 import { beginActivity } from '@/lib/service/maintenance';
 import { saveEnvironment, environmentStatus } from '@/lib/service/environment';
 import { installService, uninstallService } from '@/lib/service/install';
+import { allowMigrations } from '@/lib/db/migrate';
 
 export function registerServiceCommand(program: Command) {
   const service = program.command('service').description('Manage the local background backend shared by desktop and CLI')
@@ -24,6 +25,8 @@ export function registerServiceCommand(program: Command) {
       // Resolve the identity before runtime lookup or service discovery, just
       // as the foreground `start --dev` command does.
       if (options.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
+      // Starting is when a home's database may change (src/lib/db/migrate.ts).
+      allowMigrations();
       if (options.home && (await import('@/lib/service/role')).resolveServiceRole().role !== 'home') {
         (await import('@/lib/service/desktop-role-intent')).writeDesktopHomeIntent();
       }
