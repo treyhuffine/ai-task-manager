@@ -6,6 +6,7 @@ import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { QueryProvider } from "@/providers/query-provider";
 import { PairingBootstrap } from "@/components/auth/pairing-bootstrap";
 import { HomeReachabilityBanner } from "@/components/app/home-reachability-banner";
+import { HomeEnvironmentMarker } from "@/components/app/home-environment-marker";
 import { LifecycleGuardProvider } from "@/components/tasks/lifecycle-guard";
 import "./globals.css";
 import { APP_NAME } from "@/constants/app";
@@ -38,6 +39,7 @@ export default function RootLayout({
           <QuickCaptureHost />
           <WebAppBootstrap />
           <HomeReachabilityBanner />
+          <HomeEnvironmentMarker />
           <TooltipProvider>
             <ConfirmProvider>
               <LifecycleGuardProvider>{children}</LifecycleGuardProvider>
