@@ -39,6 +39,7 @@ import { FileView, type FileViewHandle } from './file-view';
 import { DiffView } from './diff-view';
 import { ConflictView } from './conflict-view';
 import { MarkdownView } from './markdown-view';
+import { Tip } from '@/components/ui/tip';
 
 interface FileViewerProps {
   /** The folder being viewed: an execution's worktree or an agent's own folder. */
@@ -284,12 +285,13 @@ function FileViewerHeader({
   return (
     <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 min-w-0">
       <FileIcon name={displayPath} />
-      <span
-        className="truncate text-[11px] font-medium text-foreground/85 flex-1"
-        title={displayPath}
-      >
-        {displayPath}
-      </span>
+      <Tip label={displayPath}>
+        <span
+          className="truncate text-[11px] font-medium text-foreground/85 flex-1"
+        >
+          {displayPath}
+        </span>
+      </Tip>
       {saving ? (
         <span
           className="inline-flex items-center gap-1 text-[10px] font-normal text-muted-foreground/70 shrink-0"
@@ -300,16 +302,17 @@ function FileViewerHeader({
         </span>
       ) : (
         dirty && onDiscard && (
-          <button
-            type="button"
-            onClick={onDiscard}
-            data-skip-autosave
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shrink-0"
-            title="Discard unsaved changes"
-          >
-            <RotateCcw size={10} />
-            Discard
-          </button>
+          <Tip label="Discard unsaved changes">
+            <button
+              type="button"
+              onClick={onDiscard}
+              data-skip-autosave
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shrink-0"
+            >
+              <RotateCcw size={10} />
+              Discard
+            </button>
+          </Tip>
         )
       )}
       {(isChanged || isMarkdown) && (
@@ -382,15 +385,16 @@ function FileViewerHeader({
         onReferenceInChat={onReferenceInChat}
       />
       {onClose && (
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
-          title="Close file"
-          aria-label="Close file"
-        >
-          <X size={12} />
-        </button>
+        <Tip label="Close file">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
+            aria-label="Close file"
+          >
+            <X size={12} />
+          </button>
+        </Tip>
       )}
     </div>
   );
@@ -421,12 +425,15 @@ function FileHeaderMoreMenu({
     : null;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        className="inline-flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
-        aria-label="File actions"
-        title="More actions"
-      >
-        <MoreHorizontal size={12} />
+      <DropdownMenuTrigger asChild>
+        <Tip label="More actions">
+          <button
+            className="inline-flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
+            aria-label="File actions"
+          >
+            <MoreHorizontal size={12} />
+          </button>
+        </Tip>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={4} className="min-w-44">
         {onReferenceInChat && (
@@ -534,28 +541,32 @@ function RevealButton({ source, root, path }: RevealButtonProps) {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={handleReveal}
-        disabled={revealing}
-        title={revealLabel(platform)}
-        className="inline-flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0 disabled:opacity-50"
-      >
-        {revealing ? <Loader2 size={12} className="animate-spin" /> : <FolderOpen size={12} />}
-      </button>
-      <button
-        type="button"
-        onClick={handleOpenInEditor}
-        disabled={opening}
-        title={`Open in ${label}`}
-        className="inline-flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0 disabled:opacity-50"
-      >
-        {opening ? (
-          <Loader2 size={12} className="animate-spin" />
-        ) : (
-          <SquareArrowOutUpRight size={12} />
-        )}
-      </button>
+      <Tip label={revealLabel(platform)}>
+        <button
+          type="button"
+          onClick={handleReveal}
+          disabled={revealing}
+          aria-label={revealLabel(platform)}
+          className="inline-flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0 disabled:opacity-50"
+        >
+          {revealing ? <Loader2 size={12} className="animate-spin" /> : <FolderOpen size={12} />}
+        </button>
+      </Tip>
+      <Tip label={`Open in ${label}`}>
+        <button
+          type="button"
+          onClick={handleOpenInEditor}
+          disabled={opening}
+          aria-label={`Open in ${label}`}
+          className="inline-flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0 disabled:opacity-50"
+        >
+          {opening ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <SquareArrowOutUpRight size={12} />
+          )}
+        </button>
+      </Tip>
     </>
   );
 }

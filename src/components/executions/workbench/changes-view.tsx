@@ -9,6 +9,7 @@ import { apiErrorText } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import { DiffLines } from '../file-chip';
 import { summarizeChanges, filesLabel, type ChangedFileSummary } from './changes-summary';
+import { Tip } from '@/components/ui/tip';
 
 interface ChangesViewProps {
   sessionId: string;
@@ -63,23 +64,25 @@ export function ChangesView({ sessionId, baseBranch, onOpenFile }: ChangesViewPr
             <span className="text-rose-600 dark:text-rose-400">−{summary.deletions}</span>
           </span>
         )}
-        <span
-          className="min-w-0 truncate text-[11.5px] text-muted-foreground/80"
-          title="Every change in this worktree, from every chat on this execution, committed or not"
-        >
-          in this worktree{baseBranch ? ` · against ${baseBranch}` : ''}
-        </span>
+        <Tip label="Every change in this worktree, from every chat on this execution, committed or not">
+          <span
+            className="min-w-0 truncate text-[11.5px] text-muted-foreground/80"
+          >
+            in this worktree{baseBranch ? ` · against ${baseBranch}` : ''}
+          </span>
+        </Tip>
         <span className="flex-1" />
-        <button
-          type="button"
-          onClick={refresh}
-          disabled={diff.isFetching}
-          title="Refresh"
-          aria-label="Refresh changes"
-          className="inline-flex size-7 flex-shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
-        >
-          {diff.isFetching ? <Loader2 size={13} className="animate-spin" /> : <RotateCw size={13} />}
-        </button>
+        <Tip label="Refresh">
+          <button
+            type="button"
+            onClick={refresh}
+            disabled={diff.isFetching}
+            aria-label="Refresh changes"
+            className="inline-flex size-7 flex-shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
+          >
+            {diff.isFetching ? <Loader2 size={13} className="animate-spin" /> : <RotateCw size={13} />}
+          </button>
+        </Tip>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -124,39 +127,41 @@ function ChangeRow({
   return (
     <div className="border-b border-border">
       <div className="group flex h-9 items-center gap-2 pl-2 pr-2 hover:bg-muted/30">
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          title={open ? 'Hide the diff' : 'Show the diff'}
-        >
-          <ChevronRight
-            size={13}
-            className={cn('flex-shrink-0 text-muted-foreground/60 transition-transform', open && 'rotate-90')}
-          />
-          <span className={cn('w-3 flex-shrink-0 font-mono text-[11px] font-bold', LETTER_CLASS[letter])}>{letter}</span>
-          <FileIcon name={name} size={13} className="flex-shrink-0" />
-          <span className="min-w-0 truncate text-[12.5px]">
-            <span className="text-muted-foreground/70">{dir}</span>
-            <span className="text-foreground">{name}</span>
-          </span>
-        </button>
+        <Tip label={open ? 'Hide the diff' : 'Show the diff'}>
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          >
+            <ChevronRight
+              size={13}
+              className={cn('flex-shrink-0 text-muted-foreground/60 transition-transform', open && 'rotate-90')}
+            />
+            <span className={cn('w-3 flex-shrink-0 font-mono text-[11px] font-bold', LETTER_CLASS[letter])}>{letter}</span>
+            <FileIcon name={name} size={13} className="flex-shrink-0" />
+            <span className="min-w-0 truncate text-[12.5px]">
+              <span className="text-muted-foreground/70">{dir}</span>
+              <span className="text-foreground">{name}</span>
+            </span>
+          </button>
+        </Tip>
         <span className="flex-shrink-0 font-mono text-[11px] tabular-nums">
           {additions > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{additions}</span>}
           {additions > 0 && deletions > 0 && ' '}
           {deletions > 0 && <span className="text-rose-600 dark:text-rose-400">−{deletions}</span>}
         </span>
         {onOpenFile ? (
-          <button
-            type="button"
-            onClick={onOpenFile}
-            title="Open in Files"
-            aria-label={`Open ${name} in Files`}
-            className="inline-flex size-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground/70 opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-          >
-            <FileSearch size={13} />
-          </button>
+          <Tip label="Open in Files">
+            <button
+              type="button"
+              onClick={onOpenFile}
+              aria-label={`Open ${name} in Files`}
+              className="inline-flex size-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground/70 opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+            >
+              <FileSearch size={13} />
+            </button>
+          </Tip>
         ) : (
           <span className="w-6 flex-shrink-0" />
         )}

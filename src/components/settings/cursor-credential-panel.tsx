@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Loader2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { Tip } from '@/components/ui/tip';
 
 export function CursorCredentialPanel() {
   const [key, setKey] = useState('');
@@ -56,9 +57,11 @@ export function CursorCredentialPanel() {
           {save.isPending && <Loader2 className="animate-spin" />} Save
         </Button>
         {status.data?.source === 'ri_store' && (
-          <Button size="icon-sm" variant="outline" disabled={clear.isPending} onClick={() => clear.mutate()} title="Remove stored key">
-            <Trash2 />
-          </Button>
+          <Tip label="Remove stored key">
+            <Button size="icon-sm" variant="outline" aria-label="Remove stored key" disabled={clear.isPending} onClick={() => clear.mutate()}>
+              <Trash2 />
+            </Button>
+          </Tip>
         )}
       </div>
       {status.data?.configured && (

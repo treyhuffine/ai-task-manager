@@ -10,6 +10,7 @@ import type { WorkAgent, WorkChat, WorkCommit, WorkDay, WorkRange } from '@/lib/
 import { cn } from '@/lib/utils';
 import { WorkWorth } from './work-worth';
 import { agentStyle, seriesColor } from './work-style';
+import { Tip } from '@/components/ui/tip';
 
 /** Commits shown per agent per day before "Show all". */
 const COMMITS_SHOWN = 6;
@@ -59,30 +60,32 @@ function ReportSummary({ range }: { range: WorkRange }) {
           Summary
         </h3>
         <div className="flex-1" />
-        <button
-          type="button"
-          title="Copy the summary and the numbers as text"
-          onClick={() => {
-            void navigator.clipboard.writeText(text).then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            });
-          }}
-          className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-        <button
-          type="button"
-          disabled={save.isPending}
-          title="Save the report as a note, with every commit by agent"
-          onClick={() => save.mutate({ start: range.start, days: range.days }, { onSuccess: (note) => openNote(note.id) })}
-          className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
-        >
-          {save.isPending ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
-          Save as note
-        </button>
+        <Tip label="Copy the summary and the numbers as text">
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(text).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              });
+            }}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </Tip>
+        <Tip label="Save the report as a note, with every commit by agent">
+          <button
+            type="button"
+            disabled={save.isPending}
+            onClick={() => save.mutate({ start: range.start, days: range.days }, { onSuccess: (note) => openNote(note.id) })}
+            className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
+          >
+            {save.isPending ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
+            Save as note
+          </button>
+        </Tip>
       </div>
       <div className="mt-2 space-y-2">
         {range.report.map((line) => (
@@ -121,28 +124,28 @@ function AgentTable({ range }: { range: WorkRange }) {
         </thead>
         <tbody>
           {rows.map((a) => (
-            <tr
-              key={a.id ?? 'ri'}
-              className="hover:bg-muted/40"
-              title={`${a.name}: ran ${formatDuration(a.agentMinutes)}, a person would need about ${formatHours(a.personHours)} hours${a.commits ? `, ${a.commits} ${a.commits === 1 ? 'commit' : 'commits'}` : ''}`}
-            >
-              <td className="max-w-48 py-[3px] pr-3">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="size-2 shrink-0 rounded-[2px]" style={agentStyle(a.color).dot} aria-hidden />
-                  <span className="truncate text-foreground">{a.name}</span>
-                </span>
-              </td>
-              <td className="whitespace-nowrap py-[3px] pr-3 text-right tabular-nums text-muted-foreground">
-                {a.agentMinutes >= 1 ? formatSpan(a.agentMinutes) : ''}
-              </td>
-              <td className="w-full py-[3px] pr-3">
-                <span className="flex items-center gap-2">
-                  <span className="block h-2 min-w-[2px] rounded-r-[4px]" style={{ width: `${(a.personHours / max) * 82}%`, backgroundColor: seriesColor(a.color) }} />
-                  <span className="shrink-0 tabular-nums text-foreground">{formatHours(a.personHours)}h</span>
-                </span>
-              </td>
-              <td className="py-[3px] text-right tabular-nums text-muted-foreground">{a.commits || ''}</td>
-            </tr>
+            <Tip key={a.id ?? 'ri'} label={`${a.name}: ran ${formatDuration(a.agentMinutes)}, a person would need about ${formatHours(a.personHours)} hours${a.commits ? `, ${a.commits} ${a.commits === 1 ? 'commit' : 'commits'}` : ''}`}>
+              <tr
+                className="hover:bg-muted/40"
+              >
+                <td className="max-w-48 py-[3px] pr-3">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="size-2 shrink-0 rounded-[2px]" style={agentStyle(a.color).dot} aria-hidden />
+                    <span className="truncate text-foreground">{a.name}</span>
+                  </span>
+                </td>
+                <td className="whitespace-nowrap py-[3px] pr-3 text-right tabular-nums text-muted-foreground">
+                  {a.agentMinutes >= 1 ? formatSpan(a.agentMinutes) : ''}
+                </td>
+                <td className="w-full py-[3px] pr-3">
+                  <span className="flex items-center gap-2">
+                    <span className="block h-2 min-w-[2px] rounded-r-[4px]" style={{ width: `${(a.personHours / max) * 82}%`, backgroundColor: seriesColor(a.color) }} />
+                    <span className="shrink-0 tabular-nums text-foreground">{formatHours(a.personHours)}h</span>
+                  </span>
+                </td>
+                <td className="py-[3px] text-right tabular-nums text-muted-foreground">{a.commits || ''}</td>
+              </tr>
+            </Tip>
           ))}
         </tbody>
       </table>
@@ -252,21 +255,24 @@ function AgentGroup({
       <div className="flex items-center gap-1.5">
         <span className="size-2 shrink-0 rounded-[2px]" style={colors.dot} aria-hidden />
         <span className="truncate text-xs font-medium">{agent?.name ?? 'Ri'}</span>
-        <span
-          className="shrink-0 text-[10px] text-muted-foreground"
-          title={`Ran ${formatDuration(group.agentMinutes)}. A person would need about ${formatHours(group.personHours)} hours.`}
-        >
-          {formatSpan(group.agentMinutes)}
-          {group.personHours >= 0.5 && ` → ${formatHours(group.personHours)}h`}
-          {group.commits.length > 0 && ` · ${group.commits.length} ${group.commits.length === 1 ? 'commit' : 'commits'}`}
-        </span>
+        <Tip label={`Ran ${formatDuration(group.agentMinutes)}. A person would need about ${formatHours(group.personHours)} hours.`}>
+          <span
+            className="shrink-0 text-[10px] text-muted-foreground"
+          >
+            {formatSpan(group.agentMinutes)}
+            {group.personHours >= 0.5 && ` → ${formatHours(group.personHours)}h`}
+            {group.commits.length > 0 && ` · ${group.commits.length} ${group.commits.length === 1 ? 'commit' : 'commits'}`}
+          </span>
+        </Tip>
       </div>
       <ul className="mt-1 space-y-0.5 pl-3.5">
         {shown.map((c) => (
-          <li key={c.hash} className="flex items-start gap-1.5 text-[11.5px] leading-snug" title={`${c.lines} lines that count · about ${formatHours(c.effortHours)}h of work`}>
-            <GitCommitHorizontal size={11} className="mt-[3px] shrink-0 text-muted-foreground" />
-            <span className="min-w-0">{c.subject}</span>
-          </li>
+          <Tip key={c.hash} label={`${c.lines} lines that count · about ${formatHours(c.effortHours)}h of work`}>
+            <li className="flex items-start gap-1.5 text-[11.5px] leading-snug">
+              <GitCommitHorizontal size={11} className="mt-[3px] shrink-0 text-muted-foreground" />
+              <span className="min-w-0">{c.subject}</span>
+            </li>
+          </Tip>
         ))}
         {group.commits.length > COMMITS_SHOWN && (
           <li>

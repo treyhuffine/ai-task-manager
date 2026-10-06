@@ -10,6 +10,7 @@ import { closeCalendarModal } from '@/lib/client/calendar-modal';
 import { closeTaskBoard, openTaskBoard, useTaskBoardOpen } from '@/lib/client/task-board';
 import { cn } from '@/lib/utils';
 import { TaskKanban } from './task-kanban';
+import { Tip } from '@/components/ui/tip';
 
 /** `?board=1` keeps the board open across a reload and makes it linkable. */
 const BOARD_PARAM = 'board';
@@ -120,13 +121,14 @@ export function TaskBoardModal() {
               </DialogTitle>
             }
             trailing={
-              <DialogPrimitive.Close
-                className="ml-1 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label="Close board"
-                title="Close board (Esc)"
-              >
-                <X className="size-4" />
-              </DialogPrimitive.Close>
+              <Tip label="Close board" shortcut="Esc">
+                <DialogPrimitive.Close
+                  className="ml-1 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label="Close board"
+                >
+                  <X className="size-4" />
+                </DialogPrimitive.Close>
+              </Tip>
             }
           />
         </DialogPrimitive.Content>

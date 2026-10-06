@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Link as LinkIcon, MessageSquare } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useState } from 'react';
+import { Tip } from '@/components/ui/tip';
 
 interface ReferencingSession {
   id: string;
@@ -54,18 +55,19 @@ export function ReferencingSessionsButton({ entityType, entityId }: ReferencingS
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <PopoverPrimitive.Trigger asChild>
-        <button
-          type="button"
-          className={cn(
-            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-medium',
-            'text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors',
-          )}
-          title={`Referenced in ${count} session${count === 1 ? '' : 's'}`}
-          aria-label={`${count} sessions reference this`}
-        >
-          <LinkIcon size={11} />
-          <span>{count}</span>
-        </button>
+        <Tip label={`Referenced in ${count} session${count === 1 ? '' : 's'}`}>
+          <button
+            type="button"
+            className={cn(
+              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-medium',
+              'text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors',
+            )}
+            aria-label={`${count} sessions reference this`}
+          >
+            <LinkIcon size={11} />
+            <span>{count}</span>
+          </button>
+        </Tip>
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content

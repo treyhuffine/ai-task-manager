@@ -15,6 +15,7 @@ import { Switch } from '@/components/ui/switch';
 import { BackLink, Chip, DetailHeader, GroupHeading, McpLogo, type Tone } from './parts';
 import type { McpForm, McpServerEntry, McpToolOverride } from './types';
 import { CapabilityReview } from './capability-review';
+import { Tip } from '@/components/ui/tip';
 
 const AUTH_LABEL: Record<McpServerEntry['auth']['kind'], string> = {
   none: 'No auth',
@@ -139,13 +140,17 @@ export function McpServerDetail({
                   className="grid grid-cols-[1fr_2.5rem_3.5rem] items-center gap-x-2 px-3 py-1.5 hover:bg-muted/30"
                 >
                   <div className="min-w-0">
-                    <div className="truncate font-mono text-[11px] text-foreground" title={t.name}>
-                      {t.name}
-                    </div>
-                    {t.description && (
-                      <div className="truncate text-[10px] text-muted-foreground" title={t.description}>
-                        {t.description}
+                    <Tip label={t.name}>
+                      <div className="truncate font-mono text-[11px] text-foreground">
+                        {t.name}
                       </div>
+                    </Tip>
+                    {t.description && (
+                      <Tip label={t.description}>
+                        <div className="truncate text-[10px] text-muted-foreground">
+                          {t.description}
+                        </div>
+                      </Tip>
                     )}
                   </div>
                   <Switch

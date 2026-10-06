@@ -30,6 +30,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from '@/components/ui/popover';
+import { Tip } from '@/components/ui/tip';
 
 function timeAgo(isoDate: string): string {
   const diff = Date.now() - new Date(isoDate).getTime();
@@ -91,12 +92,14 @@ function RerouteMenu({ decision }: { decision: TriageDecisionWithItems }) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          className="p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors"
-          title="Change what happened"
-        >
-          <CornerUpRight size={11} />
-        </button>
+        <Tip label="Change what happened">
+          <button
+            className="p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors"
+            aria-label="Change what happened"
+          >
+            <CornerUpRight size={11} />
+          </button>
+        </Tip>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-44 p-0" sideOffset={4}>
         <div className="py-1">
@@ -149,13 +152,15 @@ function DigestDecisionRow({ decision }: { decision: TriageDecisionWithItems }) 
       {!isUndone && (
         <div className="flex items-center gap-0.5 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
           <RerouteMenu decision={decision} />
-          <button
-            onClick={() => undo.mutate(decision.id)}
-            className="p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors"
-            title="Undo"
-          >
-            <Undo2 size={11} />
-          </button>
+          <Tip label="Undo">
+            <button
+              onClick={() => undo.mutate(decision.id)}
+              className="p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors"
+              aria-label="Undo"
+            >
+              <Undo2 size={11} />
+            </button>
+          </Tip>
         </div>
       )}
     </div>

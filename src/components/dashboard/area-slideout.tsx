@@ -24,6 +24,7 @@ import { coverAttachmentUrl } from '@/lib/attachments/view'
 import { cn } from '@/lib/utils'
 import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave'
 import { formatLocalDate, isPastDate } from '@/lib/dates'
+import { Tip } from '@/components/ui/tip'
 
 const DEFAULT_WIDTH = 640
 const MIN_WIDTH = 400
@@ -356,14 +357,15 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
                           key={task.id}
                           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors hover:bg-card group"
                         >
-                          <button
-                            onClick={() => lifecycle.toggle(task.id, task.status as TaskStatus)}
-                            title="Complete"
-                            aria-label="Complete task"
-                            className="flex-shrink-0"
-                          >
-                            <div className="w-3.5 h-3.5 rounded-full border border-muted-foreground/30 transition-colors hover:border-primary" />
-                          </button>
+                          <Tip label="Complete">
+                            <button
+                              onClick={() => lifecycle.toggle(task.id, task.status as TaskStatus)}
+                              aria-label="Complete task"
+                              className="flex-shrink-0"
+                            >
+                              <div className="w-3.5 h-3.5 rounded-full border border-muted-foreground/30 transition-colors hover:border-primary" />
+                            </button>
+                          </Tip>
                           <button onClick={() => openTask(task.id)} className="min-w-0 flex-1 text-left">
                             <span className="text-[12px] font-medium text-foreground truncate block">
                               {task.title}
@@ -425,14 +427,15 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
                               key={task.id}
                               className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors hover:bg-card opacity-60 hover:opacity-100"
                             >
-                              <button
-                                onClick={() => lifecycle.reopen(task.id)}
-                                title="Reopen"
-                                aria-label="Reopen task"
-                                className="flex-shrink-0 w-3.5 h-3.5 rounded-full bg-primary border border-primary flex items-center justify-center"
-                              >
-                                <Check size={8} strokeWidth={3} className="text-primary-foreground" />
-                              </button>
+                              <Tip label="Reopen">
+                                <button
+                                  onClick={() => lifecycle.reopen(task.id)}
+                                  aria-label="Reopen task"
+                                  className="flex-shrink-0 w-3.5 h-3.5 rounded-full bg-primary border border-primary flex items-center justify-center"
+                                >
+                                  <Check size={8} strokeWidth={3} className="text-primary-foreground" />
+                                </button>
+                              </Tip>
                               <button onClick={() => openTask(task.id)} className="min-w-0 flex-1 text-left">
                                 <span className="text-[12px] font-medium text-muted-foreground line-through truncate block">
                                   {task.title}

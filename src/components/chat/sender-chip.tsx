@@ -5,6 +5,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useSession } from '@/hooks/use-execution';
 import { useWorkspace } from '@/hooks/use-workspaces';
 import { useOrchestratorName } from '@/hooks/use-user-state';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * Who sent a message that another chat sent (docs/agents-view-spec.md Phase
@@ -48,9 +49,11 @@ export function SenderChip({ senderSessionId }: { senderSessionId: string }) {
     </>
   );
   return open ? (
-    <button onClick={open} className={`${className} hover:text-foreground hover:bg-muted/60 transition-colors`} title={`Open: ${label.replace(/^From /, '')}`}>
-      {content}
-    </button>
+    <Tip label={`Open: ${label.replace(/^From /, '')}`}>
+      <button onClick={open} className={`${className} hover:text-foreground hover:bg-muted/60 transition-colors`}>
+        {content}
+      </button>
+    </Tip>
   ) : (
     <span className={className}>{content}</span>
   );

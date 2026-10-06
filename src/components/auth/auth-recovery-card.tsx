@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Loader2, RefreshCw, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { Tip } from '@/components/ui/tip';
 
 const STUCK_KEY = ['claude-auth-stuck-sessions'] as const;
 
@@ -148,24 +149,25 @@ function StuckSessionRow({ session }: { session: StuckSession }) {
         )}
       </button>
       {canResend && (
-        <button
-          type="button"
-          onClick={() => resend.mutate()}
-          disabled={resend.isPending}
-          className={cn(
-            'shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium',
-            'bg-foreground text-background hover:bg-foreground/90',
-            'disabled:opacity-60 disabled:cursor-not-allowed',
-          )}
-          title="Resend the last message in this session"
-        >
-          {resend.isPending ? (
-            <Loader2 size={10} className="animate-spin" />
-          ) : (
-            <RefreshCw size={10} />
-          )}
-          <span>Resend</span>
-        </button>
+        <Tip label="Resend the last message in this session">
+          <button
+            type="button"
+            onClick={() => resend.mutate()}
+            disabled={resend.isPending}
+            className={cn(
+              'shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium',
+              'bg-foreground text-background hover:bg-foreground/90',
+              'disabled:opacity-60 disabled:cursor-not-allowed',
+            )}
+          >
+            {resend.isPending ? (
+              <Loader2 size={10} className="animate-spin" />
+            ) : (
+              <RefreshCw size={10} />
+            )}
+            <span>Resend</span>
+          </button>
+        </Tip>
       )}
     </div>
   );

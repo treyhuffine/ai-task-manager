@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AreaSelect } from '@/components/shared/area-select';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { TaskActions, NoteActions } from './promote-actions';
 import { StreamAttachments } from './stream-attachments';
@@ -38,6 +37,7 @@ import {
 } from '@/hooks/use-stream';
 import type { TriageDecisionWithItems } from '@/lib/api/stream';
 import type { StreamRecord, TriageDisposition } from '@/db/types';
+import { Tip } from '@/components/ui/tip';
 
 // ─── Shared bits ─────────────────────────────────────────────
 
@@ -181,13 +181,15 @@ function ProposalCard({ decision }: { decision: TriageDecisionWithItems }) {
             <p className="text-[11.5px] font-medium text-foreground leading-snug">
               {headline.text}
               {canEditTitle && (
-                <button
-                  onClick={() => setEditingTitle(true)}
-                  className="ml-1.5 inline-flex text-muted-foreground/50 hover:text-foreground align-middle"
-                  title="Edit the title"
-                >
-                  <Pencil size={9} />
-                </button>
+                <Tip label="Edit the title">
+                  <button
+                    onClick={() => setEditingTitle(true)}
+                    className="ml-1.5 inline-flex text-muted-foreground/50 hover:text-foreground align-middle"
+                    aria-label="Edit the title"
+                  >
+                    <Pencil size={9} />
+                  </button>
+                </Tip>
               )}
             </p>
           )}
@@ -260,14 +262,15 @@ function ProposalCard({ decision }: { decision: TriageDecisionWithItems }) {
           </Popover>
         )}
 
-        <button
-          onClick={() => undo.mutate(decision.id)}
-          className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          title="Leave the capture as it was"
-        >
-          <Undo2 size={10} />
-          Not this
-        </button>
+        <Tip label="Leave the capture as it was">
+          <button
+            onClick={() => undo.mutate(decision.id)}
+            className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <Undo2 size={10} />
+            Not this
+          </button>
+        </Tip>
 
         <span className="flex-1" />
         <span className="text-[9px] text-muted-foreground/60 flex items-center gap-0.5">
@@ -332,58 +335,54 @@ function ManualRow({
               value={overrides.areaId ?? null}
               onChange={(areaId) => onUpdateOverride('areaId', areaId)}
             />
-            <button
-              onClick={cycleEnergy}
-              className={cn(
-                'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted',
-                energy ? ENERGY_COLORS[energy] : 'text-muted-foreground/40',
-              )}
-              title={`Energy: ${energy ?? 'unset'} (click to cycle)`}
-            >
-              {EnergyIcon && <EnergyIcon size={8} />}
-              {energy ?? '~'}
-            </button>
-            <button
-              onClick={cycleEffort}
-              className="inline-flex items-center px-1.5 py-0.5 rounded text-[8.5px] font-bold text-muted-foreground uppercase tracking-wider transition-colors hover:bg-muted"
-              title={`Effort: ${effort ?? 'unset'} (click to cycle)`}
-            >
-              {effort ? (EFFORT_LABELS[effort] ?? effort) : '~'}
-            </button>
+            <Tip label={`Energy: ${energy ?? 'unset'} (click to cycle)`}>
+              <button
+                onClick={cycleEnergy}
+                className={cn(
+                  'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted',
+                  energy ? ENERGY_COLORS[energy] : 'text-muted-foreground/40',
+                )}
+              >
+                {EnergyIcon && <EnergyIcon size={8} />}
+                {energy ?? '~'}
+              </button>
+            </Tip>
+            <Tip label={`Effort: ${effort ?? 'unset'} (click to cycle)`}>
+              <button
+                onClick={cycleEffort}
+                className="inline-flex items-center px-1.5 py-0.5 rounded text-[8.5px] font-bold text-muted-foreground uppercase tracking-wider transition-colors hover:bg-muted"
+              >
+                {effort ? (EFFORT_LABELS[effort] ?? effort) : '~'}
+              </button>
+            </Tip>
             <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
               <Clock size={8} /> {timeAgo(item.createdAt)}
             </span>
           </div>
         </div>
 
-        <TooltipProvider>
-          <div className="flex items-center gap-0.5 flex-shrink-0">
-            <TaskActions onPromote={() => onDecide('promote_task')} onMerge={onMergeTask} />
-            <NoteActions onPromote={() => onDecide('promote_note')} onMerge={onMergeNote} />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => onDecide('journal')}
-                  className="p-1.5 rounded-md text-muted-foreground hover:text-violet-500 hover:bg-muted transition-colors"
-                >
-                  <BookOpen size={11} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Keep as a thought</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => onDecide('dismiss')}
-                  className="p-1.5 rounded-md text-muted-foreground hover:text-muted-foreground/80 hover:bg-muted transition-colors"
-                >
-                  <Archive size={11} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Set aside</TooltipContent>
-            </Tooltip>
-          </div>
-        </TooltipProvider>
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <TaskActions onPromote={() => onDecide('promote_task')} onMerge={onMergeTask} />
+          <NoteActions onPromote={() => onDecide('promote_note')} onMerge={onMergeNote} />
+          <Tip label="Keep as a thought" side="bottom">
+            <button
+              aria-label="Keep as a thought"
+              onClick={() => onDecide('journal')}
+              className="p-1.5 rounded-md text-muted-foreground hover:text-violet-500 hover:bg-muted transition-colors"
+            >
+              <BookOpen size={11} />
+            </button>
+          </Tip>
+          <Tip label="Set aside" side="bottom">
+            <button
+              aria-label="Set aside"
+              onClick={() => onDecide('dismiss')}
+              className="p-1.5 rounded-md text-muted-foreground hover:text-muted-foreground/80 hover:bg-muted transition-colors"
+            >
+              <Archive size={11} />
+            </button>
+          </Tip>
+        </div>
       </div>
     </div>
   );

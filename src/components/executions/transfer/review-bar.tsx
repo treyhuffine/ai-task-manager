@@ -22,6 +22,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { ContinueDialog } from './continue-dialog';
 import { useMoves } from './location-menu';
+import { Tip } from '@/components/ui/tip';
 
 export function ReviewBar({ session, workspace }: { session: ChatSessionWithExecution; workspace: WorkspaceRecord | null | undefined }) {
   const sessionId = session.id;
@@ -51,51 +52,55 @@ export function ReviewBar({ session, workspace }: { session: ChatSessionWithExec
         >
           <SquareArrowOutUpRight size={11} /> Open
         </button>
-        <button
-          type="button"
-          disabled={refresh.isPending || review.dirty}
-          title={review.dirty ? "It has your edits, so Refresh leaves it as it is." : 'Bring the latest published commit'}
-          onClick={() =>
-            refresh.mutate(undefined, {
-              onSuccess: (s) =>
-                s.review?.dirty
-                  ? toast.message('It has your edits, so it stayed as it was')
-                  : s.inTheWay?.length
-                    ? toast.message('It stayed as it was', {
-                        description: `The newer commit would replace local files here: ${s.inTheWay.slice(0, 3).join(', ')}${s.inTheWay.length > 3 ? ` and ${s.inTheWay.length - 3} more` : ''}. Move them aside to refresh.`,
-                      })
-                    : toast.success(s.refreshed ? `Now at ${s.review?.sha.slice(0, 7)}` : 'Already the latest published commit'),
-              onError: (err) => toast.error("Couldn't refresh it", { description: apiErrorText(err) }),
-            })
-          }
-          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-foreground/80 hover:bg-muted/60 disabled:opacity-50"
-        >
-          {refresh.isPending ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />} Refresh
-        </button>
-        {here && (
+        <Tip label={review.dirty ? "It has your edits, so Refresh leaves it as it is." : 'Bring the latest published commit'}>
           <button
             type="button"
-            disabled={!!here.problem}
-            title={here.problem ?? `Move the execution to ${here.to.name}, into a clean worktree of its own, to work on it here.`}
-            onClick={() => setContinuing(true)}
+            disabled={refresh.isPending || review.dirty}
+            onClick={() =>
+              refresh.mutate(undefined, {
+                onSuccess: (s) =>
+                  s.review?.dirty
+                    ? toast.message('It has your edits, so it stayed as it was')
+                    : s.inTheWay?.length
+                      ? toast.message('It stayed as it was', {
+                          description: `The newer commit would replace local files here: ${s.inTheWay.slice(0, 3).join(', ')}${s.inTheWay.length > 3 ? ` and ${s.inTheWay.length - 3} more` : ''}. Move them aside to refresh.`,
+                        })
+                      : toast.success(s.refreshed ? `Now at ${s.review?.sha.slice(0, 7)}` : 'Already the latest published commit'),
+                onError: (err) => toast.error("Couldn't refresh it", { description: apiErrorText(err) }),
+              })
+            }
             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-foreground/80 hover:bg-muted/60 disabled:opacity-50"
           >
-            <ArrowRightLeft size={11} /> Continue here
+            {refresh.isPending ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />} Refresh
           </button>
+        </Tip>
+        {here && (
+          <Tip label={here.problem ?? `Move the execution to ${here.to.name}, into a clean worktree of its own, to work on it here.`}>
+            <button
+              type="button"
+              disabled={!!here.problem}
+              onClick={() => setContinuing(true)}
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-foreground/80 hover:bg-muted/60 disabled:opacity-50"
+            >
+              <ArrowRightLeft size={11} /> Continue here
+            </button>
+          </Tip>
         )}
       </div>
       {review.dirty && (
         <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
           To keep these edits, put them on a branch of your own:
           <code className="rounded bg-muted px-1 py-px font-mono text-[10.5px] text-foreground/80">{ownBranch}</code>
-          <button
-            type="button"
-            title="Copy"
-            onClick={() => void navigator.clipboard?.writeText(ownBranch).then(() => toast.success('Copied'))}
-            className="rounded p-0.5 hover:bg-muted/60"
-          >
-            <Copy size={10} />
-          </button>
+          <Tip label="Copy">
+            <button
+              type="button"
+              aria-label="Copy"
+              onClick={() => void navigator.clipboard?.writeText(ownBranch).then(() => toast.success('Copied'))}
+              className="rounded p-0.5 hover:bg-muted/60"
+            >
+              <Copy size={10} />
+            </button>
+          </Tip>
           They never go to the execution&apos;s branch.
         </p>
       )}

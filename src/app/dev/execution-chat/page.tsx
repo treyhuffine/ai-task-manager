@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Beaker, Loader2, RefreshCw, RotateCcw, Zap } from 'lucide-react';
 import { Suspense, useMemo, useState } from 'react';
+import { Tip } from '@/components/ui/tip';
 
 export default function DevExecutionChatPage() {
   // Suspense boundary required: DashboardProvider reads useSearchParams.
@@ -163,19 +164,20 @@ function DevExecutionChatInner() {
             <span className="text-muted-foreground/70 truncate font-mono">
               {scratch.session.id.slice(0, 8)}…
             </span>
-            <button
-              onClick={() => sessionId && reset.mutate(sessionId)}
-              disabled={!sessionId || reset.isPending}
-              className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
-              title="Wipe transcript + clear pending"
-            >
-              {reset.isPending ? (
-                <Loader2 size={10} className="animate-spin" />
-              ) : (
-                <RotateCcw size={10} />
-              )}
-              Reset
-            </button>
+            <Tip label="Wipe transcript + clear pending">
+              <button
+                onClick={() => sessionId && reset.mutate(sessionId)}
+                disabled={!sessionId || reset.isPending}
+                className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+              >
+                {reset.isPending ? (
+                  <Loader2 size={10} className="animate-spin" />
+                ) : (
+                  <RotateCcw size={10} />
+                )}
+                Reset
+              </button>
+            </Tip>
           </div>
         </header>
 
@@ -239,40 +241,44 @@ function ScenarioCard({
         {scenario.description}
       </div>
       <div className="flex items-center gap-1 mt-1.5">
-        <button
-          type="button"
-          onClick={onInject}
-          disabled={!scenario.inject || injectPending}
-          className={cn(
-            'flex-1 inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors',
-            scenario.inject
-              ? 'text-primary border border-primary/40 hover:bg-primary/10'
-              : 'text-muted-foreground/40 border border-border/40 cursor-not-allowed',
-          )}
-          title={scenario.inject ? 'Inject synthetic state, no agent call' : 'No inject path for this scenario'}
-        >
-          {injectPending ? <Loader2 size={9} className="animate-spin" /> : <Beaker size={9} />}
-          Inject
-        </button>
-        <button
-          type="button"
-          onClick={onLive}
-          disabled={!scenario.live || livePending}
-          className={cn(
-            'flex-1 inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors',
-            scenario.live
-              ? 'text-amber-500 border border-amber-500/40 hover:bg-amber-500/10'
-              : 'text-muted-foreground/40 border border-border/40 cursor-not-allowed',
-          )}
-          title={
+        <Tip label={scenario.inject ? 'Inject synthetic state, no agent call' : 'No inject path for this scenario'}>
+          <button
+            type="button"
+            onClick={onInject}
+            disabled={!scenario.inject || injectPending}
+            className={cn(
+              'flex-1 inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors',
+              scenario.inject
+                ? 'text-primary border border-primary/40 hover:bg-primary/10'
+                : 'text-muted-foreground/40 border border-border/40 cursor-not-allowed',
+            )}
+          >
+            {injectPending ? <Loader2 size={9} className="animate-spin" /> : <Beaker size={9} />}
+            Inject
+          </button>
+        </Tip>
+        <Tip
+          label={
             scenario.live
               ? `Live agent dispatch in ${scenario.live.mode} mode (costs tokens)`
               : 'No live path for this scenario'
           }
         >
-          {livePending ? <Loader2 size={9} className="animate-spin" /> : <Zap size={9} />}
-          Live
-        </button>
+          <button
+            type="button"
+            onClick={onLive}
+            disabled={!scenario.live || livePending}
+            className={cn(
+              'flex-1 inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors',
+              scenario.live
+                ? 'text-amber-500 border border-amber-500/40 hover:bg-amber-500/10'
+                : 'text-muted-foreground/40 border border-border/40 cursor-not-allowed',
+            )}
+          >
+            {livePending ? <Loader2 size={9} className="animate-spin" /> : <Zap size={9} />}
+            Live
+          </button>
+        </Tip>
       </div>
     </div>
   );

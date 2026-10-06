@@ -36,7 +36,7 @@ describe('registered hosted OAuth app setup', () => {
     expect(oauthAppRedirectUri(provider, 'https://wrong.example/callback')).toBe('');
     const html = render({ provider });
     expect(html).toContain('Callback address unavailable');
-    expect(html).toMatch(/<button(?=[^>]*title="Copy redirect URI")(?=[^>]*disabled="")[^>]*>/);
+    expect(html).toMatch(/<button(?=[^>]*aria-label="Copy redirect URI")(?=[^>]*disabled="")[^>]*>/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*?Add app/);
     expect(html).not.toContain('wrong.example');
   });

@@ -12,6 +12,7 @@ import { FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FolderPickerDialog } from '@/components/workspaces/folder-picker-dialog';
+import { Tip } from '@/components/ui/tip';
 
 export function FolderField({
   value,
@@ -42,21 +43,22 @@ export function FolderField({
           autoCorrect="off"
           className="h-8 min-w-0 flex-1 font-mono text-[12px]"
         />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            setPicking(true);
-          }}
-          disabled={!browsable}
-          title={browsable ? `Browse ${device.name}` : `${device.name} isn't running Ri right now. Type the path instead.`}
-          className="h-8 shrink-0 gap-1.5 text-[12px]"
-        >
-          <FolderOpen size={13} />
-          Browse
-        </Button>
+        <Tip label={browsable ? `Browse ${device.name}` : `${device.name} isn't running Ri right now. Type the path instead.`}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setPicking(true);
+            }}
+            disabled={!browsable}
+            className="h-8 shrink-0 gap-1.5 text-[12px]"
+          >
+            <FolderOpen size={13} />
+            Browse
+          </Button>
+        </Tip>
       </div>
       <FolderPickerDialog
         open={picking}

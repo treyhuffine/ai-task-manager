@@ -53,6 +53,7 @@ import {
 import { Card, PrimaryButton, QuietButton, Reply, Says, Turn, Typing } from './onboarding-ui';
 import { useHarnessCheck, type HarnessCheck } from './use-harness-check';
 import { useOnboardingProgress } from './use-onboarding-progress';
+import { Tip } from '@/components/ui/tip';
 
 /** How long the assistant "types" before a new step appears. */
 const TYPING_MS = 650;
@@ -648,17 +649,17 @@ function Starters() {
   return (
     <div className="flex flex-wrap gap-1.5">
       {starters.map((s) => (
-        <button
-          key={s.label}
-          type="button"
-          disabled={actions.disabled}
-          onClick={() => (s.draft ? actions.draft(s.prompt) : actions.send(s.prompt))}
-          title={s.draft ? 'Start this in the composer' : 'Send this'}
-          className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-[12px] text-foreground/90 transition-colors hover:bg-muted/60 disabled:opacity-50"
-        >
-          {s.draft ? <PenLine size={11} className="text-muted-foreground" /> : <ArrowUp size={11} className="text-muted-foreground" />}
-          {s.label}
-        </button>
+        <Tip key={s.label} label={s.draft ? 'Start this in the composer' : 'Send this'}>
+          <button
+            type="button"
+            disabled={actions.disabled}
+            onClick={() => (s.draft ? actions.draft(s.prompt) : actions.send(s.prompt))}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-[12px] text-foreground/90 transition-colors hover:bg-muted/60 disabled:opacity-50"
+          >
+            {s.draft ? <PenLine size={11} className="text-muted-foreground" /> : <ArrowUp size={11} className="text-muted-foreground" />}
+            {s.label}
+          </button>
+        </Tip>
       ))}
     </div>
   );

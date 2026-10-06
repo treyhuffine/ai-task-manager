@@ -24,6 +24,7 @@ import type { WorkspaceIntegrationScope, WorkspaceIntegrationScopeAccount } from
 import { pinKey, pinMatchesConnection, scopePins, toggleAccountPin } from '@/lib/integrations/scope-pins';
 import { AlertCircle, ChevronDown, Loader2, Plug } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { Tip } from '@/components/ui/tip';
 
 interface Toolkit {
   id: string;
@@ -103,15 +104,17 @@ function AccountMultiSelect({ serviceName, accounts, pins, disabled, onChange }:
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        disabled={disabled}
-        aria-label={`Accounts ${serviceName} may use: ${summary}`}
-        title={dormant.length > 0 ? dormantNote : summary}
-        className="flex h-7 min-w-0 max-w-[55%] shrink-0 items-center gap-1 rounded-lg border border-border bg-input/30 px-2 text-[11px] text-foreground outline-none transition-colors hover:bg-input/50 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 @sm:max-w-[200px]"
-      >
-        {dormant.length > 0 && <AlertCircle size={11} className="shrink-0 text-amber-600 dark:text-amber-400" />}
-        <span className="truncate">{summary}</span>
-        <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
+      <DropdownMenuTrigger asChild disabled={disabled}>
+        <Tip label={dormant.length > 0 ? dormantNote : summary}>
+          <button
+            aria-label={`Accounts ${serviceName} may use: ${summary}`}
+            className="flex h-7 min-w-0 max-w-[55%] shrink-0 items-center gap-1 rounded-lg border border-border bg-input/30 px-2 text-[11px] text-foreground outline-none transition-colors hover:bg-input/50 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 @sm:max-w-[200px]"
+          >
+            {dormant.length > 0 && <AlertCircle size={11} className="shrink-0 text-amber-600 dark:text-amber-400" />}
+            <span className="truncate">{summary}</span>
+            <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
+          </button>
+        </Tip>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-2rem)]">
         <DropdownMenuCheckboxItem checked={all} onCheckedChange={selectAll} onSelect={stayOpen} className="items-start text-xs">
@@ -322,10 +325,12 @@ export function IntegrationScopePicker({ scopes, onChange, disabled }: Integrati
             const pins = scopePins(s);
             return (
               <div key={s.toolkitId} className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                <span className="min-w-0 truncate font-mono" title={pins.map((p) => p.accountId).join(', ')}>
-                  {s.toolkitId}
-                  {pins.length === 1 ? ` · ${pins[0]!.accountId}` : pins.length > 1 ? ` · ${pins.length} accounts` : ''}
-                </span>
+                <Tip label={pins.map((p) => p.accountId).join(', ')}>
+                  <span className="min-w-0 truncate font-mono">
+                    {s.toolkitId}
+                    {pins.length === 1 ? ` · ${pins[0]!.accountId}` : pins.length > 1 ? ` · ${pins.length} accounts` : ''}
+                  </span>
+                </Tip>
                 <button
                   type="button"
                   onClick={() => removeDormant(s.toolkitId)}

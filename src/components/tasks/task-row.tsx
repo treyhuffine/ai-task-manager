@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { BUCKET_OPTIONS, type Bucket } from '@/lib/utils/bucket-placement';
 import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from '@/components/ui/popover';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { AreaSelect } from '@/components/shared/area-select';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
 import { TaskBadges } from '@/components/tasks/task-badges';
@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils';
 import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
 import type { Energy, Effort, TaskAttentionSignals } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
+import { Tip } from '@/components/ui/tip';
 
 const ENERGY_COLORS: Record<string, string> = {
   deep: 'text-orange-500',
@@ -171,25 +172,27 @@ export function TaskRow({
           control), and Archived is history, so neither shows a checkbox that
           would silently do nothing or quietly restore. */}
       {task.status === 'consider' || task.status === 'archived' ? (
-        <span
-          className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border border-dashed border-muted-foreground/30"
-          title={task.status === 'consider' ? 'Consider, commit it with the status control' : 'Archived'}
-          aria-hidden
-        />
+        <Tip label={task.status === 'consider' ? 'Consider, commit it with the status control' : 'Archived'}>
+          <span
+            className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border border-dashed border-muted-foreground/30"
+            aria-hidden
+          />
+        </Tip>
       ) : (
-        <button
-          onClick={(e) => { e.stopPropagation(); onComplete(task.id); }}
-          title={isDone ? 'Reopen' : 'Complete'}
-          aria-label={isDone ? 'Reopen task' : 'Complete task'}
-          className={cn(
-            'mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all',
-            isDone
-              ? 'bg-primary border-primary text-primary-foreground'
-              : 'border-muted-foreground/40 hover:border-primary hover:bg-primary/10',
-          )}
-        >
-          {isDone && <Check size={10} strokeWidth={3} />}
-        </button>
+        <Tip label={isDone ? 'Reopen' : 'Complete'}>
+          <button
+            onClick={(e) => { e.stopPropagation(); onComplete(task.id); }}
+            aria-label={isDone ? 'Reopen task' : 'Complete task'}
+            className={cn(
+              'mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all',
+              isDone
+                ? 'bg-primary border-primary text-primary-foreground'
+                : 'border-muted-foreground/40 hover:border-primary hover:bg-primary/10',
+            )}
+          >
+            {isDone && <Check size={10} strokeWidth={3} />}
+          </button>
+        </Tip>
       )}
 
       {/* Content */}
@@ -218,27 +221,29 @@ export function TaskRow({
           />
 
           {/* Energy pill */}
-          <button
-            onClick={(e) => { e.stopPropagation(); cycleEnergy(); }}
-            className={cn(
-              'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted',
-              task.energy ? ENERGY_COLORS[task.energy] : 'text-muted-foreground/40',
-            )}
-            title={`Energy: ${task.energy ?? 'unset'} (click to cycle)`}
-          >
-            {EnergyIcon && <EnergyIcon size={8} />}
-            {task.energy ?? '~'}
-          </button>
+          <Tip label={`Energy: ${task.energy ?? 'unset'} (click to cycle)`}>
+            <button
+              onClick={(e) => { e.stopPropagation(); cycleEnergy(); }}
+              className={cn(
+                'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted',
+                task.energy ? ENERGY_COLORS[task.energy] : 'text-muted-foreground/40',
+              )}
+            >
+              {EnergyIcon && <EnergyIcon size={8} />}
+              {task.energy ?? '~'}
+            </button>
+          </Tip>
 
           {/* Effort pill */}
           {(task.effort || false) && (
-            <button
-              onClick={(e) => { e.stopPropagation(); cycleEffort(); }}
-              className="inline-flex items-center px-1.5 py-0.5 rounded text-[8.5px] font-bold text-muted-foreground uppercase tracking-wider transition-colors hover:bg-muted"
-              title={`Effort: ${task.effort} (click to cycle)`}
-            >
-              {EFFORT_LABELS[task.effort!] ?? task.effort}
-            </button>
+            <Tip label={`Effort: ${task.effort} (click to cycle)`}>
+              <button
+                onClick={(e) => { e.stopPropagation(); cycleEffort(); }}
+                className="inline-flex items-center px-1.5 py-0.5 rounded text-[8.5px] font-bold text-muted-foreground uppercase tracking-wider transition-colors hover:bg-muted"
+              >
+                {EFFORT_LABELS[task.effort!] ?? task.effort}
+              </button>
+            </Tip>
           )}
 
           {/* Deadline */}
@@ -276,13 +281,14 @@ export function TaskRow({
 
           {/* Boomerang */}
           {boomerang && !editingBoomerang && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setEditingBoomerang(true); }}
-              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold text-muted-foreground/60 uppercase tracking-wider transition-colors hover:bg-muted"
-              title="Click to edit resurface date"
-            >
-              <Timer size={8} /> {boomerang}
-            </button>
+            <Tip label="Click to edit resurface date">
+              <button
+                onClick={(e) => { e.stopPropagation(); setEditingBoomerang(true); }}
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold text-muted-foreground/60 uppercase tracking-wider transition-colors hover:bg-muted"
+              >
+                <Timer size={8} /> {boomerang}
+              </button>
+            </Tip>
           )}
           {editingBoomerang && (
             <input
@@ -319,45 +325,41 @@ export function TaskRow({
 
           {/* Has body */}
           {task.bodyLen > 0 && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex items-center px-1 py-0.5 text-foreground/60">
-                    <AlignLeft size={8} />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-[300px] whitespace-pre-wrap text-xs leading-relaxed line-clamp-5">
-                  {task.bodyExcerpt}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex items-center px-1 py-0.5 text-foreground/60">
+                  <AlignLeft size={8} />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-[300px] whitespace-pre-wrap text-xs leading-relaxed line-clamp-5">
+                {task.bodyExcerpt}
+              </TooltipContent>
+            </Tooltip>
           )}
 
           {/* Has subtasks */}
           {task.subtaskCount > 0 && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex items-center gap-0.5 px-1 py-0.5 text-foreground/60 text-[8.5px] font-medium">
-                    <ListTree size={8} /> {task.subtaskCount}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="block max-w-[280px] text-xs">
-                  <p className="font-semibold mb-1">{task.subtaskCount} subtask{task.subtaskCount === 1 ? '' : 's'}</p>
-                  <ul className="space-y-0.5">
-                    {task.subtaskPreview?.split('|||').map((title, i) => (
-                      <li key={i} className="flex items-start gap-1.5">
-                        <span className="mt-1.5 w-1 h-1 rounded-full bg-current flex-shrink-0" />
-                        <span className="line-clamp-1">{title}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  {task.subtaskCount > 4 && (
-                    <p className="mt-1 text-[10px] opacity-70">+{task.subtaskCount - 4} more</p>
-                  )}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex items-center gap-0.5 px-1 py-0.5 text-foreground/60 text-[8.5px] font-medium">
+                  <ListTree size={8} /> {task.subtaskCount}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="block max-w-[280px] text-xs">
+                <p className="font-semibold mb-1">{task.subtaskCount} subtask{task.subtaskCount === 1 ? '' : 's'}</p>
+                <ul className="space-y-0.5">
+                  {task.subtaskPreview?.split('|||').map((title, i) => (
+                    <li key={i} className="flex items-start gap-1.5">
+                      <span className="mt-1.5 w-1 h-1 rounded-full bg-current flex-shrink-0" />
+                      <span className="line-clamp-1">{title}</span>
+                    </li>
+                  ))}
+                </ul>
+                {task.subtaskCount > 4 && (
+                  <p className="mt-1 text-[10px] opacity-70">+{task.subtaskCount - 4} more</p>
+                )}
+              </TooltipContent>
+            </Tooltip>
           )}
         </div>
       </div>

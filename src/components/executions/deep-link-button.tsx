@@ -3,6 +3,7 @@
 import { type ReactNode } from 'react';
 import { useClientLocation } from '@/hooks/use-client-location';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface DeepLinkButtonProps {
   href: string;
@@ -34,16 +35,17 @@ export function DeepLinkButton({
   if (!alwaysShow && location.kind !== 'host') return null;
 
   return (
-    <a
-      href={href}
-      title={title ?? label}
-      className={cn(
-        'inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors',
-        className,
-      )}
-    >
-      {icon}
-      <span>{label}</span>
-    </a>
+    <Tip label={title ?? label}>
+      <a
+        href={href}
+        className={cn(
+          'inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors',
+          className,
+        )}
+      >
+        {icon}
+        <span>{label}</span>
+      </a>
+    </Tip>
   );
 }

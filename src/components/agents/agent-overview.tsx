@@ -17,6 +17,7 @@ import type { WorkspaceRecord } from '@/db/types';
 import type { AgentTab } from '@/types/dashboard';
 import { cn } from '@/lib/utils';
 import { BACKGROUND_DOT, BACKGROUND_LABEL, UNREAD_WITH_BACKGROUND_DOT } from '@/components/workspaces/activity-style';
+import { Tip } from '@/components/ui/tip';
 
 type RowState = 'approve' | 'unread' | 'working' | 'idle';
 
@@ -251,17 +252,18 @@ function ExecutionRow({ session, state, inactive = false }: { session: RailSessi
 
 function StateDot({ state, background = false }: { state: RowState; background?: boolean }) {
   return (
-    <span
-      aria-hidden
-      title={background ? BACKGROUND_LABEL : undefined}
-      className={cn(
-        'w-1.5 h-1.5 rounded-full flex-shrink-0',
-        state === 'approve' && 'bg-amber-500',
-        state === 'unread' && (background ? UNREAD_WITH_BACKGROUND_DOT : 'bg-amber-500'),
-        state === 'working' && 'bg-emerald-500 animate-pulse',
-        state === 'idle' && (background ? BACKGROUND_DOT : 'bg-muted-foreground/25'),
-      )}
-    />
+    <Tip label={background ? BACKGROUND_LABEL : undefined}>
+      <span
+        aria-hidden
+        className={cn(
+          'w-1.5 h-1.5 rounded-full flex-shrink-0',
+          state === 'approve' && 'bg-amber-500',
+          state === 'unread' && (background ? UNREAD_WITH_BACKGROUND_DOT : 'bg-amber-500'),
+          state === 'working' && 'bg-emerald-500 animate-pulse',
+          state === 'idle' && (background ? BACKGROUND_DOT : 'bg-muted-foreground/25'),
+        )}
+      />
+    </Tip>
   );
 }
 
@@ -274,19 +276,19 @@ function AgentTasksSection({ workspaceId }: { workspaceId: string }) {
     <Section title="Tasks" icon={<ListTodo size={10} />} count={tasks.length}>
       <div className="flex flex-wrap gap-1.5 px-1 pt-0.5">
         {tasks.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => openTask(t.id)}
-            title={`Open "${t.title}"`}
-            className={cn(
-              'inline-flex max-w-[16rem] items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] transition-colors',
-              t.status === 'in_progress'
-                ? 'border-violet-500/30 bg-violet-500/[0.06] text-foreground hover:border-violet-500/50'
-                : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <span className="truncate">{t.title || 'Untitled'}</span>
-          </button>
+          <Tip key={t.id} label={`Open "${t.title}"`}>
+            <button
+              onClick={() => openTask(t.id)}
+              className={cn(
+                'inline-flex max-w-[16rem] items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] transition-colors',
+                t.status === 'in_progress'
+                  ? 'border-violet-500/30 bg-violet-500/[0.06] text-foreground hover:border-violet-500/50'
+                  : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <span className="truncate">{t.title || 'Untitled'}</span>
+            </button>
+          </Tip>
         ))}
       </div>
     </Section>

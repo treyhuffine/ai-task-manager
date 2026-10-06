@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Play, AlertCircle, Pencil, X, Check, Loader2, Settings as SettingsIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface PreviewEmptyProps {
   variant:
@@ -271,17 +272,19 @@ export function CommandEditor({
         <pre className="w-full overflow-x-auto rounded-md border border-border bg-muted/40 px-3 py-2 pr-9 font-mono text-[12px] text-foreground">
           {initialValue || <span className="text-muted-foreground/60">(no command set)</span>}
         </pre>
-        <button
-          type="button"
-          onClick={() => {
-            setDraft(initialValue);
-            setEditing(true);
-          }}
-          title="Edit command"
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground group-hover:text-muted-foreground"
-        >
-          <Pencil size={12} />
-        </button>
+        <Tip label="Edit command">
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(initialValue);
+              setEditing(true);
+            }}
+            aria-label="Edit command"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground group-hover:text-muted-foreground"
+          >
+            <Pencil size={12} />
+          </button>
+        </Tip>
       </div>
     );
   }
@@ -309,27 +312,31 @@ export function CommandEditor({
         autoCapitalize="off"
         className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-[12px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
       />
-      <button
-        type="button"
-        onClick={handleSave}
-        disabled={isSaving}
-        title="Save (Enter)"
-        className={cn(
-          'inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-foreground text-background transition-opacity hover:bg-foreground/90',
-          isSaving && 'opacity-60',
-        )}
-      >
-        {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-      </button>
-      <button
-        type="button"
-        onClick={handleCancel}
-        disabled={isSaving}
-        title="Cancel (Esc)"
-        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
-      >
-        <X size={13} />
-      </button>
+      <Tip label="Save" shortcut="Enter">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={isSaving}
+          aria-label="Save"
+          className={cn(
+            'inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-foreground text-background transition-opacity hover:bg-foreground/90',
+            isSaving && 'opacity-60',
+          )}
+        >
+          {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+        </button>
+      </Tip>
+      <Tip label="Cancel" shortcut="Esc">
+        <button
+          type="button"
+          onClick={handleCancel}
+          disabled={isSaving}
+          aria-label="Cancel"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+        >
+          <X size={13} />
+        </button>
+      </Tip>
     </div>
   );
 }

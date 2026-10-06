@@ -1,6 +1,7 @@
 import { formatDuration, formatHours, formatSpan } from '@/lib/work/equivalents';
 import type { WorkStats } from '@/lib/work/types';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * A day's worth in one line, the chain's grammar small (docs/work-view.md,
@@ -18,14 +19,16 @@ export function WorkWorth({ stats, className }: { stats: WorkStats | undefined; 
     .filter(Boolean)
     .join(' ');
   return (
-    <span className={cn('text-muted-foreground', className)} title={title}>
-      <span className="font-medium text-foreground/90">{formatSpan(stats.agentMinutes)}</span> agents
-      {person && (
-        <>
-          {' → '}
-          <span className="font-medium text-foreground/90">{formatHours(stats.personHours)}</span> person-hours
-        </>
-      )}
-    </span>
+    <Tip label={title}>
+      <span className={cn('text-muted-foreground', className)}>
+        <span className="font-medium text-foreground/90">{formatSpan(stats.agentMinutes)}</span> agents
+        {person && (
+          <>
+            {' → '}
+            <span className="font-medium text-foreground/90">{formatHours(stats.personHours)}</span> person-hours
+          </>
+        )}
+      </span>
+    </Tip>
   );
 }

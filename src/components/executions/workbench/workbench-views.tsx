@@ -10,6 +10,7 @@ import type { PreviewController } from '../preview/use-preview-controller';
 import { ChangesView } from './changes-view';
 import { FilesView } from './files-view';
 import type { PanelView } from './workbench-state';
+import { Tip } from '@/components/ui/tip';
 
 /** Everything the workbench's views need, gathered once by the execution view. */
 export interface WorkbenchViewContext {
@@ -107,14 +108,15 @@ export function WorkbenchViewBody({ view, ctx }: { view: PanelView; ctx: Workben
     case 'scratch':
       return (
         <div className="flex h-full flex-col">
-          <div
-            className="flex h-8 flex-shrink-0 items-center gap-1 border-b border-border px-3 text-[11.5px] text-muted-foreground/80"
-            title="The scratchpad is stored per chat, so it follows the chat tab you're on"
-          >
-            <span className="flex-shrink-0">For</span>
-            <span className="min-w-0 truncate text-foreground/80">{ctx.chatLabel}</span>
-            <span className="flex-shrink-0">· private until you send it</span>
-          </div>
+          <Tip label="The scratchpad is stored per chat, so it follows the chat tab you're on">
+            <div
+              className="flex h-8 flex-shrink-0 items-center gap-1 border-b border-border px-3 text-[11.5px] text-muted-foreground/80"
+            >
+              <span className="flex-shrink-0">For</span>
+              <span className="min-w-0 truncate text-foreground/80">{ctx.chatLabel}</span>
+              <span className="flex-shrink-0">· private until you send it</span>
+            </div>
+          </Tip>
           <div className="min-h-0 flex-1">
             <ScratchpadPane
               sessionId={ctx.sessionId}

@@ -41,6 +41,7 @@ import {
 	selectVisibleBackgroundTasks,
 	withLivePlaceholders,
 } from './background-task-visibility';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * Thin background-task strip above the composer. Renders only while something
@@ -368,28 +369,29 @@ function StopButton({
   const couldntStop = !stop.isPending && stop.data?.stopped === false;
   if (!canStop || providerType === 'codex') return null;
   return (
-    <button
-      type="button"
-      title={couldntStop ? 'Could not stop (already ended or unsupported)' : 'Stop this task'}
-      disabled={stop.isPending}
-      onClick={(e) => {
-        e.stopPropagation();
-        stop.mutate(taskId);
-      }}
-      className={cn(
-        'flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] transition-colors',
-        couldntStop
-          ? 'border-border text-muted-foreground/60'
-          : 'border-red-500/40 text-red-600 hover:bg-red-500/10 dark:text-red-500',
-      )}
-    >
-      {stop.isPending ? (
-        <Loader2 className="size-2.5 animate-spin" />
-      ) : (
-        <Square className="size-2.5 fill-current" />
-      )}
-      {couldntStop ? 'ended' : 'Stop'}
-    </button>
+    <Tip label={couldntStop ? 'Could not stop (already ended or unsupported)' : 'Stop this task'}>
+      <button
+        type="button"
+        disabled={stop.isPending}
+        onClick={(e) => {
+          e.stopPropagation();
+          stop.mutate(taskId);
+        }}
+        className={cn(
+          'flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] transition-colors',
+          couldntStop
+            ? 'border-border text-muted-foreground/60'
+            : 'border-red-500/40 text-red-600 hover:bg-red-500/10 dark:text-red-500',
+        )}
+      >
+        {stop.isPending ? (
+          <Loader2 className="size-2.5 animate-spin" />
+        ) : (
+          <Square className="size-2.5 fill-current" />
+        )}
+        {couldntStop ? 'ended' : 'Stop'}
+      </button>
+    </Tip>
   );
 }
 

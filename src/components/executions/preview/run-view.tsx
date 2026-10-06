@@ -7,6 +7,7 @@ import { PreviewLogs } from './preview-logs';
 import { SetupRecovery } from './setup-recovery';
 import { RUN_STATUS_LABEL, runDotClass, runIsActive } from './run-status';
 import type { PreviewController } from './use-preview-controller';
+import { Tip } from '@/components/ui/tip';
 
 interface RunViewProps {
   controller: PreviewController;
@@ -56,9 +57,11 @@ export function RunView({ controller: c, onStartAndPreview, onOpenPreview, onOpe
             {status === 'elsewhere' && c.elsewhere ? `Runs on ${c.elsewhere.deviceName}` : RUN_STATUS_LABEL[status]}
           </span>
           {c.command && (
-            <code className="min-w-0 truncate font-mono text-[11.5px] text-muted-foreground" title={c.command}>
-              {c.command}
-            </code>
+            <Tip label={c.command}>
+              <code className="min-w-0 truncate font-mono text-[11.5px] text-muted-foreground">
+                {c.command}
+              </code>
+            </Tip>
           )}
           {detail && <span className="whitespace-nowrap font-mono text-[11.5px] text-muted-foreground/70">· {detail}</span>}
           <span className="flex-1" />
@@ -254,20 +257,21 @@ function RunButton({
   primary?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={cn(
-        'inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[12px] font-medium transition-colors disabled:opacity-50',
-        primary
-          ? 'border-transparent bg-foreground text-background hover:bg-foreground/90'
-          : 'border-border bg-background text-foreground/90 hover:bg-muted',
-      )}
-    >
-      {children}
-    </button>
+    <Tip label={title}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={cn(
+          'inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[12px] font-medium transition-colors disabled:opacity-50',
+          primary
+            ? 'border-transparent bg-foreground text-background hover:bg-foreground/90'
+            : 'border-border bg-background text-foreground/90 hover:bg-muted',
+        )}
+      >
+        {children}
+      </button>
+    </Tip>
   );
 }
 

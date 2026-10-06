@@ -21,6 +21,7 @@ import { RUN_STATUS_LABEL, runDotClass, runIsActive } from '../preview/run-statu
 import type { PreviewController } from '../preview/use-preview-controller';
 import { filesLabel } from './changes-summary';
 import type { PanelView } from './workbench-state';
+import { Tip } from '@/components/ui/tip';
 
 export interface ToolsListProps {
   controller: PreviewController;
@@ -65,17 +66,18 @@ export function ToolsList({
   const port = c.state?.port ?? null;
 
   const row = (view: PanelView, icon: React.ReactNode, label: string, right: React.ReactNode, title?: string) => (
-    <button
-      type="button"
-      onClick={() => onShow(view)}
-      title={title}
-      className={cn('group flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left font-medium text-foreground/85 transition-colors hover:bg-muted/60 hover:text-foreground', rowH)}
-    >
-      <span className="flex-shrink-0 text-muted-foreground group-hover:text-foreground">{icon}</span>
-      {label}
-      <span className="ml-auto flex min-w-0 items-center gap-2 text-[11.5px] font-normal text-muted-foreground/80">{right}</span>
-      {go}
-    </button>
+    <Tip label={title}>
+      <button
+        type="button"
+        onClick={() => onShow(view)}
+        className={cn('group flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left font-medium text-foreground/85 transition-colors hover:bg-muted/60 hover:text-foreground', rowH)}
+      >
+        <span className="flex-shrink-0 text-muted-foreground group-hover:text-foreground">{icon}</span>
+        {label}
+        <span className="ml-auto flex min-w-0 items-center gap-2 text-[11.5px] font-normal text-muted-foreground/80">{right}</span>
+        {go}
+      </button>
+    </Tip>
   );
 
   // The process row: status in words, one labeled action, and it opens Run.
@@ -134,42 +136,45 @@ export function ToolsList({
   return (
     <div className="flex flex-col">
       {branchName && (
-        <div className="flex cursor-default items-center gap-1.5 px-2.5 pb-2 pt-1 text-[11.5px] text-muted-foreground/70" title="This worktree's branch">
-          <GitBranch size={12} className="flex-shrink-0" />
-          <span className="truncate font-mono text-[11px]">{branchName}</span>
-        </div>
+        <Tip label="This worktree's branch">
+          <div className="flex cursor-default items-center gap-1.5 px-2.5 pb-2 pt-1 text-[11.5px] text-muted-foreground/70">
+            <GitBranch size={12} className="flex-shrink-0" />
+            <span className="truncate font-mono text-[11px]">{branchName}</span>
+          </div>
+        </Tip>
       )}
 
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => onShow('run')}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onShow('run');
-          }
-        }}
-        title="Open Run: status, controls and output"
-        className={cn(
-          'group mb-0.5 flex w-full cursor-pointer items-center gap-2.5 rounded-lg bg-muted/35 px-2.5 text-left transition-colors hover:bg-muted/60',
-          touch ? 'py-2.5' : 'py-1.5',
-        )}
-      >
-        <span aria-hidden className={cn('h-2 w-2 flex-shrink-0 rounded-full', runDotClass(status))} />
-        <span className="min-w-0 flex-1">
-          <span className={cn('block truncate font-medium text-foreground/90', touch ? 'text-[14.5px]' : 'text-[13px]')}>
-            Run <span className="font-normal text-muted-foreground">· {RUN_STATUS_LABEL[status]}</span>
+      <Tip label="Open Run: status, controls and output">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => onShow('run')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onShow('run');
+            }
+          }}
+          className={cn(
+            'group mb-0.5 flex w-full cursor-pointer items-center gap-2.5 rounded-lg bg-muted/35 px-2.5 text-left transition-colors hover:bg-muted/60',
+            touch ? 'py-2.5' : 'py-1.5',
+          )}
+        >
+          <span aria-hidden className={cn('h-2 w-2 flex-shrink-0 rounded-full', runDotClass(status))} />
+          <span className="min-w-0 flex-1">
+            <span className={cn('block truncate font-medium text-foreground/90', touch ? 'text-[14.5px]' : 'text-[13px]')}>
+              Run <span className="font-normal text-muted-foreground">· {RUN_STATUS_LABEL[status]}</span>
+            </span>
+            <span className="block truncate text-[11px] text-muted-foreground/70">
+              {c.command && status !== 'not-configured' && <code className="font-mono">{c.command}</code>}
+              {c.command && status !== 'not-configured' ? ' · ' : ''}
+              {runDetail}
+            </span>
           </span>
-          <span className="block truncate text-[11px] text-muted-foreground/70">
-            {c.command && status !== 'not-configured' && <code className="font-mono">{c.command}</code>}
-            {c.command && status !== 'not-configured' ? ' · ' : ''}
-            {runDetail}
-          </span>
-        </span>
-        {runAction}
-        {go}
-      </div>
+          {runAction}
+          {go}
+        </div>
+      </Tip>
 
       <div
         role="button"
@@ -212,23 +217,24 @@ export function ToolsList({
       )}
       {row('files', <FileText size={15} />, 'Files', touch ? null : <Kbd>{HOTKEYS.goToFile.label}</Kbd>)}
       {terminal && (
-        <button
-          type="button"
-          onClick={terminal.onToggle}
-          title={terminal.open ? 'Hide the terminal. Shells keep running.' : 'Open the terminal below'}
-          className={cn(
-            'group flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left font-medium text-foreground/85 transition-colors hover:bg-muted/60 hover:text-foreground',
-            rowH,
-            terminal.open && 'bg-muted/50 text-foreground',
-          )}
-        >
-          <SquareTerminal size={15} className="flex-shrink-0 text-muted-foreground group-hover:text-foreground" />
-          Terminal
-          <span className="ml-auto text-[11.5px] font-normal text-muted-foreground/80">
-            {terminal.open ? 'Open below' : <Kbd>{HOTKEYS.toggleTerminal.label}</Kbd>}
-          </span>
-          {terminal.open ? <ChevronDown size={13} className="flex-shrink-0 text-muted-foreground/60" /> : go}
-        </button>
+        <Tip label={terminal.open ? 'Hide the terminal. Shells keep running.' : 'Open the terminal below'}>
+          <button
+            type="button"
+            onClick={terminal.onToggle}
+            className={cn(
+              'group flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left font-medium text-foreground/85 transition-colors hover:bg-muted/60 hover:text-foreground',
+              rowH,
+              terminal.open && 'bg-muted/50 text-foreground',
+            )}
+          >
+            <SquareTerminal size={15} className="flex-shrink-0 text-muted-foreground group-hover:text-foreground" />
+            Terminal
+            <span className="ml-auto text-[11.5px] font-normal text-muted-foreground/80">
+              {terminal.open ? 'Open below' : <Kbd>{HOTKEYS.toggleTerminal.label}</Kbd>}
+            </span>
+            {terminal.open ? <ChevronDown size={13} className="flex-shrink-0 text-muted-foreground/60" /> : go}
+          </button>
+        </Tip>
       )}
 
       <div className="my-1.5 h-px bg-border" />
@@ -237,7 +243,11 @@ export function ToolsList({
         'scratch',
         <NotebookPen size={15} />,
         'Scratchpad',
-        scratchHasContent ? <span aria-label="Has notes" title="Has notes" className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70" /> : null,
+        scratchHasContent ? (
+          <Tip label="Has notes">
+            <span aria-label="Has notes" className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70" />
+          </Tip>
+        ) : null,
       )}
     </div>
   );
@@ -253,16 +263,17 @@ export function ToolsBox(props: ToolsListProps) {
   const { controller: c, diffStats, onShow, terminal } = props;
   const status = c.runStatus;
   const mini = (view: PanelView, icon: React.ReactNode, label: string, badge?: string) => (
-    <button
-      type="button"
-      onClick={() => onShow(view)}
-      title={label}
-      aria-label={label}
-      className="relative inline-flex size-9 items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-muted/70 hover:text-foreground"
-    >
-      {icon}
-      {badge && <span aria-hidden className={cn('absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full', badge)} />}
-    </button>
+    <Tip label={label}>
+      <button
+        type="button"
+        onClick={() => onShow(view)}
+        aria-label={label}
+        className="relative inline-flex size-9 items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-muted/70 hover:text-foreground"
+      >
+        {icon}
+        {badge && <span aria-hidden className={cn('absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full', badge)} />}
+      </button>
+    </Tip>
   );
   return (
     <>
@@ -275,18 +286,19 @@ export function ToolsBox(props: ToolsListProps) {
         {mini('changes', <GitCompareArrows size={16} />, diffStats?.files ? `Changes · ${filesLabel(diffStats.files)}` : 'Changes', diffStats?.files ? 'bg-amber-500' : undefined)}
         {mini('files', <FileText size={16} />, 'Files')}
         {terminal && (
-          <button
-            type="button"
-            onClick={terminal.onToggle}
-            title={terminal.open ? 'Hide the terminal' : 'Terminal'}
-            aria-label="Terminal"
-            className={cn(
-              'inline-flex size-9 items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-muted/70 hover:text-foreground',
-              terminal.open && 'bg-muted/70 text-foreground',
-            )}
-          >
-            <SquareTerminal size={16} />
-          </button>
+          <Tip label={terminal.open ? 'Hide the terminal' : 'Terminal'}>
+            <button
+              type="button"
+              onClick={terminal.onToggle}
+              aria-label="Terminal"
+              className={cn(
+                'inline-flex size-9 items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-muted/70 hover:text-foreground',
+                terminal.open && 'bg-muted/70 text-foreground',
+              )}
+            >
+              <SquareTerminal size={16} />
+            </button>
+          </Tip>
         )}
         <span className="mx-1.5 my-0.5 h-px bg-border" />
         {mini('notes', <ListTodo size={16} />, 'Notes & tasks')}
@@ -308,20 +320,21 @@ function ActionButton({
   title?: string;
 }) {
   return (
-    <button
-      type="button"
-      title={title}
-      disabled={disabled}
-      onClick={(e) => {
-        // The row around it navigates. This runs something instead.
-        e.stopPropagation();
-        onClick();
-      }}
-      onKeyDown={(e) => e.stopPropagation()}
-      className="inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-    >
-      {children}
-    </button>
+    <Tip label={title}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={(e) => {
+          // The row around it navigates. This runs something instead.
+          e.stopPropagation();
+          onClick();
+        }}
+        onKeyDown={(e) => e.stopPropagation()}
+        className="inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+      >
+        {children}
+      </button>
+    </Tip>
   );
 }
 

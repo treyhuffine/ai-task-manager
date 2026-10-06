@@ -68,6 +68,7 @@ import type { PrMentionItem } from '@/components/chat/editor/pr-menu/types';
 import { usePrList } from '@/hooks/use-prs';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { DEFAULT_HARNESS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * Imperative handle for the execution composer. Exposes the minimum
@@ -838,85 +839,80 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
               )}
 
               {showVoiceButton && (voice.isRecording || voice.isTranscribing) && (
-                <button
-                  type="button"
-                  onClick={voice.cancelRecording}
-                  className={cn(
-                    'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
-                    'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-                  )}
-                  aria-label={voice.isTranscribing ? 'Cancel transcription' : 'Cancel recording'}
-                  title={voice.isTranscribing ? 'Cancel transcription' : 'Cancel recording (discard)'}
-                >
-                  <X size={13} />
-                </button>
+                <Tip label={voice.isTranscribing ? 'Cancel transcription' : 'Cancel recording (discard)'}>
+                  <button
+                    type="button"
+                    onClick={voice.cancelRecording}
+                    className={cn(
+                      'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
+                      'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                    )}
+                    aria-label={voice.isTranscribing ? 'Cancel transcription' : 'Cancel recording'}
+                  >
+                    <X size={13} />
+                  </button>
+                </Tip>
               )}
 
               {showVoiceButton && (
-                <button
-                  type="button"
-                  onClick={voice.toggleRecording}
-                  disabled={voice.isTranscribing || disabled}
-                  className={cn(
-                    'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
-                    voice.isRecording
-                      ? 'text-destructive bg-destructive/10 hover:bg-destructive/20'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-                    'disabled:opacity-40 disabled:cursor-not-allowed',
-                  )}
-                  aria-label={voice.isRecording ? 'Stop recording' : 'Voice input'}
-                  title={
+                <Tip
+                  label={
                     voice.isRecording
                       ? 'Stop recording (transcribe)'
                       : `Voice input${voice.provider === 'local' ? ' (Parakeet)' : ''}`
                   }
                 >
-                  {voice.isTranscribing ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : voice.isRecording ? (
-                    <Square size={11} className="fill-current" />
-                  ) : (
-                    <Mic size={13} />
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={voice.toggleRecording}
+                    disabled={voice.isTranscribing || disabled}
+                    className={cn(
+                      'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
+                      voice.isRecording
+                        ? 'text-destructive bg-destructive/10 hover:bg-destructive/20'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                      'disabled:opacity-40 disabled:cursor-not-allowed',
+                    )}
+                    aria-label={voice.isRecording ? 'Stop recording' : 'Voice input'}
+                  >
+                    {voice.isTranscribing ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : voice.isRecording ? (
+                      <Square size={11} className="fill-current" />
+                    ) : (
+                      <Mic size={13} />
+                    )}
+                  </button>
+                </Tip>
               )}
 
               {/* Send hides while recording — nothing to send until
                 transcription completes. Stop owns the slot during a
                 turn-in-flight via showStopButton (unchanged). */}
               {showStopButton ? (
-                <button
-                  type="button"
-                  onClick={handleStop}
-                  disabled={stopping}
-                  className={cn(
-                    'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
-                    'border border-border bg-background text-muted-foreground',
-                    'hover:text-foreground hover:bg-muted/40 active:scale-95',
-                    'disabled:opacity-60 disabled:cursor-not-allowed',
-                  )}
-                  aria-label="Stop agent"
-                  title="Stop agent"
-                >
-                  {stopping ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : (
-                    <Square size={10} className="fill-current" />
-                  )}
-                </button>
+                <Tip label="Stop agent">
+                  <button
+                    type="button"
+                    onClick={handleStop}
+                    disabled={stopping}
+                    className={cn(
+                      'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
+                      'border border-border bg-background text-muted-foreground',
+                      'hover:text-foreground hover:bg-muted/40 active:scale-95',
+                      'disabled:opacity-60 disabled:cursor-not-allowed',
+                    )}
+                    aria-label="Stop agent"
+                  >
+                    {stopping ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Square size={10} className="fill-current" />
+                    )}
+                  </button>
+                </Tip>
               ) : !voice.isRecording ? (
-                <button
-                  type="button"
-                  onClick={() => handleSend()}
-                  disabled={!canSend}
-                  className={cn(
-                    'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
-                    canSend
-                      ? 'bg-primary text-primary-foreground hover:opacity-90 active:scale-95'
-                      : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
-                  )}
-                  aria-label="Send message"
-                  title={
+                <Tip
+                  label={
                     hasPendingUploads
                       ? 'Waiting for upload to finish…'
                       : submitOnEnter
@@ -924,8 +920,21 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                         : 'Send'
                   }
                 >
-                  {sending ? <Loader2 size={13} className="animate-spin" /> : <ArrowUp size={13} />}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSend()}
+                    disabled={!canSend}
+                    className={cn(
+                      'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
+                      canSend
+                        ? 'bg-primary text-primary-foreground hover:opacity-90 active:scale-95'
+                        : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
+                    )}
+                    aria-label="Send message"
+                  >
+                    {sending ? <Loader2 size={13} className="animate-spin" /> : <ArrowUp size={13} />}
+                  </button>
+                </Tip>
               ) : null}
             </div>
           </div>
@@ -974,21 +983,22 @@ function ModePicker({ harness, open, onOpenChange, current, options, onSelect, d
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          title={`${meta.title}: ${descriptionFor(current)}\nShift+Tab to cycle`}
-          className={cn(
-            'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
-            meta.classes.text,
-            meta.classes.border,
-            meta.classes.bg,
-            'hover:brightness-110 disabled:opacity-50',
-          )}
-        >
-          <Icon size={11} />
-          <span>{meta.shortTitle}</span>
-        </button>
+        <Tip label={`${meta.title}: ${descriptionFor(current)}\nShift+Tab to cycle`}>
+          <button
+            type="button"
+            disabled={disabled}
+            className={cn(
+              'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
+              meta.classes.text,
+              meta.classes.border,
+              meta.classes.bg,
+              'hover:brightness-110 disabled:opacity-50',
+            )}
+          >
+            <Icon size={11} />
+            <span>{meta.shortTitle}</span>
+          </button>
+        </Tip>
       </PopoverTrigger>
       <PopoverContent align="start" sideOffset={6} className="w-72 p-1">
         <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
@@ -1054,19 +1064,20 @@ function ModelPicker({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          title={`Model: ${pinnedId}`}
-          className={cn(
-            'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
-            'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50',
-            'disabled:opacity-50',
-          )}
-        >
-          <Cpu size={11} className="text-primary/70" />
-          <span>{fallbackLabel}</span>
-        </button>
+        <Tip label={`Model: ${pinnedId}`}>
+          <button
+            type="button"
+            disabled={disabled}
+            className={cn(
+              'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
+              'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50',
+              'disabled:opacity-50',
+            )}
+          >
+            <Cpu size={11} className="text-primary/70" />
+            <span>{fallbackLabel}</span>
+          </button>
+        </Tip>
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={6} className="w-72 p-1">
         <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
@@ -1128,19 +1139,20 @@ function EffortPicker({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          title={`Effort: ${label}`}
-          className={cn(
-            'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
-            'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50',
-            'disabled:opacity-50',
-          )}
-        >
-          <Zap size={10} className="text-amber-500" />
-          <span>{label}</span>
-        </button>
+        <Tip label={`Effort: ${label}`}>
+          <button
+            type="button"
+            disabled={disabled}
+            className={cn(
+              'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
+              'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50',
+              'disabled:opacity-50',
+            )}
+          >
+            <Zap size={10} className="text-amber-500" />
+            <span>{label}</span>
+          </button>
+        </Tip>
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={6} className="w-64 p-1">
         <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
@@ -1192,38 +1204,41 @@ function AutoSendSwitch({
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      onClick={onToggle}
-      disabled={disabled}
-      title={
+    <Tip
+      label={
         on
           ? 'Auto-send voice transcripts (click to turn off)'
           : 'Hold transcripts in the textarea (click to auto-send)'
       }
-      className={cn(
-        'inline-flex items-center gap-2 rounded-md px-1.5 py-0.5 text-[10.5px] font-medium',
-        'text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors',
-        'disabled:opacity-50',
-      )}
     >
-      <span
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        onClick={onToggle}
+        disabled={disabled}
         className={cn(
-          'relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent transition-colors',
-          on ? 'bg-primary' : 'bg-muted',
+          'inline-flex items-center gap-2 rounded-md px-1.5 py-0.5 text-[10.5px] font-medium',
+          'text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors',
+          'disabled:opacity-50',
         )}
       >
         <span
           className={cn(
-            'pointer-events-none inline-block h-3 w-3 rounded-full bg-background shadow-sm transition-transform',
-            on ? 'translate-x-3' : 'translate-x-0',
+            'relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent transition-colors',
+            on ? 'bg-primary' : 'bg-muted',
           )}
-        />
-      </span>
-      <span>Auto-send</span>
-    </button>
+        >
+          <span
+            className={cn(
+              'pointer-events-none inline-block h-3 w-3 rounded-full bg-background shadow-sm transition-transform',
+              on ? 'translate-x-3' : 'translate-x-0',
+            )}
+          />
+        </span>
+        <span>Auto-send</span>
+      </button>
+    </Tip>
   );
 }
 
@@ -1241,33 +1256,34 @@ function ContextRing({ fraction }: { fraction: number }) {
     fraction > 0.9 ? 'text-destructive' : fraction > 0.7 ? 'text-amber-500' : 'text-primary/70';
 
   return (
-    <span
-      className="inline-flex items-center gap-1"
-      title={`Context: ${pct}% of last turn's input vs. model cap`}
-    >
-      <svg width={14} height={14} viewBox="0 0 14 14" className={tone}>
-        <circle
-          cx={7}
-          cy={7}
-          r={r}
-          className="stroke-muted-foreground/25"
-          strokeWidth={2}
-          fill="none"
-        />
-        <circle
-          cx={7}
-          cy={7}
-          r={r}
-          stroke="currentColor"
-          strokeWidth={2}
-          fill="none"
-          strokeDasharray={c}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          transform="rotate(-90 7 7)"
-        />
-      </svg>
-      <span className="tabular-nums">{pct}%</span>
-    </span>
+    <Tip label={`Context: ${pct}% of last turn's input vs. model cap`}>
+      <span
+        className="inline-flex items-center gap-1"
+      >
+        <svg width={14} height={14} viewBox="0 0 14 14" className={tone}>
+          <circle
+            cx={7}
+            cy={7}
+            r={r}
+            className="stroke-muted-foreground/25"
+            strokeWidth={2}
+            fill="none"
+          />
+          <circle
+            cx={7}
+            cy={7}
+            r={r}
+            stroke="currentColor"
+            strokeWidth={2}
+            fill="none"
+            strokeDasharray={c}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            transform="rotate(-90 7 7)"
+          />
+        </svg>
+        <span className="tabular-nums">{pct}%</span>
+      </span>
+    </Tip>
   );
 }

@@ -21,6 +21,7 @@ import {
 import { ORCHESTRATOR_PRESETS, type OrchestratorPreset } from '@/lib/orchestrator/presets';
 import type { Attachment, UserStateRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * The orchestrator's name and look while they're being chosen. Nothing is
@@ -223,23 +224,23 @@ export function IdentityEditor({
           {ORCHESTRATOR_PRESETS.map((preset) => {
             const selected = matchesPreset(draft, preset);
             return (
-              <button
-                key={preset.name}
-                type="button"
-                aria-pressed={selected}
-                title={preset.note}
-                onClick={() => onChange({ name: preset.name, emoji: preset.emoji, color: preset.color, image: null })}
-                className={cn(
-                  'flex w-[8.5rem] flex-shrink-0 snap-start items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors',
-                  selected ? 'border-primary/60 bg-primary/5' : 'border-border hover:bg-muted/50',
-                )}
-              >
-                <OrchestratorMark name={preset.name} emoji={preset.emoji} color={preset.color} size="md" />
-                <span className="flex min-w-0 flex-col leading-tight">
-                  <span className="truncate text-[12px] font-medium text-foreground">{preset.name}</span>
-                  <span className="truncate text-[10px] text-muted-foreground">{preset.note}</span>
-                </span>
-              </button>
+              <Tip key={preset.name} label={preset.note}>
+                <button
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => onChange({ name: preset.name, emoji: preset.emoji, color: preset.color, image: null })}
+                  className={cn(
+                    'flex w-[8.5rem] flex-shrink-0 snap-start items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors',
+                    selected ? 'border-primary/60 bg-primary/5' : 'border-border hover:bg-muted/50',
+                  )}
+                >
+                  <OrchestratorMark name={preset.name} emoji={preset.emoji} color={preset.color} size="md" />
+                  <span className="flex min-w-0 flex-col leading-tight">
+                    <span className="truncate text-[12px] font-medium text-foreground">{preset.name}</span>
+                    <span className="truncate text-[10px] text-muted-foreground">{preset.note}</span>
+                  </span>
+                </button>
+              </Tip>
             );
           })}
         </div>
@@ -283,17 +284,18 @@ function ColorRow({
   onPick: (color: string | null) => void;
 }) {
   return (
-    <div
-      role="radiogroup"
-      aria-label="Color"
-      className={cn('flex flex-wrap items-center gap-1.5', disabled && 'pointer-events-none opacity-40')}
-      title={disabled ? 'A picture covers the color. Remove it to pick one.' : undefined}
-    >
-      <Swatch label="Theme" selected={color === null} onClick={() => onPick(null)} className="bg-primary" />
-      {ORCHESTRATOR_COLORS.map((c) => (
-        <Swatch key={c.hex} label={c.label} selected={color === c.hex} onClick={() => onPick(c.hex)} style={{ backgroundColor: c.hex }} />
-      ))}
-    </div>
+    <Tip label={disabled ? 'A picture covers the color. Remove it to pick one.' : undefined}>
+      <div
+        role="radiogroup"
+        aria-label="Color"
+        className={cn('flex flex-wrap items-center gap-1.5', disabled && 'pointer-events-none opacity-40')}
+      >
+        <Swatch label="Theme" selected={color === null} onClick={() => onPick(null)} className="bg-primary" />
+        {ORCHESTRATOR_COLORS.map((c) => (
+          <Swatch key={c.hex} label={c.label} selected={color === c.hex} onClick={() => onPick(c.hex)} style={{ backgroundColor: c.hex }} />
+        ))}
+      </div>
+    </Tip>
   );
 }
 
@@ -311,19 +313,20 @@ function Swatch({
   style?: React.CSSProperties;
 }) {
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      style={style}
-      className={cn(
-        'size-5 rounded-full ring-offset-2 ring-offset-background transition-shadow',
-        selected ? 'ring-2 ring-foreground/70' : 'hover:ring-2 hover:ring-foreground/25',
-        className,
-      )}
-    />
+    <Tip label={label}>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={selected}
+        aria-label={label}
+        onClick={onClick}
+        style={style}
+        className={cn(
+          'size-5 rounded-full ring-offset-2 ring-offset-background transition-shadow',
+          selected ? 'ring-2 ring-foreground/70' : 'hover:ring-2 hover:ring-foreground/25',
+          className,
+        )}
+      />
+    </Tip>
   );
 }

@@ -47,6 +47,7 @@ import {
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { BrowserNotifications } from './browser-notifications';
 import { NotificationHistory } from './notification-history';
+import { Tip } from '@/components/ui/tip';
 
 interface Connection {
   id: string;
@@ -655,16 +656,17 @@ export function NotificationsSection() {
                       >
                         {c.enabled ? 'On' : 'Off'}
                       </Button>
-                      <Button
-                        variant="destructive"
-                        size="icon-xs"
-                        onClick={() => removeChannel(c.id)}
-                        disabled={busy}
-                        title="Remove channel and its delivery history"
-                        aria-label={`Remove ${channelLabel(c)} and its delivery history`}
-                      >
-                        <Trash2 size={12} />
-                      </Button>
+                      <Tip label="Remove channel and its delivery history">
+                        <Button
+                          variant="destructive"
+                          size="icon-xs"
+                          onClick={() => removeChannel(c.id)}
+                          disabled={busy}
+                          aria-label={`Remove ${channelLabel(c)} and its delivery history`}
+                        >
+                          <Trash2 size={12} />
+                        </Button>
+                      </Tip>
                     </div>
                   </div>
 
@@ -719,14 +721,16 @@ export function NotificationsSection() {
                 <tr>
                   <th className="p-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Event</th>
                   {channels.map((c) => (
-                    <th key={c.id} title={channelLabel(c)} className={cn('p-2 align-bottom', !c.enabled && 'opacity-50')}>
-                      <div className="flex flex-col items-center gap-1">
-                        {channelVisual(c, 18)}
-                        <span className="max-w-[68px] truncate text-[10px] font-medium text-foreground">
-                          {channelShort(c)}
-                        </span>
-                      </div>
-                    </th>
+                    <Tip key={c.id} label={channelLabel(c)}>
+                      <th className={cn('p-2 align-bottom', !c.enabled && 'opacity-50')}>
+                        <div className="flex flex-col items-center gap-1">
+                          {channelVisual(c, 18)}
+                          <span className="max-w-[68px] truncate text-[10px] font-medium text-foreground">
+                            {channelShort(c)}
+                          </span>
+                        </div>
+                      </th>
+                    </Tip>
                   ))}
                 </tr>
               </thead>

@@ -5,6 +5,7 @@ import { apiErrorText } from '@/lib/api/client';
 import type { WipApplyResult } from '@/lib/api/sessions';
 import { AlertTriangle, ArrowRightLeft, Copy, Loader2, X } from 'lucide-react';
 import { useState } from 'react';
+import { Tip } from '@/components/ui/tip';
 
 interface WipHandoffBannerProps {
   sessionId: string;
@@ -80,15 +81,17 @@ export function WipHandoffBanner({ sessionId, worktreeReady }: WipHandoffBannerP
             label="Copy"
             hint="leave a copy in source"
           />
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={() => setDismissed(true)}
-            className="p-1 rounded hover:bg-foreground/5 text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
-            title="Dismiss"
-          >
-            <X size={12} />
-          </button>
+          <Tip label="Dismiss">
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => setDismissed(true)}
+              className="p-1 rounded hover:bg-foreground/5 text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+              aria-label="Dismiss"
+            >
+              <X size={12} />
+            </button>
+          </Tip>
         </div>
       </div>
       {apply.isError && (
@@ -117,20 +120,21 @@ function ActionButton(props: {
 }) {
   const { primary, disabled, onClick, icon, label, hint } = props;
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      title={hint}
-      className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors disabled:opacity-50 ${
+    <Tip label={hint}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors disabled:opacity-50 ${
         primary
           ? 'bg-primary text-primary-foreground hover:bg-primary/90'
           : 'text-foreground hover:bg-foreground/5 border border-border'
       }`}
-    >
-      {icon}
-      {label}
-    </button>
+      >
+        {icon}
+        {label}
+      </button>
+    </Tip>
   );
 }
 
@@ -160,14 +164,16 @@ function ConflictNotice({
             )}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="p-1 rounded hover:bg-foreground/5 text-muted-foreground hover:text-foreground transition-colors"
-          title="Dismiss"
-        >
-          <X size={12} />
-        </button>
+        <Tip label="Dismiss">
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="p-1 rounded hover:bg-foreground/5 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Dismiss"
+          >
+            <X size={12} />
+          </button>
+        </Tip>
       </div>
     </div>
   );

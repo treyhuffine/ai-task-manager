@@ -5,6 +5,7 @@ import { CornerDownLeft, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { normalizeCustomModelId, type ModelOption, type ProviderId } from '@/lib/harness/options';
 import { useAddCustomModel } from '@/hooks/use-harnesses';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * Type an exact provider model id and use it immediately.
@@ -67,16 +68,17 @@ export function PinModelInput({
           autoComplete="off"
           className="min-w-0 flex-1 bg-transparent font-mono text-[11px] text-foreground outline-none placeholder:font-sans placeholder:text-muted-foreground/60 disabled:opacity-50"
         />
-        <button
-          type="button"
-          disabled={disabled || !modelId || add.isPending}
-          title="Pin this model ID and use it"
-          onClick={() => void submit()}
-          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
-        >
-          {add.isPending ? <Loader2 size={10} className="animate-spin" /> : <CornerDownLeft size={10} />}
-          Pin
-        </button>
+        <Tip label="Pin this model ID and use it">
+          <button
+            type="button"
+            disabled={disabled || !modelId || add.isPending}
+            onClick={() => void submit()}
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            {add.isPending ? <Loader2 size={10} className="animate-spin" /> : <CornerDownLeft size={10} />}
+            Pin
+          </button>
+        </Tip>
       </div>
       <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground/70">
         {malformed

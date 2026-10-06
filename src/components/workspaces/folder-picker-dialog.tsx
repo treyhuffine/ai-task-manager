@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Tip } from '@/components/ui/tip';
 
 interface FolderPickerDialogProps {
   open: boolean;
@@ -282,23 +283,27 @@ export function FolderPickerDialog({
 
             {/* Navigation row */}
             <div className="flex items-center gap-1 px-3 py-2 border-b border-border bg-muted/20">
-              <button
-                type="button"
-                onClick={goUp}
-                disabled={!browse?.parent}
-                title="Up one folder"
-                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <ArrowLeft size={13} />
-              </button>
-              <button
-                type="button"
-                onClick={goHome}
-                title="Home"
-                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                <HomeIcon size={13} />
-              </button>
+              <Tip label="Up one folder">
+                <button
+                  type="button"
+                  onClick={goUp}
+                  disabled={!browse?.parent}
+                  aria-label="Up one folder"
+                  className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <ArrowLeft size={13} />
+                </button>
+              </Tip>
+              <Tip label="Home">
+                <button
+                  type="button"
+                  onClick={goHome}
+                  aria-label="Home"
+                  className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                >
+                  <HomeIcon size={13} />
+                </button>
+              </Tip>
 
               <div className="flex items-center gap-0.5 overflow-x-auto whitespace-nowrap text-[11px] font-mono ml-1 flex-1 min-w-0">
                 {breadcrumbs.length === 0 && loading && (
@@ -387,12 +392,13 @@ export function FolderPickerDialog({
                       {entry.name}
                     </span>
                     {entry.git && (
-                      <span
-                        title="A Git project"
-                        className="ml-auto flex shrink-0 items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] text-muted-foreground"
-                      >
-                        <GitBranch size={8} /> git
-                      </span>
+                      <Tip label="A Git project">
+                        <span
+                          className="ml-auto flex shrink-0 items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] text-muted-foreground"
+                        >
+                          <GitBranch size={8} /> git
+                        </span>
+                      </Tip>
                     )}
                     {isDir && (
                       <ChevronRight
@@ -473,15 +479,16 @@ export function FolderPickerDialog({
                     <FolderPlus size={12} />
                     New Folder
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowHidden((v) => !v)}
-                    title={showHidden ? 'Hide hidden files' : 'Show hidden files'}
-                    className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors"
-                  >
-                    {showHidden ? <Eye size={12} /> : <EyeOff size={12} />}
-                    Hidden files
-                  </button>
+                  <Tip label={showHidden ? 'Hide hidden files' : 'Show hidden files'}>
+                    <button
+                      type="button"
+                      onClick={() => setShowHidden((v) => !v)}
+                      className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors"
+                    >
+                      {showHidden ? <Eye size={12} /> : <EyeOff size={12} />}
+                      Hidden files
+                    </button>
+                  </Tip>
                 </>
               )}
               <div className="ml-auto flex items-center gap-2">

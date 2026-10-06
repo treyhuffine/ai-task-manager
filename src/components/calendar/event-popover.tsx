@@ -12,6 +12,7 @@
 import { ExternalLink, MapPin, Video } from 'lucide-react';
 import { calendarCountsTime } from '@/lib/calendar/events';
 import type { CalendarEvent } from '@/lib/calendar/types';
+import { Tip } from '@/components/ui/tip';
 
 const PROVIDER_LABEL: Record<CalendarEvent['providerId'], string> = {
   google: 'Google Calendar',
@@ -66,9 +67,11 @@ export function EventPopoverContent({ event }: { event: CalendarEvent }) {
           </span>
         </p>
         {event.alsoOn.length > 0 && (
-          <p className="truncate text-[10px] text-muted-foreground/60" title={event.alsoOn.join(', ')}>
-            Also on {event.alsoOn.join(', ')}
-          </p>
+          <Tip label={event.alsoOn.join(', ')}>
+            <p className="truncate text-[10px] text-muted-foreground/60">
+              Also on {event.alsoOn.join(', ')}
+            </p>
+          </Tip>
         )}
       </div>
 

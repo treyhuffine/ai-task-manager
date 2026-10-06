@@ -2,6 +2,7 @@
 
 import { AlertTriangle, X } from 'lucide-react';
 import type { DeckChangeView } from '@/types/dashboard';
+import { Tip } from '@/components/ui/tip';
 
 interface DeckInterruptBannerProps {
   interrupts: DeckChangeView[];
@@ -45,13 +46,15 @@ export function DeckInterruptBanner({ interrupts, onRestore, onDismiss }: DeckIn
             ))}
           </div>
         </div>
-        <button
-          onClick={onDismiss}
-          className="text-amber-600/60 hover:text-amber-700 dark:hover:text-amber-300 transition-colors shrink-0"
-          title="Dismiss"
-        >
-          <X className="w-3 h-3" />
-        </button>
+        <Tip label="Dismiss">
+          <button
+            onClick={onDismiss}
+            className="text-amber-600/60 hover:text-amber-700 dark:hover:text-amber-300 transition-colors shrink-0"
+            aria-label="Dismiss"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </Tip>
       </div>
     </div>
   );

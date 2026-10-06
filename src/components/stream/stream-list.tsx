@@ -34,8 +34,8 @@ import { StreamAttachments } from './stream-attachments';
 import {
   Popover, PopoverTrigger, PopoverContent,
 } from '@/components/ui/popover';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import type { StreamRecordWithOutcomes, StreamStatus } from '@/db/types';
+import { Tip } from '@/components/ui/tip';
 
 const SOURCE_ICONS: Record<string, typeof Mic> = {
   capture: Inbox,
@@ -162,10 +162,12 @@ export function StreamList() {
         {/* Power filters: full history, tucked away */}
         <Popover>
           <PopoverTrigger asChild>
-            <button className="flex items-center gap-1 px-1.5 py-1 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted transition-colors" title="History">
-              <ListFilter size={11} />
-              <ChevronDown size={8} />
-            </button>
+            <Tip label="History">
+              <button className="flex items-center gap-1 px-1.5 py-1 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted transition-colors" aria-label="History">
+                <ListFilter size={11} />
+                <ChevronDown size={8} />
+              </button>
+            </Tip>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-44 p-0" sideOffset={4}>
             <div className="py-1">
@@ -199,15 +201,16 @@ export function StreamList() {
             Review
           </button>
         )}
-        <button
-          onClick={handleSweep}
-          disabled={sweep.isPending}
-          className="flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-bold text-primary hover:bg-primary/5 rounded-md transition-colors disabled:opacity-50"
-          title="Have the assistant triage waiting captures"
-        >
-          <ListChecks size={10} />
-          Triage
-        </button>
+        <Tip label="Have the assistant triage waiting captures">
+          <button
+            onClick={handleSweep}
+            disabled={sweep.isPending}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-bold text-primary hover:bg-primary/5 rounded-md transition-colors disabled:opacity-50"
+          >
+            <ListChecks size={10} />
+            Triage
+          </button>
+        </Tip>
       </div>
 
       {/* Review slide-over (proposals + manual) */}
@@ -354,16 +357,16 @@ function StreamRow({
 
             {/* Consequences: where this capture went. */}
             {item.outcomes.map((o) => (
-              <button
-                key={`${o.entityType}:${o.entityId}:${o.relation}`}
-                onClick={() => onOpenEntity(o.entityType, o.entityId)}
-                className="inline-flex items-center gap-1 text-[8.5px] font-semibold text-emerald-600 dark:text-emerald-500 hover:underline"
-                title={o.relation === 'created' ? 'Created from this capture' : 'This capture was added to it'}
-              >
-                {o.entityType === 'task' ? <Target size={8} /> : <FileText size={8} />}
-                {o.relation === 'merged_into' ? 'Added to ' : ''}
-                {o.entityTitle ?? o.entityType}
-              </button>
+              <Tip key={`${o.entityType}:${o.entityId}:${o.relation}`} label={o.relation === 'created' ? 'Created from this capture' : 'This capture was added to it'}>
+                <button
+                  onClick={() => onOpenEntity(o.entityType, o.entityId)}
+                  className="inline-flex items-center gap-1 text-[8.5px] font-semibold text-emerald-600 dark:text-emerald-500 hover:underline"
+                >
+                  {o.entityType === 'task' ? <Target size={8} /> : <FileText size={8} />}
+                  {o.relation === 'merged_into' ? 'Added to ' : ''}
+                  {o.entityTitle ?? o.entityType}
+                </button>
+              </Tip>
             ))}
 
             {item.status === 'incubating' && item.resurfaceAt && (
@@ -376,52 +379,38 @@ function StreamRow({
         </div>
 
         {/* Row actions */}
-        <TooltipProvider>
-          <div className="flex items-center gap-0.5 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
-            {needsRetry && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button onClick={onRetry} className="p-1.5 rounded-md text-primary hover:bg-primary/10 transition-colors">
-                    <RefreshCw size={12} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Try reading it again</TooltipContent>
-              </Tooltip>
-            )}
-            {isPending && !needsRetry && (
-              <>
-                <TaskActions onPromote={onPromoteTask} onMerge={onMergeTask} />
-                <NoteActions onPromote={onPromoteNote} onMerge={onMergeNote} />
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button onClick={onKeepAsThought} className="p-1.5 rounded-md text-muted-foreground hover:text-violet-500 hover:bg-muted transition-colors">
-                      <BookOpen size={12} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Keep as a thought</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button onClick={onDismiss} className="p-1.5 rounded-md text-muted-foreground hover:text-muted-foreground/80 hover:bg-muted transition-colors">
-                      <Archive size={12} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Set aside</TooltipContent>
-                </Tooltip>
-              </>
-            )}
-            {isSettled && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button onClick={onReopen} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                    <RotateCcw size={12} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Bring it back</TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-        </TooltipProvider>
+        <div className="flex items-center gap-0.5 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
+          {needsRetry && (
+            <Tip label="Try reading it again" side="bottom">
+              <button aria-label="Try reading it again" onClick={onRetry} className="p-1.5 rounded-md text-primary hover:bg-primary/10 transition-colors">
+                <RefreshCw size={12} />
+              </button>
+            </Tip>
+          )}
+          {isPending && !needsRetry && (
+            <>
+              <TaskActions onPromote={onPromoteTask} onMerge={onMergeTask} />
+              <NoteActions onPromote={onPromoteNote} onMerge={onMergeNote} />
+              <Tip label="Keep as a thought" side="bottom">
+                <button aria-label="Keep as a thought" onClick={onKeepAsThought} className="p-1.5 rounded-md text-muted-foreground hover:text-violet-500 hover:bg-muted transition-colors">
+                  <BookOpen size={12} />
+                </button>
+              </Tip>
+              <Tip label="Set aside" side="bottom">
+                <button aria-label="Set aside" onClick={onDismiss} className="p-1.5 rounded-md text-muted-foreground hover:text-muted-foreground/80 hover:bg-muted transition-colors">
+                  <Archive size={12} />
+                </button>
+              </Tip>
+            </>
+          )}
+          {isSettled && (
+            <Tip label="Bring it back" side="bottom">
+              <button aria-label="Bring it back" onClick={onReopen} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <RotateCcw size={12} />
+              </button>
+            </Tip>
+          )}
+        </div>
       </div>
     </div>
   );

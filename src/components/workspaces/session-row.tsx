@@ -14,6 +14,7 @@ import { StatusPip, useChatStatus } from './chat-status';
 import { useSessionRowHover } from './session-hover-context';
 import { SessionRowMenu } from './session-row-menu';
 import { useWorkspaceSelection } from './workspace-selection-context';
+import { Tip } from '@/components/ui/tip';
 
 interface SessionRowProps {
   session: ChatSessionWithExecution;
@@ -210,16 +211,17 @@ export function SessionRow({
       </span>
       {density === 'compact' ? (
         <>
-          <span
-            title={label}
-            className={cn(
-              'flex-1 min-w-0 truncate text-[11px]',
-              labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
-              isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
-            )}
-          >
-            {label}
-          </span>
+          <Tip label={label}>
+            <span
+              className={cn(
+                'flex-1 min-w-0 truncate text-[11px]',
+                labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
+                isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
+              )}
+            >
+              {label}
+            </span>
+          </Tip>
           {/* Static tokens only, so nothing arrives late and moves. The
               kebab takes this slot on hover. */}
           <span
@@ -232,9 +234,11 @@ export function SessionRow({
               <Pin size={9} className="text-muted-foreground/50 fill-current -rotate-45" aria-label="Pinned" />
             )}
             {session.location && !session.location.isHome && (
-              <span className="max-w-[5rem] truncate text-muted-foreground/60" title={`Runs on ${session.location.name}`}>
-                {session.location.name}
-              </span>
+              <Tip label={`Runs on ${session.location.name}`}>
+                <span className="max-w-[5rem] truncate text-muted-foreground/60">
+                  {session.location.name}
+                </span>
+              </Tip>
             )}
             {inactive && <Moon size={9} className="text-muted-foreground/60" aria-label="Inactive" />}
             <span className="text-muted-foreground/60 tabular-nums">{formatCompactRelative(timestamp)}</span>
@@ -242,16 +246,17 @@ export function SessionRow({
         </>
       ) : (
         <div className="flex-1 min-w-0">
-          <span
-            title={label}
-            className={cn(
-              'block text-[11px] truncate',
-              labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
-              isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
-            )}
-          >
-            {label}
-          </span>
+          <Tip label={label}>
+            <span
+              className={cn(
+                'block text-[11px] truncate',
+                labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
+                isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
+              )}
+            >
+              {label}
+            </span>
+          </Tip>
           {/* Metadata line: the timestamp anchors it, then the workspace
               tag (Pinned and Needs you) and where it runs. */}
           <div className="flex items-center gap-1.5 mt-0.5 text-[9px] leading-none">
@@ -265,18 +270,21 @@ export function SessionRow({
             {inactive && (
               <Moon size={9} className="text-muted-foreground/60 flex-shrink-0" aria-label="Inactive" />
             )}
-            <span
-              className="text-muted-foreground/60 flex-shrink-0"
-              title={inactive ? `Inactive: no activity for ${formatCompactRelative(timestamp)}` : undefined}
-            >
-              {formatCompactRelative(timestamp)}
-            </span>
+            <Tip label={inactive ? `Inactive: no activity for ${formatCompactRelative(timestamp)}` : undefined}>
+              <span
+                className="text-muted-foreground/60 flex-shrink-0"
+              >
+                {formatCompactRelative(timestamp)}
+              </span>
+            </Tip>
             {showWorkspaceLabel && (
               <span className="text-muted-foreground/50 truncate">· {showWorkspaceLabel}</span>
             )}
             {/* Work away from the home says where (P3.1). The home's own stays quiet. */}
             {session.location && !session.location.isHome && (
-              <span className="text-muted-foreground/60 truncate" title={`Runs on ${session.location.name}`}>· {session.location.name}</span>
+              <Tip label={`Runs on ${session.location.name}`}>
+                <span className="text-muted-foreground/60 truncate">· {session.location.name}</span>
+              </Tip>
             )}
           </div>
         </div>
@@ -321,31 +329,33 @@ function InactiveQuickActions({ sessionId, label, isPinned }: { sessionId: strin
       className="absolute right-7 top-1/2 -translate-y-1/2 flex items-center opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
     >
       {isPinned && (
+        <Tip label="Unpin">
+          <button
+            type="button"
+            aria-label="Unpin"
+            className={button}
+            onClick={(e) => {
+              stop(e);
+              unpin.mutate(sessionId);
+            }}
+          >
+            <PinOff size={12} />
+          </button>
+        </Tip>
+      )}
+      <Tip label="Archive">
         <button
           type="button"
-          aria-label="Unpin"
-          title="Unpin"
+          aria-label="Archive"
           className={button}
           onClick={(e) => {
             stop(e);
-            unpin.mutate(sessionId);
+            void archive({ id: sessionId, label });
           }}
         >
-          <PinOff size={12} />
+          <Archive size={12} />
         </button>
-      )}
-      <button
-        type="button"
-        aria-label="Archive"
-        title="Archive"
-        className={button}
-        onClick={(e) => {
-          stop(e);
-          void archive({ id: sessionId, label });
-        }}
-      >
-        <Archive size={12} />
-      </button>
+      </Tip>
     </span>
   );
 }

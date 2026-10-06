@@ -6,6 +6,7 @@ import { useTasks, useCreateTask } from '@/hooks/use-tasks'
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle'
 import type { TaskStatus } from '@/db/types'
 import { cn } from '@/lib/utils'
+import { Tip } from '@/components/ui/tip'
 
 interface SubtaskSectionProps {
   parentId: string
@@ -79,12 +80,13 @@ export function SubtaskSection({ parentId, onOpenTask }: SubtaskSectionProps) {
           />
           Subtasks
           {totalCount > 0 && (
-            <span
-              className="text-[10px] font-medium text-muted-foreground/60 normal-case tracking-normal"
-              title={rollup}
-            >
-              {doneCount}/{totalCount}
-            </span>
+            <Tip label={rollup}>
+              <span
+                className="text-[10px] font-medium text-muted-foreground/60 normal-case tracking-normal"
+              >
+                {doneCount}/{totalCount}
+              </span>
+            </Tip>
           )}
         </button>
 
@@ -118,28 +120,30 @@ export function SubtaskSection({ parentId, onOpenTask }: SubtaskSectionProps) {
                     work, so it shows a non-interactive marker rather than a
                     checkbox that would silently do nothing. */}
                 {subtask.status === 'consider' ? (
-                  <span
-                    className="flex-shrink-0 w-4 h-4 rounded-full border border-dashed border-muted-foreground/30"
-                    title="Consider, commit it with the status control"
-                    aria-hidden
-                  />
+                  <Tip label="Consider, commit it with the status control">
+                    <span
+                      className="flex-shrink-0 w-4 h-4 rounded-full border border-dashed border-muted-foreground/30"
+                      aria-hidden
+                    />
+                  </Tip>
                 ) : (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleToggleComplete(subtask.id, subtask.status)
-                    }}
-                    title={isDone ? 'Reopen' : 'Complete'}
-                    aria-label={isDone ? 'Reopen subtask' : 'Complete subtask'}
-                    className={cn(
-                      'flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all',
-                      isDone
-                        ? 'bg-primary border-primary text-primary-foreground'
-                        : 'border-muted-foreground/40 hover:border-primary hover:bg-primary/10',
-                    )}
-                  >
-                    {isDone && <Check size={10} strokeWidth={3} />}
-                  </button>
+                  <Tip label={isDone ? 'Reopen' : 'Complete'}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleToggleComplete(subtask.id, subtask.status)
+                      }}
+                      aria-label={isDone ? 'Reopen subtask' : 'Complete subtask'}
+                      className={cn(
+                        'flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-all',
+                        isDone
+                          ? 'bg-primary border-primary text-primary-foreground'
+                          : 'border-muted-foreground/40 hover:border-primary hover:bg-primary/10',
+                      )}
+                    >
+                      {isDone && <Check size={10} strokeWidth={3} />}
+                    </button>
+                  </Tip>
                 )}
 
                 {/* Title */}

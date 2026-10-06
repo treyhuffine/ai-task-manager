@@ -28,6 +28,23 @@ const eslintConfig = defineConfig([
     },
   },
   {
+    // Tooltips go through <Tip> (`src/components/ui/tip.tsx`). The browser's
+    // `title` tooltip ignores the app's styling and delay, never shows on
+    // keyboard focus, and doubles up with a Tip on the same element.
+    // `iframe` keeps `title`: there it names the frame, it isn't a tooltip.
+    // The second selector covers components that pass `title` to the DOM.
+    files: ["src/**/*.tsx"],
+    rules: {
+      "no-restricted-syntax": ["error", {
+        selector: "JSXOpeningElement[name.name=/^[a-z]/][name.name!='iframe'] > JSXAttribute[name.name='title']",
+        message: "Use <Tip label=\"…\"> from '@/components/ui/tip' instead of the title attribute.",
+      }, {
+        selector: "JSXOpeningElement:matches([name.name=/^(Button|Link|NodeViewWrapper|\\w+Trigger)$/], [name.type='JSXMemberExpression']) > JSXAttribute[name.name='title']",
+        message: "This component passes title to the DOM. Wrap it in <Tip label=\"…\"> from '@/components/ui/tip' instead.",
+      }],
+    },
+  },
+  {
     // Shared operations all receive input and request metadata. A leading
     // underscore marks the pieces that this particular operation does not need.
     files: ["src/lib/server/operations/**/*.ts"],

@@ -8,6 +8,7 @@ import { useAgentExecutions, useAgentPreviews } from '@/hooks/use-agent';
 import { previewApi } from '@/lib/api/preview';
 import { PreviewPane } from '@/components/executions/preview/preview-pane';
 import type { WorkspaceRecord } from '@/db/types';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * The agent's previews (docs/agents-view-spec.md Phase 7). A preview belongs
@@ -96,15 +97,16 @@ export function AgentPreview({
           <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
         </label>
         {hasPinned && (
-          <button
-            onClick={() => restore.mutate()}
-            disabled={restore.isPending}
-            className="flex flex-shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-50"
-            title="Bring up every pinned preview in this agent"
-          >
-            {restore.isPending ? <Loader2 size={11} className="animate-spin" /> : <RotateCw size={11} />}
-            Restore pinned
-          </button>
+          <Tip label="Bring up every pinned preview in this agent">
+            <button
+              onClick={() => restore.mutate()}
+              disabled={restore.isPending}
+              className="flex flex-shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-50"
+            >
+              {restore.isPending ? <Loader2 size={11} className="animate-spin" /> : <RotateCw size={11} />}
+              Restore pinned
+            </button>
+          </Tip>
         )}
       </div>
       <div className="flex-1 min-h-0 flex flex-col">

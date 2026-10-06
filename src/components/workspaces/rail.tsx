@@ -57,8 +57,8 @@ function WideRail({ places, onToggle }: { places: readonly RailPlace[]; onToggle
             onToggle && (
               <RailIconButton
                 icon={PanelLeftClose}
-                label={`Collapse rail (${HOTKEYS.toggleRail.label})`}
-                aria-label="Collapse rail"
+                label="Collapse rail"
+                shortcut={HOTKEYS.toggleRail.label}
                 onClick={onToggle}
               />
             )

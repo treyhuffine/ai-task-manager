@@ -39,8 +39,8 @@ export function RailStrip({ places, onToggle }: { places: readonly RailPlace[]; 
         {onToggle && (
           <RailIconButton
             icon={PanelLeftOpen}
-            label={`Expand rail (${HOTKEYS.toggleRail.label})`}
-            aria-label="Expand rail"
+            label="Expand rail"
+            shortcut={HOTKEYS.toggleRail.label}
             onClick={onToggle}
           />
         )}
@@ -155,7 +155,7 @@ function AgentsFlyout() {
           ref={button}
           icon={Bot}
           label={label}
-          title={open ? undefined : label}
+          hideTip={open}
           active={inWork || open}
           badge={
             needsYou > 0 ? (

@@ -3,6 +3,7 @@
 import { Ban, AlertTriangle, Eye, Loader2 } from 'lucide-react';
 import type { TaskAttentionSignals } from '@/db/types';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 // Priority order (highest human-attention first), per the attention contract:
 // Blocked, then Update, then Stalled, then Working. ("Needs input" is omitted —
@@ -36,22 +37,22 @@ export function TaskBadges({
   return (
     <span className={cn('inline-flex flex-wrap items-center gap-1', className)}>
       {active.map((b) => (
-        <span
-          key={b.key}
-          className={cn(
-            'inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-semibold uppercase tracking-wide',
-            size === 'xs' ? 'text-[8.5px]' : 'text-[9.5px]',
-            b.cls,
-          )}
-          title={b.title}
-        >
-          <b.icon
-            size={size === 'xs' ? 9 : 10}
-            className={b.key === 'working' ? 'animate-spin [animation-duration:2.5s] motion-reduce:animate-none' : ''}
-            aria-hidden
-          />
-          {b.label}
-        </span>
+        <Tip key={b.key} label={b.title}>
+          <span
+            className={cn(
+              'inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-semibold uppercase tracking-wide',
+              size === 'xs' ? 'text-[8.5px]' : 'text-[9.5px]',
+              b.cls,
+            )}
+          >
+            <b.icon
+              size={size === 'xs' ? 9 : 10}
+              className={b.key === 'working' ? 'animate-spin [animation-duration:2.5s] motion-reduce:animate-none' : ''}
+              aria-hidden
+            />
+            {b.label}
+          </span>
+        </Tip>
       ))}
     </span>
   );

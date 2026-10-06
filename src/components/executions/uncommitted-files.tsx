@@ -7,6 +7,7 @@ import type { ConfirmOptions } from '@/components/ui/confirm-dialog';
 import type { DirtyArchive } from '@/hooks/use-workspaces';
 import type { UncommittedFile } from '@/lib/workspaces/uncommitted-files';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 /** Same colors as the Changes view's A and M letters. */
 const CHANGE_CLASS: Record<UncommittedFile['change'], string> = {
@@ -102,20 +103,24 @@ export function UncommittedFileList({
         const dir = trimmed.slice(0, cut);
         const name = trimmed.slice(cut) + (folder ? '/' : '');
         return (
-          <li key={file.path} className="flex h-7 items-center gap-2 px-3" title={file.path}>
-            {folder ? (
-              <FolderIcon name={name.slice(0, -1)} opened={false} size={13} className="flex-shrink-0" />
-            ) : (
-              <FileIcon name={name} size={13} className="flex-shrink-0" />
-            )}
-            <span className="min-w-0 flex-1 truncate text-[12.5px]">
-              <span className="text-muted-foreground/70">{dir}</span>
-              <span className="text-foreground">{name}</span>
-            </span>
-            <span className={cn('flex-shrink-0 text-[11px]', CHANGE_CLASS[file.change])} title={CHANGE_TITLE[file.change]}>
-              {file.change}
-            </span>
-          </li>
+          <Tip key={file.path} label={file.path}>
+            <li className="flex h-7 items-center gap-2 px-3">
+              {folder ? (
+                <FolderIcon name={name.slice(0, -1)} opened={false} size={13} className="flex-shrink-0" />
+              ) : (
+                <FileIcon name={name} size={13} className="flex-shrink-0" />
+              )}
+              <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                <span className="text-muted-foreground/70">{dir}</span>
+                <span className="text-foreground">{name}</span>
+              </span>
+              <Tip label={CHANGE_TITLE[file.change]}>
+                <span className={cn('flex-shrink-0 text-[11px]', CHANGE_CLASS[file.change])}>
+                  {file.change}
+                </span>
+              </Tip>
+            </li>
+          </Tip>
         );
       })}
       {omitted > 0 && (

@@ -14,6 +14,7 @@ import { AlertTriangle } from 'lucide-react';
 import { useRunsStats } from '@/hooks/use-runs-stats';
 import { openSettings } from '@/components/settings/settings-store';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 export function BudgetWarningPill() {
   const { data } = useRunsStats();
@@ -31,21 +32,24 @@ export function BudgetWarningPill() {
       : `Budget ${pct}% used`;
 
   return (
-    <button
-      type="button"
-      onClick={() => openSettings('models')}
-      title={
+    <Tip
+      label={
         data.budget != null
           ? `${pct}% of $${data.budget.toFixed(2)} monthly budget`
           : undefined
       }
-      className={cn(
-        'inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-medium',
-        tone,
-      )}
     >
-      <AlertTriangle size={11} />
-      <span>{message}</span>
-    </button>
+      <button
+        type="button"
+        onClick={() => openSettings('models')}
+        className={cn(
+          'inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-medium',
+          tone,
+        )}
+      >
+        <AlertTriangle size={11} />
+        <span>{message}</span>
+      </button>
+    </Tip>
   );
 }

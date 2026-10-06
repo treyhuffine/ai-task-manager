@@ -7,6 +7,7 @@ import type { MainChatIntro } from '@/components/chat/main-chat-intro';
 import type { SkillView } from '@/lib/api/skills';
 import { cn } from '@/lib/utils';
 import { useSkillChat, type SkillChatKind } from './use-skill-chat';
+import { Tip } from '@/components/ui/tip';
 
 function buildIntro(skill: SkillView): MainChatIntro {
   const empty = !skill.description?.trim() && !skill.body.trim();
@@ -84,15 +85,16 @@ export function SkillChatPanel({ skill }: { skill: SkillView }) {
             </button>
           ))}
         </div>
-        <button
-          onClick={() => active.newChat.mutate()}
-          disabled={active.newChat.isPending || !active.sessionId}
-          title={tab === 'build' ? 'Start a new builder chat (archives this one)' : 'Start a new try (archives this one)'}
-          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground transition-all hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
-        >
-          {active.newChat.isPending ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
-          New
-        </button>
+        <Tip label={tab === 'build' ? 'Start a new builder chat (archives this one)' : 'Start a new try (archives this one)'}>
+          <button
+            onClick={() => active.newChat.mutate()}
+            disabled={active.newChat.isPending || !active.sessionId}
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground transition-all hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
+          >
+            {active.newChat.isPending ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+            New
+          </button>
+        </Tip>
       </div>
 
       {tabs.filter(({ kind }) => visited.has(kind)).map(({ kind }) => {

@@ -15,6 +15,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { QrCode } from '@/components/settings/qr-code';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 const DEVICE_KINDS: { value: DeviceKind; label: string }[] = [
   { value: 'computer', label: 'Computer' },
@@ -487,16 +488,22 @@ function DeviceCard({
             )}
           </div>
           <div className="flex items-center gap-1">
-            <Button size="xs" variant="ghost" onClick={onPairAgain} disabled={pairingAgain} aria-label={`New pairing link for ${device.name}`} title="New pairing link">
-              {pairingAgain ? <Loader2 size={12} className="animate-spin" /> : <Link2 size={12} />}
-            </Button>
-            <Button size="xs" variant="ghost" onClick={beginEdit} aria-label={`Edit ${device.name}`} title="Edit">
-              <Pencil size={12} />
-            </Button>
-            {!device.isHome && (
-              <Button size="xs" variant="ghost" onClick={remove} disabled={removeMutation.isPending} aria-label={`Remove ${device.name}`} title="Remove">
-                {removeMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+            <Tip label="New pairing link">
+              <Button size="xs" variant="ghost" onClick={onPairAgain} disabled={pairingAgain} aria-label={`New pairing link for ${device.name}`}>
+                {pairingAgain ? <Loader2 size={12} className="animate-spin" /> : <Link2 size={12} />}
               </Button>
+            </Tip>
+            <Tip label="Edit">
+              <Button size="xs" variant="ghost" onClick={beginEdit} aria-label={`Edit ${device.name}`}>
+                <Pencil size={12} />
+              </Button>
+            </Tip>
+            {!device.isHome && (
+              <Tip label="Remove">
+                <Button size="xs" variant="ghost" onClick={remove} disabled={removeMutation.isPending} aria-label={`Remove ${device.name}`}>
+                  {removeMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                </Button>
+              </Tip>
             )}
           </div>
         </div>
@@ -544,9 +551,11 @@ function KeyRow({ keyView, onRevoke, revoking }: { keyView: DeviceKeyView; onRev
         </p>
       </div>
       {keyView.role !== 'home' && (
-        <Button size="xs" variant="ghost" onClick={onRevoke} disabled={revoking} aria-label={`Revoke ${keyView.name}`} title="Revoke">
-          {revoking ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={12} />}
-        </Button>
+        <Tip label="Revoke">
+          <Button size="xs" variant="ghost" onClick={onRevoke} disabled={revoking} aria-label={`Revoke ${keyView.name}`}>
+            {revoking ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={12} />}
+          </Button>
+        </Tip>
       )}
     </li>
   );
@@ -560,7 +569,11 @@ function DeviceRelease({ device }: { device: DeviceView }) {
   const pending = (compatibility?.pendingEvents ?? 0) + (compatibility?.pendingCommands ?? 0);
   return (
     <div className="space-y-0.5 text-[11px] text-muted-foreground/70">
-      {release && <p title={`Build ${release.build}`}>Ri {release.version} · {release.source === 'source' ? 'Source build' : release.build.slice(0, 12)}</p>}
+      {release && (
+        <Tip label={`Build ${release.build}`}>
+          <p>Ri {release.version} · {release.source === 'source' ? 'Source build' : release.build.slice(0, 12)}</p>
+        </Tip>
+      )}
       {compatibility?.state === 'compatible' && <p>Compatible{device.worker?.connected ? '' : ' at last contact'}</p>}
       {compatibility?.state === 'unknown' && <p>Waiting for this device to report its version.</p>}
       {!!compatibility?.openTurns && <p>Waiting for {compatibility.openTurns} execution{compatibility.openTurns === 1 ? '' : 's'} to finish before updating.</p>}

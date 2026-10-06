@@ -4,6 +4,7 @@ import { Maximize2, Minimize2 } from 'lucide-react';
 import { HOTKEYS } from '@/constants/commands';
 import type { FolderSource } from '@/lib/folders/source';
 import { ExecutionTerminalPanel } from '../execution-terminal-panel';
+import { Tip } from '@/components/ui/tip';
 
 interface TerminalDrawerProps {
   source: FolderSource;
@@ -28,17 +29,19 @@ export function TerminalDrawer({ source, disabled, disabledReason, maximized, on
         disabled={disabled}
         disabledReason={disabledReason}
         onToggleCollapsed={onHide}
-        collapseTitle={`Hide the terminal (${HOTKEYS.toggleTerminal.label}). Shells keep running.`}
+        collapseTitle="Hide the terminal. Shells keep running."
+        collapseShortcut={HOTKEYS.toggleTerminal.label}
         headerExtra={
-          <button
-            type="button"
-            onClick={onToggleMaximize}
-            className="inline-flex size-6 flex-shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-            title={maximized ? 'Restore the terminal height' : 'Expand the terminal'}
-            aria-label={maximized ? 'Restore the terminal height' : 'Expand the terminal'}
-          >
-            {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-          </button>
+          <Tip label={maximized ? 'Restore the terminal height' : 'Expand the terminal'}>
+            <button
+              type="button"
+              onClick={onToggleMaximize}
+              className="inline-flex size-6 flex-shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              aria-label={maximized ? 'Restore the terminal height' : 'Expand the terminal'}
+            >
+              {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+            </button>
+          </Tip>
         }
       />
     </div>

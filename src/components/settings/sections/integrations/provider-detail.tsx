@@ -38,6 +38,7 @@ import {
   type ToolkitInfo,
   type WritePolicyAction,
 } from './types';
+import { Tip } from '@/components/ui/tip';
 
 /** Past this many tools the list gets a filter box. */
 const TOOL_FILTER_THRESHOLD = 8;
@@ -585,36 +586,43 @@ function ToolRow({
         {a.mutating ? 'Write' : 'Read'}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="truncate font-mono text-[11px] text-foreground" title={a.id}>
-          {a.id}
-        </div>
-        {a.description && (
-          <div className="truncate text-[10px] text-muted-foreground" title={a.description}>
-            {a.description}
+        <Tip label={a.id}>
+          <div className="truncate font-mono text-[11px] text-foreground">
+            {a.id}
           </div>
+        </Tip>
+        {a.description && (
+          <Tip label={a.description}>
+            <div className="truncate text-[10px] text-muted-foreground">
+              {a.description}
+            </div>
+          </Tip>
         )}
       </div>
       {a.mutating && (
-        <label
-          className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[10px] text-muted-foreground"
-          title="Require your approval before this action runs"
-        >
-          <span>
-            Ask first
-            {policy?.overridden && (
-              <span className="text-foreground" title="Changed from the default">
-                *
-              </span>
-            )}
-          </span>
-          <Switch
-            size="sm"
-            checked={gated}
-            disabled={!policy}
-            onCheckedChange={(on) => onSetApproval(a.id, on ? 'ask' : 'auto')}
-            aria-label={`Ask before ${a.id} runs`}
-          />
-        </label>
+        <Tip label="Require your approval before this action runs">
+          <label
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[10px] text-muted-foreground"
+          >
+            <span>
+              Ask first
+              {policy?.overridden && (
+                <Tip label="Changed from the default">
+                  <span className="text-foreground">
+                    *
+                  </span>
+                </Tip>
+              )}
+            </span>
+            <Switch
+              size="sm"
+              checked={gated}
+              disabled={!policy}
+              onCheckedChange={(on) => onSetApproval(a.id, on ? 'ask' : 'auto')}
+              aria-label={`Ask before ${a.id} runs`}
+            />
+          </label>
+        </Tip>
       )}
     </div>
   );

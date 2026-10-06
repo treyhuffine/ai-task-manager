@@ -27,6 +27,7 @@ import type { WorkspaceWithCounts } from '@/db/types';
 import { SessionRow } from './session-row';
 import { InactiveFold } from './inactive-fold';
 import { useInactivity } from '@/hooks/use-inactivity';
+import { Tip } from '@/components/ui/tip';
 
 interface AgentRailRowProps {
   workspace: WorkspaceWithCounts;
@@ -157,73 +158,77 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
           isActive ? 'bg-secondary' : 'hover:bg-muted/40',
         )}
       >
-        <button
-          onClick={open}
-          className="relative flex-shrink-0 rounded-md"
-          aria-label={activity ? `${workspace.name}: ${PRESENCE[activity].label}` : `Open ${workspace.name}`}
-          title={activity ? PRESENCE[activity].label : `Open ${workspace.name}`}
-        >
-          <AgentIcon workspace={workspace} size="md" />
-          {activity && (
-            <span
-              aria-hidden
-              className={cn(
-                'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-background',
-                PRESENCE[activity].dot,
-              )}
-            />
-          )}
-        </button>
-        <button
-          onClick={open}
-          className="flex-1 min-w-0 text-left"
-          title={voice ? `${workspace.name}: ${voice.text}` : workspace.name}
-        >
-          <span
-            className={cn(
-              'block truncate text-[12.5px] leading-tight',
-              wantsYou ? 'font-semibold text-foreground' : 'font-medium text-foreground/85',
-            )}
+        <Tip label={activity ? PRESENCE[activity].label : `Open ${workspace.name}`}>
+          <button
+            onClick={open}
+            className="relative flex-shrink-0 rounded-md"
+            aria-label={activity ? `${workspace.name}: ${PRESENCE[activity].label}` : `Open ${workspace.name}`}
           >
-            {workspace.name}
-          </span>
-          {voice && (
-            <span className={cn('mt-0.5 block truncate text-[10.5px] leading-tight', VOICE_TONE[voice.tone])}>
-              {voice.text}
+            <AgentIcon workspace={workspace} size="md" />
+            {activity && (
+              <span
+                aria-hidden
+                className={cn(
+                  'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-background',
+                  PRESENCE[activity].dot,
+                )}
+              />
+            )}
+          </button>
+        </Tip>
+        <Tip label={voice ? `${workspace.name}: ${voice.text}` : workspace.name}>
+          <button
+            onClick={open}
+            className="flex-1 min-w-0 text-left"
+          >
+            <span
+              className={cn(
+                'block truncate text-[12.5px] leading-tight',
+                wantsYou ? 'font-semibold text-foreground' : 'font-medium text-foreground/85',
+              )}
+            >
+              {workspace.name}
             </span>
-          )}
-        </button>
+            {voice && (
+              <span className={cn('mt-0.5 block truncate text-[10.5px] leading-tight', VOICE_TONE[voice.tone])}>
+                {voice.text}
+              </span>
+            )}
+          </button>
+        </Tip>
 
         {/* Takes no room until you hover, so at rest the name and its line
             get the full width. Stays while its menu is open. */}
         <div className="hidden group-hover:flex has-[[data-state=open]]:flex items-center gap-0.5 flex-shrink-0">
           {hasThreads && (
+            <Tip label={expanded ? 'Hide executions' : 'Show executions'}>
+              <button
+                onPointerDown={stop}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleThreads();
+                }}
+                className="p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/50"
+                aria-label={expanded ? 'Hide executions' : 'Show executions'}
+              >
+                {expanded ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
+              </button>
+            </Tip>
+          )}
+          <Tip label="New execution (shift-click to start one right away on the last settings)">
             <button
               onPointerDown={stop}
               onClick={(e) => {
                 e.stopPropagation();
-                toggleThreads();
+                if (e.shiftKey) onCreateExecution(workspace.id);
+                else onOpenLauncher(workspace.id);
               }}
               className="p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/50"
-              aria-label={expanded ? 'Hide executions' : 'Show executions'}
-              title={expanded ? 'Hide executions' : 'Show executions'}
+              aria-label="New execution"
             >
-              {expanded ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
+              <Plus size={13} />
             </button>
-          )}
-          <button
-            onPointerDown={stop}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (e.shiftKey) onCreateExecution(workspace.id);
-              else onOpenLauncher(workspace.id);
-            }}
-            className="p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/50"
-            aria-label="New execution"
-            title="New execution (shift-click to start one right away on the last settings)"
-          >
-            <Plus size={13} />
-          </button>
+          </Tip>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -275,23 +280,24 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       )}
 
       {hasThreads && !expanded && (
-        <button
-          onPointerDown={stop}
-          onClick={toggleThreads}
-          className="mb-1.5 flex h-8 w-full items-center gap-1.5 rounded-md pl-4 pr-1.5 text-left text-[10.5px] hover:bg-muted/40 transition-colors"
-          aria-label={`Show ${workspace.name}'s executions`}
-          title="Show executions"
-        >
-          <ChevronRight size={11} className="flex-shrink-0 text-muted-foreground/60" />
-          <span className="min-w-0 truncate">
-            {summary.map((segment, i) => (
-              <span key={segment.text}>
-                {i > 0 && <span className="text-muted-foreground/40"> · </span>}
-                <span className={SUMMARY_TONE[segment.tone]}>{segment.text}</span>
-              </span>
-            ))}
-          </span>
-        </button>
+        <Tip label="Show executions">
+          <button
+            onPointerDown={stop}
+            onClick={toggleThreads}
+            className="mb-1.5 flex h-8 w-full items-center gap-1.5 rounded-md pl-4 pr-1.5 text-left text-[10.5px] hover:bg-muted/40 transition-colors"
+            aria-label={`Show ${workspace.name}'s executions`}
+          >
+            <ChevronRight size={11} className="flex-shrink-0 text-muted-foreground/60" />
+            <span className="min-w-0 truncate">
+              {summary.map((segment, i) => (
+                <span key={segment.text}>
+                  {i > 0 && <span className="text-muted-foreground/40"> · </span>}
+                  <span className={SUMMARY_TONE[segment.tone]}>{segment.text}</span>
+                </span>
+              ))}
+            </span>
+          </button>
+        </Tip>
       )}
     </div>
   );

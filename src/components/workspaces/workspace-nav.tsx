@@ -39,6 +39,7 @@ import {
 } from './workspace-selection-context';
 import { openLauncher } from './launcher/launcher-store';
 import { executionView } from '@/lib/client/active-view';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * Top-level container for the workspace tree in the left rail. Owns the
@@ -189,22 +190,24 @@ function WorkspaceNavInner() {
                 Agents
               </span>
               <div className="flex items-center gap-1">
-                <button
-                  onClick={enter}
-                  className="p-1 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors"
-                  aria-label="Select executions to archive"
-                  title="Select executions to archive"
-                >
-                  <Archive size={12} />
-                </button>
-                <button
-                  onClick={() => setCreateOpen(true)}
-                  className="p-1 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-                  aria-label="New agent"
-                  title="New agent"
-                >
-                  <FolderPlus size={12} />
-                </button>
+                <Tip label="Select executions to archive">
+                  <button
+                    onClick={enter}
+                    className="p-1 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors"
+                    aria-label="Select executions to archive"
+                  >
+                    <Archive size={12} />
+                  </button>
+                </Tip>
+                <Tip label="New agent">
+                  <button
+                    onClick={() => setCreateOpen(true)}
+                    className="p-1 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                    aria-label="New agent"
+                  >
+                    <FolderPlus size={12} />
+                  </button>
+                </Tip>
               </div>
             </>
           )}

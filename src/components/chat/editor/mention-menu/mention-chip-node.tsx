@@ -21,6 +21,7 @@ import { FileIcon, FolderIcon } from '@/components/file-icon'
 import { handleChipBackspace } from '../suggestion/chip-backspace'
 import { dispatchOpenFile } from '@/lib/entity-refs/open-file-event'
 import type { FileMentionItem } from './types'
+import { Tip } from '@/components/ui/tip'
 
 export const MENTION_CHIP_NAME = 'mentionChip'
 
@@ -114,62 +115,63 @@ function MentionChipView({ node, editor, getPos, selected }: NodeViewProps) {
   // Tooltip carries the full path so the user can disambiguate two
   // files with the same basename in different directories.
   return (
-    <NodeViewWrapper
-      as="span"
-      contentEditable={false}
-      data-drag-handle="false"
-      className={cn(
-        'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
-        'rounded-md border bg-muted/40 text-foreground text-[12px] font-medium',
-        'border-border hover:border-foreground/30 transition-colors',
-        'cursor-default select-none',
-        selected && 'ring-2 ring-primary/40 border-primary/40',
-      )}
-      title={isReference ? `${attrs.label ?? attrs.name}\n${attrs.path}` : attrs.path}
-    >
-      {attrs.kind === 'dir' ? (
-        <FolderIcon name={attrs.name} opened={false} size={11} />
-      ) : (
-        <FileIcon name={attrs.name} size={11} />
-      )}
-      <span
+    <Tip label={isReference ? `${attrs.label ?? attrs.name}\n${attrs.path}` : attrs.path}>
+      <NodeViewWrapper
+        as="span"
+        contentEditable={false}
+        data-drag-handle="false"
         className={cn(
-          'font-mono text-[11px] truncate max-w-[180px]',
-          openable && 'cursor-pointer hover:underline',
+          'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
+          'rounded-md border bg-muted/40 text-foreground text-[12px] font-medium',
+          'border-border hover:border-foreground/30 transition-colors',
+          'cursor-default select-none',
+          selected && 'ring-2 ring-primary/40 border-primary/40',
         )}
-        // Click a file mention to open it in the tree + viewer. mousedown
-        // preventDefault keeps editor focus/selection from shifting first.
-        onMouseDown={
-          openable
-            ? (e) => {
-                e.preventDefault()
-                e.stopPropagation()
-              }
-            : undefined
-        }
-        onClick={
-          openable
-            ? (e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                if (attrs.path) dispatchOpenFile(attrs.path)
-              }
-            : undefined
-        }
       >
-        {/* Reference files show `alias/relative/path` so the chip says which
-            folder it came from; worktree files stay a bare basename. */}
-        {attrs.label ?? attrs.name}
-      </span>
-      <button
-        type="button"
-        onMouseDown={handleRemove}
-        className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
-        aria-label={`Remove @${attrs.path}`}
-        tabIndex={-1}
-      >
-        <X size={10} />
-      </button>
-    </NodeViewWrapper>
+        {attrs.kind === 'dir' ? (
+          <FolderIcon name={attrs.name} opened={false} size={11} />
+        ) : (
+          <FileIcon name={attrs.name} size={11} />
+        )}
+        <span
+          className={cn(
+            'font-mono text-[11px] truncate max-w-[180px]',
+            openable && 'cursor-pointer hover:underline',
+          )}
+          // Click a file mention to open it in the tree + viewer. mousedown
+          // preventDefault keeps editor focus/selection from shifting first.
+          onMouseDown={
+            openable
+              ? (e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }
+              : undefined
+          }
+          onClick={
+            openable
+              ? (e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  if (attrs.path) dispatchOpenFile(attrs.path)
+                }
+              : undefined
+          }
+        >
+          {/* Reference files show `alias/relative/path` so the chip says which
+              folder it came from; worktree files stay a bare basename. */}
+          {attrs.label ?? attrs.name}
+        </span>
+        <button
+          type="button"
+          onMouseDown={handleRemove}
+          className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
+          aria-label={`Remove @${attrs.path}`}
+          tabIndex={-1}
+        >
+          <X size={10} />
+        </button>
+      </NodeViewWrapper>
+    </Tip>
   )
 }

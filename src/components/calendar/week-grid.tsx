@@ -41,6 +41,7 @@ import type { DeadlineMarker } from './week-view';
 import { WorkWorth } from './work/work-worth';
 import { WorkRibbon } from './work/work-ribbon';
 import type { WorkLayer } from './work/work-style';
+import { Tip } from '@/components/ui/tip';
 
 const GRID_COLS = 'grid-cols-[2.5rem_repeat(7,minmax(0,1fr))]';
 
@@ -118,26 +119,26 @@ export function WeekGrid({ days, workday, today, deadlinesByDate, onSelectDay, o
               </button>
               <WorkWorth stats={work?.days.get(day.date)?.stats} className="truncate text-[10px]" />
               {day.allDay.map((e) => (
-                <span
-                  key={e.id}
-                  title={e.calendar ? `${e.title} (${e.calendar.name})` : e.title}
-                  className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground truncate"
-                  style={stripeStyle(e.color, 2)}
-                >
-                  {e.title}
-                </span>
+                <Tip key={e.id} label={e.calendar ? `${e.title} (${e.calendar.name})` : e.title}>
+                  <span
+                    className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground truncate"
+                    style={stripeStyle(e.color, 2)}
+                  >
+                    {e.title}
+                  </span>
+                </Tip>
               ))}
               {deadlines.map((d) => (
-                <button
-                  key={d.taskId}
-                  type="button"
-                  onClick={() => onOpenTask(d.taskId)}
-                  title={`Due: ${d.title}`}
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-[10px] font-medium text-amber-600 dark:text-amber-400 text-left"
-                >
-                  <Flag size={9} className="shrink-0" />
-                  <span className="truncate">{d.title}</span>
-                </button>
+                <Tip key={d.taskId} label={`Due: ${d.title}`}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenTask(d.taskId)}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-[10px] font-medium text-amber-600 dark:text-amber-400 text-left"
+                  >
+                    <Flag size={9} className="shrink-0" />
+                    <span className="truncate">{d.title}</span>
+                  </button>
+                </Tip>
               ))}
             </div>
           );

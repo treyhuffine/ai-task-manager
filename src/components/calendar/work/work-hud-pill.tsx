@@ -6,6 +6,7 @@ import { openCalendarModal } from '@/lib/client/calendar-modal';
 import { useCalendarWork } from '@/lib/client/calendar-work';
 import { todayLocalDate } from '@/lib/deck/date';
 import { formatDuration, formatHours, leverage, teamPhrase } from '@/lib/work/equivalents';
+import { Tip } from '@/components/ui/tip';
 
 /** Every five minutes: a glance, not a ticker. Each read also asks git. */
 const REFRESH_MS = 5 * 60_000;
@@ -34,16 +35,17 @@ export function WorkHudPill() {
   ].join('\n');
 
   return (
-    <button
-      type="button"
-      onClick={() => openCalendarModal({ view: 'day', date: today })}
-      title={title}
-      aria-label={title}
-      className="flex h-7 items-center gap-1.5 rounded-lg border border-border px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-    >
-      <Users size={12} />
-      <span className="text-foreground">{formatHours(s.personHours)}</span>
-      <span>person-hours today</span>
-    </button>
+    <Tip label={title}>
+      <button
+        type="button"
+        onClick={() => openCalendarModal({ view: 'day', date: today })}
+        aria-label={title}
+        className="flex h-7 items-center gap-1.5 rounded-lg border border-border px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <Users size={12} />
+        <span className="text-foreground">{formatHours(s.personHours)}</span>
+        <span>person-hours today</span>
+      </button>
+    </Tip>
   );
 }

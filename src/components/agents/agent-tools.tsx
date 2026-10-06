@@ -10,6 +10,7 @@ import { AgentFiles } from './agent-files';
 import { AgentTerminal } from './agent-terminal';
 import { AgentPreview } from './agent-preview';
 import { AgentSetup } from './agent-setup';
+import { Tip } from '@/components/ui/tip';
 
 const TABS: ReadonlyArray<{ id: AgentTab; label: string; icon: ReactNode }> = [
   { id: 'overview', label: 'Overview', icon: <LayoutGrid size={12} /> },
@@ -59,22 +60,22 @@ export function AgentTools({
     <div className="@container flex flex-col h-full min-h-0">
       <div role="tablist" aria-label="Agent tools" className="shrink-0 flex items-center gap-0.5 border-b border-border px-2 py-1 overflow-x-auto">
         {TABS.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => onSelectTab(t.id)}
-            title={t.label}
-            className={cn(
-              'flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap',
-              tab === t.id
-                ? 'bg-secondary text-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-            )}
-          >
-            {t.icon}
-            <span className="hidden @[380px]:inline">{t.label}</span>
-          </button>
+          <Tip key={t.id} label={t.label}>
+            <button
+              role="tab"
+              aria-selected={tab === t.id}
+              onClick={() => onSelectTab(t.id)}
+              className={cn(
+                'flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap',
+                tab === t.id
+                  ? 'bg-secondary text-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+              )}
+            >
+              {t.icon}
+              <span className="hidden @[380px]:inline">{t.label}</span>
+            </button>
+          </Tip>
         ))}
       </div>
       <div className="flex-1 min-h-0 relative">

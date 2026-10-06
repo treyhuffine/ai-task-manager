@@ -29,6 +29,7 @@ import { FolderPickerDialog } from './folder-picker-dialog';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import type { ReferenceFolderRecord } from '@/db/types';
+import { Tip } from '@/components/ui/tip';
 
 /** The linked folder being edited: what it is, not where. */
 export type LinkedFolderDefinition = Pick<ReferenceFolderRecord, 'id' | 'alias' | 'description' | 'workspaceId' | 'targetWorkspaceId'>;
@@ -192,16 +193,17 @@ function ReferenceFolderForm({
                   spellCheck={false}
                   className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                 />
-                <button
-                  type="button"
-                  onClick={() => setPickerOpen(true)}
-                  disabled={!browsable}
-                  title={browsable ? undefined : `${device?.name ?? 'That device'} isn't running Ri right now. Type the path instead.`}
-                  className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
-                >
-                  <FolderOpen size={13} />
-                  Browse
-                </button>
+                <Tip label={browsable ? undefined : `${device?.name ?? 'That device'} isn't running Ri right now. Type the path instead.`}>
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpen(true)}
+                    disabled={!browsable}
+                    className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+                  >
+                    <FolderOpen size={13} />
+                    Browse
+                  </button>
+                </Tip>
               </div>
               <FieldHint>
                 Anything with a path works: a sibling repo, a docs folder, even an installed

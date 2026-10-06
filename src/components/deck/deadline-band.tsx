@@ -7,6 +7,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { formatLocalDate } from '@/lib/dates';
 import type { DeadlineTask } from '@/db/types';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * Deadline band — the always-on trust floor above the deck.
@@ -131,9 +132,11 @@ function DeadlineRow({ d, onOpen }: { d: DeadlineTask; onOpen: (id: string) => v
             </span>
           )}
           {d.parentId && (
-            <span className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground" title="Subtask">
-              <ListTree size={9} /> subtask
-            </span>
+            <Tip label="Subtask">
+              <span className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground">
+                <ListTree size={9} /> subtask
+              </span>
+            </Tip>
           )}
         </span>
       </button>

@@ -11,6 +11,7 @@ import type { ReactNode } from 'react';
 import { ArrowLeft, ChevronRight, Loader2, Server } from 'lucide-react';
 import { HOTKEYS } from '@/constants/commands';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 export type Tone = 'ok' | 'warn' | 'error' | 'off';
 
@@ -113,9 +114,11 @@ export function CatalogTile({
         <div className="flex items-center gap-1.5">
           <span className="truncate text-sm font-medium text-foreground">{name}</span>
           {tone && (
-            <span className={cn('size-1.5 shrink-0 rounded-full', DOT[tone])} title={toneLabel}>
-              <span className="sr-only">{toneLabel}</span>
-            </span>
+            <Tip label={toneLabel}>
+              <span className={cn('size-1.5 shrink-0 rounded-full', DOT[tone])}>
+                <span className="sr-only">{toneLabel}</span>
+              </span>
+            </Tip>
           )}
         </div>
         {subtitle && <p className="line-clamp-2 text-[11px] leading-snug text-muted-foreground">{subtitle}</p>}
@@ -136,14 +139,15 @@ export function CatalogTile({
 export function BackLink({ onBack, busy = false }: { onBack: () => void; busy?: boolean }) {
   return (
     <div className="flex min-h-6 items-center justify-between gap-2">
-      <button
-        type="button"
-        onClick={onBack}
-        title={`Back to all ${INTEGRATION_LABELS.plural.toLowerCase()} (${HOTKEYS.slideoutBack.label})`}
-        className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowLeft size={12} /> All {INTEGRATION_LABELS.plural.toLowerCase()}
-      </button>
+      <Tip label={`Back to all ${INTEGRATION_LABELS.plural.toLowerCase()}`} shortcut={HOTKEYS.slideoutBack.label}>
+        <button
+          type="button"
+          onClick={onBack}
+          className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ArrowLeft size={12} /> All {INTEGRATION_LABELS.plural.toLowerCase()}
+        </button>
+      </Tip>
       {busy && (
         <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <Loader2 size={12} className="animate-spin" /> Working…

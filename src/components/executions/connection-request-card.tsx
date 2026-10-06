@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { Bot, Check, Copy, ExternalLink, KeyRound, Loader2, Plug, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
+import { Tip } from '@/components/ui/tip';
 
 
 /** The card a sign-in started from, so its result (or error) shows on it when the page returns. */
@@ -390,14 +391,16 @@ function SetupForm({
             Add this redirect URI:
             <span className="mt-0.5 flex items-center gap-1">
               <code className="min-w-0 flex-1 truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10.5px] text-foreground">{shown}</code>
-              <button
-                type="button"
-                title="Copy redirect URI"
-                onClick={() => void navigator.clipboard.writeText(shown).then(() => toast.success('Copied'))}
-                className="rounded p-1 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-              >
-                <Copy size={11} />
-              </button>
+              <Tip label="Copy redirect URI">
+                <button
+                  type="button"
+                  aria-label="Copy redirect URI"
+                  onClick={() => void navigator.clipboard.writeText(shown).then(() => toast.success('Copied'))}
+                  className="rounded p-1 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                >
+                  <Copy size={11} />
+                </button>
+              </Tip>
             </span>
           </li>
           <li>Paste its client ID and secret:</li>

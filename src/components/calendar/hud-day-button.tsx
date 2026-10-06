@@ -25,6 +25,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { dismissCalendarInvite, readInviteDismissed, subscribeInviteDismissed } from './invite';
 import { HudDayPeek } from './hud-day-peek';
 import { openCalendarModal } from '@/lib/client/calendar-modal';
+import { Tip } from '@/components/ui/tip';
 
 const STALE_MS = 15 * 60_000;
 const TICK_MS = 30_000;
@@ -121,23 +122,24 @@ export function HudDayButton() {
         }}
       >
         <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label="Day shape"
-            title={stale || degraded ? `As of ${formatAsOf(data.asOf)}` : undefined}
-            className={cn(
-              'relative flex items-center gap-1.5 h-7 px-2 rounded-lg border text-[11px] font-medium transition-all',
-              tone === 'warning'
-                ? 'text-amber-600 border-amber-500/40 bg-amber-500/10 dark:text-amber-400'
-                : 'border-border text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Calendar size={12} />
-            <span className="max-w-56 truncate">{text}</span>
-            {(stale || degraded) && (
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500/80" aria-hidden />
-            )}
-          </button>
+          <Tip label={stale || degraded ? `As of ${formatAsOf(data.asOf)}` : undefined}>
+            <button
+              type="button"
+              aria-label="Day shape"
+              className={cn(
+                'relative flex items-center gap-1.5 h-7 px-2 rounded-lg border text-[11px] font-medium transition-all',
+                tone === 'warning'
+                  ? 'text-amber-600 border-amber-500/40 bg-amber-500/10 dark:text-amber-400'
+                  : 'border-border text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Calendar size={12} />
+              <span className="max-w-56 truncate">{text}</span>
+              {(stale || degraded) && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500/80" aria-hidden />
+              )}
+            </button>
+          </Tip>
         </PopoverTrigger>
         <PopoverContent align="start" sideOffset={6} className="w-[21rem] p-0">
           <HudDayPeek data={data} onOpenDay={openDay} onOpenWeek={openWeek} />

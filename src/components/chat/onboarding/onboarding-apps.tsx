@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, Check, Loader2, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { listJoin } from './onboarding-flow';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * The apps most people want first, in this order. Only ones the integration
@@ -174,21 +175,22 @@ export function OnboardingApps({ onDone }: { onDone: (summary: string) => void }
 
 function AppTile({ provider, connected, onOpen }: { provider: ProviderStatus; connected: boolean; onOpen: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      title={integrationMeta(provider.id).description}
-      className={cn(
-        'flex w-[7.5rem] flex-shrink-0 snap-start flex-col items-start gap-2 rounded-lg border p-2 text-left transition-colors',
-        connected ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border hover:bg-muted/50',
-      )}
-    >
-      <IntegrationLogo providerId={provider.id} name={provider.displayName} size={30} />
-      <span className="flex w-full flex-col leading-tight">
-        <span className="truncate text-[12px] font-medium text-foreground">{provider.displayName}</span>
-        <ConnectState connected={connected} />
-      </span>
-    </button>
+    <Tip label={integrationMeta(provider.id).description}>
+      <button
+        type="button"
+        onClick={onOpen}
+        className={cn(
+          'flex w-[7.5rem] flex-shrink-0 snap-start flex-col items-start gap-2 rounded-lg border p-2 text-left transition-colors',
+          connected ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border hover:bg-muted/50',
+        )}
+      >
+        <IntegrationLogo providerId={provider.id} name={provider.displayName} size={30} />
+        <span className="flex w-full flex-col leading-tight">
+          <span className="truncate text-[12px] font-medium text-foreground">{provider.displayName}</span>
+          <ConnectState connected={connected} />
+        </span>
+      </button>
+    </Tip>
   );
 }
 

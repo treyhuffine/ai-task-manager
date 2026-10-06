@@ -21,6 +21,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Check, ChevronRight, Clock, Loader2, RotateCcw, ShieldAlert, ShieldCheck, X } from 'lucide-react';
 import { useMemo, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { toast } from 'sonner';
+import { Tip } from '@/components/ui/tip';
 
 
 /** Items shown before "Show N more" on a large batch. */
@@ -223,26 +224,28 @@ function ApprovalItem({
         </button>
         {onDecide && state === 'pending' && (
           <span className="flex shrink-0 items-center gap-0.5">
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => onDecide('approve')}
-              title="Approve this one"
-              aria-label={`Approve ${view.summary}`}
-              className="rounded p-1 text-muted-foreground/70 hover:bg-emerald-500/10 hover:text-emerald-600 disabled:opacity-50"
-            >
-              <Check size={11} />
-            </button>
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => onDecide('deny')}
-              title="Deny this one"
-              aria-label={`Deny ${view.summary}`}
-              className="rounded p-1 text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-            >
-              <X size={11} />
-            </button>
+            <Tip label="Approve this one">
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onDecide('approve')}
+                aria-label={`Approve ${view.summary}`}
+                className="rounded p-1 text-muted-foreground/70 hover:bg-emerald-500/10 hover:text-emerald-600 disabled:opacity-50"
+              >
+                <Check size={11} />
+              </button>
+            </Tip>
+            <Tip label="Deny this one">
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onDecide('deny')}
+                aria-label={`Deny ${view.summary}`}
+                className="rounded p-1 text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+              >
+                <X size={11} />
+              </button>
+            </Tip>
           </span>
         )}
       </div>
@@ -280,6 +283,7 @@ function ItemStateIcon({ state }: { state: ApprovalItemState }) {
 function FooterButton({
   tone,
   busy,
+  title,
   children,
   ...props
 }: {
@@ -288,19 +292,21 @@ function FooterButton({
   children: ReactNode;
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button
-      type="button"
-      {...props}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-        tone === 'primary' && 'bg-primary text-primary-foreground hover:opacity-90',
-        tone === 'secondary' && 'border border-border bg-background text-foreground hover:bg-muted/60',
-        tone === 'deny' && 'border border-destructive/40 text-destructive hover:bg-destructive/10',
-      )}
-    >
-      {busy && <Loader2 size={11} className="animate-spin" />}
-      {children}
-    </button>
+    <Tip label={title}>
+      <button
+        type="button"
+        {...props}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+          tone === 'primary' && 'bg-primary text-primary-foreground hover:opacity-90',
+          tone === 'secondary' && 'border border-border bg-background text-foreground hover:bg-muted/60',
+          tone === 'deny' && 'border border-destructive/40 text-destructive hover:bg-destructive/10',
+        )}
+      >
+        {busy && <Loader2 size={11} className="animate-spin" />}
+        {children}
+      </button>
+    </Tip>
   );
 }
 

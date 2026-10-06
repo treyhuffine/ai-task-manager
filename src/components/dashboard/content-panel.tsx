@@ -20,6 +20,7 @@ import { useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
 import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
 import { MainChatOnboarding } from '@/components/chat/onboarding/main-chat-onboarding';
 import { HomeTerminal } from '@/components/dashboard/home-terminal';
+import { Tip } from '@/components/ui/tip';
 
 // ─── Tab definitions ───────────────────────────────────────────
 
@@ -68,15 +69,16 @@ function ChatHeaderBar({
         </span>
       </span>
       <MainChatHistoryMenu scope={null} />
-      <button
-        onClick={onNewChat}
-        disabled={newChatPending}
-        title="Start a new chat (archives the current one)"
-        className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-50"
-      >
-        {newChatPending ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
-        New
-      </button>
+      <Tip label="Start a new chat (archives the current one)">
+        <button
+          onClick={onNewChat}
+          disabled={newChatPending}
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-50"
+        >
+          {newChatPending ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+          New
+        </button>
+      </Tip>
     </div>
   );
 }

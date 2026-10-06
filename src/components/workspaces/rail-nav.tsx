@@ -11,6 +11,7 @@ import { openTaskBoard, useTaskBoardOpen } from '@/lib/client/task-board';
 import { cn } from '@/lib/utils';
 import { openLauncher } from './launcher/launcher-store';
 import { openChatSearch } from './chat-search-store';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * The rail's places and its two verbs, as one list each, so the wide rail and
@@ -117,34 +118,34 @@ export function RailPlaceRows({ places }: { places: readonly RailPlace[] }) {
   return (
     <nav aria-label="Places" className="flex flex-col gap-0.5 px-2 pt-1 pb-1.5">
       {places.map(({ id, label, title, icon: Icon, onClick, onIntent, active, count }) => (
-        <button
-          key={id}
-          type="button"
-          onClick={onClick}
-          onPointerEnter={onIntent}
-          onFocus={onIntent}
-          title={title}
-          aria-current={active ? 'page' : undefined}
-          className={cn(
-            'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[12px] font-medium transition-colors',
-            'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-            active
-              ? 'bg-muted/60 text-foreground'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted/40',
-          )}
-        >
-          <Icon size={14} className="flex-shrink-0" />
-          <span className="truncate">{label}</span>
-          {count !== undefined && (
-            <span
-              className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] tabular-nums"
-              aria-label={`${count} active`}
-            >
-              <span className="size-1.5 rounded-full bg-blue-500" aria-hidden />
-              {count}
-            </span>
-          )}
-        </button>
+        <Tip key={id} label={title}>
+          <button
+            type="button"
+            onClick={onClick}
+            onPointerEnter={onIntent}
+            onFocus={onIntent}
+            aria-current={active ? 'page' : undefined}
+            className={cn(
+              'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[12px] font-medium transition-colors',
+              'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+              active
+                ? 'bg-muted/60 text-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40',
+            )}
+          >
+            <Icon size={14} className="flex-shrink-0" />
+            <span className="truncate">{label}</span>
+            {count !== undefined && (
+              <span
+                className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] tabular-nums"
+                aria-label={`${count} active`}
+              >
+                <span className="size-1.5 rounded-full bg-blue-500" aria-hidden />
+                {count}
+              </span>
+            )}
+          </button>
+        </Tip>
       ))}
     </nav>
   );
@@ -160,22 +161,22 @@ export function RailVerbButtons() {
   return (
     <div className="grid grid-cols-2 gap-1.5 px-2 pt-1 pb-2">
       {RAIL_VERBS.map(({ id, label, title, icon: Icon, onClick }) => (
-        <button
-          key={id}
-          type="button"
-          onClick={onClick}
-          title={title}
-          className={cn(
-            'flex h-7 items-center justify-center gap-1.5 rounded-lg border text-[12px] font-medium transition-colors',
-            'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-            id === 'create'
-              ? 'border-border bg-secondary text-foreground hover:bg-accent'
-              : 'border-border/70 text-muted-foreground hover:text-foreground hover:bg-muted/40',
-          )}
-        >
-          <Icon size={13} className="flex-shrink-0" />
-          {label}
-        </button>
+        <Tip key={id} label={title}>
+          <button
+            type="button"
+            onClick={onClick}
+            className={cn(
+              'flex h-7 items-center justify-center gap-1.5 rounded-lg border text-[12px] font-medium transition-colors',
+              'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+              id === 'create'
+                ? 'border-border bg-secondary text-foreground hover:bg-accent'
+                : 'border-border/70 text-muted-foreground hover:text-foreground hover:bg-muted/40',
+            )}
+          >
+            <Icon size={13} className="flex-shrink-0" />
+            {label}
+          </button>
+        </Tip>
       ))}
     </div>
   );
@@ -189,37 +190,44 @@ export function RailVerbButtons() {
 export function RailIconButton({
   icon: Icon,
   label,
+  shortcut,
+  hideTip = false,
   active = false,
   badge,
   className,
   'aria-label': ariaLabel,
   ...props
-}: Omit<ComponentProps<'button'>, 'children'> & {
+}: Omit<ComponentProps<'button'>, 'children' | 'title'> & {
   icon: LucideIcon;
   /** Tooltip. Doubles as the accessible name unless `aria-label` is set. */
   label: string;
+  /** Shown in the tooltip, e.g. `HOTKEYS.toggleRail.label`. */
+  shortcut?: string;
+  /** No tooltip, e.g. while the button's own card is open. */
+  hideTip?: boolean;
   active?: boolean;
   /** Drawn on the icon's top-right corner. */
   badge?: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      aria-label={ariaLabel ?? label}
-      aria-current={active ? 'page' : undefined}
-      title={label}
-      {...props}
-      className={cn(
-        'relative flex-shrink-0 p-1.5 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-        active
-          ? 'bg-muted/60 text-foreground'
-          : 'text-muted-foreground/80 hover:text-foreground hover:bg-muted/50',
-        className,
-      )}
-    >
-      <Icon size={14} />
-      {badge}
-    </button>
+    <Tip label={hideTip ? undefined : label} shortcut={shortcut}>
+      <button
+        type="button"
+        aria-label={ariaLabel ?? label}
+        aria-current={active ? 'page' : undefined}
+        {...props}
+        className={cn(
+          'relative flex-shrink-0 p-1.5 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+          active
+            ? 'bg-muted/60 text-foreground'
+            : 'text-muted-foreground/80 hover:text-foreground hover:bg-muted/50',
+          className,
+        )}
+      >
+        <Icon size={14} />
+        {badge}
+      </button>
+    </Tip>
   );
 }
 

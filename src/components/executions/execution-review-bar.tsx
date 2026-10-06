@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CheckCheck, EyeOff, Loader2, MessageSquareDashed } from 'lucide-react';
 import { toast } from 'sonner';
+import { Tip } from '@/components/ui/tip';
 
 const DISPOSITION_LABEL: Record<ReviewDisposition, string> = {
   accepted: 'Accepted',
@@ -125,14 +126,15 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
           {eligible.length > 1 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
-                  disabled={pending}
-                  title="Accept the output and complete one of the tasks this workstream is working"
-                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-emerald-600 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
-                >
-                  <CheckCheck size={12} />
-                  Accept & complete…
-                </button>
+                <Tip label="Accept the output and complete one of the tasks this workstream is working">
+                  <button
+                    disabled={pending}
+                    className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-emerald-600 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+                  >
+                    <CheckCheck size={12} />
+                    Accept & complete…
+                  </button>
+                </Tip>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="max-w-xs">
                 <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">Complete which task?</div>
@@ -178,14 +180,15 @@ function ReviewButton({
     'emerald-solid': 'bg-emerald-600 text-white hover:bg-emerald-700',
   };
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={title ?? label}
-      className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-60', tones[tone])}
-    >
-      {icon}
-      {label}
-    </button>
+    <Tip label={title ?? label}>
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-60', tones[tone])}
+      >
+        {icon}
+        {label}
+      </button>
+    </Tip>
   );
 }

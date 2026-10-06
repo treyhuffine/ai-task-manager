@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { HOTKEYS } from '@/constants/commands';
 import { AgentIcon } from './agent-icon';
 import type { AgentPane } from './agent-view';
+import { Tip } from '@/components/ui/tip';
 
 /** Home-relative display of an absolute path, the way a shell prompt shows it. */
 function displayPath(path: string): string {
@@ -66,15 +67,16 @@ export function AgentHeader({
       {/* Beside the name, so it reads as this agent's action. The app-wide
           CREATE owns the top-right corner. */}
       {!archived && (
-        <button
-          onClick={() => openLauncher(workspace.id)}
-          className="flex flex-shrink-0 items-center gap-1.5 h-7 px-2.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:opacity-90 transition-opacity"
-          title={`New execution in ${workspace.name}`}
-          aria-label="New execution"
-        >
-          <Plus size={12} strokeWidth={2.5} />
-          <span className="hidden @[520px]:inline">New execution</span>
-        </button>
+        <Tip label={`New execution in ${workspace.name}`}>
+          <button
+            onClick={() => openLauncher(workspace.id)}
+            className="flex flex-shrink-0 items-center gap-1.5 h-7 px-2.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:opacity-90 transition-opacity"
+            aria-label="New execution"
+          >
+            <Plus size={12} strokeWidth={2.5} />
+            <span className="hidden @[520px]:inline">New execution</span>
+          </button>
+        </Tip>
       )}
 
       <div className="flex-1" />
@@ -85,14 +87,15 @@ export function AgentHeader({
       </div>
 
       {!pane && (
-        <button
-          onClick={onToggleTools}
-          className="flex-shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-          aria-label={toolsCollapsed ? 'Show tools' : 'Hide tools'}
-          title={`${toolsCollapsed ? 'Show tools' : 'Hide tools'} (${HOTKEYS.toggleTools.label})`}
-        >
-          {toolsCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
-        </button>
+        <Tip label={toolsCollapsed ? 'Show tools' : 'Hide tools'} shortcut={HOTKEYS.toggleTools.label}>
+          <button
+            onClick={onToggleTools}
+            className="flex-shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            aria-label={toolsCollapsed ? 'Show tools' : 'Hide tools'}
+          >
+            {toolsCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
+          </button>
+        </Tip>
       )}
       </div>
       {pane && (
@@ -168,9 +171,11 @@ function AgentFolderLine({ workspace }: { workspace: WorkspaceRecord }) {
     <div className="flex items-center gap-1.5 min-w-0 text-[10.5px] text-muted-foreground/75">
       {workspace.isGit && <GitBranch size={10} className="flex-shrink-0" aria-label="Git repository" />}
       {folder && (
-        <span className="truncate font-mono" title={elsewhere ? `${folder} on ${elsewhere.name}` : folder}>
-          {displayPath(folder)}
-        </span>
+        <Tip label={elsewhere ? `${folder} on ${elsewhere.name}` : folder}>
+          <span className="truncate font-mono">
+            {displayPath(folder)}
+          </span>
+        </Tip>
       )}
       {elsewhere && <span className="flex-shrink-0">on {elsewhere.name}</span>}
     </div>

@@ -13,6 +13,7 @@ import { Plus, Loader2, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { hot } from '@/lib/_debug/hot-path';
 import { useScratchpad, useSetScratchpad } from '@/hooks/use-execution';
+import { Tip } from '@/components/ui/tip';
 
 interface ScratchpadPaneProps {
   sessionId: string;
@@ -323,56 +324,59 @@ function PromotionBar({
         {hasSelection ? 'Selection:' : 'Select text to promote'}
       </span>
       <div className="ml-auto flex items-center gap-1">
-        <button
-          type="button"
-          disabled={!hasSelection || promoteMutation.isPending}
-          onClick={() => handlePromote('task')}
-          className={cn(
-            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-medium',
-            'text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors',
-            'disabled:opacity-40 disabled:cursor-not-allowed',
-          )}
-          title="Create a task from the selection"
-        >
-          {pendingKind === 'task' ? (
-            <Loader2 size={10} className="animate-spin" />
-          ) : (
-            <Plus size={10} />
-          )}
-          Task
-        </button>
-        <button
-          type="button"
-          disabled={!hasSelection || promoteMutation.isPending}
-          onClick={() => handlePromote('note')}
-          className={cn(
-            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-medium',
-            'text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors',
-            'disabled:opacity-40 disabled:cursor-not-allowed',
-          )}
-          title="Create a note from the selection"
-        >
-          {pendingKind === 'note' ? (
-            <Loader2 size={10} className="animate-spin" />
-          ) : (
-            <Plus size={10} />
-          )}
-          Note
-        </button>
-        <button
-          type="button"
-          disabled={!hasSelection}
-          onClick={handleSendToChat}
-          className={cn(
-            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-medium',
-            'text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors',
-            'disabled:opacity-40 disabled:cursor-not-allowed',
-          )}
-          title="Insert the selected text into the composer"
-        >
-          <ArrowRight size={10} />
-          To chat
-        </button>
+        <Tip label="Create a task from the selection">
+          <button
+            type="button"
+            disabled={!hasSelection || promoteMutation.isPending}
+            onClick={() => handlePromote('task')}
+            className={cn(
+              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-medium',
+              'text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors',
+              'disabled:opacity-40 disabled:cursor-not-allowed',
+            )}
+          >
+            {pendingKind === 'task' ? (
+              <Loader2 size={10} className="animate-spin" />
+            ) : (
+              <Plus size={10} />
+            )}
+            Task
+          </button>
+        </Tip>
+        <Tip label="Create a note from the selection">
+          <button
+            type="button"
+            disabled={!hasSelection || promoteMutation.isPending}
+            onClick={() => handlePromote('note')}
+            className={cn(
+              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-medium',
+              'text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors',
+              'disabled:opacity-40 disabled:cursor-not-allowed',
+            )}
+          >
+            {pendingKind === 'note' ? (
+              <Loader2 size={10} className="animate-spin" />
+            ) : (
+              <Plus size={10} />
+            )}
+            Note
+          </button>
+        </Tip>
+        <Tip label="Insert the selected text into the composer">
+          <button
+            type="button"
+            disabled={!hasSelection}
+            onClick={handleSendToChat}
+            className={cn(
+              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-medium',
+              'text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors',
+              'disabled:opacity-40 disabled:cursor-not-allowed',
+            )}
+          >
+            <ArrowRight size={10} />
+            To chat
+          </button>
+        </Tip>
       </div>
     </div>
   );

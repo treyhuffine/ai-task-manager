@@ -5,6 +5,7 @@ import { trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { ListTodo } from 'lucide-react';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * "Working on" — the tasks an execution is associated with, shown in the header
@@ -32,19 +33,19 @@ export function ExecutionTaskChips({ executionId }: { executionId: string }) {
         {active.length > 1 ? 'Working on' : 'Task'}
       </span>
       {active.map((t) => (
-        <button
-          key={t.id}
-          onClick={() => openTask(t.id)}
-          title={`Open "${t.title}"`}
-          className={cn(
-            'inline-flex max-w-[16rem] items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] transition-colors',
-            t.status === 'in_progress'
-              ? 'border-violet-500/30 bg-violet-500/[0.06] text-foreground hover:border-violet-500/50'
-              : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground',
-          )}
-        >
-          <span className="truncate">{t.title || 'Untitled'}</span>
-        </button>
+        <Tip key={t.id} label={`Open "${t.title}"`}>
+          <button
+            onClick={() => openTask(t.id)}
+            className={cn(
+              'inline-flex max-w-[16rem] items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] transition-colors',
+              t.status === 'in_progress'
+                ? 'border-violet-500/30 bg-violet-500/[0.06] text-foreground hover:border-violet-500/50'
+                : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <span className="truncate">{t.title || 'Untitled'}</span>
+          </button>
+        </Tip>
       ))}
     </div>
   );

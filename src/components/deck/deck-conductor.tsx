@@ -13,8 +13,8 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { WorkMode } from '@/types/dashboard';
+import { Tip } from '@/components/ui/tip';
 
 // ─── Urgency for Generate New Deck button ───────────────────────
 
@@ -141,48 +141,46 @@ export function DeckConductor({
         </DropdownMenu>
 
         {/* Due today filter toggle */}
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => dueTodayCount > 0 && onFilterDueTodayChange(!filterDueToday)}
-                disabled={dueTodayCount === 0}
-                className={cn(
-                  'px-2.5 py-1 rounded-lg text-[9px] font-bold transition-all border',
-                  filterDueToday
-                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20'
-                    : dueTodayCount > 0
-                      ? 'bg-card text-muted-foreground border-border hover:border-muted-foreground cursor-pointer'
-                      : 'bg-card text-muted-foreground/30 border-border cursor-not-allowed'
-                )}
-              >
-                DUE TODAY
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {dueTodayCount === 0
-                ? 'No hard deadlines today'
-                : `${dueTodayCount} hard deadline${dueTodayCount === 1 ? '' : 's'} today`}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <Tip
+          label={dueTodayCount === 0
+            ? 'No hard deadlines today'
+            : `${dueTodayCount} hard deadline${dueTodayCount === 1 ? '' : 's'} today`}
+          side="bottom"
+        >
+          <button
+            onClick={() => dueTodayCount > 0 && onFilterDueTodayChange(!filterDueToday)}
+            disabled={dueTodayCount === 0}
+            className={cn(
+              'px-2.5 py-1 rounded-lg text-[9px] font-bold transition-all border',
+              filterDueToday
+                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                : dueTodayCount > 0
+                  ? 'bg-card text-muted-foreground border-border hover:border-muted-foreground cursor-pointer'
+                  : 'bg-card text-muted-foreground/30 border-border cursor-not-allowed'
+            )}
+          >
+            DUE TODAY
+          </button>
+        </Tip>
       </div>
 
       <div className="flex items-center gap-1.5">
         {/* Morning auto-refresh toggle (opt-in cron) */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button
-              title="Morning auto-refresh"
-              className={cn(
-                'flex items-center justify-center w-7 h-7 rounded-md border transition-colors',
-                morning?.enabled
-                  ? 'text-primary bg-primary/5 border-primary/20'
-                  : 'text-muted-foreground border-border hover:border-muted-foreground',
-              )}
-            >
-              <Clock size={12} />
-            </button>
+            <Tip label="Morning auto-refresh">
+              <button
+                aria-label="Morning auto-refresh"
+                className={cn(
+                  'flex items-center justify-center w-7 h-7 rounded-md border transition-colors',
+                  morning?.enabled
+                    ? 'text-primary bg-primary/5 border-primary/20'
+                    : 'text-muted-foreground border-border hover:border-muted-foreground',
+                )}
+              >
+                <Clock size={12} />
+              </button>
+            </Tip>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuItem onClick={toggleMorning} className="text-xs gap-2">

@@ -8,6 +8,7 @@ import { useVoiceInput } from '@/hooks/use-voice-input';
 import { useUserState } from '@/hooks/use-user-state';
 import { LiveWaveform } from '@/components/ui/live-waveform';
 import type { FormEvent, KeyboardEvent } from 'react';
+import { Tip } from '@/components/ui/tip';
 
 interface CommandInputProps {
   input: string;
@@ -75,20 +76,24 @@ export function CommandInput({ input, setInput, onSubmit, onSendMessage, isStrea
               <div className="flex items-start gap-3">
                 <p className="flex-1 text-base text-foreground leading-relaxed">{voice.transcript}</p>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={voice.clearTranscript}
-                    className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
-                    title="Discard"
-                  >
-                    <X size={18} />
-                  </button>
-                  <button
-                    onClick={handleVoiceSend}
-                    className="w-9 h-9 rounded-lg flex items-center justify-center bg-primary text-primary-foreground shadow-lg active:scale-95 transition-all"
-                    title="Send"
-                  >
-                    <Send size={18} />
-                  </button>
+                  <Tip label="Discard">
+                    <button
+                      onClick={voice.clearTranscript}
+                      className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
+                      aria-label="Discard"
+                    >
+                      <X size={18} />
+                    </button>
+                  </Tip>
+                  <Tip label="Send">
+                    <button
+                      onClick={handleVoiceSend}
+                      className="w-9 h-9 rounded-lg flex items-center justify-center bg-primary text-primary-foreground shadow-lg active:scale-95 transition-all"
+                      aria-label="Send"
+                    >
+                      <Send size={18} />
+                    </button>
+                  </Tip>
                 </div>
               </div>
             )}
@@ -101,29 +106,31 @@ export function CommandInput({ input, setInput, onSubmit, onSendMessage, isStrea
 
         {/* Floating mic button + waveform */}
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={voice.toggleRecording}
-            disabled={!voice.isSupported || voice.isTranscribing}
-            className={cn(
-              'relative w-12 h-12 rounded-xl flex items-center justify-center shadow-lg transition-all active:scale-95 shrink-0 overflow-hidden',
-              voice.isRecording
-                ? 'bg-destructive text-destructive-foreground shadow-destructive/30'
-                : 'bg-primary text-primary-foreground shadow-primary/30 hover:opacity-90 hover:scale-105 group/mic',
-              (!voice.isSupported || voice.isTranscribing) && 'opacity-50 cursor-not-allowed'
-            )}
-            title={voice.isRecording ? 'Stop recording' : `Voice input${voice.provider === 'local' ? ' (Parakeet)' : ''}`}
-          >
-            {voice.isRecording ? (
-              <Square size={20} className="relative z-10" />
-            ) : (
-              <>
-                <Mic size={22} className="relative z-10" />
-                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/mic:translate-y-0 transition-transform duration-300" />
-                <div className="absolute inset-0 rounded-xl border border-white/20 animate-pulse" />
-              </>
-            )}
-          </button>
+          <Tip label={voice.isRecording ? 'Stop recording' : `Voice input${voice.provider === 'local' ? ' (Parakeet)' : ''}`}>
+            <button
+              type="button"
+              onClick={voice.toggleRecording}
+              disabled={!voice.isSupported || voice.isTranscribing}
+              className={cn(
+                'relative w-12 h-12 rounded-xl flex items-center justify-center shadow-lg transition-all active:scale-95 shrink-0 overflow-hidden',
+                voice.isRecording
+                  ? 'bg-destructive text-destructive-foreground shadow-destructive/30'
+                  : 'bg-primary text-primary-foreground shadow-primary/30 hover:opacity-90 hover:scale-105 group/mic',
+                (!voice.isSupported || voice.isTranscribing) && 'opacity-50 cursor-not-allowed'
+              )}
+              aria-label={voice.isRecording ? 'Stop recording' : `Voice input${voice.provider === 'local' ? ' (Parakeet)' : ''}`}
+            >
+              {voice.isRecording ? (
+                <Square size={20} className="relative z-10" />
+              ) : (
+                <>
+                  <Mic size={22} className="relative z-10" />
+                  <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/mic:translate-y-0 transition-transform duration-300" />
+                  <div className="absolute inset-0 rounded-xl border border-white/20 animate-pulse" />
+                </>
+              )}
+            </button>
+          </Tip>
 
           {/* Live waveform — visible when recording */}
           {voice.isRecording && (

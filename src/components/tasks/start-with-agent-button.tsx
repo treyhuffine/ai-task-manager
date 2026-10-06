@@ -8,6 +8,7 @@ import { Bot, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Dialog } from 'radix-ui';
 import { useState } from 'react';
+import { Tip } from '@/components/ui/tip';
 
 interface TaskLike {
   id: string;
@@ -114,15 +115,16 @@ export function StartWithAgentButton({
   if (variant === 'icon') {
     return (
       <>
-        <button
-          title={label}
-          aria-label={label}
-          onClick={onClick}
-          disabled={busy}
-          className={cn('flex h-7 w-7 items-center justify-center rounded text-violet-600 hover:bg-violet-500/10 disabled:opacity-60 dark:text-violet-400', className)}
-        >
-          {busy ? <Loader2 size={14} className="animate-spin" /> : <Bot size={14} />}
-        </button>
+        <Tip label={label}>
+          <button
+            aria-label={label}
+            onClick={onClick}
+            disabled={busy}
+            className={cn('flex h-7 w-7 items-center justify-center rounded text-violet-600 hover:bg-violet-500/10 disabled:opacity-60 dark:text-violet-400', className)}
+          >
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Bot size={14} />}
+          </button>
+        </Tip>
         {chooserDialog}
       </>
     );
@@ -146,19 +148,20 @@ export function StartWithAgentButton({
 
   return (
     <>
-      <button
-        onClick={onClick}
-        disabled={busy}
-        title={label}
-        aria-label={label}
-        className={cn(
-          'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded border border-violet-500/30 bg-violet-500/5 px-2 py-1 text-[11px] font-medium text-violet-600 transition-colors hover:bg-violet-500/10 disabled:opacity-60 dark:text-violet-400',
-          className,
-        )}
-      >
-        {busy ? <Loader2 size={13} className="animate-spin" /> : <Bot size={13} />}
-        <span className={ENTITY_HEADER_LABEL}>{label}</span>
-      </button>
+      <Tip label={label}>
+        <button
+          onClick={onClick}
+          disabled={busy}
+          aria-label={label}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded border border-violet-500/30 bg-violet-500/5 px-2 py-1 text-[11px] font-medium text-violet-600 transition-colors hover:bg-violet-500/10 disabled:opacity-60 dark:text-violet-400',
+            className,
+          )}
+        >
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <Bot size={13} />}
+          <span className={ENTITY_HEADER_LABEL}>{label}</span>
+        </button>
+      </Tip>
       {chooserDialog}
     </>
   );

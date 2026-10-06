@@ -12,6 +12,7 @@ import {
 } from '@/lib/sessions/inactive';
 import { cn } from '@/lib/utils';
 import { FoldRow } from './fold-row';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * The foot of a list section: "N inactive hidden" with Show, folded by
@@ -81,19 +82,20 @@ export function InactiveAfterPopover({ className, size = 11 }: { className?: str
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-          aria-label="When executions go inactive"
-          title="When executions go inactive"
-          className={cn(
-            'flex-shrink-0 rounded p-1 text-muted-foreground/60 transition-opacity hover:bg-muted/40 hover:text-foreground',
-            className,
-          )}
-        >
-          <Timer size={size} />
-        </button>
+        <Tip label="When executions go inactive">
+          <button
+            type="button"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label="When executions go inactive"
+            className={cn(
+              'flex-shrink-0 rounded p-1 text-muted-foreground/60 transition-opacity hover:bg-muted/40 hover:text-foreground',
+              className,
+            )}
+          >
+            <Timer size={size} />
+          </button>
+        </Tip>
       </PopoverTrigger>
       <PopoverContent align="start" sideOffset={4} className="w-60 p-1" onClick={(e) => e.stopPropagation()}>
         <InactiveAfterOptions stored={stored} />

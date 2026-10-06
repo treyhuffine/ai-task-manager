@@ -5,6 +5,7 @@ import { formatDuration, formatHours, formatSpan, formatTimes, leverageChain, wo
 import type { WorkRange } from '@/lib/work/types';
 import { cn } from '@/lib/utils';
 import { agentStyle } from './work-style';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * The numbers at the top of the calendar with agent work on (docs/work-view.md,
@@ -92,24 +93,28 @@ function ChainCard({ chain }: { chain: LeverageChain }) {
 
 function ChainStep({ label, value, context, title, hero = false }: { label: string; value: string; context?: string; title: string; hero?: boolean }) {
   return (
-    <div className="shrink-0" title={title}>
-      <dt className="text-[11px] text-muted-foreground">{label}</dt>
-      <dd className={cn('font-semibold leading-tight text-foreground', hero ? 'text-2xl' : 'text-xl')}>{value}</dd>
-      {context && <dd className="text-[11px] leading-snug text-muted-foreground">{context}</dd>}
-    </div>
+    <Tip label={title}>
+      <div className="shrink-0">
+        <dt className="text-[11px] text-muted-foreground">{label}</dt>
+        <dd className={cn('font-semibold leading-tight text-foreground', hero ? 'text-2xl' : 'text-xl')}>{value}</dd>
+        {context && <dd className="text-[11px] leading-snug text-muted-foreground">{context}</dd>}
+      </div>
+    </Tip>
   );
 }
 
 /** A connector across the gap between two steps, that step's multiplier over it. */
 function ChainArrow({ times, title }: { times: number | null; title: string | undefined }) {
   return (
-    <div className="flex min-w-10 flex-1 flex-col pt-3.5" title={title} aria-hidden={!times}>
-      <span className="h-4 text-center text-[11px] font-medium leading-4 text-muted-foreground">{times ? formatTimes(times) : ''}</span>
-      <span className="relative mt-[3px] h-px bg-muted-foreground/40" aria-hidden>
-        <span className="absolute -right-px top-1/2 size-[7px] -translate-y-1/2 rotate-45 border-t border-r border-muted-foreground/60" />
-      </span>
-      {title && <span className="sr-only">{title}</span>}
-    </div>
+    <Tip label={title}>
+      <div className="flex min-w-10 flex-1 flex-col pt-3.5" aria-hidden={!times}>
+        <span className="h-4 text-center text-[11px] font-medium leading-4 text-muted-foreground">{times ? formatTimes(times) : ''}</span>
+        <span className="relative mt-[3px] h-px bg-muted-foreground/40" aria-hidden>
+          <span className="absolute -right-px top-1/2 size-[7px] -translate-y-1/2 rotate-45 border-t border-r border-muted-foreground/60" />
+        </span>
+        {title && <span className="sr-only">{title}</span>}
+      </div>
+    </Tip>
   );
 }
 
@@ -134,11 +139,13 @@ function AgentLegend({ range }: { range: WorkRange }) {
         </li>
       ))}
       {others.length > 0 && (
-        <li className="flex items-center gap-1.5 text-[11px]" title={others.map((a) => a.name).join(', ')}>
-          <span className="size-2 shrink-0 rounded-[2px]" style={agentStyle(0).dot} aria-hidden />
-          <span className="text-foreground/90">Other</span>
-          <span className="text-muted-foreground">{formatDuration(otherMinutes)}</span>
-        </li>
+        <Tip label={others.map((a) => a.name).join(', ')}>
+          <li className="flex items-center gap-1.5 text-[11px]">
+            <span className="size-2 shrink-0 rounded-[2px]" style={agentStyle(0).dot} aria-hidden />
+            <span className="text-foreground/90">Other</span>
+            <span className="text-muted-foreground">{formatDuration(otherMinutes)}</span>
+          </li>
+        </Tip>
       )}
       <li className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         <span className="h-2.5 w-[3px] shrink-0 rounded-full bg-foreground/60" aria-hidden />

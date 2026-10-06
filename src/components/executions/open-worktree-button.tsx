@@ -25,6 +25,7 @@ import { useOpener } from '@/hooks/use-opener';
 import type { FolderSource } from '@/lib/folders/source';
 import { isEditorTarget } from '@/lib/fs/known-apps';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface OpenWorktreeButtonProps {
   /** Absolute path of the worktree to open. Component is a no-op when null. */
@@ -217,38 +218,42 @@ export function OpenWorktreeButton({ path, source = null }: OpenWorktreeButtonPr
   if (isRemote) {
     return (
       <div className="relative inline-flex items-center gap-1.5">
-        <button
-          type="button"
-          onClick={copyPath}
-          disabled={busy === 'copy'}
-          className={cn(
-            'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium',
-            'rounded-md border border-border bg-background',
-            'text-foreground/80 hover:text-foreground hover:bg-muted/40',
-            'transition-colors disabled:opacity-50',
-          )}
-          title="Copy worktree path"
-        >
-          {busy === 'copy' ? (
-            <Loader2 size={12} className="animate-spin" />
-          ) : copied ? (
-            <Check size={12} />
-          ) : (
-            <Copy size={12} />
-          )}
-          {copied ? 'Copied' : 'Copy path'}
-        </button>
-        <span
-          className="flex items-center text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-help"
-          title={
+        <Tip label="Copy worktree path">
+          <button
+            type="button"
+            onClick={copyPath}
+            disabled={busy === 'copy'}
+            className={cn(
+              'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium',
+              'rounded-md border border-border bg-background',
+              'text-foreground/80 hover:text-foreground hover:bg-muted/40',
+              'transition-colors disabled:opacity-50',
+            )}
+          >
+            {busy === 'copy' ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : copied ? (
+              <Check size={12} />
+            ) : (
+              <Copy size={12} />
+            )}
+            {copied ? 'Copied' : 'Copy path'}
+          </button>
+        </Tip>
+        <Tip
+          label={
             filesOn
               ? `The files are on ${filesOn}. Open them from a browser on ${filesOn} to launch apps there.`
               : "You're viewing this from a remote browser. Open this URL on the host machine to launch apps there."
           }
-          aria-label="Remote viewer notice"
         >
-          <Info size={12} />
-        </span>
+          <span
+            className="flex items-center text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-help"
+            aria-label="Remote viewer notice"
+          >
+            <Info size={12} />
+          </span>
+        </Tip>
       </div>
     );
   }
@@ -259,42 +264,44 @@ export function OpenWorktreeButton({ path, source = null }: OpenWorktreeButtonPr
 
   return (
     <div className="relative inline-flex items-stretch">
-      <button
-        type="button"
-        onClick={() => open(primaryTarget)}
-        disabled={isBusyPrimary}
-        className={cn(
-          'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium',
-          'rounded-l-md border border-r-0 border-border bg-background',
-          'text-foreground/80 hover:text-foreground hover:bg-muted/40',
-          'transition-colors disabled:opacity-50',
-        )}
-        title={primaryLabel}
-      >
-        {isBusyPrimary ? (
-          <Loader2 size={12} className="animate-spin" />
-        ) : primaryApp ? (
-          <AppIcon app={primaryApp} />
-        ) : (
-          <FallbackIcon target={primaryTarget} />
-        )}
-        <span className="truncate max-w-[120px]">{shortLabel(primaryLabel)}</span>
-      </button>
+      <Tip label={primaryLabel}>
+        <button
+          type="button"
+          onClick={() => open(primaryTarget)}
+          disabled={isBusyPrimary}
+          className={cn(
+            'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium',
+            'rounded-l-md border border-r-0 border-border bg-background',
+            'text-foreground/80 hover:text-foreground hover:bg-muted/40',
+            'transition-colors disabled:opacity-50',
+          )}
+        >
+          {isBusyPrimary ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : primaryApp ? (
+            <AppIcon app={primaryApp} />
+          ) : (
+            <FallbackIcon target={primaryTarget} />
+          )}
+          <span className="truncate max-w-[120px]">{shortLabel(primaryLabel)}</span>
+        </button>
+      </Tip>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              'flex items-center justify-center px-1.5',
-              'rounded-r-md border border-border bg-background',
-              'text-muted-foreground hover:text-foreground hover:bg-muted/40',
-              'transition-colors',
-            )}
-            aria-label="More open options"
-            title="More open options"
-          >
-            <ChevronDown size={11} />
-          </button>
+          <Tip label="More open options">
+            <button
+              type="button"
+              className={cn(
+                'flex items-center justify-center px-1.5',
+                'rounded-r-md border border-border bg-background',
+                'text-muted-foreground hover:text-foreground hover:bg-muted/40',
+                'transition-colors',
+              )}
+              aria-label="More open options"
+            >
+              <ChevronDown size={11} />
+            </button>
+          </Tip>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-[220px] w-auto">
           {installed.map((app) => (

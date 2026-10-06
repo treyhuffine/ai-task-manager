@@ -4,6 +4,7 @@ import { Plug, Settings } from 'lucide-react';
 import { openSettings } from '@/components/settings/settings-store';
 import { INTEGRATION_ICONS } from '@/components/integrations/integration-icon-data';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 // The bottom of the rail: what you set up rather than visit. Settings, and
 // connecting apps (where agents can act). Both are occasional, so they sit
@@ -49,44 +50,47 @@ export function RailFooter({ collapsed }: { collapsed: boolean }) {
   if (collapsed) {
     return (
       <footer className="flex flex-shrink-0 justify-center border-t border-border/40 py-1.5">
-        <button
-          type="button"
-          onClick={() => openSettings()}
-          aria-label="Settings"
-          title="Settings"
-          className="p-1.5 rounded-md text-muted-foreground/80 hover:text-foreground hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        >
-          <Settings size={14} />
-        </button>
+        <Tip label="Settings">
+          <button
+            type="button"
+            onClick={() => openSettings()}
+            aria-label="Settings"
+            className="p-1.5 rounded-md text-muted-foreground/80 hover:text-foreground hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          >
+            <Settings size={14} />
+          </button>
+        </Tip>
       </footer>
     );
   }
   return (
     <footer className="flex flex-shrink-0 items-stretch gap-1.5 px-2 py-2 border-t border-border/40">
-      <button
-        type="button"
-        onClick={() => openSettings()}
-        aria-label="Settings"
-        title="Settings"
-        className="flex w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border/60 text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 transition-colors"
-      >
-        <Settings size={14} />
-      </button>
-      <button
-        type="button"
-        onClick={() => openSettings('plugins', { anchor: 'integrations' })}
-        aria-label="Connect apps"
-        title="Connect apps like Gmail, Notion and Linear"
-        className="group min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/60 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 transition-colors"
-      >
-        <Plug size={13} className="flex-shrink-0 text-primary" />
-        <span className="truncate">Connect apps</span>
-        <span aria-hidden className="ml-auto flex items-center -space-x-1.5 pr-1">
-          {APPS.map((id, i) => (
-            <AppTile key={id} id={id} className={FAN[i]} />
-          ))}
-        </span>
-      </button>
+      <Tip label="Settings">
+        <button
+          type="button"
+          onClick={() => openSettings()}
+          aria-label="Settings"
+          className="flex w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border/60 text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 transition-colors"
+        >
+          <Settings size={14} />
+        </button>
+      </Tip>
+      <Tip label="Connect apps like Gmail, Notion and Linear">
+        <button
+          type="button"
+          onClick={() => openSettings('plugins', { anchor: 'integrations' })}
+          aria-label="Connect apps"
+          className="group min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/60 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 transition-colors"
+        >
+          <Plug size={13} className="flex-shrink-0 text-primary" />
+          <span className="truncate">Connect apps</span>
+          <span aria-hidden className="ml-auto flex items-center -space-x-1.5 pr-1">
+            {APPS.map((id, i) => (
+              <AppTile key={id} id={id} className={FAN[i]} />
+            ))}
+          </span>
+        </button>
+      </Tip>
     </footer>
   );
 }

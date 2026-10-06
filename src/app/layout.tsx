@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { TipProvider } from "@/components/ui/tip";
 import { Toaster } from "@/components/ui/sonner";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { QueryProvider } from "@/providers/query-provider";
@@ -35,16 +35,16 @@ export default function RootLayout({
         <QueryProvider>
           {/* First, so a pairing link's token is stored before anything else asks. */}
           <PairingBootstrap />
-          <DesktopChrome />
-          <QuickCaptureHost />
-          <WebAppBootstrap />
-          <HomeReachabilityBanner />
-          <HomeEnvironmentMarker />
-          <TooltipProvider>
+          <TipProvider>
+            <DesktopChrome />
+            <QuickCaptureHost />
+            <WebAppBootstrap />
+            <HomeReachabilityBanner />
+            <HomeEnvironmentMarker />
             <ConfirmProvider>
               <LifecycleGuardProvider>{children}</LifecycleGuardProvider>
             </ConfirmProvider>
-          </TooltipProvider>
+          </TipProvider>
           <Toaster position="bottom-left" richColors closeButton />
         </QueryProvider>
       </body>

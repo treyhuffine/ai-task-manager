@@ -15,6 +15,7 @@ import {
 import type { TreeEntryStatus } from '@/lib/api/sessions';
 import type { FileHistoryEntry } from '@/hooks/use-file-history';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface FileHistoryMenuProps {
   sessionId: string;
@@ -63,17 +64,18 @@ export function FileHistoryMenu({ sessionId, history, selectedPath }: FileHistor
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          title="Recently opened files"
-          aria-label="Recently opened files"
-          className={cn(
-            'flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground',
-            open && 'bg-muted text-foreground',
-          )}
-        >
-          <History size={13} />
-        </button>
+        <Tip label="Recently opened files">
+          <button
+            type="button"
+            aria-label="Recently opened files"
+            className={cn(
+              'flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground',
+              open && 'bg-muted text-foreground',
+            )}
+          >
+            <History size={13} />
+          </button>
+        </Tip>
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={6} className="w-80 p-0">
         <div className="flex items-center justify-between border-b border-border px-3 py-2">

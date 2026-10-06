@@ -5,6 +5,7 @@ import { HOTKEYS } from '@/constants/commands';
 import { useDesktopApp } from '@/hooks/use-desktop-app';
 import { goBack, goForward, useHistoryNavigation } from '@/lib/client/history-navigation';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * Back and Forward, in the desktop app only: a browser has its own. They sit
@@ -42,15 +43,16 @@ function NavButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      title={`${label} (${hotkey})`}
-      className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-    >
-      {children}
-    </button>
+    <Tip label={`${label} (${hotkey})`}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+      >
+        {children}
+      </button>
+    </Tip>
   );
 }

@@ -3,6 +3,7 @@
 import { useEffect, useRef, type KeyboardEvent } from 'react';
 import { Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface TreeSearchBarProps {
   query: string;
@@ -94,26 +95,28 @@ export function TreeSearchBar({
         </kbd>
       )}
       {showingCount && (
-        <span
-          className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70"
-          title={`${matchCount} match${matchCount === 1 ? '' : 'es'} of ${totalCount} files`}
-        >
-          {matchCount}/{totalCount}
-        </span>
+        <Tip label={`${matchCount} match${matchCount === 1 ? '' : 'es'} of ${totalCount} files`}>
+          <span
+            className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70"
+          >
+            {matchCount}/{totalCount}
+          </span>
+        </Tip>
       )}
       {query && (
-        <button
-          type="button"
-          onClick={() => {
-            onChange('');
-            inputRef.current?.focus();
-          }}
-          className="shrink-0 inline-flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-          aria-label="Clear search"
-          title="Clear search (Esc)"
-        >
-          <X size={11} />
-        </button>
+        <Tip label="Clear search" shortcut="Esc">
+          <button
+            type="button"
+            onClick={() => {
+              onChange('');
+              inputRef.current?.focus();
+            }}
+            className="shrink-0 inline-flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            aria-label="Clear search"
+          >
+            <X size={11} />
+          </button>
+        </Tip>
       )}
     </div>
   );

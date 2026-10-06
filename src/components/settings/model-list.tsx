@@ -12,6 +12,7 @@ import { ProviderIcon, ConnectionBadge, ConnectionPanel } from './harness-connec
 import { PinModelInput } from './pin-model-input';
 import { HarnessPermissionNotice } from './harness-permission-notice';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 export interface ModelSelection {
   harness: ProviderId;
@@ -175,13 +176,14 @@ function ProviderGroup({
         <ProviderIcon id={providerId} size={13} />
         <span className="text-[12px] font-semibold text-foreground">{provider.name}</span>
         {isSwitch && (
-          <span
-            className="inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground/70"
-            title="Picking this provider starts a fresh chat"
-          >
-            <MessageSquarePlus size={10} />
-            new chat
-          </span>
+          <Tip label="Picking this provider starts a fresh chat">
+            <span
+              className="inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground/70"
+            >
+              <MessageSquarePlus size={10} />
+              new chat
+            </span>
+          </Tip>
         )}
         <ConnectionBadge harness={providerId} className="ml-auto" />
       </div>
@@ -289,63 +291,67 @@ function ModelRow({
         muted && 'opacity-60 hover:opacity-100',
       )}
     >
-      <button
-        type="button"
-        disabled={disabled}
-        title={title ?? (model.custom ? `Pinned: ${model.id}` : undefined)}
-        onClick={onSelect}
-        className={cn(
-          'flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left disabled:cursor-not-allowed',
-          onRemove && 'pr-7',
-        )}
-      >
-        <div className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center">
-          {pending && <Loader2 size={11} className="animate-spin text-muted-foreground" />}
-          {!pending && selected && <Check size={12} className="text-primary" strokeWidth={3} />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-[12px] font-medium text-foreground">{model.label}</span>
-            {isDefault && (
-              <span className="text-[9.5px] font-medium text-muted-foreground/80" title="New chats and executions start on it">
-                default
-              </span>
-            )}
-            {model.custom && (
-              <span className="rounded bg-muted px-1 py-px text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
-                pinned
-              </span>
-            )}
-          </div>
-          {model.hint && (
-            <div
-              className={cn(
-                'mt-0.5 text-[10.5px] leading-snug text-muted-foreground/80',
-                model.custom && 'truncate font-mono',
-              )}
-            >
-              {model.hint}
-            </div>
-          )}
-        </div>
-      </button>
-      {onRemove && (
+      <Tip label={title ?? (model.custom ? `Pinned: ${model.id}` : undefined)}>
         <button
           type="button"
-          disabled={removePending}
-          onClick={onRemove}
-          title={`Unpin ${model.id}`}
-          aria-label={`Unpin ${model.id}`}
-          // Visible without hovering: a pin is the one row here the user has to
-          // be able to undo, and hover-only affordances don't exist on touch.
+          disabled={disabled}
+          onClick={onSelect}
           className={cn(
-            'absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground/50 transition-opacity',
-            'hover:bg-muted hover:text-foreground group-hover/row:text-muted-foreground',
-            removePending && 'text-muted-foreground',
+            'flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left disabled:cursor-not-allowed',
+            onRemove && 'pr-7',
           )}
         >
-          {removePending ? <Loader2 size={11} className="animate-spin" /> : <X size={11} />}
+          <div className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center">
+            {pending && <Loader2 size={11} className="animate-spin text-muted-foreground" />}
+            {!pending && selected && <Check size={12} className="text-primary" strokeWidth={3} />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-[12px] font-medium text-foreground">{model.label}</span>
+              {isDefault && (
+                <Tip label="New chats and executions start on it">
+                  <span className="text-[9.5px] font-medium text-muted-foreground/80">
+                    default
+                  </span>
+                </Tip>
+              )}
+              {model.custom && (
+                <span className="rounded bg-muted px-1 py-px text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                  pinned
+                </span>
+              )}
+            </div>
+            {model.hint && (
+              <div
+                className={cn(
+                  'mt-0.5 text-[10.5px] leading-snug text-muted-foreground/80',
+                  model.custom && 'truncate font-mono',
+                )}
+              >
+                {model.hint}
+              </div>
+            )}
+          </div>
         </button>
+      </Tip>
+      {onRemove && (
+        <Tip label={`Unpin ${model.id}`}>
+          <button
+            type="button"
+            disabled={removePending}
+            onClick={onRemove}
+            aria-label={`Unpin ${model.id}`}
+            // Visible without hovering: a pin is the one row here the user has to
+            // be able to undo, and hover-only affordances don't exist on touch.
+            className={cn(
+              'absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground/50 transition-opacity',
+              'hover:bg-muted hover:text-foreground group-hover/row:text-muted-foreground',
+              removePending && 'text-muted-foreground',
+            )}
+          >
+            {removePending ? <Loader2 size={11} className="animate-spin" /> : <X size={11} />}
+          </button>
+        </Tip>
       )}
     </div>
   );

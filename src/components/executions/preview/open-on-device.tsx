@@ -20,6 +20,7 @@ import { QrCode } from '@/components/settings/qr-code';
 import { BeamdConnect } from '@/components/settings/beamd-connect';
 import { openSettings } from '@/components/settings/settings-store';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 /** Error codes that mean "remote isn't wired up yet" — i.e. the user just
  *  needs to connect beamd and/or point the picker at it. */
@@ -114,15 +115,16 @@ export function OpenOnDevice({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex h-7 items-center gap-1.5 rounded px-2 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
-          title="Open on your phone"
-          aria-label="Open on your phone"
-        >
-          <Smartphone size={13} />
-          <span className="hidden sm:inline">Phone</span>
-        </button>
+        <Tip label="Open on your phone">
+          <button
+            type="button"
+            className="flex h-7 items-center gap-1.5 rounded px-2 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Open on your phone"
+          >
+            <Smartphone size={13} />
+            <span className="hidden sm:inline">Phone</span>
+          </button>
+        </Tip>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0">
         <div className="border-b border-border px-3.5 py-2.5">
@@ -153,23 +155,27 @@ export function OpenOnDevice({
                 <span className="flex h-7 flex-1 items-center truncate rounded bg-muted/60 px-2 font-mono text-[11px] text-muted-foreground">
                   {url}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => copy(url)}
-                  className="flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-                  title={copied ? 'Copied!' : 'Copy link'}
-                >
-                  {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
-                </button>
-                <a
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-                  title="Open in a new tab"
-                >
-                  <ExternalLink size={13} />
-                </a>
+                <Tip label={copied ? 'Copied!' : 'Copy link'}>
+                  <button
+                    type="button"
+                    onClick={() => copy(url)}
+                    className="flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label={copied ? 'Copied!' : 'Copy link'}
+                  >
+                    {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                  </button>
+                </Tip>
+                <Tip label="Open in a new tab">
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex h-7 w-7 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label="Open in a new tab"
+                  >
+                    <ExternalLink size={13} />
+                  </a>
+                </Tip>
               </div>
               <p className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
                 <Globe size={10} />

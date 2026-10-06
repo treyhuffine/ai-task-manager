@@ -7,8 +7,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AreaSelect } from '@/components/shared/area-select';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import type { TriageItem, TriageAction, PlacementZone } from '@/types/dashboard';
+import { Tip } from '@/components/ui/tip';
 
 // ─── Constants (match task-row patterns) ─────────────────────
 
@@ -223,43 +223,46 @@ function TriageCard({
 
             {/* Energy pill — cycleable (only for tasks) */}
             {showQuickActions && (
-              <button
-                onClick={cycleEnergy}
-                className={cn(
-                  'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted',
-                  energy ? ENERGY_COLORS[energy] : 'text-muted-foreground/40',
-                )}
-                title={`Energy: ${energy ?? 'unset'} (click to cycle)`}
-              >
-                {EnergyIcon && <EnergyIcon size={8} />}
-                {energy ?? '~'}
-              </button>
+              <Tip label={`Energy: ${energy ?? 'unset'} (click to cycle)`}>
+                <button
+                  onClick={cycleEnergy}
+                  className={cn(
+                    'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted',
+                    energy ? ENERGY_COLORS[energy] : 'text-muted-foreground/40',
+                  )}
+                >
+                  {EnergyIcon && <EnergyIcon size={8} />}
+                  {energy ?? '~'}
+                </button>
+              </Tip>
             )}
 
             {/* Effort pill — cycleable (only for tasks) */}
             {showQuickActions && (
-              <button
-                onClick={cycleEffort}
-                className="inline-flex items-center px-1.5 py-0.5 rounded text-[8.5px] font-bold text-muted-foreground uppercase tracking-wider transition-colors hover:bg-muted"
-                title={`Effort: ${effort ?? 'unset'} (click to cycle)`}
-              >
-                {effort ? (EFFORT_LABELS[effort] ?? effort) : '~'}
-              </button>
+              <Tip label={`Effort: ${effort ?? 'unset'} (click to cycle)`}>
+                <button
+                  onClick={cycleEffort}
+                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[8.5px] font-bold text-muted-foreground uppercase tracking-wider transition-colors hover:bg-muted"
+                >
+                  {effort ? (EFFORT_LABELS[effort] ?? effort) : '~'}
+                </button>
+              </Tip>
             )}
 
             {/* Placement zone pill — cycleable (only for tasks) */}
             {showQuickActions && (
-              <button
-                onClick={cyclePlacement}
-                className={cn(
-                  'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted',
-                  placement ? 'text-foreground' : 'text-muted-foreground/40',
-                )}
-                title={`Placement: ${placement ?? 'unset'} (click to cycle)`}
-              >
-                <MapPin size={8} />
-                {placement ? PLACEMENT_LABELS[placement] : '~'}
-              </button>
+              <Tip label={`Placement: ${placement ?? 'unset'} (click to cycle)`}>
+                <button
+                  onClick={cyclePlacement}
+                  className={cn(
+                    'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted',
+                    placement ? 'text-foreground' : 'text-muted-foreground/40',
+                  )}
+                >
+                  <MapPin size={8} />
+                  {placement ? PLACEMENT_LABELS[placement] : '~'}
+                </button>
+              </Tip>
             )}
 
             {/* Time ago */}
@@ -271,54 +274,44 @@ function TriageCard({
 
         {/* Accept / Edit / Skip / Archive — always visible */}
         {!item.resolved && (
-          <TooltipProvider>
-            <div className="flex items-center gap-0.5 flex-shrink-0">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={onAccept}
-                    className="p-1.5 rounded-md text-primary hover:bg-primary/10 transition-colors"
-                  >
-                    <Check size={12} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Accept</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={onEdit}
-                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  >
-                    <Pencil size={11} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Edit</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={onSkipItem}
-                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  >
-                    <SkipForward size={11} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Skip and handle later</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={onArchive}
-                    className="p-1.5 rounded-md text-muted-foreground hover:text-muted-foreground/80 hover:bg-muted transition-colors"
-                  >
-                    <Archive size={11} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Archive</TooltipContent>
-              </Tooltip>
-            </div>
-          </TooltipProvider>
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            <Tip label="Accept" side="bottom">
+              <button
+                aria-label="Accept"
+                onClick={onAccept}
+                className="p-1.5 rounded-md text-primary hover:bg-primary/10 transition-colors"
+              >
+                <Check size={12} />
+              </button>
+            </Tip>
+            <Tip label="Edit" side="bottom">
+              <button
+                aria-label="Edit"
+                onClick={onEdit}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <Pencil size={11} />
+              </button>
+            </Tip>
+            <Tip label="Skip and handle later" side="bottom">
+              <button
+                aria-label="Skip and handle later"
+                onClick={onSkipItem}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <SkipForward size={11} />
+              </button>
+            </Tip>
+            <Tip label="Archive" side="bottom">
+              <button
+                aria-label="Archive"
+                onClick={onArchive}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-muted-foreground/80 hover:bg-muted transition-colors"
+              >
+                <Archive size={11} />
+              </button>
+            </Tip>
+          </div>
         )}
 
         {item.resolved && (

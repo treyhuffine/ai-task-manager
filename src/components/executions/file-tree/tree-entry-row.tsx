@@ -8,6 +8,7 @@ import type { TreeEntry, TreeEntryStatus } from '@/lib/api/sessions';
 import { FileIcon, FolderIcon } from '@/components/file-icon';
 import { TreeRowActions } from './tree-row-actions';
 import { HighlightedText } from './match-highlight';
+import { Tip } from '@/components/ui/tip';
 
 interface RowActionsHandlers {
   onRename?: () => void;
@@ -100,17 +101,18 @@ export function TreeDirRow({
  */
 export function CollapsedDirRow({ name, depth }: { name: string; depth: number }) {
   return (
-    <div
-      className="flex w-full items-center gap-1 py-1 pr-2 text-left text-[12px] text-muted-foreground/55"
-      style={{ paddingLeft: 6 + depth * INDENT_PX }}
-      title={`${name} is present but not browsable here. Open it in your editor`}
-    >
-      {/* keep the name aligned with expandable siblings (which have a chevron) */}
-      <span className="w-3 shrink-0" />
-      <FolderIcon name={name} opened={false} />
-      <span className="truncate font-medium">{name}</span>
-      <span className="ml-1.5 shrink-0 text-[10px] text-muted-foreground/40">open in editor</span>
-    </div>
+    <Tip label={`${name} is present but not browsable here. Open it in your editor`}>
+      <div
+        className="flex w-full items-center gap-1 py-1 pr-2 text-left text-[12px] text-muted-foreground/55"
+        style={{ paddingLeft: 6 + depth * INDENT_PX }}
+      >
+        {/* keep the name aligned with expandable siblings (which have a chevron) */}
+        <span className="w-3 shrink-0" />
+        <FolderIcon name={name} opened={false} />
+        <span className="truncate font-medium">{name}</span>
+        <span className="ml-1.5 shrink-0 text-[10px] text-muted-foreground/40">open in editor</span>
+      </div>
+    </Tip>
   );
 }
 
@@ -168,15 +170,16 @@ export function TreeFileRow({
       ) : (
         !hover &&
         statusBadge && (
-          <span
-            className={cn(
-              'shrink-0 inline-flex items-center justify-center text-[10px] font-bold leading-none w-3.5',
-              statusColor,
-            )}
-            title={entry.status}
-          >
-            {statusBadge}
-          </span>
+          <Tip label={entry.status}>
+            <span
+              className={cn(
+                'shrink-0 inline-flex items-center justify-center text-[10px] font-bold leading-none w-3.5',
+                statusColor,
+              )}
+            >
+              {statusBadge}
+            </span>
+          </Tip>
         )
       )}
       {!hover && !saving && entry.status && entry.mtime && (

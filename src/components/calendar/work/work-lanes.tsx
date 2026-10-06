@@ -7,6 +7,7 @@ import type { WorkAgent, WorkDay, WorkSpan } from '@/lib/work/types';
 import { cn } from '@/lib/utils';
 import { WorkSpanDetails } from './work-span-details';
 import { agentStyle, timeLabel, type WorkLayer } from './work-style';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * A day's work in lanes (docs/work-view.md, "Day lanes"): you first, then
@@ -53,19 +54,19 @@ export function WorkLaneHeader({ lanes }: { lanes: Lane[] }) {
   return (
     <div className="relative h-6 border-b border-border/60">
       {lanes.map((lane, i) => (
-        <div
-          key={lane.key}
-          className="absolute top-1 flex min-w-0 items-center justify-center gap-1 px-0.5"
-          style={{ left: `${(i / lanes.length) * 100}%`, width: `${100 / lanes.length}%` }}
-          title={lane.label}
-        >
-          <span
-            className={cn('size-2 shrink-0 rounded-[2px]', lane.you && 'w-[3px] rounded-full bg-foreground/60')}
-            style={lane.you ? undefined : agentStyle(lane.agent?.color ?? 0).dot}
-            aria-hidden
-          />
-          <span className={cn('truncate text-[10px]', lane.you ? 'font-medium text-foreground' : 'text-muted-foreground')}>{lane.label}</span>
-        </div>
+        <Tip key={lane.key} label={lane.label}>
+          <div
+            className="absolute top-1 flex min-w-0 items-center justify-center gap-1 px-0.5"
+            style={{ left: `${(i / lanes.length) * 100}%`, width: `${100 / lanes.length}%` }}
+          >
+            <span
+              className={cn('size-2 shrink-0 rounded-[2px]', lane.you && 'w-[3px] rounded-full bg-foreground/60')}
+              style={lane.you ? undefined : agentStyle(lane.agent?.color ?? 0).dot}
+              aria-hidden
+            />
+            <span className={cn('truncate text-[10px]', lane.you ? 'font-medium text-foreground' : 'text-muted-foreground')}>{lane.label}</span>
+          </div>
+        </Tip>
       ))}
     </div>
   );
@@ -85,12 +86,12 @@ export function WorkLaneTrack({ lanes, day, bounds }: { lanes: Lane[]; day: Work
         >
           {lane.you
             ? lane.windows.map((w) => (
-                <div
-                  key={w.startMinute}
-                  className="absolute left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-foreground/60"
-                  style={pos(w, bounds)}
-                  title={`You, hands-on`}
-                />
+                <Tip key={w.startMinute} label={`You, hands-on`}>
+                  <div
+                    className="absolute left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-foreground/60"
+                    style={pos(w, bounds)}
+                  />
+                </Tip>
               ))
             : lane.spans.map((span, j) => {
                 const w = lane.windows[j];

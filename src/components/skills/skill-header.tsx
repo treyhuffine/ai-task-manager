@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { SkillLocationControl } from './skill-location-control';
+import { Tip } from '@/components/ui/tip';
 
 export type SkillPane = 'chat' | 'skill';
 
@@ -115,42 +116,44 @@ export function SkillHeader({
               className="w-56 rounded-md border border-ring bg-background px-1.5 py-0.5 font-mono text-[13px] font-semibold text-foreground outline-none"
             />
           ) : skill.editable ? (
-            <button
-              onClick={() => {
-                setNewName(skill.name);
-                setRenaming(true);
-              }}
-              className="group flex min-w-0 items-center gap-1.5 text-left"
-              title="Rename. The name is also its slash command."
-            >
-              <h1 className="truncate font-mono text-[13px] font-semibold text-foreground">{skill.name}</h1>
-              {save.isPending ? (
-                <Loader2 size={11} className="flex-shrink-0 animate-spin text-muted-foreground" />
-              ) : (
-                <Pencil size={11} className="flex-shrink-0 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground" />
-              )}
-            </button>
+            <Tip label="Rename. The name is also its slash command.">
+              <button
+                onClick={() => {
+                  setNewName(skill.name);
+                  setRenaming(true);
+                }}
+                className="group flex min-w-0 items-center gap-1.5 text-left"
+              >
+                <h1 className="truncate font-mono text-[13px] font-semibold text-foreground">{skill.name}</h1>
+                {save.isPending ? (
+                  <Loader2 size={11} className="flex-shrink-0 animate-spin text-muted-foreground" />
+                ) : (
+                  <Pencil size={11} className="flex-shrink-0 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground" />
+                )}
+              </button>
+            </Tip>
           ) : (
             <h1 className="truncate font-mono text-[13px] font-semibold text-foreground">{skill.name}</h1>
           )}
         </div>
 
         {showCommit && (
-          <button
-            onClick={() =>
-              commit.mutate(undefined, {
-                onSuccess: ({ commit: done }) =>
-                  toast.success(`Committed to ${done.branch ?? 'the repo'} (${done.sha}). Push it to share it with your team.`),
-                onError: (err) => toast.error(apiErrorText(err)),
-              })
-            }
-            disabled={commit.isPending}
-            title="Commit only this skill's files. Other changes in the repo are left alone."
-            className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {commit.isPending ? <Loader2 size={12} className="animate-spin" /> : <GitCommitHorizontal size={12} strokeWidth={2.5} />}
-            {skill.git?.branch ? `Commit to ${skill.git.branch}` : 'Commit'}
-          </button>
+          <Tip label="Commit only this skill's files. Other changes in the repo are left alone.">
+            <button
+              onClick={() =>
+                commit.mutate(undefined, {
+                  onSuccess: ({ commit: done }) =>
+                    toast.success(`Committed to ${done.branch ?? 'the repo'} (${done.sha}). Push it to share it with your team.`),
+                  onError: (err) => toast.error(apiErrorText(err)),
+                })
+              }
+              disabled={commit.isPending}
+              className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {commit.isPending ? <Loader2 size={12} className="animate-spin" /> : <GitCommitHorizontal size={12} strokeWidth={2.5} />}
+              {skill.git?.branch ? `Commit to ${skill.git.branch}` : 'Commit'}
+            </button>
+          </Tip>
         )}
 
         <div className="flex-1" />

@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { RunOnSheet } from './run-on-sheet';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * Mobile-tab "Agents" surface. Mirrors the desktop rail's structure
@@ -431,7 +432,9 @@ function MobileSessionRow({ session, workspaceLabel, forceState, inactive = fals
           <>
             {needsReview && <span className="w-1.5 h-1.5 rounded-full border border-amber-500" />}
             <span className={cn('w-1.5 h-1.5', BACKGROUND_DOT)} />
-            <span className="text-sky-500/90 font-medium" title={BACKGROUND_LABEL}>background</span>
+            <Tip label={BACKGROUND_LABEL}>
+              <span className="text-sky-500/90 font-medium">background</span>
+            </Tip>
           </>
         ) : needsReview ? (
           <>

@@ -67,6 +67,7 @@ import { WeekView, type DeadlineMarker } from './week-view';
 import { WorkReport } from './work/work-report';
 import { WorkStats } from './work/work-stats';
 import type { WorkLayer } from './work/work-style';
+import { Tip } from '@/components/ui/tip';
 
 /** `?calendar=1` keeps the calendar open across a reload and makes it linkable. */
 const CALENDAR_PARAM = 'calendar';
@@ -335,42 +336,47 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
 
         {!showConnect && tabs.length > 1 && <Segmented label="Show" value={tab} options={tabs} onChange={setTab} />}
 
-        <label
-          className="flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-          title="What you and your agents did: the numbers, a ribbon of work beside your meetings, and the report. Also today's total in the header."
-        >
-          <Switch size="sm" checked={workOn} onCheckedChange={setWorkOn} />
-          <span className={cn(workOn && 'text-foreground')}>Agent work</span>
-        </label>
+        <Tip label="What you and your agents did: the numbers, a ribbon of work beside your meetings, and the report. Also today's total in the header.">
+          <label
+            className="flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Switch size="sm" checked={workOn} onCheckedChange={setWorkOn} />
+            <span className={cn(workOn && 'text-foreground')}>Agent work</span>
+          </label>
+        </Tip>
 
         {!showConnect && (
           <>
-            <button
-              type="button"
-              onClick={handleRefresh}
-              aria-label="Refresh calendar"
-              title={
+            <Tip
+              label={
                 data
                   ? `Updated ${formatAsOf(data.asOf)}${degraded ? ', some calendars unreachable' : ''}`
                   : 'Refresh'
               }
-              className="relative flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              <RefreshCw size={14} className={cn(refreshing && 'animate-spin')} />
-              {(stale || degraded) && (
-                <span className="absolute top-1 right-1 size-1.5 rounded-full bg-amber-500/80" aria-hidden />
-              )}
-            </button>
+              <button
+                type="button"
+                onClick={handleRefresh}
+                aria-label="Refresh calendar"
+                className="relative flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <RefreshCw size={14} className={cn(refreshing && 'animate-spin')} />
+                {(stale || degraded) && (
+                  <span className="absolute top-1 right-1 size-1.5 rounded-full bg-amber-500/80" aria-hidden />
+                )}
+              </button>
+            </Tip>
           </>
         )}
 
-        <DialogPrimitive.Close
-          className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          aria-label="Close calendar"
-          title="Close calendar (Esc)"
-        >
-          <X className="size-4" />
-        </DialogPrimitive.Close>
+        <Tip label="Close calendar" shortcut="Esc">
+          <DialogPrimitive.Close
+            className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="Close calendar"
+          >
+            <X className="size-4" />
+          </DialogPrimitive.Close>
+        </Tip>
       </header>
 
       <div className={cn('flex min-h-0 flex-1 flex-col', !showConnect && 'px-4 pt-3')}>

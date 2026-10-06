@@ -16,6 +16,7 @@ import {
   Quote,
   ListCollapse,
 } from 'lucide-react'
+import { Tip } from '@/components/ui/tip'
 
 interface EditorBubbleMenuProps {
   editor: Editor
@@ -26,18 +27,20 @@ function MenuButton({
   isActive,
   children,
   title,
+  shortcut,
 }: {
   onClick: () => void
   isActive?: boolean
   children: React.ReactNode
   title: string
+  shortcut?: string
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className={`
+    <Tip label={title} shortcut={shortcut}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`
         p-1.5 rounded transition-colors duration-100
         ${
           isActive
@@ -45,9 +48,10 @@ function MenuButton({
             : 'text-foreground/70 hover:text-foreground hover:bg-accent'
         }
       `}
-    >
-      {children}
-    </button>
+      >
+        {children}
+      </button>
+    </Tip>
   )
 }
 
@@ -71,7 +75,8 @@ export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
       <MenuButton
         onClick={() => editor.chain().focus().toggleBold().run()}
         isActive={editor.isActive('bold')}
-        title="Bold (⌘B)"
+        title="Bold"
+        shortcut="⌘B"
       >
         <Bold size={iconSize} />
       </MenuButton>
@@ -79,7 +84,8 @@ export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
       <MenuButton
         onClick={() => editor.chain().focus().toggleItalic().run()}
         isActive={editor.isActive('italic')}
-        title="Italic (⌘I)"
+        title="Italic"
+        shortcut="⌘I"
       >
         <Italic size={iconSize} />
       </MenuButton>
@@ -87,7 +93,8 @@ export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
       <MenuButton
         onClick={() => editor.chain().focus().toggleUnderline().run()}
         isActive={editor.isActive('underline')}
-        title="Underline (⌘U)"
+        title="Underline"
+        shortcut="⌘U"
       >
         <Underline size={iconSize} />
       </MenuButton>
@@ -103,7 +110,8 @@ export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
       <MenuButton
         onClick={() => editor.chain().focus().toggleCode().run()}
         isActive={editor.isActive('code')}
-        title="Inline code (⌘E)"
+        title="Inline code"
+        shortcut="⌘E"
       >
         <Code size={iconSize} />
       </MenuButton>
@@ -202,7 +210,8 @@ export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
             .run()
         }}
         isActive={editor.isActive('link')}
-        title="Link (⌘K)"
+        title="Link"
+        shortcut="⌘K"
       >
         <Link size={iconSize} />
       </MenuButton>

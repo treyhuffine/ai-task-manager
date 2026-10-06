@@ -5,6 +5,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { cn } from '@/lib/utils';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { BACKGROUND_DOT, BACKGROUND_LABEL, UNREAD_WITH_BACKGROUND_DOT } from './activity-style';
+import { Tip } from '@/components/ui/tip';
 
 /** What a chat is doing, as the rail's rows draw it. */
 export interface ChatStatus {
@@ -61,38 +62,42 @@ export function hasChatStatus({ isStreaming, isPending, isUnread, isBackground }
 export function StatusPip({ isStreaming, isPending, isUnread, isBackground, idle = null }: ChatStatus & { idle?: ReactNode }) {
   if (isPending) {
     return (
-      <span
-        aria-label="needs input"
-        title="Needs input"
-        className="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0"
-      />
+      <Tip label="Needs input">
+        <span
+          aria-label="needs input"
+          className="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0"
+        />
+      </Tip>
     );
   }
   if (isStreaming) {
     return (
-      <span
-        aria-label="working"
-        title="Working"
-        className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"
-      />
+      <Tip label="Working">
+        <span
+          aria-label="working"
+          className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"
+        />
+      </Tip>
     );
   }
   if (isUnread) {
     return (
-      <span
-        aria-label={isBackground ? `unread, ${BACKGROUND_LABEL.toLowerCase()}` : 'unread'}
-        title={isBackground ? `Unread · ${BACKGROUND_LABEL}` : 'Unread'}
-        className={cn('w-2 h-2 flex-shrink-0', isBackground ? UNREAD_WITH_BACKGROUND_DOT : 'rounded-full bg-amber-500')}
-      />
+      <Tip label={isBackground ? `Unread · ${BACKGROUND_LABEL}` : 'Unread'}>
+        <span
+          aria-label={isBackground ? `unread, ${BACKGROUND_LABEL.toLowerCase()}` : 'unread'}
+          className={cn('w-2 h-2 flex-shrink-0', isBackground ? UNREAD_WITH_BACKGROUND_DOT : 'rounded-full bg-amber-500')}
+        />
+      </Tip>
     );
   }
   if (isBackground) {
     return (
-      <span
-        aria-label={BACKGROUND_LABEL.toLowerCase()}
-        title={BACKGROUND_LABEL}
-        className={cn('w-2 h-2 flex-shrink-0', BACKGROUND_DOT)}
-      />
+      <Tip label={BACKGROUND_LABEL}>
+        <span
+          aria-label={BACKGROUND_LABEL.toLowerCase()}
+          className={cn('w-2 h-2 flex-shrink-0', BACKGROUND_DOT)}
+        />
+      </Tip>
     );
   }
   return <>{idle}</>;

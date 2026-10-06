@@ -7,6 +7,7 @@ import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { latestActivityAt } from '@/lib/utils/session-sort';
 import type { AgentAttentionItem } from '@/hooks/use-agent-attention';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * An agent that wants you, in a list of things that want you. Each variant
@@ -45,51 +46,53 @@ export function AgentAttentionRow({
 
   if (variant === 'rail') {
     return (
-      <button
-        onClick={open}
-        className={cn(
-          'relative w-full flex items-start gap-2 pl-5 pr-1.5 py-1 rounded-md text-left transition-colors',
-          isActive ? 'bg-secondary text-foreground' : 'hover:bg-muted/40',
-        )}
-        title={`${workspace.name}: ${voice.text}`}
-      >
-        <span className="flex h-4 items-center flex-shrink-0">
-          <span
-            aria-label={waiting ? 'Waiting on you' : 'New reply'}
-            className={cn('w-2 h-2 rounded-full bg-amber-500', waiting && 'animate-pulse')}
-          />
-        </span>
-        <span className="flex-1 min-w-0">
-          <span className="flex items-center gap-1.5 min-w-0">
-            <AgentIcon workspace={workspace} size="xs" />
-            <span className="truncate text-[11px] font-semibold text-foreground">{workspace.name}</span>
-            {time && <span className="ml-auto flex-shrink-0 text-[9px] text-muted-foreground/60">{time}</span>}
+      <Tip label={`${workspace.name}: ${voice.text}`}>
+        <button
+          onClick={open}
+          className={cn(
+            'relative w-full flex items-start gap-2 pl-5 pr-1.5 py-1 rounded-md text-left transition-colors',
+            isActive ? 'bg-secondary text-foreground' : 'hover:bg-muted/40',
+          )}
+        >
+          <span className="flex h-4 items-center flex-shrink-0">
+            <span
+              aria-label={waiting ? 'Waiting on you' : 'New reply'}
+              className={cn('w-2 h-2 rounded-full bg-amber-500', waiting && 'animate-pulse')}
+            />
           </span>
-          <span className={cn('mt-0.5 block truncate text-[10px] leading-tight', voiceClass)}>{voice.text}</span>
-        </span>
-      </button>
+          <span className="flex-1 min-w-0">
+            <span className="flex items-center gap-1.5 min-w-0">
+              <AgentIcon workspace={workspace} size="xs" />
+              <span className="truncate text-[11px] font-semibold text-foreground">{workspace.name}</span>
+              {time && <span className="ml-auto flex-shrink-0 text-[9px] text-muted-foreground/60">{time}</span>}
+            </span>
+            <span className={cn('mt-0.5 block truncate text-[10px] leading-tight', voiceClass)}>{voice.text}</span>
+          </span>
+        </button>
+      </Tip>
     );
   }
 
   return (
-    <button
-      onClick={open}
-      className={cn(
-        'w-full flex items-start gap-1.5 px-2.5 py-1.5 text-left rounded-md transition-colors',
-        isActive ? 'bg-secondary' : 'hover:bg-muted/50',
-      )}
-      title={`${workspace.name}: ${voice.text}`}
-    >
-      <span className="relative flex-shrink-0">
-        <AgentIcon workspace={workspace} size="sm" />
-        {waiting && (
-          <span aria-label="Waiting on you" className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-background animate-pulse" />
+    <Tip label={`${workspace.name}: ${voice.text}`}>
+      <button
+        onClick={open}
+        className={cn(
+          'w-full flex items-start gap-1.5 px-2.5 py-1.5 text-left rounded-md transition-colors',
+          isActive ? 'bg-secondary' : 'hover:bg-muted/50',
         )}
-      </span>
-      <span className="flex-1 min-w-0 leading-tight">
-        <span className="block truncate text-[11.5px] font-semibold text-foreground/90">{workspace.name}</span>
-        <span className={cn('mt-0.5 block truncate text-[10px]', voiceClass)}>{voice.text}</span>
-      </span>
-    </button>
+      >
+        <span className="relative flex-shrink-0">
+          <AgentIcon workspace={workspace} size="sm" />
+          {waiting && (
+            <span aria-label="Waiting on you" className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-background animate-pulse" />
+          )}
+        </span>
+        <span className="flex-1 min-w-0 leading-tight">
+          <span className="block truncate text-[11.5px] font-semibold text-foreground/90">{workspace.name}</span>
+          <span className={cn('mt-0.5 block truncate text-[10px]', voiceClass)}>{voice.text}</span>
+        </span>
+      </button>
+    </Tip>
   );
 }

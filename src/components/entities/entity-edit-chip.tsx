@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { FilePenLine } from 'lucide-react';
 import { EntityDiffModal } from './entity-diff-modal';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * Inline transcript chip rendered for the agent's `update_task`/`update_note`
@@ -20,14 +21,15 @@ export function EntityEditChip({
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="inline-flex min-w-0 items-center gap-1 rounded bg-primary/10 px-1.5 py-px text-[10.5px] font-medium text-primary hover:bg-primary/20 transition-colors"
-        title="Review this change"
-      >
-        <FilePenLine size={10} className="flex-shrink-0" />
-        <span>Edited {entityType} · view changes</span>
-      </button>
+      <Tip label="Review this change">
+        <button
+          onClick={() => setOpen(true)}
+          className="inline-flex min-w-0 items-center gap-1 rounded bg-primary/10 px-1.5 py-px text-[10.5px] font-medium text-primary hover:bg-primary/20 transition-colors"
+        >
+          <FilePenLine size={10} className="flex-shrink-0" />
+          <span>Edited {entityType} · view changes</span>
+        </button>
+      </Tip>
       {open && (
         <EntityDiffModal
           open={open}

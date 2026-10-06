@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 export type TreeViewMode = 'changed' | 'all';
 
@@ -43,22 +44,23 @@ export function TreeViewToggle({
       >
         All
       </button>
-      <button
-        type="button"
-        onClick={() => onChange('changed')}
-        title={changedCount > 99 ? `${changedCount.toLocaleString()} changed files` : undefined}
-        className={cn(
-          'px-2 py-0.5 rounded transition-colors text-center',
-          mode === 'changed'
-            ? 'bg-background text-foreground shadow-sm'
-            : 'text-muted-foreground hover:text-foreground',
-        )}
-      >
-        Changes{' '}
-        <span className="tabular-nums text-muted-foreground/70">
-          ({formatChangedCount(changedCount)})
-        </span>
-      </button>
+      <Tip label={changedCount > 99 ? `${changedCount.toLocaleString()} changed files` : undefined}>
+        <button
+          type="button"
+          onClick={() => onChange('changed')}
+          className={cn(
+            'px-2 py-0.5 rounded transition-colors text-center',
+            mode === 'changed'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          Changes{' '}
+          <span className="tabular-nums text-muted-foreground/70">
+            ({formatChangedCount(changedCount)})
+          </span>
+        </button>
+      </Tip>
     </div>
   );
 }

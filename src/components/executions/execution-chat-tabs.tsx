@@ -36,6 +36,7 @@ import { timestampEpoch } from '@/lib/utils/timestamps';
 import { cn } from '@/lib/utils';
 import { executionView } from '@/lib/client/active-view';
 import { BACKGROUND_DOT, BACKGROUND_LABEL } from '@/components/workspaces/activity-style';
+import { Tip } from '@/components/ui/tip';
 
 type ChatHistoryData = { sessions: ExecutionChatHistoryEntry[] };
 
@@ -295,21 +296,22 @@ export function ExecutionChatTabs({
           since the list is where you look for a chat before starting one. */}
       <PopoverPrimitive.Root open={historyOpen} onOpenChange={setHistoryOpen}>
         <PopoverPrimitive.Trigger asChild>
-          <button
-            type="button"
-            title={`All chats on this execution (${entries.length})`}
-            aria-label="All chats"
-            className={cn(
-              'relative flex h-7 flex-shrink-0 items-center gap-1.5 rounded px-1.5 text-[11.5px] font-medium tabular-nums transition-colors',
-              historyOpen ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-            )}
-          >
-            <List size={12} />
-            <span>{entries.length}</span>
-            {hiddenUnread && (
-              <span aria-hidden className="absolute right-0.5 top-1 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background" />
-            )}
-          </button>
+          <Tip label={`All chats on this execution (${entries.length})`}>
+            <button
+              type="button"
+              aria-label="All chats"
+              className={cn(
+                'relative flex h-7 flex-shrink-0 items-center gap-1.5 rounded px-1.5 text-[11.5px] font-medium tabular-nums transition-colors',
+                historyOpen ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+              )}
+            >
+              <List size={12} />
+              <span>{entries.length}</span>
+              {hiddenUnread && (
+                <span aria-hidden className="absolute right-0.5 top-1 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background" />
+              )}
+            </button>
+          </Tip>
         </PopoverPrimitive.Trigger>
         <PopoverPrimitive.Portal>
           <PopoverPrimitive.Content
@@ -374,7 +376,9 @@ export function ExecutionChatTabs({
                           className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"
                         />
                       ) : s.background ? (
-                        <span aria-label={BACKGROUND_LABEL} title={BACKGROUND_LABEL} className={cn('h-1.5 w-1.5 flex-shrink-0', BACKGROUND_DOT)} />
+                        <Tip label={BACKGROUND_LABEL}>
+                          <span aria-label={BACKGROUND_LABEL} className={cn('h-1.5 w-1.5 flex-shrink-0', BACKGROUND_DOT)} />
+                        </Tip>
                       ) : null}
                     </span>
                     <span className="text-[10.5px] text-muted-foreground/75">
@@ -441,16 +445,17 @@ export function ExecutionChatTabs({
         </DndContext>
       </div>
       {onNewChat && (
-        <button
-          type="button"
-          onClick={onNewChat}
-          disabled={newChatPending}
-          title="New chat on this worktree"
-          aria-label="New chat"
-          className="ml-0.5 inline-flex size-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
-        >
-          {newChatPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-        </button>
+        <Tip label="New chat on this worktree">
+          <button
+            type="button"
+            onClick={onNewChat}
+            disabled={newChatPending}
+            aria-label="New chat"
+            className="ml-0.5 inline-flex size-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
+          >
+            {newChatPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+          </button>
+        </Tip>
       )}
     </div>
   );
@@ -569,51 +574,53 @@ function ChatTab({
           className="mx-1 w-36 rounded border border-primary/40 bg-background px-1.5 py-0.5 text-[12px] font-medium text-foreground focus:outline-none"
         />
       ) : (
-        <button
-          type="button"
-          onClick={onActivate}
-          onDoubleClick={onStartRename}
-          title={tooltip}
-          // Drag the tab by its body (like a browser tab). MouseSensor's
-          // 5px activation lets a plain click/double-click through. By touch,
-          // a swipe scrolls the strip and a press-and-hold picks the tab up
-          // (TouchSensor's delay), so the tab must leave panning to the
-          // browser: `touch-none` here made the strip unscrollable on a phone.
-          {...listeners}
-          className={cn(
-            'flex h-full min-w-0 touch-manipulation items-center gap-1.5 pl-2 text-[12px] font-medium',
-            canClose ? 'pr-1' : 'pr-2',
-            dragEnabled && 'cursor-grab active:cursor-grabbing',
-          )}
-        >
-          {unread && (
-            <span aria-hidden className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
-          )}
-          <span className={cn('max-w-[9rem] truncate', unread && 'font-semibold')}>{label}</span>
-          {entry.running ? (
-            <span
-              aria-hidden
-              className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"
-            />
-          ) : entry.background ? (
-            <span aria-hidden className={cn('h-1.5 w-1.5 flex-shrink-0', BACKGROUND_DOT)} />
-          ) : null}
-        </button>
+        <Tip label={tooltip}>
+          <button
+            type="button"
+            onClick={onActivate}
+            onDoubleClick={onStartRename}
+            // Drag the tab by its body (like a browser tab). MouseSensor's
+            // 5px activation lets a plain click/double-click through. By touch,
+            // a swipe scrolls the strip and a press-and-hold picks the tab up
+            // (TouchSensor's delay), so the tab must leave panning to the
+            // browser: `touch-none` here made the strip unscrollable on a phone.
+            {...listeners}
+            className={cn(
+              'flex h-full min-w-0 touch-manipulation items-center gap-1.5 pl-2 text-[12px] font-medium',
+              canClose ? 'pr-1' : 'pr-2',
+              dragEnabled && 'cursor-grab active:cursor-grabbing',
+            )}
+          >
+            {unread && (
+              <span aria-hidden className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
+            )}
+            <span className={cn('max-w-[9rem] truncate', unread && 'font-semibold')}>{label}</span>
+            {entry.running ? (
+              <span
+                aria-hidden
+                className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"
+              />
+            ) : entry.background ? (
+              <span aria-hidden className={cn('h-1.5 w-1.5 flex-shrink-0', BACKGROUND_DOT)} />
+            ) : null}
+          </button>
+        </Tip>
       )}
       {canClose && !editing && (
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={closing}
-          title="Close chat"
-          aria-label="Close chat"
-          className={cn(
-            'mr-1 inline-flex size-4 flex-shrink-0 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50',
-            !entry.isCurrent && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-          )}
-        >
-          <X size={10} />
-        </button>
+        <Tip label="Close chat">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={closing}
+            aria-label="Close chat"
+            className={cn(
+              'mr-1 inline-flex size-4 flex-shrink-0 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50',
+              !entry.isCurrent && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+            )}
+          >
+            <X size={10} />
+          </button>
+        </Tip>
       )}
     </div>
   );

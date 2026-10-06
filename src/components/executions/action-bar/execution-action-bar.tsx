@@ -17,6 +17,7 @@ import { CommitButton } from './commit-button';
 import { MergeButton } from './merge-button';
 import { narrativePr } from './narrative-pr';
 import { OpenPrButton } from './open-pr-button';
+import { Tip } from '@/components/ui/tip';
 
 interface ExecutionActionBarProps {
   session: ChatSessionWithExecution;
@@ -287,22 +288,23 @@ function PrChip({ sessionId, prNumber, prUrl, closed }: PrChipProps) {
  */
 function PrRef({ pr }: { pr: OpenablePr }) {
   return (
-    <a
-      href={pr.url}
-      target="_blank"
-      rel="noreferrer"
-      title={pr.closed ? `Closed PR #${pr.number}. Open on GitHub` : `Open PR #${pr.number} on GitHub`}
-      aria-label={`${pr.closed ? 'Closed pull request' : 'Pull request'} #${pr.number} on GitHub`}
-      className={cn(
-        'inline-flex h-6 flex-shrink-0 items-center gap-1 rounded-[4px] border pl-1.5 pr-1 font-mono text-[12px] font-medium leading-none tabular-nums transition-colors',
-        pr.closed
-          ? 'border-rose-500/45 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
-          : 'border-foreground/25 text-foreground/85 hover:border-foreground/40 hover:bg-muted/40 hover:text-foreground',
-      )}
-    >
-      #{pr.number}
-      <ArrowUpRight size={12} className="opacity-60" />
-    </a>
+    <Tip label={pr.closed ? `Closed PR #${pr.number}. Open on GitHub` : `Open PR #${pr.number} on GitHub`}>
+      <a
+        href={pr.url}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`${pr.closed ? 'Closed pull request' : 'Pull request'} #${pr.number} on GitHub`}
+        className={cn(
+          'inline-flex h-6 flex-shrink-0 items-center gap-1 rounded-[4px] border pl-1.5 pr-1 font-mono text-[12px] font-medium leading-none tabular-nums transition-colors',
+          pr.closed
+            ? 'border-rose-500/45 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
+            : 'border-foreground/25 text-foreground/85 hover:border-foreground/40 hover:bg-muted/40 hover:text-foreground',
+        )}
+      >
+        #{pr.number}
+        <ArrowUpRight size={12} className="opacity-60" />
+      </a>
+    </Tip>
   );
 }
 
@@ -351,9 +353,11 @@ function ChecksBadge({ checks }: { checks: PrChecks }) {
     },
   }[checks.state];
   return (
-    <span className={`inline-flex items-center ${cfg.cls}`} title={cfg.label} aria-label={cfg.label}>
-      {cfg.icon}
-    </span>
+    <Tip label={cfg.label}>
+      <span className={`inline-flex items-center ${cfg.cls}`} aria-label={cfg.label}>
+        {cfg.icon}
+      </span>
+    </Tip>
   );
 }
 
@@ -373,12 +377,13 @@ function ReviewBadge({ decision }: { decision: PrReviewDecision }) {
     },
   }[decision];
   return (
-    <span
-      className={`inline-flex items-center rounded border px-1 py-0.5 text-[10px] font-medium leading-none ${cfg.cls}`}
-      title={`Review: ${cfg.label}`}
-    >
-      {cfg.label}
-    </span>
+    <Tip label={`Review: ${cfg.label}`}>
+      <span
+        className={`inline-flex items-center rounded border px-1 py-0.5 text-[10px] font-medium leading-none ${cfg.cls}`}
+      >
+        {cfg.label}
+      </span>
+    </Tip>
   );
 }
 
@@ -795,12 +800,13 @@ function NarrativeBody({ state, base, hasPr, badges, theme, sessionId, push, pul
 function BehindBaseNote({ base }: { base: BaseInfo | null }) {
   if (!base || base.behind <= 0) return null;
   return (
-    <span
-      className="whitespace-nowrap text-muted-foreground @max-[1120px]/exec:hidden"
-      title={`${base.name} has ${base.behind} ${base.behind === 1 ? 'commit' : 'commits'} this branch doesn't. It can still merge.`}
-    >
-      · {base.behind} behind {base.name}
-    </span>
+    <Tip label={`${base.name} has ${base.behind} ${base.behind === 1 ? 'commit' : 'commits'} this branch doesn't. It can still merge.`}>
+      <span
+        className="whitespace-nowrap text-muted-foreground @max-[1120px]/exec:hidden"
+      >
+        · {base.behind} behind {base.name}
+      </span>
+    </Tip>
   );
 }
 

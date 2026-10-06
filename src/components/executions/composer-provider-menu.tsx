@@ -20,6 +20,7 @@ import { ProviderIcon } from '@/components/settings/harness-connection-ui';
 import { openSettings } from '@/components/settings/settings-store';
 import { readProviderEffort } from '@/lib/executions/provider-effort';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface ComposerProviderMenuProps {
   open: boolean;
@@ -99,19 +100,20 @@ export function ComposerProviderMenu({
   return (
     <Popover open={open} onOpenChange={reset}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          title={`Model: ${model}`}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors',
-            'border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-            'disabled:opacity-50',
-          )}
-        >
-          <Cpu size={11} className="text-primary/70" />
-          <span>{fallbackLabel}</span>
-        </button>
+        <Tip label={`Model: ${model}`}>
+          <button
+            type="button"
+            disabled={disabled}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors',
+              'border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+              'disabled:opacity-50',
+            )}
+          >
+            <Cpu size={11} className="text-primary/70" />
+            <span>{fallbackLabel}</span>
+          </button>
+        </Tip>
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={6} className="w-80 p-2">
         {pending && pendingProvider ? (

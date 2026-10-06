@@ -26,6 +26,7 @@ import { runDotClass } from '../preview/run-status';
 import type { Workbench } from './use-workbench';
 import { WorkbenchViewBody, type WorkbenchViewContext } from './workbench-views';
 import { MORE_VIEWS, PANEL_VIEW_LABELS, PRIMARY_VIEWS, type PanelView } from './workbench-state';
+import { Tip } from '@/components/ui/tip';
 
 export const VIEW_ICONS: Record<PanelView, React.ComponentType<{ size?: number; className?: string }>> = {
   run: Play,
@@ -76,41 +77,44 @@ export function WorkbenchPanel({ workbench, ctx, changedFiles, linkedCount, scra
           const Icon = VIEW_ICONS[v];
           const on = view === v;
           return (
-            <button
-              key={v}
-              type="button"
-              data-tab={v}
-              onClick={() => show(v)}
-              onDoubleClick={() => dispatch({ type: 'toggleMaximize' })}
-              title={`${PANEL_VIEW_LABELS[v]}. Double-click to expand.`}
-              aria-pressed={on}
-              className={cn(
-                '-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 text-[12.5px] font-medium transition-colors',
-                on ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Icon size={13} />
-              <span className="@max-[560px]/panel:hidden">{PANEL_VIEW_LABELS[v]}</span>
-              {v === 'run' && status !== 'stopped' && status !== 'not-configured' && status !== 'elsewhere' && (
-                <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', runDotClass(status))} />
-              )}
-              {v === 'changes' && !!changedFiles && (
-                <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground/70">{changedFiles}</span>
-              )}
-            </button>
+            <Tip key={v} label={`${PANEL_VIEW_LABELS[v]}. Double-click to expand.`}>
+              <button
+                type="button"
+                data-tab={v}
+                onClick={() => show(v)}
+                onDoubleClick={() => dispatch({ type: 'toggleMaximize' })}
+                aria-pressed={on}
+                className={cn(
+                  '-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 text-[12.5px] font-medium transition-colors',
+                  on ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Icon size={13} />
+                <span className="@max-[560px]/panel:hidden">{PANEL_VIEW_LABELS[v]}</span>
+                {v === 'run' && status !== 'stopped' && status !== 'not-configured' && status !== 'elsewhere' && (
+                  <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', runDotClass(status))} />
+                )}
+                {v === 'changes' && !!changedFiles && (
+                  <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground/70">{changedFiles}</span>
+                )}
+              </button>
+            </Tip>
           );
         })}
         <DropdownMenu>
-          <DropdownMenuTrigger
-            className={cn(
-              '-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 text-[12.5px] font-medium outline-none transition-colors',
-              moreActive ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
-            )}
-            title="Notes & tasks, Scratchpad"
-          >
-            <MoreIcon size={13} />
-            <span className="@max-[560px]/panel:hidden">{moreActive ? PANEL_VIEW_LABELS[view] : 'More'}</span>
-            <ChevronDown size={12} className="opacity-70" />
+          <DropdownMenuTrigger asChild>
+            <Tip label="Notes & tasks, Scratchpad">
+              <button
+                className={cn(
+                  '-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 text-[12.5px] font-medium outline-none transition-colors',
+                  moreActive ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <MoreIcon size={13} />
+                <span className="@max-[560px]/panel:hidden">{moreActive ? PANEL_VIEW_LABELS[view] : 'More'}</span>
+                <ChevronDown size={12} className="opacity-70" />
+              </button>
+            </Tip>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" sideOffset={4} className="min-w-52">
             {MORE_VIEWS.map((v) => {
@@ -132,37 +136,43 @@ export function WorkbenchPanel({ workbench, ctx, changedFiles, linkedCount, scra
         </DropdownMenu>
 
         <span className="flex-1" />
-        <button
-          type="button"
-          onClick={() => dispatch({ type: 'toggleMaximize' })}
-          title={state.maximized ? 'Bring the chat back (Esc)' : 'Expand to the whole view (or double-click a tab)'}
-          aria-label={state.maximized ? 'Restore the chat' : 'Expand the panel'}
-          className="my-1 inline-flex w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+        <Tip
+          label={state.maximized ? 'Bring the chat back' : 'Expand to the whole view (or double-click a tab)'}
+          shortcut={state.maximized ? 'Esc' : undefined}
         >
-          {state.maximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-        </button>
-        <button
-          type="button"
-          onClick={() => dispatch({ type: 'close' })}
-          title="Close the panel (Esc)"
-          aria-label="Close the panel"
-          className="my-1 inline-flex w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-        >
-          <X size={14} />
-        </button>
+          <button
+            type="button"
+            onClick={() => dispatch({ type: 'toggleMaximize' })}
+            aria-label={state.maximized ? 'Restore the chat' : 'Expand the panel'}
+            className="my-1 inline-flex w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+          >
+            {state.maximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          </button>
+        </Tip>
+        <Tip label="Close the panel" shortcut="Esc">
+          <button
+            type="button"
+            onClick={() => dispatch({ type: 'close' })}
+            aria-label="Close the panel"
+            className="my-1 inline-flex w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+          >
+            <X size={14} />
+          </button>
+        </Tip>
       </div>
 
       {state.from && (
         <div className="flex h-8 flex-shrink-0 items-center border-b border-border px-2">
-          <button
-            type="button"
-            onClick={() => dispatch({ type: 'back' })}
-            title={`Back to ${PANEL_VIEW_LABELS[state.from]}`}
-            className="inline-flex h-6 items-center gap-0.5 rounded-full bg-muted/70 pl-1 pr-2.5 text-[11.5px] font-medium text-foreground/85 transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <ChevronLeft size={13} />
-            {PANEL_VIEW_LABELS[state.from]}
-          </button>
+          <Tip label={`Back to ${PANEL_VIEW_LABELS[state.from]}`}>
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'back' })}
+              className="inline-flex h-6 items-center gap-0.5 rounded-full bg-muted/70 pl-1 pr-2.5 text-[11.5px] font-medium text-foreground/85 transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <ChevronLeft size={13} />
+              {PANEL_VIEW_LABELS[state.from]}
+            </button>
+          </Tip>
         </div>
       )}
 

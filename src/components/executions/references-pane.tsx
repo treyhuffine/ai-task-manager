@@ -20,6 +20,7 @@ import { useSessionReferences } from '@/hooks/use-execution';
 import { useTasks } from '@/hooks/use-tasks';
 import { useDashboard } from '@/contexts/dashboard-context';
 import type { ReferenceRow } from '@/lib/api/sessions';
+import { Tip } from '@/components/ui/tip';
 
 export interface EntityChipInsert {
   kind: 'task' | 'note' | 'scratchpad';
@@ -239,64 +240,66 @@ function ReferenceListRow({
 
   return (
     <li>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={handleOpen}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            handleOpen();
-          }
-        }}
-        className={cn(
-          'group flex items-center gap-1 px-2 py-1 rounded-md cursor-pointer',
-          'hover:bg-muted/40 transition-colors',
-        )}
-        style={depth > 0 ? { paddingLeft: `${0.5 + depth * 1}rem` } : undefined}
-        title={`Open ${row.kind}`}
-      >
-        {hasSubtasks ? (
-          <button
-            type="button"
-            onClick={handleToggleSubtasks}
-            className="shrink-0 p-0.5 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors"
-            aria-label={expanded ? 'Collapse subtasks' : 'Expand subtasks'}
-            aria-expanded={expanded}
-          >
-            <ChevronRight
-              size={11}
-              className={cn('transition-transform', expanded && 'rotate-90')}
-            />
-          </button>
-        ) : (
-          <span className="w-[15px] shrink-0" />
-        )}
-        <Icon size={11} className="shrink-0 text-muted-foreground/80" />
-        <span className="flex-1 min-w-0 text-[11.5px] text-foreground truncate">
-          {row.title || (row.kind === 'task' ? 'Untitled task' : 'Untitled note')}
-        </span>
-        {hasSubtasks && !expanded && (
-          <span className="shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
-            {row.subtaskCount}
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={handleInclude}
+      <Tip label={`Open ${row.kind}`}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={handleOpen}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleOpen();
+            }
+          }}
           className={cn(
-            'shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded',
-            'text-[10.5px] font-medium',
-            'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-            'transition-colors',
+            'group flex items-center gap-1 px-2 py-1 rounded-md cursor-pointer',
+            'hover:bg-muted/40 transition-colors',
           )}
-          aria-label={`Include ${row.kind} in chat`}
-          title="Insert into the composer"
+          style={depth > 0 ? { paddingLeft: `${0.5 + depth * 1}rem` } : undefined}
         >
-          <Plus size={10} />
-          Include
-        </button>
-      </div>
+          {hasSubtasks ? (
+            <button
+              type="button"
+              onClick={handleToggleSubtasks}
+              className="shrink-0 p-0.5 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors"
+              aria-label={expanded ? 'Collapse subtasks' : 'Expand subtasks'}
+              aria-expanded={expanded}
+            >
+              <ChevronRight
+                size={11}
+                className={cn('transition-transform', expanded && 'rotate-90')}
+              />
+            </button>
+          ) : (
+            <span className="w-[15px] shrink-0" />
+          )}
+          <Icon size={11} className="shrink-0 text-muted-foreground/80" />
+          <span className="flex-1 min-w-0 text-[11.5px] text-foreground truncate">
+            {row.title || (row.kind === 'task' ? 'Untitled task' : 'Untitled note')}
+          </span>
+          {hasSubtasks && !expanded && (
+            <span className="shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
+              {row.subtaskCount}
+            </span>
+          )}
+          <Tip label="Insert into the composer">
+            <button
+              type="button"
+              onClick={handleInclude}
+              className={cn(
+                'shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded',
+                'text-[10.5px] font-medium',
+                'bg-secondary text-secondary-foreground hover:bg-secondary/80',
+                'transition-colors',
+              )}
+              aria-label={`Include ${row.kind} in chat`}
+            >
+              <Plus size={10} />
+              Include
+            </button>
+          </Tip>
+        </div>
+      </Tip>
       {expanded && row.kind === 'task' && (
         <SubtaskList parentId={row.id} depth={depth + 1} onInsert={onInsert} />
       )}

@@ -11,6 +11,7 @@ import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import { normalizeTimestamp } from '@/lib/utils/timestamps';
 import type { RailSession } from '@/lib/api/sessions';
 import { HistoryRow } from './history-row';
+import { Tip } from '@/components/ui/tip';
 
 const PILL_SCROLL_PRESETS = {
   bar: 'flex gap-1 overflow-x-auto -mx-2 px-2 py-1 scrollbar-thin',
@@ -109,13 +110,14 @@ export function HistoryView() {
               />
             ))}
             {selectedWs.size > 0 && (
-              <button
-                onClick={() => setSelectedWs(new Set())}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors flex-shrink-0"
-                title="Clear agent filter"
-              >
-                <X size={9} /> Clear
-              </button>
+              <Tip label="Clear agent filter">
+                <button
+                  onClick={() => setSelectedWs(new Set())}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors flex-shrink-0"
+                >
+                  <X size={9} /> Clear
+                </button>
+              </Tip>
             )}
           </div>
         </div>
@@ -175,33 +177,34 @@ function WorkspacePill({
   onClick: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9.5px] font-medium transition-colors flex-shrink-0 max-w-[120px]',
-        selected
-          ? 'bg-foreground text-background'
-          : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
-      )}
-      title={name}
-    >
-      <span className="w-3 h-3 flex items-center justify-center flex-shrink-0">
-        {image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={image} alt="" className="w-3 h-3 rounded-sm object-cover" />
-        ) : emoji ? (
-          <span className="text-[10px] leading-none">{emoji}</span>
-        ) : (
-          <span className={cn(
-            'w-3 h-3 rounded-sm flex items-center justify-center text-[7px] font-bold',
-            selected ? 'bg-background/20' : 'bg-background/60',
-          )}>
-            {name.charAt(0).toUpperCase()}
-          </span>
+    <Tip label={name}>
+      <button
+        onClick={onClick}
+        className={cn(
+          'flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9.5px] font-medium transition-colors flex-shrink-0 max-w-[120px]',
+          selected
+            ? 'bg-foreground text-background'
+            : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
         )}
-      </span>
-      <span className="truncate">{name}</span>
-    </button>
+      >
+        <span className="w-3 h-3 flex items-center justify-center flex-shrink-0">
+          {image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={image} alt="" className="w-3 h-3 rounded-sm object-cover" />
+          ) : emoji ? (
+            <span className="text-[10px] leading-none">{emoji}</span>
+          ) : (
+            <span className={cn(
+              'w-3 h-3 rounded-sm flex items-center justify-center text-[7px] font-bold',
+              selected ? 'bg-background/20' : 'bg-background/60',
+            )}>
+              {name.charAt(0).toUpperCase()}
+            </span>
+          )}
+        </span>
+        <span className="truncate">{name}</span>
+      </button>
+    </Tip>
   );
 }
 

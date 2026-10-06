@@ -29,6 +29,7 @@ import { START_RI } from '@/lib/executions/location';
 import { ArrowRightLeft, Laptop } from 'lucide-react';
 import { useState } from 'react';
 import { ContinueDialog } from './continue-dialog';
+import { Tip } from '@/components/ui/tip';
 
 export interface Move {
   /** The device it would move to. */
@@ -136,9 +137,11 @@ export function LocationMenu({
   );
   if (moves.length === 0) {
     return (
-      <span title={`Runs on ${name}`} className="cursor-default">
-        {chip}
-      </span>
+      <Tip label={`Runs on ${name}`}>
+        <span className="cursor-default">
+          {chip}
+        </span>
+      </Tip>
     );
   }
 
@@ -146,9 +149,11 @@ export function LocationMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" title={`Runs on ${name}. Move it to another device.`} className="rounded hover:bg-muted/80">
-            {chip}
-          </button>
+          <Tip label={`Runs on ${name}. Move it to another device.`}>
+            <button type="button" className="rounded hover:bg-muted/80">
+              {chip}
+            </button>
+          </Tip>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-72">
           <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">Runs on {name}</DropdownMenuLabel>

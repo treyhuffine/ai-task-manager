@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface ResizeHandleProps {
   /**
@@ -119,29 +120,30 @@ export function ResizeHandle({
   };
 
   return (
-    <div
-      role="separator"
-      aria-orientation={axis === 'columns' ? 'vertical' : 'horizontal'}
-      aria-label={label}
-      aria-valuenow={Math.round(pct)}
-      aria-valuemin={minPct}
-      aria-valuemax={maxPct}
-      tabIndex={0}
-      onPointerDown={onPointerDown}
-      onKeyDown={onKeyDown}
-      onDoubleClick={() => {
-        const next = clamp(defaultPct);
-        apply(next);
-        onCommit(next);
-      }}
-      title="Drag to resize. Double-click to reset."
-      className={cn(
-        'group relative z-10 flex-shrink-0 bg-border outline-none transition-colors hover:bg-foreground/25 focus-visible:bg-ring',
-        axis === 'columns' ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize',
-      )}
-    >
-      {/* A wider invisible grab area around the 1px line. */}
-      <span aria-hidden className={cn('absolute', axis === 'columns' ? 'inset-y-0 -left-1 -right-1' : 'inset-x-0 -bottom-1 -top-1')} />
-    </div>
+    <Tip label="Drag to resize. Double-click to reset.">
+      <div
+        role="separator"
+        aria-orientation={axis === 'columns' ? 'vertical' : 'horizontal'}
+        aria-label={label}
+        aria-valuenow={Math.round(pct)}
+        aria-valuemin={minPct}
+        aria-valuemax={maxPct}
+        tabIndex={0}
+        onPointerDown={onPointerDown}
+        onKeyDown={onKeyDown}
+        onDoubleClick={() => {
+          const next = clamp(defaultPct);
+          apply(next);
+          onCommit(next);
+        }}
+        className={cn(
+          'group relative z-10 flex-shrink-0 bg-border outline-none transition-colors hover:bg-foreground/25 focus-visible:bg-ring',
+          axis === 'columns' ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize',
+        )}
+      >
+        {/* A wider invisible grab area around the 1px line. */}
+        <span aria-hidden className={cn('absolute', axis === 'columns' ? 'inset-y-0 -left-1 -right-1' : 'inset-x-0 -bottom-1 -top-1')} />
+      </div>
+    </Tip>
   );
 }

@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { WHO_USES, displayPath, locationLabel } from './location-copy';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * Where a skill is installed, which is who uses it, as one menu. A draft
@@ -57,24 +58,26 @@ export function SkillLocationControl({ skill }: { skill: SkillView }) {
     go({ to: 'project', workspaceId: project.workspaceId }, `${draft ? 'Installed' : 'Moved'} ${skill.name} in ${project.name}`);
 
   const trigger = draft ? (
-    <button
-      className="flex h-7 flex-shrink-0 items-center gap-1 rounded-lg bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-      title="A draft. No agent uses it until it's installed."
-    >
-      {move.isPending && <Loader2 size={11} className="animate-spin" />}
-      Install
-      <ChevronDown size={11} strokeWidth={2.5} />
-    </button>
+    <Tip label="A draft. No agent uses it until it's installed.">
+      <button
+        className="flex h-7 flex-shrink-0 items-center gap-1 rounded-lg bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+      >
+        {move.isPending && <Loader2 size={11} className="animate-spin" />}
+        Install
+        <ChevronDown size={11} strokeWidth={2.5} />
+      </button>
+    </Tip>
   ) : (
-    <button
-      className="flex h-7 max-w-48 flex-shrink-0 items-center gap-1 rounded-lg border border-border px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:border-muted-foreground/40 hover:text-foreground"
-      aria-label={`Installed in ${locationLabel(here)}`}
-      title={`Installed in ${locationLabel(here)}: ${displayPath(skill.dir)}`}
-    >
-      {move.isPending ? <Loader2 size={11} className="animate-spin" /> : <PlaceIcon kind={here.kind} />}
-      <span className="truncate">{locationLabel(here)}</span>
-      <ChevronDown size={11} />
-    </button>
+    <Tip label={`Installed in ${locationLabel(here)}: ${displayPath(skill.dir)}`}>
+      <button
+        className="flex h-7 max-w-48 flex-shrink-0 items-center gap-1 rounded-lg border border-border px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:border-muted-foreground/40 hover:text-foreground"
+        aria-label={`Installed in ${locationLabel(here)}`}
+      >
+        {move.isPending ? <Loader2 size={11} className="animate-spin" /> : <PlaceIcon kind={here.kind} />}
+        <span className="truncate">{locationLabel(here)}</span>
+        <ChevronDown size={11} />
+      </button>
+    </Tip>
   );
 
   // Another tool's skill, linked into the global folder: copy it in to change it.

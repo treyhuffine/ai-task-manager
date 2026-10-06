@@ -31,6 +31,7 @@ import { FolderField } from './folder-field';
 import type { AgentFoldersOn, LinkedFolderOn } from '@/lib/setups/folders';
 import type { ReferenceFolderGitState, WorkspaceRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 type Device = { id: string; name: string };
 
@@ -334,18 +335,21 @@ function FolderRow({
 function PathLine({ path, state, deviceName }: { path: string; state: RowState; deviceName: string }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5">
-      <span
-        className={cn('min-w-0 break-all font-mono text-[11px]', state === 'missing' ? 'text-destructive/80 line-through' : 'text-foreground/85')}
-        title={path}
-      >
-        {path}
-      </span>
+      <Tip label={path}>
+        <span
+          className={cn('min-w-0 break-all font-mono text-[11px]', state === 'missing' ? 'text-destructive/80 line-through' : 'text-foreground/85')}
+        >
+          {path}
+        </span>
+      </Tip>
       {state === 'found' && <Check size={12} className="shrink-0 text-emerald-500" aria-label="There" />}
       {state === 'missing' && <span className="shrink-0 text-[10.5px] text-destructive">Not there</span>}
       {state === 'unchecked' && (
-        <span className="shrink-0 text-[10.5px] text-muted-foreground/70" title={`Checked when ${deviceName} is running Ri`}>
-          Not checked yet
-        </span>
+        <Tip label={`Checked when ${deviceName} is running Ri`}>
+          <span className="shrink-0 text-[10.5px] text-muted-foreground/70">
+            Not checked yet
+          </span>
+        </Tip>
       )}
     </span>
   );
@@ -377,22 +381,26 @@ function LinkedRow({
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-mono font-semibold text-foreground">@{refOn.alias}</span>
             {refOn.forEveryAgent && (
-              <span title="Every agent has it" className="flex items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] text-muted-foreground">
-                <Globe size={8} /> every agent
-              </span>
+              <Tip label="Every agent has it">
+                <span className="flex items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] text-muted-foreground">
+                  <Globe size={8} /> every agent
+                </span>
+              </Tip>
             )}
             {agent && <span className="rounded bg-accent px-1 py-px text-[9px] text-muted-foreground">agent: {agent.name}</span>}
           </div>
           {refOn.description && <p className="mt-0.5 text-[10.5px] leading-snug text-muted-foreground/85">{refOn.description}</p>}
         </div>
-        <button
-          type="button"
-          onClick={onEdit}
-          title={`Edit @${refOn.alias}`}
-          className="shrink-0 rounded p-1 text-muted-foreground opacity-60 transition-colors hover:bg-accent hover:text-foreground group-hover:opacity-100"
-        >
-          <Pencil size={11} />
-        </button>
+        <Tip label={`Edit @${refOn.alias}`}>
+          <button
+            type="button"
+            onClick={onEdit}
+            aria-label={`Edit @${refOn.alias}`}
+            className="shrink-0 rounded p-1 text-muted-foreground opacity-60 transition-colors hover:bg-accent hover:text-foreground group-hover:opacity-100"
+          >
+            <Pencil size={11} />
+          </button>
+        </Tip>
       </div>
 
       <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">

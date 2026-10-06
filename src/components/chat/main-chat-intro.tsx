@@ -4,6 +4,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import { ArrowUp, PenLine } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * What an empty main chat shows instead of a blank column: a line on what
@@ -92,22 +93,22 @@ export function MainChatIntroPanel({
         <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">{intro.description}</p>
         <div className="mt-4 flex flex-wrap gap-1.5">
           {intro.starters.map((s) => (
-            <button
-              key={s.label}
-              type="button"
-              disabled={disabled}
-              onClick={() => (s.draft ? onDraft(s.prompt) : onSend(s.prompt))}
-              title={s.draft ? 'Start this in the composer' : 'Send this'}
-              className={cn(
-                'inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-left text-[11.5px] transition-colors disabled:opacity-50',
-                s.draft
-                  ? 'border-primary/30 bg-primary/5 text-primary hover:bg-primary/15'
-                  : 'border-border text-foreground/85 hover:bg-muted/60 hover:text-foreground',
-              )}
-            >
-              {s.draft ? <PenLine size={11} className="flex-shrink-0" /> : <ArrowUp size={11} className="flex-shrink-0 opacity-60" />}
-              <span className="truncate">{s.label}</span>
-            </button>
+            <Tip key={s.label} label={s.draft ? 'Start this in the composer' : 'Send this'}>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => (s.draft ? onDraft(s.prompt) : onSend(s.prompt))}
+                className={cn(
+                  'inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-left text-[11.5px] transition-colors disabled:opacity-50',
+                  s.draft
+                    ? 'border-primary/30 bg-primary/5 text-primary hover:bg-primary/15'
+                    : 'border-border text-foreground/85 hover:bg-muted/60 hover:text-foreground',
+                )}
+              >
+                {s.draft ? <PenLine size={11} className="flex-shrink-0" /> : <ArrowUp size={11} className="flex-shrink-0 opacity-60" />}
+                <span className="truncate">{s.label}</span>
+              </button>
+            </Tip>
           ))}
         </div>
         {footer}

@@ -18,6 +18,7 @@ import { describeFrequency } from '@/lib/scheduler/frequency';
 import { findProvider } from '@/lib/harness/options';
 import { isReservedTrigger } from '@/lib/triggers/reserved';
 import { AwakeNote } from '@/components/triggers/awake-note';
+import { Tip } from '@/components/ui/tip';
 
 export default function TriggersPage() {
   const router = useRouter();
@@ -96,42 +97,46 @@ function TriggerRow({
       href={`/triggers/${trigger.id}`}
       className="flex items-center gap-4 p-4 rounded-lg border border-border bg-card hover:border-muted-foreground/30 transition-colors"
     >
-      <button
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onToggle(!trigger.enabled);
-        }}
-        className={cn(
-          'flex-shrink-0 p-1.5 rounded-md transition-colors',
-          trigger.enabled
-            ? 'bg-primary/10 text-primary hover:bg-primary/20'
-            : 'bg-muted text-muted-foreground hover:bg-muted/80',
-        )}
-        title={trigger.enabled ? 'Pause trigger' : 'Resume trigger'}
-      >
-        {trigger.enabled ? <Play size={14} /> : <Pause size={14} />}
-      </button>
+      <Tip label={trigger.enabled ? 'Pause trigger' : 'Resume trigger'}>
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggle(!trigger.enabled);
+          }}
+          className={cn(
+            'flex-shrink-0 p-1.5 rounded-md transition-colors',
+            trigger.enabled
+              ? 'bg-primary/10 text-primary hover:bg-primary/20'
+              : 'bg-muted text-muted-foreground hover:bg-muted/80',
+          )}
+          aria-label={trigger.enabled ? 'Pause trigger' : 'Resume trigger'}
+        >
+          {trigger.enabled ? <Play size={14} /> : <Pause size={14} />}
+        </button>
+      </Tip>
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium truncate">{trigger.name}</p>
           {isReservedTrigger(trigger.id) && (
-            <span
-              className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded-md bg-muted text-muted-foreground"
-              title="Managed by the app — edit its schedule in Settings › General"
-            >
-              Managed
-            </span>
+            <Tip label="Managed by the app — edit its schedule in Settings › General">
+              <span
+                className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded-md bg-muted text-muted-foreground"
+              >
+                Managed
+              </span>
+            </Tip>
           )}
           {failing && (
-            <span
-              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded-md bg-destructive/10 text-destructive"
-              title={`${trigger.consecutiveFailures} consecutive failures`}
-            >
-              <AlertTriangle size={10} />
-              {trigger.consecutiveFailures} failed
-            </span>
+            <Tip label={`${trigger.consecutiveFailures} consecutive failures`}>
+              <span
+                className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded-md bg-destructive/10 text-destructive"
+              >
+                <AlertTriangle size={10} />
+                {trigger.consecutiveFailures} failed
+              </span>
+            </Tip>
           )}
         </div>
         <p className="text-[11px] text-muted-foreground mt-0.5">

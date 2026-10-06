@@ -26,6 +26,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Cpu, Gauge, GitBranch, Laptop, Loader2, RefreshCw, Search, X, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { LauncherPopoverContent } from './launcher-popover';
+import { Tip } from '@/components/ui/tip';
 
 const TRIGGER_CLASS =
   'inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-40 disabled:pointer-events-none';
@@ -97,25 +98,26 @@ function ModeSegment({
   tone?: 'warning';
 }) {
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      disabled={disabled}
-      onClick={onSelect}
-      title={title}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-40',
-        selected
-          ? tone === 'warning'
-            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-            : 'bg-muted text-foreground'
-          : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-      )}
-    >
-      {icon}
-      {label}
-    </button>
+    <Tip label={title}>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={selected}
+        disabled={disabled}
+        onClick={onSelect}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-40',
+          selected
+            ? tone === 'warning'
+              ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+              : 'bg-muted text-foreground'
+            : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+        )}
+      >
+        {icon}
+        {label}
+      </button>
+    </Tip>
   );
 }
 
@@ -175,10 +177,12 @@ export function RunOnControl({
 
   if (runOn.choices.length === 1) {
     return (
-      <span className={cn(TRIGGER_CLASS, 'pointer-events-none')} title="Where this execution runs">
-        <Laptop size={11} />
-        <span className="max-w-[9rem] truncate">{selected.name}</span>
-      </span>
+      <Tip label="Where this execution runs">
+        <span className={cn(TRIGGER_CLASS, 'pointer-events-none')}>
+          <Laptop size={11} />
+          <span className="max-w-[9rem] truncate">{selected.name}</span>
+        </span>
+      </Tip>
     );
   }
 
@@ -187,15 +191,16 @@ export function RunOnControl({
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button
-            type="button"
-            disabled={disabled}
-            title="Where this execution runs"
-            className={cn(TRIGGER_CLASS, oneOff && 'border-primary/40 text-foreground', !selected.ready && 'border-amber-500/40 text-amber-600 dark:text-amber-400')}
-          >
-            <Laptop size={11} />
-            <span className="max-w-[9rem] truncate">{selected.name}</span>
-          </button>
+          <Tip label="Where this execution runs">
+            <button
+              type="button"
+              disabled={disabled}
+              className={cn(TRIGGER_CLASS, oneOff && 'border-primary/40 text-foreground', !selected.ready && 'border-amber-500/40 text-amber-600 dark:text-amber-400')}
+            >
+              <Laptop size={11} />
+              <span className="max-w-[9rem] truncate">{selected.name}</span>
+            </button>
+          </Tip>
         </PopoverTrigger>
         <LauncherPopoverContent align="start" className="w-[280px] p-1">
           <div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">Run on</div>
@@ -309,15 +314,16 @@ export function BaseControl({
   return (
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setFilter(''); }}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          title={fromPr ? `Forking from pull request #${base.prNumber}` : 'Fork point'}
-          className={cn(TRIGGER_CLASS, explicit && 'border-primary/40 text-foreground')}
-        >
-          <GitBranch size={11} />
-          <span className="max-w-[11rem] truncate font-mono">from {label}</span>
-        </button>
+        <Tip label={fromPr ? `Forking from pull request #${base.prNumber}` : 'Fork point'}>
+          <button
+            type="button"
+            disabled={disabled}
+            className={cn(TRIGGER_CLASS, explicit && 'border-primary/40 text-foreground')}
+          >
+            <GitBranch size={11} />
+            <span className="max-w-[11rem] truncate font-mono">from {label}</span>
+          </button>
+        </Tip>
       </PopoverTrigger>
       <LauncherPopoverContent align="start" className="w-[300px] p-0">
         {fromPr ? (
@@ -448,15 +454,16 @@ export function ModelControl({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          title={`Model: ${selection.model}`}
-          className={TRIGGER_CLASS}
-        >
-          <Cpu size={11} className="text-primary/70" />
-          <span className="max-w-[10rem] truncate">{label}</span>
-        </button>
+        <Tip label={`Model: ${selection.model}`}>
+          <button
+            type="button"
+            disabled={disabled}
+            className={TRIGGER_CLASS}
+          >
+            <Cpu size={11} className="text-primary/70" />
+            <span className="max-w-[10rem] truncate">{label}</span>
+          </button>
+        </Tip>
       </PopoverTrigger>
       {/* Scrolling + height capping live in LauncherPopoverContent, which also
           renders in-tree so the dialog's scroll lock doesn't eat wheel events. */}
@@ -496,15 +503,16 @@ export function EffortControl({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          title={`Reasoning effort${current ? `: ${current.label}` : ''}`}
-          className={TRIGGER_CLASS}
-        >
-          <Gauge size={11} className="text-primary/70" />
-          <span>{current?.shortLabel ?? 'effort'}</span>
-        </button>
+        <Tip label={`Reasoning effort${current ? `: ${current.label}` : ''}`}>
+          <button
+            type="button"
+            disabled={disabled}
+            className={TRIGGER_CLASS}
+          >
+            <Gauge size={11} className="text-primary/70" />
+            <span>{current?.shortLabel ?? 'effort'}</span>
+          </button>
+        </Tip>
       </PopoverTrigger>
       <LauncherPopoverContent align="end" className="w-56 p-1">
         {options.map((o) => (

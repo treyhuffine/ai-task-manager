@@ -24,6 +24,7 @@ import {
   type ConflictResolution,
 } from '@/lib/conflicts/parse';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface ConflictViewProps {
   /** An execution's worktree, or an agent's own folder after a merge in the checkout. */
@@ -186,16 +187,17 @@ export function ConflictView({ source, path }: ConflictViewProps) {
           >
             All incoming
           </button>
-          <button
-            type="button"
-            onClick={onResolve}
-            disabled={!allResolved || resolve.isPending}
-            title={allResolved ? 'Save the resolution and mark resolved' : 'Resolve every conflict first'}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {resolve.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-            Resolve file
-          </button>
+          <Tip label={allResolved ? 'Save the resolution and mark resolved' : 'Resolve every conflict first'}>
+            <button
+              type="button"
+              onClick={onResolve}
+              disabled={!allResolved || resolve.isPending}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {resolve.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+              Resolve file
+            </button>
+          </Tip>
         </div>
       </div>
 

@@ -17,6 +17,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, MessageSquare, MessageSquarePlus, RefreshCw, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { Tip } from '@/components/ui/tip';
 
 const CHAT_PANEL_MIN_WIDTH = 420
 
@@ -222,15 +223,16 @@ function ChatPanel({
         <MessageSquare size={12} className="text-primary" />
         <span className="text-xs font-medium text-foreground">AI Assistant</span>
         <div className="ml-auto flex items-center gap-0.5">
-          <button
-            onClick={() => chat.newChat.mutate()}
-            disabled={disabled || !chat.sessionId || chat.newChat.isPending}
-            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40"
-            title="New chat"
-            aria-label="New chat"
-          >
-            <MessageSquarePlus size={14} />
-          </button>
+          <Tip label="New chat">
+            <button
+              onClick={() => chat.newChat.mutate()}
+              disabled={disabled || !chat.sessionId || chat.newChat.isPending}
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40"
+              aria-label="New chat"
+            >
+              <MessageSquarePlus size={14} />
+            </button>
+          </Tip>
           {onClose && (
             <button
               onClick={onClose}

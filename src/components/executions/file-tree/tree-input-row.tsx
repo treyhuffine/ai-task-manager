@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ChevronRight, File as FileIcon, Folder, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface TreeInputRowProps {
   /** Render depth in the tree — keeps the input visually aligned with siblings. */
@@ -104,12 +105,13 @@ export function TreeInputRow({
         <Loader2 size={11} className="shrink-0 animate-spin text-muted-foreground" />
       )}
       {errorMessage && !isBusy && (
-        <span
-          className="shrink-0 text-[10px] text-destructive truncate max-w-[140px]"
-          title={errorMessage}
-        >
-          {errorMessage}
-        </span>
+        <Tip label={errorMessage}>
+          <span
+            className="shrink-0 text-[10px] text-destructive truncate max-w-[140px]"
+          >
+            {errorMessage}
+          </span>
+        </Tip>
       )}
     </div>
   );

@@ -5,6 +5,7 @@ import { Loader2, CheckCircle2, XCircle, ChevronRight, RefreshCw, AlertTriangle,
 import { cn } from '@/lib/utils';
 import { usePreviewSettings, useUpdatePreviewSettings, useTestBeamd, useConnectDevice } from '@/hooks/use-preview';
 import type { BeamdBinInfo } from '@/lib/api/preview';
+import { Tip } from '@/components/ui/tip';
 
 const BIN_SOURCE_LABEL: Record<BeamdBinInfo['source'], string> = {
   env: 'RI_BEAMD_BIN',
@@ -17,9 +18,11 @@ const BIN_SOURCE_LABEL: Record<BeamdBinInfo['source'], string> = {
 /** "via beamd 0.0.3 · your installed beamd" — which binary Ri resolved to. */
 function BinLine({ bin }: { bin: BeamdBinInfo }) {
   return (
-    <p className="text-[11px] text-muted-foreground/70" title={bin.path}>
-      via beamd{bin.version ? ` ${bin.version}` : ''} · {BIN_SOURCE_LABEL[bin.source]}
-    </p>
+    <Tip label={bin.path}>
+      <p className="text-[11px] text-muted-foreground/70">
+        via beamd{bin.version ? ` ${bin.version}` : ''} · {BIN_SOURCE_LABEL[bin.source]}
+      </p>
+    </Tip>
   );
 }
 
@@ -130,16 +133,17 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
           </p>
           {bin && <BinLine bin={bin} />}
           <div className="flex items-center gap-2 pt-0.5">
-            <button
-              type="button"
-              onClick={runTest}
-              disabled={test.isPending}
-              className="flex items-center gap-1.5 rounded border border-border bg-background px-2.5 py-1.5 text-[12px] font-medium text-foreground hover:bg-muted disabled:opacity-50"
-              title="Authenticate against the edge (beamd check)"
-            >
-              {test.isPending && <Loader2 size={12} className="animate-spin" />}
-              Test connection
-            </button>
+            <Tip label="Authenticate against the edge (beamd check)">
+              <button
+                type="button"
+                onClick={runTest}
+                disabled={test.isPending}
+                className="flex items-center gap-1.5 rounded border border-border bg-background px-2.5 py-1.5 text-[12px] font-medium text-foreground hover:bg-muted disabled:opacity-50"
+              >
+                {test.isPending && <Loader2 size={12} className="animate-spin" />}
+                Test connection
+              </button>
+            </Tip>
             <button
               type="button"
               onClick={disconnect}
@@ -278,16 +282,17 @@ export function BeamdConnect({ onConnected }: { onConnected?: () => void }) {
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => refetch()}
-            disabled={isFetching}
-            title="Check whether this machine already has a beamd login (e.g. from `beamd login` in a terminal)"
-            className="flex items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-          >
-            <RefreshCw size={11} className={cn(isFetching && 'animate-spin')} />
-            Already logged in? Re-check
-          </button>
+          <Tip label="Check whether this machine already has a beamd login (e.g. from `beamd login` in a terminal)">
+            <button
+              type="button"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="flex items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+            >
+              <RefreshCw size={11} className={cn(isFetching && 'animate-spin')} />
+              Already logged in? Re-check
+            </button>
+          </Tip>
         </>
       )}
 

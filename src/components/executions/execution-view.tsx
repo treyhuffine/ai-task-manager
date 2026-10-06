@@ -63,6 +63,7 @@ import { ResizeHandle } from './workbench/resize-handle';
 import { MobileDestination, MobileToolsSheet } from './workbench/mobile-workbench';
 import type { WorkbenchViewContext } from './workbench/workbench-views';
 import { isImportMirror } from '@/lib/import/mirror';
+import { Tip } from '@/components/ui/tip';
 
 interface ExecutionViewProps {
   sessionId: string;
@@ -798,21 +799,23 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
           <div ref={rowRef} className={cn('relative flex min-h-0 flex-1', terminalMax && 'hidden')}>
             {maximized && (
               <div key="strip" className="flex w-11 flex-shrink-0 flex-col items-center gap-2 border-r border-border py-2">
-                <button
-                  type="button"
-                  onClick={() => workbench.dispatch({ type: 'toggleMaximize' })}
-                  title="Bring the chat back (Esc)"
-                  aria-label="Bring the chat back"
-                  className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-                >
-                  <MessageSquare size={15} />
-                </button>
+                <Tip label="Bring the chat back" shortcut="Esc">
+                  <button
+                    type="button"
+                    onClick={() => workbench.dispatch({ type: 'toggleMaximize' })}
+                    aria-label="Bring the chat back"
+                    className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                  >
+                    <MessageSquare size={15} />
+                  </button>
+                </Tip>
                 {(isRunning || needsInput) && (
-                  <span
-                    aria-label={needsInput ? 'Needs input' : 'Working'}
-                    title={needsInput ? 'This chat needs input' : 'This chat is working'}
-                    className={cn('h-1.5 w-1.5 animate-pulse rounded-full', needsInput ? 'bg-amber-500' : 'bg-emerald-500')}
-                  />
+                  <Tip label={needsInput ? 'This chat needs input' : 'This chat is working'}>
+                    <span
+                      aria-label={needsInput ? 'Needs input' : 'Working'}
+                      className={cn('h-1.5 w-1.5 animate-pulse rounded-full', needsInput ? 'bg-amber-500' : 'bg-emerald-500')}
+                    />
+                  </Tip>
                 )}
                 <span className="mt-1 max-h-60 truncate text-[11.5px] text-muted-foreground [writing-mode:vertical-rl] rotate-180">
                   {chatLabel}

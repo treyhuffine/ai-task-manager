@@ -14,6 +14,7 @@ import { DeckVersionList, type DeckVersionSummary } from './deck-change-brief';
 import type { DeckItem, DeckChangeView } from '@/types/dashboard';
 import type { TaskRecord } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
+import { Tip } from '@/components/ui/tip';
 
 interface DeckFocusedViewProps {
   items: DeckItem[];
@@ -134,17 +135,18 @@ export function DeckFocusedView({
 
       {/* ── Framing: the deck-level "why", as a glimpse ── */}
       {framing && (
-        <button
-          type="button"
-          onClick={() => setFramingOpen((v) => !v)}
-          title={framingOpen ? 'Collapse' : 'Show full note'}
-          className={cn(
-            'mb-2.5 block w-full px-1 text-left text-xs leading-relaxed text-muted-foreground/70 transition-colors hover:text-muted-foreground',
-            !framingOpen && 'line-clamp-1',
-          )}
-        >
-          {framing}
-        </button>
+        <Tip label={framingOpen ? 'Collapse' : 'Show full note'}>
+          <button
+            type="button"
+            onClick={() => setFramingOpen((v) => !v)}
+            className={cn(
+              'mb-2.5 block w-full px-1 text-left text-xs leading-relaxed text-muted-foreground/70 transition-colors hover:text-muted-foreground',
+              !framingOpen && 'line-clamp-1',
+            )}
+          >
+            {framing}
+          </button>
+        </Tip>
       )}
 
       {/* ── Add: create a new task or pull an existing one ── */}

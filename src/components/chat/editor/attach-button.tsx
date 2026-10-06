@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, FileText, ImageIcon, Paperclip } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface AttachButtonProps {
   onPick: (file: File) => void;
@@ -67,22 +68,23 @@ export function AttachButton({
   return (
     <Popover open={isCoarse && open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          onClick={handleClick}
-          disabled={disabled}
-          title={title}
-          aria-label={title}
-          className={cn(
-            'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
-            disabled
-              ? 'text-muted-foreground/40 cursor-not-allowed'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
-            className,
-          )}
-        >
-          <Paperclip size={iconSize} />
-        </button>
+        <Tip label={title}>
+          <button
+            type="button"
+            onClick={handleClick}
+            disabled={disabled}
+            aria-label={title}
+            className={cn(
+              'w-7 h-7 rounded-md flex items-center justify-center transition-colors',
+              disabled
+                ? 'text-muted-foreground/40 cursor-not-allowed'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
+              className,
+            )}
+          >
+            <Paperclip size={iconSize} />
+          </button>
+        </Tip>
       </PopoverTrigger>
       {isCoarse && (
         <PopoverContent

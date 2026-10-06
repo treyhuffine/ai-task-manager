@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { attachmentUrl } from '@/lib/attachments/view';
 import { resolveMime } from '@/lib/attachments/mime';
 import { FILE_LINK_RE, renderFileLinkMarkdown } from './file-link-marker';
+import { Tip } from '@/components/ui/tip';
 
 export const FILE_LINK_NAME = 'fileLink';
 
@@ -74,15 +75,17 @@ function FileLinkView({ node, selected }: NodeViewProps) {
         data-drag-handle="false"
         className={cn('inline-block max-w-full align-middle my-1', selected && 'ring-2 ring-primary/40 rounded-lg')}
       >
-        <a href={url} target="_blank" rel="noopener noreferrer" title={`${fileName} (opens full size)`}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={url}
-            alt={fileName}
-            onError={() => setBroken(true)}
-            className="block max-h-96 max-w-full rounded-lg border border-border"
-          />
-        </a>
+        <Tip label={`${fileName} (opens full size)`}>
+          <a href={url} target="_blank" rel="noopener noreferrer" aria-label={`${fileName} (opens full size)`}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={url}
+              alt={fileName}
+              onError={() => setBroken(true)}
+              className="block max-h-96 max-w-full rounded-lg border border-border"
+            />
+          </a>
+        </Tip>
       </NodeViewWrapper>
     );
   }
@@ -99,10 +102,12 @@ function FileLinkView({ node, selected }: NodeViewProps) {
         selected && 'ring-2 ring-primary/40 border-primary/40',
       )}
     >
-      <a href={url} download={fileName} className="inline-flex items-center gap-1 text-foreground! no-underline!" title={broken ? `${fileName} isn't in the attachments folder` : `Download ${fileName}`}>
-        {broken ? <ImageOff size={11} className="shrink-0 text-muted-foreground/80" /> : <Download size={11} className="shrink-0 text-muted-foreground/80" />}
-        <span className="font-mono text-[11px] truncate max-w-[240px]">{fileName}</span>
-      </a>
+      <Tip label={broken ? `${fileName} isn't in the attachments folder` : `Download ${fileName}`}>
+        <a href={url} download={fileName} className="inline-flex items-center gap-1 text-foreground! no-underline!">
+          {broken ? <ImageOff size={11} className="shrink-0 text-muted-foreground/80" /> : <Download size={11} className="shrink-0 text-muted-foreground/80" />}
+          <span className="font-mono text-[11px] truncate max-w-[240px]">{fileName}</span>
+        </a>
+      </Tip>
     </NodeViewWrapper>
   );
 }

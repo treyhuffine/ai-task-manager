@@ -6,6 +6,7 @@ import { useEntityVersions, groupVersions, type VersionedEntityType } from '@/ho
 import { EntityDiffModal } from './entity-diff-modal';
 import { cn } from '@/lib/utils';
 import { ENTITY_HEADER_LABEL } from './entity-header';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * Top-level "review changes" affordance for a note/task — the discoverable
@@ -33,22 +34,23 @@ export function EntityHistoryButton({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        title={aiLatest ? 'Review changes' : 'History'}
-        aria-label={aiLatest ? 'Review changes' : 'History'}
-        className={cn(
-          'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
-          aiLatest
-            ? 'bg-primary/10 text-primary hover:bg-primary/20'
-            : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-          className,
-        )}
-      >
-        <History size={12} />
-        <span className={ENTITY_HEADER_LABEL}>{aiLatest ? 'Review changes' : 'History'}</span>
-      </button>
+      <Tip label={aiLatest ? 'Review changes' : 'History'}>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label={aiLatest ? 'Review changes' : 'History'}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+            aiLatest
+              ? 'bg-primary/10 text-primary hover:bg-primary/20'
+              : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+            className,
+          )}
+        >
+          <History size={12} />
+          <span className={ENTITY_HEADER_LABEL}>{aiLatest ? 'Review changes' : 'History'}</span>
+        </button>
+      </Tip>
       {open && (
         <EntityDiffModal open={open} onClose={() => setOpen(false)} entityType={entityType} entityId={entityId} />
       )}

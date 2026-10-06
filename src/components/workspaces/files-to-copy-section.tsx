@@ -4,6 +4,7 @@ import { ChevronDown, FileText, Loader2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { workspacesApi, type PreviewFilesToCopyResponse } from '@/lib/api/workspaces';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface FilesToCopySectionProps {
   /** Globs as a string array. Empty array = nothing copied. */
@@ -178,9 +179,11 @@ export function FilesToCopySection({
               ) : (
                 <ul className="font-mono text-[10.5px] text-foreground/80">
                   {preview.files.map((f) => (
-                    <li key={f} className="px-2.5 py-0.5 hover:bg-muted/40 truncate" title={f}>
-                      {f}
-                    </li>
+                    <Tip key={f} label={f}>
+                      <li className="px-2.5 py-0.5 hover:bg-muted/40 truncate">
+                        {f}
+                      </li>
+                    </Tip>
                   ))}
                   {preview.truncated && (
                     <li className="px-2.5 py-1 text-muted-foreground/60 italic">

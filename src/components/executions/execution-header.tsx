@@ -34,6 +34,7 @@ import { RestartMenuItem } from './restart-menu-item';
 import { ResyncMenuItem } from './resync-menu-item';
 import { useSteadyRunning } from './steady-running';
 import { LocationMenu, MoveActions } from './transfer/location-menu';
+import { Tip } from '@/components/ui/tip';
 
 interface ExecutionHeaderProps {
   session: ChatSessionWithExecution;
@@ -220,15 +221,16 @@ export function ExecutionHeader({
     remote ? { name: remote.name, lastSeenAt: device?.lastSeenAt ?? null } : null,
   );
   const statusEl = (
-    <span
-      title={chatStatus.title}
-      aria-label={`Status: ${chatStatus.label}${chatStatus.detail ? `, ${chatStatus.detail}` : ''}`}
-      className={cn('inline-flex min-w-0 cursor-default items-center gap-1.5 whitespace-nowrap text-[12px]', TONE_TEXT[chatStatus.tone])}
-    >
-      <span aria-hidden className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', TONE_DOT[chatStatus.tone], chatStatus.pulse && 'animate-pulse')} />
-      <span>{chatStatus.label}</span>
-      {chatStatus.detail && <span className="truncate text-muted-foreground/80">· {chatStatus.detail}</span>}
-    </span>
+    <Tip label={chatStatus.title}>
+      <span
+        aria-label={`Status: ${chatStatus.label}${chatStatus.detail ? `, ${chatStatus.detail}` : ''}`}
+        className={cn('inline-flex min-w-0 cursor-default items-center gap-1.5 whitespace-nowrap text-[12px]', TONE_TEXT[chatStatus.tone])}
+      >
+        <span aria-hidden className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', TONE_DOT[chatStatus.tone], chatStatus.pulse && 'animate-pulse')} />
+        <span>{chatStatus.label}</span>
+        {chatStatus.detail && <span className="truncate text-muted-foreground/80">· {chatStatus.detail}</span>}
+      </span>
+    </Tip>
   );
 
   const handleArchive = () => {
@@ -347,9 +349,11 @@ export function ExecutionHeader({
   const menu = (align: 'start' | 'end', triggerClass: string, iconSize: number) => (
     <PopoverPrimitive.Root>
       <PopoverPrimitive.Trigger asChild>
-        <button type="button" aria-label="Execution menu" title="Execution menu" className={triggerClass}>
-          <MoreHorizontal size={iconSize} />
-        </button>
+        <Tip label="Execution menu">
+          <button type="button" aria-label="Execution menu" className={triggerClass}>
+            <MoreHorizontal size={iconSize} />
+          </button>
+        </Tip>
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
@@ -456,20 +460,21 @@ export function ExecutionHeader({
           <div className="flex items-center gap-1.5 min-w-0">
             {workspace?.emoji && <span className="text-base flex-shrink-0">{workspace.emoji}</span>}
             {labelElement ?? (
-              <button
-                type="button"
-                onClick={beginRename}
-                title="Rename"
-                className={cn(
-                  'truncate text-left rounded px-1 -mx-1 py-0.5',
-                  'active:bg-muted/40 transition-colors cursor-text',
-                  displayLabel
-                    ? 'text-foreground font-semibold text-[14.5px]'
-                    : 'text-muted-foreground/70 italic font-normal text-[14.5px]',
-                )}
-              >
-                {displayLabel ?? 'Untitled'}
-              </button>
+              <Tip label="Rename">
+                <button
+                  type="button"
+                  onClick={beginRename}
+                  className={cn(
+                    'truncate text-left rounded px-1 -mx-1 py-0.5',
+                    'active:bg-muted/40 transition-colors cursor-text',
+                    displayLabel
+                      ? 'text-foreground font-semibold text-[14.5px]'
+                      : 'text-muted-foreground/70 italic font-normal text-[14.5px]',
+                  )}
+                >
+                  {displayLabel ?? 'Untitled'}
+                </button>
+              </Tip>
             )}
           </div>
           <div className="flex items-center gap-1.5 min-w-0 pl-0.5">
@@ -498,32 +503,34 @@ export function ExecutionHeader({
           {/* Breadcrumb: the agent opens its view, the way back up from
               the workbench to the oversight surface. */}
           {workspace ? (
-            <button
-              type="button"
-              onClick={() => openAgent(workspace.id)}
-              title={`Open ${workspace.name}`}
-              className="flex items-center gap-1.5 min-w-0 flex-shrink-0 rounded px-0.5 -mx-0.5 hover:text-foreground hover:bg-muted/50 transition-colors"
-            >
-              {workspace.emoji && <span className="flex-shrink-0">{workspace.emoji}</span>}
-              <span className="font-medium truncate max-w-[14rem] @max-[1120px]/exec:hidden">{workspace.name}</span>
-            </button>
+            <Tip label={`Open ${workspace.name}`}>
+              <button
+                type="button"
+                onClick={() => openAgent(workspace.id)}
+                className="flex items-center gap-1.5 min-w-0 flex-shrink-0 rounded px-0.5 -mx-0.5 hover:text-foreground hover:bg-muted/50 transition-colors"
+              >
+                {workspace.emoji && <span className="flex-shrink-0">{workspace.emoji}</span>}
+                <span className="font-medium truncate max-w-[14rem] @max-[1120px]/exec:hidden">{workspace.name}</span>
+              </button>
+            </Tip>
           ) : (
             <span className="font-medium truncate">Agent</span>
           )}
           <span className="text-muted-foreground/40 flex-shrink-0" aria-hidden>›</span>
           {labelElement ?? (
-            <button
-              type="button"
-              onClick={beginRename}
-              title="Rename"
-              className={cn(
-                'truncate text-left rounded px-0.5 -mx-0.5 min-w-0 text-[13px]',
-                'hover:bg-muted/50 transition-colors cursor-text',
-                displayLabel ? 'text-foreground font-semibold' : 'text-muted-foreground/60 italic font-normal',
-              )}
-            >
-              {displayLabel ?? 'Untitled'}
-            </button>
+            <Tip label="Rename">
+              <button
+                type="button"
+                onClick={beginRename}
+                className={cn(
+                  'truncate text-left rounded px-0.5 -mx-0.5 min-w-0 text-[13px]',
+                  'hover:bg-muted/50 transition-colors cursor-text',
+                  displayLabel ? 'text-foreground font-semibold' : 'text-muted-foreground/60 italic font-normal',
+                )}
+              >
+                {displayLabel ?? 'Untitled'}
+              </button>
+            </Tip>
           )}
         </div>
 
@@ -540,14 +547,16 @@ export function ExecutionHeader({
               on={workbench.terminalOpen}
               onClick={workbench.onToggleTerminal}
               label="Terminal"
-              title={`${workbench.terminalOpen ? 'Hide' : 'Show'} the terminal (${HOTKEYS.toggleTerminal.label}). Shells keep running.`}
+              title={`${workbench.terminalOpen ? 'Hide' : 'Show'} the terminal. Shells keep running.`}
+              shortcut={HOTKEYS.toggleTerminal.label}
               icon={<BottomPanelIcon filled={workbench.terminalOpen} />}
             />
             <ToggleButton
               on={workbench.panelOpen}
               onClick={workbench.onTogglePanel}
               label="Tools"
-              title={`${workbench.panelOpen ? 'Hide the tools panel' : `Show ${workbench.panelLabel}`} (${HOTKEYS.toggleTools.label})`}
+              title={workbench.panelOpen ? 'Hide the tools panel' : `Show ${workbench.panelLabel}`}
+              shortcut={HOTKEYS.toggleTools.label}
               icon={<RightPanelIcon filled={workbench.panelOpen} />}
             />
           </>
@@ -580,28 +589,31 @@ function ToggleButton({
   onClick,
   label,
   title,
+  shortcut,
   icon,
 }: {
   on: boolean;
   onClick: () => void;
   label: string;
   title: string;
+  shortcut: string;
   icon: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      aria-pressed={on}
-      className={cn(
-        'flex h-7 flex-shrink-0 items-center gap-1.5 rounded-md px-2 text-[12.5px] font-medium transition-colors',
-        on ? 'bg-muted/70 text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-      )}
-    >
-      {icon}
-      <span className="@max-[1040px]/exec:hidden">{label}</span>
-    </button>
+    <Tip label={title} shortcut={shortcut}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={on}
+        className={cn(
+          'flex h-7 flex-shrink-0 items-center gap-1.5 rounded-md px-2 text-[12.5px] font-medium transition-colors',
+          on ? 'bg-muted/70 text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+        )}
+      >
+        {icon}
+        <span className="@max-[1040px]/exec:hidden">{label}</span>
+      </button>
+    </Tip>
   );
 }
 
@@ -828,23 +840,24 @@ function CopyableDetailRow({
       <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 w-16 flex-shrink-0">
         {label}
       </span>
-      <button
-        type="button"
-        onClick={handleCopy}
-        title={`Copy ${copyLabel}`}
-        className={cn(
-          'group flex flex-1 min-w-0 items-center gap-1.5 text-left',
-          'font-mono text-[11px] text-foreground/80 hover:text-foreground',
-          'rounded px-1 -mx-1 py-0.5 hover:bg-muted/60 transition-colors',
-        )}
-      >
-        <span className="flex-1 min-w-0 truncate">{value}</span>
-        {copied ? (
-          <Check size={11} className="flex-shrink-0 text-emerald-500" />
-        ) : (
-          <Copy size={11} className="flex-shrink-0 text-muted-foreground/60 group-hover:text-muted-foreground" />
-        )}
-      </button>
+      <Tip label={`Copy ${copyLabel}`}>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className={cn(
+            'group flex flex-1 min-w-0 items-center gap-1.5 text-left',
+            'font-mono text-[11px] text-foreground/80 hover:text-foreground',
+            'rounded px-1 -mx-1 py-0.5 hover:bg-muted/60 transition-colors',
+          )}
+        >
+          <span className="flex-1 min-w-0 truncate">{value}</span>
+          {copied ? (
+            <Check size={11} className="flex-shrink-0 text-emerald-500" />
+          ) : (
+            <Copy size={11} className="flex-shrink-0 text-muted-foreground/60 group-hover:text-muted-foreground" />
+          )}
+        </button>
+      </Tip>
     </div>
   );
 }
@@ -903,16 +916,17 @@ function LinkPrSection({ session }: LinkPrSectionProps) {
           <span className="text-foreground">
             Linked to{' '}
             {openablePr?.number === linkedNumber ? (
-              <a
-                href={openablePr.url}
-                target="_blank"
-                rel="noreferrer"
-                title={`Open PR #${linkedNumber} on GitHub`}
-                className="inline-flex items-center gap-0.5 font-mono underline-offset-2 hover:underline"
-              >
-                #{linkedNumber}
-                <ArrowUpRight size={11} className="opacity-70" />
-              </a>
+              <Tip label={`Open PR #${linkedNumber} on GitHub`}>
+                <a
+                  href={openablePr.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-0.5 font-mono underline-offset-2 hover:underline"
+                >
+                  #{linkedNumber}
+                  <ArrowUpRight size={11} className="opacity-70" />
+                </a>
+              </Tip>
             ) : (
               <span className="font-mono">#{linkedNumber}</span>
             )}

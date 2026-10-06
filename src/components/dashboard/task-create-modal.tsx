@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Dialog as DialogPrimitive, VisuallyHidden } from "radix-ui";
 import { useCallback, useRef, useState } from "react";
+import { Tip } from "@/components/ui/tip";
 
 interface TaskCreateModalProps {
   open: boolean;
@@ -179,13 +180,15 @@ export function TaskCreateModal({ open, onOpenChange }: TaskCreateModalProps) {
                   autoFocus
                 />
               </div>
-              <button
-                onClick={handleExpand}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex-shrink-0"
-                title="Expand to full editor"
-              >
-                <Expand size={16} />
-              </button>
+              <Tip label="Expand to full editor">
+                <button
+                  onClick={handleExpand}
+                  className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex-shrink-0"
+                  aria-label="Expand to full editor"
+                >
+                  <Expand size={16} />
+                </button>
+              </Tip>
             </div>
 
             {/* Description — TipTap rich editor */}
@@ -320,13 +323,14 @@ export function TaskCreateModal({ open, onOpenChange }: TaskCreateModalProps) {
               </div>
 
               {/* Attachments placeholder */}
-              <button
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                title="Attachments (coming soon)"
-              >
-                <Paperclip size={13} />
-                Attach
-              </button>
+              <Tip label="Attachments (coming soon)">
+                <button
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                >
+                  <Paperclip size={13} />
+                  Attach
+                </button>
+              </Tip>
             </div>
 
             {/* Footer */}

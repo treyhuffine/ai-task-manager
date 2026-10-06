@@ -15,6 +15,7 @@ import type { RailSession } from '@/lib/api/sessions';
 import { executionView } from '@/lib/client/active-view';
 import { useAgentAttention, type AgentAttentionItem } from '@/hooks/use-agent-attention';
 import { AgentAttentionRow } from '@/components/workspaces/agent-attention-row';
+import { Tip } from '@/components/ui/tip';
 
 // Top-HUD status pills: every active execution by status, as a compact
 // dot+count strip that stays visible regardless of rail collapse state or
@@ -77,21 +78,22 @@ function StatusPill({ bucketId, sessions, agents }: StatusPillProps) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          aria-label={`${cfg.label}: ${count}`}
-          title={cfg.label}
-          className={cn(
-            'flex items-center gap-1 px-1.5 h-[18px] rounded text-[10px] transition-[filter]',
-            'hover:brightness-110 dark:hover:brightness-125',
-            'data-[state=open]:brightness-110 dark:data-[state=open]:brightness-125',
-            cfg.countBgClass,
-          )}
-        >
-          <span className="flex items-center justify-center [&_svg]:size-[10px]">
-            {cfg.icon}
-          </span>
-          <span className="font-mono font-semibold tabular-nums">{count}</span>
-        </button>
+        <Tip label={cfg.label}>
+          <button
+            aria-label={`${cfg.label}: ${count}`}
+            className={cn(
+              'flex items-center gap-1 px-1.5 h-[18px] rounded text-[10px] transition-[filter]',
+              'hover:brightness-110 dark:hover:brightness-125',
+              'data-[state=open]:brightness-110 dark:data-[state=open]:brightness-125',
+              cfg.countBgClass,
+            )}
+          >
+            <span className="flex items-center justify-center [&_svg]:size-[10px]">
+              {cfg.icon}
+            </span>
+            <span className="font-mono font-semibold tabular-nums">{count}</span>
+          </button>
+        </Tip>
       </PopoverTrigger>
       <PopoverContent
         align="start"

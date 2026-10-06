@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { attachmentUrl } from '@/lib/attachments/view';
 import { getAuthToken } from '@/lib/api/client';
 import type { Attachment } from '@/db/types';
+import { Tip } from '@/components/ui/tip';
 
 interface MessageFileChipProps {
   attachment: Attachment;
@@ -48,18 +49,20 @@ function ImageThumb({ url, display, variant, size }: {
   const [open, setOpen] = useState(false);
   return (
     <span className={cn(variant === 'block' && 'block my-1')}>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className={cn(
-          'inline-block align-middle mx-0.5 rounded-md border border-border overflow-hidden',
-          'hover:border-foreground/30 transition-colors',
-          'cursor-zoom-in',
-        )}
-        title={`${display} · ${formatSize(size)}`}
-      >
-        <AuthedImage src={url} alt={display} className="block max-h-32 max-w-[14rem] object-cover" />
-      </button>
+      <Tip label={`${display} · ${formatSize(size)}`}>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={cn(
+            'inline-block align-middle mx-0.5 rounded-md border border-border overflow-hidden',
+            'hover:border-foreground/30 transition-colors',
+            'cursor-zoom-in',
+          )}
+          aria-label={`${display} · ${formatSize(size)}`}
+        >
+          <AuthedImage src={url} alt={display} className="block max-h-32 max-w-[14rem] object-cover" />
+        </button>
+      </Tip>
       {open && <Lightbox url={url} alt={display} onClose={() => setOpen(false)} />}
     </span>
   );
@@ -127,26 +130,27 @@ function TextExpandChip({ url, display, variant, size }: {
 
   return (
     <span className={cn(variant === 'block' && 'block my-1')}>
-      <button
-        type="button"
-        onClick={handleToggle}
-        className={cn(
-          'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
-          'rounded-md border border-border bg-muted/40 text-foreground text-[12px] font-medium',
-          'hover:border-foreground/30 hover:bg-muted/60 transition-colors',
-          'cursor-pointer',
-        )}
-        title={`${display} · ${formatSize(size)}`}
-      >
-        <FileText size={11} className="text-muted-foreground/80 shrink-0" />
-        <span className="font-mono text-[11px] truncate max-w-[200px]">{display}</span>
-        <span className="text-[10px] text-muted-foreground/70 ml-0.5">{formatSize(size)}</span>
-        {open ? (
-          <ChevronDown size={10} className="text-muted-foreground/70" />
-        ) : (
-          <ChevronRight size={10} className="text-muted-foreground/70" />
-        )}
-      </button>
+      <Tip label={`${display} · ${formatSize(size)}`}>
+        <button
+          type="button"
+          onClick={handleToggle}
+          className={cn(
+            'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
+            'rounded-md border border-border bg-muted/40 text-foreground text-[12px] font-medium',
+            'hover:border-foreground/30 hover:bg-muted/60 transition-colors',
+            'cursor-pointer',
+          )}
+        >
+          <FileText size={11} className="text-muted-foreground/80 shrink-0" />
+          <span className="font-mono text-[11px] truncate max-w-[200px]">{display}</span>
+          <span className="text-[10px] text-muted-foreground/70 ml-0.5">{formatSize(size)}</span>
+          {open ? (
+            <ChevronDown size={10} className="text-muted-foreground/70" />
+          ) : (
+            <ChevronRight size={10} className="text-muted-foreground/70" />
+          )}
+        </button>
+      </Tip>
       {open && (
         <span className="block mt-1 mb-2 rounded-md border border-border bg-muted/30 max-h-72 overflow-y-auto">
           {loading ? (
@@ -174,23 +178,24 @@ function DownloadChip({ url, display, variant, size, mime }: {
 }) {
   return (
     <span className={cn(variant === 'block' && 'block my-1')}>
-      <a
-        href={url}
-        download={display}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={cn(
-          'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
-          'rounded-md border border-border bg-muted/40 text-foreground text-[12px] font-medium',
-          'hover:border-foreground/30 hover:bg-muted/60 transition-colors',
-          'cursor-pointer no-underline',
-        )}
-        title={`${display} · ${mime} · ${formatSize(size)}`}
-      >
-        <Download size={11} className="text-muted-foreground/80 shrink-0" />
-        <span className="font-mono text-[11px] truncate max-w-[200px]">{display}</span>
-        <span className="text-[10px] text-muted-foreground/70 ml-0.5">{formatSize(size)}</span>
-      </a>
+      <Tip label={`${display} · ${mime} · ${formatSize(size)}`}>
+        <a
+          href={url}
+          download={display}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(
+            'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
+            'rounded-md border border-border bg-muted/40 text-foreground text-[12px] font-medium',
+            'hover:border-foreground/30 hover:bg-muted/60 transition-colors',
+            'cursor-pointer no-underline',
+          )}
+        >
+          <Download size={11} className="text-muted-foreground/80 shrink-0" />
+          <span className="font-mono text-[11px] truncate max-w-[200px]">{display}</span>
+          <span className="text-[10px] text-muted-foreground/70 ml-0.5">{formatSize(size)}</span>
+        </a>
+      </Tip>
     </span>
   );
 }

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { setSettingsSection } from './settings-store';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * CRUD for the remote base URL stored in ~/<APP_SHORT_ID>/config.json.
@@ -288,16 +289,17 @@ export function RemoteBaseUrlSection() {
               Connect Beamd
             </Button>
           )}
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={() => refetchPreviewSettings()}
-            disabled={checkingBeamd}
-            title="Check whether this machine already has a Beamd login from the terminal"
-          >
-            <RefreshCw size={11} className={checkingBeamd ? 'animate-spin' : ''} />
-            Re-check
-          </Button>
+          <Tip label="Check whether this machine already has a Beamd login from the terminal">
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => refetchPreviewSettings()}
+              disabled={checkingBeamd}
+            >
+              <RefreshCw size={11} className={checkingBeamd ? 'animate-spin' : ''} />
+              Re-check
+            </Button>
+          </Tip>
         </div>
       </div>
 
@@ -385,30 +387,33 @@ export function RemoteBaseUrlSection() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 pt-0.5">
-        <Button
-          size="xs"
-          variant="outline"
-          onClick={() => {
-            if (beamdConnected) {
-              beamdMutation.mutate();
-            } else {
-              setSettingsSection('remote-preview');
-            }
-          }}
-          disabled={busy || checkingBeamd}
-          title={
+        <Tip
+          label={
             beamdConnected
               ? 'Open a Beamd tunnel to this Ri server and save the returned URL'
               : 'Connect this machine to Beamd first'
           }
         >
-          {beamdMutation.isPending ? (
-            <Loader2 size={11} className="animate-spin" />
-          ) : (
-            <Link size={11} />
-          )}
-          {beamdConnected ? 'Use Beamd URL' : 'Connect Beamd'}
-        </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => {
+              if (beamdConnected) {
+                beamdMutation.mutate();
+              } else {
+                setSettingsSection('remote-preview');
+              }
+            }}
+            disabled={busy || checkingBeamd}
+          >
+            {beamdMutation.isPending ? (
+              <Loader2 size={11} className="animate-spin" />
+            ) : (
+              <Link size={11} />
+            )}
+            {beamdConnected ? 'Use Beamd URL' : 'Connect Beamd'}
+          </Button>
+        </Tip>
         <Button
           size="xs"
           variant="outline"
@@ -505,16 +510,17 @@ export function RemoteBaseUrlSection() {
                 Save name
               </Button>
               {nameSaved && !nameLocked && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => nameMutation.mutate(null)}
-                  disabled={busy}
-                  title={`Revert to the default name (${data?.defaultTunnelName ?? APP_SHORT_ID})`}
-                  aria-label="Revert to the default tunnel name"
-                >
-                  <Trash2 size={12} />
-                </Button>
+                <Tip label={`Revert to the default name (${data?.defaultTunnelName ?? APP_SHORT_ID})`}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => nameMutation.mutate(null)}
+                    disabled={busy}
+                    aria-label="Revert to the default tunnel name"
+                  >
+                    <Trash2 size={12} />
+                  </Button>
+                </Tip>
               )}
             </div>
 

@@ -17,6 +17,7 @@ import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } fro
 import { cn } from '@/lib/utils';
 import { Clock, Flame, Loader2, RefreshCw, Zap } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * The agent-first surface for one note or task.
@@ -346,20 +347,20 @@ function TaskMetaStrip({ task }: { task: TaskRecord }) {
 
       <span className="text-muted-foreground/30">&middot;</span>
       {EFFORT_OPTIONS.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          title={`Effort: ${opt.value}`}
-          onClick={() => save({ effort: task.effort === opt.value ? null : opt.value })}
-          className={cn(
-            'rounded px-1.5 py-0.5 font-medium transition-colors',
-            task.effort === opt.value
-              ? 'bg-primary text-primary-foreground'
-              : 'text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground',
-          )}
-        >
-          {opt.label}
-        </button>
+        <Tip key={opt.value} label={`Effort: ${opt.value}`}>
+          <button
+            type="button"
+            onClick={() => save({ effort: task.effort === opt.value ? null : opt.value })}
+            className={cn(
+              'rounded px-1.5 py-0.5 font-medium transition-colors',
+              task.effort === opt.value
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground',
+            )}
+          >
+            {opt.label}
+          </button>
+        </Tip>
       ))}
     </div>
   );

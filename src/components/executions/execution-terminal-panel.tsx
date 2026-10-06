@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { ChevronDown, ChevronUp, Plus, Terminal as TerminalIcon, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ExecutionTerminalInstance } from './execution-terminal-instance';
+import { Tip } from '@/components/ui/tip';
 
 interface ExecutionTerminalPanelProps {
   /** Where the shells run: an execution's worktree, an agent's own folder, or Home's box. */
@@ -27,6 +28,8 @@ interface ExecutionTerminalPanelProps {
   onToggleCollapsed?: () => void;
   /** Tooltip for the collapse chevron, e.g. "Hide terminal". */
   collapseTitle?: string;
+  /** Shortcut shown in that tooltip, e.g. `HOTKEYS.toggleTerminal.label`. */
+  collapseShortcut?: string;
   /** Extra controls at the right of the tab strip, before the chevron. */
   headerExtra?: React.ReactNode;
 }
@@ -48,6 +51,7 @@ export function ExecutionTerminalPanel({
   collapsed,
   onToggleCollapsed,
   collapseTitle,
+  collapseShortcut,
   headerExtra,
 }: ExecutionTerminalPanelProps) {
   const { data: terminals = [], isLoading, error: listError } = useTerminals(source);
@@ -147,30 +151,32 @@ export function ExecutionTerminalPanel({
             />
           ))}
           {!collapsed && (
-            <button
-              type="button"
-              onClick={handleNew}
-              disabled={createTerminal.isPending || !!unavailable}
-              className="ml-0.5 inline-flex size-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-50"
-              title="New terminal"
-              aria-label="New terminal"
-            >
-              <Plus size={12} />
-            </button>
+            <Tip label="New terminal">
+              <button
+                type="button"
+                onClick={handleNew}
+                disabled={createTerminal.isPending || !!unavailable}
+                className="ml-0.5 inline-flex size-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-50"
+                aria-label="New terminal"
+              >
+                <Plus size={12} />
+              </button>
+            </Tip>
           )}
         </div>
         <TerminalWhere terminal={terminals.find((t) => t.id === activeId) ?? null} showDevice={severalDevices} />
         {headerExtra}
         {onToggleCollapsed && (
-          <button
-            type="button"
-            onClick={onToggleCollapsed}
-            className="inline-flex size-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 flex-shrink-0"
-            title={collapseTitle ?? (collapsed ? 'Expand terminal' : 'Collapse terminal')}
-            aria-label={collapseTitle ?? (collapsed ? 'Expand terminal' : 'Collapse terminal')}
-          >
-            {collapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          </button>
+          <Tip label={collapseTitle ?? (collapsed ? 'Expand terminal' : 'Collapse terminal')} shortcut={collapseShortcut}>
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              className="inline-flex size-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 flex-shrink-0"
+              aria-label={collapseTitle ?? (collapsed ? 'Expand terminal' : 'Collapse terminal')}
+            >
+              {collapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
+          </Tip>
         )}
       </div>
 
@@ -230,14 +236,15 @@ function TerminalWhere({ terminal, showDevice }: { terminal: TerminalDescriptor 
   const folder = terminal.cwd.split('/').filter(Boolean).slice(-2).join('/');
   const device = terminal.deviceName && (showDevice || !terminal.isHome) ? terminal.deviceName : null;
   return (
-    <span
-      className="hidden @md:block max-w-[40%] truncate px-2 text-[10px] text-zinc-500"
-      title={device ? `${terminal.cwd} on ${device}` : terminal.cwd}
-    >
-      {device && <span className="text-zinc-400">{device}</span>}
-      {device && ' · '}
-      {folder}
-    </span>
+    <Tip label={device ? `${terminal.cwd} on ${device}` : terminal.cwd}>
+      <span
+        className="hidden @md:block max-w-[40%] truncate px-2 text-[10px] text-zinc-500"
+      >
+        {device && <span className="text-zinc-400">{device}</span>}
+        {device && ' · '}
+        {folder}
+      </span>
+    </Tip>
   );
 }
 
@@ -264,18 +271,19 @@ function TerminalTab({ label, active, onActivate, onClose }: TerminalTabProps) {
         <TerminalIcon size={11} />
         <span>{label}</span>
       </button>
-      <button
-        type="button"
-        onClick={onClose}
-        className={cn(
-          'mr-1 inline-flex size-3.5 items-center justify-center rounded text-zinc-500 hover:bg-zinc-700 hover:text-zinc-100',
-          !active && 'opacity-0 group-hover:opacity-100',
-        )}
-        title="Close terminal"
-        aria-label="Close terminal"
-      >
-        <X size={9} />
-      </button>
+      <Tip label="Close terminal">
+        <button
+          type="button"
+          onClick={onClose}
+          className={cn(
+            'mr-1 inline-flex size-3.5 items-center justify-center rounded text-zinc-500 hover:bg-zinc-700 hover:text-zinc-100',
+            !active && 'opacity-0 group-hover:opacity-100',
+          )}
+          aria-label="Close terminal"
+        >
+          <X size={9} />
+        </button>
+      </Tip>
     </div>
   );
 }

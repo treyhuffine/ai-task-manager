@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { CheckSquare, Square, StickyNote, Notebook } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { EntityMarker } from '@/lib/entity-refs/parse-markers';
+import { Tip } from '@/components/ui/tip';
 
 export interface EntityLookup {
   tasksById: Map<string, { id: string; title: string; status: string }>;
@@ -64,15 +65,16 @@ function TaskChip({
   const status = task?.status ?? 'unknown';
   const Icon = status === 'done' ? CheckSquare : Square;
   return (
-    <button
-      type="button"
-      onClick={() => onOpen?.(marker)}
-      className={cn(CHIP_CLASSES, !task && 'opacity-70')}
-      title={task ? `Task: ${title}` : `Task ${marker.id} (not found)`}
-    >
-      <Icon size={11} className="shrink-0 text-muted-foreground/80" />
-      <span className="text-[11px] truncate max-w-[200px]">{title}</span>
-    </button>
+    <Tip label={task ? `Task: ${title}` : `Task ${marker.id} (not found)`}>
+      <button
+        type="button"
+        onClick={() => onOpen?.(marker)}
+        className={cn(CHIP_CLASSES, !task && 'opacity-70')}
+      >
+        <Icon size={11} className="shrink-0 text-muted-foreground/80" />
+        <span className="text-[11px] truncate max-w-[200px]">{title}</span>
+      </button>
+    </Tip>
   );
 }
 
@@ -87,15 +89,16 @@ function NoteChip({
 }) {
   const title = note?.title || (note ? 'Untitled note' : 'Unknown note');
   return (
-    <button
-      type="button"
-      onClick={() => onOpen?.(marker)}
-      className={cn(CHIP_CLASSES, !note && 'opacity-70')}
-      title={note ? `Note: ${title}` : `Note ${marker.id} (not found)`}
-    >
-      <StickyNote size={11} className="shrink-0 text-muted-foreground/80" />
-      <span className="text-[11px] truncate max-w-[200px]">{title}</span>
-    </button>
+    <Tip label={note ? `Note: ${title}` : `Note ${marker.id} (not found)`}>
+      <button
+        type="button"
+        onClick={() => onOpen?.(marker)}
+        className={cn(CHIP_CLASSES, !note && 'opacity-70')}
+      >
+        <StickyNote size={11} className="shrink-0 text-muted-foreground/80" />
+        <span className="text-[11px] truncate max-w-[200px]">{title}</span>
+      </button>
+    </Tip>
   );
 }
 
@@ -109,16 +112,17 @@ function ScratchpadChip({
   const [hover, setHover] = useState(false);
   const preview = lookup.scratchpad?.slice(0, 200) ?? '';
   return (
-    <button
-      type="button"
-      onClick={() => onOpen?.({ kind: 'scratchpad' })}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      className={CHIP_CLASSES}
-      title={hover && preview ? preview : 'Session scratchpad'}
-    >
-      <Notebook size={11} className="shrink-0 text-muted-foreground/80" />
-      <span className="text-[11px]">Scratchpad</span>
-    </button>
+    <Tip label={hover && preview ? preview : 'Session scratchpad'}>
+      <button
+        type="button"
+        onClick={() => onOpen?.({ kind: 'scratchpad' })}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        className={CHIP_CLASSES}
+      >
+        <Notebook size={11} className="shrink-0 text-muted-foreground/80" />
+        <span className="text-[11px]">Scratchpad</span>
+      </button>
+    </Tip>
   );
 }

@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 /** The control row. Owns the container context the controls collapse against. */
 export function ListToolbar({ className, children }: { className?: string; children: React.ReactNode }) {
@@ -62,15 +63,16 @@ export function ToolbarActiveDot({ className }: { className?: string }) {
 /** Icon-only search button, right-pinned by convention. */
 export function ToolbarSearchButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      className={cn(buttonVariants({ variant: 'outline', size: 'icon-sm' }), 'rounded-lg')}
-    >
-      <Search className="size-3.5" />
-    </button>
+    <Tip label={label}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        className={cn(buttonVariants({ variant: 'outline', size: 'icon-sm' }), 'rounded-lg')}
+      >
+        <Search className="size-3.5" />
+      </button>
+    </Tip>
   );
 }
 
@@ -87,15 +89,16 @@ export function ToolbarToggle({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      title={title}
-      className={toolbarButtonClass({ active, className: 'uppercase tracking-wide' })}
-    >
-      {children}
-    </button>
+    <Tip label={title}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={active}
+        className={toolbarButtonClass({ active, className: 'uppercase tracking-wide' })}
+      >
+        {children}
+      </button>
+    </Tip>
   );
 }
 

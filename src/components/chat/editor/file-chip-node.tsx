@@ -21,6 +21,7 @@ import { FileText, X, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { attachmentUrl } from '@/lib/attachments/view';
 import type { Attachment } from '@/db/types';
+import { Tip } from '@/components/ui/tip';
 
 export const FILE_CHIP_NAME = 'fileChip';
 
@@ -119,44 +120,45 @@ function FileChipView({ node, editor, getPos, selected }: NodeViewProps) {
   // contentEditable=false so caret skips over the chip rather than
   // entering it; users can still backspace-from-right to select it.
   return (
-    <NodeViewWrapper
-      as="span"
-      contentEditable={false}
-      data-drag-handle="false"
-      className={cn(
-        'inline-flex items-center align-middle gap-1 px-1.5 py-0.5 mx-0.5',
-        'rounded-md border bg-muted/40 text-foreground text-[12px] font-medium',
-        'border-border hover:border-foreground/30 transition-colors',
-        'cursor-default select-none',
-        selected && 'ring-2 ring-primary/40 border-primary/40',
-        pending && 'opacity-70',
-      )}
-      title={pending ? `Uploading ${display}…` : `${display}${size ? ` · ${formatSize(size)}` : ''}`}
-    >
-      {pending ? (
-        <Loader2 size={11} className="text-muted-foreground/80 shrink-0 animate-spin" />
-      ) : isImage ? (
-        <img
-          src={attachmentUrl(fileName)}
-          alt={display}
-          className="w-4 h-4 rounded object-cover shrink-0"
-        />
-      ) : mimeType.startsWith('image/') ? (
-        <ImageIcon size={11} className="text-muted-foreground/80 shrink-0" />
-      ) : (
-        <FileText size={11} className="text-muted-foreground/80 shrink-0" />
-      )}
-      <span className="font-mono text-[11px] truncate max-w-[180px]">{display}</span>
-      <button
-        type="button"
-        onMouseDown={handleRemove}
-        className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
-        aria-label={`Remove ${display}`}
-        tabIndex={-1}
+    <Tip label={pending ? `Uploading ${display}…` : `${display}${size ? ` · ${formatSize(size)}` : ''}`}>
+      <NodeViewWrapper
+        as="span"
+        contentEditable={false}
+        data-drag-handle="false"
+        className={cn(
+          'inline-flex items-center align-middle gap-1 px-1.5 py-0.5 mx-0.5',
+          'rounded-md border bg-muted/40 text-foreground text-[12px] font-medium',
+          'border-border hover:border-foreground/30 transition-colors',
+          'cursor-default select-none',
+          selected && 'ring-2 ring-primary/40 border-primary/40',
+          pending && 'opacity-70',
+        )}
       >
-        <X size={10} />
-      </button>
-    </NodeViewWrapper>
+        {pending ? (
+          <Loader2 size={11} className="text-muted-foreground/80 shrink-0 animate-spin" />
+        ) : isImage ? (
+          <img
+            src={attachmentUrl(fileName)}
+            alt={display}
+            className="w-4 h-4 rounded object-cover shrink-0"
+          />
+        ) : mimeType.startsWith('image/') ? (
+          <ImageIcon size={11} className="text-muted-foreground/80 shrink-0" />
+        ) : (
+          <FileText size={11} className="text-muted-foreground/80 shrink-0" />
+        )}
+        <span className="font-mono text-[11px] truncate max-w-[180px]">{display}</span>
+        <button
+          type="button"
+          onMouseDown={handleRemove}
+          className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
+          aria-label={`Remove ${display}`}
+          tabIndex={-1}
+        >
+          <X size={10} />
+        </button>
+      </NodeViewWrapper>
+    </Tip>
   );
 }
 

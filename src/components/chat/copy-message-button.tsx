@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface CopyMessageButtonProps {
   text: string;
@@ -74,20 +75,21 @@ export function CopyMessageButton({
   ) : null;
 
   const iconNode = (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={copied ? 'Copied' : 'Copy message'}
-      title={copied ? 'Copied' : 'Copy message'}
-      className={cn(
-        'inline-flex items-center justify-center w-5 h-5 rounded',
-        'text-muted-foreground hover:text-foreground hover:bg-muted/60',
-        'transition-all',
-        alwaysVisible ? '' : 'opacity-0 group-hover:opacity-100 focus:opacity-100',
-      )}
-    >
-      {copied ? <Check size={11} /> : <Copy size={11} />}
-    </button>
+    <Tip label={copied ? 'Copied' : 'Copy message'}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={copied ? 'Copied' : 'Copy message'}
+        className={cn(
+          'inline-flex items-center justify-center w-5 h-5 rounded',
+          'text-muted-foreground hover:text-foreground hover:bg-muted/60',
+          'transition-all',
+          alwaysVisible ? '' : 'opacity-0 group-hover:opacity-100 focus:opacity-100',
+        )}
+      >
+        {copied ? <Check size={11} /> : <Copy size={11} />}
+      </button>
+    </Tip>
   );
 
   return (

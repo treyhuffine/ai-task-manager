@@ -31,6 +31,7 @@ import {
   renderEntityLinkMarkdown,
   type EntityLinkKind,
 } from './entity-link-marker';
+import { Tip } from '@/components/ui/tip';
 
 export const ENTITY_LINK_NAME = 'entityLink';
 
@@ -142,22 +143,23 @@ function EntityLinkView({ node, selected }: NodeViewProps) {
   };
 
   return (
-    <NodeViewWrapper
-      as="span"
-      contentEditable={false}
-      data-drag-handle="false"
-      onClick={open}
-      className={cn(
-        'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
-        'rounded-md border bg-primary/5 text-foreground text-[12px] font-medium',
-        'border-primary/20 hover:border-primary/50 hover:bg-primary/10 transition-colors',
-        'cursor-pointer select-none',
-        selected && 'ring-2 ring-primary/40 border-primary/40',
-      )}
-      title={`${isTask ? 'Task' : 'Note'}: ${title}`}
-    >
-      <Icon size={11} className="text-primary/70 shrink-0" />
-      <span className="text-[11px] truncate max-w-[240px]">{title}</span>
-    </NodeViewWrapper>
+    <Tip label={`${isTask ? 'Task' : 'Note'}: ${title}`}>
+      <NodeViewWrapper
+        as="span"
+        contentEditable={false}
+        data-drag-handle="false"
+        onClick={open}
+        className={cn(
+          'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
+          'rounded-md border bg-primary/5 text-foreground text-[12px] font-medium',
+          'border-primary/20 hover:border-primary/50 hover:bg-primary/10 transition-colors',
+          'cursor-pointer select-none',
+          selected && 'ring-2 ring-primary/40 border-primary/40',
+        )}
+      >
+        <Icon size={11} className="text-primary/70 shrink-0" />
+        <span className="text-[11px] truncate max-w-[240px]">{title}</span>
+      </NodeViewWrapper>
+    </Tip>
   );
 }

@@ -21,9 +21,9 @@ import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
 import { calendarDaysUntil, formatLocalDate, parseLocalDate } from '@/lib/dates';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { RowActionsMenu, type RowAction } from '@/components/shared/row-actions-menu';
 import type { DeckItem, SubtaskItem } from '@/types/dashboard';
+import { Tip } from '@/components/ui/tip';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -122,40 +122,34 @@ function Subtasks({ items, onCollapse, actions }: { items: SubtaskItem[]; onColl
             {/* Desktop hover actions */}
             {!s.completed && (
               <div className="hidden md:flex shrink-0 opacity-0 group-hover/subtask:opacity-100 transition-opacity items-center gap-0.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => actions.onComplete(s.id)}
-                      className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors"
-                    >
-                      <Check className="w-3 h-3" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Done</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => actions.onDefer(s.id)}
-                      className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors"
-                    >
-                      <SkipForward className="w-3 h-3" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Defer</TooltipContent>
-                </Tooltip>
+                <Tip label="Done" side="top">
+                  <button
+                    aria-label="Done"
+                    onClick={() => actions.onComplete(s.id)}
+                    className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Check className="w-3 h-3" />
+                  </button>
+                </Tip>
+                <Tip label="Defer" side="top">
+                  <button
+                    aria-label="Defer"
+                    onClick={() => actions.onDefer(s.id)}
+                    className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <SkipForward className="w-3 h-3" />
+                  </button>
+                </Tip>
                 {actions.onFocus && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => actions.onFocus!(s.id)}
-                        className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors"
-                      >
-                        <Crosshair className="w-3 h-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Focus</TooltipContent>
-                  </Tooltip>
+                  <Tip label="Focus" side="top">
+                    <button
+                      aria-label="Focus"
+                      onClick={() => actions.onFocus!(s.id)}
+                      className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors"
+                    >
+                      <Crosshair className="w-3 h-3" />
+                    </button>
+                  </Tip>
                 )}
               </div>
             )}
@@ -244,53 +238,45 @@ function SortableDeckItemCard({
 
       {/* Desktop hover actions — top right */}
       <div className="hidden md:flex absolute right-0 top-2 opacity-0 group-hover:opacity-100 transition-opacity items-center gap-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => onComplete(item.id)}
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              <Check className="w-3.5 h-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">Done</TooltipContent>
-        </Tooltip>
+        <Tip label="Done" side="top">
+          <button
+            aria-label="Done"
+            onClick={() => onComplete(item.id)}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <Check className="w-3.5 h-3.5" />
+          </button>
+        </Tip>
         {onStart && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => onStart(item.id)}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-violet-500 hover:bg-muted transition-colors"
-              >
-                <Play className="w-3.5 h-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top">Start (move to In progress)</TooltipContent>
-          </Tooltip>
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
+          <Tip label="Start (move to In progress)" side="top">
             <button
-              onClick={() => onNotToday(item.id)}
+              aria-label="Start (move to In progress)"
+              onClick={() => onStart(item.id)}
+              className="p-1.5 rounded-md text-muted-foreground hover:text-violet-500 hover:bg-muted transition-colors"
+            >
+              <Play className="w-3.5 h-3.5" />
+            </button>
+          </Tip>
+        )}
+        <Tip label="Not today" side="top">
+          <button
+            aria-label="Not today"
+            onClick={() => onNotToday(item.id)}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <SkipForward className="w-3.5 h-3.5" />
+          </button>
+        </Tip>
+        {onFocus && (
+          <Tip label="Focus" side="top">
+            <button
+              aria-label="Focus"
+              onClick={() => onFocus(item.id)}
               className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             >
-              <SkipForward className="w-3.5 h-3.5" />
+              <Crosshair className="w-3.5 h-3.5" />
             </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">Not today</TooltipContent>
-        </Tooltip>
-        {onFocus && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => onFocus(item.id)}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              >
-                <Crosshair className="w-3.5 h-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top">Focus</TooltipContent>
-          </Tooltip>
+          </Tip>
         )}
       </div>
 
@@ -335,20 +321,21 @@ function SortableDeckItemCard({
             One muted line so it's a glimpse, not a wall; click to expand. The
             same treatment on every card: no item gets extra text for being first. */}
         {(item.rationale || item.continuityContext) && (
-          <button
-            type="button"
-            onClick={() => setWhyOpen((v) => !v)}
-            title={whyOpen ? 'Hide reasoning' : 'Show reasoning'}
-            className={cn(
-              'mt-2 block max-w-full break-words text-left text-xs leading-relaxed text-muted-foreground/70 transition-colors hover:text-muted-foreground',
-              !whyOpen && 'line-clamp-1',
-            )}
-          >
-            {item.rationale || item.continuityContext}
-            {whyOpen && item.rationale && item.continuityContext && (
-              <span className="mt-1 block">{item.continuityContext}</span>
-            )}
-          </button>
+          <Tip label={whyOpen ? 'Hide reasoning' : 'Show reasoning'}>
+            <button
+              type="button"
+              onClick={() => setWhyOpen((v) => !v)}
+              className={cn(
+                'mt-2 block max-w-full break-words text-left text-xs leading-relaxed text-muted-foreground/70 transition-colors hover:text-muted-foreground',
+                !whyOpen && 'line-clamp-1',
+              )}
+            >
+              {item.rationale || item.continuityContext}
+              {whyOpen && item.rationale && item.continuityContext && (
+                <span className="mt-1 block">{item.continuityContext}</span>
+              )}
+            </button>
+          </Tip>
         )}
 
         {/* Subtasks */}

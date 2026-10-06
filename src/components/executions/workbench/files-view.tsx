@@ -22,6 +22,7 @@ import { OpenWorktreeButton } from '../open-worktree-button';
 import { FileViewer } from '../viewer/file-viewer';
 import { FileHistoryMenu } from '../viewer/file-history-menu';
 import { summarizeChanges } from './changes-summary';
+import { Tip } from '@/components/ui/tip';
 
 const TREE_PANEL = 'exec-files-tree';
 const VIEWER_PANEL = 'exec-files-viewer';
@@ -102,13 +103,14 @@ export function FilesView({
         // Non-modal: a modal menu traps focus while it closes, so the tree's
         // new-name field couldn't take the cursor.
         <DropdownMenu modal={false}>
-          <DropdownMenuTrigger
-            className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted/60 hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground"
-            title="Create a file or folder"
-          >
-            <Plus size={13} />
-            New
-            <ChevronDown size={11} className="opacity-60" />
+          <DropdownMenuTrigger asChild>
+            <Tip label="Create a file or folder">
+              <button className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted/60 hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground">
+                <Plus size={13} />
+                New
+                <ChevronDown size={11} className="opacity-60" />
+              </button>
+            </Tip>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
@@ -188,19 +190,20 @@ function BarButton({
   title: string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      aria-label={title}
-      aria-pressed={pressed}
-      className={cn(
-        'inline-flex size-7 items-center justify-center rounded-md transition-colors',
-        pressed ? 'text-foreground hover:bg-muted/60' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-      )}
-    >
-      {children}
-    </button>
+    <Tip label={title}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={title}
+        aria-pressed={pressed}
+        className={cn(
+          'inline-flex size-7 items-center justify-center rounded-md transition-colors',
+          pressed ? 'text-foreground hover:bg-muted/60' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+        )}
+      >
+        {children}
+      </button>
+    </Tip>
   );
 }
 

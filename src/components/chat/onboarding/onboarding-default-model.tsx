@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import type { EffortLevel } from '@/db/types';
 import { useApplyHarness } from './onboarding-harness';
 import { Card, PrimaryButton, QuietButton } from './onboarding-ui';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * The first run picks the harness, model and effort without asking when it
@@ -141,21 +142,21 @@ function DefaultModelEditor({ current, onClose }: { current: Selection; onClose:
             {efforts.map((o) => {
               const on = draft.effort === o.id;
               return (
-                <button
-                  key={o.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  title={o.hint}
-                  onClick={() => setDraft((d) => ({ ...d, effort: o.id }))}
-                  className={cn(
-                    'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors',
-                    on ? 'border-primary/60 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:bg-muted/50',
-                  )}
-                >
-                  {o.label}
-                  {on && <Check size={10} className="text-primary" />}
-                </button>
+                <Tip key={o.id} label={o.hint}>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => setDraft((d) => ({ ...d, effort: o.id }))}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors',
+                      on ? 'border-primary/60 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:bg-muted/50',
+                    )}
+                  >
+                    {o.label}
+                    {on && <Check size={10} className="text-primary" />}
+                  </button>
+                </Tip>
               );
             })}
           </div>

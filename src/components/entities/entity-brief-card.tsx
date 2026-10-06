@@ -6,6 +6,7 @@ import { apiErrorText } from '@/lib/api/client';
 import type { EntityBriefHandle } from '@/hooks/use-entity-brief';
 import type { BriefEntityType } from '@/lib/briefs/types';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * The brief: the agent's rendering of this document for the person who owns
@@ -156,14 +157,15 @@ export function EntityBriefCard({
               <RefreshCw size={10} /> Refresh
             </button>
           ) : generateError ? (
-            <button
-              type="button"
-              onClick={refresh}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-destructive hover:underline"
-              title={apiErrorText(generateError)}
-            >
-              <RefreshCw size={10} /> Refresh failed, retry
-            </button>
+            <Tip label={apiErrorText(generateError)}>
+              <button
+                type="button"
+                onClick={refresh}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-destructive hover:underline"
+              >
+                <RefreshCw size={10} /> Refresh failed, retry
+              </button>
+            </Tip>
           ) : null
         }
       />
@@ -235,17 +237,17 @@ function Chips({
   return (
     <div className="mt-3 flex flex-wrap gap-1.5">
       {items.map((s) => (
-        <button
-          key={s}
-          type="button"
-          disabled={disabled}
-          onClick={() => onPick(s)}
-          title="Send this to the agent"
-          className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/25 bg-primary/5 px-2.5 py-1 text-left text-[11.5px] text-primary transition-colors hover:bg-primary/15 disabled:opacity-50"
-        >
-          <MessageSquarePlus size={10} className="flex-shrink-0" />
-          <span className="truncate">{s}</span>
-        </button>
+        <Tip key={s} label="Send this to the agent">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onPick(s)}
+            className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/25 bg-primary/5 px-2.5 py-1 text-left text-[11.5px] text-primary transition-colors hover:bg-primary/15 disabled:opacity-50"
+          >
+            <MessageSquarePlus size={10} className="flex-shrink-0" />
+            <span className="truncate">{s}</span>
+          </button>
+        </Tip>
       ))}
     </div>
   );

@@ -31,6 +31,7 @@ import {
   showMoreLabel,
   type PageState,
 } from './launch-paging';
+import { Tip } from '@/components/ui/tip';
 
 const KIND_ICON: Record<LaunchSourceKind, React.ComponentType<{ size?: number; className?: string }>> = {
   pr: GitPullRequest,
@@ -372,37 +373,38 @@ export function LaunchBrowse({
             const isIntegration = s.id !== SCOPE_ALL && s.id !== SCOPE_LOCAL;
             const selected = s.id === effectiveScope;
             return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => selectScope(s.id)}
-                title={isIntegration ? (isTaskTab ? s.label : `Show ${s.label} tasks`) : undefined}
-                aria-label={s.label}
-                aria-pressed={selected}
-                className={cn(
-                  'inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border py-0.5 text-[10.5px] font-medium transition-colors',
-                  isIntegration && !selected ? 'px-1.5' : 'px-2',
-                  selected
-                    ? 'border-primary/40 bg-primary/10 text-foreground'
-                    : 'border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-                )}
-              >
-                {isIntegration && <IntegrationLogo providerId={s.id} name={s.label} size={12} />}
-                {(!isIntegration || selected) && s.label}
-              </button>
+              <Tip key={s.id} label={isIntegration ? (isTaskTab ? s.label : `Show ${s.label} tasks`) : undefined}>
+                <button
+                  type="button"
+                  onClick={() => selectScope(s.id)}
+                  aria-label={s.label}
+                  aria-pressed={selected}
+                  className={cn(
+                    'inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border py-0.5 text-[10.5px] font-medium transition-colors',
+                    isIntegration && !selected ? 'px-1.5' : 'px-2',
+                    selected
+                      ? 'border-primary/40 bg-primary/10 text-foreground'
+                      : 'border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                  )}
+                >
+                  {isIntegration && <IntegrationLogo providerId={s.id} name={s.label} size={12} />}
+                  {(!isIntegration || selected) && s.label}
+                </button>
+              </Tip>
             );
           })}
 
           {connectMore.length > 0 && (
-            <button
-              type="button"
-              onClick={() => openSettings('plugins')}
-              title={`Connect ${connectMore.map((s) => s.providerLabel).join(', ')}`}
-              className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-1.5 py-0.5 text-[10.5px] font-medium text-muted-foreground transition-colors hover:border-solid hover:bg-muted/50 hover:text-foreground"
-            >
-              <Plus size={10} />
-              {connectMore.length === 1 ? connectMore[0].providerLabel : connectMore.length}
-            </button>
+            <Tip label={`Connect ${connectMore.map((s) => s.providerLabel).join(', ')}`}>
+              <button
+                type="button"
+                onClick={() => openSettings('plugins')}
+                className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-1.5 py-0.5 text-[10.5px] font-medium text-muted-foreground transition-colors hover:border-solid hover:bg-muted/50 hover:text-foreground"
+              >
+                <Plus size={10} />
+                {connectMore.length === 1 ? connectMore[0].providerLabel : connectMore.length}
+              </button>
+            </Tip>
           )}
         </div>
       )}

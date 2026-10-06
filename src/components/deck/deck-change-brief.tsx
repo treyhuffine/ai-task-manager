@@ -5,6 +5,7 @@ import { ListRestart, X, History, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { summarizeDeckChanges } from '@/lib/deck/change-summary';
 import type { DeckChangeView } from '@/types/dashboard';
+import { Tip } from '@/components/ui/tip';
 
 export interface DeckVersionSummary {
   id: string;
@@ -123,13 +124,15 @@ export function DeckChangeBrief({
             </button>
           )}
         </div>
-        <button
-          onClick={onDismiss}
-          className="text-muted-foreground/50 hover:text-foreground transition-colors shrink-0"
-          title="Dismiss"
-        >
-          <X className="w-3 h-3" />
-        </button>
+        <Tip label="Dismiss">
+          <button
+            onClick={onDismiss}
+            className="text-muted-foreground/50 hover:text-foreground transition-colors shrink-0"
+            aria-label="Dismiss"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </Tip>
       </div>
 
       {/* Earlier versions — the revert escape hatch */}

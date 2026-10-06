@@ -3,6 +3,7 @@
 import { Power, Loader2, Check } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useRestartSession } from '@/hooks/use-execution';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * "Restart agent" — under the 3-dot menu. We keep coding sessions open for
@@ -45,30 +46,31 @@ export function RestartMenuItem({ sessionId }: { sessionId: string }) {
   const error = restart.error;
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={isPending}
-      className="w-full flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-[12px] text-foreground hover:bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed text-left"
-      title="Restart the agent process. Kills the current Claude/Codex subprocess (interrupting any turn in flight) so your next message starts a fresh one, resuming this conversation from disk. Use to pick up a CLI update or clear the process's working memory."
-    >
-      <span className="flex items-center gap-2">
-        {isPending ? (
-          <Loader2 size={12} className="animate-spin" />
-        ) : showDone ? (
-          <Check size={12} className="text-emerald-600" />
-        ) : (
-          <Power size={12} />
+    <Tip label="Restart the agent process. Kills the current Claude/Codex subprocess (interrupting any turn in flight) so your next message starts a fresh one, resuming this conversation from disk. Use to pick up a CLI update or clear the process's working memory.">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={isPending}
+        className="w-full flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-[12px] text-foreground hover:bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed text-left"
+      >
+        <span className="flex items-center gap-2">
+          {isPending ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : showDone ? (
+            <Check size={12} className="text-emerald-600" />
+          ) : (
+            <Power size={12} />
+          )}
+          <span>
+            {isPending ? 'Restarting…' : showDone ? 'Restarted' : 'Restart agent'}
+          </span>
+        </span>
+        {error && !isPending && (
+          <span className="text-[10.5px] text-destructive truncate max-w-[60%]">
+            {error instanceof Error ? error.message : String(error)}
+          </span>
         )}
-        <span>
-          {isPending ? 'Restarting…' : showDone ? 'Restarted' : 'Restart agent'}
-        </span>
-      </span>
-      {error && !isPending && (
-        <span className="text-[10.5px] text-destructive truncate max-w-[60%]">
-          {error instanceof Error ? error.message : String(error)}
-        </span>
-      )}
-    </button>
+      </button>
+    </Tip>
   );
 }

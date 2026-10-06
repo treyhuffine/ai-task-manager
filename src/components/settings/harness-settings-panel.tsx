@@ -38,6 +38,7 @@ import { ConnectionBadge, ConnectionPanel, ProviderIcon } from './harness-connec
 import { HarnessPicker } from './harness-picker';
 import { OpenCodeProviderPanel } from './opencode-provider-panel';
 import { PinModelInput } from './pin-model-input';
+import { Tip } from '@/components/ui/tip';
 
 export function HarnessSettingsPanel() {
   const { data: userState } = useUserState();
@@ -442,18 +443,19 @@ function VirtualModelChecklist({
                 </span>
               </label>
               {model.custom && (
-                <button
-                  type="button"
-                  disabled={removing === model.id}
-                  onClick={() => onRemove(model.id)}
-                  title={`Unpin ${model.id}`}
-                  aria-label={`Unpin ${model.id}`}
-                  className="rounded p-1 text-muted-foreground/60 hover:bg-muted hover:text-foreground disabled:opacity-50"
-                >
-                  {removing === model.id
-                    ? <Loader2 size={11} className="animate-spin" />
-                    : <X size={11} />}
-                </button>
+                <Tip label={`Unpin ${model.id}`}>
+                  <button
+                    type="button"
+                    disabled={removing === model.id}
+                    onClick={() => onRemove(model.id)}
+                    aria-label={`Unpin ${model.id}`}
+                    className="rounded p-1 text-muted-foreground/60 hover:bg-muted hover:text-foreground disabled:opacity-50"
+                  >
+                    {removing === model.id
+                      ? <Loader2 size={11} className="animate-spin" />
+                      : <X size={11} />}
+                  </button>
+                </Tip>
               )}
             </div>
           );

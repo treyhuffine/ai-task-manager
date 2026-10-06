@@ -10,6 +10,7 @@ import { StartWithAgentButton } from '@/components/tasks/start-with-agent-button
 import type { TaskAttentionSignals } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 /** Sort so the work that needs a human first floats up: Blocked, then Stalled,
  * then Review, then everything else (stable within a bucket). */
@@ -59,9 +60,11 @@ export function CurrentWorkSection() {
               <span className="mt-1 flex flex-wrap items-center gap-1.5">
                 <TaskBadges signals={attention?.[task.id]} size="xs" />
                 {task.parentId && (
-                  <span className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground" title="Subtask">
-                    <ListTree size={9} /> subtask
-                  </span>
+                  <Tip label="Subtask">
+                    <span className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground">
+                      <ListTree size={9} /> subtask
+                    </span>
+                  </Tip>
                 )}
               </span>
             </button>
@@ -102,13 +105,14 @@ function ActionButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      className={cn('flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground', className)}
-    >
-      {children}
-    </button>
+    <Tip label={title}>
+      <button
+        aria-label={title}
+        onClick={onClick}
+        className={cn('flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground', className)}
+      >
+        {children}
+      </button>
+    </Tip>
   );
 }

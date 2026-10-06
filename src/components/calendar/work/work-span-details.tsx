@@ -5,6 +5,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { formatDuration, formatHours } from '@/lib/work/equivalents';
 import type { WorkAgent, WorkSpan } from '@/lib/work/types';
 import { agentStyle, timeLabel } from './work-style';
+import { Tip } from '@/components/ui/tip';
 
 /** What a span holds: its numbers, its chats (open one), and its commits. */
 export function WorkSpanDetails({ span, agent }: { span: WorkSpan; agent: WorkAgent | undefined }) {
@@ -43,11 +44,15 @@ export function WorkSpanDetails({ span, agent }: { span: WorkSpan; agent: WorkAg
         {span.commits.length > 0 && (
           <div className="mt-1 border-t border-border/60 pt-1">
             {span.commits.map((c) => (
-              <div key={c.hash} className="flex items-start gap-2 px-3 py-1" title={`${c.lines} lines that count · ${c.hash}`}>
-                <GitCommitHorizontal size={11} className="mt-0.5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 text-xs leading-snug">{c.subject}</span>
-                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground" title="About this many hours of a person's work">≈{formatHours(c.effortHours)}h</span>
-              </div>
+              <Tip key={c.hash} label={`${c.lines} lines that count · ${c.hash}`}>
+                <div className="flex items-start gap-2 px-3 py-1">
+                  <GitCommitHorizontal size={11} className="mt-0.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 text-xs leading-snug">{c.subject}</span>
+                  <Tip label="About this many hours of a person's work">
+                    <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">≈{formatHours(c.effortHours)}h</span>
+                  </Tip>
+                </div>
+              </Tip>
             ))}
           </div>
         )}

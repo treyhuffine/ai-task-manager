@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import { X, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface TagEditorProps {
   tags: string[];
@@ -57,13 +58,15 @@ export function TagEditor({ tags, onChange, className }: TagEditorProps) {
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <button
-          onClick={(e) => { e.stopPropagation(); setAdding(true); }}
-          className="inline-flex items-center text-[8px] text-muted-foreground/40 hover:text-muted-foreground px-0.5 py-0.5 rounded hover:bg-muted transition-colors"
-          title="Add tag"
-        >
-          <Plus size={8} />
-        </button>
+        <Tip label="Add tag">
+          <button
+            onClick={(e) => { e.stopPropagation(); setAdding(true); }}
+            className="inline-flex items-center text-[8px] text-muted-foreground/40 hover:text-muted-foreground px-0.5 py-0.5 rounded hover:bg-muted transition-colors"
+            aria-label="Add tag"
+          >
+            <Plus size={8} />
+          </button>
+        </Tip>
       )}
     </div>
   );

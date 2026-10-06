@@ -47,6 +47,7 @@ import {
 import { TreeList, type PendingCreate, type PendingError } from './tree-list';
 import { TreeSearchBar } from './tree-search-bar';
 import { TreeViewToggle, type TreeViewMode } from './tree-view-toggle';
+import { Tip } from '@/components/ui/tip';
 
 interface FileTreeProps {
   /**
@@ -474,12 +475,15 @@ export function FileTree({
             {writable && (
             // Non-modal so the new-name field can take focus as it closes.
             <DropdownMenu modal={false}>
-              <DropdownMenuTrigger
-                className="inline-flex items-center justify-center p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-                aria-label="Create new"
-                title="Create new file or folder"
-              >
-                <Plus size={13} />
+              <DropdownMenuTrigger asChild>
+                <Tip label="Create new file or folder">
+                  <button
+                    className="inline-flex items-center justify-center p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                    aria-label="Create new"
+                  >
+                    <Plus size={13} />
+                  </button>
+                </Tip>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="start"

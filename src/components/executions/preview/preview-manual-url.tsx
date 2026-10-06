@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Check, Loader2, X, Link as LinkIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { PreviewManualUrl } from '@/lib/api/preview';
+import { Tip } from '@/components/ui/tip';
 
 interface PreviewManualUrlProps {
   /** Current manual URLs on the execution (default-service entry is used). */
@@ -81,27 +82,31 @@ export function PreviewManualUrl({
           autoCapitalize="off"
           className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-[12px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
         />
-        <button
-          type="button"
-          onClick={() => save(draft)}
-          disabled={!dirty || isSaving}
-          title="Save URL"
-          className={cn(
-            'inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-foreground text-background transition-opacity hover:bg-foreground/90 disabled:opacity-40',
-          )}
-        >
-          {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-        </button>
-        {current && (
+        <Tip label="Save URL">
           <button
             type="button"
-            onClick={() => { setDraft(''); save(''); }}
-            disabled={isSaving}
-            title="Clear URL"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+            onClick={() => save(draft)}
+            disabled={!dirty || isSaving}
+            aria-label="Save URL"
+            className={cn(
+              'inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-foreground text-background transition-opacity hover:bg-foreground/90 disabled:opacity-40',
+            )}
           >
-            <X size={13} />
+            {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
           </button>
+        </Tip>
+        {current && (
+          <Tip label="Clear URL">
+            <button
+              type="button"
+              onClick={() => { setDraft(''); save(''); }}
+              disabled={isSaving}
+              aria-label="Clear URL"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+            >
+              <X size={13} />
+            </button>
+          </Tip>
         )}
       </div>
     </div>

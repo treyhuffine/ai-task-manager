@@ -12,6 +12,7 @@
 
 import { useEffect } from 'react';
 import { useHostInfo } from '@/hooks/use-host-info';
+import { Tip } from '@/components/ui/tip';
 
 export function HomeEnvironmentMarker() {
   const { data } = useHostInfo();
@@ -39,12 +40,13 @@ export function HomeEnvironmentMarker() {
   return (
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center" aria-label={description} role="note">
       <div className="absolute inset-x-0 top-0 h-[3px] bg-amber-500" />
-      <div
-        className="pointer-events-auto mt-[3px] rounded-b-md bg-amber-500 px-2 pb-0.5 text-[10px] font-semibold uppercase leading-4 tracking-wider text-amber-950 shadow-sm"
-        title={description}
-      >
-        {label}
-      </div>
+      <Tip label={description}>
+        <div
+          className="pointer-events-auto mt-[3px] rounded-b-md bg-amber-500 px-2 pb-0.5 text-[10px] font-semibold uppercase leading-4 tracking-wider text-amber-950 shadow-sm"
+        >
+          {label}
+        </div>
+      </Tip>
     </div>
   );
 }

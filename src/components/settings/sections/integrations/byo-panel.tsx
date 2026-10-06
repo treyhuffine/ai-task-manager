@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { integrationMeta } from '@/components/integrations/integration-meta';
 import { APP_NAME } from '@/constants/app';
 import { isRegisteredMcp, oauthAppRedirectUri, type AuthConfigSummary, type ByoForm, type ProviderStatus } from './types';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * Bring-your-own OAuth app for an OAuth provider: the redirect URI to register,
@@ -77,9 +78,11 @@ export function ByoPanel({
       {/* Redirect URI to register */}
       <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 p-2">
         <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-foreground">{registered ? callback || 'Callback address unavailable' : provider.desktopCallback ? provider.desktopCallback.kind === 'loopback' ? 'http://127.0.0.1:<temporary-port>/oauth/callback' : provider.desktopCallback.redirectUri || 'Configure a hosted callback service first' : redirectUri}</code>
-        <Button disabled={registered ? !callback : !!provider.desktopCallback && !provider.desktopCallback.redirectUri} variant="ghost" size="icon-xs" onClick={onCopyRedirect} title="Copy redirect URI">
-          {copied ? <Check size={12} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={12} />}
-        </Button>
+        <Tip label="Copy redirect URI">
+          <Button disabled={registered ? !callback : !!provider.desktopCallback && !provider.desktopCallback.redirectUri} variant="ghost" size="icon-xs" aria-label="Copy redirect URI" onClick={onCopyRedirect}>
+            {copied ? <Check size={12} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={12} />}
+          </Button>
+        </Tip>
       </div>
       {/* Web callbacks follow Ri's address (src/lib/integrations/live-callback.ts). */}
       {(registered || !provider.desktopCallback) && (

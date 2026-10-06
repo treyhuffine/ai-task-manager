@@ -18,6 +18,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, History, Loader2, Undo2, X } from 'lucide-react';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { useMemo, useState } from 'react';
+import { Tip } from '@/components/ui/tip';
 
 type EntityType = 'task' | 'note';
 
@@ -213,15 +214,16 @@ export function EntityDiffModal({ open, onClose, entityType, entityId }: EntityD
                 {' · '}
                 {formatWhen(group.after.createdAt)}
               </div>
-              <button
-                onClick={() => group.before && revert.mutate(group.before.id)}
-                disabled={!canUndo || revert.isPending}
-                title={canUndo ? 'Restore the version from before this change' : 'Nothing earlier to restore'}
-                className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                {revert.isPending ? <Loader2 size={13} className="animate-spin" /> : <Undo2 size={13} />}
-                Undo this change
-              </button>
+              <Tip label={canUndo ? 'Restore the version from before this change' : 'Nothing earlier to restore'}>
+                <button
+                  onClick={() => group.before && revert.mutate(group.before.id)}
+                  disabled={!canUndo || revert.isPending}
+                  className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {revert.isPending ? <Loader2 size={13} className="animate-spin" /> : <Undo2 size={13} />}
+                  Undo this change
+                </button>
+              </Tip>
             </div>
           )}
         </DialogPrimitive.Content>

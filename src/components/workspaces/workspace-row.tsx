@@ -16,6 +16,7 @@ import type { WorkspaceWithCounts } from '@/db/types';
 import { SessionRow } from './session-row';
 import { InactiveFold } from './inactive-fold';
 import { useInactivity } from '@/hooks/use-inactivity';
+import { Tip } from '@/components/ui/tip';
 
 interface WorkspaceRowProps {
   workspace: WorkspaceWithCounts;
@@ -164,37 +165,39 @@ export function WorkspaceRow({
       >
         <div className="flex-1 flex items-center gap-1 min-w-0">
           {/* Icon swap on hover: emoji/image when idle, the fold chevron on hover. */}
-          <button
-            onClick={toggleCollapse}
-            className="relative w-5 h-5 flex items-center justify-center flex-shrink-0"
-            aria-label={expanded ? `Fold ${workspace.name}` : `Unfold ${workspace.name}`}
-            title={expanded ? 'Fold' : 'Unfold'}
-          >
-            <span className="group-hover:hidden flex items-center justify-center">
-              {iconImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={iconImage} alt="" className="w-5 h-5 rounded object-cover" />
-              ) : iconEmoji ? (
-                <span className="text-base leading-none">{iconEmoji}</span>
-              ) : (
-                <Folder size={13} className="text-muted-foreground/60" />
-              )}
-            </span>
-            <ChevronRight
-              size={13}
-              className={cn(
-                'hidden group-hover:block text-muted-foreground/80 transition-transform',
-                expanded && 'rotate-90',
-              )}
-            />
-          </button>
-          <button
-            onClick={() => (opensView ? openAgent(workspace.id) : toggleCollapse())}
-            className="flex-1 min-w-0 text-left text-[11.5px] font-semibold truncate text-foreground"
-            title={opensView ? `Open ${workspace.name}` : undefined}
-          >
-            {workspace.name}
-          </button>
+          <Tip label={expanded ? 'Fold' : 'Unfold'}>
+            <button
+              onClick={toggleCollapse}
+              className="relative w-5 h-5 flex items-center justify-center flex-shrink-0"
+              aria-label={expanded ? `Fold ${workspace.name}` : `Unfold ${workspace.name}`}
+            >
+              <span className="group-hover:hidden flex items-center justify-center">
+                {iconImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={iconImage} alt="" className="w-5 h-5 rounded object-cover" />
+                ) : iconEmoji ? (
+                  <span className="text-base leading-none">{iconEmoji}</span>
+                ) : (
+                  <Folder size={13} className="text-muted-foreground/60" />
+                )}
+              </span>
+              <ChevronRight
+                size={13}
+                className={cn(
+                  'hidden group-hover:block text-muted-foreground/80 transition-transform',
+                  expanded && 'rotate-90',
+                )}
+              />
+            </button>
+          </Tip>
+          <Tip label={opensView ? `Open ${workspace.name}` : undefined}>
+            <button
+              onClick={() => (opensView ? openAgent(workspace.id) : toggleCollapse())}
+              className="flex-1 min-w-0 text-left text-[11.5px] font-semibold truncate text-foreground"
+            >
+              {workspace.name}
+            </button>
+          </Tip>
         </div>
         {/* Action buttons + status dots share the same horizontal slot.
             At rest the dots are visible and the buttons are invisible
@@ -202,34 +205,36 @@ export function WorkspaceRow({
             buttons fade in. `pointer-events-none` on the buttons at
             rest keeps clicks under the dots from firing unseen actions. */}
         <div className="relative flex items-center gap-0.5">
-          <button
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              openAgent(workspace.id);
-            }}
-            className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
-            aria-label={`Open ${workspace.name}`}
-            title={`Open ${workspace.name}`}
-          >
-            <ArrowUpRight size={13} />
-          </button>
-          <button
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              // Express lane: shift-click skips the modal and starts an
-              // execution on this workspace's remembered settings, which
-              // is what the bare ➕ used to do on every click.
-              if (e.shiftKey) onCreateExecution(workspace.id);
-              else onOpenLauncher(workspace.id);
-            }}
-            className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
-            aria-label="New execution"
-            title="New execution (shift-click to start one right away on the last settings)"
-          >
-            <Plus size={13} />
-          </button>
+          <Tip label={`Open ${workspace.name}`}>
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                openAgent(workspace.id);
+              }}
+              className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
+              aria-label={`Open ${workspace.name}`}
+            >
+              <ArrowUpRight size={13} />
+            </button>
+          </Tip>
+          <Tip label="New execution (shift-click to start one right away on the last settings)">
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                // Express lane: shift-click skips the modal and starts an
+                // execution on this workspace's remembered settings, which
+                // is what the bare ➕ used to do on every click.
+                if (e.shiftKey) onCreateExecution(workspace.id);
+                else onOpenLauncher(workspace.id);
+              }}
+              className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
+              aria-label="New execution"
+            >
+              <Plus size={13} />
+            </button>
+          </Tip>
 
           {hasAnyCount && (
             <div className="absolute inset-y-0 right-1 flex items-center gap-1 pointer-events-none group-hover:opacity-0 transition-opacity">
@@ -301,17 +306,18 @@ const COUNT_VARIANT_LABELS: Record<CountVariant, string> = {
  */
 function CountDot({ variant, count }: { variant: CountVariant; count: number }) {
   return (
-    <span
-      className={cn(
-        'inline-flex items-center justify-center min-w-[14px] h-[14px] px-1 rounded-full',
-        'text-[9px] font-bold font-mono tabular-nums leading-none',
-        COUNT_VARIANT_CLASSES[variant],
-        variant === 'working' && 'animate-pulse',
-      )}
-      aria-label={`${count} ${COUNT_VARIANT_LABELS[variant]}`}
-      title={`${count} ${COUNT_VARIANT_LABELS[variant]}`}
-    >
-      {count}
-    </span>
+    <Tip label={`${count} ${COUNT_VARIANT_LABELS[variant]}`}>
+      <span
+        className={cn(
+          'inline-flex items-center justify-center min-w-[14px] h-[14px] px-1 rounded-full',
+          'text-[9px] font-bold font-mono tabular-nums leading-none',
+          COUNT_VARIANT_CLASSES[variant],
+          variant === 'working' && 'animate-pulse',
+        )}
+        aria-label={`${count} ${COUNT_VARIANT_LABELS[variant]}`}
+      >
+        {count}
+      </span>
+    </Tip>
   );
 }

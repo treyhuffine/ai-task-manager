@@ -10,6 +10,7 @@ import {
 } from '@/hooks/use-main-chat';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * History popover for a main chat: the app's (scope null) or an agent's
@@ -42,19 +43,20 @@ export function MainChatHistoryMenu({ scope }: { scope: MainChatScope }) {
 
   return (
     <div className="relative" ref={menuRef}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        title="Chat history"
-        className={cn(
-          'flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold uppercase tracking-[0.06em] transition-all',
-          open
-            ? 'bg-primary/10 text-primary'
-            : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-        )}
-      >
-        <History size={10} />
-        History
-      </button>
+      <Tip label="Chat history">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className={cn(
+            'flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold uppercase tracking-[0.06em] transition-all',
+            open
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+          )}
+        >
+          <History size={10} />
+          History
+        </button>
+      </Tip>
 
       {open && (
         <div className="absolute right-0 top-full mt-1 w-64 max-h-72 overflow-y-auto rounded-lg border border-border bg-card shadow-xl z-50 py-1">

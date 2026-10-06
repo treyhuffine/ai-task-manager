@@ -3,6 +3,7 @@
 import { RefreshCw, Loader2, Check } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useResyncSession } from '@/hooks/use-execution';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * "Resync this session" — under the 3-dot menu. Safety hatch for when
@@ -53,32 +54,35 @@ export function ResyncMenuItem({
   const error = resync.error;
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={isPending}
-      className="w-full flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-[12px] text-foreground hover:bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed text-left"
-      title={imported
+    <Tip
+      label={imported
         ? 'Pull anything new from the provider transcript this chat was imported from. Use when the terminal running it is ahead of what you see here.'
         : "Force-resync this session. Kills the current Claude subprocess (interrupting any turn in flight), replays the transcript from disk, and redispatches any unanswered user message. Use when the session feels stuck and the automatic recovery hasn't caught up."}
     >
-      <span className="flex items-center gap-2">
-        {isPending ? (
-          <Loader2 size={12} className="animate-spin" />
-        ) : showDone ? (
-          <Check size={12} className="text-emerald-600" />
-        ) : (
-          <RefreshCw size={12} />
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={isPending}
+        className="w-full flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-[12px] text-foreground hover:bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed text-left"
+      >
+        <span className="flex items-center gap-2">
+          {isPending ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : showDone ? (
+            <Check size={12} className="text-emerald-600" />
+          ) : (
+            <RefreshCw size={12} />
+          )}
+          <span>
+            {isPending ? 'Resyncing…' : showDone ? 'Resynced' : 'Resync session'}
+          </span>
+        </span>
+        {error && !isPending && (
+          <span className="text-[10.5px] text-destructive truncate max-w-[60%]">
+            {error instanceof Error ? error.message : String(error)}
+          </span>
         )}
-        <span>
-          {isPending ? 'Resyncing…' : showDone ? 'Resynced' : 'Resync session'}
-        </span>
-      </span>
-      {error && !isPending && (
-        <span className="text-[10.5px] text-destructive truncate max-w-[60%]">
-          {error instanceof Error ? error.message : String(error)}
-        </span>
-      )}
-    </button>
+      </button>
+    </Tip>
   );
 }

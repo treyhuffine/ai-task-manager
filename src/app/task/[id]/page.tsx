@@ -40,6 +40,7 @@ import {
 import { cn } from '@/lib/utils';
 import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
 import type { Energy, Effort, Attachment } from '@/db/types';
+import { Tip } from '@/components/ui/tip';
 
 const ENERGY_OPTIONS: { value: Energy; label: string; icon: typeof Flame; color: string }[] = [
   { value: 'deep', label: 'Deep', icon: Flame, color: 'text-orange-500' },
@@ -225,20 +226,21 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                 the status control, so no button mislabels a no-op or a
                 restore as "Complete". */}
             {task && task.status !== 'consider' && task.status !== 'archived' && (
-              <button
-                onClick={handleComplete}
-                title={isDone ? 'Completed' : 'Complete'}
-                aria-label={isDone ? 'Completed' : 'Complete'}
-                className={cn(
-                  'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
-                  isDone
-                    ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                    : 'border border-border text-muted-foreground hover:text-foreground hover:bg-accent',
-                )}
-              >
-                <Check size={12} />
-                <span className={ENTITY_HEADER_LABEL}>{isDone ? 'Completed' : 'Complete'}</span>
-              </button>
+              <Tip label={isDone ? 'Completed' : 'Complete'}>
+                <button
+                  onClick={handleComplete}
+                  aria-label={isDone ? 'Completed' : 'Complete'}
+                  className={cn(
+                    'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
+                    isDone
+                      ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                      : 'border border-border text-muted-foreground hover:text-foreground hover:bg-accent',
+                  )}
+                >
+                  <Check size={12} />
+                  <span className={ENTITY_HEADER_LABEL}>{isDone ? 'Completed' : 'Complete'}</span>
+                </button>
+              </Tip>
             )}
 
             <DropdownMenu>

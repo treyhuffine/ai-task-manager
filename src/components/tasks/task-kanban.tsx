@@ -45,6 +45,7 @@ import {
   toolbarButtonClass,
 } from '@/components/shared/list-toolbar';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 
 /** How often the board looks for changes made elsewhere: an agent moving a
@@ -119,21 +120,22 @@ function KanbanCard({
           {agentSessionId && (
             // Straight to the agent's chat. Its own click, press and keys, so
             // it neither opens the task nor picks the card up.
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenAgent(agentSessionId);
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
-              className="ml-auto inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              title="Open the agent's execution"
-              aria-label="Open the agent's execution"
-            >
-              <Bot size={11} aria-hidden />
-              Open
-            </button>
+            <Tip label="Open the agent's execution">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenAgent(agentSessionId);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+                className="ml-auto inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label="Open the agent's execution"
+              >
+                <Bot size={11} aria-hidden />
+                Open
+              </button>
+            </Tip>
           )}
         </div>
       )}

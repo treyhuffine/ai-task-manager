@@ -41,6 +41,7 @@ import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { FoldRow } from '@/components/workspaces/fold-row';
 import { findProvider } from '@/lib/harness/options';
 import { AwakeNote } from '@/components/triggers/awake-note';
+import { Tip } from '@/components/ui/tip';
 
 type View = 'list' | 'new' | 'webhook-credentials';
 
@@ -305,23 +306,24 @@ function Row({
   });
   return (
     <div className="flex items-center gap-3 p-3 rounded-md border border-border bg-card hover:bg-muted/40 transition-colors">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggle(!trigger.enabled);
-        }}
-        className={cn(
-          'flex-shrink-0 p-1.5 rounded-md transition-colors',
-          trigger.enabled
-            ? 'bg-primary/10 text-primary hover:bg-primary/20'
-            : 'bg-muted text-muted-foreground hover:bg-muted/80',
-        )}
-        title={trigger.enabled ? 'Pause trigger' : 'Resume trigger'}
-        aria-label={trigger.enabled ? 'Pause' : 'Resume'}
-      >
-        {trigger.enabled ? <Play size={12} /> : <Pause size={12} />}
-      </button>
+      <Tip label={trigger.enabled ? 'Pause trigger' : 'Resume trigger'}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle(!trigger.enabled);
+          }}
+          className={cn(
+            'flex-shrink-0 p-1.5 rounded-md transition-colors',
+            trigger.enabled
+              ? 'bg-primary/10 text-primary hover:bg-primary/20'
+              : 'bg-muted text-muted-foreground hover:bg-muted/80',
+          )}
+          aria-label={trigger.enabled ? 'Pause' : 'Resume'}
+        >
+          {trigger.enabled ? <Play size={12} /> : <Pause size={12} />}
+        </button>
+      </Tip>
 
       <button
         type="button"
@@ -331,12 +333,13 @@ function Row({
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium truncate">{trigger.name}</p>
           {isReservedTrigger(trigger.id) && (
-            <span
-              className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider font-medium bg-muted text-muted-foreground"
-              title="Managed by the app"
-            >
-              Managed
-            </span>
+            <Tip label="Managed by the app">
+              <span
+                className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider font-medium bg-muted text-muted-foreground"
+              >
+                Managed
+              </span>
+            </Tip>
           )}
           {trigger.lastRunStatus && (
             <span
@@ -358,15 +361,16 @@ function Row({
         </p>
       </button>
 
-      <button
-        type="button"
-        onClick={onOpen}
-        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground"
-        aria-label="Open detail"
-        title="Open detail"
-      >
-        <ExternalLink size={12} />
-      </button>
+      <Tip label="Open detail">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground"
+          aria-label="Open detail"
+        >
+          <ExternalLink size={12} />
+        </button>
+      </Tip>
     </div>
   );
 }

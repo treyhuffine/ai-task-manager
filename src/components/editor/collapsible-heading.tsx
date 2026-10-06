@@ -12,6 +12,7 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { ChevronRight } from 'lucide-react'
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import type { Editor } from '@tiptap/core'
+import { Tip } from '@/components/ui/tip'
 
 type Level = 1 | 2 | 3 | 4 | 5 | 6
 
@@ -211,16 +212,17 @@ function CollapsibleHeadingView(props: ReactNodeViewProps) {
         className="collapsible-heading-content"
       />
       {collapsed && hiddenCount > 0 && (
-        <button
-          type="button"
-          className="collapsed-indicator text-sky-400/80 hover:text-sky-300"
-          onClick={toggleCollapse}
-          contentEditable={false}
-          aria-label={`Expand section (${hiddenCount} ${hiddenCount === 1 ? 'line' : 'lines'} hidden)`}
-          title="Click to expand"
-        >
-          <span aria-hidden="true">···</span> {hiddenCount} {hiddenCount === 1 ? 'line' : 'lines'}
-        </button>
+        <Tip label="Click to expand">
+          <button
+            type="button"
+            className="collapsed-indicator text-sky-400/80 hover:text-sky-300"
+            onClick={toggleCollapse}
+            contentEditable={false}
+            aria-label={`Expand section (${hiddenCount} ${hiddenCount === 1 ? 'line' : 'lines'} hidden)`}
+          >
+            <span aria-hidden="true">···</span> {hiddenCount} {hiddenCount === 1 ? 'line' : 'lines'}
+          </button>
+        </Tip>
       )}
     </NodeViewWrapper>
   )

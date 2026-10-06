@@ -22,6 +22,7 @@ import { ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import { X, CheckSquare, Square, StickyNote, Notebook } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { handleChipBackspace } from './suggestion/chip-backspace';
+import { Tip } from '@/components/ui/tip';
 
 export const ENTITY_CHIP_NAME = 'entityChip';
 
@@ -133,30 +134,31 @@ function EntityChipView({ node, editor, getPos, selected }: NodeViewProps) {
       : `${attrs.kind === 'task' ? 'Task' : 'Note'}: ${label}`;
 
   return (
-    <NodeViewWrapper
-      as="span"
-      contentEditable={false}
-      data-drag-handle="false"
-      className={cn(
-        'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
-        'rounded-md border bg-muted/40 text-foreground text-[12px] font-medium',
-        'border-border hover:border-foreground/30 transition-colors',
-        'cursor-default select-none',
-        selected && 'ring-2 ring-primary/40 border-primary/40',
-      )}
-      title={tooltip}
-    >
-      {entityIcon(attrs)}
-      <span className="text-[11px] truncate max-w-[200px]">{label}</span>
-      <button
-        type="button"
-        onMouseDown={handleRemove}
-        className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
-        aria-label={`Remove ${label}`}
-        tabIndex={-1}
+    <Tip label={tooltip}>
+      <NodeViewWrapper
+        as="span"
+        contentEditable={false}
+        data-drag-handle="false"
+        className={cn(
+          'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
+          'rounded-md border bg-muted/40 text-foreground text-[12px] font-medium',
+          'border-border hover:border-foreground/30 transition-colors',
+          'cursor-default select-none',
+          selected && 'ring-2 ring-primary/40 border-primary/40',
+        )}
       >
-        <X size={10} />
-      </button>
-    </NodeViewWrapper>
+        {entityIcon(attrs)}
+        <span className="text-[11px] truncate max-w-[200px]">{label}</span>
+        <button
+          type="button"
+          onMouseDown={handleRemove}
+          className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
+          aria-label={`Remove ${label}`}
+          tabIndex={-1}
+        >
+          <X size={10} />
+        </button>
+      </NodeViewWrapper>
+    </Tip>
   );
 }

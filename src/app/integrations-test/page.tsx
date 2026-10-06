@@ -16,6 +16,7 @@ import { rpcQuery } from '@/lib/trpc/request-options';
  */
 import { LIVE_CHECKS } from '@/lib/integrations/live-checks';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Tip } from '@/components/ui/tip';
 
 interface LiveCheckResult {
   label: string;
@@ -373,14 +374,15 @@ export default function IntegrationsTestPage() {
                   )}
                 </div>
                 {p.method === 'oauth2' || (p.method === 'mcp' && (p.mcp?.authKind ?? 'oauth') === 'oauth') ? (
-                  <button
-                    disabled={busy || !p.configured}
-                    onClick={() => connectOAuth(p)}
-                    title={p.configured ? '' : 'No client configured, add your own under Advanced'}
-                    className="shrink-0 rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-100 disabled:opacity-40"
-                  >
-                    Connect
-                  </button>
+                  <Tip label={p.configured ? '' : 'No client configured, add your own under Advanced'}>
+                    <button
+                      disabled={busy || !p.configured}
+                      onClick={() => connectOAuth(p)}
+                      className="shrink-0 rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-100 disabled:opacity-40"
+                    >
+                      Connect
+                    </button>
+                  </Tip>
                 ) : (
                   <div className="flex shrink-0 items-center gap-2">
                     {(p.method === 'mcp' ? p.mcp?.authKind === 'none' ? [] : ['token'] : p.credentialFields ?? ['apiKey']).map((f) => (
@@ -495,14 +497,15 @@ export default function IntegrationsTestPage() {
                 </div>
                 <div className="flex shrink-0 gap-2">
                   {LIVE_CHECKS[c.providerId]?.length && (
-                    <button
-                      disabled={busy || liveRunning === c.id}
-                      onClick={() => runLiveChecks(c)}
-                      title="Run safe read-only calls against the live API"
-                      className="rounded-md border border-neutral-300 px-2 py-1 text-neutral-700 hover:bg-neutral-50 disabled:opacity-40"
-                    >
-                      {liveRunning === c.id ? 'Checking…' : 'Live checks'}
-                    </button>
+                    <Tip label="Run safe read-only calls against the live API">
+                      <button
+                        disabled={busy || liveRunning === c.id}
+                        onClick={() => runLiveChecks(c)}
+                        className="rounded-md border border-neutral-300 px-2 py-1 text-neutral-700 hover:bg-neutral-50 disabled:opacity-40"
+                      >
+                        {liveRunning === c.id ? 'Checking…' : 'Live checks'}
+                      </button>
+                    </Tip>
                   )}
                   <button
                     disabled={busy || testing === c.id}

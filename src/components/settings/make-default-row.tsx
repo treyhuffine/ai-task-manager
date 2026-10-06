@@ -7,6 +7,7 @@ import { useHarnessModels } from '@/hooks/use-harness-models';
 import { apiErrorText } from '@/lib/api/client';
 import { findProvider, type ProviderId } from '@/lib/harness/options';
 import type { EffortLevel } from '@/db/types';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * One quiet line at the top of a model menu, shown only when what's picked
@@ -50,16 +51,17 @@ export function MakeDefaultRow({
       <span className="min-w-0 flex-1 truncate text-muted-foreground">
         {defaultLabel ? `Your default is ${defaultLabel}` : 'No default yet'}
       </span>
-      <button
-        type="button"
-        onClick={make}
-        disabled={setDefault.isPending}
-        title="New chats and executions start on your default"
-        className="inline-flex shrink-0 items-center gap-1 font-medium text-foreground underline-offset-2 hover:underline disabled:opacity-50"
-      >
-        {setDefault.isPending && <Loader2 size={10} className="animate-spin" />}
-        Make {currentLabel} default
-      </button>
+      <Tip label="New chats and executions start on your default">
+        <button
+          type="button"
+          onClick={make}
+          disabled={setDefault.isPending}
+          className="inline-flex shrink-0 items-center gap-1 font-medium text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+        >
+          {setDefault.isPending && <Loader2 size={10} className="animate-spin" />}
+          Make {currentLabel} default
+        </button>
+      </Tip>
     </div>
   );
 }

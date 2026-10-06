@@ -7,6 +7,7 @@ import { agentMainChatIntro } from '@/components/chat/main-chat-intro';
 import { useMainChat, useNewMainChat } from '@/hooks/use-main-chat';
 import { useDevice } from '@/hooks/use-devices';
 import type { WorkspaceRecord } from '@/db/types';
+import { Tip } from '@/components/ui/tip';
 
 /**
  * The agent's main chat (docs/agents-view-spec.md §4): one persistent chat
@@ -30,9 +31,8 @@ export function AgentChatPanel({ workspace }: { workspace: WorkspaceRecord }) {
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground">Main chat</span>
           {elsewhere && (
-            <span
-              className="truncate text-[10px] text-muted-foreground/70"
-              title={
+            <Tip
+              label={
                 !elsewhere.runsAgents
                   ? `This chat is on ${elsewhere.name}, which doesn't run agents yet. Messages wait until you turn it on: run ri worker enroll on it.`
                   : elsewhere.worker?.connected
@@ -40,23 +40,28 @@ export function AgentChatPanel({ workspace }: { workspace: WorkspaceRecord }) {
                     : `Runs on ${elsewhere.name}, which isn't connected. Messages wait for it.`
               }
             >
-              on {elsewhere.name}
-              {!elsewhere.runsAgents ? ' · doesn\u2019t run agents yet' : elsewhere.worker?.connected ? '' : ' · not connected'}
-            </span>
+              <span
+                className="truncate text-[10px] text-muted-foreground/70"
+              >
+                on {elsewhere.name}
+                {!elsewhere.runsAgents ? ' · doesn\u2019t run agents yet' : elsewhere.worker?.connected ? '' : ' · not connected'}
+              </span>
+            </Tip>
           )}
         </span>
         <div className="flex items-center gap-1.5">
           <MainChatHistoryMenu scope={workspace.id} />
           {!archived && (
-            <button
-              onClick={() => newChat.mutate()}
-              disabled={newChat.isPending}
-              title="Start a new chat (archives the current one)"
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-50"
-            >
-              {newChat.isPending ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
-              New
-            </button>
+            <Tip label="Start a new chat (archives the current one)">
+              <button
+                onClick={() => newChat.mutate()}
+                disabled={newChat.isPending}
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-50"
+              >
+                {newChat.isPending ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+                New
+              </button>
+            </Tip>
           )}
         </div>
       </div>

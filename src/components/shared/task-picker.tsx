@@ -5,6 +5,7 @@ import { Search, Target, X } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from '@/components/ui/popover';
 import { useTasks } from '@/hooks/use-tasks';
 import { cn } from '@/lib/utils';
+import { Tip } from '@/components/ui/tip';
 
 interface TaskPickerProps {
   value: string | null;
@@ -31,18 +32,19 @@ export function TaskPicker({ value, onChange, className }: TaskPickerProps) {
   return (
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(''); }}>
       <PopoverTrigger asChild>
-        <button
-          className={cn(
-            'inline-flex items-center gap-0.5 text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted px-1.5 py-0.5 rounded',
-            value ? 'text-primary/60' : 'text-muted-foreground/40',
-            className,
-          )}
-          onClick={(e) => e.stopPropagation()}
-          title={value ? `Linked to: ${linkedTitle ?? 'task'}` : 'Link to task'}
-        >
-          <Target size={8} />
-          {value ? 'Linked' : 'Link'}
-        </button>
+        <Tip label={value ? `Linked to: ${linkedTitle ?? 'task'}` : 'Link to task'}>
+          <button
+            className={cn(
+              'inline-flex items-center gap-0.5 text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted px-1.5 py-0.5 rounded',
+              value ? 'text-primary/60' : 'text-muted-foreground/40',
+              className,
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Target size={8} />
+            {value ? 'Linked' : 'Link'}
+          </button>
+        </Tip>
       </PopoverTrigger>
       <PopoverContent className="w-64 p-0" align="start">
         <div className="p-2 border-b border-border">

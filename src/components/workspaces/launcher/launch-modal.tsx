@@ -83,6 +83,7 @@ import {
 import { LauncherPopoverContent } from './launcher-popover';
 import { closeLauncher, useLauncherStore, type LauncherSeed } from './launcher-store';
 import { useLaunchSuggestions } from './use-launch-sources';
+import { Tip } from '@/components/ui/tip';
 
 const CHIP_ICON: Record<LaunchSourceKind, React.ComponentType<{ size?: number; className?: string }>> = {
   pr: GitPullRequest,
@@ -784,19 +785,19 @@ function LaunchModalInner({
                   {suggestions.map((item) => {
                     const Icon = CHIP_ICON[item.kind];
                     return (
-                      <button
-                        key={`${item.kind}:${item.key}`}
-                        type="button"
-                        onClick={() => handlePick(item)}
-                        title={item.title}
-                        className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-                      >
-                        <Icon size={10} className="flex-shrink-0" />
-                        <span className="truncate">
-                          {item.number != null ? `#${item.number} ` : ''}
-                          {item.title}
-                        </span>
-                      </button>
+                      <Tip key={`${item.kind}:${item.key}`} label={item.title}>
+                        <button
+                          type="button"
+                          onClick={() => handlePick(item)}
+                          className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                        >
+                          <Icon size={10} className="flex-shrink-0" />
+                          <span className="truncate">
+                            {item.number != null ? `#${item.number} ` : ''}
+                            {item.title}
+                          </span>
+                        </button>
+                      </Tip>
                     );
                   })}
                 </div>
@@ -856,15 +857,16 @@ function LaunchModalInner({
                     for when you want the checkout, file tree and terminal in
                     front of you before you've decided what to ask. Enabled
                     with an empty prompt, which is the whole point. */}
-                <button
-                  type="button"
-                  onClick={() => void launch({ send: false })}
-                  disabled={launching || !!runOnProblem}
-                  title="Create the session and open it without sending a message"
-                  className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-40"
-                >
-                  Open only
-                </button>
+                <Tip label="Create the session and open it without sending a message">
+                  <button
+                    type="button"
+                    onClick={() => void launch({ send: false })}
+                    disabled={launching || !!runOnProblem}
+                    className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-40"
+                  >
+                    Open only
+                  </button>
+                </Tip>
                 <button
                   type="button"
                   onClick={() => void launch()}
@@ -899,30 +901,31 @@ function Chip({ chip, onRemove }: { chip: LaunchChip; onRemove: () => void }) {
         : 'border-border bg-background';
 
   return (
-    <span
-      className={cn(
-        'inline-flex max-w-[20rem] items-center gap-1.5 rounded-md border px-2 py-1 text-[11px]',
-        tone,
-      )}
-      title={chip.detail ?? chip.label}
-    >
-      <Icon size={10} className="flex-shrink-0 text-muted-foreground/80" />
-      <span className="flex-shrink-0 font-medium text-muted-foreground/80">{chip.chipKind}:</span>
-      <span className={cn('truncate text-foreground', chip.chipKind === 'base' && 'font-mono')}>
-        {chip.label}
-      </span>
-      {chip.detail && (
-        <span className="flex-shrink-0 truncate text-muted-foreground/60">{chip.detail}</span>
-      )}
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Remove ${chip.label}`}
-        className="ml-0.5 flex-shrink-0 rounded text-muted-foreground/60 transition-colors hover:text-foreground"
+    <Tip label={chip.detail ?? chip.label}>
+      <span
+        className={cn(
+          'inline-flex max-w-[20rem] items-center gap-1.5 rounded-md border px-2 py-1 text-[11px]',
+          tone,
+        )}
       >
-        <X size={10} />
-      </button>
-    </span>
+        <Icon size={10} className="flex-shrink-0 text-muted-foreground/80" />
+        <span className="flex-shrink-0 font-medium text-muted-foreground/80">{chip.chipKind}:</span>
+        <span className={cn('truncate text-foreground', chip.chipKind === 'base' && 'font-mono')}>
+          {chip.label}
+        </span>
+        {chip.detail && (
+          <span className="flex-shrink-0 truncate text-muted-foreground/60">{chip.detail}</span>
+        )}
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`Remove ${chip.label}`}
+          className="ml-0.5 flex-shrink-0 rounded text-muted-foreground/60 transition-colors hover:text-foreground"
+        >
+          <X size={10} />
+        </button>
+      </span>
+    </Tip>
   );
 }
 
