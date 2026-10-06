@@ -32,6 +32,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { runGit } from './git-gate';
+import { processState } from '@/lib/process-state';
 
 const execFileAsync = promisify(execFile);
 
@@ -285,7 +286,7 @@ async function computeWorktreeDiffStats(
  * now", so freshness is identical to computing every call — we only avoid
  * running the same measurement twice at the same moment.
  */
-const inFlight = new Map<string, Promise<WorktreeDiffStats | null>>();
+const inFlight = processState('workspaces.diff-stats-in-flight', () => new Map<string, Promise<WorktreeDiffStats | null>>());
 
 /** Every input that changes the result participates in the identity. */
 function diffStatsKey(target: DiffStatsTarget): string {

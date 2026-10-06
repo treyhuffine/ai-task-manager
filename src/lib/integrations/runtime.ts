@@ -51,6 +51,7 @@ import { withLiveCallback } from './live-callback';
 import { hostedMcpConnectionId, hostedMcpDefinition, hostedMcpRequiresAuth, markHostedMcpReconnectRequired, hostedMcpEndpointSetup, trustHostedMcpAnnotations } from './hosted-mcp';
 import { finalizeMcpServer, finalizeMcpServers, isCurrentMcpTransport } from './mcp-lifecycle';
 import { resolveHostedOAuthConfig, usesRegisteredOAuth } from './hosted-oauth-config';
+import { processState } from '@/lib/process-state';
 
 const INTEGRATION_CALLBACK_PATH = '/api/integrations/callback';
 
@@ -482,16 +483,24 @@ export interface McpViewConnection {
   readResource: ConnectedMcpClient['readResource'];
 }
 
-let generation = 0;
-let cachedBuilt: Built | null = null;
-let inFlight: Promise<Built> | null = null;
+/**
+ * The built runtime, its in-flight build and the invalidation counter. One per
+ * process: route handlers, the WebSocket host and startup are separate bundles,
+ * and each used to build its own runtime (its own MCP sockets), with an
+ * invalidation reaching only the bundle that called it.
+ */
+const rt = processState('integrations.runtime', () => ({
+  generation: 0,
+  cachedBuilt: null as Built | null,
+  inFlight: null as Promise<Built> | null,
+}));
 
 // NOTE (hosted, deferred — Phase 3): every route operates on the runtime's default `local`
 // owner. The hosted/multi-tenant adapter MUST derive `ownerId` from the authenticated
 // session/API key and pass it to runAction/beginAuth/connectDirect/listConnections (and pair it
 // with row-level tenant isolation, spec §20). Until then this is single-user local.
 async function build(): Promise<Built> {
-  const buildGeneration = generation;
+  const buildGeneration = rt.generation;
   const mcpViews = new Map<string, McpViewConnection>();
   const dir = getIntegrationsDir();
   // CLI + dev server share one home, so the file store's read-modify-write and the runtime's
@@ -683,7 +692,7 @@ async function build(): Promise<Built> {
             client: { listTools: async () => ({ tools: account.tools }), callTool: async (params: { name: string; arguments?: Record<string, unknown> }) => redactor.redact(await account.client.callTool(params)) },
             ownerId: getIntegrationOwnerId(), connectionId: hostedMcpConnectionId(snapshot), sessionToken: account.sessionToken,
             isCurrentTransport: () => {
-              if (generation !== buildGeneration || account.changed || mcpStore.get(snapshot.id)?.capabilityRevision !== snapshot.capabilityRevision) {
+              if (rt.generation !== buildGeneration || account.changed || mcpStore.get(snapshot.id)?.capabilityRevision !== snapshot.capabilityRevision) {
                 throw new IntegrationError('tools_changed', `The ${INTEGRATION_LABELS.singular.toLowerCase()} tools changed. Refresh the available tools before trying again.`);
               }
               return isCurrentMcpTransport(snapshot, mcpStore);
@@ -742,29 +751,29 @@ async function closeClients(b: Built): Promise<void> {
 }
 
 async function getBuilt(): Promise<Built> {
-  if (cachedBuilt) {
-    if (Date.now() - cachedBuilt.builtAt < MCP_DISCOVERY_MAX_AGE_MS &&
-      cachedBuilt.configuration === mcpConfigurationSignature(getMcpServerStore())) return cachedBuilt;
+  if (rt.cachedBuilt) {
+    if (Date.now() - rt.cachedBuilt.builtAt < MCP_DISCOVERY_MAX_AGE_MS &&
+      rt.cachedBuilt.configuration === mcpConfigurationSignature(getMcpServerStore())) return rt.cachedBuilt;
     invalidateIntegrationRuntime();
   }
-  if (inFlight) return inFlight;
-  inFlight = (async () => {
+  if (rt.inFlight) return rt.inFlight;
+  rt.inFlight = (async () => {
     // Loop so a config change that lands mid-build (a `generation` bump from
     // invalidateIntegrationRuntime) rebuilds with the latest config instead of caching stale state.
     for (;;) {
-      const myGen = generation;
+      const myGen = rt.generation;
       const built = await build();
-      if (myGen === generation) {
-        cachedBuilt = built;
+      if (myGen === rt.generation) {
+        rt.cachedBuilt = built;
         return built;
       }
       await closeClients(built).catch(() => {});
     }
   })();
   try {
-    return await inFlight;
+    return await rt.inFlight;
   } finally {
-    inFlight = null;
+    rt.inFlight = null;
   }
 }
 
@@ -793,9 +802,9 @@ export async function getIntegrationAdmin(): Promise<AuthConfigAdmin> {
  * stale state, and best-effort closes the old MCP client sockets.
  */
 export function invalidateIntegrationRuntime(): void {
-  generation += 1;
-  const old = cachedBuilt;
-  cachedBuilt = null;
+  rt.generation += 1;
+  const old = rt.cachedBuilt;
+  rt.cachedBuilt = null;
   if (old) void closeClients(old).catch(() => {});
 }
 

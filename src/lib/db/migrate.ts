@@ -36,10 +36,16 @@ export function runMigrations(
     sqlite.exec('BEGIN IMMEDIATE');
     try {
       const { pending } = inspectMigrationHistory(sqlite, migrationsFolder);
-    // Violations that already existed are not this migration's fault, and
-    // failing boot on them would brick an install over old damage. Only new
-    // ones block the commit.
-    const before = new Set(checkForeignKeys(sqlite).map(violationKey));
+      // The link check compares before and after applying, so with nothing to
+      // apply it can't find anything. Skip both scans then: each reads every
+      // row of every table with a foreign key (half a second warm and up to
+      // ten cold on a 9 GB home), under this write lock, on every server boot
+      // and every `ri agent` command.
+      const checking = pending.length > 0;
+      // Violations that already existed are not this migration's fault, and
+      // failing boot on them would brick an install over old damage. Only new
+      // ones block the commit.
+      const before = checking ? new Set(checkForeignKeys(sqlite).map(violationKey)) : new Set<string>();
 
       sqlite.exec(`CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
         id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric
@@ -50,8 +56,10 @@ export function runMigrations(
           .prepare(`INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES (?, ?)`)
           .run(migration.hash, migration.folderMillis);
       }
-      const introduced = checkForeignKeys(sqlite).filter((v) => !before.has(violationKey(v)));
-      if (introduced.length > 0) throw new MigrationForeignKeyError(introduced);
+      if (checking) {
+        const introduced = checkForeignKeys(sqlite).filter((v) => !before.has(violationKey(v)));
+        if (introduced.length > 0) throw new MigrationForeignKeyError(introduced);
+      }
       sqlite.exec('COMMIT');
       applied = pending.length;
     } catch (err) {

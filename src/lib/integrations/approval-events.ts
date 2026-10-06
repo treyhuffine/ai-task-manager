@@ -39,6 +39,7 @@ import {
   type ApprovalRequestView,
   type ApprovalResponseView,
 } from './approval-describe';
+import { processState } from '@/lib/process-state';
 
 const LOOKUP_TIMEOUT_MS = 4_000;
 const NOTIFY_BATCH_MS = 1_500;
@@ -134,7 +135,8 @@ interface NotifyBatch {
   view: ApprovalRequestView;
   count: number;
 }
-const notifyBatches = new Map<string, NotifyBatch>();
+// One per process: approvals are asked from the MCP route and answered over tRPC, other bundles.
+const notifyBatches = processState('integrations.approval-notify-batches', () => new Map<string, NotifyBatch>());
 
 /**
  * One notification per burst of the same kind: an agent deleting 8 events in parallel asks 8

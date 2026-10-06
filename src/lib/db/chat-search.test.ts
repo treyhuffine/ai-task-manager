@@ -280,4 +280,25 @@ describe('chat/session search', () => {
     expect(results).toHaveLength(1);
     expect(results[0]!.id).toBe(session.id);
   });
+
+  it('skips the backfill, and its read of every event, once the index has rows', async () => {
+    const { getDb, resetDb } = await import('@/lib/db');
+    const q = await import('@/lib/db/queries');
+    const { default: Database } = await import('better-sqlite3');
+    const session = q.createChatSession({ harness: 'claude', type: 'execution', status: 'active', label: 'Indexed' });
+    q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'already indexed by the trigger' });
+
+    resetDb();
+    const exec = vi.spyOn(Database.prototype, 'exec');
+    try {
+      getDb();
+      // The backfill is the one statement that reads chat_events into the
+      // index (the triggers' own INSERTs read NEW.*, not the table).
+      const backfills = exec.mock.calls.map(([sql]) => String(sql)).filter((sql) => /FROM chat_events\s+WHERE/.test(sql));
+      expect(backfills).toEqual([]);
+    } finally {
+      exec.mockRestore();
+    }
+    expect(q.searchChatSessions({ query: 'indexed' })).toHaveLength(1);
+  });
 });

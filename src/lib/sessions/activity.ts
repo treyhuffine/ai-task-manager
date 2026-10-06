@@ -1,4 +1,5 @@
 import type { ChatEventSource } from '@/db/types';
+import { processState } from '@/lib/process-state';
 
 /**
  * What counts as "this session is active" for rail ordering.
@@ -155,7 +156,8 @@ const THROTTLE_MS = 10_000;
  */
 const PRUNE_ABOVE = 512;
 
-const lastThrottledBump = new Map<string, number>();
+// One per process, so the throttle holds whichever bundle records the activity.
+const lastThrottledBump = processState('sessions.activity-throttle', () => new Map<string, number>());
 
 /**
  * True when a high-frequency reason should actually write. In-process and

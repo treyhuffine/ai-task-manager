@@ -13,6 +13,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { looksLikeUpstreamMismatch } from './git-errors';
 import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
+import { processState } from '@/lib/process-state';
 
 const execFileAsync = promisify(execFile);
 
@@ -157,7 +158,8 @@ async function resolveBaseTrackingRef(
 
 /** How often a worktree's base and upstream are refreshed from the remote. */
 export const REFRESH_EVERY_MS = 90_000;
-const lastRefresh = new Map<string, number>();
+// One per process, so a worktree refreshes once per interval whichever bundle asks.
+const lastRefresh = processState('workspaces.branch-refresh', () => new Map<string, number>());
 
 /**
  * Fetch the given remote-tracking refs, fire and forget. Never prompts for

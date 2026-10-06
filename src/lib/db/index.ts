@@ -8,27 +8,51 @@ import { assertMayOpenDatabase } from '@/lib/config/role';
 import * as schema from './schema';
 import { runMigrations, inspectMigrationHistory } from './migrate';
 import { acquireDatabaseAccess } from '@/lib/service/maintenance';
+import { processState } from '@/lib/process-state';
 
 export type DB = BetterSQLite3Database<typeof schema>;
 
-let dbInstance: DB | null = null;
-let rawInstance: Database.Database | null = null;
-let currentPath: string | null = null;
-let releaseAccess: (() => void) | null = null;
+interface Connection {
+  sqlite: Database.Database;
+  path: string;
+  /** Releases the database-access lease taken when it opened. */
+  release: () => void;
+}
+
+/**
+ * The process's one connection. Next loads this module once per bundle
+ * (startup and the WebSocket host, route handlers, the proxy), and each copy
+ * used to open, migrate and set up the database again: three connections and
+ * three boots' work in one server. Shared here, it opens once.
+ */
+const connection = processState<{ current: Connection | null }>('db.connection', () => ({ current: null }));
+
+/** This copy's Drizzle wrapper over the shared connection, rebuilt if it changes. */
+let wrapper: { sqlite: Database.Database; db: DB } | null = null;
+
+function wrap(sqlite: Database.Database): DB {
+  if (wrapper?.sqlite !== sqlite) wrapper = { sqlite, db: drizzle(sqlite, { schema, casing: 'snake_case' }) };
+  return wrapper.db;
+}
+
+function closeConnection(): void {
+  const current = connection.current;
+  if (!current) return;
+  connection.current = null;
+  wrapper = null;
+  try {
+    current.sqlite.close();
+  } finally {
+    current.release();
+  }
+}
 
 export function getDefaultDbPath(): string {
   return getDbPath();
 }
 
 export function resetDb(): void {
-  if (rawInstance) {
-    rawInstance.close();
-    rawInstance = null;
-    dbInstance = null;
-    currentPath = null;
-  }
-  releaseAccess?.();
-  releaseAccess = null;
+  closeConnection();
 }
 
 const EMBEDDINGS_VEC_DEFINITION = 'embedding float[1536] distance_metric=cosine';
@@ -110,14 +134,8 @@ CREATE TRIGGER IF NOT EXISTS chat_events_fts_au AFTER UPDATE ON chat_events BEGI
   WHERE NEW.source IN ('user', 'agent') AND NEW.content IS NOT NULL AND NEW.content <> '';
 END;
 
--- One-shot idempotent backfill: fills only when the index is empty, so it runs
--- once for pre-existing + imported history and never duplicates on later boots
--- (triggers keep it in sync from here on).
-INSERT INTO chat_events_fts(rowid, session_id, event_id, content, tool_summary)
-SELECT rowid, session_id, id, content, ''
-FROM chat_events
-WHERE source IN ('user', 'agent') AND content IS NOT NULL AND content <> ''
-  AND NOT EXISTS (SELECT 1 FROM chat_events_fts LIMIT 1);
+-- The one-shot backfill of chat_events_fts runs from ensureChatSearchBackfill,
+-- only when the index is empty.
 
 -- Entity-links projection spine (docs/entity-links-spec.md §5.1).
 -- Pure-SQL revision triggers: bump source_revision whenever link-bearing
@@ -275,6 +293,24 @@ function ensureCosineEmbeddingIndex(sqlite: Database.Database): void {
  * uses the raw handle and the pure parser, never queries.ts or getDb().
  * See docs/entity-links-spec.md §10.
  */
+/**
+ * Fill the chat search index from history, once: when it's empty (a new or
+ * imported home), and never again after, since triggers keep it in sync.
+ *
+ * Checked here rather than with `NOT EXISTS` in the INSERT's WHERE: SQLite
+ * evaluated that once but still read every row of `chat_events` to apply it,
+ * half a second on every open of a 1.4M-event home, under the write lock.
+ */
+function ensureChatSearchBackfill(sqlite: Database.Database): void {
+  if (sqlite.prepare('SELECT 1 FROM chat_events_fts LIMIT 1').get()) return;
+  sqlite.exec(`
+    INSERT INTO chat_events_fts(rowid, session_id, event_id, content, tool_summary)
+    SELECT rowid, session_id, id, content, ''
+    FROM chat_events
+    WHERE source IN ('user', 'agent') AND content IS NOT NULL AND content <> ''
+  `);
+}
+
 function ensureEntityLinksBackfill(sqlite: Database.Database): void {
   // Make any source lacking a projection row DISCOVERABLE by marking it PENDING
   // (source_revision 1 > links_projected_revision 0). Read-repair then does the
@@ -313,6 +349,7 @@ export function initDatabase(sqlite: Database.Database, migrationsFolder: string
   // half-installed triggers/backfills through a cached connection.
   sqlite.transaction(() => {
     sqlite.exec(EXTRA_SQL);
+    ensureChatSearchBackfill(sqlite);
     ensureCosineEmbeddingIndex(sqlite);
     ensureEntityLinksBackfill(sqlite);
   }).immediate();
@@ -321,18 +358,11 @@ export function initDatabase(sqlite: Database.Database, migrationsFolder: string
 export function getDb(dbPath?: string): DB {
   const resolvedPath = dbPath ?? getDefaultDbPath();
 
-  // Invalidate cached connection if the db file was deleted (reset)
-  if (dbInstance && currentPath === resolvedPath) {
-    if (!fs.existsSync(resolvedPath)) {
-      rawInstance?.close();
-      releaseAccess?.();
-      releaseAccess = null;
-      rawInstance = null;
-      dbInstance = null;
-      currentPath = null;
-    } else {
-      return dbInstance;
-    }
+  // Reuse the open connection, unless its file was deleted (reset).
+  const open = connection.current;
+  if (open && open.path === resolvedPath) {
+    if (fs.existsSync(resolvedPath)) return wrap(open.sqlite);
+    closeConnection();
   }
 
   // A device connected to a home elsewhere keeps no data of its own. Refuse
@@ -364,13 +394,10 @@ export function getDb(dbPath?: string): DB {
     inspectMigrationHistory(sqlite, path.resolve(assetsRoot, 'drizzle'));
     sqlite.pragma('journal_mode = WAL');
     initDatabase(sqlite, path.resolve(assetsRoot, 'drizzle'));
-    releaseAccess?.();
-    releaseAccess = access;
-    rawInstance?.close();
-    rawInstance = sqlite;
-    dbInstance = drizzle(sqlite, { schema, casing: 'snake_case' });
-    currentPath = resolvedPath;
-    return dbInstance;
+    // A connection to another path, if any, closes once this one is ready.
+    closeConnection();
+    connection.current = { sqlite, path: resolvedPath, release: access };
+    return wrap(sqlite);
   } catch (error) {
     sqlite.close();
     access();
@@ -381,5 +408,5 @@ export function getDb(dbPath?: string): DB {
 export function getRawDb(dbPath?: string): Database.Database {
   // Ensure the DB is initialized
   getDb(dbPath);
-  return rawInstance!;
+  return connection.current!.sqlite;
 }

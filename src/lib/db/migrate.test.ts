@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate as drizzleMigrate } from 'drizzle-orm/better-sqlite3/migrator';
@@ -165,6 +165,18 @@ describe('runMigrations', () => {
 
     addMigration('0001_add_column', [`ALTER TABLE child ADD note text`]);
     expect(runMigrations(sqlite, dir)).toEqual({ applied: 1 });
+  });
+
+  it('scans for broken links only when it applies something', () => {
+    runMigrations(sqlite, dir);
+    const pragma = vi.spyOn(sqlite, 'pragma');
+    expect(runMigrations(sqlite, dir)).toEqual({ applied: 0 });
+    expect(pragma.mock.calls.map(([sql]) => sql)).not.toContain('foreign_key_check');
+
+    addMigration('0001_add_column', [`ALTER TABLE child ADD note text`]);
+    expect(runMigrations(sqlite, dir)).toEqual({ applied: 1 });
+    expect(pragma.mock.calls.filter(([sql]) => sql === 'foreign_key_check')).toHaveLength(2);
+    pragma.mockRestore();
   });
 
   it('leaves foreign keys on whether or not anything was pending', () => {

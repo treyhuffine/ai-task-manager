@@ -14,6 +14,7 @@ import {
   type BriefState,
   type EntityBrief,
 } from './types';
+import { processState } from '@/lib/process-state';
 
 /**
  * Entity briefs: generate, cache, and report freshness.
@@ -130,7 +131,8 @@ export function getBriefState(entityType: BriefEntityType, entity: BriefEntity):
 
 // ─── Generation ───────────────────────────────────────────────────
 
-const inFlight = new Map<string, Promise<EntityBrief>>();
+// One generation per brief at a time, across every bundle in the process.
+const inFlight = processState('briefs.in-flight', () => new Map<string, Promise<EntityBrief>>());
 
 /** Whether a generation for this entity is currently running. */
 export function isBriefGenerating(entityType: BriefEntityType, entityId: string): boolean {

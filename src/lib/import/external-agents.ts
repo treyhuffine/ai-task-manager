@@ -61,6 +61,7 @@ import {
   type InternalCandidate,
   type ServiceCandidate,
 } from './history-source';
+import { processState } from '@/lib/process-state';
 
 const MAX_IMPORT_SELECTION = 1_000;
 const EVENT_BATCH_SIZE = 100;
@@ -84,7 +85,8 @@ const HISTORY_WINDOW_BYTES = 8 * 1024 * 1024;
 // Spelled this way rather than inline so the file stays free of raw control
 // bytes that make grep treat it as binary.
 const SYNC_LOCK_SEPARATOR = String.fromCharCode(0);
-const sourceSyncTails = new Map<string, Promise<void>>();
+// One per process, so syncs of a source queue behind each other from any bundle.
+const sourceSyncTails = processState('import.source-sync-tails', () => new Map<string, Promise<void>>());
 
 export interface PendingHistoryEvent {
   input: CreateChatEventInput;

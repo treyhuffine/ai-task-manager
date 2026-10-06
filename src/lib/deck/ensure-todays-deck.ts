@@ -12,10 +12,12 @@ import type { DeckRecord, DeckOrigin } from '@/db/types';
 import type { DeckGenerationContext } from '@/lib/ai/deck-generation';
 import { getActiveDeckForDate } from '@/lib/db/queries';
 import { todayLocalDate } from '@/lib/deck/date';
+import { processState } from '@/lib/process-state';
 
 // In-process dedupe: two concurrent first-looks on the same day must generate
 // exactly one deck, not race two expensive pipeline runs. Keyed by local date.
-const inFlight = new Map<string, Promise<DeckRecord>>();
+// One per process, so a first look from any bundle shares it.
+const inFlight = processState('deck.ensure-todays-in-flight', () => new Map<string, Promise<DeckRecord>>());
 
 export interface EnsureTodaysDeckOpts {
   /** What to record as the trigger. Defaults to 'first_open' (lazy path). */

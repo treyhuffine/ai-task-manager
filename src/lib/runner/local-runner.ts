@@ -79,6 +79,7 @@ import type {
   SessionSpec,
   StopReport,
 } from './types';
+import { processState } from '@/lib/process-state';
 
 const state = runnerState;
 
@@ -530,7 +531,7 @@ function finishTurn(req: SendRequest, ref: DispatchLifecycleRef, error: string |
  * for harnesses that drop session instructions (agent-main-chat.ts). Keyed
  * by the handle, so a recycled session never inherits a stale one.
  */
-const firstTurnPreambles = new WeakMap<AgentSession, string>();
+const firstTurnPreambles = processState('runner.first-turn-preambles', () => new WeakMap<AgentSession, string>());
 
 function takeFirstTurnPreamble(handle: AgentSession): string | null {
   const preamble = firstTurnPreambles.get(handle) ?? null;

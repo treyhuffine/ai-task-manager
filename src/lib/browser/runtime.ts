@@ -20,6 +20,7 @@ import type { AgentBrowser, OpenOptions } from './session';
 import { openOrConnect, closeBrowser } from './session';
 import type { Mark } from './read';
 import type { SnapshotBaseline } from './snapshot';
+import { processState } from '@/lib/process-state';
 
 export interface DialogRecord {
   type: string;
@@ -61,7 +62,8 @@ export interface BrowserSession {
   baselines: WeakMap<Page, SnapshotBaseline>;
 }
 
-const sessions = new Map<string, BrowserSession>();
+// One per process: agents drive the browser over MCP, and the app reads its tabs over tRPC.
+const sessions = processState('browser.sessions', () => new Map<string, BrowserSession>());
 
 function sessionKey(opts: OpenOptions & { session?: string }): string {
   // A profile is the browser identity (its own cookie jar). It is the primary
