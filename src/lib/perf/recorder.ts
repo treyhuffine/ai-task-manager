@@ -349,8 +349,15 @@ function write(record: Record<string, unknown>): void {
   }
 }
 
-function clipSql(sql: string): string {
-  const flat = sql.replace(/\s+/g, ' ').trim();
+/**
+ * A select's quoted column list (Drizzle names every column, `"id", "created_at",
+ * …`), four columns or more. Folded to `…` before clipping, or a wide table's
+ * columns use up the room and the FROM and WHERE that say what ran are cut.
+ */
+const COLUMN_LIST = /^(select\s+(?:distinct\s+)?)(?:(?:"\w+"\.)?"\w+"(?:\s+as\s+"\w+")?\s*,\s*){3,}(?:"\w+"\.)?"\w+"(?:\s+as\s+"\w+")?(\s+from\s)/i;
+
+export function clipSql(sql: string): string {
+  const flat = sql.replace(/\s+/g, ' ').trim().replace(COLUMN_LIST, '$1…$2');
   return flat.length > SQL_CHARS ? `${flat.slice(0, SQL_CHARS)}…` : flat;
 }
 

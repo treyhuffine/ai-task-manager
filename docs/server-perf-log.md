@@ -27,7 +27,7 @@ The log is `<work>/perf.jsonl`. At 8 MiB it rotates into `perf.1.jsonl`, keeping
 | type | when | carries |
 |---|---|---|
 | `start` | the server starts recording | pid, thresholds |
-| `slow` | a statement takes 100 ms or more | `ms`, `label`, `sql` (never its parameters), `rows` for `all` |
+| `slow` | a statement takes 100 ms or more | `ms`, `label`, `sql` (never its parameters, and a select's long column list folded to `…` so the FROM and WHERE fit), `rows` for `all` |
 | `stall` | a 100 ms timer fires 200 ms or more late | `ms`, the database time and statements by scope in that window, the three slowest statements, the scopes in flight |
 | `rollup` | every minute | per scope: `n`, `ms`, `maxMs`, `dbMs`, `dbN`, plus event-loop delay `p50Ms`/`p99Ms`/`maxMs` and the minute's stalls |
 
