@@ -35,6 +35,25 @@ describe('OAuth connect / completeAuth (§9)', () => {
     await h.runtime.completeAuth({ code: 'c', state: begin.requestId });
     await expect(h.runtime.completeAuth({ code: 'c', state: begin.requestId })).rejects.toMatchObject({ code: 'invalid_input' });
   });
+
+  it('drops abandoned sign-ins once they expire, when the next sign-in starts', async () => {
+    const h = makeHarness();
+    const abandoned = await h.runtime.beginAuth('google', { scopes: ['openid'] });
+    const recent = await h.runtime.beginAuth('google', { scopes: ['openid'] });
+    h.clock.advance(10 * 60_000 + 1);
+    const fresh = await h.runtime.beginAuth('google', { scopes: ['openid'] });
+    expect(await h.store.take(abandoned.requestId)).toBeNull();
+    expect(await h.store.take(recent.requestId)).toBeNull();
+    expect(await h.store.take(fresh.requestId)).toMatchObject({ providerId: 'google' });
+  });
+
+  it('keeps a sign-in that has not expired when another one starts', async () => {
+    const h = makeHarness();
+    const pending = await h.runtime.beginAuth('google', { scopes: ['openid'] });
+    h.clock.advance(10 * 60_000 - 1);
+    await h.runtime.beginAuth('google', { scopes: ['openid'] });
+    await expect(h.runtime.completeAuth({ code: 'c', state: pending.requestId })).resolves.toMatchObject({ providerId: 'google' });
+  });
 });
 
 describe('refresh algorithm (§9)', () => {

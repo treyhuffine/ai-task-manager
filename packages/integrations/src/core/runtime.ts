@@ -425,6 +425,8 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
       expiresAt: clock.now() + authTtlMs,
       createdAt: clock.now(),
     };
+    // Abandoned sign-ins never reach take(), so drop the expired ones as each new one starts.
+    await authRequests.sweepExpired(clock.now());
     await authRequests.put(req);
 
     const authorizationUrl = flow.buildAuthorizationUrl({
