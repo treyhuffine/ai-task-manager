@@ -9,7 +9,7 @@ vi.mock('electron', () => ({
     webContents = { mainFrame: { url: '' }, setWindowOpenHandler: vi.fn(), on: vi.fn(), session: { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } };
     constructor(options: unknown) { mocks.window = this; mocks.options = options; }
     loadURL(url: string) { this.webContents.mainFrame.url = url; return Promise.resolve(); }
-    on() {} show() {} focus() {} destroy() {} isDestroyed() { return false; }
+    on() {} show() {} focus() {} restore() {} destroy() {} isDestroyed() { return false; } isMinimized() { return false; }
   },
 }));
 const action = vi.fn();

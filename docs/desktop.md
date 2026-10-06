@@ -1,6 +1,6 @@
 # Ri desktop, headless service, and multi-device delivery plan
 
-Updated: 1 October 2026. This is the single desktop reference: what is built, how to run it, the research and audit evidence, the target architecture, and the remaining build and acceptance work. It consolidates and replaces the earlier desktop recommendation, demo guide, integration checklist, readiness review, final audit, and Home/worker addendum. The separate [One Ri specification](homes-spec.md) remains authoritative for Home, worker, and team semantics. This document supplies its desktop and service integration requirements.
+Updated: 6 October 2026. This is the single desktop reference: what is built, how to run it, the research and audit evidence, the target architecture, and the remaining build and acceptance work. It consolidates and replaces the earlier desktop recommendation, demo guide, integration checklist, readiness review, final audit, and Home/worker addendum. The separate [One Ri specification](homes-spec.md) remains authoritative for Home, worker, and team semantics. This document supplies its desktop and service integration requirements.
 
 Quick navigation: [Status](#status-and-landing-boundary), [Implementation review](#post-implementation-review), [Run the demo](#what-is-built-and-how-to-run-it), [Home and team architecture](#home-worker-service-and-team-architecture), [Updates and SQLite migrations](#application-updates-and-sqlite-migrations), [Open findings](#open-findings-and-implementation-requirements), [Audit coverage](#audit-verification-and-product-coverage), [Delivery plan](#delivery-sequence-and-effort), [Build checklist](#build-checklist-after-the-multi-deviceteams-work), [Acceptance](#combined-release-acceptance), [Landing checks](#landing-verification).
 
@@ -10,7 +10,43 @@ Quick navigation: [Status](#status-and-landing-boundary), [Implementation review
 
 The original audit and phase snapshots later in this document are dated evidence. This status, the P5.4 checklist and the current implementation matrix supersede their statements about features still missing. Homes' personal device design is now adopted. Teams P6/P7 remain separate.
 
-Source and packaged launches default to isolated desktop roots. Sharing an existing CLI root requires explicit selection and stopping any older foreground launcher first. CLI and Electron attach to the same per-root background service. Quitting Electron leaves that service running, while native notifications and global Quick Capture require the GUI process to remain in the menu bar. Connected roots own credentials and worker journals, never a second authoritative tasks/notes database. Existing Home adoption still requires its verified migration/recovery process.
+Packaged apps and source production demos default to isolated desktop roots. Source development shares the dev Home unless `RI_DESKTOP_ROOT` is explicitly set, as described in [Environments](environments.md). Sharing an existing CLI root requires explicit selection and stopping any older foreground launcher first. CLI and Electron attach to the same per-root background service. Quitting Electron leaves that service running, while native notifications and global Quick Capture require the GUI process to remain in the menu bar. Connected roots own credentials and worker journals, never a second authoritative tasks/notes database. Existing Home adoption still requires its verified migration/recovery process.
+
+### Startup experience, 6 October 2026
+
+The first-run screen makes **Start a new Ri** the primary action and **Connect to an existing remote Ri** the secondary action. Starting a new Ri makes this computer the Home. The welcome screen itself creates no authoritative database. Remote pairing stores the connection locally and opens the existing Home without creating a second tasks database. Neither a temporary outage nor a rejected sign-in creates a replacement Home.
+
+**Run agents on this computer** is an unchecked choice on the remote connection form. A viewer can enable execution later in **Desktop Settings → Agents on this computer**. This consent grants access to the folders, tools and harness sign-ins configured on the connected computer. A local Home already runs agents locally.
+
+The welcome and connection screens link to an offline guide, **Using Ri on multiple computers**. Its repository counterpart is [the user guide](using-ri-on-multiple-computers.md). It explains why an always-on Home is useful, how other computers connect, where agents run, and what happens when the Home is offline. Team connections remain part of the personal Ri application. Choosing a local or remote Home does not create a team or change its authority. Team-only browser users do not need a personal Home.
+
+| Situation | Visible experience |
+| --- | --- |
+| Fresh installation | Welcome, two choices, help, and collapsed Advanced |
+| Starting a new Ri | Brief startup progress, then the app |
+| Saved local or remote connection | Open the saved Ri automatically |
+| Remote connection | Pairing link and optional local execution |
+| Connection or sign-in failure | Persistent explanation with Retry and Change connection where applicable |
+| Desktop Settings | Connection summary and expandable preferences, execution, notifications, service and updates |
+| Advanced recovery | Service diagnostics and a collapsed existing-installation selector |
+
+Only one native app window is presented at a time. Setup, settings and recovery share a local control surface. The authenticated viewer stays loaded while controls are shown, preserving drafts. Its existing voice guard prevents hiding active recording. A successful connection closes local controls and restores the viewer when the app was in the foreground. A login/background launch stays hidden. Closing local settings returns to the existing viewer, or quits an unconfigured shell. Normal app close-to-menu-bar behavior is unchanged.
+
+Local controls still use a separate session and renderer from the Home page. The shared preload is not authorization: each IPC action requires the current local document, the exact sender and main frame, and a fresh document URL. A remote Home cannot call settings or recovery operations. Packaging includes and validates the local preload.
+
+A packaged fresh installation may offer an existing Ri in the default CLI location. Discovery only reads and verifies the candidate. It does not open SQLite for writes, migrate, start or stop a service, or silently select it. The existing verified-selection confirmation is still required. Source demos do not discover the production Home. Foreground CLI installations, incompatible installations, and unusual paths stay behind Advanced rather than being taken over.
+
+Implementation checklist:
+
+- [x] Local-first welcome and explicit remote connection with offline help.
+- [x] Execution opt-in and saved-connection startup without creating a second Home.
+- [x] Shared local window, trusted IPC domains and preserved viewer state.
+- [x] Read-only default-installation discovery and verified reuse.
+- [x] Retryable failures, collapsed settings and advanced recovery.
+- [x] DOM, window lifecycle, discovery and package regression coverage.
+- [ ] Fresh native screenshots and interactive qualification of the revised flow. Computer Use denied access to the disposable review app, and an alternate capture method has not been approved. Unit tests do not replace this check.
+
+Verification for this revision: all **428 desktop tests across 43 files** passed, changed-file ESLint passed, and all eight Electron/Node entrypoints compiled. The shell dependency check passed for all five shell bundles, including the new local preload. The repository TypeScript check reported no desktop errors but remains blocked by the concurrently edited `src/app/api/sessions/[id]/messages/route.test.ts:460`, where a nullable session-header value does not satisfy `HeadersInit`. Updated companion, recovery, development-viewer and native-feature smoke scripts were not run through live UI automation in this revision. No production Home was restarted or migrated.
 
 ### Remaining work and ownership, 30 September 2026
 
@@ -47,7 +83,7 @@ The desktop implementation owns C1-C9 and coordinates changes to Homes enrollmen
 
 - `desktop/connection-setup.ts` verifies the Home and device sign-in before persisting a connection. Pairing requires normally trusted HTTPS. Explicit source development may use loopback HTTP. Credentials cross a bounded ordinary-Node stdin/private-IPC boundary, never command arguments, logs or the local setup page. Copied Home-host or worker credentials cannot sign in as a companion.
 - The shared service supervises a separate worker child under its existing exclusive worker lock. Intentional Stop persists for that enrollment. GUI quit, network interruption and a protocol mismatch do not erase journals or create another Home. Revocation stops execution. Shutdown verifies child-process identity before cleaning up descendants, without signalling unrelated processes.
-- A connected Home renderer receives platform metadata, guarded save/capture controls and validated external-browser opening. It cannot operate the local service, updater, native OAuth, filesystem recovery or preferences. Ri on This Device is a separate local sandboxed window with an exact sender/frame/URL check. It owns enrollment, stop/resume, login, notification consent, global capture preferences and update actions. Existing authenticated Home APIs still route folder setup, file views, terminals and known-editor opening through the owning worker. Pairing binds the renderer to its verified device. The local companion does not add an unrestricted folder or command bridge.
+- A connected Home renderer receives platform metadata, guarded save/capture controls and validated external-browser opening. It cannot operate the local service, updater, native OAuth, filesystem recovery or preferences. Desktop Settings and recovery share one local sandboxed window with an exact sender/frame/URL check. It replaces the visible Home window while preserving that renderer and its drafts. It owns enrollment, stop/resume, login, notification consent, global capture preferences and update actions. Existing authenticated Home APIs still route folder setup, file views, terminals and known-editor opening through the owning worker. Pairing binds the renderer to its verified device. The local companion does not add an unrestricted folder or command bridge.
 - Native alerts use the shared notification outbox. Remote claims require the authenticated device's sign-in key and a channel derived from that device. The local installation must also grant OS presentation. A Home channel preference alone cannot enable native alerts on a computer. Electron denies Chromium notification requests to prevent a second presentation path, and its remaining permission grants require the actual main frame and expected origin. Remote integration OAuth follows the Home's web callback path. The private native callback capability remains local-Home-only.
 - A renewed sign-in to the same Home preserves device identity, enrollment, folders and journals. A changed address requires an explicitly stopped worker and verifies the same Home identity. A declined save/reconnect handshake leaves the existing viewer and its drafts open for retry.
 - Release envelope 1 and minimum-updater 1 remain parseable by existing updaters. `server/ri-compatibility.json` is included in the existing signed runtime inventory/hash. Current supported contracts are worker protocol 4, API/native bridge 1, and config/command/event journal format 1. This bridge does not promise protocol 3 support.
@@ -112,7 +148,7 @@ Run this after the automated companion checks pass, on supported signed installa
 3. Install Ri on a second computer and connect from its pairing link. Choose whether this device runs agents. Verify the device appears once in Settings, Devices.
 4. Set up an existing project on the connected device using the normal app controls. Start work there and find its output from the Home and phone.
 5. Close the desktop window, then quit the desktop app. Verify the Home and the connected worker continue independently. Reopen Ri and find the same work.
-6. Enable start at login from Ri on This Device. Log out/in and verify the chosen service starts once. Record actual macOS/Linux behavior and any OS approval steps. A Mac login service does not promise service before login or encrypted-disk unlock.
+6. Enable start at login from Desktop Settings. Log out/in and verify the chosen service starts once. Record actual macOS/Linux behavior and any OS approval steps. A Mac login service does not promise service before login or encrypted-disk unlock.
 7. Disconnect the connected computer from the network, keep a draft, and reconnect. Verify the draft survives and pending output arrives once. Repeat after sleep/wake.
 8. Choose Stop local execution. Verify only that device stops, and it stays stopped after restarting the app/controller. Resume deliberately.
 9. Enable native notifications in the local companion, receive a real event through the shared notification pipeline, and click it. Disable locally and verify changing Home's channel alone cannot re-enable OS presentation.

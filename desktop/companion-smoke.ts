@@ -33,7 +33,7 @@ async function companion(fixture: AcceptanceFixture) {
     page = fixture.app?.windows().find(window => window.url().startsWith('data:') && window.url().includes('Ri%20on%20this%20device'));
     return !!page;
   }, 'trusted local companion window');
-  await page!.getByRole('heading', { name: 'Ri on this device', exact: true }).waitFor();
+  await page!.locator('#heading').waitFor();
   return page!;
 }
 async function openCompanion(fixture: AcceptanceFixture) {
@@ -89,7 +89,8 @@ async function remoteNotificationConsent(page: Page, deviceId: string) {
   });
   const shown = () => connected.app!.evaluate(() => (globalThis as NotificationFixtureGlobal).companionAlerts.map(alert => ({ id: alert.id, title: alert.title })));
   const controls = await openCompanion(connected);
-  const consent = controls.getByLabel('Show native notifications from your Home', { exact: true });
+  await controls.locator('#notifications > summary').click();
+  const consent = controls.locator('#native-notifications');
   assert.equal(await consent.isChecked(), false);
   await consent.check();
   const test = controls.getByRole('button', { name: 'Send test notification', exact: true });
@@ -136,7 +137,7 @@ void (async () => {
     await initial.screenshot({ path: path.join(home.base, 'first-run.png') });
     assert.equal(fs.existsSync(path.join(home.root, 'data.db')), false);
     assert.equal(await serviceStatus(), null);
-    await initial.getByRole('button', { name: 'Use this device as Home', exact: true }).click();
+    await initial.locator('#create-home').click();
     const homePage = await mainPage(home);
     await homePage.screenshot({ path: path.join(home.base, 'home.png') });
     assert.equal(await homePage.evaluate(() => typeof window.riDesktop?.settings), 'function');
@@ -172,6 +173,7 @@ void (async () => {
     if (sourceHome) passed('Existing unchosen control service still opens first-run setup without a database');
     // A remote Home using the local generated certificate must fail ordinary
     // Node trust before releasing the browser credential or starting a worker.
+    await setup.locator('#choose-connect').click();
     await setup.getByLabel('Pairing link', { exact: true }).fill(`${session.origin}/#token=${pair.plaintext}`);
     await setup.getByRole('button', { name: 'Connect', exact: true }).click();
     await setup.getByRole('alert').filter({ hasText: /certificate.*trust/i }).waitFor();
@@ -201,6 +203,7 @@ void (async () => {
     // worker stream, stop, persisted preference and reconnect are real.
     await consentToExecution(connected);
     const controls = await openCompanion(connected);
+    await controls.locator('#execution > summary').click();
     await controls.getByRole('button', { name: 'Enable local execution', exact: true }).click();
     await waitWorker('connected');
     const worker = await serviceStatus();
@@ -224,6 +227,7 @@ void (async () => {
     await mainPage(connected, proxyOrigin);
     await consentToExecution(connected);
     const reopened = await openCompanion(connected);
+    await reopened.locator('#execution > summary').click();
     await reopened.getByRole('button', { name: 'Stop local execution', exact: true }).click();
     await waitWorker('stopped');
     const stopped = await serviceStatus();

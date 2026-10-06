@@ -24,7 +24,7 @@ it('preserves pnpm links after the staging folder is removed and refuses externa
 it('refuses a new companion package missing setup, worker, or privileged local preload', () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-package-companion-')); dirs.push(temporary);
   const server = path.join(temporary, 'server'); const shell = path.join(temporary, 'shell');
-  const files = [path.join(server, 'dist/desktop/connection-setup-entry.cjs'), path.join(server, 'dist/service/worker.cjs'), path.join(shell, 'companion-preload.cjs')];
+  const files = [path.join(server, 'dist/desktop/connection-setup-entry.cjs'), path.join(server, 'dist/service/worker.cjs'), path.join(shell, 'companion-preload.cjs'), path.join(shell, 'local-preload.cjs')];
   for (const file of files) {
     expect(() => assertCompanionPackage(server, shell)).toThrow(/missing or unsafe/);
     fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, 'built');

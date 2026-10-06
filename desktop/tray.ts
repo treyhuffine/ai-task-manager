@@ -26,7 +26,7 @@ export function desktopMenuCommands(actions: DesktopMenuActions) {
     recovery: { id: 'ri-recovery', label: 'Local Installation and Recovery…', click: actions.recovery },
     quit: { id: 'ri-quit', label: `Quit ${APP_NAME}`, click: actions.quit },
     capture: { id: 'ri-quick-capture', label: 'Quick Capture', click: actions.capture },
-    preferences: { id: 'ri-desktop-preferences', label: 'Ri on This Device…', click: actions.preferences },
+    preferences: { id: 'ri-desktop-preferences', label: 'Desktop Settings…', click: actions.preferences },
   } satisfies Record<keyof DesktopMenuActions, MenuItemConstructorOptions>;
 }
 

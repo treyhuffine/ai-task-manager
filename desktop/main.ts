@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createInterface } from 'node:readline';
 import { APP_NAME, PAIRING_TOKEN_FRAGMENT_KEY } from '../src/constants/app';
-import { getConfigDir } from '../src/lib/config/paths';
+import { getConfigDir, getProductionAppRoot } from '../src/lib/config/paths';
 import { demoEnvironment, demoRoot, type BackendMessage, type BackendReady } from './config';
 import { certificateDecision, desktopRequestHeaders, externalWebUrl, sameOrigin } from './trust';
 import { installTerminalCommand, removeTerminalCommand, type CliInstallation } from './cli-install';
@@ -29,6 +29,9 @@ import { desktopSettingsAction } from './settings';
 import { DesktopActivity } from './activity';
 import { desktopActivityPath, type DesktopActivitySnapshot } from '../src/lib/sessions/desktop-activity-contract';
 import { companionWindow } from './companion-window';
+import { createLocalWindow } from './local-window';
+import { createStartupVisibility } from './startup-visibility';
+import { discoverInstallation, type DiscoveredInstallation } from './discover-installation';
 import { setupRequest } from './setup-client';
 import type { ConnectionSetupStatus, ConnectionSetupRequest } from './connection-setup';
 import { hasLoginSupervision } from '../src/lib/service/supervision-state';
@@ -57,6 +60,8 @@ const useSavedInstallation = process.argv.includes('--ri-use-saved-installation'
 const useDefaultInstallation = process.argv.includes('--ri-default-installation');
 let selectionError: string | undefined;
 let selectionInvalid = false;
+let connecting = false;
+let connectionNeedsRefresh = false;
 if (useSavedInstallation || useDefaultInstallation) {
   for (const key of ['RI_DESKTOP_ROOT', 'RI_DESKTOP_DATABASE', 'RI_DESKTOP_CONFIG', 'RI_DESKTOP_WORK', 'RI_DESKTOP_ASSOCIATED']) delete process.env[key];
 }
@@ -133,9 +138,57 @@ let refreshApplicationMenu: (() => void) | undefined;
 let activityPresentation = '';
 const pendingLinks: string[] = [];
 
+// Local controls keep a separate, privileged renderer. They share one native
+// window and temporarily replace the viewer without unloading its drafts.
+const localSurface = createLocalWindow({
+  onShow: () => {
+    if (quitting) { localSurface.close(); return; }
+    visibilityRevision++; window?.hide();
+  },
+  onUserClose: () => {
+    if (quitting) return;
+    if (appOrigin) startupVisibility.showViewer();
+    else void quit();
+  },
+});
+const startupVisibility = createStartupVisibility({
+  viewer: () => window, local: localSurface, quitting: () => quitting,
+  revealViewer: () => { visibilityRevision++; revealWindow(window); },
+  prepareViewerForBackground,
+});
+function dialogWindow() {
+  return localSurface.get('companion') ?? localSurface.get('maintenance') ?? window!;
+}
+function showAppWindow() {
+  if (appOrigin) startupVisibility.showViewer();
+  else showWindow();
+}
+let discovered: DiscoveredInstallation | null = null;
+let discovery: { expires: number; result: Promise<DiscoveredInstallation | null> } | undefined;
+function detectedInstallation() {
+  // Source/demo launches never discover or offer to adopt a production Home.
+  if (!app.isPackaged) return Promise.resolve(null);
+  if (!discovery || discovery.expires < Date.now()) discovery = {
+    expires: Date.now() + 30_000,
+    result: discoverInstallation({ currentRoot: identity.root, candidateRoot: getProductionAppRoot(), inspect: inspectInstallation }).then(result => { discovered = result; return result; }),
+  };
+  return discovery.result;
+}
+function setupPageOptions(view: 'auto' | 'settings' = 'auto') {
+  const logo = fs.readFileSync(path.join(repo, 'public/brand/ri-mark-white.svg'));
+  return { view, logoDataUrl: `data:image/svg+xml;base64,${logo.toString('base64')}` };
+}
+
+async function showSetup(view: 'auto' | 'settings' = 'auto') {
+  await startupVisibility.showLocal(() => companion.show(setupPageOptions(view)));
+}
+async function showRecovery() {
+  await startupVisibility.showLocal(() => maintenance.show());
+}
+
 function requestQuickCapture() {
   if (quitting || preparation || preparingClose || navigating || updatingShell) return;
-  showWindow();
+  if (appOrigin && !selectionError) showAppWindow(); else showWindow();
   capturePending = true;
   deliverCapture();
 }
@@ -148,7 +201,7 @@ function deliverCapture() {
 
 function openActivity(sessionId: string) {
   if (!appOrigin || quitting || !activityState.activity?.targets.some(target => target.sessionId === sessionId)) return;
-  showWindow(); void navigateSafely(`${appOrigin}${desktopActivityPath(sessionId)}`);
+  showAppWindow(); void navigateSafely(`${appOrigin}${desktopActivityPath(sessionId)}`);
 }
 
 function updateActivity(snapshot: DesktopActivitySnapshot) {
@@ -166,10 +219,14 @@ function updateActivity(snapshot: DesktopActivitySnapshot) {
 
 function showWindow() {
   visibilityRevision++;
-  if (!quitting) revealWindow(window);
+  startupVisibility.show();
 }
 
 async function hideWindow() {
+  await startupVisibility.hide();
+}
+
+async function prepareViewerForBackground() {
   if (quitting || preparingClose || navigating || updatingShell || preparation || backgroundPending || !window || window.isDestroyed()) return;
   backgroundPending = true;
   const current = window;
@@ -198,9 +255,9 @@ async function hideWindow() {
 async function checkDesktopUpdate() {
   if (!window || quitting || updatingShell) return;
   updatingShell = true;
-  showWindow();
+  showAppWindow();
   try {
-    await updateDesktop(window, prepareClose, () => {
+    await updateDesktop(dialogWindow(), prepareClose, () => {
       quitting = true; finished = true; oauthAbort.abort(); notifications?.stop(); notificationAbort.abort();
       activity?.stop(); captureShortcut?.stop();
       tray?.destroy(); tray = undefined;
@@ -266,8 +323,15 @@ async function retryConnection() {
   const status = await serviceStatus();
   if (status?.phase === 'failed') throw new Error('The service needs recovery before it can restart.');
   selectionError = undefined;
-  await detachConnection();
-  startConnection();
+  connecting = true;
+  try {
+    await detachConnection();
+    startConnection();
+  } catch (error) {
+    connecting = false;
+    selectionError = error instanceof Error ? error.message : 'Could not reconnect. Try again.';
+    throw error;
+  }
   return {};
 }
 
@@ -319,7 +383,11 @@ const maintenance = maintenanceWindow({
   inspect: inspectInstallation,
   use: switchInstallation,
   default: () => switchInstallation(),
-});
+  back: async () => {
+    if (appOrigin && !selectionError) showAppWindow();
+    else await showSetup();
+  },
+}, localSurface);
 
 function connectionRequest<T>(request: ConnectionSetupRequest) {
   return setupRequest<T>(process.env.RI_DESKTOP_NODE!, repo, { ...env, RI_DESKTOP_SETUP_DEVELOPMENT: !app.isPackaged && mode === 'development' ? '1' : '' }, request);
@@ -333,10 +401,21 @@ async function runLocalServiceCommand(action: 'install' | 'uninstall') {
 }
 
 async function refreshRole() {
-  const status = await serviceStatus();
-  if (status) await serviceRequest('/role/refresh', 'POST', 200_000);
-  await detachConnection();
-  startConnection();
+  connecting = true;
+  try {
+    const status = await serviceStatus();
+    if (status) await serviceRequest('/role/refresh', 'POST', 200_000);
+    await detachConnection();
+    selectionError = undefined;
+    startConnection();
+    connectionNeedsRefresh = false;
+  } catch (error) {
+    // The choice may already be saved. Keep it and offer Retry instead of
+    // leaving first-run setup on an indefinite Starting screen.
+    connecting = false;
+    selectionError = error instanceof Error ? error.message : 'Could not start this connection. Try again.';
+    throw error;
+  }
 }
 
 async function localWorkerCommand(action: 'stop' | 'resume') {
@@ -360,14 +439,28 @@ function changeDesktopPreferences(raw: unknown) {
 
 const companion = companionWindow(async (action, value) => {
   if (action === 'status') {
-    const setup = await connectionRequest<ConnectionSetupStatus>({ action: 'inspect' });
-    const service = await serviceStatus();
+    const setup = await connectionRequest<ConnectionSetupStatus>({ action: 'inspect' }).catch(error => ({
+      role: 'conflict' as const, homeSelected: false, home: null, deviceId: null, workerEnrolled: false,
+      reason: error instanceof Error ? error.message : 'This installation needs attention.',
+    }));
+    const service = await serviceStatus().catch(() => null);
+    const discover = setup.role === 'first-run' && !setup.homeSelected;
+    if (discover) void detectedInstallation();
     const update = service ? await serviceRequest<{ update: unknown }>('/update').catch(() => null) : null;
-    return { ...setup, desktop: app.getVersion(), service, worker: service?.worker, update: update?.update, connectionError: selectionError,
+    return { ...setup, desktop: app.getVersion(), service, worker: service?.worker, update: update?.update, connectionError: selectionError, connecting, hasViewer: !!appOrigin,
+      detectedInstallation: discover ? discovered : null,
       login: { enabled: hasLoginSupervision() }, preferences: captureShortcut ? { shortcut: captureShortcut.status(), login: desktopLogin.status() } : null,
       notifications: notifications ? await notifications.action('status').catch(() => ({ supported: Notification.isSupported(), enabled: notificationPermission?.enabled() ?? false, error: 'Waiting for your Home to reconnect.' })) : null };
   }
   if (action === 'preferences') return changeDesktopPreferences(value);
+  if (action === 'use-detected') {
+    const setup = await connectionRequest<ConnectionSetupStatus>({ action: 'inspect' });
+    if (setup.role !== 'first-run' || setup.homeSelected) throw new Error('This device already has a selected Ri. Use Advanced settings to change it.');
+    discovery = undefined;
+    const detected = await detectedInstallation();
+    if (!detected?.canUse) throw new Error(detected?.reason ?? 'The existing Ri is no longer available. Open Advanced settings to choose it.');
+    return switchInstallation({ root: detected.root });
+  }
   if (action === 'create-home') {
     await connectionRequest({ action: 'create-home' });
     await refreshRole();
@@ -379,7 +472,17 @@ const companion = companionWindow(async (action, value) => {
     await connectionRequest({ action: 'connect', pairingLink: input.pairingLink });
     // If enrollment fails, the valid connection remains and Enable local
     // execution is a retry, never an implicit new Home or duplicate device.
-    if (input.runWork) await connectionRequest({ action: 'enable-worker', consent: true });
+    if (input.runWork) {
+      try { await connectionRequest({ action: 'enable-worker', consent: true }); }
+      catch (error) {
+        // Pairing succeeded. Let the user retry execution or open this Ri as a
+        // viewer without submitting another invitation or losing the consent.
+        connecting = false;
+        connectionNeedsRefresh = true;
+        selectionError = undefined;
+        return { executionError: error instanceof Error ? error.message : 'Local agents could not be enabled.' };
+      }
+    }
     await refreshRole();
     return {};
   }
@@ -396,7 +499,7 @@ const companion = companionWindow(async (action, value) => {
     await runLocalServiceCommand((value as { enabled: boolean }).enabled ? 'install' : 'uninstall');
     return {};
   }
-  if (action === 'open') { if (viewerTransitions.pending) { await openApp(viewerTransitions.pending); return {}; } if (selectionError) { await retryConnection(); return {}; } if (appOrigin) { companion.close(); showWindow(); } else await retryConnection(); return {}; }
+  if (action === 'open') { if (connectionNeedsRefresh) { await refreshRole(); return {}; } if (connecting) return {}; if (viewerTransitions.pending) { await openApp(viewerTransitions.pending); return {}; } if (selectionError) { await retryConnection(); return {}; } if (appOrigin) { showAppWindow(); } else await retryConnection(); return {}; }
   if (action === 'notification-enable' || action === 'notification-disable' || action === 'notification-test') {
     if (!notifications) throw new Error('Open your Home before configuring notifications.');
     const kind = action.slice(13) as 'enable' | 'disable' | 'test';
@@ -404,7 +507,7 @@ const companion = companionWindow(async (action, value) => {
     try { return await notifications.action(kind); }
     catch (error) { if (kind === 'enable') notificationPermission?.set(false); throw error; }
   }
-  if (action === 'recovery') { await maintenance.show(); return {}; }
+  if (action === 'recovery') { await showRecovery(); return {}; }
   if (action === 'updates') return serviceRequest('/update');
   if (action.startsWith('update-')) {
     const guarded = action === 'update-apply' && localViewer;
@@ -413,7 +516,7 @@ const companion = companionWindow(async (action, value) => {
     finally { if (guarded && !quitting && window && !window.isDestroyed()) window.webContents.send('desktop:resume'); }
   }
   throw new Error('Unknown companion action.');
-});
+}, localSurface);
 
 async function manageTerminalCommand(remove = false) {
   const record = path.join(profile, 'terminal-command.json');
@@ -438,12 +541,12 @@ async function manageTerminalCommand(remove = false) {
 
 async function serviceCommand(action: 'install' | 'uninstall' | 'start' | 'stop' | 'status') {
   if (!window || quitting) return;
-  showWindow();
+  showAppWindow();
   if (action !== 'status' && !(await prepareClose())) return;
   try {
     if (action === 'status') {
       const output = JSON.stringify(await diagnostics(), null, 2);
-      const result = await dialog.showMessageBox(window, { message: 'Ri service', detail: output, buttons: ['Close', 'Copy diagnostics'] });
+      const result = await dialog.showMessageBox(dialogWindow(), { message: 'Ri service', detail: output, buttons: ['Close', 'Copy diagnostics'] });
       if (result.response === 1) clipboard.writeText(output);
       return;
     }
@@ -452,7 +555,7 @@ async function serviceCommand(action: 'install' | 'uninstall' | 'start' | 'stop'
     const command = options.launcher ?? options.node;
     const args = options.launcher ? ['cli', 'service', action] : [options.cli, 'service', action];
     const output = await new Promise<string>((resolve, reject) => execFile(command, args, { env, timeout: 240_000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => error ? reject(new Error(stderr || error.message)) : resolve(stdout)));
-    await dialog.showMessageBox(window, { message: action === 'install' ? 'Start at login enabled' : action === 'uninstall' ? 'Start at login disabled' : action === 'start' ? 'Service started' : 'Service stopped', detail: output.trim() });
+    await dialog.showMessageBox(dialogWindow(), { message: action === 'install' ? 'Start at login enabled' : action === 'uninstall' ? 'Start at login disabled' : action === 'start' ? 'Service started' : 'Service stopped', detail: output.trim() });
   } catch (error) { dialog.showErrorBox('Ri service', error instanceof Error ? error.message : String(error)); }
   finally { window?.webContents.send('desktop:resume'); }
 }
@@ -479,7 +582,7 @@ async function prepareCloseOnce(intent: 'quit' | 'continue'): Promise<boolean> {
   if (ok) return true;
   // A Quit from the menu bar must not leave its save/recording dialog attached
   // to a hidden window. Reopening alone never resumes a guarded renderer.
-  showWindow();
+  showAppWindow();
   const result = await dialog.showMessageBox(window, {
     type: 'warning', message: 'Some changes have not finished saving',
     detail: 'Keep Ri open to finish your recording or upload and retry pending saves. Saved document, chat and capture drafts can be recovered. Content that could not be saved on this device may be lost if you continue.',
@@ -508,8 +611,7 @@ async function quit(skipGuard = false) {
     clearTimeout(force);
   }
   finished = true;
-  maintenance.close();
-  companion.close();
+  localSurface.close();
   // Keep the native window alive until the helper exits. On macOS, destroying
   // the last window during app.quit can suspend delivery of child exit events.
   window?.destroy();
@@ -522,10 +624,10 @@ function fail(message: string) {
   // Automation must report failure instead of hanging on a modal dialog.
   clearTimeout(startupTimer);
   selectionError = message;
+  connecting = false;
   updateActivity({ connection: 'disconnected' });
   if (process.env.RI_DESKTOP_SMOKE && !process.env.RI_DESKTOP_RECOVERY_SMOKE) { exitCode = 1; void quit(true); return; }
-  if (localService?.role === 'worker' || localService?.role === 'viewer') void companion.show();
-  else void maintenance.show();
+  void showSetup();
 }
 
 async function navigateSafely(url: string) {
@@ -614,7 +716,8 @@ async function openApp(ready: BackendReady) {
       if (quitting || preparingClose || !window || window.isDestroyed()) return false;
       if (previous && (previous.origin !== ready.origin || previous.token !== ready.token) && !(await prepareClose())) {
         selectionError = 'Your connection is ready. Finish saving, then choose Open Ri to use the new sign-in.';
-        void companion.show(); return false;
+        connecting = false;
+        void showSetup(); return false;
       }
       return !quitting && !preparingClose && !!window && !window.isDestroyed();
     },
@@ -643,6 +746,7 @@ async function openApp(ready: BackendReady) {
     },
     commit: () => {
       selectionError = undefined;
+      connecting = false;
       clearTimeout(startupTimer);
       activateViewerMonitors(ready);
     },
@@ -687,7 +791,7 @@ function activateViewerMonitors(ready: BackendReady) {
       ...(process.platform === 'darwin' ? { history: () => Notification.getHistory() } : {}),
       navigate: target => {
         if (quitting || !window || appOrigin !== ready.origin) return;
-        showWindow(); void navigateSafely(`${ready.origin}${target}`);
+        showAppWindow(); void navigateSafely(`${ready.origin}${target}`);
       },
     });
     notifications.start();
@@ -702,12 +806,14 @@ function activateViewerMonitors(ready: BackendReady) {
     if (quitting || !window) return;
     fs.writeFileSync(`${cursorFile}.tmp`, JSON.stringify({ runId: ready.serviceRunId, sequence: result.sequence }), { mode: 0o600 });
     fs.renameSync(`${cursorFile}.tmp`, cursorFile);
-    showWindow();
+    showAppWindow();
     void navigateSafely(resultLocation(ready.origin, result));
   }, cursor);
   for (const raw of pendingLinks.splice(0)) void handleDeepLink(raw);
   if (!localViewer) updateActivity({ connection: 'connected' });
-  companion.close();
+  // A login launch stays in the menu bar. A visible setup/recovery window
+  // hands its place back to the authenticated viewer after a successful retry.
+  startupVisibility.connected();
   console.info(localViewer ? '[desktop] Local Home connected with a pinned certificate.' : '[desktop] Remote Home connected with standard TLS and no local native capability.');
 }
 
@@ -784,15 +890,15 @@ async function start() {
     return notifications.action(action as DesktopNotificationAction);
   });
   const logo = fs.readFileSync(path.join(repo, 'public/brand/ri-mark-white.svg'), 'utf8');
-  const loading = `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"></head><body style="margin:0;background:#181a18;color:#f5f2ea;display:grid;place-items:center;height:100vh;font:15px system-ui"><div style="text-align:center"><img alt="${APP_NAME}" width="64" src="data:image/svg+xml;base64,${Buffer.from(logo).toString('base64')}"><p>Starting ${APP_NAME}</p><p style="color:#aeb3aa">Preparing your local app…</p></div></body></html>`;
+  const loading = `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"></head><body style="margin:0;background:#181a18;color:#f5f2ea;display:grid;place-items:center;height:100vh;font:15px system-ui"><div style="text-align:center"><img alt="${APP_NAME}" width="64" src="data:image/svg+xml;base64,${Buffer.from(logo).toString('base64')}"><p>Starting ${APP_NAME}</p><p style="color:#aeb3aa">Opening your Ri…</p></div></body></html>`;
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loading)}`);
   const actions = {
     show: showWindow, hide: hideWindow, quit: () => { void quit(); },
     capture: requestQuickCapture,
-    preferences: () => { void companion.show(); },
-    notifications: () => { showWindow(); if (appOrigin) void navigateSafely(`${appOrigin}/?settings=notifications`); },
+    preferences: () => { void showSetup('settings'); },
+    notifications: () => { if (appOrigin) showAppWindow(); else showWindow(); if (appOrigin) void navigateSafely(`${appOrigin}/?settings=notifications`); },
     update: () => { void checkDesktopUpdate(); }, status: () => { void serviceCommand('status'); },
-    recovery: () => { if (!quitting) void maintenance.show(); },
+    recovery: () => { if (!quitting) void showRecovery(); },
   };
   menuActions = actions;
   const commands = desktopMenuCommands(actions);
@@ -821,7 +927,6 @@ async function start() {
     { label: 'Tools', submenu: [
       commands.capture, { id: 'ri-activity-menu', label: 'Activity', submenu: activityMenuItems(activityState, openActivity) }, commands.preferences,
       commands.notifications, commands.update, commands.status, commands.recovery,
-      { label: 'Ri on This Device…', click: () => void companion.show() },
       ...(localService?.role === 'worker' ? [{ label: localService.worker?.enabled === false ? 'Resume Local Execution' : 'Stop Local Execution', click: () => void localWorkerCommand(localService?.worker?.enabled === false ? 'resume' : 'stop').catch(error => dialog.showErrorBox('Local execution', error.message)) }] : []),
       { label: 'Start at Login…', click: () => void serviceCommand('install') },
       { label: 'Disable Start at Login…', click: () => void serviceCommand('uninstall') },
@@ -846,6 +951,7 @@ async function start() {
 }
 
 function startConnection() {
+  connecting = true;
   clearTimeout(startupTimer);
   const child = fork(path.join(repo, 'dist/desktop/backend.cjs'), [], { cwd: repo, execPath: process.env.RI_DESKTOP_NODE,
     execArgv: [], env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
@@ -859,7 +965,7 @@ function startConnection() {
   }
   backend.on('message', (message: BackendMessage) => {
     if (backend !== child || quitting) return;
-    if (message.type === 'setup') { clearTimeout(startupTimer); void companion.show(); }
+    if (message.type === 'setup') { connecting = false; clearTimeout(startupTimer); void showSetup(); }
     if (message.type === 'status') {
       const changed = JSON.stringify(localService) !== JSON.stringify(message.status);
       localService = message.status;

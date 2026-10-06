@@ -28,20 +28,15 @@ void acceptance('development-viewer', async fixture => {
     setup = fixture.app!.windows().find(window => window.url().includes('Ri%20on%20this%20device'));
     return !!setup;
   }, 'first-run local setup');
-  await setup!.getByRole('button', { name: 'Use this device as Home', exact: true }).click();
-  let recovery: Page | undefined;
-  await eventually(async () => {
-    recovery = fixture.app!.windows().find(window => window.url().includes('Ri%20local%20installation'));
-    return !!recovery;
-  }, 'local recovery window after rejected sign-in');
-  await recovery!.waitForFunction(() => document.getElementById('reason')?.textContent?.includes('HTTP 500'));
-  const reason = await recovery!.locator('#reason').innerText();
-  assert.match(reason, /local Ri service/);
-  assert.doesNotMatch(reason, /Connect this device again|credential|Untrusted upstream/);
+  await setup!.locator('#create-home').click();
+  await setup!.waitForFunction(() => document.getElementById('connection-error')?.textContent?.includes('HTTP 500'));
+  const reason = await setup!.locator('#connection-error').textContent();
+  assert.match(reason ?? '', /local Ri service/);
+  assert.doesNotMatch(reason ?? '', /Connect this device again|credential|Untrusted upstream/);
   const before = await serviceStatus();
   assert.equal(before?.phase, 'running');
   fixture.check('An HTTP 500 sign-in failure reports the server error without asking to pair again');
-  await recovery!.getByRole('button', { name: 'Connect or retry startup', exact: true }).click();
+  await setup!.locator('#open').click();
   await waitForHome(page);
   fixture.origin = new URL(page.url()).origin;
   const home = await api<{ id: string }>(page, '/api/home');

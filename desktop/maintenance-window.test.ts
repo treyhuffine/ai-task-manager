@@ -10,7 +10,7 @@ vi.mock('electron', () => ({
     webContents = { mainFrame: { url: '' }, setWindowOpenHandler: vi.fn(), on: vi.fn(), session: { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } };
     constructor(options: unknown) { mocks.window = this; mocks.options = options; }
     loadURL(url: string) { this.webContents.mainFrame.url = url; return Promise.resolve(); }
-    on() {} show() {} focus() {} destroy() {} isDestroyed() { return false; }
+    on() {} show() {} focus() {} restore() {} destroy() {} isDestroyed() { return false; } isMinimized() { return false; }
   },
 }));
 const actions = { status: vi.fn(), retry: vi.fn(), recover: vi.fn(), logs: vi.fn(), copy: vi.fn(), inspect: vi.fn(), use: vi.fn(), default: vi.fn() };
@@ -31,6 +31,7 @@ it('isolates the maintenance renderer and permits only its exact main frame', as
 });
 it('refuses arbitrary commands and paths without invoking a native dialog', async () => {
   expect(await mocks.handler(trustedEvent(), 'execute', 'sh')).toMatchObject({ error: 'Unknown maintenance action.' });
+  expect(await mocks.handler(trustedEvent(), 'back')).toMatchObject({ error: 'Unknown maintenance action.' });
   expect(await mocks.handler(trustedEvent(), 'browse', '/etc/passwd')).toMatchObject({ error: 'Unknown installation path.' });
   expect(mocks.showOpenDialog).not.toHaveBeenCalled();
 });

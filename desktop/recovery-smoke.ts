@@ -6,13 +6,14 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import electron from 'electron';
-import { _electron, type ElectronApplication } from 'playwright-core';
+import { _electron, type ElectronApplication, type Page } from 'playwright-core';
 import { waitForHome } from './first-run';
 import { demoEnvironment } from './config';
 import { installationEnvironment, localInstallation } from './installation';
 import { ensureService, serviceStatus, stopService } from '../src/lib/service/client';
 import { installedRuntime } from '../src/lib/service/runtime';
 import { desktopPackageLayout } from './package-layout';
+import { eventually } from './acceptance-fixture';
 
 const repo = path.resolve(__dirname, '..');
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-recovery-smoke-'));
@@ -32,6 +33,20 @@ async function close() {
   const current = instance; instance = undefined;
   await Promise.all([current.waitForEvent('close', { timeout: 30_000 }), current.evaluate(({ app }) => app.quit())]);
 }
+async function openRecovery() {
+  await instance!.evaluate(({ Menu, BrowserWindow }) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById('ri-recovery');
+    if (!item?.enabled) throw new Error('The service and recovery menu is unavailable');
+    item.click(item, BrowserWindow.getAllWindows()[0], {} as never);
+  });
+  let page: Page | undefined;
+  await eventually(async () => {
+    page = instance!.windows().find(candidate => candidate.url().includes('Ri%20local%20installation'));
+    return !!page;
+  }, 'local recovery page');
+  await page!.locator('#status').waitFor();
+  return page!;
+}
 async function mainSmoke() {
 try {
   select(env);
@@ -40,7 +55,9 @@ try {
   fs.writeFileSync(path.join(root, '.config/local-service.json'), JSON.stringify({ version: 1, port: 0 }));
   instance = await _electron.launch({ executablePath, args, env: { ...env, RI_DESKTOP_SMOKE: '1', RI_DESKTOP_RECOVERY_SMOKE: '1' }, timeout: 240_000 });
   const main = await instance.firstWindow();
-  const recovery = instance.windows().find(page => page !== main) ?? await instance.waitForEvent('window', { predicate: page => page !== main, timeout: 240_000 });
+  const setup = instance.windows().find(page => page !== main) ?? await instance.waitForEvent('window', { predicate: page => page !== main, timeout: 240_000 });
+  await setup.waitForFunction(() => document.getElementById('connection-error')?.textContent?.includes('endpoint configuration'));
+  let recovery = await openRecovery();
   recovery.on('console', message => { if (message.type() === 'error') console.error('[recovery-ui]', message.text()); });
   console.info('Recovery window loaded');
   await recovery.getByText('Service needs attention', { exact: true }).waitFor();
@@ -54,6 +71,7 @@ try {
   assert.equal(await main.locator('body').innerText().then(text => text.includes('Starting Ri')), true);
   // Read-only verification must not create a mistyped path.
   const absent = path.join(base, 'does-not-exist');
+  await recovery.locator('#choose-installation > summary').click();
   await recovery.locator('#root').fill(absent);
   await recovery.getByRole('button', { name: 'Verify installation', exact: true }).click();
   await recovery.locator('#error').filter({ hasText: /ENOENT/ }).waitFor();
@@ -69,8 +87,6 @@ try {
     }) as typeof original;
   });
   await recovery.getByRole('button', { name: 'Recover service', exact: true }).click();
-  await recovery.waitForFunction(() => !(document.getElementById('retry') as HTMLButtonElement).disabled, { timeout: 40_000 });
-  assert.equal(await recovery.locator('#error').innerText(), '');
   await waitForHome(main);
   const running = await serviceStatus();
   assert.equal(running?.phase, 'running'); assert.notEqual(running?.runId, failed?.runId);
@@ -84,6 +100,8 @@ try {
   await ensureService({ repo, node: process.execPath, env: { ...associationEnv, RI_RUNTIME_REPO: repo } });
   assert.equal(installedRuntime(), null);
   select(env);
+  recovery = await openRecovery();
+  await recovery.locator('#choose-installation > summary').click();
   await recovery.getByText('Separate database, configuration or work folders', { exact: true }).click();
   for (const [key, value] of Object.entries(advanced)) await recovery.locator(`#${key}`).fill(value);
   await recovery.getByRole('button', { name: 'Verify installation', exact: true }).click();

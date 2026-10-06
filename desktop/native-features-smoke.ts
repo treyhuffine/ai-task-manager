@@ -193,10 +193,27 @@ void acceptance('native-features-smoke', async fixture => {
     await capture.getByText('Draft saved on this device.', { exact: true }).waitFor();
     await app.evaluate(() => { const state = (globalThis as NativeGlobal).riNativeAcceptance; state.dialogs = []; });
     await menu('ri-desktop-preferences');
-    await page.waitForURL(url => url.pathname === '/' && url.searchParams.get('settings') === 'general');
-    await page.getByRole('heading', { name: 'Desktop', exact: true }).waitFor();
-    await page.waitForFunction(() => !document.body.inert);
+    let desktopControls: typeof page | undefined;
+    await eventually(async () => {
+      desktopControls = app.windows().find(candidate => candidate.url().includes('Ri%20on%20this%20device'));
+      return !!desktopControls;
+    }, 'trusted local desktop settings');
+    await desktopControls!.locator('#settings:not([hidden])').waitFor();
+    assert.equal(page.url(), url);
+    assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin, 'Desktop Settings must preserve the authenticated document');
+    assert.equal(await capture.locator('textarea').inputValue(), recoveredText, 'Opening local settings must preserve the live capture draft');
+    const controlsOpen = await state();
+    assert.equal(controlsOpen.filter(window => window.visible && !window.minimized).length, 1, 'Settings and the viewer must not appear as competing windows');
+    assert.equal(controlsOpen.find(window => window.id === windowId)?.visible, false);
     assert.equal((await app.evaluate(() => (globalThis as NativeGlobal).riNativeAcceptance.dialogs)).length, 0);
+    await menu('ri-quick-capture'); await foreground(); await capture.waitFor();
+    assert.equal(await capture.locator('textarea').inputValue(), recoveredText);
+    assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin);
+    fixture.check('Desktop Settings uses one visible local window while preserving the authenticated renderer and live capture draft');
+
+    // A genuine navigation still exercises the durable draft recovery path.
+    await fixture.navigate('/?settings=general');
+    await page.waitForFunction(() => !document.body.inert);
     await menu('ri-quick-capture'); await capture.waitFor();
     assert.equal(await capture.locator('textarea').inputValue(), '');
     await capture.getByRole('button', { name: 'Restore capture', exact: true }).click();

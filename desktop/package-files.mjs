@@ -35,7 +35,7 @@ export function rebaseResourceLinks(root, sourceRoot) {
 /** New companion releases must contain both role setup and supervised worker.
  * Validate at publication, without rejecting prior Home-only rollback runtimes. */
 export function assertCompanionPackage(server, shell) {
-  for (const file of [path.join(server, 'dist/desktop/connection-setup-entry.cjs'), path.join(server, 'dist/service/worker.cjs'), path.join(shell, 'companion-preload.cjs')]) {
+  for (const file of [path.join(server, 'dist/desktop/connection-setup-entry.cjs'), path.join(server, 'dist/service/worker.cjs'), path.join(shell, 'companion-preload.cjs'), path.join(shell, 'local-preload.cjs')]) {
     if (!fs.existsSync(file) || !fs.lstatSync(file).isFile()) throw new Error(`Companion package entry is missing or unsafe: ${file}`);
   }
 }
