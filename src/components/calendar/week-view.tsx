@@ -18,6 +18,7 @@ import { eventWindowOnDate } from '@/lib/calendar/layout';
 import { formatDayLabel } from '@/lib/calendar/dates';
 import type { CalendarDay, CalendarEvent } from '@/lib/calendar/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { stripeStyle } from './event-color';
 import { EventPopoverContent } from './event-popover';
 import { WorkWorth } from './work/work-worth';
 import type { WorkLayer } from './work/work-style';
@@ -93,8 +94,9 @@ export function WeekView({ days, workday, today, deadlinesByDate, onSelectDay, o
             {day.allDay.map((e) => (
               <span
                 key={e.id}
-                title={e.title}
+                title={e.calendar ? `${e.title} (${e.calendar.name})` : e.title}
                 className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground truncate shrink-0"
+                style={stripeStyle(e.color, 2)}
               >
                 {e.title}
               </span>
@@ -121,10 +123,12 @@ export function WeekView({ days, workday, today, deadlinesByDate, onSelectDay, o
                   <button
                     type="button"
                     className={cn(
-                      'flex flex-col rounded-md border border-border bg-muted px-1.5 py-1 text-left shrink-0',
+                      'flex flex-col rounded-md border border-border bg-muted py-1 pr-1.5 text-left shrink-0',
+                      event.color ? 'pl-2.5' : 'pl-1.5',
                       'hover:border-muted-foreground/40 transition-colors',
                       !event.countsAsBusy && 'opacity-40',
                     )}
+                    style={stripeStyle(event.color)}
                   >
                     <span className="text-[9px] tabular-nums text-muted-foreground">
                       {minutesToLabel(startMinute)}
@@ -132,7 +136,7 @@ export function WeekView({ days, workday, today, deadlinesByDate, onSelectDay, o
                     <span
                       className={cn(
                         'text-[10px] text-foreground truncate leading-tight',
-                        !event.countsAsBusy && 'line-through',
+                        event.rsvp === 'declined' && 'line-through',
                       )}
                     >
                       {event.title}

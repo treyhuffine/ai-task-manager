@@ -52,6 +52,7 @@ const PER_COPY: Record<string, string> = {
   'src/lib/auth/host-key.ts:cache': 'cache: keyed by file path and mtime',
   'src/lib/integrations/write-policy.ts:cache': 'cache: keyed by file path and mtime',
   'src/lib/calendar/service.ts:cache': 'cache: TTL',
+  'src/lib/calendar/service.ts:calendarLists': 'cache: TTL',
   'src/lib/harness/model-discovery.ts:cache': 'cache: TTL',
   'src/lib/harness/runtime.ts:cache': 'cache: TTL',
   'src/lib/reference-folders/resolve.ts:gitCache': 'cache: TTL',

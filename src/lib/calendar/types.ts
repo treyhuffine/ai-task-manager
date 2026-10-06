@@ -10,11 +10,40 @@
 
 export type CalendarProviderId = 'google' | 'microsoft';
 
+/**
+ * A calendar an event was read from (docs/calendar-view-spec.md, "Calendars
+ * and colors"): every calendar checked in Google, the default one in Outlook.
+ */
+export interface CalendarSource {
+  /** The provider's calendar id (a primary Google calendar's is its email). */
+  id: string;
+  /** As the person sees it in the provider, their own rename included. */
+  name: string;
+  /** The color the person gave it, as hex, or null. */
+  color: string | null;
+  /** The account's main calendar. */
+  primary: boolean;
+  /** The person owns it, rather than seeing one shared with them. */
+  owned: boolean;
+}
+
 export interface CalendarEvent {
   /** Provider event id (best-effort synthetic fallback when absent). */
   id: string;
   providerId: CalendarProviderId;
   connectionId: string;
+  /** The iCalendar UID, the same on every calendar's copy of a meeting, or null. */
+  uid: string | null;
+  /** The calendar this copy was read from, or null when it couldn't be named. */
+  calendar: CalendarSource | null;
+  /** The color to show it in, as hex: its own color, else its calendar's. Null for none. */
+  color: string | null;
+  /**
+   * Other calendars the same meeting is on, by name. Copies merge into one
+   * event at read time (`mergeCopies`), so adding or removing a calendar
+   * never loses a meeting another calendar still has.
+   */
+  alsoOn: string[];
   title: string;
   /** ISO 8601 instant for timed events; YYYY-MM-DD for all-day events. */
   start: string;
@@ -28,7 +57,11 @@ export interface CalendarEvent {
   sourceUrl: string | null;
   rsvp: 'accepted' | 'declined' | 'tentative' | 'needs_action' | null;
   transparency: 'busy' | 'free';
-  /** Whether this event consumes work time — the input to all gap math. */
+  /**
+   * Whether this event consumes work time: the input to all gap math. Only
+   * events on your own calendars do (`calendarCountsTime`), so a colleague's
+   * calendar or a holiday feed shows without taking your day.
+   */
   countsAsBusy: boolean;
 }
 

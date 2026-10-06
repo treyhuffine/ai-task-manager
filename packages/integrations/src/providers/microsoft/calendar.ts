@@ -8,6 +8,8 @@ import { MICROSOFT_SCOPES } from './provider';
 
 interface RawEvent {
   id?: string;
+  /** The iCalendar UID: the same on every calendar's copy of a meeting. */
+  iCalUId?: string;
   subject?: string;
   start?: { dateTime?: string; timeZone?: string };
   end?: { dateTime?: string; timeZone?: string };
@@ -37,6 +39,7 @@ function toInstant(t?: { dateTime?: string; timeZone?: string }): string | undef
 function eventSummary(e: RawEvent) {
   return {
     id: e.id,
+    iCalUId: e.iCalUId,
     subject: e.subject,
     start: toInstant(e.start),
     end: toInstant(e.end),
@@ -52,13 +55,51 @@ function eventSummary(e: RawEvent) {
 }
 
 const EVENT_SELECT =
-  'id,subject,start,end,location,webLink,isAllDay,showAs,responseStatus,isCancelled,onlineMeeting,isOnlineMeeting';
+  'id,iCalUId,subject,start,end,location,webLink,isAllDay,showAs,responseStatus,isCancelled,onlineMeeting,isOnlineMeeting';
+
+interface RawCalendar {
+  id?: string;
+  name?: string;
+  /** The color the user picked, as hex, or '' when it's one of the named presets. */
+  hexColor?: string;
+  /** auto | lightBlue | lightGreen | lightOrange | lightGray | lightYellow | lightTeal | lightPink | lightBrown | lightRed | maxColor */
+  color?: string;
+  isDefaultCalendar?: boolean;
+  canEdit?: boolean;
+  owner?: { address?: string };
+}
 
 export const outlookCalendar = defineToolkit({
   id: 'outlook_calendar',
   providerId: 'microsoft',
   displayName: 'Outlook Calendar',
   actions: [
+    httpAction({
+      id: 'outlook_calendar.list_calendars',
+      description: 'List the Outlook calendars the user can access, with their names and colors.',
+      scopes: [MICROSOFT_SCOPES.calendarsRead],
+      input: z.object({}),
+      request: () => ({
+        method: 'GET',
+        path: '/me/calendars',
+        query: { $select: 'id,name,hexColor,color,isDefaultCalendar,canEdit,owner', $top: 100 },
+      }),
+      output: (raw) => {
+        const r = raw as { value?: RawCalendar[] };
+        return {
+          calendars: (r.value ?? []).map((c) => ({
+            id: c.id,
+            name: c.name,
+            hexColor: c.hexColor || undefined,
+            color: c.color,
+            isDefault: !!c.isDefaultCalendar,
+            canEdit: !!c.canEdit,
+            owner: c.owner?.address,
+          })),
+        };
+      },
+    }),
+
     httpAction({
       id: 'outlook_calendar.list_events',
       description:

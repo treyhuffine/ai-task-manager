@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { CalendarEvent } from '@/lib/calendar/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { stripeStyle } from './event-color';
 import { EventPopoverContent } from './event-popover';
 
 const VISIBLE = 3;
@@ -32,6 +33,7 @@ export function AllDayRow({ events }: { events: CalendarEvent[] }) {
                 'px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground truncate max-w-[160px]',
                 'hover:text-foreground transition-colors',
               )}
+              style={stripeStyle(e.color, 2)}
             >
               {e.title}
             </button>

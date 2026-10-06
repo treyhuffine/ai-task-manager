@@ -34,6 +34,7 @@ import { formatMinutes } from '@/lib/deck/calendar';
 import { formatDayLabel } from '@/lib/calendar/dates';
 import type { CalendarDay, CalendarEvent } from '@/lib/calendar/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { stripeStyle } from './event-color';
 import { EventPopoverContent } from './event-popover';
 import { NowLine } from './now-line';
 import type { DeadlineMarker } from './week-view';
@@ -119,8 +120,9 @@ export function WeekGrid({ days, workday, today, deadlinesByDate, onSelectDay, o
               {day.allDay.map((e) => (
                 <span
                   key={e.id}
-                  title={e.title}
+                  title={e.calendar ? `${e.title} (${e.calendar.name})` : e.title}
                   className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground truncate"
+                  style={stripeStyle(e.color, 2)}
                 >
                   {e.title}
                 </span>
@@ -239,9 +241,16 @@ function GridEvent({ placed, bounds }: { placed: PlacedEvent; bounds: MinuteWind
             ...toStyle(windowPct(placed, bounds)),
             left: `${(column / columns) * 100}%`,
             width: `${100 / columns}%`,
+            ...stripeStyle(event.color),
           }}
         >
-          <p className={cn('px-1 py-0.5 text-[9px] leading-tight text-foreground truncate', !busy && 'line-through')}>
+          <p
+            className={cn(
+              'py-0.5 pr-1 text-[9px] leading-tight text-foreground truncate',
+              event.color ? 'pl-[7px]' : 'pl-1',
+              event.rsvp === 'declined' && 'line-through',
+            )}
+          >
             {event.title}
           </p>
         </button>
@@ -262,7 +271,9 @@ function OverflowRow({ event }: { event: CalendarEvent }) {
           type="button"
           className="w-full flex items-center gap-2 rounded px-2 py-1 text-left hover:bg-muted/60 transition-colors"
         >
-          <span className={cn('flex-1 truncate text-xs', !event.countsAsBusy && 'line-through opacity-50')}>
+          <span
+            className={cn('flex-1 truncate text-xs', !event.countsAsBusy && 'opacity-50', event.rsvp === 'declined' && 'line-through')}
+          >
             {event.title}
           </span>
         </button>

@@ -32,6 +32,7 @@ import {
 import type { CalendarDay, CalendarEvent } from '@/lib/calendar/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { AllDayRow } from './all-day-row';
+import { stripeStyle } from './event-color';
 import { EventPopoverContent } from './event-popover';
 import { NowLine } from './now-line';
 import { WorkLaneHeader, WorkLaneTrack, dayLanes } from './work/work-lanes';
@@ -189,7 +190,8 @@ function EventCard({ placed, bounds }: { placed: PlacedEvent; bounds: MinuteWind
         <button
           type="button"
           className={cn(
-            'absolute z-20 min-h-5 rounded-md border text-left px-2 py-0.5 overflow-hidden transition-colors',
+            'absolute z-20 min-h-5 rounded-md border text-left pr-2 py-0.5 overflow-hidden transition-colors',
+            event.color ? 'pl-3' : 'pl-2',
             'bg-muted border-border hover:border-muted-foreground/40',
             !busy && 'opacity-40',
           )}
@@ -197,9 +199,10 @@ function EventCard({ placed, bounds }: { placed: PlacedEvent; bounds: MinuteWind
             ...toStyle(windowPct(placed, bounds)),
             left: `${(column / columns) * 100}%`,
             width: `${100 / columns}%`,
+            ...stripeStyle(event.color),
           }}
         >
-          <p className={cn('text-[11px] font-medium text-foreground truncate', !busy && 'line-through')}>
+          <p className={cn('text-[11px] font-medium text-foreground truncate', event.rsvp === 'declined' && 'line-through')}>
             {event.title}
           </p>
           {minutes >= TIME_LABEL_MIN_MINUTES && (
@@ -226,7 +229,9 @@ function OverflowRow({ event, date }: { event: CalendarEvent; date: string }) {
           <span className="text-[10px] tabular-nums text-muted-foreground/70 w-14 shrink-0">
             {w ? hourMinuteLabel(w.startMinute) : ''}
           </span>
-          <span className={cn('flex-1 truncate text-xs', !event.countsAsBusy && 'line-through opacity-50')}>
+          <span
+            className={cn('flex-1 truncate text-xs', !event.countsAsBusy && 'opacity-50', event.rsvp === 'declined' && 'line-through')}
+          >
             {event.title}
           </span>
         </button>

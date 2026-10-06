@@ -1282,10 +1282,20 @@ const get_day_shape_action = defineAction({
       workday: `${r.workday.start}-${r.workday.end}`,
       days: r.days.map((d) => ({
         date: d.date,
-        allDay: d.allDay.map((e) => ({ title: e.title, start: e.start, end: e.end })),
+        allDay: d.allDay.map((e) => ({ title: e.title, start: e.start, end: e.end, calendar: e.calendar?.name ?? null })),
         busy: d.events
           .filter((e) => e.countsAsBusy)
-          .map((e) => ({ title: e.title, start: e.start, end: e.end, source: e.providerId })),
+          .map((e) => ({ title: e.title, start: e.start, end: e.end, source: e.providerId, calendar: e.calendar?.name ?? null })),
+        // On a calendar but not taking the user's time: declined, shown as free, or on a calendar shared with them.
+        notBusy: d.events
+          .filter((e) => !e.countsAsBusy)
+          .map((e) => ({
+            title: e.title,
+            start: e.start,
+            end: e.end,
+            calendar: e.calendar?.name ?? null,
+            why: e.rsvp === 'declined' ? 'declined' : e.transparency === 'free' ? 'shows_as_free' : 'shared_calendar',
+          })),
         freeGaps: d.gaps.map(formatGap),
         freeMinutes: d.freeMinutes,
         largestGapMinutes: d.largestGapMinutes,

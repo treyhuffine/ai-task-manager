@@ -14,6 +14,8 @@ const CAL = '/calendar/v3';
 
 interface RawEvent {
   id?: string;
+  /** The iCalendar UID: the same on every calendar's copy of a meeting. */
+  iCalUID?: string;
   summary?: string;
   htmlLink?: string;
   status?: string;
@@ -23,6 +25,8 @@ interface RawEvent {
   transparency?: string;
   location?: string;
   hangoutLink?: string;
+  /** The event's own color, overriding its calendar's: a key into Google's event palette ("1" to "11"). */
+  colorId?: string;
   attendees?: Array<{ self?: boolean; responseStatus?: string }>;
   conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
 }
@@ -32,6 +36,7 @@ function eventSummary(e: RawEvent) {
   const video = e.conferenceData?.entryPoints?.find((p) => p.entryPointType === 'video');
   return {
     id: e.id,
+    iCalUID: e.iCalUID,
     summary: e.summary,
     start: e.start?.dateTime ?? e.start?.date,
     end: e.end?.dateTime ?? e.end?.date,
@@ -40,9 +45,27 @@ function eventSummary(e: RawEvent) {
     transparency: e.transparency,
     location: e.location,
     joinUrl: e.hangoutLink ?? video?.uri,
+    colorId: e.colorId,
     /** The user's own RSVP: needsAction | declined | tentative | accepted. */
     responseStatus: self?.responseStatus,
   };
+}
+
+interface RawCalendar {
+  id?: string;
+  summary?: string;
+  /** The name the user gave a calendar shared with them, shown instead of `summary`. */
+  summaryOverride?: string;
+  primary?: boolean;
+  /** Checked in Google Calendar's sidebar, so its events show. */
+  selected?: boolean;
+  /** Removed from the sidebar's list altogether. */
+  hidden?: boolean;
+  /** owner | writer | reader | freeBusyReader */
+  accessRole?: string;
+  /** The color the user picked for the calendar, as hex. */
+  backgroundColor?: string;
+  foregroundColor?: string;
 }
 
 export const googleCalendar = defineToolkit({
@@ -56,10 +79,21 @@ export const googleCalendar = defineToolkit({
       description: 'List the calendars the user can access.',
       scopes: [GOOGLE_SCOPES.calendarReadonly],
       input: z.object({}),
-      request: () => ({ method: 'GET', path: `${CAL}/users/me/calendarList` }),
+      request: () => ({ method: 'GET', path: `${CAL}/users/me/calendarList`, query: { maxResults: 250 } }),
       output: (raw) => {
-        const r = raw as { items?: Array<{ id?: string; summary?: string; primary?: boolean }> };
-        return { calendars: (r.items ?? []).map((c) => ({ id: c.id, summary: c.summary, primary: !!c.primary })) };
+        const r = raw as { items?: RawCalendar[] };
+        return {
+          calendars: (r.items ?? []).map((c) => ({
+            id: c.id,
+            summary: c.summaryOverride ?? c.summary,
+            primary: !!c.primary,
+            selected: !!c.selected,
+            hidden: !!c.hidden,
+            accessRole: c.accessRole,
+            backgroundColor: c.backgroundColor,
+            foregroundColor: c.foregroundColor,
+          })),
+        };
       },
     }),
 

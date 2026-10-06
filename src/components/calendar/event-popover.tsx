@@ -4,9 +4,13 @@
  * Read-only event details: time, attribution, location, join link, and a deep
  * link into the provider's own UI. Deliberately no edit affordances — event
  * management stays in the source calendar (or conversational, later).
+ * Attribution is the calendar it's on, in its color, and any other calendars
+ * the same meeting was merged from (docs/calendar-view-spec.md, "Calendars
+ * and colors").
  */
 
 import { ExternalLink, MapPin, Video } from 'lucide-react';
+import { calendarCountsTime } from '@/lib/calendar/events';
 import type { CalendarEvent } from '@/lib/calendar/types';
 
 const PROVIDER_LABEL: Record<CalendarEvent['providerId'], string> = {
@@ -29,6 +33,7 @@ function rsvpNote(e: CalendarEvent): string | null {
   if (e.rsvp === 'declined') return 'Declined';
   if (e.rsvp === 'tentative') return 'Tentative';
   if (e.transparency === 'free') return 'Shows as free';
+  if (!e.allDay && !calendarCountsTime(e.calendar)) return 'Not counted as busy';
   if (e.rsvp === 'needs_action') return 'Not responded';
   return null;
 }
@@ -52,7 +57,20 @@ export function EventPopoverContent({ event }: { event: CalendarEvent }) {
         </p>
       )}
 
-      <p className="text-[10px] text-muted-foreground/60">{PROVIDER_LABEL[event.providerId]}</p>
+      <div className="space-y-0.5">
+        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          {event.color && <span aria-hidden className="size-2 shrink-0 rounded-[2px]" style={{ backgroundColor: event.color }} />}
+          <span className="truncate">
+            {event.calendar ? event.calendar.name : PROVIDER_LABEL[event.providerId]}
+            {event.calendar && !calendarCountsTime(event.calendar) && <span className="text-muted-foreground/60"> · shared with you</span>}
+          </span>
+        </p>
+        {event.alsoOn.length > 0 && (
+          <p className="truncate text-[10px] text-muted-foreground/60" title={event.alsoOn.join(', ')}>
+            Also on {event.alsoOn.join(', ')}
+          </p>
+        )}
+      </div>
 
       {(event.joinUrl || event.sourceUrl) && (
         <div className="flex items-center gap-2 pt-1">

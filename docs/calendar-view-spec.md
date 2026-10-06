@@ -149,8 +149,8 @@ getCalendarRange(opts: { start: string; days: number; fresh?: boolean }):
 ```
 
 - Fetches every connected `google` + `microsoft` connection (all of them, not
-  just the first), `primary` calendar / default calendar only (multi-calendar
-  selection is deferred, see Deferred).
+  just the first). Google: every calendar checked in Google Calendar, Outlook:
+  the default calendar (2026-10-06, see "Calendars and colors" below).
 - Google: one `list_events` call per connection spanning the whole range
   (`timeMin` = local `start` 00:00 as ISO, `timeMax` = start + days,
   `maxResults: 250`, `singleEvents: true` already set by the toolkit).
@@ -504,8 +504,8 @@ copy rule), no hardcoded product or user names (open-source rule).
   existing `create_event` integration actions). Separate trust decision.
 - **Cross-panel drag** (deck list → calendar) — needs a dashboard-level
   DndContext refactor.
-- **Multi-calendar selection** (non-primary calendars via `list_calendars`) —
-  settings UI, integration param plumb-through.
+- ~~**Multi-calendar selection**~~ Done 2026-10-06 without a settings UI: Ri
+  reads the calendars you checked in Google (see "Calendars and colors").
 - **Week hour grid, month view** — month is decided against, not just
   deferred.
 - **`calendar_events` mirror table** — only when one of: week-instant/offline,
@@ -796,7 +796,26 @@ desktop panel tab went too (removed from Home's More menu, and `calendar`
 from `MorePanelTab`). The phone keeps its day view under More, Calendar,
 where a full-screen week has no room.
 
-The full-screen calendar also carries the **work view** (2026-10-05): what you and your agents did, as blocks beside the meetings, a list, and what it adds up to in person-hours. See `docs/work-view.md`.
+The full-screen calendar also carries the **work view** (2026-10-05): what you and your agents did, beside the meetings, and what it adds up to in person-hours, with Calendar | List | Report tabs and an Agent work switch. See `docs/work-view.md`.
+
+### Calendars and colors (2026-10-06)
+
+Ri used to read one calendar per account, the primary, and drop every color. Now it shows what your calendar app shows, in your colors.
+
+**Which calendars.** On each Google account, the primary calendar and every calendar checked in Google Calendar's sidebar that isn't hidden (`list_calendars`: `selected`, `hidden`). There is no Ri setting: check or uncheck a calendar in Google and Ri follows within five minutes (each connection's list is cached that long). Outlook has no notion of a checked calendar, so it reads the default calendar, now named and colored. If a connection's list can't be read, it falls back to the primary calendar, unnamed, as before.
+
+**Colors.** Each meeting wears its calendar's color (`backgroundColor`, the color you picked), or its own color when it has one (`colorId`, mapped to the shades Google Calendar shows today in `GOOGLE_EVENT_COLORS`, since the API's palette is an older, paler set). Calendar colors come as the API gives them, which for Google's preset colors is also that older shade. The color is a stripe down the meeting's left edge (`stripeStyle`, `src/components/calendar/event-color.ts`) on a neutral card, in the week grid, Day, List, all-day chips and the header peek. Fills stay neutral on purpose: in the same view agents' work owns the filled colors (docs/work-view.md, "Colors"), so a blue meeting must never read as an agent. The popover names the calendar with its color.
+
+**Whose time.** Only your own calendars take your time: the primary calendar and calendars you own (`accessRole: owner`) count as busy, calendars shared with you (a colleague's, a family calendar, a holiday feed) show dimmed and say "Not counted as busy" (`calendarCountsTime`). Without that, adding the checked calendars would have filled the gap math with other people's meetings. Strikethrough now means declined only. Free and not-counted events are dimmed, not struck.
+
+**Duplicates.** The same meeting reaches Ri more than once: a calendar shared with another of your accounts is listed on both, and an invite to two of your addresses lands on both calendars. Two layers, both at read time and never stored:
+
+1. *Calendars:* Google calendar ids are global, so a calendar two connections list is read once, through the connection that owns it (`planReads`).
+2. *Meetings:* copies share an iCalendar UID and a start instant, so they merge into one event (`mergeCopies`, `src/lib/calendar/events.ts`). The copy that speaks for it is on a calendar of yours before a shared one, the primary first, then the RSVP you kept (accepted, tentative, not responded, declined). The others are named in `alsoOn` ("Also on Personal" in the popover). Other instances of a recurring series differ by start and stay separate. Events without a UID are never merged.
+
+Doing it on every read rather than storing a merged copy is what keeps it honest when calendars change: remove the calendar a meeting was merged into and the next read shows it from the calendar that still has it. Ri never decides once and remembers.
+
+**Agents** reading `get_day_shape` see each event's calendar by name, and a `notBusy` list per day of what's on a calendar without taking the user's time, with why (`declined`, `shows_as_free`, `shared_calendar`). The free gaps already exclude them.
 
 **Geometry rule (learned the hard way):** time surfaces contain no pixel math
 in JS. Columns are real CSS grid tracks (`grid-cols-[2.5rem_repeat(7,1fr)]`),

@@ -12,6 +12,7 @@ import { formatMinutes, minutesToLabel } from '@/lib/deck/calendar';
 import { eventWindowOnDate } from '@/lib/calendar/layout';
 import type { CalendarEvent, CalendarRangeResult } from '@/lib/calendar/types';
 import { DayShapeStrip } from './day-shape-strip';
+import { stripeStyle } from './event-color';
 
 interface AgendaRow {
   key: string;
@@ -19,6 +20,8 @@ interface AgendaRow {
   timeLabel: string;
   title: string;
   dimmed: boolean;
+  declined: boolean;
+  color: string | null;
   joinUrl?: string | null;
 }
 
@@ -46,6 +49,8 @@ export function HudDayPeek({
         timeLabel: minutesToLabel(w.startMinute),
         title: e.title,
         dimmed: !e.countsAsBusy,
+        declined: e.rsvp === 'declined',
+        color: e.color,
         joinUrl: e.joinUrl,
       });
     }
@@ -65,6 +70,7 @@ export function HudDayPeek({
               <span
                 key={e.id}
                 className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground truncate max-w-36"
+                style={stripeStyle(e.color, 2)}
               >
                 {e.title}
               </span>
@@ -81,9 +87,15 @@ export function HudDayPeek({
                 {row.timeLabel}
               </span>
               <span
+                aria-hidden
+                className="size-1.5 shrink-0 rounded-full"
+                style={row.color ? { backgroundColor: row.color } : undefined}
+              />
+              <span
                 className={cn(
                   'flex-1 truncate text-xs',
-                  row.dimmed && 'text-muted-foreground/50 line-through',
+                  row.dimmed && 'text-muted-foreground/50',
+                  row.declined && 'line-through',
                 )}
               >
                 {row.title}

@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  calendarCountsTime,
   countsAsBusy,
   eventOverlapsDay,
   eventToBlock,
+  hexColor,
+  mergeCopies,
   normalizeGoogleEvent,
   normalizeOutlookEvent,
+  type RawGoogleEvent,
 } from './events';
+import type { CalendarSource } from './types';
 
 const DATE = '2026-07-20';
 
@@ -195,5 +200,59 @@ describe('eventOverlapsDay', () => {
     const ev = normalizeGoogleEvent({ id: 'a', summary: 'OOO', start: DATE, end: '2026-07-21' }, 'c1')!;
     expect(eventOverlapsDay(ev, DATE)).toBe(true);
     expect(eventOverlapsDay(ev, '2026-07-21')).toBe(false);
+  });
+});
+
+describe('calendars, colors and copies', () => {
+  const cal = (name: string, over: Partial<CalendarSource> = {}): CalendarSource => ({
+    id: `${name}@cal`,
+    name,
+    color: null,
+    primary: false,
+    owned: true,
+    ...over,
+  });
+  const google = (over: Partial<RawGoogleEvent>, calendar: CalendarSource | null = null) =>
+    normalizeGoogleEvent({ id: 'e', iCalUID: 'u', summary: 'Sync', start: '2026-07-20T10:00:00Z', end: '2026-07-20T11:00:00Z', ...over }, 'c1', calendar)!;
+
+  it("wears its own color over its calendar's, as Google shows it today", () => {
+    expect(google({ colorId: '7' }, cal('Work', { color: '#9fc6e7' })).color).toBe('#039be5');
+    expect(google({}, cal('Work', { color: '#9fc6e7' })).color).toBe('#9fc6e7');
+    expect(google({}).color).toBeNull();
+    expect([hexColor('#ABCDEF'), hexColor('blue'), hexColor('')]).toEqual(['#abcdef', null, null]);
+  });
+
+  it('only takes your time on a calendar you own', () => {
+    expect(google({}, cal('Shared', { owned: false })).countsAsBusy).toBe(false);
+    expect(google({}, cal('Primary', { owned: false, primary: true })).countsAsBusy).toBe(true);
+    expect(google({}, cal('Gym')).countsAsBusy).toBe(true);
+    expect(calendarCountsTime(null)).toBe(true);
+  });
+
+  it('merges copies of one meeting into the one you own, naming the others', () => {
+    const shared = google({ id: 'a', responseStatus: 'accepted' }, cal('Work (shared)', { owned: false }));
+    const mine = google({ id: 'b', responseStatus: 'accepted' }, cal('Work', { primary: true }));
+    const merged = mergeCopies([shared, mine]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({ id: 'b', countsAsBusy: true, alsoOn: ['Work (shared)'] });
+  });
+
+  it('keeps the RSVP you kept when invited at two addresses', () => {
+    const declined = google({ id: 'a', responseStatus: 'declined' }, cal('Personal', { primary: true }));
+    const accepted = google({ id: 'b', responseStatus: 'accepted' }, cal('Work', { primary: true }));
+    expect(mergeCopies([declined, accepted])[0]).toMatchObject({ id: 'b', rsvp: 'accepted', countsAsBusy: true, alsoOn: ['Personal'] });
+  });
+
+  it('leaves apart what only looks alike: other instances of a series, and events without a UID', () => {
+    const monday = google({ id: 'r1' }, cal('Work'));
+    const tuesday = google({ id: 'r2', start: '2026-07-21T10:00:00Z', end: '2026-07-21T11:00:00Z' }, cal('Work'));
+    const noUid = [google({ id: 'x', iCalUID: undefined }), google({ id: 'y', iCalUID: undefined })];
+    expect(mergeCopies([monday, tuesday, ...noUid]).map((e) => e.id)).toEqual(['r1', 'r2', 'x', 'y']);
+  });
+
+  it('matches copies by instant, whatever offset each calendar wrote', () => {
+    const utc = google({ id: 'a' }, cal('A'));
+    const local = google({ id: 'b', start: '2026-07-20T04:00:00-06:00', end: '2026-07-20T05:00:00-06:00' }, cal('B'));
+    expect(mergeCopies([utc, local])).toHaveLength(1);
   });
 });
