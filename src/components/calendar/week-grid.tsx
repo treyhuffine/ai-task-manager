@@ -37,7 +37,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { EventPopoverContent } from './event-popover';
 import { NowLine } from './now-line';
 import type { DeadlineMarker } from './week-view';
-import { formatHours } from '@/lib/work/equivalents';
+import { WorkWorth } from './work/work-worth';
 import { WorkRibbon } from './work/work-ribbon';
 import type { WorkLayer } from './work/work-style';
 
@@ -115,7 +115,7 @@ export function WeekGrid({ days, workday, today, deadlinesByDate, onSelectDay, o
                   </span>
                 )}
               </button>
-              <DayWorth work={work} date={day.date} />
+              <WorkWorth stats={work?.days.get(day.date)?.stats} className="truncate text-[10px]" />
               {day.allDay.map((e) => (
                 <span
                   key={e.id}
@@ -254,16 +254,6 @@ function GridEvent({ placed, bounds }: { placed: PlacedEvent; bounds: MinuteWind
 }
 
 /** Under a date: what the day's work was worth, in person-hours. */
-function DayWorth({ work, date }: { work: WorkLayer | undefined; date: string }) {
-  const s = work?.days.get(date)?.stats;
-  if (!s || s.personHours < 0.5) return null;
-  return (
-    <span className="text-[9px] text-muted-foreground">
-      {formatHours(s.personHours)} person-hours{s.commits > 0 ? ` · ${s.commits} ${s.commits === 1 ? 'commit' : 'commits'}` : ''}
-    </span>
-  );
-}
-
 function OverflowRow({ event }: { event: CalendarEvent }) {
   return (
     <Popover>

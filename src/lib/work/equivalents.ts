@@ -28,20 +28,40 @@ export const BOOKS: ReadonlyArray<{ title: string; words: number }> = [
   { title: 'the whole Harry Potter series', words: 1_084_170 },
 ];
 
-/** "about The Hobbit", "most of The Great Gatsby", "3 copies of War and Peace". */
-export function bookEquivalent(words: number): string | null {
+/** The book a word count is closest to, and how it compares. */
+export interface BookMatch {
+  title: string;
+  /** About as long, most of it, or several copies of it. */
+  fit: 'about' | 'most' | 'copies' | 'times';
+  count: number;
+}
+
+export function bookMatch(words: number): BookMatch | null {
   if (words < 10_000) return null;
   const largest = BOOKS[BOOKS.length - 1]!;
-  if (words >= largest.words * 1.5) return `${Math.round(words / largest.words)} times ${largest.title}`;
+  if (words >= largest.words * 1.5) return { title: largest.title, fit: 'times', count: Math.round(words / largest.words) };
   // Closest by ratio, so 450k reads as The Lord of the Rings, not War and Peace.
   let best = BOOKS[0]!;
   for (const b of BOOKS) {
     if (Math.abs(Math.log(words / b.words)) < Math.abs(Math.log(words / best.words))) best = b;
   }
   const ratio = words / best.words;
-  if (ratio >= 1.5) return `${Math.round(ratio)} copies of ${best.title}`;
-  if (ratio < 0.85) return `most of ${best.title}`;
-  return `about the length of ${best.title}`;
+  if (ratio >= 1.5) return { title: best.title, fit: 'copies', count: Math.round(ratio) };
+  return { title: best.title, fit: ratio < 0.85 ? 'most' : 'about', count: 1 };
+}
+
+/** "about the length of The Hobbit", "most of The Great Gatsby", "3 copies of War and Peace". */
+export function bookEquivalent(words: number): string | null {
+  const m = bookMatch(words);
+  if (!m) return null;
+  return m.fit === 'about' ? `about the length of ${m.title}` : bookObject(m);
+}
+
+/** What you'd be writing: "The Hobbit", "most of The Great Gatsby", "3 copies of War and Peace". */
+function bookObject(m: BookMatch): string {
+  if (m.fit === 'times') return `${m.count} times ${m.title}`;
+  if (m.fit === 'copies') return `${m.count} copies of ${m.title}`;
+  return m.fit === 'most' ? `most of ${m.title}` : m.title;
 }
 
 export function formatDuration(minutes: number): string {
@@ -80,11 +100,17 @@ export function personHoursLine(stats: WorkStats, days: number): string | null {
   return parts.length ? `${head}: ${parts.join(', or ')}.` : `${head}.`;
 }
 
-/** "a team of 60 for a week", "a team of 85 for a day", or null below 1.5 people. */
-export function teamPhrase(personHours: number, days: number): string | null {
+/** How many full-time people the hours keep busy for the day or the week, or null below 1.5. */
+export function teamSize(personHours: number, days: number): { size: number; span: 'day' | 'week' } | null {
   const day = days <= 1;
   const team = personHours / (day ? DAY_HOURS : WEEK_HOURS * Math.max(1, days / 7));
-  return team >= 1.5 ? `a team of ${Math.round(team)} for a ${day ? 'day' : 'week'}` : null;
+  return team >= 1.5 ? { size: Math.round(team), span: day ? 'day' : 'week' } : null;
+}
+
+/** "a team of 60 for a week", "a team of 85 for a day", or null below 1.5 people. */
+export function teamPhrase(personHours: number, days: number): string | null {
+  const team = teamSize(personHours, days);
+  return team ? `a team of ${team.size} for a ${team.span}` : null;
 }
 
 /** "1.2 people for a year", "a person for 4 months", or null under a month. */
@@ -104,8 +130,51 @@ export function leverage(stats: WorkStats): number | null {
   return hours >= 0.25 && stats.personHours > hours ? stats.personHours / hours : null;
 }
 
+/** A long stretch in whole hours ("124h"), a short one to the minute ("8h 42m"). */
+export function formatSpan(minutes: number): string {
+  return minutes >= 600 ? `${Math.round(minutes / 60).toLocaleString('en-US')}h` : formatDuration(minutes);
+}
+
+/**
+ * The leverage, as a chain (docs/work-view.md, "The numbers"): your hands-on
+ * time, the agent time it set going, and what a person would need for the
+ * same work. Each step's multiplier, and the two together.
+ */
+export interface LeverageChain {
+  handsOnMinutes: number;
+  agentMinutes: number;
+  personHours: number;
+  whileAwayMinutes: number;
+  /** Agent hours for each hour you were hands-on. */
+  agentsPerHour: number | null;
+  /** Person-hours for each agent hour: how much longer a person would take. */
+  personPerAgentHour: number | null;
+  /** Person-hours for each hour you were hands-on (`leverage`). */
+  leverage: number | null;
+}
+
+export function leverageChain(stats: WorkStats): LeverageChain | null {
+  if (stats.agentMinutes < 1 && stats.personHours < 0.5) return null;
+  const handsOnHours = stats.handsOnMinutes / 60;
+  const agentHours = stats.agentMinutes / 60;
+  return {
+    handsOnMinutes: stats.handsOnMinutes,
+    agentMinutes: stats.agentMinutes,
+    personHours: stats.personHours,
+    whileAwayMinutes: stats.whileAwayMinutes,
+    agentsPerHour: handsOnHours >= 0.25 && agentHours > 0 ? agentHours / handsOnHours : null,
+    personPerAgentHour: agentHours >= 0.25 && stats.personHours > 0 ? stats.personHours / agentHours : null,
+    leverage: leverage(stats),
+  };
+}
+
+/** A multiplier: "3×", "19×", "1.4×". */
+export function formatTimes(x: number): string {
+  return `${formatHours(x)}×`;
+}
+
 export interface WorkTile {
-  key: 'personHours' | 'leverage' | 'peak' | 'away' | 'commits';
+  key: 'team' | 'book' | 'peak' | 'commits';
   label: string;
   value: string;
   /** One or two short lines of context. */
@@ -115,39 +184,36 @@ export interface WorkTile {
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**
- * The calendar's headline numbers, as stat tiles: the value is the point,
- * one line or two say what it means. Tiles with nothing to say are left out.
+ * The numbers beside the chain, as stat tiles: the value is the point, one
+ * line or two say what it means. The first two read top to bottom as a
+ * sentence ("Like a team of / 60 / for a week"). Tiles with nothing to say
+ * are left out.
  */
 export function workTiles(stats: WorkStats, days: number, opts: { weekday?: boolean } = {}): WorkTile[] {
   const tiles: WorkTile[] = [];
-  if (stats.personHours >= 0.5) {
+  const team = teamSize(stats.personHours, days);
+  if (team) {
+    const year = yearPhrase(stats.personHours);
     tiles.push({
-      key: 'personHours',
-      label: 'Person-hours of work',
-      value: formatHours(stats.personHours),
-      context: [teamPhrase(stats.personHours, days), yearPhrase(stats.personHours)].filter((l): l is string => !!l).map((l, i) => (i === 0 ? capitalize(l) : `or ${l}`)),
+      key: 'team',
+      label: 'Like a team of',
+      value: String(team.size),
+      context: [`for a ${team.span}`, ...(year ? [`or ${year}`] : [])],
     });
   }
-  const lev = leverage(stats);
-  if (lev) {
+  const book = bookMatch(stats.agentWords);
+  if (book) {
+    const typingHours = stats.agentWords / TYPING_WPM / 60;
     tiles.push({
-      key: 'leverage',
-      label: 'Your leverage',
-      value: `${formatHours(lev)}×`,
-      context: [`From ${formatDuration(stats.handsOnMinutes)} hands-on`],
+      key: 'book',
+      label: 'Like writing',
+      value: capitalize(bookObject(book)),
+      context: [`${formatCount(stats.agentWords)} words${typingHours >= 1 ? `, ${formatHours(typingHours)} hours to type` : ''}`],
     });
   }
   if (stats.peak && stats.peak.count >= 2) {
     const when = new Date(stats.peak.at).toLocaleString('en-US', { ...(opts.weekday ? { weekday: 'short' } : {}), hour: 'numeric', minute: '2-digit' });
     tiles.push({ key: 'peak', label: 'Agents at once', value: String(stats.peak.count), context: [`At the peak, ${when}`] });
-  }
-  if (stats.whileAwayMinutes >= 30) {
-    tiles.push({
-      key: 'away',
-      label: 'While you were away',
-      value: formatDuration(stats.whileAwayMinutes),
-      context: ['Agents kept working'],
-    });
   }
   if (stats.commits > 0) {
     tiles.push({

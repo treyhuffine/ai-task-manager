@@ -1,23 +1,20 @@
 "use client";
 
-import { useState } from 'react';
-import { Check, Copy, FileText, Loader2 } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useDashboard } from '@/contexts/dashboard-context';
-import { useSaveWorkReport } from '@/hooks/use-work';
-import { formatDuration, speedLine, textureLine, wordsLine, workTiles } from '@/lib/work/equivalents';
+import { Loader2 } from 'lucide-react';
+import { formatDuration, formatHours, formatSpan, formatTimes, leverageChain, workTiles, type LeverageChain } from '@/lib/work/equivalents';
 import type { WorkRange } from '@/lib/work/types';
 import { cn } from '@/lib/utils';
 import { agentStyle } from './work-style';
 
 /**
- * The top of the calendar with work on (docs/work-view.md): the range's
- * headline numbers as stat tiles, a legend that keys the ribbon's colors (each
- * agent with its time), and the report. The sentences live in the report, so
- * the numbers stay scannable. While the next range loads, the last one's
- * numbers hold, dimmed.
+ * The numbers at the top of the calendar with agent work on (docs/work-view.md,
+ * "The numbers"), the same on every tab: the leverage as a chain (your time,
+ * the agent time it set going, what a person would need), then tiles that
+ * read as sentences. With `legend`, a row keying the ribbon's colors. The
+ * sentences live in the Report tab, so the numbers stay scannable. While the
+ * next range loads, the last one's numbers hold, dimmed.
  */
-export function WorkStats({ range, stale = false }: { range: WorkRange | undefined; stale?: boolean }) {
+export function WorkStats({ range, stale = false, legend = false }: { range: WorkRange | undefined; stale?: boolean; legend?: boolean }) {
   if (!range) {
     return (
       <div className="flex min-h-16 items-center gap-2 px-1 pb-3 text-xs text-muted-foreground">
@@ -26,123 +23,127 @@ export function WorkStats({ range, stale = false }: { range: WorkRange | undefin
       </div>
     );
   }
+  const chain = leverageChain(range.totals);
   const tiles = workTiles(range.totals, range.days, { weekday: range.days > 1 });
-  if (tiles.length === 0) {
-    return <p className="px-1 pb-3 text-xs text-muted-foreground">No work yet in this range.</p>;
+  if (!chain && tiles.length === 0) {
+    return <p className="px-1 pb-3 text-xs text-muted-foreground">No agent work yet in this range.</p>;
   }
-  // The legend keys the colors: one entry per named color, and every agent
-  // past the palette under one "Other", as the ribbon draws them.
-  const working = range.agents.filter((a) => a.agentMinutes >= 1);
-  const shown = working.filter((a) => a.color !== 0);
-  const others = working.filter((a) => a.color === 0);
-  const otherMinutes = others.reduce((sum, a) => sum + a.agentMinutes, 0);
 
   return (
     <div className={cn('space-y-2.5 px-1 pb-3 transition-opacity', stale && 'opacity-40')} aria-busy={stale}>
-      <div className="flex items-start gap-2">
-        <dl className="grid min-w-0 flex-1 grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-2">
-          {tiles.map((t, i) => (
-            <div key={t.key} className="rounded-lg border border-border/70 px-3 py-2">
-              <dt className="text-[11px] text-muted-foreground">{t.label}</dt>
-              <dd className={cn('font-semibold leading-tight text-foreground', i === 0 ? 'text-2xl' : 'text-xl')}>{t.value}</dd>
-              {t.context.map((line) => (
-                <dd key={line} className="text-[11px] leading-snug text-muted-foreground">
-                  {line}
-                </dd>
-              ))}
-            </div>
-          ))}
-        </dl>
-        <ReportButton range={range} />
+      <div className="flex flex-wrap items-stretch gap-2">
+        {chain && <ChainCard chain={chain} />}
+        {tiles.length > 0 && (
+          <dl className="contents">
+            {tiles.map((t) => (
+              <div key={t.key} className="min-w-[8.5rem] flex-1 basis-[9rem] rounded-lg border border-border/70 px-3 py-2">
+                <dt className="text-[11px] text-muted-foreground">{t.label}</dt>
+                <dd className={cn('font-semibold leading-tight text-foreground', t.value.length > 12 ? 'text-base' : 'text-xl')}>{t.value}</dd>
+                {t.context.map((line) => (
+                  <dd key={line} className="text-[11px] leading-snug text-muted-foreground">
+                    {line}
+                  </dd>
+                ))}
+              </div>
+            ))}
+          </dl>
+        )}
       </div>
-      {working.length > 0 && (
-        <ul aria-label="Agents" className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
-          {shown.map((a) => (
-            <li key={a.id ?? 'ri'} className="flex items-center gap-1.5 text-[11px]">
-              <span className="size-2 shrink-0 rounded-[2px]" style={agentStyle(a.color).dot} aria-hidden />
-              <span className="text-foreground/90">{a.name}</span>
-              <span className="text-muted-foreground">{formatDuration(a.agentMinutes)}</span>
-            </li>
-          ))}
-          {others.length > 0 && (
-            <li className="flex items-center gap-1.5 text-[11px]" title={others.map((a) => a.name).join(', ')}>
-              <span className="size-2 shrink-0 rounded-[2px]" style={agentStyle(0).dot} aria-hidden />
-              <span className="text-foreground/90">Other</span>
-              <span className="text-muted-foreground">{formatDuration(otherMinutes)}</span>
-            </li>
-          )}
-          <li className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <span className="h-2.5 w-[3px] shrink-0 rounded-full bg-foreground/60" aria-hidden />
-            You, hands-on
-          </li>
-        </ul>
-      )}
+      {legend && <AgentLegend range={range} />}
     </div>
   );
 }
 
-function ReportButton({ range }: { range: WorkRange }) {
-  const save = useSaveWorkReport();
-  const { openNote } = useDashboard();
-  const [copied, setCopied] = useState(false);
-  const extra = [textureLine(range.totals, { weekday: range.days > 1 }), wordsLine(range.totals), speedLine(range.totals)].filter(
-    (l): l is string => !!l,
-  );
-  const text = [...range.report, ...extra].join('\n');
-
+/**
+ * You, hands-on → agents ran → a person would need. The multiplier on each
+ * arrow is that step, and the two together are your leverage.
+ */
+function ChainCard({ chain }: { chain: LeverageChain }) {
+  const toAgents = chain.agentsPerHour
+    ? `Agents ran ${formatHours(chain.agentsPerHour)} hours for each hour you were hands-on.`
+    : undefined;
+  const toPerson = chain.personPerAgentHour
+    ? `A person would need ${formatHours(chain.personPerAgentHour)} hours for each hour agents ran.`
+    : undefined;
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-        >
-          <FileText size={13} />
-          Report
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[26rem] p-0">
-        <div className="space-y-1.5 px-3 py-2.5">
-          {range.report.map((line) => (
-            <p key={line} className="text-xs leading-relaxed text-foreground">
-              {line}
-            </p>
-          ))}
-        </div>
-        {extra.length > 0 && (
-          <div className="space-y-1 border-t border-border/60 px-3 py-2.5">
-            {extra.map((line) => (
-              <p key={line} className="text-[11px] leading-relaxed text-muted-foreground">
-                {line}
-              </p>
-            ))}
-          </div>
-        )}
-        <div className="flex items-center justify-end gap-1.5 border-t border-border px-3 py-2">
-          <button
-            type="button"
-            onClick={() => {
-              void navigator.clipboard.writeText(text).then(() => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              });
-            }}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-          <button
-            type="button"
-            disabled={save.isPending}
-            onClick={() => save.mutate({ start: range.start, days: range.days }, { onSuccess: (note) => openNote(note.id) })}
-            className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
-          >
-            {save.isPending ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
-            Save as note
-          </button>
-        </div>
-      </PopoverContent>
-    </Popover>
+    <dl
+      aria-label="Your leverage"
+      className="flex min-w-[min(100%,30rem)] grow-[3] basis-[32rem] items-start gap-3 rounded-lg border border-border/70 px-3 py-2"
+    >
+      <ChainStep label="You, hands-on" value={formatSpan(chain.handsOnMinutes)} title={`${formatDuration(chain.handsOnMinutes)} of your own time`} />
+      <ChainArrow times={chain.agentsPerHour} title={toAgents} />
+      <ChainStep
+        label="Agents ran"
+        value={formatSpan(chain.agentMinutes)}
+        title={`${formatDuration(chain.agentMinutes)} of agent time, parallel chats summed`}
+        context={chain.whileAwayMinutes >= 30 ? `${formatSpan(chain.whileAwayMinutes)} while you were away` : undefined}
+      />
+      <ChainArrow times={chain.personPerAgentHour} title={toPerson} />
+      <ChainStep
+        label="A person would need"
+        value={`${formatHours(chain.personHours)}h`}
+        title="Person-hours: commits sized the way an engineer sizes a change, other work one for one"
+        context={chain.leverage ? `${formatTimes(chain.leverage)} your time` : undefined}
+        hero
+      />
+    </dl>
+  );
+}
+
+function ChainStep({ label, value, context, title, hero = false }: { label: string; value: string; context?: string; title: string; hero?: boolean }) {
+  return (
+    <div className="shrink-0" title={title}>
+      <dt className="text-[11px] text-muted-foreground">{label}</dt>
+      <dd className={cn('font-semibold leading-tight text-foreground', hero ? 'text-2xl' : 'text-xl')}>{value}</dd>
+      {context && <dd className="text-[11px] leading-snug text-muted-foreground">{context}</dd>}
+    </div>
+  );
+}
+
+/** A connector across the gap between two steps, that step's multiplier over it. */
+function ChainArrow({ times, title }: { times: number | null; title: string | undefined }) {
+  return (
+    <div className="flex min-w-10 flex-1 flex-col pt-3.5" title={title} aria-hidden={!times}>
+      <span className="h-4 text-center text-[11px] font-medium leading-4 text-muted-foreground">{times ? formatTimes(times) : ''}</span>
+      <span className="relative mt-[3px] h-px bg-muted-foreground/40" aria-hidden>
+        <span className="absolute -right-px top-1/2 size-[7px] -translate-y-1/2 rotate-45 border-t border-r border-muted-foreground/60" />
+      </span>
+      {title && <span className="sr-only">{title}</span>}
+    </div>
+  );
+}
+
+/**
+ * Keys the ribbon's colors: one entry per named color, every agent past the
+ * palette under one "Other" (hover for the names), as the ribbon draws them,
+ * and the thin line that is you.
+ */
+function AgentLegend({ range }: { range: WorkRange }) {
+  const working = range.agents.filter((a) => a.agentMinutes >= 1);
+  if (working.length === 0) return null;
+  const shown = working.filter((a) => a.color !== 0);
+  const others = working.filter((a) => a.color === 0);
+  const otherMinutes = others.reduce((sum, a) => sum + a.agentMinutes, 0);
+  return (
+    <ul aria-label="Agents" className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
+      {shown.map((a) => (
+        <li key={a.id ?? 'ri'} className="flex items-center gap-1.5 text-[11px]">
+          <span className="size-2 shrink-0 rounded-[2px]" style={agentStyle(a.color).dot} aria-hidden />
+          <span className="text-foreground/90">{a.name}</span>
+          <span className="text-muted-foreground">{formatDuration(a.agentMinutes)}</span>
+        </li>
+      ))}
+      {others.length > 0 && (
+        <li className="flex items-center gap-1.5 text-[11px]" title={others.map((a) => a.name).join(', ')}>
+          <span className="size-2 shrink-0 rounded-[2px]" style={agentStyle(0).dot} aria-hidden />
+          <span className="text-foreground/90">Other</span>
+          <span className="text-muted-foreground">{formatDuration(otherMinutes)}</span>
+        </li>
+      )}
+      <li className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <span className="h-2.5 w-[3px] shrink-0 rounded-full bg-foreground/60" aria-hidden />
+        You, hands-on
+      </li>
+    </ul>
   );
 }

@@ -19,6 +19,8 @@ import { formatDayLabel } from '@/lib/calendar/dates';
 import type { CalendarDay, CalendarEvent } from '@/lib/calendar/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { EventPopoverContent } from './event-popover';
+import { WorkWorth } from './work/work-worth';
+import type { WorkLayer } from './work/work-style';
 
 export interface DeadlineMarker {
   taskId: string;
@@ -32,9 +34,13 @@ export interface WeekViewProps {
   deadlinesByDate: Map<string, DeadlineMarker[]>;
   onSelectDay: (date: string) => void;
   onOpenTask: (taskId: string) => void;
+  /** With agent work on, each day also says what its work was worth (docs/work-view.md). */
+  work?: WorkLayer;
+  /** Free time per day, which means nothing without a calendar connected. */
+  showOpen?: boolean;
 }
 
-export function WeekView({ days, workday, today, deadlinesByDate, onSelectDay, onOpenTask }: WeekViewProps) {
+export function WeekView({ days, workday, today, deadlinesByDate, onSelectDay, onOpenTask, work, showOpen = true }: WeekViewProps) {
   const span = Math.max(1, parseHhMm(workday.end) - parseHhMm(workday.start));
 
   return (
@@ -67,15 +73,20 @@ export function WeekView({ days, workday, today, deadlinesByDate, onSelectDay, o
               >
                 {formatDayLabel(day.date)}
               </span>
-              <span className="relative h-1.5 rounded-full bg-muted/50 overflow-hidden">
-                <span
-                  className="absolute inset-y-0 left-0 bg-muted-foreground/40"
-                  style={{ width: `${busyPct}%` }}
-                />
-              </span>
-              <span className="text-[10px] text-muted-foreground">
-                {formatMinutes(day.freeMinutes)} open
-              </span>
+              {showOpen && (
+                <>
+                  <span className="relative h-1.5 rounded-full bg-muted/50 overflow-hidden">
+                    <span
+                      className="absolute inset-y-0 left-0 bg-muted-foreground/40"
+                      style={{ width: `${busyPct}%` }}
+                    />
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {formatMinutes(day.freeMinutes)} open
+                  </span>
+                </>
+              )}
+              <WorkWorth stats={work?.days.get(day.date)?.stats} className="truncate text-[10px]" />
             </button>
 
             {/* All-day chips */}

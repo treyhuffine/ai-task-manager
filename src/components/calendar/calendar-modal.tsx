@@ -7,18 +7,20 @@
  * (`openCalendarModal`). Esc, the X or a click outside leaves you exactly
  * where you were, often an execution you were watching.
  *
- * Two views of the same calendar, the one last used remembered:
+ * Two spans of time, the one last used remembered:
  *
- *   - **Week** (the default): seven days, as an hour grid or a stacked list
- *     (Grid / List, also remembered), with task deadlines. A day's header
- *     opens that day.
+ *   - **Week** (the default): seven days, with task deadlines. A day's
+ *     header opens that day.
  *   - **Day**: one day on an hour axis.
  *
- * With Work on (the default, one click off), it also shows what you and
- * your agents did: a ribbon of work beside each day's meetings, lanes per
- * agent in a day, a list of what got done, and what it adds up to, in
- * person-hours (docs/work-view.md). Work shows
- * with or without a calendar connected.
+ * And up to three tabs, also remembered: **Calendar** (the hour grid),
+ * **List** (the week's days as stacked agendas, Week only) and **Report**
+ * (what got done, only with agent work on).
+ *
+ * The Agent work switch (on to start) adds what you and your agents did:
+ * the numbers at the top, a ribbon of work beside each day's meetings,
+ * lanes per agent in a day, and the Report tab (docs/work-view.md). Work
+ * shows with or without a calendar connected.
  *
  * Read-only over external events, like every calendar surface (see
  * docs/calendar-view-spec.md). The phone keeps its own day view (More,
@@ -35,6 +37,7 @@ import { Dialog as DialogPrimitive } from 'radix-ui';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react';
 import { Dialog, DialogDescription, DialogOverlay, DialogPortal, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useDayShape, useRefreshDayShape } from '@/hooks/use-day-shape';
 import { useTasks } from '@/hooks/use-tasks';
@@ -61,7 +64,7 @@ import { CalendarConnectPrompt } from './calendar-connect-prompt';
 import { DayView } from './day-view';
 import { WeekGrid } from './week-grid';
 import { WeekView, type DeadlineMarker } from './week-view';
-import { WorkList } from './work/work-list';
+import { WorkReport } from './work/work-report';
 import { WorkStats } from './work/work-stats';
 import type { WorkLayer } from './work/work-style';
 
@@ -70,15 +73,17 @@ const CALENDAR_PARAM = 'calendar';
 
 const STALE_MS = 15 * 60_000;
 
-type WeekMode = 'grid' | 'list';
-const WEEK_MODE_KEY = 'ri.calendar.weekMode';
+type Tab = 'calendar' | 'list' | 'report';
+/** Named for the old Grid / List switch, so a remembered List still opens List. */
+const TAB_KEY = 'ri.calendar.weekMode';
 
-function readWeekMode(): WeekMode {
-  if (typeof window === 'undefined') return 'grid';
+function readTab(): Tab {
+  if (typeof window === 'undefined') return 'calendar';
   try {
-    return window.localStorage.getItem(WEEK_MODE_KEY) === 'list' ? 'list' : 'grid';
+    const stored = window.localStorage.getItem(TAB_KEY);
+    return stored === 'list' || stored === 'report' ? stored : 'calendar';
   } catch {
-    return 'grid';
+    return 'calendar';
   }
 }
 
@@ -166,7 +171,7 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
   const [view, setViewState] = useState<CalendarView>(initialView);
   // A date in what's shown: the day itself, or any day of the week.
   const [anchor, setAnchor] = useState(initialDate);
-  const [weekMode, setWeekModeState] = useState<WeekMode>(readWeekMode);
+  const [tabChoice, setTabState] = useState<Tab>(readTab);
   const [refreshing, setRefreshing] = useState(false);
   const { openTask } = useDashboard();
 
@@ -216,14 +221,23 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
     setViewState(next);
   }, []);
 
-  const setWeekMode = useCallback((next: WeekMode) => {
+  const setTab = useCallback((next: Tab) => {
     try {
-      window.localStorage.setItem(WEEK_MODE_KEY, next);
+      window.localStorage.setItem(TAB_KEY, next);
     } catch {
       // storage unavailable: the choice holds for this session
     }
-    setWeekModeState(next);
+    setTabState(next);
   }, []);
+  // The choice holds while a tab isn't there (List in Day, Report with work
+  // off), and comes back with it.
+  const tab: Tab =
+    (tabChoice === 'list' && view === 'day') || (tabChoice === 'report' && !workOn) ? 'calendar' : tabChoice;
+  const tabs: { value: Tab; label: string }[] = [
+    { value: 'calendar', label: 'Calendar' },
+    ...(view === 'week' ? [{ value: 'list' as const, label: 'List' }] : []),
+    ...(workOn ? [{ value: 'report' as const, label: 'Report' }] : []),
+  ];
 
   const step = (dir: -1 | 1) => setAnchor((a) => addDaysLocal(a, dir * (view === 'day' ? 1 : 7)));
   const showingToday = view === 'day' ? anchor === today : monday === mondayOf(today);
@@ -319,33 +333,18 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
           </button>
         )}
 
-        <button
-          type="button"
-          aria-pressed={workOn}
-          onClick={() => setWorkOn(!workOn)}
-          title={workOn ? 'Hide your work' : 'Show what you and your agents did'}
-          className={cn(
-            'flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors',
-            workOn ? 'border-border bg-muted text-foreground' : 'border-border text-muted-foreground hover:text-foreground',
-          )}
+        {!showConnect && tabs.length > 1 && <Segmented label="Show" value={tab} options={tabs} onChange={setTab} />}
+
+        <label
+          className="flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+          title="What you and your agents did: the numbers, a ribbon of work beside your meetings, and the report. Also today's total in the header."
         >
-          <span className={cn('size-1.5 rounded-full', workOn ? 'bg-emerald-500' : 'bg-muted-foreground/40')} aria-hidden />
-          Work
-        </button>
+          <Switch size="sm" checked={workOn} onCheckedChange={setWorkOn} />
+          <span className={cn(workOn && 'text-foreground')}>Agent work</span>
+        </label>
 
         {!showConnect && (
           <>
-            {view === 'week' && (
-              <Segmented
-                label="Week layout"
-                value={weekMode}
-                options={[
-                  { value: 'grid', label: 'Grid' },
-                  { value: 'list', label: 'List' },
-                ]}
-                onChange={setWeekMode}
-              />
-            )}
             <button
               type="button"
               onClick={handleRefresh}
@@ -375,10 +374,13 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
       </header>
 
       <div className={cn('flex min-h-0 flex-1 flex-col', !showConnect && 'px-4 pt-3')}>
-        {workOn && !showConnect && <WorkStats range={workRange} stale={workStale} />}
+        {workOn && !showConnect && <WorkStats range={workRange} stale={workStale} legend={tab === 'calendar'} />}
         <div className="min-h-0 flex-1">
         {showConnect ? (
           <CalendarConnectPrompt onConnect={closeCalendarModal} />
+        ) : tab === 'report' ? (
+          // Until the work arrives, the numbers above say it's adding up.
+          workRange ? <WorkReport range={workRange} today={today} /> : null
         ) : view === 'day' ? (
           <DayView
             date={anchor}
@@ -386,16 +388,6 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
             workday={data?.workday ?? { start: '09:00', end: '18:00' }}
             isToday={anchor === today}
             work={work}
-          />
-        ) : weekMode === 'list' && workOn && workRange && days_ ? (
-          // The calendar's days with the work under each. Until the work
-          // arrives, the plain calendar list below stands in.
-          <WorkList
-            range={workRange}
-            today={today}
-            calendarDays={days_}
-            deadlinesByDate={deadlinesByDate}
-            onOpenTask={openTask}
           />
         ) : !days_ ? (
           // Loading and failure never render as an empty week: "no data"
@@ -408,7 +400,7 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
               Could not read your calendars just now. Refresh to try again.
             </p>
           </div>
-        ) : weekMode === 'grid' ? (
+        ) : tab === 'calendar' ? (
           <WeekGrid
             days={days_}
             workday={data?.workday ?? { start: '09:00', end: '18:00' }}
@@ -427,6 +419,8 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
             deadlinesByDate={deadlinesByDate}
             onSelectDay={openDay}
             onOpenTask={openTask}
+            work={work}
+            showOpen={!noCalendar}
           />
         )}
         </div>

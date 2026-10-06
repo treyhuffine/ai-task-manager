@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatSpan,
+  formatTimes,
+  leverageChain,
   workTiles,
   weeklyReport,
   bookEquivalent,
@@ -106,24 +109,57 @@ describe('weeklyReport', () => {
   });
 });
 
+describe('leverageChain', () => {
+  it('goes from your time to agent time to what a person would need', () => {
+    const chain = leverageChain(stats())!;
+    expect([formatSpan(chain.handsOnMinutes), formatSpan(chain.agentMinutes), formatHours(chain.personHours)]).toEqual(['42h', '162h', '2,377']);
+    expect([chain.agentsPerHour, chain.personPerAgentHour, chain.leverage].map((x) => formatTimes(x!))).toEqual(['3.9×', '15×', '57×']);
+    // The two steps multiply out to the leverage.
+    expect(chain.agentsPerHour! * chain.personPerAgentHour!).toBeCloseTo(chain.leverage!);
+  });
+
+  it('leaves out a step it cannot measure', () => {
+    const chain = leverageChain(stats({ handsOnMinutes: 0 }))!;
+    expect([chain.agentsPerHour, chain.leverage]).toEqual([null, null]);
+    expect(chain.personPerAgentHour).not.toBeNull();
+    expect(leverageChain(stats({ agentMinutes: 0, personHours: 0 }))).toBeNull();
+  });
+
+  it('keeps short stretches to the minute', () => {
+    expect([formatSpan(522), formatSpan(600), formatSpan(7441)]).toEqual(['8h 42m', '10h', '124h']);
+  });
+});
+
 describe('workTiles', () => {
-  it('leads with person-hours, then leverage, peak, time away and commits', () => {
+  it('reads as sentences: like a team of 59 for a week, like writing The Lord of the Rings', () => {
     const tiles = workTiles(stats(), 7, { weekday: true });
-    expect(tiles.map((t) => [t.key, t.value])).toEqual([
-      ['personHours', '2,377'],
-      ['leverage', '57×'],
-      ['peak', '9'],
-      ['away', '38h'],
-      ['commits', '256'],
+    expect(tiles.map((t) => [t.key, t.label, t.value])).toEqual([
+      ['team', 'Like a team of', '59'],
+      ['book', 'Like writing', 'The Lord of the Rings'],
+      ['peak', 'Agents at once', '9'],
+      ['commits', 'Commits', '256'],
     ]);
-    expect(tiles[0]!.context).toEqual(['A team of 59 for a week', 'or 1.2 people for a year']);
-    expect(tiles[1]!.context).toEqual(['From 41h 30m hands-on']);
-    expect(tiles[4]!.context).toEqual(['Across 10 agents']);
+    expect(tiles[0]!.context).toEqual(['for a week', 'or 1.2 people for a year']);
+    expect(tiles[1]!.context).toEqual(['452k words, 188 hours to type']);
+    expect(tiles[3]!.context).toEqual(['Across 10 agents']);
+  });
+
+  it('names the book the way you would say it', () => {
+    const book = (agentWords: number) => workTiles(stats({ agentWords }), 7).find((t) => t.key === 'book')?.value;
+    expect([book(39_255), book(1_500_000), book(5_000_000), book(5_000)]).toEqual([
+      'Most of The Great Gatsby',
+      'The whole Harry Potter series',
+      '5 times the whole Harry Potter series',
+      undefined,
+    ]);
+    expect(book(1_100_000)).toBe('The whole Harry Potter series');
+    expect(book(250_000)).toBe('Moby-Dick');
+    expect(book(700_000)).toBe('War and Peace');
   });
 
   it('speaks in days for a day, and leaves out what has nothing to say', () => {
-    const tiles = workTiles(stats({ personHours: 30, handsOnMinutes: 0, peak: null, whileAwayMinutes: 0, commits: 0 }), 1);
-    expect(tiles).toEqual([{ key: 'personHours', label: 'Person-hours of work', value: '30', context: ['A team of 4 for a day'] }]);
+    const tiles = workTiles(stats({ personHours: 30, agentWords: 0, peak: null, commits: 0 }), 1);
+    expect(tiles).toEqual([{ key: 'team', label: 'Like a team of', value: '4', context: ['for a day'] }]);
   });
 
   it('keeps tile copy free of long dashes and semicolons', () => {

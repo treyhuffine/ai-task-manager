@@ -1,33 +1,52 @@
 # The work view
 
-The calendar can show what you and your agents did, next to what's booked: a ribbon of work beside each day's meetings, lanes per agent in a day, a list of what shipped each day, and what it adds up to in a row of numbers. Built 2026-10-05 as a trial, stored in a file rather than a table so nothing needs a migration until it proves itself.
+The calendar can show what you and your agents did, next to what's booked: what it adds up to in a row of numbers, a ribbon of work beside each day's meetings, lanes per agent in a day, and a Report tab of what shipped. Built 2026-10-05 as a trial, stored in a file rather than a table so nothing needs a migration until it proves itself.
 
 The point is leverage: how much work comes out of your time, with numbers that are measured rather than invented.
 
 ## What you see
 
-Open the calendar (the rail's Calendar, or the header's work pill). With **Work** on (the default, one click off, remembered per browser):
+Open the calendar (the rail's Calendar, or the header's work pill). Its header has three controls that each answer one question:
 
-- **Stat tiles**, at the top, for the week or day in view. One number each, the context under it, no prose (Sep 28 to Oct 4, 2026, real data):
+- **Week | Day**: how much time.
+- **Calendar | List | Report**: how to show it. Calendar is the hour grid, List is the week's days as stacked agendas (Week only), Report is what got done (only with agent work on). The choice is remembered, and holds while a tab isn't there, so turning agent work back on returns to Report.
+- **Agent work**, a switch (on to start, remembered per browser): whether Ri shows what you and your agents did. Off, the calendar is just a calendar: no numbers, no ribbon, no Report tab, and no pill in the header.
 
-  | Tile | Value | Under it |
-  | --- | --- | --- |
-  | Person-hours of work | 2,398 | A team of 60 for a week, or 1.2 people for a year |
-  | Your leverage | 58× | From 41h 31m hands-on |
-  | Agents at once | 9 | At the peak, Mon 3:47 PM |
-  | While you were away | 42h 18m | Agents kept working |
-  | Commits | 256 | Across 13 agents |
+With agent work on, every tab starts with **the numbers** (see "The numbers"). Then:
 
-  A tile with nothing to say drops out: no commits, a peak under two, under half an hour away. Under the tiles, a legend keys the colors: each agent with its time, one "Other" for everyone past the palette (hover it for the names), and the thin line that is you.
-- **Report**, beside the tiles: the sentences (what shipped, where agent time went, the leverage), then the texture lines (words written, the book they'd fill, speed on code), with Copy and Save as note. The note adds the numbers, a line per agent, a line per day and every commit subject by agent. The punchy lines live here so the calendar itself stays scannable.
-- **Week grid**: meetings keep the left two thirds of each day, and the day's work is a ribbon in the right third (see "The ribbon"). Under each date, what the day was worth: "676 person-hours · 75 commits".
-- **Day**: meetings take the left third, and the rest is lanes, one for you and one per agent (see "Day lanes").
-- **List** (Week): each day's calendar first (meetings by time, all-day events, deadlines), then its numbers, then by agent what it committed and which chats ran without a commit, then finished executions and completed tasks. Past days read as a record, coming days as the plan. Grid/List picks the layout and Work adds the layer, so both layouts keep the calendar.
+- **Calendar, Week**: meetings keep the left two thirds of each day, and the day's work is a ribbon in the right third (see "The ribbon"). A legend under the numbers keys the colors. Under each date, the day's worth in the chain's grammar: "30h agents → 676 person-hours".
+- **Calendar, Day**: meetings take the left third, and the rest is lanes, one for you and one per agent (see "Day lanes").
+- **List**: the week's agendas (meetings, all-day events, deadlines), each day with the same worth line. The breakdown of work moved to Report, so List is only ever the calendar.
+- **Report**: the summary in sentences, each agent's time beside what a person would need, and the days (see "Report").
 - **Header**: today's person-hours in a pill (see "Header").
 
-Without a calendar connected the grid still shows work, over empty days, and "Connect your calendar" becomes a small link in the header.
+Without a calendar connected, work still shows over empty days, free time is left out, and "Connect your calendar" becomes a small link in the header.
 
-### Why not blocks
+## The numbers
+
+`WorkStats` (`src/components/calendar/work/work-stats.tsx`), with the wording in `equivalents.ts` (`leverageChain`, `workTiles`). For the week or day in view, the same on every tab. Real data, Sep 28 to Oct 4, 2026:
+
+**The chain**, the widest card, is the whole model in one line:
+
+> You, hands-on **42h** → 3× → Agents ran **124h** → 19× → A person would need **2,398h**
+> (42h while you were away) (58× your time)
+
+Your time sets agents going, and their work is worth what a person would need for it. The multiplier over each arrow is that step: agents ran 3 hours for each hour you were hands-on, and a person would need 19 hours for each hour agents ran. The two multiply out to your leverage, 58×. This is where agent hours and person-hours sit side by side, and the same grammar comes back smaller wherever a day or an agent has a total ("30h agents → 676 person-hours" under a date, "11h → 161h" beside an agent in Report).
+
+**The tiles** beside it each read top to bottom as a sentence:
+
+| Label | Value | Under it |
+| --- | --- | --- |
+| Like a team of | 60 | for a week, or 1.2 people for a year |
+| Like writing | The Lord of the Rings | 452k words, 188 hours to type |
+| Agents at once | 9 | At the peak, Mon 3:47 PM |
+| Commits | 256 | Across 13 agents |
+
+A tile with nothing to say drops out: under 1.5 people, under 10k words, a peak under two, no commits. A long book title steps down a size rather than wrap. While the next range loads, the last range's numbers hold, dimmed.
+
+These replaced a row of five tiles and a paragraph of prose (and a Report popover holding more prose). The rule now: numbers at the top, sentences only in Report.
+
+## Why not blocks
 
 The first build drew work like meetings: a block per agent stretch, packed beside meetings into the day's columns, "+N" past three. Two things were wrong with it. Work isn't an appointment. On a real day nine chats run at once across six agents, so the packing either crowded meetings into slivers or hid most agents behind a "+3" that says nothing about who or how much. And what a week view should answer about work is when, how much, and who, all at a glance. Stacked blocks answer none of the three.
 
@@ -48,11 +67,19 @@ So work gets its own encoding, and meetings keep theirs. Meetings stay as blocks
 
 `src/components/calendar/work/work-lanes.tsx`. You first, as the same thin line, then a lane per agent that worked, in palette order, its spans as bars in its color. A white dot on a bar is a commit. One thin lane of yours beside many of theirs is the leverage, drawn. Click a bar for its chats (click one to open it) and commits, each commit with its size in hours. Lane names sit in a header row above the scrolling track.
 
+## Report
+
+`src/components/calendar/work/work-report.tsx`, the third tab.
+
+- **Summary**: the three-line report (what shipped, where agent time went, the leverage), with Copy and Save as note. Copy adds the numbers as sentences, since pasted text has no tiles above it. The note adds the numbers, a line per agent, a line per day and every commit subject by agent.
+- **By agent**: every agent by name (so "Other" splits back out), its agent time, a bar of what a person would need on one scale, largest first, and its commits. A table, so it's also the readable twin of the colors.
+- **By day**: each day with work, its worth line and commits, then by agent what it committed (six, then "Show all"), which chats ran without a commit, and finished executions and completed tasks.
+
 ## Header
 
 `src/components/calendar/work/work-hud-pill.tsx`, in the top HUD beside the next meeting. "32 person-hours today", and on hover what it's made of (the team phrase, your hands-on time, agent time and the leverage). Click to open today in the calendar's Day view.
 
-- Follows the Work switch, so turning work off in the calendar hides the pill too.
+- Follows the Agent work switch, so turning it off in the calendar hides the pill too.
 - Shows from one person-hour on. Before that there is nothing worth saying.
 - Refreshes every five minutes, a glance rather than a ticker. Each read also asks git.
 - Desktop widths only, next to the other header pills.
@@ -138,6 +165,7 @@ If the trial sticks, the blocks move to a table written as events arrive. The mo
 - `src/lib/work/model.ts`, `equivalents.ts`, `ribbon.ts`, `types.ts`: the algorithm, the wording, the tiles and the ribbon's windows, pure.
 - `src/lib/work/ledger.ts`, `commits.ts`, `service.ts`: the file, git, and the range.
 - `src/lib/db/queries.ts` (Work view section): the reads.
-- `src/components/calendar/work/`: the tiles and legend (`work-stats`), the ribbon, the day lanes, a span's details, the list, the header pill and the colors (`work-style`).
-- `src/components/calendar/week-grid.tsx`, `day-view.tsx`: where the ribbon and the lanes sit beside meetings.
-- `src/lib/client/calendar-work.ts`: the Work toggle.
+- `src/components/calendar/work/`: the numbers and legend (`work-stats`), the worth line (`work-worth`), the ribbon, the day lanes, a span's details, the Report tab (`work-report`), the header pill and the colors (`work-style`).
+- `src/components/calendar/week-grid.tsx`, `day-view.tsx`, `week-view.tsx`: where the ribbon, the lanes and the worth line sit beside meetings.
+- `src/components/calendar/calendar-modal.tsx`: the tabs and the switch.
+- `src/lib/client/calendar-work.ts`: the Agent work switch.

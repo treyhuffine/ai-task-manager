@@ -14,7 +14,7 @@ const REFRESH_MS = 5 * 60_000;
  * Today's work in the header (docs/work-view.md, "Header"): the person-hours
  * your agents and you have put in so far, from every view, including the
  * execution you're watching. Hover for what it's made of, click to open the
- * day in the calendar. Follows the calendar's Work switch, and stays out of
+ * day in the calendar. Follows the calendar's Agent work switch, and stays out of
  * the way until there's something to say.
  */
 export function WorkHudPill() {
