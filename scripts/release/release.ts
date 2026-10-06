@@ -166,7 +166,9 @@ if (buildDir === current) {
 fs.mkdirSync(path.join(RELEASE_DIR, 'bin'), { recursive: true });
 for (const name of ['ri-prod', 'ri']) {
   const dest = path.join(RELEASE_DIR, 'bin', name);
-  fs.copyFileSync(path.join(buildDir, 'scripts/release', `${name}.sh`), dest);
+  // The release's own copy, or this checkout's for a commit from before them.
+  const own = path.join(buildDir, 'scripts/release', `${name}.sh`);
+  fs.copyFileSync(fs.existsSync(own) ? own : path.join(repo, 'scripts/release', `${name}.sh`), dest);
   fs.chmodSync(dest, 0o755);
 }
 const bin = path.resolve(process.env.RI_BIN_DIR ?? path.join(os.homedir(), '.local/bin'));

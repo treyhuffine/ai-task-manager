@@ -98,7 +98,15 @@ ri-prod start
 ri-prod rollback
 ```
 
-This switches back to `previous` and starts it. A release with migrations can't simply be rolled back: the older code refuses a database that's ahead of it, without changing anything. To go back past a migration, stop production, move `~/ri/data.db` aside (keep it), copy the backup `ri-prod` made into its place, and run `ri-prod rollback`. Anything written since the backup is only in the database you moved aside.
+This switches back to `previous` and starts it. Going back past a database migration needs the backup, since the older code refuses a database that's ahead of it. `ri-prod rollback` checks that before changing anything, and says so. Then:
+
+```sh
+ri-prod rollback --restore-db
+```
+
+sets the current database (with its `-wal` and `-shm`) aside in `~/ri-backups/data-<time>-rolled-back-from-<sha>/`, restores the backup taken before the newer release, and starts the older one. Anything written since the backup is only in the database set aside, which is kept, never deleted.
+
+Rehearsed 2026-10-06 against a throwaway home: release, go live with a migration (backup taken, migration applied), plain rollback refused, `--restore-db` rollback (database restored, older release serving).
 
 `ri-prod log` shows the history of what went live, and when.
 

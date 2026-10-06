@@ -8,6 +8,10 @@
 #   ri-prod start [args]      go live with the newest ready release (or the
 #                             current one), then run `ri start [args]`
 #   ri-prod rollback [args]   go back to the release before, then start it
+#   ri-prod rollback --restore-db [args]
+#                             the same past a database migration: set the
+#                             current database aside and restore the backup
+#                             taken before the newer release
 #   ri-prod log               the release history
 #
 # Production must be stopped first (Ctrl-C in its terminal). This never
@@ -42,7 +46,10 @@ describe() {
 # Migrations a release carries, and how many production has applied.
 release_migrations() { node -e 'const j=require(process.argv[1]); process.stdout.write(String(j.entries.length))' "$1/drizzle/meta/_journal.json"; }
 applied_migrations() {
-  if [ -f "$PROD_ROOT/data.db" ]; then sqlite3 -readonly "$PROD_ROOT/data.db" 'select count(*) from __drizzle_migrations' 2>/dev/null || printf '0'; else printf '0'; fi
+  [ -f "$PROD_ROOT/data.db" ] || { printf '0'; return; }
+  # A plain open: -readonly can't open a WAL database whose -shm is missing
+  # (a freshly restored copy). A SELECT writes nothing either way.
+  sqlite3 "$PROD_ROOT/data.db" 'select count(*) from __drizzle_migrations' 2>/dev/null || die "couldn't read the migrations applied in $PROD_ROOT/data.db."
 }
 
 # The pid listening on the production port, if any.
@@ -50,26 +57,30 @@ running_pid() { lsof -nP -iTCP:"$PROD_PORT" -sTCP:LISTEN -t 2>/dev/null | head -
 
 link() {
   # Replace a release link in one step: a new link renamed over the old.
-  ln -s "$2" "$RELEASE_DIR/.$1.tmp.$$"
-  mv -f "$RELEASE_DIR/.$1.tmp.$$" "$RELEASE_DIR/$1"
+  # Plain `mv` would follow the old link into its folder (-h on macOS and
+  # -T on Linux rename onto the link itself).
+  tmp="$RELEASE_DIR/.$1.tmp.$$"
+  ln -s "$2" "$tmp"
+  mv -fh "$tmp" "$RELEASE_DIR/$1" 2>/dev/null || mv -fT "$tmp" "$RELEASE_DIR/$1"
+  [ "$(cd "$RELEASE_DIR/$1" && pwd -P)" = "$(cd "$2" && pwd -P)" ] || die "couldn't point $1 at $2"
 }
 
 log() { printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >> "$LOG"; }
 
 # The production `ri` in ~/.local/bin, first on PATH in every shell. Only a
-# file this tool installed is ever replaced.
+# file this tool installed is ever replaced. (`pnpm release` links ri-prod
+# there itself, so it always runs the newest release's copy.)
 install_cli() {
-  live="$1"
+  dest="$BIN/ri"
+  src="$RELEASE_DIR/bin/ri"
+  [ -f "$src" ] || src="$1/scripts/release/ri.sh"
+  [ -f "$src" ] || return 0
   mkdir -p "$BIN"
-  for pair in "ri:ri.sh:release-cli" "ri-prod:ri-prod.sh:release-prod"; do
-    name=${pair%%:*}; rest=${pair#*:}; src=${rest%%:*}; mark=${rest#*:}
-    dest="$BIN/$name"
-    if [ -e "$dest" ] && ! grep -q "ri-managed: $mark" "$dest" 2>/dev/null; then
-      say "Left $dest alone: it isn't one this tool installed. Remove it to use the production $name."
-      continue
-    fi
-    cp "$live/scripts/release/$src" "$dest.tmp.$$" && chmod 755 "$dest.tmp.$$" && mv -f "$dest.tmp.$$" "$dest"
-  done
+  if [ -e "$dest" ] && ! grep -q "ri-managed: release-cli" "$dest" 2>/dev/null; then
+    say "Left $dest alone: it isn't one this tool installed. Remove it to use the production ri."
+    return 0
+  fi
+  cp "$src" "$dest.tmp.$$" && chmod 755 "$dest.tmp.$$" && mv -f "$dest.tmp.$$" "$dest"
 }
 
 start_release() {
@@ -126,8 +137,9 @@ case "$cmd" in
     if [ -n "$pid" ]; then
       cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
       say "Running:  pid $pid on port $PROD_PORT, from ${cwd:-unknown}"
+      release_real=$(cd "$RELEASE_DIR" 2>/dev/null && pwd -P || printf '%s' "$RELEASE_DIR")
       case "$cwd" in
-        "$RELEASE_DIR"/builds/*) ;;
+        "$release_real"/builds/*) ;;
         *) say "          (not a release: production still runs from a checkout. Stop it and run ri-prod start.)" ;;
       esac
     else
@@ -142,9 +154,39 @@ case "$cmd" in
     start_release "$next_dir" "$@"
     ;;
   rollback)
+    restore=no
+    if [ "${1:-}" = "--restore-db" ]; then restore=yes; shift; fi
     previous_dir=$(target previous)
     [ -n "$previous_dir" ] || die "there is no previous release to go back to."
     current_dir=$(target current)
+    pid=$(running_pid)
+    [ -z "$pid" ] || die "production is running (pid $pid on port $PROD_PORT). Stop it first (Ctrl-C in its terminal), then run this again."
+    # Checked before anything moves: the older release refuses a database
+    # that's ahead of it, so going back past a migration needs the backup.
+    knows=$(release_migrations "$previous_dir")
+    applied=$(applied_migrations)
+    if [ "$knows" -lt "$applied" ]; then
+      backup=$(ls -t "$BACKUP_DIR"/data-*-before-"$(field "$current_dir" short)".db 2>/dev/null | head -n 1 || true)
+      if [ "$restore" != yes ]; then
+        say "The previous release ($(field "$previous_dir" short)) knows $knows migration(s), but the database has $applied."
+        say "It would refuse to open it. Going back means restoring the backup from before the newer release:"
+        say "  ${backup:-(none found in $BACKUP_DIR)}"
+        say "Anything written since then is only in the current database, which is kept, not deleted."
+        [ -n "$backup" ] && say "To do it: ri-prod rollback --restore-db"
+        exit 1
+      fi
+      [ -n "$backup" ] || die "no backup from before $(field "$current_dir" short) in $BACKUP_DIR."
+      aside="$BACKUP_DIR/data-$(date -u +%Y%m%dT%H%M%SZ)-rolled-back-from-$(field "$current_dir" short)"
+      mkdir -p "$aside"
+      for suffix in "" -wal -shm; do
+        [ -e "$PROD_ROOT/data.db$suffix" ] && mv "$PROD_ROOT/data.db$suffix" "$aside/"
+      done
+      cp "$backup" "$PROD_ROOT/data.db"
+      chmod 600 "$PROD_ROOT/data.db"
+      log restore "$backup (current database kept in $aside)"
+      say "Restored $backup"
+      say "The database you rolled back from is kept in $aside"
+    fi
     rm -f "$RELEASE_DIR/next"
     start_release "$previous_dir" "$@"
     ;;
