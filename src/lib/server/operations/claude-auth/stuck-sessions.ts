@@ -1,6 +1,6 @@
 import type { Attachment, StoredAttachment } from '@/db/types';
 import { camelizeKeys } from '@/lib/case/keys';
-import { listSessionsStuckOnSource } from '@/lib/db/queries';
+import { listSessionsAwaitingAuth } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 
@@ -29,7 +29,7 @@ export interface StuckSession {
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
-  const rows = listSessionsStuckOnSource('auth_required');
+  const rows = listSessionsAwaitingAuth();
   const sessions: StuckSession[] = rows.map((r) => {
     // The CTE pulls the JSON column verbatim, so the parsed shape is
     // snake_case `StoredAttachment[]`. Camelize at the boundary to keep

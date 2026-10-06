@@ -27,8 +27,8 @@ vi.mock('@/lib/db/queries', () => ({
     h.rows.push(inserted);
     return inserted;
   },
-  listSessionEventsBySource: (sessionId: string, sources: string[]) =>
-    h.rows.filter((r) => r.sessionId === sessionId && sources.includes(r.source)),
+  listConnectionCardEvents: (sessionId: string) =>
+    h.rows.filter((r) => r.sessionId === sessionId && ['connection_request', 'connection_response'].includes(r.source)),
   setWorkspaceIntegrationScopes: (id: string, scopes: { toolkitId: string }[]) => {
     h.scopesSet.push({ id, scopes });
     const ws = h.workspaces.get(id);

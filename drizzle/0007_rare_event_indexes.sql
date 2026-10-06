@@ -1,0 +1,2 @@
+CREATE INDEX `idx_chat_events_auth_required` ON `chat_events` (`session_id`) WHERE "chat_events"."source" = 'auth_required';--> statement-breakpoint
+CREATE INDEX `idx_chat_events_connection_card` ON `chat_events` (`session_id`) WHERE "chat_events"."source" IN ('connection_request', 'connection_response');

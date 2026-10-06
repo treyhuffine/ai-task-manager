@@ -24,7 +24,7 @@ import {
 	getChatSessionWithExecution,
 	getWorkspace,
 	insertChatEvent,
-	listSessionEventsBySource,
+	listConnectionCardEvents,
 	listWorkspaces,
 	setWorkspaceIntegrationScopes,
 } from '@/lib/db/queries';
@@ -114,7 +114,7 @@ function serviceKeys(providerId: string, agent: ConnectionRequestView['agent'], 
 }
 
 function readChatCards(sessionId: string): ChatCards {
-  const rows = listSessionEventsBySource(sessionId, [REQUEST, RESPONSE]);
+  const rows = listConnectionCardEvents(sessionId);
   const requests = new Map<string, ConnectionRequestView>();
   const answered = new Set<string>();
   const declined = new Set<string>();

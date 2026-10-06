@@ -1751,6 +1751,20 @@ export const externalSessionImports = sqliteTable(
 export const isBackgroundTaskEvent = (t: { source: AnySQLiteColumn; content: AnySQLiteColumn }) =>
   sql`(${t.source} = 'background_task' OR (${t.source} = 'system' AND ${t.content} IN ('background_task', 'task_started', 'task_progress', 'task_updated', 'task_notification')))`;
 
+/**
+ * A chat paused on a sign-in. The "sessions paused for login" check finds its
+ * candidates through `idx_chat_events_auth_required`, which holds only these
+ * rows. Literal SQL, like `isBackgroundTaskEvent`, so the index applies.
+ */
+export const isAuthRequiredEvent = (t: { source: AnySQLiteColumn }) => sql`${t.source} = 'auth_required'`;
+
+/**
+ * An agent's request to connect an account, or the answer to it. A chat's
+ * cards are read back through `idx_chat_events_connection_card`.
+ */
+export const isConnectionCardEvent = (t: { source: AnySQLiteColumn }) =>
+  sql`${t.source} IN ('connection_request', 'connection_response')`;
+
 export const chatEvents = sqliteTable(
   'chat_events',
   {
@@ -1814,6 +1828,16 @@ export const chatEvents = sqliteTable(
     index('idx_chat_events_background_task')
       .on(table.sessionId)
       .where(isBackgroundTaskEvent(table)),
+    // The few chats ever paused on a sign-in, so the paused-sessions poll
+    // (every 30s) checks those instead of probing every active chat.
+    index('idx_chat_events_auth_required')
+      .on(table.sessionId)
+      .where(isAuthRequiredEvent(table)),
+    // A chat's connection cards, so reading them doesn't walk the whole chat
+    // (0.3 to 0.4s on a long one).
+    index('idx_chat_events_connection_card')
+      .on(table.sessionId)
+      .where(isConnectionCardEvent(table)),
   ],
 );
 

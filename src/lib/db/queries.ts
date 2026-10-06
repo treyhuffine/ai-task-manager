@@ -14,7 +14,7 @@ import {
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
-  triagePasses, triageDecisions, streamLinks, skillUsage, isBackgroundTaskEvent,
+  triagePasses, triageDecisions, streamLinks, skillUsage, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent,
 } from '@/lib/db/schema';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, notInArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
@@ -8852,16 +8852,26 @@ export function getLastChatEventBySource(
  * their own requests and decisions with it (integrations/connection-requests.ts). Rides the
  * (session_id, created_at) index, so it scans one chat, never the whole table.
  */
-export function listSessionEventsBySource(sessionId: string, sources: readonly string[]): ChatEventRecord[] {
-  if (sources.length === 0) return [];
-  const db = getDb();
-  return db
+/**
+ * A chat's connection cards (an agent asking for an account) and their
+ * answers, oldest first, through `idx_chat_events_connection_card`.
+ * Unordered in SQL and sorted here: an ORDER BY created_at pulls SQLite
+ * onto `idx_chat_events_session_created`, which walks the whole chat.
+ */
+export function listConnectionCardEvents(sessionId: string): ChatEventRecord[] {
+  return getDb()
     .select()
     .from(chatEvents)
-    .where(and(eq(chatEvents.sessionId, sessionId), inArray(chatEvents.source, [...sources])))
-    .orderBy(asc(chatEvents.createdAt), asc(chatEvents.id))
+    .where(and(eq(chatEvents.sessionId, sessionId), isConnectionCardEvent(chatEvents)))
     .all()
-    .map((r) => hydrateRow(r));
+    .map((r) => hydrateRow(r))
+    .sort(byTranscriptOrder);
+}
+
+/** Transcript order, `(createdAt, id)`, for rows read without an ORDER BY. */
+function byTranscriptOrder(a: { createdAt: string; id: string }, b: { createdAt: string; id: string }): number {
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 export function getChatEventById(id: string): ChatEventRecord | null {
@@ -9017,9 +9027,7 @@ export function listBackgroundTaskEvents(sessionId: string, taskIds: readonly st
 
   const byId = new Map<string, ChatEventRecord>();
   for (const row of [...launches, ...lifecycle]) byId.set(row.id, row);
-  return [...byId.values()].sort((a, b) =>
-    a.createdAt !== b.createdAt ? (a.createdAt < b.createdAt ? -1 : 1) : a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
-  );
+  return [...byId.values()].sort(byTranscriptOrder);
 }
 
 /**
@@ -9043,21 +9051,23 @@ export function listChatEventIdentities(
 }
 
 /**
- * Sessions currently stuck on a given chat_event source (typically
- * `auth_required`), enriched with the most recent user-message text so
- * the floating "Resume sessions" card can render a preview and resend
- * action per row.
+ * Active sessions whose latest event is `auth_required`, enriched with the
+ * most recent user-message text so the floating "Resume sessions" card can
+ * render a preview and resend action per row.
  *
- * Single round-trip, driven from `chat_sessions`: per active session, one
- * `LIMIT 1` probe of `idx_chat_events_session_created` reads the latest
- * event (drives the filter), and only sessions that match probe again for
- * their most-recent user event (drives the preview). Non-archived
- * sessions only — archived ones don't need a "resume" prompt.
+ * Single round-trip. The candidates are the few sessions that ever paused
+ * on a sign-in, read from `idx_chat_events_auth_required`, which holds only
+ * those rows. Each candidate gets one `LIMIT 1` probe of
+ * `idx_chat_events_session_created` for its latest event (drives the
+ * filter), and those still paused probe again for their most-recent user
+ * event (drives the preview). Non-archived sessions only — archived ones
+ * don't need a "resume" prompt.
  *
  * Never rank the whole of `chat_events` here. The card polls this every
  * 30s, better-sqlite3 runs on the server's only thread, and a window
  * function over every event (1.4M rows, 600 MB of content in prod) took
- * 30-50s, stalling every other request until it returned.
+ * 30-50s, stalling every other request until it returned. Probing every
+ * active session instead was usually 20ms but up to 0.6s on a cold cache.
  */
 export interface StuckSessionRow {
   sessionId: string;
@@ -9067,33 +9077,32 @@ export interface StuckSessionRow {
   last_user_attachments: string | null;
 }
 
-export function listSessionsStuckOnSource(source: ChatEventSource): StuckSessionRow[] {
-  const db = getRawDb();
-  return db
-    .prepare(
-      `SELECT
-         s.id AS sessionId,
-         s.label AS label,
-         lu.id AS last_user_event_id,
-         lu.content AS last_user_content,
-         lu.attachments AS last_user_attachments
-       FROM chat_sessions s
-       LEFT JOIN chat_events lu ON lu.id = (
-         SELECT u.id FROM chat_events u
-         WHERE u.session_id = s.id AND u.source = 'user'
-         ORDER BY u.created_at DESC, u.id DESC
-         LIMIT 1
-       )
-       WHERE s.status = 'active'
-         AND (
-           SELECT e.source FROM chat_events e
-           WHERE e.session_id = s.id
-           ORDER BY e.created_at DESC, e.id DESC
-           LIMIT 1
-         ) = ?
-       ORDER BY COALESCE(s.last_activity_at, s.started_at) DESC, s.started_at DESC`,
+export function listSessionsAwaitingAuth(): StuckSessionRow[] {
+  // The candidate subquery leaves `chat_events` unaliased so the shared
+  // predicate renders as written in the partial index's WHERE.
+  return getDb().all<StuckSessionRow>(sql`
+    SELECT
+      s.id AS sessionId,
+      s.label AS label,
+      lu.id AS last_user_event_id,
+      lu.content AS last_user_content,
+      lu.attachments AS last_user_attachments
+    FROM chat_sessions s
+    LEFT JOIN chat_events lu ON lu.id = (
+      SELECT u.id FROM chat_events u
+      WHERE u.session_id = s.id AND u.source = 'user'
+      ORDER BY u.created_at DESC, u.id DESC
+      LIMIT 1
     )
-    .all(source) as StuckSessionRow[];
+    WHERE s.status = 'active'
+      AND s.id IN (SELECT session_id FROM chat_events WHERE ${isAuthRequiredEvent(chatEvents)})
+      AND (
+        SELECT e.source FROM chat_events e
+        WHERE e.session_id = s.id
+        ORDER BY e.created_at DESC, e.id DESC
+        LIMIT 1
+      ) = 'auth_required'
+    ORDER BY COALESCE(s.last_activity_at, s.started_at) DESC, s.started_at DESC`);
 }
 
 /**

@@ -1,5 +1,5 @@
 /**
- * `listSessionsStuckOnSource` — the "sessions paused for login" card's
+ * `listSessionsAwaitingAuth` — the "sessions paused for login" card's
  * query. Covers which sessions count as stuck (latest event by
  * `(createdAt, id)`), the last-user-message preview, and that the plan
  * stays index-driven: the card polls this every 30s on the server's only
@@ -11,7 +11,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { APP_SHORT_ID } from '@/constants/app';
 
-describe('listSessionsStuckOnSource', () => {
+describe('listSessionsAwaitingAuth', () => {
   let tmpDir: string;
   const appRootEnv = `${APP_SHORT_ID.toUpperCase()}_ROOT`;
   const dbPathEnv = `${APP_SHORT_ID.toUpperCase()}_DB_PATH`;
@@ -83,7 +83,7 @@ describe('listSessionsStuckOnSource', () => {
     });
     event(id, 'auth_required', 4);
 
-    const rows = q.listSessionsStuckOnSource('auth_required');
+    const rows = q.listSessionsAwaitingAuth();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.sessionId).toBe(id);
     expect(rows[0]!.last_user_event_id).toBe(lastUser.id);
@@ -99,7 +99,7 @@ describe('listSessionsStuckOnSource', () => {
     event(id, 'user', 1);
     event(id, 'auth_required', 2);
     event(id, 'agent', 3);
-    expect(q.listSessionsStuckOnSource('auth_required')).toEqual([]);
+    expect(q.listSessionsAwaitingAuth()).toEqual([]);
   });
 
   it('skips archived sessions and sessions with no events', async () => {
@@ -109,7 +109,7 @@ describe('listSessionsStuckOnSource', () => {
     event(archived, 'auth_required', 2);
     q.archiveChatSession(archived);
     session();
-    expect(q.listSessionsStuckOnSource('auth_required')).toEqual([]);
+    expect(q.listSessionsAwaitingAuth()).toEqual([]);
   });
 
   it('breaks a same-timestamp tie by id, like the transcript', async () => {
@@ -126,7 +126,7 @@ describe('listSessionsStuckOnSource', () => {
     event(moved, 'auth_required', 2);
     event(moved, 'agent', 2);
 
-    expect(q.listSessionsStuckOnSource('auth_required').map((r) => r.sessionId)).toEqual([stuck]);
+    expect(q.listSessionsAwaitingAuth().map((r) => r.sessionId)).toEqual([stuck]);
   });
 
   it('returns a null preview when the session has no user message', async () => {
@@ -134,7 +134,7 @@ describe('listSessionsStuckOnSource', () => {
     const id = session();
     event(id, 'agent', 1);
     event(id, 'auth_required', 2);
-    const [row] = q.listSessionsStuckOnSource('auth_required');
+    const [row] = q.listSessionsAwaitingAuth();
     expect(row).toMatchObject({ sessionId: id, last_user_event_id: null, last_user_content: null });
   });
 
@@ -148,23 +148,26 @@ describe('listSessionsStuckOnSource', () => {
     }
     setActivity(older, 10);
     setActivity(newer, 20);
-    expect(q.listSessionsStuckOnSource('auth_required').map((r) => r.sessionId)).toEqual([newer, older]);
+    expect(q.listSessionsAwaitingAuth().map((r) => r.sessionId)).toEqual([newer, older]);
   });
 
-  it('reads chat_events only through the per-session index', async () => {
+  it('finds candidates through the paused-on-sign-in index, and reads chat_events only by index', async () => {
     const { q, getRawDb } = await load();
     const db = getRawDb();
     const prepare = vi.spyOn(db, 'prepare');
-    q.listSessionsStuckOnSource('auth_required');
+    q.listSessionsAwaitingAuth();
     const sql = prepare.mock.calls.map(([s]) => s).find((s) => s.includes('chat_events'));
     expect(sql).toBeDefined();
     prepare.mockRestore();
 
-    const plan = (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all('auth_required') as { detail: string }[])
-      .map((r) => r.detail);
+    const plan = (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as { detail: string }[]).map((r) => r.detail);
     const eventReads = plan.filter((d) => /\b(chat_events|e|u|lu)\b/.test(d) && /^(SCAN|SEARCH)\b/.test(d));
-    expect(eventReads.length).toBeGreaterThan(0);
-    for (const d of eventReads) expect(d).toMatch(/^SEARCH .* USING (COVERING )?INDEX /);
+    // The candidates: a scan of the partial index, which holds only auth_required rows.
+    expect(eventReads).toContain('SCAN chat_events USING COVERING INDEX idx_chat_events_auth_required');
+    // Every other read is a keyed search, never a walk of the table.
+    for (const d of eventReads.filter((d) => !d.includes('idx_chat_events_auth_required'))) {
+      expect(d).toMatch(/^SEARCH .* USING (COVERING )?INDEX /);
+    }
     expect(plan.some((d) => d.startsWith('MATERIALIZE'))).toBe(false);
   });
 });
