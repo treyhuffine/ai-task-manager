@@ -57,6 +57,13 @@
       "when": 1791301308771,
       "tag": "0007_rare_event_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791311009636,
+      "tag": "0008_abandoned_mentallo",
+      "breakpoints": true
     }
   ]
 }

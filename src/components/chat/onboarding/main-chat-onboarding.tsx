@@ -1,7 +1,6 @@
 'use client';
-import { trpcClient } from '@/lib/trpc/client';
 
-import { appMainChatIntro, useEmptyChatActions } from '@/components/chat/main-chat-intro';
+import { MainChatIntroPanel, appMainChatIntro, useEmptyChatActions } from '@/components/chat/main-chat-intro';
 import {
 	IdentityEditor,
 	draftFromState,
@@ -12,13 +11,15 @@ import {
 import { WorkspaceCreateModal } from '@/components/workspaces/workspace-create-modal';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { useAreas } from '@/hooks/use-areas';
-import { useUpdateUserState, useUserState } from '@/hooks/use-user-state';
+import { mainChatKey, useMainChat } from '@/hooks/use-main-chat';
+import { useOrchestratorName, useUpdateUserState, useUserState } from '@/hooks/use-user-state';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { apiErrorText } from '@/lib/api/client';
 import type { AreaSuggestion } from '@/lib/onboarding/area-suggestions';
+import { baseOnboardingRecord, type OnboardingRecord, type OnboardingStepName } from '@/lib/onboarding/progress';
 import { cn } from '@/lib/utils';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, ArrowUp, FolderPlus, PenLine } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { ArrowRight, ArrowUp, FolderPlus, ListChecks, PenLine } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useImportRun } from './import-runner';
@@ -27,14 +28,15 @@ import { OnboardingApps } from './onboarding-apps';
 import { AreasStep, NO_AREAS, areasLines, useAreaSuggestions } from './onboarding-areas';
 import { DefaultModelLine } from './onboarding-default-model';
 import {
-	FIRST_PROGRESS,
 	STEP_ORDER,
+	STEP_TITLES,
+	doneSteps,
 	nextStep,
-	progressStorageKey,
-	readProgress,
+	openSteps,
+	repliesInConversation,
 	stepApplies,
-	stepsThrough,
-	type OnboardingProgress,
+	stepsInConversation,
+	stepsOnFile,
 	type OnboardingStep,
 	type StepContext,
 } from './onboarding-flow';
@@ -50,9 +52,17 @@ import {
 } from './onboarding-import';
 import { Card, PrimaryButton, QuietButton, Reply, Says, Turn, Typing } from './onboarding-ui';
 import { useHarnessCheck, type HarnessCheck } from './use-harness-check';
+import { useOnboardingProgress } from './use-onboarding-progress';
 
 /** How long the assistant "types" before a new step appears. */
 const TYPING_MS = 650;
+
+/**
+ * What an empty main chat shows: the first-run conversation for a home that
+ * hasn't finished it, the usual intro with one quiet line for a step added
+ * after it finished, or just the usual intro.
+ */
+type Mode = 'conversation' | 'new-step' | 'intro';
 
 /**
  * The main chat's first run, which is also a new home's whole setup: there
@@ -74,50 +84,60 @@ const TYPING_MS = 650;
  * said what you're working on) area suggestions. See
  * docs/main-chat-onboarding.md.
  *
- * Progress is kept per browser, so a reload or an integration's sign-in redirect
- * comes back to the same step. Finishing or skipping records
- * `orchestratorIntroducedAt` (and `onboardedAt` for a new home), and the chat
- * opens on the usual intro after.
+ * Progress is kept on the home, step by step (`user_state.onboarding`), so a
+ * reload, a sign-in redirect or another window picks up where it was. Writing
+ * in the chat instead of answering skips the question on screen (the server
+ * does it as the message arrives), and the rest come back on the next new
+ * chat, after a short line rather than the welcome. Finishing or "Skip setup"
+ * fills in the rest and records `orchestratorIntroducedAt`. After that the
+ * chat opens on the usual intro, and a step added since is offered there as
+ * one line, once.
  */
-export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
-  const { data: userState } = useUserState();
+export function MainChatOnboarding() {
+  const userStateQuery = useUserState();
+  const userState = userStateQuery.data;
   const { data: workspaces } = useWorkspaces({ status: 'active' });
   const { data: areas } = useAreas();
-  const update = useUpdateUserState();
-  const [progress, setProgress] = useState<OnboardingProgress>(FIRST_PROGRESS);
-  const [hydrated, setHydrated] = useState(false);
+  const { data: mainChat } = useMainChat(null);
+  const chatId = mainChat?.session.id ?? null;
+  const name = useOrchestratorName();
+  const actions = useEmptyChatActions();
+  const progress = useOnboardingProgress();
+  const qc = useQueryClient();
   const [typing, setTyping] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
-  // Progress is saved per home (see progressStorageKey), so it waits on the id.
-  const { data: home } = useQuery({
-    queryKey: ['home', 'identity'],
-    queryFn: () => trpcClient.home.info.query({}),
-    staleTime: Infinity,
-  });
-  const storageKey = home ? progressStorageKey(home.id) : null;
-  useEffect(() => {
-    if (!storageKey) return;
-    // Read once the home is known: localStorage isn't there during server render.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setProgress(readProgress(window.localStorage.getItem(storageKey)));
-    setHydrated(true);
-  }, [storageKey]);
+  const record = userState ? baseOnboardingRecord(userState.onboarding, userState.orchestratorIntroducedAt) : EMPTY_RECORD;
+
+  // The chats this conversation has been in: the one it opened in, and one
+  // that replaced it while it was up (the harness step starts the empty chat
+  // over). Their answers are this conversation's.
+  const [chats, setChats] = useState<ReadonlySet<string>>(() => new Set());
+  if (chatId && !chats.has(chatId)) setChats(new Set([...chats, chatId]));
+
+  // Decided once per empty chat, from fresh user state (a message sent
+  // elsewhere may have skipped a step since it was cached) and the areas and
+  // agents that decide which steps apply. Answers on file are read then, so
+  // one given in this conversation doesn't count twice.
+  const [decided, setDecided] = useState<{ mode: Mode; onFile: ReadonlySet<OnboardingStepName>; fresh: boolean } | null>(null);
+  const onFile = decided?.onFile ?? EMPTY_STEPS;
+  const done = doneSteps(record, onFile);
 
   const newHome = !!userState && !userState.onboardedAt;
-  // The default belongs to the home, while progress belongs to this browser.
-  // A saved choice survives an unfinished setup opened on another device.
+  // The default belongs to the home: a choice saved on another device counts.
   const needsHarness = newHome && !userState.defaultHarness;
-  const harnessPending = needsHarness && progress.replies.harness === undefined;
-  const { data: check } = useHarnessCheck(hydrated && harnessPending);
+  const harnessPending = needsHarness && !done.has('harness');
+  const conversing = decided?.mode === 'conversation';
+  const { data: check } = useHarnessCheck(conversing && harnessPending);
 
   // History to bring in, looked for from the start (it can take a while).
   // What counts is a recent project still on disk: that's what the import
   // step offers and what the "working on" draft is written from.
-  const discovery = useImportDiscovery(hydrated && !!userState);
+  const wantsHistory = !!decided && decided.mode !== 'intro' && (!done.has('import') || !done.has('about'));
+  const discovery = useImportDiscovery(wantsHistory);
   const history = discovery.data ? importableHistory(discovery.data) : null;
   const recent = discovery.data ? recentProjects(discovery.data) : [];
-  const importFound = discovery.isPending ? null : discovery.isError ? false : recent.length > 0;
+  const importFound = !wantsHistory ? false : discovery.isPending ? null : discovery.isError ? false : recent.length > 0;
   const importRun = useImportRun();
 
   const ctx: StepContext = {
@@ -129,26 +149,69 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
     importingAgents: !!importRun && importRun.status !== 'failed',
   };
 
+  // Fresh as this chat opens: cached user state can be up to a refetch old,
+  // and a message sent since may have skipped a step.
+  const [fetchedNow, setFetchedNow] = useState(false);
+  const refetchUserState = userStateQuery.refetch;
+  useEffect(() => {
+    let open = true;
+    void refetchUserState().finally(() => {
+      if (open) setFetchedNow(true);
+    });
+    return () => {
+      open = false;
+    };
+  }, [refetchUserState]);
+
+  const ready = !!userState && fetchedNow && areas !== undefined && workspaces !== undefined && !!chatId;
+  if (ready && !decided) {
+    const said = new Set(stepsInConversation(record, chats));
+    // On file but said in this conversation (a name just picked) isn't an earlier answer.
+    const snapshot = new Set([...stepsOnFile(userState)].filter((step) => !said.has(step)));
+    const done = doneSteps(record, snapshot);
+    const open = openSteps({ ...ctx, importFound: null }, done);
+    const mode: Mode = !userState.orchestratorIntroducedAt
+      ? open.length > 0 ? 'conversation' : 'intro'
+      : open.length > 0 ? 'new-step' : 'intro';
+    // The welcome, unless something was settled before this conversation: then a line on picking up.
+    const fresh = [...done].every((step) => said.has(step));
+    setDecided({ mode, onFile: snapshot, fresh });
+  }
+
+  // A home with nothing left to ask that never finished: it's finished now.
+  const finishedQuietly = useRef(false);
+  useEffect(() => {
+    if (decided?.mode !== 'intro' || !userState || userState.orchestratorIntroducedAt || finishedQuietly.current) return;
+    finishedQuietly.current = true;
+    void progress.finish({ skipped: false, ...(chatId ? { chatId } : {}) });
+  }, [decided, userState, progress, chatId]);
+
   // A draft of what they're working on, from that history, once a harness
   // can write it. Usually ready by the time the step comes up.
   const aboutDraft = useAboutDraft(
     { userName: userState?.name?.trim() || null, projects: recent.map((p) => ({ name: p.name, titles: p.titles.slice(0, 4) })) },
-    hydrated && !harnessPending && stepApplies('about', ctx) && progress.replies.about === undefined,
+    wantsHistory && !harnessPending && stepApplies('about', ctx) && !done.has('about'),
   );
 
   // Area suggestions, once what they're working on is settled.
-  const aboutSettled = progress.replies.about !== undefined || (importFound !== null && !stepApplies('about', ctx));
+  const aboutSettled = done.has('about') || (importFound !== null && !stepApplies('about', ctx));
   const projectNames = [...new Set([...(workspaces ?? []).map((w) => w.name), ...(importRun?.projects ?? [])])];
   const areaSuggestions = useAreaSuggestions(
     { about: userState?.description ?? '', projects: projectNames },
-    hydrated && !harnessPending && aboutSettled && !ctx.hasAreas,
+    !!decided && decided.mode !== 'intro' && !harnessPending && aboutSettled && !ctx.hasAreas && !done.has('areas'),
   );
-  // A different browser may already have saved the choice while this one
-  // was parked at the harness step. Do not mount its automatic saver with a
-  // cached check result, and do not wait on a check that is now disabled.
-  const currentStep = progress.step === 'harness' && !needsHarness
-    ? nextStep('harness', ctx)
-    : progress.step;
+
+  // The step being asked. It moves on when answered here, and when it's
+  // over some other way: answered in another window, or (the harness) set
+  // up there.
+  const [asking, setAsking] = useState<OnboardingStep | null>(null);
+  if (conversing && asking === null) setAsking(nextStep(null, ctx, done));
+  // Saving here sets the default before it replaces the empty chat, so that
+  // isn't "set up in another window" until it's finished.
+  const [savingHarness, setSavingHarness] = useState(false);
+  const over = (step: OnboardingStep) =>
+    step !== 'done' && (done.has(step) || (step === 'harness' && !needsHarness && !savingHarness));
+  const currentStep: OnboardingStep | null = asking && over(asking) ? nextStep(asking, ctx, done) : asking;
   const finished = currentStep === 'done';
 
   // Reaching the end is finishing: record it once, so the next empty chat
@@ -157,22 +220,32 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
   useEffect(() => {
     if (!finished || recorded.current || !userState || userState.orchestratorIntroducedAt) return;
     recorded.current = true;
-    update.mutate(finishedPatch(userState.onboardedAt));
-  }, [finished, update, userState]);
+    void progress.finish({ skipped: false, ...(chatId ? { chatId } : {}) });
+  }, [finished, userState, progress, chatId]);
 
-  const advance = (step: OnboardingStep, reply: string) => {
-    setProgress((current) => {
-      const next: OnboardingProgress = {
-        step: nextStep(step, ctx),
-        replies: { ...current.replies, [step]: reply },
-      };
-      try {
-        if (storageKey) window.localStorage.setItem(storageKey, JSON.stringify(next));
-      } catch {
-        // Storage off: the conversation still works, minus resuming.
-      }
-      return next;
-    });
+  // A step added since this home finished, offered under the usual intro.
+  const newStep = decided?.mode === 'new-step' ? openSteps(ctx, done)[0] ?? null : null;
+
+  // Tell the home which question is on screen, so writing in the chat
+  // instead skips it. Never the harness: a new home can't do without one.
+  const onScreen: OnboardingStepName | null = conversing
+    ? currentStep && currentStep !== 'done' && currentStep !== 'harness' && !typing ? currentStep : null
+    : newStep;
+  const shownStep = record.current?.step ?? null;
+  const shownChat = record.current?.chatId ?? null;
+  useEffect(() => {
+    if (!onScreen || !chatId) return;
+    if (shownStep === onScreen && shownChat === chatId) return;
+    progress.show(onScreen, chatId);
+  }, [onScreen, chatId, shownStep, shownChat, progress]);
+
+  const advance = (step: OnboardingStepName, reply: string) => {
+    // The main chat as it is now: the harness step may have just replaced it,
+    // after this was rendered, and its answer belongs to the new one.
+    const liveChat = qc.getQueryData<{ session: { id: string } }>(mainChatKey(null))?.session.id ?? chatId;
+    if (liveChat) progress.record(step, { status: 'answered', reply, chatId: liveChat });
+    const after = new Set(done).add(step);
+    setAsking(nextStep(step, ctx, after));
     if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) setTyping(true);
   };
 
@@ -186,7 +259,6 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
   // and a step whose card fills in after it appears (the apps load, search
   // results open).
   const columnRef = useRef<HTMLDivElement>(null);
-  const ready = hydrated && !!userState;
   useEffect(() => {
     const column = columnRef.current;
     if (!column) return;
@@ -198,34 +270,78 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
     });
     observer.observe(column);
     return () => observer.disconnect();
-  }, [ready]);
+  }, [conversing]);
 
   const skip = () => {
-    try {
-      if (storageKey) window.localStorage.removeItem(storageKey);
-    } catch {
-      // ignore
-    }
-    update.mutate(finishedPatch(userState?.onboardedAt ?? null));
-    onSkip();
+    void progress.finish({ skipped: true, ...(chatId ? { chatId } : {}) });
+    setDecided((d) => (d ? { ...d, mode: 'intro' } : d));
   };
 
-  if (!hydrated || !userState) return <div className="flex-1" />;
-
-  const steps = stepsThrough(currentStep, progress.replies);
-  // Where the harness was picked, a line on what's now the default and a way
-  // to change it: after the person's answer when they picked by hand, after
-  // the naming when the check picked on its own (that step isn't shown).
-  const harnessReply = progress.replies.harness;
-  const modelLineAfter: OnboardingStep | null =
-    harnessReply === undefined ? null : harnessReply === '' ? 'identity' : 'harness';
   const said: Said = {
-    replies: progress.replies,
-    userName: userState.name?.trim() || null,
+    replies: repliesInConversation(record, chats),
+    userName: userState?.name?.trim() || null,
     check,
     history,
     suggestions: areaSuggestions.data?.areas ?? [],
   };
+
+  /** A step's own card, the same in the conversation and when offered on its own. */
+  const stepCard = (step: OnboardingStepName, onDone: (reply: string) => void): ReactNode => {
+    switch (step) {
+      case 'identity':
+        return <IdentityStep newHome={newHome} onDone={onDone} />;
+      case 'harness':
+        return <HarnessStep check={check} onDone={onDone} onBusy={setSavingHarness} />;
+      case 'you':
+        return <YouStep initial={userState?.name ?? ''} onDone={onDone} />;
+      case 'import':
+        return <ImportStep discovery={discovery.data} loading={discovery.isPending} onDone={onDone} />;
+      case 'about':
+        return <AboutStep draft={aboutDraft.data?.about ?? ''} drafting={aboutDraft.isFetching} onDone={onDone} />;
+      case 'areas':
+        return <AreasStep suggestions={said.suggestions} suggesting={areaSuggestions.isFetching} onDone={onDone} />;
+      case 'apps':
+        return <OnboardingApps onDone={onDone} />;
+      case 'agent':
+        return <AgentStep onDone={onDone} />;
+    }
+  };
+
+  const intro = (footer?: ReactNode) => (
+    <MainChatIntroPanel
+      intro={appMainChatIntro(name)}
+      onSend={actions.send}
+      onDraft={actions.draft}
+      disabled={actions.disabled}
+      footer={footer}
+    />
+  );
+
+  if (!decided) {
+    // A home that finished almost always opens on the usual intro, so show it
+    // while checking. One that hasn't waits for its conversation.
+    return userState?.orchestratorIntroducedAt ? intro() : <div className="flex-1" />;
+  }
+  if (decided.mode === 'intro') return intro();
+  if (decided.mode === 'new-step') {
+    return intro(
+      newStep && chatId ? (
+        <NewStepOffer
+          key={newStep}
+          step={newStep}
+          onDecline={() => progress.record(newStep, { status: 'skipped', chatId })}
+        >
+          {stepCard(newStep, (reply) => progress.record(newStep, { status: 'answered', reply, chatId }))}
+        </NewStepOffer>
+      ) : undefined,
+    );
+  }
+
+  // What this conversation shows: what was said in it, then the question.
+  const saidSteps = stepsInConversation(record, chats);
+  const steps = STEP_ORDER.filter((s) => s === currentStep || (s !== 'done' && saidSteps.includes(s)));
+  // The harness set up on its own shows as its model line, where it happened.
+  const firstTurn = steps.find((s) => !(s === 'harness' && said.replies.harness === ''));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -246,44 +362,25 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
         {steps.map((step) => {
           const current = step === currentStep;
           if (current && typing) return <Typing key={`${step}-typing`} />;
-          const reply = progress.replies[step];
+          const reply = step === 'done' ? undefined : said.replies[step];
+          if (step === 'harness' && reply === '') {
+            return <DefaultModelLine key={step} found />;
+          }
           return (
             <div key={step} className={cn('flex flex-col gap-3', current && 'animate-in fade-in-0 slide-in-from-bottom-1 duration-300')}>
               <Turn>
-                {/* The greeting and the first question are one turn. */}
-                {step === 'identity' && <Greeting />}
+                {/* The opening and the first question are one turn. */}
+                {step === firstTurn && (decided.fresh ? <Greeting /> : <Resuming />)}
                 {lines(step, said)}
               </Turn>
               {reply !== undefined ? (
                 <Reply step={step}>{reply}</Reply>
-              ) : step === 'identity' ? (
-                <IdentityStep newHome={newHome} onDone={(name) => advance('identity', name)} />
-              ) : step === 'harness' ? (
-                <HarnessStep check={check} onDone={(r) => advance('harness', r)} />
-              ) : step === 'you' ? (
-                <YouStep initial={userState.name ?? ''} onDone={(name) => advance('you', name)} />
-              ) : step === 'import' ? (
-                <ImportStep discovery={discovery.data} loading={discovery.isPending} onDone={(r) => advance('import', r)} />
-              ) : step === 'about' ? (
-                <AboutStep
-                  draft={aboutDraft.data?.about ?? ''}
-                  drafting={aboutDraft.isFetching}
-                  onDone={(text) => advance('about', text)}
-                />
-              ) : step === 'areas' ? (
-                <AreasStep
-                  suggestions={said.suggestions}
-                  suggesting={areaSuggestions.isFetching}
-                  onDone={(r) => advance('areas', r)}
-                />
-              ) : step === 'apps' ? (
-                <OnboardingApps onDone={(summary) => advance('apps', summary)} />
-              ) : step === 'agent' ? (
-                <AgentStep onDone={(summary) => advance('agent', summary)} />
-              ) : (
+              ) : step === 'done' ? (
                 <Starters />
+              ) : (
+                stepCard(step, (r) => advance(step, r))
               )}
-              {step === modelLineAfter && <DefaultModelLine found={harnessReply === ''} />}
+              {step === 'harness' && reply !== undefined && <DefaultModelLine found={false} />}
             </div>
           );
         })}
@@ -295,19 +392,51 @@ export function MainChatOnboarding({ onSkip }: { onSkip: () => void }) {
   );
 }
 
-/** Finishing the first run: introduced, and (for a new home) set up. */
-function finishedPatch(onboardedAt: string | null) {
-  const now = new Date().toISOString();
-  return { orchestratorIntroducedAt: now, ...(onboardedAt ? {} : { onboardedAt: now }) };
-}
+const EMPTY_RECORD: OnboardingRecord = { steps: {} };
+const EMPTY_STEPS: ReadonlySet<OnboardingStepName> = new Set();
 
 /** What's known when the assistant speaks at a step. */
 interface Said {
-  replies: OnboardingProgress['replies'];
+  replies: Partial<Record<OnboardingStepName, string>>;
   userName: string | null;
   check: HarnessCheck | undefined;
   history: ImportableHistory | null;
   suggestions: AreaSuggestion[];
+}
+
+/**
+ * A step added after this home finished setting up, as one line under the
+ * usual starters: what it is, Set up to open its card here, Not now to let
+ * it go for good. Writing in the chat instead lets it go too.
+ */
+function NewStepOffer({ step, onDecline, children }: { step: OnboardingStepName; onDecline: () => void; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-5 border-t border-border/60 pt-3">
+      <div className="flex items-center gap-2 text-[11.5px]">
+        <ListChecks size={12} className="flex-shrink-0 text-muted-foreground" />
+        <span className="flex-shrink-0 text-muted-foreground">New</span>
+        <span className="min-w-0 flex-1 truncate text-foreground/85">{STEP_TITLES[step]}</span>
+        {!open && (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="flex-shrink-0 rounded px-1.5 py-0.5 font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            Set up
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onDecline}
+          className="flex-shrink-0 rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Not now
+        </button>
+      </div>
+      {open && <div className="mt-2">{children}</div>}
+    </div>
+  );
 }
 
 function Greeting() {
@@ -320,6 +449,11 @@ function Greeting() {
       </Says>
     </>
   );
+}
+
+/** The opening when this home already answered some of it, in an earlier chat or before. */
+function Resuming() {
+  return <Says>A few things are left from setting up. Answer any of them, or skip.</Says>;
 }
 
 /** What the assistant says at a step: a word on the last answer, then its question. */
@@ -376,10 +510,10 @@ function question(step: OnboardingStep, said: Said): ReactNode {
  * that was depends on what this home was asked (a skipped or silent step has
  * no reply), so it's found rather than assumed.
  */
-function acknowledge(step: OnboardingStep, replies: OnboardingProgress['replies'], userName: string | null): string | null {
+function acknowledge(step: OnboardingStep, replies: Said['replies'], userName: string | null): string | null {
   if (step === 'identity') return null;
   if (step === 'done') return userName ? `You’re all set, ${userName}.` : 'You’re all set.';
-  const before = STEP_ORDER.slice(0, STEP_ORDER.indexOf(step)).reverse();
+  const before = STEP_ORDER.slice(0, STEP_ORDER.indexOf(step)).reverse().filter((s): s is OnboardingStepName => s !== 'done');
   const last = before.find((s) => !!replies[s]);
   if (!last) return null;
   const reply = replies[last]!;

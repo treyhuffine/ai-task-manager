@@ -45,6 +45,10 @@ const expandMarkers = vi.fn(async (s: string) => s);
 const expandEntityMarkers = vi.fn((s: string) => s);
 const deriveAndSetSessionLabel = vi.fn(async () => {});
 const getWorkspace = vi.fn();
+const skipOnboardingStepOnScreen = vi.fn((id: string) => {
+  void id;
+  return false;
+});
 
 // Mocks reference the top-level spy fns via untyped pass-through. The
 // `as never` casts paper over `vi.fn()`'s very-precise default
@@ -60,6 +64,7 @@ vi.mock('@/lib/db/queries', () => ({
   getExecution: (id: string) => (getExecution as unknown as (id: string) => unknown)(id),
   getWorkspace: (id: string) => (getWorkspace as unknown as (id: string) => unknown)(id),
   getChatSession: (id: string) => (getChatSessionWithExecution as unknown as (id: string) => unknown)(id),
+  skipOnboardingStepOnScreen: (id: string) => skipOnboardingStepOnScreen(id),
 }));
 
 // A local token, so the real session-credential module can mint and verify.
@@ -124,6 +129,7 @@ function makeParams() {
 beforeEach(() => {
   getChatEventById.mockReset();
   getChatSessionWithExecution.mockReset();
+  skipOnboardingStepOnScreen.mockReset().mockReturnValue(false);
   insertChatEvent.mockReset();
   materializeEventRefs.mockReset();
   getExecution.mockReset().mockReturnValue({ id: EXECUTION_ID, workspaceId: 'ws-1', worktreePath: null });
@@ -412,5 +418,59 @@ describe('POST /api/sessions/[id]/messages — sender provenance', () => {
     const res = await POST(requestFrom(sessionCredential(SESSION_ID, 'test-token'), { content: 'hello' }), makeParams());
     expect(res.status).toBe(400);
     expect(insertChatEvent).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The main chat's first-run conversation (docs/main-chat-onboarding.md): a
+ * person who writes in the chat instead of answering the question on screen
+ * there has passed it over. Only their own message counts, once.
+ */
+describe('POST /api/sessions/[id]/messages — the first-run question on screen', () => {
+  beforeEach(() => {
+    getChatEventById.mockReturnValue(undefined);
+    insertChatEvent.mockImplementation((input: Record<string, unknown>) => ({ ...input, id: CLIENT_ID }));
+  });
+
+  it('skips the question on screen when the person writes in the chat instead', async () => {
+    const res = await POST(makeRequest({ content: 'hello', id: CLIENT_ID }), makeParams());
+    expect(res.status).toBe(201);
+    expect(skipOnboardingStepOnScreen).toHaveBeenCalledWith(SESSION_ID);
+  });
+
+  it('counts a retried send once', async () => {
+    getChatEventById.mockReturnValue({ id: CLIENT_ID, sessionId: SESSION_ID, role: 'user', source: 'user', content: 'hello' });
+    insertChatEvent.mockReturnValue(null);
+    const res = await POST(makeRequest({ content: 'hello', id: CLIENT_ID }), makeParams());
+    expect(res.status).toBe(201);
+    expect(skipOnboardingStepOnScreen).not.toHaveBeenCalled();
+  });
+
+  it('never counts a message another chat sent', async () => {
+    const { sessionCredential } = await import('@/lib/orchestrator/session-credential');
+    getChatSessionWithExecution.mockImplementation((id: string) =>
+      id === 'agent-chat-1'
+        ? { id: 'agent-chat-1', type: 'orchestration', workspaceId: 'ws-1', status: 'active', execution: null }
+        : { id: SESSION_ID, status: 'active', type: 'orchestration', harness: 'claude', label: null, workspaceId: null },
+    );
+    const res = await POST(
+      new Request('http://localhost/api/sessions/sess-1/messages', {
+        method: 'POST',
+        body: JSON.stringify({ content: 'hello', id: CLIENT_ID }),
+        headers: { 'content-type': 'application/json', 'x-ri-session': sessionCredential('agent-chat-1', 'test-token')! },
+      }) as unknown as NextRequest,
+      makeParams(),
+    );
+    expect(res.status).toBe(201);
+    expect(skipOnboardingStepOnScreen).not.toHaveBeenCalled();
+  });
+
+  it('still sends when recording the skip fails', async () => {
+    skipOnboardingStepOnScreen.mockImplementation(() => {
+      throw new Error('database is locked');
+    });
+    const res = await POST(makeRequest({ content: 'hello', id: CLIENT_ID }), makeParams());
+    expect(res.status).toBe(201);
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(SESSION_ID, 'hello'));
   });
 });

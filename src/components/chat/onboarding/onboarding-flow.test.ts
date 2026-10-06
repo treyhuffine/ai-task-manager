@@ -1,14 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import { FIRST_PROGRESS, listJoin, nextStep, progressStorageKey, readProgress, stepsThrough, type StepContext } from './onboarding-flow';
+import { ONBOARDING_STEPS, type OnboardingRecord, type OnboardingStepName } from '@/lib/onboarding/progress';
+import {
+  STEP_ORDER,
+  STEP_TITLES,
+  doneSteps,
+  listJoin,
+  nextStep,
+  openSteps,
+  repliesInConversation,
+  stepsInConversation,
+  stepsOnFile,
+  type StepContext,
+} from './onboarding-flow';
 
 const NEW_HOME: StepContext = { needsHarness: true, importFound: true, hasDescription: false, hasAreas: false, hasAgents: false };
 const SET_UP_HOME: StepContext = { needsHarness: false, importFound: false, hasDescription: true, hasAreas: true, hasAgents: true };
+const NONE: ReadonlySet<OnboardingStepName> = new Set();
+const AT = '2026-10-06T12:00:00.000Z';
 
-function walk(ctx: StepContext) {
-  const steps = ['identity'];
-  while (steps[steps.length - 1] !== 'done') steps.push(nextStep(steps[steps.length - 1] as never, ctx));
+function walk(ctx: StepContext, done: ReadonlySet<OnboardingStepName> = NONE) {
+  const steps: string[] = [];
+  let step = nextStep(null, ctx, done);
+  steps.push(step);
+  while (step !== 'done') {
+    step = nextStep(step, ctx, done);
+    steps.push(step);
+  }
   return steps;
 }
+
+it('asks every stored step, in the order the conversation goes', () => {
+  expect(STEP_ORDER.filter((s) => s !== 'done').sort()).toEqual([...ONBOARDING_STEPS].sort());
+  expect(Object.keys(STEP_TITLES).sort()).toEqual([...ONBOARDING_STEPS].sort());
+});
 
 describe('nextStep', () => {
   it('walks a new home through everything', () => {
@@ -17,6 +41,11 @@ describe('nextStep', () => {
 
   it('asks a home that is set up only what it lacks', () => {
     expect(walk(SET_UP_HOME)).toEqual(['identity', 'you', 'apps', 'done']);
+  });
+
+  it('passes over what is already done, wherever it was done', () => {
+    expect(walk(SET_UP_HOME, new Set(['identity', 'you']))).toEqual(['apps', 'done']);
+    expect(walk(NEW_HOME, new Set(['identity', 'harness', 'import']))).toEqual(['you', 'about', 'areas', 'apps', 'agent', 'done']);
   });
 
   it('still shows import while the search is running', () => {
@@ -40,33 +69,44 @@ describe('nextStep', () => {
   });
 });
 
-describe('stepsThrough', () => {
-  it('shows the finished steps and the current one', () => {
-    expect(stepsThrough('import', { identity: 'Rye', you: 'Trey' })).toEqual(['identity', 'you', 'import']);
+describe('what is done', () => {
+  it('counts a name already on file, so a home that answered before is not asked again', () => {
+    expect(stepsOnFile({ name: 'Trey', orchestratorName: 'Rye' })).toEqual(new Set(['identity', 'you']));
+    expect(stepsOnFile({ orchestratorEmoji: '🍞' })).toEqual(new Set(['identity']));
+    expect(stepsOnFile({ name: '  ', orchestratorName: null })).toEqual(new Set());
   });
 
-  it('leaves out steps skipped over and steps finished without a word', () => {
-    expect(stepsThrough('apps', { identity: 'Rye', harness: '', you: 'Trey', import: '', about: 'x' })).toEqual([
-      'identity',
-      'you',
-      'about',
-      'apps',
-    ]);
+  it('counts every recorded step, answered or not, plus what is on file', () => {
+    const record: OnboardingRecord = {
+      steps: { apps: { status: 'skipped', chatId: 'c1', at: AT }, about: { status: 'not_asked', at: AT } },
+    };
+    expect(doneSteps(record, new Set(['you']))).toEqual(new Set(['apps', 'about', 'you']));
+  });
+
+  it('leaves open only what applies and is not done', () => {
+    expect(openSteps(SET_UP_HOME, new Set(['identity', 'you']))).toEqual(['apps']);
+    expect(openSteps(SET_UP_HOME, new Set(['identity', 'you', 'apps']))).toEqual([]);
   });
 });
 
-describe('readProgress', () => {
-  it('starts over on nothing saved or anything that does not parse', () => {
-    expect(readProgress(null)).toEqual(FIRST_PROGRESS);
-    expect(readProgress('{')).toEqual(FIRST_PROGRESS);
-    expect(readProgress('{"step":"somewhere"}')).toEqual(FIRST_PROGRESS);
+describe('this conversation', () => {
+  const record: OnboardingRecord = {
+    steps: {
+      identity: { status: 'answered', reply: 'Rye', chatId: 'earlier', at: AT },
+      harness: { status: 'answered', reply: '', chatId: 'now', at: AT },
+      you: { status: 'answered', reply: 'Trey', chatId: 'now', at: AT },
+      import: { status: 'skipped', chatId: 'now', at: AT },
+      apps: { status: 'not_asked', at: AT },
+    },
+  };
+
+  it('replays only what was answered in its own chats, in order', () => {
+    expect(stepsInConversation(record, new Set(['now']))).toEqual(['harness', 'you']);
+    expect(stepsInConversation(record, new Set(['now', 'earlier']))).toEqual(['identity', 'harness', 'you']);
   });
 
-  it('keeps the step and only text replies, the silent one included', () => {
-    expect(readProgress(JSON.stringify({ step: 'apps', replies: { identity: 'Rye', harness: '', you: 7, nope: 'x' } }))).toEqual({
-      step: 'apps',
-      replies: { identity: 'Rye', harness: '' },
-    });
+  it('knows what was said at each, a silent harness included', () => {
+    expect(repliesInConversation(record, new Set(['now']))).toEqual({ harness: '', you: 'Trey' });
   });
 });
 
@@ -76,11 +116,5 @@ describe('listJoin', () => {
     expect(listJoin(['Google'])).toBe('Google');
     expect(listJoin(['Google', 'Slack'])).toBe('Google and Slack');
     expect(listJoin(['Google', 'Slack', 'Notion'])).toBe('Google, Slack and Notion');
-  });
-});
-
-describe('progressStorageKey', () => {
-  it('keeps each home apart, so a new home never resumes an old one', () => {
-    expect(progressStorageKey('home-a')).not.toBe(progressStorageKey('home-b'));
   });
 });

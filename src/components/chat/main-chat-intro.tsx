@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 import { ArrowUp, PenLine } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
 import { cn } from '@/lib/utils';
@@ -76,11 +76,14 @@ export function MainChatIntroPanel({
   onSend,
   onDraft,
   disabled,
+  footer,
 }: {
   intro: MainChatIntro;
   onSend: (prompt: string) => void;
   onDraft: (prompt: string) => void;
   disabled?: boolean;
+  /** Under the starters: a setup step added since this home finished setting up. */
+  footer?: ReactNode;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -107,6 +110,7 @@ export function MainChatIntroPanel({
             </button>
           ))}
         </div>
+        {footer}
       </div>
     </div>
   );

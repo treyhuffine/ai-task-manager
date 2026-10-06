@@ -104,21 +104,78 @@ Three things start in the background so the steps that need them rarely wait:
 
 ## When it shows
 
-- An empty main chat in a home whose `user_state.orchestrator_introduced_at` is null. Reaching the
-  end or skipping sets it, so the next empty chat opens on the usual intro. The conversation that
-  just finished stays up, starters and all, until the chat is used.
-- Progress is kept per browser and per home (`localStorage` `ri.mainChat.onboarding:<homeId>`), so a reload or a
-  integration's sign-in redirect comes back to the same step. Answers are saved as each step finishes.
-- A home set up before this (`onboarded_at` set, no `orchestrator_introduced_at`) sees it on its
-  next empty main chat, without the harness step: press New in the chat bar.
-- Someone who types into the composer instead leaves it unfinished, and the next empty chat offers
-  it again where they left off.
+Every empty main chat asks `MainChatOnboarding` what to show, once, from fresh user state (a message
+sent elsewhere may have skipped a step since it was cached):
+
+- **The conversation**, for a home whose `orchestrator_introduced_at` is null and that has a step
+  left to ask. A home that has answered nothing opens with the welcome. One that has answered some
+  of it, in an earlier chat or before steps were recorded, opens with "A few things are left from
+  setting up" and only the steps still open. Steps finished in an earlier chat aren't replayed.
+- **The usual intro with one quiet line**, for a home that finished and has no record of a step:
+  one added after it finished. "New · Connect the apps you use · Set up · Not now", under the
+  starters. Set up opens that step's card in place. Not now lets it go for good. It never brings
+  back the welcome or the conversation.
+- **The usual intro**, otherwise. A home that never finished but has nothing left to ask is
+  recorded as finished.
+
+Reaching the end, or "Skip setup", fills in every step not yet finished and records
+`orchestrator_introduced_at` (and `onboarded_at` for a new home). The conversation that just
+finished stays up, starters and all, until the chat is used.
+
+Writing in the chat instead of answering means "not now" for the question on screen. The client
+tells the home which question is on screen and in which chat (`onboardingProgress.show`), and when
+a person's message reaches that chat, the server marks that step skipped
+(`skipOnboardingStepOnScreen` in the send path, so a message from any device counts). The rest
+come back on the next new chat. Each pass moves forward, so setup always ends, and no question
+comes back after being passed over. Only a human message counts, never one another chat sent. The
+harness step is never skipped this way, since a new home can't do without it.
+
+## Progress
+
+Kept on the home, step by step, in `user_state.onboarding` (`src/lib/onboarding/progress.ts`), so
+the desktop app, a browser and a phone all pick up at the same place, a reload or an
+integration's sign-in redirect included. It belongs to the person and the home, not the machine,
+so it isn't in the config folder (which is machine-local and never synced).
+
+```ts
+interface OnboardingRecord {
+  current?: { step: OnboardingStepName; chatId: string };      // the question on screen
+  steps: Partial<Record<OnboardingStepName, {
+    status: 'answered' | 'skipped' | 'not_asked';
+    reply?: string;   // what they said, replayed in that chat
+    chatId?: string;  // the chat it was finished in
+    at: string;
+  }>>;
+}
+```
+
+- **Keyed by name, never position.** The order lives in `STEP_ORDER`, so steps can be reordered
+  freely. A step's name is what it asks: reword a question and it keeps its name, change what it
+  asks and give it a new name, so old answers don't count for it. Reads drop names this version
+  doesn't know, so removing a step needs nothing else.
+- **Adding a step** reaches homes still going through setup as part of the conversation, and homes
+  that finished as the one quiet line above. Finishing records every step, so a step with no
+  record is new to that home.
+- **Homes that finished before steps were recorded** have no record. They count as having been
+  through every step there was then (`STEPS_BEFORE_RECORDS`, never to be added to), and the first
+  write seeds those, so only later steps are new to them.
+- **Answers already on file count**: a name for the assistant or for the person finishes those
+  steps (`stepsOnFile`). Description, areas and agents already keep their steps from applying.
+- **Written one change at a time** through `onboardingProgress.show | record | finish | moveChat`
+  (tRPC), each a single read-and-write transaction on the server (`changeOnboarding` in
+  `queries.ts`), so two windows can't overwrite each other's answers. The client shows each
+  change at once and settles with what the server stored, taking only the onboarding fields.
+- **The harness step can replace the empty chat** (a chat's harness, model and effort are fixed
+  when it's made). The conversation moves to the new chat (`moveChat`) before that chat is shown,
+  so its answers are still there, after a reload too.
 
 ## Storage
 
 `user_state` gained `orchestrator_emoji`, `orchestrator_image` (an attachment, snake_case on disk
 and hydrated by `getUserState` / `updateUserState`), `orchestrator_color` and
-`orchestrator_introduced_at`, with `orchestrator_name`, in migration 0004. All nullable preferences, no schema defaults.
+`orchestrator_introduced_at`, with `orchestrator_name`, in migration 0004. `onboarding` (the
+progress above) came in 0008. All nullable, no schema defaults: null progress means a home that
+never started, or one that finished before steps were recorded.
 `PATCH /api/user-state` checks them through `parseOrchestratorLook`. `onboarded_at` now means the
 first run finished in a home that was new, and is still what `describeHomeUse` reads.
 

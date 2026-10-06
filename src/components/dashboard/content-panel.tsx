@@ -12,7 +12,7 @@ import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
 import { DeckContainer } from '@/components/deck/deck-container';
 import { useNeedsYourCall } from '@/hooks/use-stream';
-import { useUserState, useOrchestratorName } from '@/hooks/use-user-state';
+import { useOrchestratorName } from '@/hooks/use-user-state';
 import { OrchestratorAvatar } from '@/components/shared/orchestrator-mark';
 import { HarnessChat } from '@/components/chat/harness-chat';
 import { appMainChatIntro } from '@/components/chat/main-chat-intro';
@@ -82,19 +82,8 @@ function ChatHeaderBar({
 }
 
 function ChatContent({ isMobile }: { isMobile: boolean }) {
-  const { data: userState } = useUserState();
   const newChat = useNewOrchestratorChat();
   const name = useOrchestratorName();
-  // The first-run conversation, for a home that hasn't had it. Latched for
-  // this mount, so finishing it (which records `orchestratorIntroducedAt`)
-  // leaves the conversation and its starters up until the chat is used.
-  // Skipping drops it at once.
-  const [onboarding, setOnboarding] = useState(false);
-  const [onboardingDecided, setOnboardingDecided] = useState(false);
-  if (userState && !onboardingDecided) {
-    setOnboardingDecided(true);
-    setOnboarding(!userState.orchestratorIntroducedAt);
-  }
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -102,7 +91,9 @@ function ChatContent({ isMobile }: { isMobile: boolean }) {
       <HarnessChat
         isMobile={isMobile}
         intro={appMainChatIntro(name)}
-        emptyState={onboarding ? <MainChatOnboarding onSkip={() => setOnboarding(false)} /> : undefined}
+        // Every empty main chat asks the onboarding what to show: the
+        // first-run conversation, a step added since, or the usual intro.
+        emptyState={<MainChatOnboarding />}
       />
     </div>
   );

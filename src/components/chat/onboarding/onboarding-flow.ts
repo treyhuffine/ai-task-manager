@@ -1,21 +1,16 @@
 /**
- * The main chat's first-run conversation, as data: which steps there are, in
- * what order, which apply to this home, what the user answered, and how that
- * survives a reload or an OAuth round trip (the browser leaves the app to
- * sign in to an integration). The rendering is `main-chat-onboarding.tsx`. Full
- * flow: docs/main-chat-onboarding.md.
+ * The main chat's first-run conversation, as data: the order steps are asked
+ * in, which apply to this home, which are over, and which this conversation
+ * shows. What was answered is kept on the home (`user_state.onboarding`,
+ * src/lib/onboarding/progress.ts), so a reload, an integration's sign-in
+ * redirect or another window picks up where it was. The rendering is
+ * `main-chat-onboarding.tsx`. Full flow: docs/main-chat-onboarding.md.
  */
 
-export type OnboardingStep =
-  | 'identity'
-  | 'harness'
-  | 'you'
-  | 'import'
-  | 'about'
-  | 'areas'
-  | 'apps'
-  | 'agent'
-  | 'done';
+import { ONBOARDING_STEPS, type OnboardingRecord, type OnboardingStepName } from '@/lib/onboarding/progress';
+
+/** A step of the conversation, or its end. Steps are stored by name (src/lib/onboarding/progress.ts). */
+export type OnboardingStep = OnboardingStepName | 'done';
 
 export const STEP_ORDER: readonly OnboardingStep[] = [
   'identity',
@@ -28,6 +23,9 @@ export const STEP_ORDER: readonly OnboardingStep[] = [
   'agent',
   'done',
 ];
+
+/** The steps in the order they're asked, without the end. */
+const ONBOARDING_STEPS_IN_ORDER = STEP_ORDER.filter((s): s is OnboardingStepName => s !== 'done');
 
 /** What decides whether a step is worth asking in this home. */
 export interface StepContext {
@@ -70,61 +68,86 @@ export function stepApplies(step: OnboardingStep, ctx: StepContext): boolean {
   }
 }
 
-export interface OnboardingProgress {
-  step: OnboardingStep;
-  /**
-   * What the user said at each finished step, shown as their reply. An empty
-   * reply is a step finished without a word (the harness set up on its own),
-   * which the conversation doesn't show as a step. The harness one leaves
-   * only its model line (`DefaultModelLine`).
-   */
-  replies: Partial<Record<OnboardingStep, string>>;
-}
-
-export const FIRST_PROGRESS: OnboardingProgress = { step: 'identity', replies: {} };
-
 /**
- * Per browser and per home, so a reload or a sign-in redirect picks up where
- * it was, and a new home on an address an old one used (a test home started
- * over on the same port) starts from the beginning.
+ * Steps whose answer is already on file, so a home that answered them before
+ * steps were recorded (named its assistant, gave its own name) isn't asked
+ * again. The rest are covered by `stepApplies`: a description, areas or
+ * agents on file mean those steps don't apply.
  */
-export function progressStorageKey(homeId: string): string {
-  return `ri.mainChat.onboarding:${homeId}`;
+export function stepsOnFile(state: {
+  name?: string | null;
+  orchestratorName?: string | null;
+  orchestratorEmoji?: string | null;
+  orchestratorImage?: unknown;
+}): Set<OnboardingStepName> {
+  const steps = new Set<OnboardingStepName>();
+  if (state.orchestratorName || state.orchestratorEmoji || state.orchestratorImage) steps.add('identity');
+  if (state.name?.trim()) steps.add('you');
+  return steps;
 }
 
-/** The next step after `step` that applies to this home. */
-export function nextStep(step: OnboardingStep, ctx: StepContext): OnboardingStep {
-  for (let i = STEP_ORDER.indexOf(step) + 1; i < STEP_ORDER.length; i += 1) {
+/** Steps that are over: finished in the conversation, any way, or on file. */
+export function doneSteps(record: OnboardingRecord, onFile: ReadonlySet<OnboardingStepName>): Set<OnboardingStepName> {
+  const done = new Set(onFile);
+  for (const step of ONBOARDING_STEPS) if (record.steps[step]) done.add(step);
+  return done;
+}
+
+/** The next step after `step` (from the start when null) that applies and isn't done. */
+export function nextStep(
+  step: OnboardingStep | null,
+  ctx: StepContext,
+  done: ReadonlySet<OnboardingStepName> = new Set(),
+): OnboardingStep {
+  for (let i = step === null ? 0 : STEP_ORDER.indexOf(step) + 1; i < STEP_ORDER.length; i += 1) {
     const candidate = STEP_ORDER[i]!;
-    if (stepApplies(candidate, ctx)) return candidate;
+    if (candidate === 'done') return 'done';
+    if (!done.has(candidate) && stepApplies(candidate, ctx)) return candidate;
   }
   return 'done';
 }
 
-/** The steps shown so far, finished ones and the current one, in order. */
-export function stepsThrough(step: OnboardingStep, replies: OnboardingProgress['replies']): OnboardingStep[] {
-  const upTo = STEP_ORDER.slice(0, STEP_ORDER.indexOf(step) + 1);
-  // A skipped step has no reply, and a silent one an empty reply: neither is
-  // part of the conversation unless it's the current step.
-  return upTo.filter((s) => s === step || !!replies[s]);
+/** The steps still to ask this home, in order. */
+export function openSteps(ctx: StepContext, done: ReadonlySet<OnboardingStepName>): OnboardingStepName[] {
+  return ONBOARDING_STEPS_IN_ORDER.filter((step) => !done.has(step) && stepApplies(step, ctx));
 }
 
-/** Saved progress, or the start when there's none or it doesn't parse. */
-export function readProgress(raw: string | null): OnboardingProgress {
-  if (!raw) return FIRST_PROGRESS;
-  try {
-    const parsed = JSON.parse(raw) as Partial<OnboardingProgress>;
-    if (!parsed || !STEP_ORDER.includes(parsed.step as OnboardingStep)) return FIRST_PROGRESS;
-    const replies: OnboardingProgress['replies'] = {};
-    for (const s of STEP_ORDER) {
-      const reply = parsed.replies?.[s];
-      if (typeof reply === 'string') replies[s] = reply;
-    }
-    return { step: parsed.step as OnboardingStep, replies };
-  } catch {
-    return FIRST_PROGRESS;
-  }
+/**
+ * The steps this conversation shows as already said, in order: the ones
+ * answered in one of its chats. Steps finished in an earlier chat aren't
+ * replayed, and a skipped one was never said.
+ */
+export function stepsInConversation(record: OnboardingRecord, chatIds: ReadonlySet<string>): OnboardingStepName[] {
+  return ONBOARDING_STEPS_IN_ORDER.filter((step) => {
+    const entry = record.steps[step];
+    return entry?.status === 'answered' && !!entry.chatId && chatIds.has(entry.chatId);
+  });
 }
+
+/** What the person said at each step of this conversation. */
+export function repliesInConversation(
+  record: OnboardingRecord,
+  chatIds: ReadonlySet<string>,
+): Partial<Record<OnboardingStepName, string>> {
+  const replies: Partial<Record<OnboardingStepName, string>> = {};
+  for (const step of stepsInConversation(record, chatIds)) replies[step] = record.steps[step]?.reply ?? '';
+  return replies;
+}
+
+/**
+ * What a step goes by when it's offered on its own, as one quiet line under
+ * an empty chat's usual starters: a step added after this home finished.
+ */
+export const STEP_TITLES: Record<OnboardingStepName, string> = {
+  identity: 'Give your assistant a name and a look',
+  harness: 'Choose the coding tool I think with',
+  you: 'Tell me what to call you',
+  import: 'Bring in your chats from other coding tools',
+  about: 'Tell me what you’re working on',
+  areas: 'Group your work into areas',
+  apps: 'Connect the apps you use',
+  agent: 'Add your first agent',
+};
 
 /** "Google", "Google and Slack", "Google, Slack and Notion". */
 export function listJoin(items: readonly string[]): string {

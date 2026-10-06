@@ -14,6 +14,7 @@ import type { SnakeizeKeys } from '@/lib/case/keys';
 import { TASK_STATUSES } from '@/lib/tasks/lifecycle';
 import { PERMISSION_MODES } from '@/lib/permissions/modes';
 import { KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
+import type { OnboardingRecord } from '@/lib/onboarding/progress';
 
 // ─── Attachments ──────────────────────────────────────────────
 // Generic file reference stored on any entity that can carry uploads.
@@ -163,6 +164,10 @@ export const userState = sqliteTable('user_state', {
   // When the main chat's first-run conversation (docs/main-chat-onboarding.md)
   // was finished or skipped. Null → an empty main chat opens with it.
   orchestratorIntroducedAt: text(),
+  // Where this home is in that conversation, step by step, keyed by step name
+  // (src/lib/onboarding/progress.ts). On the home so every window agrees.
+  // Null → never started, or finished before steps were recorded.
+  onboarding: text({ mode: 'json' }).$type<OnboardingRecord>(),
 });
 
 // ─── Harness Settings ─────────────────────────────────────────

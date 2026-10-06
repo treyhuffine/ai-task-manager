@@ -11,12 +11,13 @@ import {
   type HarnessSetupState,
 } from '@/components/onboarding/harness-setup';
 import { saveHarnessSetup } from '@/components/onboarding/harness-save';
-import { useMainChat, useNewMainChat } from '@/hooks/use-main-chat';
+import { createMainChat, switchToMainChat, useMainChat } from '@/hooks/use-main-chat';
 import { apiErrorText } from '@/lib/api/client';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { EffortLevel } from '@/db/types';
 import { Card, PrimaryButton, Says } from './onboarding-ui';
 import type { HarnessCheck } from './use-harness-check';
+import { useOnboardingProgress } from './use-onboarding-progress';
 
 /**
  * Make it the harness Ri runs on, and start the (still empty) main chat over
@@ -28,7 +29,7 @@ import type { HarnessCheck } from './use-harness-check';
 export function useApplyHarness() {
   const qc = useQueryClient();
   const { data: mainChat } = useMainChat(null);
-  const newChat = useNewMainChat(null);
+  const progress = useOnboardingProgress();
   return async (input: { harness: HarnessId; model?: string; variant?: string | null; effort?: EffortLevel | null }) => {
     const saved = await saveHarnessSetup(input);
     // What reads the default (the model line, the model menus) catches up,
@@ -43,12 +44,16 @@ export function useApplyHarness() {
       (session.modelVariant ?? null) !== saved.variant ||
       (session.effort ?? null) !== saved.effort
     ) {
-      await newChat.mutateAsync({
+      const fresh = await createMainChat(null, {
         providerId: saved.harness,
         model: saved.model,
         variant: saved.variant ?? undefined,
         effort: saved.effort ?? undefined,
       });
+      // The conversation goes to the new chat before it's shown, so its
+      // answers are there when the chat opens (even after a reload).
+      if (session) await progress.moveChat(session.id, fresh.session.id);
+      await switchToMainChat(qc, null, fresh);
     }
   };
 }
@@ -78,7 +83,21 @@ export function harnessLines(check: HarnessCheck | undefined): ReactNode {
  * Otherwise the picker, starting on what was found, with Continue once a
  * real request has answered.
  */
-export function HarnessStep({ check, onDone }: { check: HarnessCheck | undefined; onDone: (reply: string) => void }) {
+export function HarnessStep({
+  check,
+  onDone,
+  onBusy,
+}: {
+  check: HarnessCheck | undefined;
+  onDone: (reply: string) => void;
+  /**
+   * While it's saving. The default is saved first, and the empty chat is
+   * replaced after, so the conversation mustn't take the saved default as
+   * "set up elsewhere" and move on while the chat is still being replaced:
+   * a message written then would go to the chat being retired.
+   */
+  onBusy?: (busy: boolean) => void;
+}) {
   const apply = useApplyHarness();
   const [failed, setFailed] = useState<string | null>(null);
   const started = useRef(false);
@@ -86,9 +105,11 @@ export function HarnessStep({ check, onDone }: { check: HarnessCheck | undefined
   useEffect(() => {
     if (check?.status !== 'ready' || started.current) return;
     started.current = true;
+    onBusy?.(true);
     apply({ harness: check.harness })
       .then(() => onDone(''))
-      .catch((err) => setFailed(apiErrorText(err)));
+      .catch((err) => setFailed(apiErrorText(err)))
+      .finally(() => onBusy?.(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the check lands ready
   }, [check]);
 
@@ -104,8 +125,13 @@ export function HarnessStep({ check, onDone }: { check: HarnessCheck | undefined
       suggested={check.status === 'attention' ? check.suggested : check.harness}
       problem={failed ?? (check.status === 'attention' ? check.problem : null)}
       onSave={async (state) => {
-        await apply({ harness: state.harness, model: state.model });
-        onDone(`Use ${harnessName(state.harness)}`);
+        onBusy?.(true);
+        try {
+          await apply({ harness: state.harness, model: state.model });
+          onDone(`Use ${harnessName(state.harness)}`);
+        } finally {
+          onBusy?.(false);
+        }
       }}
     />
   );

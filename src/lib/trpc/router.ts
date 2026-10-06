@@ -15,12 +15,16 @@ import { chatWithPluginEvaluation } from '@/lib/server/operations/plugins/evalua
 import { evaluationChatInputSchema } from '@/lib/plugins/evaluation-contract';
 import { accountEvaluationCatalog, accountEvaluationRpc, accountRpcSchema, endAccountEvaluation, launchAccountEvaluation } from '@/lib/server/operations/plugins/account-evaluation';
 import { MAX_WORK_DAYS, getWorkRange, saveWorkReport } from '@/lib/work/service';
+import { ONBOARDING_REPLY_MAX, ONBOARDING_STEPS } from '@/lib/onboarding/progress';
 
 /** A run of days for the work view (docs/work-view.md). */
 const workRangeInput = z.object({
   start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'start must be YYYY-MM-DD'),
   days: z.number().int().min(1).max(MAX_WORK_DAYS),
 }).strict();
+
+const onboardingStep = z.enum(ONBOARDING_STEPS);
+const chatId = z.string().min(1).max(64);
 
 function required<T>(value: T | null | undefined, entity: string): T {
   if (value == null) throw new TRPCError({ code: 'NOT_FOUND', message: `${entity} not found` });
@@ -34,6 +38,20 @@ export const appRouter = router({
     ping: p.query(() => ({ now: Date.now() })),
   }),
   terminals: terminalSubscriptions,
+  // The main chat's first-run conversation, step by step, on the home
+  // (src/lib/onboarding/progress.ts, docs/main-chat-onboarding.md). Each
+  // returns the user state it leaves, which the client caches.
+  onboardingProgress: router({
+    show: p.input(z.object({ step: onboardingStep, chatId }).strict()).mutation(({ input }) => required(q.showOnboardingStep(input), 'User state')),
+    record: p.input(z.object({
+      step: onboardingStep,
+      status: z.enum(['answered', 'skipped']),
+      reply: z.string().max(ONBOARDING_REPLY_MAX).optional(),
+      chatId,
+    }).strict()).mutation(({ input }) => required(q.recordOnboardingStep(input), 'User state')),
+    finish: p.input(z.object({ skipped: z.boolean(), chatId: chatId.optional() }).strict()).mutation(({ input }) => required(q.finishOnboarding(input), 'User state')),
+    moveChat: p.input(z.object({ from: chatId, to: chatId }).strict()).mutation(({ input }) => required(q.moveOnboardingChat(input), 'User state')),
+  }),
   pluginEvaluation: router({
     status: p.query(() => pluginEvaluationStatus()),
     launch: p.input(z.object({ parentOrigin: z.string().url(), example: z.enum(['excalidraw', 'flint', 'buildings', 'tldraw']).optional() }).strict()).mutation(({ input }) => launchPluginEvaluation(input.parentOrigin, input.example)),

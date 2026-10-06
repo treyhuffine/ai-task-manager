@@ -1,7 +1,7 @@
 import { apiErrorText } from '@/lib/api/client';
 import { trpcClient } from '@/lib/trpc/client';
 import type { RouterInputs, RouterOutputs } from '@/lib/trpc/router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 /**
@@ -42,14 +42,33 @@ export function useMainChat(scope: MainChatScope, enabled = true) {
 export function useNewMainChat(scope: MainChatScope) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (opts: NewMainChatOptions | void) =>
-      scope === null ? trpcClient.orchestratorChat.create.mutate({ body: opts ?? {} }) : trpcClient.workspaces.chatNewPost.mutate({ params: { id: scope }, body: opts ?? {} }),
+    mutationFn: (opts: NewMainChatOptions | void) => createMainChat(scope, opts ?? {}),
     onError: (error) => toast.error('Could not start a new chat', { description: apiErrorText(error) }),
-    onSuccess: (data) => {
-      qc.setQueryData(mainChatKey(scope), data);
-      qc.invalidateQueries({ queryKey: mainChatHistoryKey(scope) });
-    },
+    onSuccess: (data) => switchToMainChat(qc, scope, data),
   });
+}
+
+/** Archive the scope's current chat and create a fresh one, without switching to it yet. */
+export function createMainChat(scope: MainChatScope, opts: NewMainChatOptions) {
+  return scope === null
+    ? trpcClient.orchestratorChat.create.mutate({ body: opts })
+    : trpcClient.workspaces.chatNewPost.mutate({ params: { id: scope }, body: opts });
+}
+
+/**
+ * Show a chat `createMainChat` made as the scope's current one. A read of the
+ * current chat already in flight (a refetch after the home was briefly
+ * unreachable, a window refocus) started before the old chat was archived,
+ * and would land after this and bring it back, so it's cancelled first.
+ */
+export async function switchToMainChat(
+  qc: QueryClient,
+  scope: MainChatScope,
+  data: Awaited<ReturnType<typeof createMainChat>>,
+): Promise<void> {
+  await qc.cancelQueries({ queryKey: mainChatKey(scope), exact: true });
+  qc.setQueryData(mainChatKey(scope), data);
+  void qc.invalidateQueries({ queryKey: mainChatHistoryKey(scope) });
 }
 
 /** Past and current chats in the scope, newest activity first. */

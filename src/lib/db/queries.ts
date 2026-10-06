@@ -114,6 +114,18 @@ import {
   reconcileEnabledModels,
 } from '@/lib/harness/options';
 import { TRIGGERS_WITH_OWN_REVIEW_SURFACE } from '@/lib/triggers/reserved';
+import {
+  baseOnboardingRecord,
+  clampReply,
+  readOnboardingRecord,
+  withChatMoved,
+  withFinished,
+  withMessageSent,
+  withStepRecorded,
+  withStepShown,
+  type OnboardingRecord,
+  type OnboardingStepName,
+} from '@/lib/onboarding/progress';
 
 // ─── Tasks ────────────────────────────────────────────────────
 
@@ -4015,9 +4027,109 @@ export function getUserState(): UserStateRecord | undefined {
   return row ? hydrateUserState(row) : undefined;
 }
 
-/** The orchestrator's image is a snake_case attachment on disk, camelCase in the app. */
+/**
+ * The orchestrator's image is a snake_case attachment on disk, camelCase in
+ * the app. Onboarding progress is read leniently: steps this version doesn't
+ * know are dropped (src/lib/onboarding/progress.ts).
+ */
 function hydrateUserState(row: typeof userState.$inferSelect): UserStateRecord {
-  return { ...row, orchestratorImage: row.orchestratorImage ? camelizeKeys(row.orchestratorImage) : null };
+  return {
+    ...row,
+    orchestratorImage: row.orchestratorImage ? camelizeKeys(row.orchestratorImage) : null,
+    onboarding: row.onboarding ? readOnboardingRecord(row.onboarding) : null,
+  };
+}
+
+// ─── Main chat onboarding ────────────────────────────────────
+
+/**
+ * One change to the home's onboarding progress, read and written in a single
+ * transaction, so two windows finishing steps at once both land. `change`
+ * gets the record every rule starts from (`baseOnboardingRecord`) and returns
+ * the new one plus any columns to set with it, or null to change nothing.
+ */
+function changeOnboarding(
+  change: (
+    record: OnboardingRecord,
+    row: typeof userState.$inferSelect,
+    now: string,
+  ) => { record: OnboardingRecord; set?: Partial<typeof userState.$inferInsert> } | null,
+): UserStateRecord | undefined {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const row = tx.select().from(userState).where(eq(userState.id, 1)).get();
+    if (!row) return undefined;
+    const now = new Date().toISOString();
+    const result = change(baseOnboardingRecord(row.onboarding, row.orchestratorIntroducedAt), row, now);
+    if (!result) return hydrateUserState(row);
+    const updated = tx
+      .update(userState)
+      .set({ ...result.set, onboarding: result.record, updatedAt: now })
+      .where(eq(userState.id, 1))
+      .returning()
+      .get();
+    return updated ? hydrateUserState(updated) : undefined;
+  });
+}
+
+/** The question now on screen in a chat, so a message sent there instead skips it. */
+export function showOnboardingStep(input: { step: OnboardingStepName; chatId: string }): UserStateRecord | undefined {
+  return changeOnboarding((record) => {
+    const next = withStepShown(record, input.step, input.chatId);
+    return next === record ? null : { record: next };
+  });
+}
+
+/** A step the person finished in the conversation. */
+export function recordOnboardingStep(input: {
+  step: OnboardingStepName;
+  status: 'answered' | 'skipped';
+  reply?: string;
+  chatId: string;
+}): UserStateRecord | undefined {
+  return changeOnboarding((record, _row, now) => ({
+    record: withStepRecorded(record, input.step, {
+      status: input.status,
+      ...(input.reply !== undefined ? { reply: clampReply(input.reply) } : {}),
+      chatId: input.chatId,
+      at: now,
+    }),
+  }));
+}
+
+/**
+ * The conversation is over, finished or skipped: what's left is filled in
+ * (`withFinished`), the home counts as introduced, and a new home as set up.
+ * Idempotent, so a retry or a second window changes nothing more.
+ */
+export function finishOnboarding(input: { skipped: boolean; chatId?: string }): UserStateRecord | undefined {
+  return changeOnboarding((record, row, now) => ({
+    record: withFinished(record, { skipped: input.skipped, chatId: input.chatId, at: now }),
+    set: {
+      orchestratorIntroducedAt: row.orchestratorIntroducedAt ?? now,
+      onboardedAt: row.onboardedAt ?? now,
+    },
+  }));
+}
+
+/** The empty chat the conversation is in was replaced: the conversation moves with it. */
+export function moveOnboardingChat(input: { from: string; to: string }): UserStateRecord | undefined {
+  return changeOnboarding((record) => ({ record: withChatMoved(record, input.from, input.to) }));
+}
+
+/**
+ * A person sent a message in a chat. If a question was on screen there, they
+ * passed it over, and it's skipped (`withMessageSent`). Returns whether it was.
+ */
+export function skipOnboardingStepOnScreen(chatId: string): boolean {
+  let skipped = false;
+  changeOnboarding((record, _row, now) => {
+    const next = withMessageSent(record, chatId, now);
+    if (!next) return null;
+    skipped = true;
+    return { record: next };
+  });
+  return skipped;
 }
 
 /** The user's working-hours window (local HH:MM), with 9–6 defaults. */

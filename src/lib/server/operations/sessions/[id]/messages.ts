@@ -10,6 +10,7 @@ import {
   insertChatEvent,
   materializeEventRefs,
   recordSkillUse,
+  skipOnboardingStepOnScreen,
 } from '@/lib/db/queries';
 import { expandEntityMarkers } from '@/lib/entity-refs/expand-markers';
 import * as executor from '@/lib/executor/adapter';
@@ -173,6 +174,18 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
       // Insert reported a conflict but the row isn't queryable —
       // means a write torn between sessions or schema drift.
       return reply({ error: 'failed to persist user message' }, { status: 500 });
+    }
+
+    // A person who writes in the chat instead of answering the first-run
+    // question on screen there has passed it over: it's skipped, and the rest
+    // come back on their next new chat (docs/main-chat-onboarding.md). Only
+    // their own message counts, never one another chat sent.
+    if (!isRetry && !senderSessionId) {
+      try {
+        skipOnboardingStepOnScreen(id);
+      } catch (err) {
+        console.warn(`[POST /api/sessions/:id/messages] skipOnboardingStepOnScreen failed:`, err);
+      }
     }
 
     // Materialize entity references (task/note/scratchpad) into chat_refs
