@@ -15,6 +15,7 @@
 import { NextResponse } from 'next/server';
 import { APP_SHORT_ID } from '@/constants/app';
 import { getRunningPort } from '@/lib/auth/port';
+import { hasWebSocketRuntime } from '@/lib/trpc/ws-runtime';
 
 export const runtime = 'nodejs';
 
@@ -26,9 +27,16 @@ const CORS_HEADERS = {
 } as const;
 
 export function GET() {
+  // Next initializes instrumentation on the first production request. Check
+  // here after that initialization, so launchers cannot accept an HTTP-only
+  // build as a healthy terminal host. Native Next and explicit WS disable
+  // still support their intentional HTTP-only mode.
+  const ready = process.env.RI_TRPC_WS_HOST !== '1'
+    || process.env.RI_TRPC_WS_DISABLED === '1'
+    || hasWebSocketRuntime();
   return NextResponse.json(
-    { ok: true, app: APP_SHORT_ID, port: getRunningPort() },
-    { headers: CORS_HEADERS },
+    { ok: ready, app: APP_SHORT_ID, port: getRunningPort(), ...(!ready && { error: 'websocket_unavailable' }) },
+    { status: ready ? 200 : 503, headers: CORS_HEADERS },
   );
 }
 
