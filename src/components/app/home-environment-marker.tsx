@@ -1,13 +1,13 @@
 'use client';
 
 /**
- * Marks every screen of a home that isn't production: an amber strip along
- * the top, a small tab naming the home, and the tab title prefixed, so a dev
- * window and a production window are never mistaken for each other
- * (docs/environments.md). Production shows nothing.
+ * Marks every screen of a development server: an amber strip along the top,
+ * a small "Dev" tab, and the tab title prefixed, so a dev window and a real
+ * one are never mistaken for each other (docs/environments.md). A production
+ * server shows nothing, wherever its home lives, so no end user ever sees it.
  *
  * The environment comes from the server per request (`system.hostInfoGet`),
- * never from the build, so a release build can't carry where it was built.
+ * never from the build.
  */
 
 import { useEffect } from 'react';
@@ -15,9 +15,8 @@ import { useHostInfo } from '@/hooks/use-host-info';
 
 export function HomeEnvironmentMarker() {
   const { data } = useHostInfo();
-  const environment = data?.environment;
-  const label = environment === 'development' ? 'Dev' : data?.homeLabel;
-  const marked = environment !== undefined && environment !== 'production' && Boolean(label);
+  const marked = data?.environment === 'development';
+  const label = 'Dev';
 
   useEffect(() => {
     if (!marked) return;
@@ -36,10 +35,7 @@ export function HomeEnvironmentMarker() {
   }, [marked, label]);
 
   if (!marked) return null;
-  const description =
-    environment === 'development'
-      ? `Development home: ${data?.appRoot}. Its data is separate from production.`
-      : `Isolated home: ${data?.appRoot}. Its data is separate from production.`;
+  const description = `Development home: ${data?.appRoot}. Its data is separate from your real one.`;
   return (
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center" aria-label={description} role="note">
       <div className="absolute inset-x-0 top-0 h-[3px] bg-amber-500" />

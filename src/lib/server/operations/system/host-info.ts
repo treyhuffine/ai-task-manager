@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { getAppRoot, getDevAppRoot, getProductionAppRoot } from '@/lib/config/paths';
+import { getAppRoot, getDevAppRoot } from '@/lib/config/paths';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import os from 'node:os';
 import { z as rpcZ } from 'zod/v4';
@@ -7,18 +7,19 @@ import { z as rpcZ } from 'zod/v4';
 /**
  * Returns identity info about the machine running the app. Used by the
  * settings page to render "Currently connected to: <hostname>", and by the
- * marker every page shows when this isn't the production home.
+ * marker every page of a development server shows.
  *
  * Not sensitive — same surface the user would see in `ri doctor`.
  */
 
 /**
- * Which home this server runs: the production home, the dev home
- * (`pnpm dev`, `ri start --dev`, `pnpm desktop:dev`), or another isolated
- * one (`pnpm iso`, a test home). Read per request, never at build time, so a
- * release build can't bake in where it was built.
+ * Whether this server is a development one: the dev home (`pnpm dev`,
+ * `ri start --dev`, `pnpm desktop:dev`) or any server running in development
+ * mode. Everything else is production, whatever folder its home is in: the
+ * desktop app keeps its own (`~/Library/Application Support/Ri/home`), and a
+ * team space has another. Read per request, never at build time.
  */
-export type HomeEnvironment = 'production' | 'development' | 'isolated';
+export type HomeEnvironment = 'production' | 'development';
 
 export interface HostInfoResponse {
   hostname: string;
@@ -29,11 +30,9 @@ export interface HostInfoResponse {
   homeLabel: string;
 }
 
-export function homeEnvironment(appRoot = getAppRoot()): HomeEnvironment {
-  const root = path.resolve(appRoot);
-  if (root === path.resolve(getProductionAppRoot())) return 'production';
-  if (root === path.resolve(getDevAppRoot())) return 'development';
-  return 'isolated';
+export function homeEnvironment(appRoot = getAppRoot(), mode = process.env.NODE_ENV): HomeEnvironment {
+  if (mode === 'development') return 'development';
+  return path.resolve(appRoot) === path.resolve(getDevAppRoot()) ? 'development' : 'production';
 }
 
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
