@@ -35,6 +35,10 @@ code-archive
 /.next-bundle-audit/
 /.next-desktop/
 /.next-desktop-dev/
+# Any other Next build folder (NEXT_DIST_DIR=.next-<name> for a second dev
+# server). Tailwind scans every file git doesn't ignore, and a build cache's
+# binary files turn into garbage classes that break every dev server's CSS.
+/.next-*/
 /.electron-demo/
 /out/
 .turbo
