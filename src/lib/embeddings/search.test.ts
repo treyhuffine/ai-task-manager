@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { openAsServer } from '@/test/fixtures/home';
 
 const mocks = vi.hoisted(() => ({
   generateEmbedding: vi.fn(),
@@ -117,7 +118,8 @@ describe('vector search', () => {
       .get() as string;
     expect(legacySql).not.toContain('distance_metric=cosine');
 
-    dbModule.resetDb();
+    // The upgrade runs when the server starts.
+    await openAsServer();
     const migrated = dbModule.getRawDb();
     const migratedSql = migrated
       .prepare("SELECT sql FROM sqlite_master WHERE name = 'embeddings_vec'")

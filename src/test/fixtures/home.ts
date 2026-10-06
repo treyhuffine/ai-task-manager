@@ -77,6 +77,24 @@ export async function createTestHome(opts: TestHomeOptions = {}): Promise<TestHo
   };
 }
 
+/**
+ * Reopen the test home's database the way a starting server does: pending
+ * migrations and the derived schema (search tables, triggers, backfills)
+ * included. Any other open joins the home as it is (src/lib/db/migrate.ts).
+ */
+export async function openAsServer() {
+  const { allowMigrations, migrationsAllowed } = await import('@/lib/db/migrate');
+  const { getDb, resetDb } = await import('@/lib/db');
+  const was = migrationsAllowed();
+  resetDb();
+  allowMigrations();
+  try {
+    return getDb();
+  } finally {
+    allowMigrations(was);
+  }
+}
+
 export interface TestDevice {
   name: string;
   root: string;

@@ -5,6 +5,7 @@ import os from 'node:os';
 import { uuidv7 } from 'uuidv7';
 import type { DB } from '@/lib/db';
 import { entityLinks, entityProjectionState } from '@/lib/db/schema';
+import { openAsServer } from '@/test/fixtures/home';
 
 const TEST_DB = path.join(os.tmpdir(), `ri-entity-links-test-${process.pid}.db`);
 
@@ -236,15 +237,14 @@ describe('rebuildAllEntityLinks', () => {
 
 describe('entity links backfill on reopen', () => {
   it('restores legacy links when a DB has sources but no projection rows', async () => {
-    const { queries, getDb, getRawDb, resetDb } = await setup();
+    const { queries, getDb, getRawDb } = await setup();
     const n = queries.createNote({ body: 'target' });
     const task = queries.createTask({ title: 'linker', body: `[[note:${n.id}]]` });
     getRawDb().prepare('DELETE FROM entity_links').run();
     getRawDb().prepare('DELETE FROM entity_projection_state').run();
 
-    // Reopen the connection → ensureEntityLinksBackfill runs for untracked sources.
-    resetDb();
-    getDb();
+    // Start as the server does → ensureEntityLinksBackfill runs for untracked sources.
+    await openAsServer();
 
     expect(queries.listBacklinks('note', n.id)).toEqual([
       { sourceType: 'task', sourceId: task.id, title: 'linker' },
@@ -255,7 +255,7 @@ describe('entity links backfill on reopen', () => {
 
 describe('backfill + read-repair prune stale edges (legacy drift)', () => {
   it('prunes an edge the current body no longer declares', async () => {
-    const { queries, getDb, getRawDb, resetDb } = await setup();
+    const { queries, getDb, getRawDb } = await setup();
     const a = queries.createNote({ body: 'a' });
     const b = queries.createNote({ body: 'b' });
     const task = queries.createTask({ title: 't', body: `[[note:${a.id}]]` });
@@ -266,10 +266,9 @@ describe('backfill + read-repair prune stale edges (legacy drift)', () => {
     getRawDb().prepare('DELETE FROM entity_projection_state').run();
     expect(outgoingKeys(allEdges(getDb()), 'task', task.id)).toEqual([`note:${a.id}`]); // stale
 
-    // Reopen (lazy backfill marks it pending, writes no edges), then read →
-    // exact upsert-and-prune reconciliation replaces the stale edge.
-    resetDb();
-    getDb();
+    // Start as the server does (lazy backfill marks it pending, writes no
+    // edges), then read → exact upsert-and-prune replaces the stale edge.
+    await openAsServer();
     queries.listBacklinks('note', b.id);
     expect(outgoingKeys(allEdges(getDb()), 'task', task.id)).toEqual([`note:${b.id}`]);
   });

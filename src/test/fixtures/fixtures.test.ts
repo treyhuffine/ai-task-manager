@@ -6,6 +6,7 @@ import { createGitFixture, createTwoDeviceLayout, git } from './git';
 import { createTestDevice, createTestHome, type TestHome } from './home';
 import { installFakeHarness, type FakeHarness } from './fake-harness';
 import { createDatabaseAt, migrationTags } from './migrations';
+import { openAsServer } from '@/test/fixtures/home';
 
 /**
  * The fixtures later phases rely on for connection, retry, ownership and
@@ -189,12 +190,9 @@ describe('migration fixtures', () => {
       expect(cols).not.toContain('purpose');
       old.close();
 
-      const { getDb, getRawDb } = await import('@/lib/db');
+      const { getRawDb } = await import('@/lib/db');
       // As a starting server does: only it may upgrade an existing home.
-      const { allowMigrations, migrationsAllowed } = await import('@/lib/db/migrate');
-      const wasAllowed = migrationsAllowed();
-      allowMigrations();
-      try { getDb(); } finally { allowMigrations(wasAllowed); }
+      await openAsServer();
       const upgraded = (getRawDb().prepare("PRAGMA table_info('workspaces')").all() as { name: string }[]).map(
         (c) => c.name,
       );

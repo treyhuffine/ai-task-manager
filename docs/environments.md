@@ -24,7 +24,9 @@ Every process that opens a home's database used to apply any migrations it found
 
 > This code has one database change that isn't applied to ~/ri/data.db yet (0008_x). Ri applies database changes when it starts, so restart Ri to apply it. Nothing was changed.
 
-A brand-new database is still set up wherever it's opened (tests, a fresh home, the dev seed). The CLI also reads migrations from its own install now, not from the shell's working folder, so `ri` works from any folder and never picks up a worktree's draft.
+A brand-new database is still set up wherever it's opened (tests, a fresh home, the dev seed).
+
+The same goes for the rest of the setup (search tables, triggers, backfills): only a starting server does it. Any other process joins the home as its server left it, loading `sqlite-vec` and checking the history read-only, so it never takes the write lock just to open. Before, an agent's `ri` command that opened the database while the server was writing waited about 5 seconds and then failed with "database is locked". Now it opens in a millisecond (measured on a copy of the production database). The CLI also reads migrations from its own install now, not from the shell's working folder, so `ri` works from any folder and never picks up a worktree's draft.
 
 What can still change production before a restart: rebuilding the app (`pnpm build`) replaces the files the running server serves, so pages can misbehave until you restart.
 

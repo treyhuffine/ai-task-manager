@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
-import { getDb, resetDb } from './index';
+import { getDb, getRawDb, resetDb } from './index';
 import { allowMigrations, migrationsAllowed, PendingMigrationsError } from './migrate';
 
 const DRAFT_TAG = '9999_draft_probe';
@@ -91,5 +91,49 @@ describe('who may migrate an existing home', () => {
     getDb();
     resetDb();
     expect(inspect(home.dbPath).draftTable).toBe(true);
+  });
+});
+
+describe('joining a home its server set up', () => {
+  beforeEach(() => {
+    // The home as it is, with no draft: these are about the ordinary case.
+    delete process.env.RI_RUNTIME_REPO;
+  });
+
+  it('does no schema work: the server owns that', () => {
+    const raw = new Database(home.dbPath);
+    raw.exec('DROP TRIGGER tasks_ai');
+    raw.close();
+    const hasTrigger = () => Boolean(getRawDb().prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'tasks_ai'").get());
+
+    getDb();
+    expect(hasTrigger()).toBe(false);
+    resetDb();
+
+    // A starting server puts it back.
+    allowMigrations();
+    getDb();
+    expect(hasTrigger()).toBe(true);
+  });
+
+  it('keeps foreign keys on and vector search loaded', () => {
+    getDb();
+    expect(getRawDb().pragma('foreign_keys', { simple: true })).toBe(1);
+    expect(getRawDb().prepare('SELECT vec_version() AS v').get()).toBeTruthy();
+  });
+
+  it('opens while the server holds the write lock', () => {
+    const server = new Database(home.dbPath);
+    server.exec('BEGIN IMMEDIATE');
+    try {
+      const started = Date.now();
+      getDb();
+      expect(Date.now() - started).toBeLessThan(1000);
+      // And reads while the server's write is still open.
+      expect(getRawDb().prepare('SELECT count(*) AS n FROM tasks').get()).toBeTruthy();
+    } finally {
+      server.exec('ROLLBACK');
+      server.close();
+    }
   });
 });

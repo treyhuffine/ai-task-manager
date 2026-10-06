@@ -396,12 +396,22 @@ export function getDb(dbPath?: string): DB {
       (process.env.RI_DESKTOP === '1' ? process.env.RI_DESKTOP_REPO : undefined) ?? runtimeRepository();
     const migrationsFolder = path.resolve(assetsRoot, 'drizzle');
     const history = inspectMigrationHistory(sqlite, migrationsFolder);
+    const ownsSchema = history.applied === 0 || migrationsAllowed();
     // Only a starting server (or `pnpm db:migrate`) upgrades an existing home.
-    if (history.applied > 0 && history.pending.length > 0 && !migrationsAllowed()) {
+    if (!ownsSchema && history.pending.length > 0) {
       throw new PendingMigrationsError(resolvedPath, pendingMigrationTags(migrationsFolder, history.pending.length));
     }
     sqlite.pragma('journal_mode = WAL');
-    initDatabase(sqlite, migrationsFolder);
+    if (ownsSchema) {
+      // A starting server, `pnpm db:migrate`, or a brand-new database.
+      initDatabase(sqlite, migrationsFolder);
+    } else {
+      // Joining a home its server already set up (an agent's `ri agent`, a
+      // script): no schema work, so no write lock while that server may be
+      // writing. The history check above is read-only. sqlite-vec is loaded
+      // above, and foreign keys are on as initDatabase would leave them.
+      sqlite.pragma('foreign_keys = ON');
+    }
     // A connection to another path, if any, closes once this one is ready.
     closeConnection();
     connection.current = { sqlite, path: resolvedPath, release: access };

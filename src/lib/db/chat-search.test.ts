@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { openAsServer } from '@/test/fixtures/home';
 
 /**
  * Integration tests for chat/session full-text search (`searchChatSessions`)
@@ -241,7 +242,7 @@ describe('chat/session search', () => {
   });
 
   it('backfills events that predate the index (upgrade path)', async () => {
-    const { getDb, getRawDb, resetDb } = await import('@/lib/db');
+    const { getDb, getRawDb } = await import('@/lib/db');
     const q = await import('@/lib/db/queries');
     const { chatEvents } = await import('@/lib/db/schema');
 
@@ -273,9 +274,9 @@ describe('chat/session search', () => {
       })
       .run();
 
-    // Nothing indexed it yet — reopen so EXTRA_SQL recreates the index and the
-    // one-shot backfill picks up the pre-existing row.
-    resetDb();
+    // Nothing indexed it yet. Start as the server does, so EXTRA_SQL
+    // recreates the index and the one-shot backfill picks up the old row.
+    await openAsServer();
     const results = q.searchChatSessions({ query: 'kubernetes' });
     expect(results).toHaveLength(1);
     expect(results[0]!.id).toBe(session.id);
