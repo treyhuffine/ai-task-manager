@@ -54,6 +54,8 @@
     "dev:reset": "tsx scripts/seed-dev/reset.ts",
     "dev:seed": "tsx scripts/seed-dev/seed.ts",
     "dev:reseed": "tsx scripts/seed-dev/reseed.ts",
+    "ri:dev": "env -u RI_SESSION_CREDENTIAL -u RI_SESSION_CLI -u RI_DB_PATH -u RI_CONFIG_DIR -u RI_WORK_DIR RI_ROOT=\"$HOME/ri-dev\" tsx src/cli/index.ts",
+    "release": "tsx scripts/release/release.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "RI_BROWSER_E2E=1 vitest run src/lib/browser/browser.integration.test.ts",

@@ -149,12 +149,18 @@ Authoritative schema is `src/lib/db/schema.ts`. Drizzle-derived types live in `s
 ## Common commands
 
 ```bash
-# dev
-pnpm dev                  # Next dev only, ~/ri-dev
+# dev (docs/environments.md)
+pnpm dev                  # Next dev only, ~/ri-dev, marked Dev on every screen
 pnpm cli:dev start --dev  # full CLI in dev mode
-pnpm dev:reseed           # reseed ~/ri-dev (preserves auth + paired devices; rm -rf ~/ri-dev for a true reset)
-pnpm dev:seed             # additive seed
+pnpm dev:reseed           # rebuild ~/ri-dev from the synthetic dataset (keeps auth and paired devices, old home goes to ~/ri-dev.previous)
+pnpm dev:seed             # seed an empty dev home
 pnpm dev:reset            # wipe ~/ri-dev only
+pnpm ri:dev agent ...     # the CLI against ~/ri-dev
+
+# production (docs/environments.md)
+pnpm release              # build main as the next release in ~/ri-release, without touching production
+ri-prod start             # where production runs, after stopping it: go live with the release
+ri-prod status            # what's live, what's ready, what's running (also: rollback, log)
 
 # voice (optional)
 pnpm dev:stt              # Parakeet STT sidecar (Docker)
@@ -181,6 +187,7 @@ pnpm cli:build            # bundle CLI to ./dist
 
 - **Use pnpm.** Not npm or yarn.
 - **Dev server runs on 42241.** Production defaults to 4224, so both can run at once.
+- **Production runs from a release** (`~/ri-release/current`), never from the checkout. See [`docs/environments.md`](docs/environments.md).
 - **Installable UI components** (shadcn, Vercel AI Elements) come in via their CLI tools — don't manually copy component source.
 - **Types** are derived from the Drizzle schema. Don't duplicate.
 - **API routes** call shared functions from `src/lib/db/queries.ts`. No raw SQL in handlers.

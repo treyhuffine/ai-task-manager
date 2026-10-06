@@ -19,19 +19,22 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 
 ## Commands
 
-- `pnpm dev` — starts dev server on port 42241
+- `pnpm dev` — starts dev server on port 42241, on the dev home `~/ri-dev` (marked Dev on every screen)
+- `pnpm dev:reseed` — rebuild the dev home from the synthetic dataset (a fictional person, every state of every surface)
+- `pnpm ri:dev` — the CLI against the dev home (`pnpm ri:dev agent list_tasks`)
+- `pnpm release` — build `main` as a production release in `~/ri-release`. Going live is `ri-prod start` where production runs (docs/environments.md)
 - `pnpm build` — production build
 - `pnpm ts` — typecheck (tsc --noEmit)
 - `pnpm lint` — ESLint
 - `pnpm db:push` — push schema to SQLite
 - `pnpm db:generate` / `pnpm db:migrate` — generate / apply Drizzle migrations (`db:migrate` uses the app's safe runner, never `drizzle-kit migrate`)
-- `pnpm db:seed` — seed dev data
-- `pnpm db:reset` — reset and re-seed
+- `pnpm db:seed` / `pnpm db:reset` — the owner's personal Notion import (`personal/`). They act on whatever home `RI_ROOT` names, production when unset, and `db:reset` deletes that database. Never run them for dev data: use `pnpm dev:reseed`
 
 ## Rules
 
 - **Use pnpm** — not npm or yarn
 - **Dev server runs on port 42241** by default (production defaults to 4224, so both can run side by side). Override either with `PORT` / `--port`.
+- **Production runs from a release, never from this checkout.** `~/ri-release/current` is a built commit of `main`, so edits, builds, installs and draft migrations here can't reach it. Test changes on the dev home (`pnpm dev`, `pnpm ri:dev`), commit, then `pnpm release`. A harness session's `ri` acts on the home that started it (`src/lib/executor/session-cli.ts`), and `--dev` never means production. See `docs/environments.md`.
 - **Installable UI components** (shadcn, Vercel AI elements, ElevenLabs, etc.) must be added via their CLI tool — do not manually write or copy component source files
 - **Icons must describe their purpose.** Do not use sparkle, star-cluster, or magic-wand icons anywhere in the app, including Lucide `Sparkles`, `Sparkle`, `Stars`, `Wand`, `Wand2`, and `WandSparkles`, or equivalent SVGs and emoji. Use context-specific icons such as `MessageCircleMore` for thinking, `Cpu` for model selection, `Pencil` for editing, and `ListChecks` for triage.
 - **Types** are derived from the Drizzle schema in `src/db/types.ts` — do not duplicate type definitions
