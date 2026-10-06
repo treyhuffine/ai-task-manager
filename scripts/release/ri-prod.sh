@@ -99,7 +99,9 @@ start_release() {
       backup="$BACKUP_DIR/data-$(date -u +%Y%m%dT%H%M%SZ)-before-$(field "$next_dir" short).db"
       say "This release adds $((carried - applied)) database migration(s). Backing up the database first:"
       say "  $backup"
-      sqlite3 "$PROD_ROOT/data.db" ".backup '$backup'"
+      # VACUUM INTO copies from one read snapshot. `.backup` starts over
+      # whenever anything writes, so under load it may never finish.
+      sqlite3 "$PROD_ROOT/data.db" "VACUUM INTO '$backup'"
       chmod 600 "$backup"
       log backup "$backup"
     elif [ "$carried" -lt "$applied" ]; then
