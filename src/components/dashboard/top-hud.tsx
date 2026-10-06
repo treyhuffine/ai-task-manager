@@ -8,13 +8,15 @@ import { CreateMenu } from './create-menu';
 import { RailStatusPills } from './rail-status-pills';
 import { BudgetWarningPill } from './budget-warning-pill';
 import { HudDayButton } from '@/components/calendar/hud-day-button';
+import { WorkHudPill } from '@/components/calendar/work/work-hud-pill';
 import { DesktopNavButtons } from '@/components/desktop/desktop-nav-buttons';
 
 // What's happening, from every view: work by status, the way out of (or
-// back into) an execution, the next calendar event, the budget. Places (Board,
-// Calendar, Schedules and Triggers) and Settings live in the left rail
-// (docs/rail.md). Create (tasks, notes, quick capture) and ⌘K search stay here
-// for now, beside the rail's own Create and Search.
+// back into) an execution, today's work in person-hours, the next calendar
+// event, the budget. Places (Board, Calendar, Schedules and Triggers) and
+// Settings live in the left rail (docs/rail.md). Create (tasks, notes, quick
+// capture) and ⌘K search stay here for now, beside the rail's own Create and
+// Search.
 
 export function TopHud() {
   const { activeView, goHome, openExecution, setQuickCaptureOpen } = useDashboard();
@@ -64,6 +66,10 @@ export function TopHud() {
       ) : null}
 
       <div className="flex-1" />
+
+      <div className="hidden md:block">
+        <WorkHudPill />
+      </div>
 
       <div className="hidden md:block">
         <HudDayButton />

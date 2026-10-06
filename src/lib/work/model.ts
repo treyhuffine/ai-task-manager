@@ -253,14 +253,20 @@ export function localDayStart(date: string): number {
   return new Date(`${date}T00:00:00`).getTime();
 }
 
-export const PALETTE_SIZE = 10;
+/**
+ * Series slots (the `--series-N` palette, docs/work-view.md "Colors"):
+ * eight validated hues in a fixed order, never generated past eight. Agents
+ * take slots in the person's agent order, Ri's own chats take one slot of
+ * their own, and everyone past that folds into "Other" (slot 0). Color
+ * follows the agent, never its rank in a range, so it holds week to week.
+ */
+export const RI_SLOT = 7;
+export const OTHER_SLOT = 0;
+const AGENT_SLOTS = [1, 2, 3, 4, 5, 6, 8] as const;
 
-/** A stable palette slot for an agent the service couldn't place in order. */
-export function agentColor(id: string | null): number {
-  if (!id) return -1;
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return h % PALETTE_SIZE;
+/** The slot for the agent at `index` in the person's agent order. */
+export function agentSlot(index: number): number {
+  return AGENT_SLOTS[index] ?? OTHER_SLOT;
 }
 
 interface Clipped {
@@ -420,6 +426,16 @@ export function buildRange(input: RangeInput): Omit<WorkRange, 'report' | 'gener
       date,
       spans,
       looseCommits,
+      // Each chat's stretch on the day, for the ribbon's agents-at-once.
+      blocks: clipped
+        .map((c) => ({
+          sessionId: c.meta.id,
+          agentId: c.meta.agentId,
+          start: new Date(c.start).toISOString(),
+          end: new Date(c.end).toISOString(),
+        }))
+        .sort((a, b) => a.start.localeCompare(b.start)),
+      sittings: youSittings.map(([s, e]) => ({ start: new Date(s).toISOString(), end: new Date(Math.min(e, dayEnd)).toISOString() })),
       tasksDone: input.tasksDone.filter((t) => inDay(t.at, dayStart, dayEnd)),
       executionsFinished: input.executionsFinished.filter((x) => inDay(x.at, dayStart, dayEnd)),
       stats,
@@ -433,7 +449,7 @@ export function buildRange(input: RangeInput): Omit<WorkRange, 'report' | 'gener
         id,
         name: id ? (meta?.name ?? 'Removed agent') : 'Ri',
         emoji: meta?.emoji ?? null,
-        color: id ? (meta?.color ?? agentColor(id)) : -1,
+        color: id ? (meta?.color ?? OTHER_SLOT) : RI_SLOT,
         agentMinutes: t.agentMinutes,
         personHours: t.personHours,
         commits: t.commits,

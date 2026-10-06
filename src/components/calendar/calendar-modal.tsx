@@ -15,8 +15,9 @@
  *   - **Day**: one day on an hour axis.
  *
  * With Work on (the default, one click off), it also shows what you and
- * your agents did: their work as blocks in each day, a list of what got done,
- * and what it adds up to, in person-hours (docs/work-view.md). Work shows
+ * your agents did: a ribbon of work beside each day's meetings, lanes per
+ * agent in a day, a list of what got done, and what it adds up to, in
+ * person-hours (docs/work-view.md). Work shows
  * with or without a calendar connected.
  *
  * Read-only over external events, like every calendar surface (see
@@ -39,6 +40,7 @@ import { useDayShape, useRefreshDayShape } from '@/hooks/use-day-shape';
 import { useTasks } from '@/hooks/use-tasks';
 import { useWorkRange } from '@/hooks/use-work';
 import { useCalendarWork } from '@/lib/client/calendar-work';
+import { activityBins, ribbonScale } from '@/lib/work/ribbon';
 import { openSettings } from '@/components/settings/settings-store';
 import type { CalendarDay } from '@/lib/calendar/types';
 import { viewKey } from '@/lib/client/active-view';
@@ -60,7 +62,7 @@ import { DayView } from './day-view';
 import { WeekGrid } from './week-grid';
 import { WeekView, type DeadlineMarker } from './week-view';
 import { WorkList } from './work/work-list';
-import { WorkSummary } from './work/work-summary';
+import { WorkStats } from './work/work-stats';
 import type { WorkLayer } from './work/work-style';
 
 /** `?calendar=1` keeps the calendar open across a reload and makes it linkable. */
@@ -177,9 +179,20 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
   const { data: workRange, isPlaceholderData: workStale } = useWorkRange(start, days, workOn);
   const work = useMemo<WorkLayer | undefined>(() => {
     if (!workOn || !workRange) return undefined;
+    const agents = new Map(workRange.agents.map((a) => [a.id, a] as const));
+    // Stack by series slot so colors sit in the same order every window. "Other" last.
+    const order = (id: string | null) => {
+      const slot = agents.get(id)?.color ?? 0;
+      return slot === 0 ? 99 : slot;
+    };
+    const bins = new Map(workRange.dayList.map((d) => [d.date, activityBins(d, order)] as const));
     return {
+      days: new Map(workRange.dayList.map((d) => [d.date, d] as const)),
       spansByDate: new Map(workRange.dayList.map((d) => [d.date, d.spans] as const)),
-      agents: new Map(workRange.agents.map((a) => [a.id, a] as const)),
+      bins,
+      agents,
+      order,
+      scale: ribbonScale([...bins.values()]),
     };
   }, [workOn, workRange]);
 
@@ -362,7 +375,7 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
       </header>
 
       <div className={cn('flex min-h-0 flex-1 flex-col', !showConnect && 'px-4 pt-3')}>
-        {workOn && !showConnect && <WorkSummary range={workRange} today={today} stale={workStale} />}
+        {workOn && !showConnect && <WorkStats range={workRange} stale={workStale} />}
         <div className="min-h-0 flex-1">
         {showConnect ? (
           <CalendarConnectPrompt onConnect={closeCalendarModal} />

@@ -8,13 +8,13 @@ import { trpcClient } from '@/lib/trpc/client';
  * refetch keeps today live while the calendar is open. The first read of a
  * home builds the ledger from all history, which can take several seconds.
  */
-export function useWorkRange(start: string, days: number, enabled = true) {
+export function useWorkRange(start: string, days: number, enabled = true, refreshMs = 60_000) {
   return useQuery({
     queryKey: ['work', start, days],
     queryFn: () => trpcClient.work.range.query({ start, days }),
     enabled,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: Math.min(30_000, refreshMs),
+    refetchInterval: refreshMs,
     placeholderData: keepPreviousData,
   });
 }

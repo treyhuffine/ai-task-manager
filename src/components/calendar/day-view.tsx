@@ -10,6 +10,9 @@
  * Geometry: a two-track CSS grid (rem gutter + fluid day column); every
  * vertical position is a percentage of the track, whose height is
  * `hours × var(--hour-h)`. No pixel math in JS.
+ *
+ * With `work`, meetings take the left third and the day's work lanes the
+ * rest: you, then each agent that worked (docs/work-view.md, "Day lanes").
  */
 
 import { useEffect, useMemo, useRef } from 'react';
@@ -19,6 +22,7 @@ import {
   eventWindowOnDate,
   hourMarks,
   minutePct,
+  packColumns,
   landingTopMinute,
   trackHeight,
   windowPct,
@@ -30,8 +34,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { AllDayRow } from './all-day-row';
 import { EventPopoverContent } from './event-popover';
 import { NowLine } from './now-line';
-import { WorkSpanBlock, WorkSpanDetails } from './work/work-span-block';
-import { packDay, timeLabel, type DayItem, type WorkLayer } from './work/work-style';
+import { WorkLaneHeader, WorkLaneTrack, dayLanes } from './work/work-lanes';
+import type { WorkLayer } from './work/work-style';
 
 /** Blocks shorter than this show the title only (no time sub-label). */
 const TIME_LABEL_MIN_MINUTES = 40;
@@ -52,13 +56,16 @@ export interface DayViewProps {
 }
 
 export function DayView({ date, day, workday, isToday, work }: DayViewProps) {
+  const workDay = work?.days.get(date);
+  const lanes = useMemo(() => (workDay && work ? dayLanes(workDay, work) : []), [workDay, work]);
+  const showLanes = lanes.length > 0;
   const scrollRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   // The full day, always — workday bounds size the DECK, not the calendar.
   const bounds = FULL_DAY_BOUNDS;
   const packed = useMemo(
-    () => packDay(day?.events ?? [], work?.spansByDate.get(date) ?? [], date),
-    [day, date, work],
+    () => (day ? packColumns(day.events, date) : { placed: [], overflow: [] }),
+    [day, date],
   );
   const hours = useMemo(() => hourMarks(bounds), [bounds]);
 
@@ -87,6 +94,16 @@ export function DayView({ date, day, workday, isToday, work }: DayViewProps) {
   return (
     <div className="flex flex-col h-full min-h-0">
       <AllDayRow events={day?.allDay ?? []} />
+      {showLanes && (
+        <div className="grid grid-cols-[2.5rem_1fr]">
+          <div />
+          <div className="relative">
+            <div className="ml-[36%]">
+              <WorkLaneHeader lanes={lanes} />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {/* mt-2 keeps the first hour label (offset above its gridline) unclipped */}
@@ -119,23 +136,10 @@ export function DayView({ date, day, workday, isToday, work }: DayViewProps) {
             </div>
 
             <div className="relative">
-              {packed.placed.map(({ item, ...p }) =>
-                item.kind === 'event' ? (
-                  <EventCard key={`${item.event.id}-${p.startMinute}`} placed={{ ...p, event: item.event }} bounds={bounds} />
-                ) : (
-                  <WorkSpanBlock
-                    key={item.span.id}
-                    span={item.span}
-                    agent={work?.agents.get(item.span.agentId)}
-                    roomy
-                    style={{
-                      ...toStyle(windowPct(p, bounds)),
-                      left: `${(p.column / p.columns) * 100}%`,
-                      width: `${100 / p.columns}%`,
-                    }}
-                  />
-                ),
-              )}
+              <div className={cn('absolute inset-y-0 left-0', showLanes ? 'w-[34%]' : 'w-full')}>
+              {packed.placed.map((p) => (
+                <EventCard key={`${p.event.id}-${p.startMinute}`} placed={p} bounds={bounds} />
+              ))}
 
               {packed.overflow.map((group, i) => (
                 <Popover key={`overflow-${i}`}>
@@ -145,21 +149,23 @@ export function DayView({ date, day, workday, isToday, work }: DayViewProps) {
                       className="absolute z-20 w-1/3 right-2 min-h-5 rounded-md border border-border bg-muted px-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
                       style={toStyle(windowPct(group, bounds))}
                     >
-                      +{group.items.length} more
+                      +{group.events.length} more
                     </button>
                   </PopoverTrigger>
                   <PopoverContent side="left" className="p-1 w-64">
-                    {group.items.map((item) =>
-                      item.kind === 'event' ? (
-                        <OverflowRow key={item.event.id} event={item.event} date={date} />
-                      ) : (
-                        <WorkOverflowRow key={item.span.id} item={item} work={work} />
-                      ),
-                    )}
+                    {group.events.map((e) => (
+                      <OverflowRow key={e.id} event={e} date={date} />
+                    ))}
                   </PopoverContent>
                 </Popover>
               ))}
 
+              </div>
+              {showLanes && workDay && (
+                <div className="absolute inset-y-0 left-[36%] right-0">
+                  <WorkLaneTrack lanes={lanes} day={workDay} bounds={bounds} />
+                </div>
+              )}
               {showNow && <NowLine topPct={minutePct(nowMinute, bounds)} />}
             </div>
           </div>
@@ -203,23 +209,6 @@ function EventCard({ placed, bounds }: { placed: PlacedEvent; bounds: MinuteWind
       </PopoverTrigger>
       <PopoverContent side="right" align="start" className="p-0 w-auto">
         <EventPopoverContent event={event} />
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function WorkOverflowRow({ item, work }: { item: Extract<DayItem, { kind: 'work' }>; work: WorkLayer | undefined }) {
-  const agent = work?.agents.get(item.span.agentId);
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button type="button" className="w-full flex items-center gap-2 rounded px-2 py-1 text-left hover:bg-muted/60 transition-colors">
-          <span className="text-[10px] tabular-nums text-muted-foreground/70 w-14 shrink-0">{timeLabel(item.span.start)}</span>
-          <span className="flex-1 truncate text-xs">{agent?.name ?? 'Ri'}</span>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent side="left" className="w-80 p-0">
-        <WorkSpanDetails span={item.span} agent={agent} />
       </PopoverContent>
     </Popover>
   );

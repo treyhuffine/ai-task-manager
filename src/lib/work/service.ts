@@ -12,7 +12,7 @@ import type { NoteRecord } from '@/db/types';
 import { commitsForRange, type Repo } from './commits';
 import { formatDuration, formatHours, summaryLines, weeklyReport } from './equivalents';
 import { readLedger } from './ledger';
-import { MIN_BLOCK_MS, PALETTE_SIZE, buildRange, localDayStart, type AgentMeta, type SessionMeta } from './model';
+import { MIN_BLOCK_MS, agentSlot, buildRange, localDayStart, type AgentMeta, type SessionMeta } from './model';
 import type { WorkRange } from './types';
 
 export const MAX_WORK_DAYS = 31;
@@ -47,7 +47,7 @@ export async function getWorkRange({ start, days }: WorkRangeInput): Promise<Wor
   const workspaces = [...listWorkspaces({ status: 'active' }), ...listWorkspaces({ status: 'archived' })];
   // Colors follow the agent order the person keeps, so the agents at the top
   // get the palette's most distinct colors and keep them week to week.
-  const agents: AgentMeta[] = workspaces.map((w, i) => ({ id: w.id, name: w.name, emoji: w.emoji ?? null, color: i % PALETTE_SIZE }));
+  const agents: AgentMeta[] = workspaces.map((w, i) => ({ id: w.id, name: w.name, emoji: w.emoji ?? null, color: agentSlot(i) }));
   // One repo per folder, even when two agents share it, so no commit counts twice.
   const repos = new Map<string, Repo>();
   for (const w of workspaces) {

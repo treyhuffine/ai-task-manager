@@ -230,7 +230,7 @@ function AgentGroup({
 }) {
   const [all, setAll] = useState(false);
   const shown = all ? group.commits : group.commits.slice(0, COMMITS_SHOWN);
-  const colors = agentStyle(agent?.color ?? -1);
+  const colors = agentStyle(agent?.color ?? 0);
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-1.5">

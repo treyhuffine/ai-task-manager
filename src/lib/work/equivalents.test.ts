@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  workTiles,
   weeklyReport,
   bookEquivalent,
   formatDuration,
@@ -84,6 +85,8 @@ describe('weeklyReport', () => {
         date: '2026-09-28',
         spans: [],
         looseCommits: subjects.map((subject, i) => ({ hash: `h${i}`, at: '', subject, agentId: 'a', lines: 10, effortHours: 0.5 })),
+        blocks: [],
+        sittings: [],
         tasksDone: [],
         executionsFinished: Array.from({ length: finished }, (_, i) => ({ id: `x${i}`, label: 'x', agentId: 'a', at: '' })),
         stats: stats(over),
@@ -100,5 +103,30 @@ describe('weeklyReport', () => {
 
   it('reads right with no commits', () => {
     expect(weeklyReport(range({ agents: 2 }, 1))[0]).toBe('Finished 1 execution across 2 agents.');
+  });
+});
+
+describe('workTiles', () => {
+  it('leads with person-hours, then leverage, peak, time away and commits', () => {
+    const tiles = workTiles(stats(), 7, { weekday: true });
+    expect(tiles.map((t) => [t.key, t.value])).toEqual([
+      ['personHours', '2,377'],
+      ['leverage', '57×'],
+      ['peak', '9'],
+      ['away', '38h'],
+      ['commits', '256'],
+    ]);
+    expect(tiles[0]!.context).toEqual(['A team of 59 for a week', 'or 1.2 people for a year']);
+    expect(tiles[1]!.context).toEqual(['From 41h 30m hands-on']);
+    expect(tiles[4]!.context).toEqual(['Across 10 agents']);
+  });
+
+  it('speaks in days for a day, and leaves out what has nothing to say', () => {
+    const tiles = workTiles(stats({ personHours: 30, handsOnMinutes: 0, peak: null, whileAwayMinutes: 0, commits: 0 }), 1);
+    expect(tiles).toEqual([{ key: 'personHours', label: 'Person-hours of work', value: '30', context: ['A team of 4 for a day'] }]);
+  });
+
+  it('keeps tile copy free of long dashes and semicolons', () => {
+    for (const t of workTiles(stats(), 7)) expect([t.label, t.value, ...t.context].join(' ')).not.toMatch(/[—–;]/);
   });
 });

@@ -3,10 +3,10 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
 /**
- * Whether the calendar shows work (docs/work-view.md): the blocks you and
- * your agents worked, and the summary of what it adds up to. On to start,
- * one click off, remembered per browser. The calendar is somewhere you go on
- * purpose, so the work only shows when you've come to look.
+ * Whether Ri shows work (docs/work-view.md): in the calendar, when you and
+ * your agents worked and what it adds up to, and in the header, today's
+ * person-hours. On to start, one click off in the calendar, remembered per
+ * browser. Off hides both, for anyone who'd rather not see the count.
  */
 
 export const CALENDAR_WORK_KEY = 'ri.calendar.work';

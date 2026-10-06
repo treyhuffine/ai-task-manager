@@ -90,6 +90,18 @@ html[data-ri-desktop='darwin'] .desktop-drag-fallback button {
 }
 
 :root {
+  /* Categorical series, slots 1-8, in fixed order (the dataviz reference
+     palette, validated against this surface: docs/work-view.md, "Colors").
+     Never generated past 8: the tail folds into --series-other. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --series-other: #b4b2ab;
   /* shadcn zinc — light */
   --background: oklch(1 0 0);
   --foreground: oklch(0.141 0.005 285.823);
@@ -149,6 +161,16 @@ html[data-ri-desktop='darwin'] .desktop-drag-fallback button {
 }
 
 .dark {
+  /* The same eight hues, stepped for the dark surface (validated there). */
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --series-other: #5f5e5a;
   /* shadcn zinc — dark */
   --background: oklch(0.141 0.005 285.823);
   --foreground: oklch(0.985 0 0);

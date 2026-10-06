@@ -79,6 +79,10 @@ export interface WorkDay {
   spans: WorkSpan[];
   /** Commits no span covers, still counted (work done between chats). */
   looseCommits: WorkCommit[];
+  /** Each chat's stretch of work on the day: the ribbon counts these at once. */
+  blocks: Array<{ sessionId: string; agentId: string | null; start: string; end: string }>;
+  /** When you were hands-on (your sittings) on the day. */
+  sittings: Array<{ start: string; end: string }>;
   tasksDone: Array<{ id: string; title: string; at: string }>;
   executionsFinished: Array<{ id: string; label: string; agentId: string | null; at: string }>;
   stats: WorkStats;
@@ -88,7 +92,7 @@ export interface WorkAgent {
   id: string | null;
   name: string;
   emoji: string | null;
-  /** Stable palette slot for its color. */
+  /** Series slot for its color: 1 to 8, or 0 for "Other" (`agentSlot`). */
   color: number;
   agentMinutes: number;
   personHours: number;

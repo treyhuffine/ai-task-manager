@@ -1,74 +1,20 @@
 "use client";
 
-import type { CSSProperties } from 'react';
 import { GitCommitHorizontal, MessageSquare } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { formatDuration, formatHours } from '@/lib/work/equivalents';
 import type { WorkAgent, WorkSpan } from '@/lib/work/types';
-import { cn } from '@/lib/utils';
 import { agentStyle, timeLabel } from './work-style';
-
-/**
- * One agent's stretch of work in the calendar grid: tinted in the agent's
- * color, solid where you were hands-on and dashed where the agent worked on
- * its own. Click for what happened in it.
- */
-export function WorkSpanBlock({
-  span,
-  agent,
-  style,
-  roomy = false,
-}: {
-  span: WorkSpan;
-  agent: WorkAgent | undefined;
-  /** Position in the day column (top, height, left, width). */
-  style: CSSProperties;
-  /** Day view: room for a second line. */
-  roomy?: boolean;
-}) {
-  const colors = agentStyle(agent?.color ?? -1);
-  const withYou = span.withYouMinutes >= 1;
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={`${agent?.name ?? 'Ri'}: ${timeLabel(span.start)} to ${timeLabel(span.end)}`}
-          className={cn(
-            'absolute z-10 min-h-3 overflow-hidden rounded border border-l-[3px] text-left transition-[filter] hover:brightness-110',
-            !withYou && 'border-dashed',
-          )}
-          style={{ ...colors.block, ...style }}
-        >
-          <p className={cn('truncate px-1 py-0.5 leading-tight text-foreground', roomy ? 'text-[11px] font-medium' : 'text-[9px]')}>
-            {agent?.emoji ? `${agent.emoji} ` : ''}
-            {agent?.name ?? 'Ri'}
-          </p>
-          {roomy && (
-            <p className="truncate px-1 text-[9px] text-muted-foreground">
-              {span.chats.length} {span.chats.length === 1 ? 'chat' : 'chats'}
-              {span.commits.length > 0 && ` · ${span.commits.length} ${span.commits.length === 1 ? 'commit' : 'commits'}`}
-            </p>
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent side="right" align="start" className="w-80 p-0">
-        <WorkSpanDetails span={span} agent={agent} />
-      </PopoverContent>
-    </Popover>
-  );
-}
 
 /** What a span holds: its numbers, its chats (open one), and its commits. */
 export function WorkSpanDetails({ span, agent }: { span: WorkSpan; agent: WorkAgent | undefined }) {
   const { openExecution, openAgent } = useDashboard();
-  const colors = agentStyle(agent?.color ?? -1);
+  const colors = agentStyle(agent?.color ?? 0);
   return (
     <div className="flex max-h-[26rem] flex-col">
       <div className="border-b border-border px-3 py-2">
         <div className="flex items-center gap-1.5">
-          <span className="size-2 shrink-0 rounded-full" style={colors.dot} aria-hidden />
+          <span className="size-2 shrink-0 rounded-[2px]" style={colors.dot} aria-hidden />
           <span className="truncate text-sm font-medium">{agent?.name ?? 'Ri'}</span>
           <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
             {timeLabel(span.start)} to {timeLabel(span.end)}

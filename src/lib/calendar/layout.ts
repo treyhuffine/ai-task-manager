@@ -100,8 +100,8 @@ export interface PackedDay {
  * Greedy interval packing: sort by start, place each item in the first
  * column free at its start. Clusters (connected overlap components) wider
  * than `maxColumns` collapse their extra items into one overflow group
- * (rendered as a "+N" chip in the last column). Generic so the calendar can
- * pack meetings and work spans together (docs/work-view.md).
+ * (rendered as a "+N" chip in the last column). Generic over the item, so
+ * any timed thing can pack the same way.
  */
 export function packWindows<T>(
   entries: ReadonlyArray<{ item: T; window: MinuteWindow }>,

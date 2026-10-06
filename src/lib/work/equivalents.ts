@@ -75,20 +75,89 @@ function plural(n: number, one: string, many = `${one}s`): string {
 export function personHoursLine(stats: WorkStats, days: number): string | null {
   const h = stats.personHours;
   if (h < 0.5) return null;
-  const parts = [`About ${formatHours(h)} person-hours of work`];
-  const unit = days <= 1 ? DAY_HOURS : WEEK_HOURS;
-  const team = h / (unit * Math.max(1, days <= 1 ? 1 : days / 7));
-  if (team >= 1.5) parts.push(`a team of ${Math.round(team)} for a ${days <= 1 ? 'day' : 'week'}`);
-  // A year once it's at least one person's, months below that.
-  const years = h / YEAR_HOURS;
-  const months = Math.round(years * 12);
+  const parts = [teamPhrase(h, days), yearPhrase(h)].filter((p): p is string => !!p);
+  const head = `About ${formatHours(h)} person-hours of work`;
+  return parts.length ? `${head}: ${parts.join(', or ')}.` : `${head}.`;
+}
+
+/** "a team of 60 for a week", "a team of 85 for a day", or null below 1.5 people. */
+export function teamPhrase(personHours: number, days: number): string | null {
+  const day = days <= 1;
+  const team = personHours / (day ? DAY_HOURS : WEEK_HOURS * Math.max(1, days / 7));
+  return team >= 1.5 ? `a team of ${Math.round(team)} for a ${day ? 'day' : 'week'}` : null;
+}
+
+/** "1.2 people for a year", "a person for 4 months", or null under a month. */
+export function yearPhrase(personHours: number): string | null {
+  const years = personHours / YEAR_HOURS;
   if (years >= 1) {
     const n = years >= 10 ? String(Math.round(years)) : years.toFixed(1).replace(/\.0$/, '');
-    parts.push(`${n} ${n === '1' ? 'person' : 'people'} for a year`);
-  } else if (months >= 1) {
-    parts.push(`a person for ${months} ${plural(months, 'month')}`);
+    return `${n} ${n === '1' ? 'person' : 'people'} for a year`;
   }
-  return parts.length === 1 ? `${parts[0]}.` : `${parts[0]}: ${parts.slice(1).join(', or ')}.`;
+  const months = Math.round(years * 12);
+  return months >= 1 ? `a person for ${months} ${plural(months, 'month')}` : null;
+}
+
+/** Person-hours per hour you were hands-on, or null when you weren't. */
+export function leverage(stats: WorkStats): number | null {
+  const hours = stats.handsOnMinutes / 60;
+  return hours >= 0.25 && stats.personHours > hours ? stats.personHours / hours : null;
+}
+
+export interface WorkTile {
+  key: 'personHours' | 'leverage' | 'peak' | 'away' | 'commits';
+  label: string;
+  value: string;
+  /** One or two short lines of context. */
+  context: string[];
+}
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * The calendar's headline numbers, as stat tiles: the value is the point,
+ * one line or two say what it means. Tiles with nothing to say are left out.
+ */
+export function workTiles(stats: WorkStats, days: number, opts: { weekday?: boolean } = {}): WorkTile[] {
+  const tiles: WorkTile[] = [];
+  if (stats.personHours >= 0.5) {
+    tiles.push({
+      key: 'personHours',
+      label: 'Person-hours of work',
+      value: formatHours(stats.personHours),
+      context: [teamPhrase(stats.personHours, days), yearPhrase(stats.personHours)].filter((l): l is string => !!l).map((l, i) => (i === 0 ? capitalize(l) : `or ${l}`)),
+    });
+  }
+  const lev = leverage(stats);
+  if (lev) {
+    tiles.push({
+      key: 'leverage',
+      label: 'Your leverage',
+      value: `${formatHours(lev)}×`,
+      context: [`From ${formatDuration(stats.handsOnMinutes)} hands-on`],
+    });
+  }
+  if (stats.peak && stats.peak.count >= 2) {
+    const when = new Date(stats.peak.at).toLocaleString('en-US', { ...(opts.weekday ? { weekday: 'short' } : {}), hour: 'numeric', minute: '2-digit' });
+    tiles.push({ key: 'peak', label: 'Agents at once', value: String(stats.peak.count), context: [`At the peak, ${when}`] });
+  }
+  if (stats.whileAwayMinutes >= 30) {
+    tiles.push({
+      key: 'away',
+      label: 'While you were away',
+      value: formatDuration(stats.whileAwayMinutes),
+      context: ['Agents kept working'],
+    });
+  }
+  if (stats.commits > 0) {
+    tiles.push({
+      key: 'commits',
+      label: 'Commits',
+      value: formatCount(stats.commits),
+      context: [`Across ${stats.agents} ${plural(stats.agents, 'agent')}`],
+    });
+  }
+  return tiles;
 }
 
 /** You, your agents, and what each of your hours became. */
