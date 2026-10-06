@@ -383,8 +383,9 @@ export const sessionsApi = {
     return trpcClient.sessions.railGet.query({}, rpcOptions({ signal: opts.signal }));
   },
 
-  history() {
-    return trpcClient.sessions.historyList.query({});
+  /** Newest execution chats first. `workspaceId` scopes the feed to one agent. */
+  history(filters: { workspaceId?: string } = {}) {
+    return trpcClient.sessions.historyList.query({query: rpcQuery({ workspaceId: filters.workspaceId })});
   },
 
   /**

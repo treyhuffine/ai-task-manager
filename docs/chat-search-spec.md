@@ -57,6 +57,14 @@ individual events for precision, then collapse to one row per session.
   box above the tab switcher, which swapped the rail's body for results: a
   256px column was too narrow to read snippets in, and it hid the agents you'd
   come back to. History's inline substring filter stays removed.
+- **One agent at a time (since 2026-10-06).** The chip beside the query
+  (`All agents` until you pick one) scopes the modal to one agent's chats:
+  the results (`workspaceId` on `/sessions/search`) and the recent list
+  (`workspaceId` on `/sessions/history`, applied before its 200-row cap so a
+  quiet agent's older chats still show). It lists the active agents in the
+  rail's order, filters as you type, and `All agents` at its top clears it.
+  It sits in the query row rather than with the status and source facets
+  because it applies before there's a query. Each open starts unscoped.
 - **Chat search stays out of ⌘K's results (deliberate).** ⌘K is a low-volume,
   high-precision launcher across tasks/notes/stream; folding noisy transcript
   hits into it risks drowning those results. ⌘K's command mode has a "Search
@@ -68,7 +76,8 @@ individual events for precision, then collapse to one row per session.
 - Semantic/vector search over chats.
 - Searching tool outputs / file paths touched by an agent (schema is ready for
   it; ranking + noise-control deferred).
-- Date-range and per-agent facets (easy follow-ups once the endpoint exists).
+- Date-range facet (an easy follow-up). The per-agent filter shipped
+  2026-10-06, see the decisions above.
 - ⌘K integration (kept deliberately isolated to the power rail — see decisions).
 - Scroll-to-matched-message deep-link (v1 just opens the session; the matched
   event id is returned by the API so it's a small follow-up).

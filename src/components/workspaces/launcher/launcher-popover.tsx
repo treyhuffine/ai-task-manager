@@ -29,6 +29,9 @@ import { cn } from '@/lib/utils';
  * `left-1/2 -translate-x-1/2`, and why its open/close animations live on the
  * inner panel rather than on `Dialog.Content` itself. Reintroducing a transform
  * on that element will silently re-clip every popover in the launcher.
+ *
+ * Chat search's agent filter (`chat-search-modal.tsx`) uses it for the same
+ * reason, so the same rule holds for that dialog's panel.
  */
 export function LauncherPopoverContent({
   className,

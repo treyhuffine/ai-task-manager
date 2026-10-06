@@ -1,5 +1,5 @@
 import { listHistorySessions } from '@/lib/db/queries';
-import { reply, type OperationContext } from '@/lib/server/operation';
+import { reply, searchParams, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 
 /**
@@ -9,15 +9,20 @@ import { z as rpcZ } from 'zod/v4';
  * `/sessions/rail`, which filters to active sessions in active workspaces
  * to feed the by-workspace and by-status surfaces.
  *
+ * Query params:
+ *   workspaceId  scope to one workspace (chat search's recent list, filtered
+ *                to an agent). Omit for every workspace.
+ *
  * Capped at 200 rows. Older sessions are reachable from the workspace
  * tree directly; the rail doesn't try to be infinite scroll.
  */
 // Compressed: this route can ship hundreds of KB of JSON, and Next 16
 // does not compress route handlers. See lib/api/compression.ts.
 
-export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   try {
-    const sessions = listHistorySessions({ limit: 200 });
+    const workspaceId = searchParams(rpcInput.query).get('workspaceId') || undefined;
+    const sessions = listHistorySessions({ limit: 200, workspaceId });
     return reply({ sessions });
   } catch (err) {
     console.error('[GET /api/sessions/history]', err);
@@ -25,4 +30,4 @@ export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: Oper
   }
 }
 
-export const GETInput = rpcZ.object({}).strict().default({});
+export const GETInput = rpcZ.object({ query: rpcZ.object({ "workspaceId": rpcZ.string().optional() }).strict().optional() }).strict().default({});

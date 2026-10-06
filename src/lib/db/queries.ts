@@ -8521,8 +8521,12 @@ export function listWorkspaceExecutions(
  * past sessions disappear, which is the opposite policy from
  * `listRailSessions`. Capped at `limit` (default 200) so the rail
  * doesn't load thousands of rows.
+ *
+ * `workspaceId` scopes the feed to one agent before the cap, so a quiet
+ * agent's chats aren't crowded out of the newest 200 by busier ones (chat
+ * search's recent list, filtered to an agent).
  */
-export function listHistorySessions(opts: { limit?: number } = {}): RailSessionRow[] {
+export function listHistorySessions(opts: { limit?: number; workspaceId?: string } = {}): RailSessionRow[] {
   const db = getDb();
   const limit = opts.limit ?? 200;
   const rows = db
@@ -8541,7 +8545,12 @@ export function listHistorySessions(opts: { limit?: number } = {}): RailSessionR
     // null workspaceName as "(workspace removed)".
     .leftJoin(workspaces, eq(workspaces.id, chatSessions.workspaceId))
     .leftJoin(executions, eq(chatSessions.executionId, executions.id))
-    .where(eq(chatSessions.type, 'execution'))
+    .where(
+      and(
+        eq(chatSessions.type, 'execution'),
+        opts.workspaceId ? eq(chatSessions.workspaceId, opts.workspaceId) : undefined,
+      ),
+    )
     .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
     .limit(limit)
     .all();

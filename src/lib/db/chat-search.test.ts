@@ -15,6 +15,7 @@ import { openAsServer } from '@/test/fixtures/home';
  *   - a content match returns the session with a highlighted snippet
  *   - only message-bearing events are indexed (tool_result/thinking excluded)
  *   - archived + imported chats are searchable, and the status/source filters
+ *   - the agent filter, on search and on the recent feed it falls back to
  *   - multiple matching events collapse to one result per session
  *   - the one-shot backfill indexes rows that predate the index (upgrade path)
  */
@@ -220,6 +221,76 @@ describe('chat/session search', () => {
     expect(response.status).toBe(200);
     expect((await response.json() as Array<{ id: string }>).map((result) => result.id))
       .toEqual([openCodeId]);
+  });
+
+  /** An agent (workspace) to file chats under. */
+  async function seedAgent(name: string): Promise<string> {
+    const q = await import('@/lib/db/queries');
+    return q.createWorkspace({ name, cwd: root, isGit: false, filesToCopy: [], status: 'active' }).id;
+  }
+
+  it('scopes search to one agent', async () => {
+    const q = await import('@/lib/db/queries');
+    const ri = await seedAgent('Ri');
+    const site = await seedAgent('Site');
+    const riChat = await seedSession({
+      workspaceId: ri,
+      events: [{ source: 'agent', content: 'agentfacet migration plan' }],
+    });
+    const siteChat = await seedSession({
+      workspaceId: site,
+      status: 'archived',
+      events: [{ source: 'agent', content: 'agentfacet landing page' }],
+    });
+
+    expect(q.searchChatSessions({ query: 'agentfacet' }).map((r) => r.id).sort()).toEqual(
+      [riChat, siteChat].sort(),
+    );
+    expect(q.searchChatSessions({ query: 'agentfacet', workspaceId: ri }).map((r) => r.id)).toEqual([riChat]);
+    // Archived chats stay in an agent's scope, and the facets combine.
+    expect(q.searchChatSessions({ query: 'agentfacet', workspaceId: site }).map((r) => r.id)).toEqual([siteChat]);
+    expect(q.searchChatSessions({ query: 'agentfacet', workspaceId: site, status: 'active' })).toHaveLength(0);
+
+    const { NextRequest } = await import('next/server');
+    const { GET } = await import('@/app/api/sessions/search/route');
+    const response = await GET(new NextRequest(
+      `http://localhost/api/sessions/search?q=agentfacet&workspaceId=${ri}`,
+    ));
+    expect(response.status).toBe(200);
+    expect((await response.json() as Array<{ id: string }>).map((r) => r.id)).toEqual([riChat]);
+  });
+
+  it("scopes the recent feed to one agent before its cap, so a quiet agent's chats still show", async () => {
+    const q = await import('@/lib/db/queries');
+    const busy = await seedAgent('Busy');
+    const quiet = await seedAgent('Quiet');
+    const quietChat = await seedSession({ workspaceId: quiet, events: [] });
+    const busyChats: string[] = [];
+    for (let i = 0; i < 3; i++) busyChats.push(await seedSession({ workspaceId: busy, events: [] }));
+    // The quiet agent's chat is the oldest, and the busy agent's are all newer.
+    const { getRawDb } = await import('@/lib/db');
+    const touch = getRawDb().prepare('UPDATE chat_sessions SET last_activity_at = ? WHERE id = ?');
+    touch.run('2026-10-01T09:00:00.000Z', quietChat);
+    busyChats.forEach((id, i) => touch.run(`2026-10-0${2 + i}T09:00:00.000Z`, id));
+
+    // Unscoped, the newest rows across every agent fill the cap.
+    const newest = q.listHistorySessions({ limit: 3 }).map((r) => r.id);
+    expect(newest).not.toContain(quietChat);
+    // Scoped, the quiet agent's chat is there, with the agent's identity
+    // joined on for the row's avatar and name.
+    const scoped = q.listHistorySessions({ limit: 3, workspaceId: quiet });
+    expect(scoped.map((r) => r.id)).toEqual([quietChat]);
+    expect(scoped[0]!.workspaceName).toBe('Quiet');
+    expect(q.listHistorySessions({ workspaceId: busy }).map((r) => r.id).sort()).toEqual(busyChats.sort());
+
+    const { NextRequest } = await import('next/server');
+    const { GET } = await import('@/app/api/sessions/history/route');
+    const scopedResponse = await GET(new NextRequest(`http://localhost/api/sessions/history?workspaceId=${quiet}`));
+    expect(scopedResponse.status).toBe(200);
+    expect((await scopedResponse.json() as { sessions: Array<{ id: string }> }).sessions.map((r) => r.id))
+      .toEqual([quietChat]);
+    const allResponse = await GET(new NextRequest('http://localhost/api/sessions/history'));
+    expect((await allResponse.json() as { sessions: unknown[] }).sessions).toHaveLength(4);
   });
 
   it('collapses multiple matching events into one result per session', async () => {

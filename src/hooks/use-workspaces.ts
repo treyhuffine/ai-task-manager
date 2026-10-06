@@ -442,11 +442,16 @@ export function useRailSessions() {
  * 200. Refresh interval is slower than the rail's because the history
  * surface is less time-critical — the SSE invalidation on session
  * updates handles the fresh-data needs.
+ *
+ * `workspaceId` narrows the feed to one agent on the server (chat search's
+ * recent list). It's its own entry under `HISTORY_KEY`, so every history
+ * invalidation reaches it, while the unscoped feed keeps the exact key the
+ * pin patch writes to.
  */
-export function useHistorySessions(enabled: boolean = true) {
+export function useHistorySessions(enabled: boolean = true, workspaceId: string | null = null) {
   return useQuery({
-    queryKey: HISTORY_KEY,
-    queryFn: () => sessionsApi.history(),
+    queryKey: workspaceId ? [...HISTORY_KEY, workspaceId] : HISTORY_KEY,
+    queryFn: () => sessionsApi.history({ workspaceId: workspaceId ?? undefined }),
     enabled,
     refetchInterval: 60_000,
   });
