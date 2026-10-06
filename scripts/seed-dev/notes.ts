@@ -1,323 +1,782 @@
 /**
  * Notes for the shared dev seed. Optionally attach a note to an area
- * (`area_name`) or a task (`task_title`). The runner resolves both names
- * to ids after areas + tasks are created.
+ * (`area_name`), a task (`task_title`) or a seeded agent (`agent_slug`). The
+ * runner resolves all three after areas, tasks and agents exist.
  *
- * The set below shows the range:
- *   - Reference notes attached to an area (Sammy's pickup window, contractor
- *     contacts, reading list)
- *   - Decision/rationale notes attached to an area (architectural decisions
- *     in AI Assistant)
- *   - Observation/idea notes attached to an area (investment thesis,
- *     essay seeds)
- *   - Knowledge notes attached to a task (book takeaways pinned to the
- *     reading task — when the task completes, the note lives on)
+ * Titles are unique and stable: task bodies link here with `{{note:Title}}`,
+ * stream.ts points promoted captures at notes by title, and notes link to
+ * tasks and each other the same way. `{{file:name}}` embeds one of the
+ * generated attachment files.
  *
- * No tags. No sub-areas. Cross-cutting happens through the area and the
- * task linkage; richer cross-cutting will arrive with the links table.
+ * The set below shows the range of a real system two months in:
+ *   - Reference notes (contractor contacts, wholesale accounts, Ruby's school
+ *     info, where the money lives, paint colors)
+ *   - Decision notes (on-device transcription, the panel quotes)
+ *   - Meeting notes (the call with Luis about wholesale pricing)
+ *   - Working documents pinned to a task (launch checklist, job post,
+ *     inspection notes, gift ideas, the treasurer handoff)
+ *   - Logs and plans (training plan, calf strain log, roast profile, sleep)
+ *   - A recipe, book notes, bookmarks with a `url`, and a journal-style
+ *     weekly review
+ *   - Lengths from one line to long documents, three archived notes, and a
+ *     few with no area at all
+ *
+ * No tags. No folders. Cross-cutting happens through the area, the task
+ * linkage, and links inside bodies.
  */
 import type { CreateNoteInput } from '../../src/db/types';
+import { daysAgo, hoursAgo } from './time';
+import { md, type AgentSlug } from './tasks';
 
-export type SeedNote = Omit<CreateNoteInput, 'areaId' | 'taskId'> & {
+export type SeedNote = Omit<CreateNoteInput, 'areaId' | 'taskId' | 'workspaceId'> & {
   area_name?: string;
   task_title?: string;
+  agent_slug?: AgentSlug;
 };
 
 export const notes: SeedNote[] = [
-  // ─── AI Assistant ───────────────────────────────────────────────
+  // ─── Tidewater Coffee ───────────────────────────────────────────
   {
-    title: 'Open issues from self-dogfooding',
-    area_name: 'AI Assistant',
-    body:
-      "Bugs and friction I hit using this thing on real captures. Pick top 3 " +
-      "before V1 alpha.\n\n" +
-      "- Mobile capture: voice button is too small, missed taps when walking\n" +
-      "- Search results don't show which area the match came from\n" +
-      "- Subtask completion does not bubble up visually to the parent\n" +
-      "- Cmd-K does nothing — feels broken, even though there is no shortcut\n" +
-      "- Linking a note to a task buries the link in a dropdown — should be inline\n" +
-      "- After completing a recurring task, the next instance does not show a " +
-      "  due date until you open the detail view\n" +
-      "- Onboarding asks for a name before showing anything useful",
+    title: 'Green coffee buying notes: 2026 harvest',
+    area_name: 'Tidewater Coffee',
+    createdAt: daysAgo(9, 16, 0),
+    body: md`
+      Meridian's fall offer list, cupped blind with Luis. Both our scores, averaged. Anything under 84 doesn't make the menu unless it's a blend base.
+
+      ## Ethiopia
+      - **Guji, Hambela natural** (lot 2207): **88.5**. Blueberry, jasmine, a little boozy as it cools. $9.40/lb. Yes, 10 bags. This is the subscription hero.
+      - **Yirgacheffe, Kochere washed**: **87**. Lemon, black tea, very clean. $8.90/lb. Maybe, if the budget stretches.
+      - **Sidama natural**: **84.5**. Muddy next to the Guji. Pass.
+
+      ## Colombia
+      - **Huila, Pitalito washed**: **86**. Red apple, panela. $7.25/lb. Yes, 8 bags. Sample 2 tasted papery on the cool down, so re-cup before signing.
+      - **Nariño, La Florida**: **85.5**. Juicy, but the whole lot is only 6 bags. Ask if we can take all six.
+
+      ## Brazil
+      - **Cerrado Mineiro, pulped natural**: **83.5**. Chocolate, roasted nut, low acid. Under the line on its own but it's the espresso base. $5.10/lb. 12 bags.
+      - **Mogiana natural**: **82**. Flat. Pass.
+
+      ## Central America
+      - **Guatemala, Huehuetenango**: **86.5**. Stone fruit, cocoa. $7.80/lb. 6 bags.
+      - **Honduras, Santa Bárbara**: **85**. Fine, nothing special. Backup if the Guatemala sells out.
+
+      ## Decaf
+      - **Mexico, Mountain Water process**: **84**. Cleanest decaf we've ever cupped. $7.60/lb. Three bags, only if decaf joins the subscription.
+
+      ## Notes to self
+      - Arrival dates are "estimated" for a reason. Last year the Guatemala landed five weeks late.
+      - Ask Meridian about splitting freight with the roastery across town again. Saved $640 last time.
+    `,
   },
   {
-    title: 'Roadmap — next 3 things',
-    area_name: 'AI Assistant',
-    body:
-      "Rolling list. Top of the list is what I would work on tomorrow.\n\n" +
-      "1. Ship V1 alpha to friends (active project)\n" +
-      "2. Voice capture quality pass — current STT misses 1-in-5 words on noisy " +
-      "   input, makes captures unreliable\n" +
-      "3. Inbox triage view — surface unsorted captures with a one-tap area " +
-      "   suggestion, accept or override\n\n" +
-      "Out of scope until V1 ships:\n" +
-      "- Multi-device sync\n" +
-      "- Calendar integration\n" +
-      "- Public API for agents",
+    title: 'Roast profile notes: Guji natural',
+    area_name: 'Tidewater Coffee',
+    agent_slug: 'roast-lab',
+    createdAt: daysAgo(22, 14, 0),
+    body: md`
+      Profile for the Hambela natural on the 15 kg. Dense, small bean. Scorches if you push the front end.
+
+      {{file:roast-curve-guji.png}}
+
+      That's batch 214, the last v3 roast: a full 15 kg charge, dropped at 412F at 10:52, 19.4% development. It cupped roasty. v4 fixes it.
+
+      ## Current profile (v4)
+      - Charge: 12 kg at 410F, gas 60%. A full 15 kg drags the turning point
+      - Turning point around 1:30 at 180F
+      - Gas to 80% at 3:00, back to 55% at dry end (about 6:00)
+      - First crack: 8:30 to 8:45 at 388F
+      - Drop: 10:15 to 10:30 at 404F
+      - Development: about 16 to 17%
+
+      ## What changed from v3
+      Took 8 degrees off the drop, cut the charge to 12 kg, and pulled gas earlier so the rate of rise doesn't flick at first crack.
+
+      ## Cupping
+      - v3 (batch 214): 85. Roasty, blueberry buried.
+      - v4: 88. Blueberry and jasmine both there, sweet finish.
+
+      Charts come from {{task:Chart roast curves from Artisan logs}}. The flick on batch 214 is right after first crack.
+    `,
   },
   {
-    title: 'Open product questions',
-    area_name: 'AI Assistant',
+    title: 'Wholesale price sheet 2026',
+    area_name: 'Tidewater Coffee',
+    agent_slug: 'tidewater-shop',
+    createdAt: daysAgo(48, 15, 0),
+    body: md`
+      Per pound, in 5 lb bags. 12 oz retail price is for cafes reselling on their shelf. Net 15. Free delivery over 20 lb inside the loop.
+
+      ## Year-round
+      - **Harbor House Blend** (espresso): $11.75/lb, retail 12 oz $9.50
+      - **Morning Tide** (drip): $11.25/lb, retail 12 oz $9.00
+      - **Colombia Huila**: $13.50/lb, retail 12 oz $11.00
+      - **Decaf Mexico**: $13.75/lb, retail 12 oz $11.25
+
+      ## Seasonal
+      - **Ethiopia Guji natural**: $16.50/lb, retail 12 oz $13.00
+      - **Guatemala Huehuetenango**: $14.25/lb, retail 12 oz $11.50
+      - **Winter Solstice** (holiday blend): $14.00/lb, retail 12 oz $11.50
+
+      ## Volume
+      - 50+ lb a week: 5% off
+      - 100+ lb a week: 8% off (only Grain & Gather right now)
+
+      Prices change in January. Don't send this sheet to new accounts once the letter goes out.
+    `,
+  },
+  {
+    title: 'Call with Luis about wholesale pricing',
+    area_name: 'Tidewater Coffee',
+    createdAt: daysAgo(6, 16, 10),
+    body: md`
+      Phone, 25 minutes. Luis driving back from the Grain & Gather delivery.
+
+      ## Decided
+      - Raise wholesale 8% in January. Green is up about 15% on the new contracts and we're eating the rest.
+      - 30 days notice to accounts, so the letter goes out early December.
+      - Grain & Gather keeps the 8% volume discount. Squeezing our biggest account is how you lose it.
+
+      ## Not decided
+      - Northside Bakery. Gus will push back, he always does. Luis wants to hold their Morning Tide price and raise the rest. I think that's how everyone ends up with a special price.
+      - Whether retail 12 oz at the market goes up at the same time. The regulars notice.
+
+      ## Follow-ups
+      - [ ] Me: new numbers as a draft column in {{note:Wholesale price sheet 2026}}
+      - [ ] Luis: sound out Sam at Little Owl, informally
+      - [ ] Both: price letter drafted before Thanksgiving
+    `,
+  },
+  {
+    title: 'Wholesale accounts',
+    area_name: 'Tidewater Coffee',
+    createdAt: daysAgo(55, 14, 0),
+    body: md`
+      Who they are, what they order, how they like it.
+
+      ## Little Owl Cafe
+      - Sam Torres (owner), 555-0124
+      - Standing: 36 lb a week of Harbor House (was 30), 10 lb Morning Tide
+      - Delivery before 7am, back door code 2580
+      - Pays on time, every time
+
+      ## Grain & Gather
+      - Rina Patel (ops), 555-0131. Two locations, a third opening in spring
+      - Standing: about 85 lb a week across four coffees, 8% volume discount
+      - Wants invoices split by location
+      - Pitched a canned cold brew collab. Parked, the canning minimum is 2,000 cans
+
+      ## Northside Bakery
+      - Gus Leblanc, 555-0145
+      - Standing: 20 lb a week Morning Tide, plus 24 retail bags every two weeks
+      - Slow payer. Net 15 means net 30 to Gus. Friendly about it, still slow
+      - Makes dog-shaped birthday cakes. Remember for Ruby
+    `,
+  },
+  {
+    title: 'Last health inspection notes',
+    area_name: 'Tidewater Coffee',
+    task_title: 'Prep for health inspection',
+    createdAt: daysAgo(20, 11, 30),
+    body: md`
+      From the last county inspection, about 14 months ago. Inspector Gómez. Passed with two minor notes:
+
+      - Hand sink was being used to rinse scoops. "Hand sink is for hands." We put up a sign and bought a prep basin.
+      - Two green sacks stored directly on the floor. Pallets, 6 inches up.
+
+      She also asked to see:
+      - The pest control log
+      - Sanitizer test strips and their log
+      - The allergen line on retail bags (the seasonal hazelnut blend we stopped doing still haunts the labels)
+      - How a bag traces back to its roast batch. The new labels fix this with a printed lot number
+    `,
+  },
+  {
+    title: 'Production roaster job post',
+    area_name: 'Tidewater Coffee',
+    task_title: 'Hire a part-time production roaster',
+    createdAt: daysAgo(18, 20, 0),
+    body: md`
+      **Part-time Production Roaster, Tidewater Coffee**
+
+      We're a two-person roastery roasting about 900 lb a week for cafes, a monthly subscription and a Saturday market stall. We need a second roaster for Tuesday and Thursday production days.
+
+      **The job**
+      - Roast on a 15 kg drum roaster to set profiles, logging every batch
+      - Weigh, bag, label and stack orders for delivery
+      - Keep the roastery clean enough to pass an inspection on any given day
+      - Cup with us on Fridays (optional, encouraged)
+
+      **You**
+      - Have roasted before, any size, or have run a busy espresso bar and want to learn
+      - Can lift and stack 70 lb sacks safely, over and over
+      - Show up at 6am and like it, or at least don't mind it
+
+      **Pay and hours:** $22 to $25 an hour depending on experience, 16 to 20 hours a week, free coffee forever.
+
+      To apply, send a few lines about yourself and the last coffee you were excited about.
+    `,
+  },
+  {
+    title: "Book notes: The Coffee Roaster's Companion",
+    area_name: 'Tidewater Coffee',
+    createdAt: daysAgo(34, 21, 30),
+    body: md`
+      Scott Rao. Re-reading with the 15 kg in mind. My takeaways, in my words.
+
+      - A steadily falling rate of rise matters more than hitting exact times. A flick or a crash around first crack shows up in the cup as flat or baked.
+      - Most of a roast's fate is decided early. Get enough energy in during the first few minutes or you spend the rest of the roast chasing.
+      - Development time ratio is a guide, not a target. Dense, high-grown coffees can take more.
+      - Profiles don't scale. Our 12 kg profiles don't work for 6 kg half batches. Write separate ones.
+
+      Try next: a shorter drying phase on the Huila, to see if the papery note goes away.
+    `,
+  },
+  {
+    title: 'Old market stall layout',
+    area_name: 'Tidewater Coffee',
+    status: 'archived',
+    createdAt: daysAgo(56, 13, 0),
     body:
-      "Decisions I am circling. Sit with each before committing.\n\n" +
-      "- Should completed tasks disappear from the area view, or stay greyed " +
-      "  out for a few days? Disappearing feels clean but loses context. " +
-      "  Greying out feels honest but clutters.\n" +
-      "- Daily review: opt-in or default-on? Default-on creates muscle memory; " +
-      "  opt-in respects that not everyone wants this.\n" +
-      "- How aggressive should AI be about suggesting area splits? Once a " +
-      "  quarter feels right, but the trigger is fuzzy.\n" +
-      "- Should the assistant chat have memory across sessions or each session " +
-      "  fresh? Memory is powerful but invisible state is scary.",
+      'First-summer layout: one table along the front, grinder on the left, pour-overs in the middle. ' +
+      'Replaced when we got the 10x10 tent and moved brewing to the back table.',
+  },
+
+  // ─── Fieldnote ──────────────────────────────────────────────────
+  {
+    title: 'Fieldnote 1.0 launch checklist',
+    area_name: 'Fieldnote',
+    task_title: 'Fieldnote 1.0 launch',
+    createdAt: daysAgo(44, 22, 0),
+    body: md`
+      Everything between here and "live in the App Store". Big items have their own tasks.
+
+      ## Build
+      - [x] eBird CSV export
+      - [x] Regional species list (Clements taxonomy, latest update)
+      - [x] Crash reporting wired up
+      - [ ] Offline sync fix ({{task:Fix offline sync dropping sightings}})
+      - [ ] On-device voice transcription
+      - [ ] Dark mode pass. Dawn birding is real, testers keep asking
+      - [ ] Debug menu out of release builds
+      - [ ] Bump to 1.0 (1)
+
+      ## App Store
+      - [ ] Privacy policy URL ({{task:Write the privacy policy}})
+      - [ ] Privacy labels: location yes, audio not collected, crash data anonymous
+      - [ ] Screenshots, 6.7 inch and 5.5 inch
+      - [ ] Subtitle, keywords, description
+      - [ ] Support URL (the landing page contact form is fine)
+      - [ ] Age rating questionnaire
+      - [ ] Submit ({{task:Submit Fieldnote 1.0 to App Store review}})
+
+      ## Launch
+      - [x] Landing page on a preview URL
+      - [ ] Waitlist email drafted
+      - [ ] Coastal Bird Club newsletter post (their deadline is the 1st of the month)
+      - [ ] Thank-you email to the 40 testers, with a free year
+      - [ ] Message the r/birding mods before posting so it isn't removed as spam
+
+      ## After launch
+      - Read crash reports daily for a week
+      - Ship a first update within two weeks no matter what, even a small one
+    `,
+  },
+  {
+    title: 'TestFlight feedback, round 2',
+    area_name: 'Fieldnote',
+    createdAt: daysAgo(10, 8, 30),
+    body: md`
+      Build 0.9.3, 40 testers, two weeks. 27 replied. Quotes copied as written, grouped.
+
+      ## Sync and lost data (the big one)
+      - "Lost my whole reservoir morning. 31 birds. I'm not mad, but I am sad." (Gary)
+      - "Two sightings vanished after I put my phone in my pocket." (Ines)
+      - "Is there a way to see what hasn't uploaded yet?" (Paul)
+
+      All of that is {{task:Fix offline sync dropping sightings}}.
+
+      ## Voice
+      - "Voice entry is the whole reason I'd use this over eBird directly." (Ruth)
+      - "It wrote 'coopers talk'. Twice."
+      - "Would love to say 'same as last' for a flock I keep re-counting."
+
+      ## Pricing
+      - "Please don't make this a subscription. I have nine subscriptions." (Dale)
+      - "Would pay $10 once without thinking."
+      - "If it synced to eBird automatically I'd pay yearly."
+
+      ## Small stuff
+      - Dark mode for dawn birding (five people)
+      - Bigger tap targets for gloves
+      - Map pin drifts about 30 m in the woods (probably GPS, not us)
+      - "The icon looks like every other bird app icon"
+    `,
+  },
+  {
+    title: 'Fieldnote onboarding flow',
+    area_name: 'Fieldnote',
+    agent_slug: 'fieldnote-ios',
+    createdAt: daysAgo(24, 21, 0),
+    body: md`
+      Three screens, then straight to the map. No account until you've logged a first bird.
+
+      {{file:fieldnote-onboarding.png}}
+
+      1. **Hear a bird? Just talk.** Say what you saw and where. Fieldnote does the typing.
+      2. **Works offline.** Log on the trail with no signal. It syncs when you're back.
+      3. **Your life list.** Every species, every place, searchable by voice.
+
+      eBird export lives in settings, not onboarding. The testers who care about it find it.
+
+      Permissions, one at a time and only when needed:
+      - Location: asked on the first sighting, not at launch
+      - Microphone: asked on the first hold-to-talk
+      - Notifications: never asked in 1.0
+
+      ## Decisions
+      - Sign in with Apple only. No passwords to support.
+      - Skip on every screen. Testers who skipped logged birds just as fast.
+      - Region comes from location silently, with a "wrong region?" link in settings.
+    `,
+  },
+  {
+    title: 'Fieldnote sync architecture',
+    area_name: 'Fieldnote',
+    agent_slug: 'fieldnote-ios',
+    createdAt: daysAgo(4, 23, 0),
+    body: md`
+      How a sighting gets from the phone to the server. Written down because the bug made it clear nobody (me) had the full picture.
+
+      ## Before the fix
+      1. Sighting saved to sightings.json and added to the pending queue, which only lived in memory (pending.json was never actually written)
+      2. Sync worker pops sightings and uploads them
+      3. Success: nothing to do, they were already popped. Failure: pushed back onto the queue
+      4. If the app is suspended or killed mid-upload, neither branch runs. The sightings are gone
+
+      ## Now (on the branch, in review)
+      1. The pending queue is saved to pending.json after every change
+      2. A sighting leaves the queue only after a 201
+      3. A failed upload stays queued for the next flush, and only one flush runs at a time
+
+      ## Next
+      1. A client id on every sighting. The server already dedupes on user and client id, so a double send becomes harmless
+      2. Uploads on a background session, so locking the phone doesn't cancel them
+
+      ## Decisions
+      - No iCloud sync. We need the server copy for eBird export and a web view later.
+      - One sighting per request for now. Easier to make safe. Batch later if the marsh's one bar makes it slow.
+      - sightings.json keeps its format. Every tester's data lives in it.
+
+      Work tracked in {{task:Fix offline sync dropping sightings}}.
+    `,
+  },
+  {
+    title: 'Decision: on-device transcription, not a server',
+    area_name: 'Fieldnote',
+    createdAt: daysAgo(27, 22, 0),
+    body: md`
+      **Decided:** speech recognition runs on the phone. No audio ever leaves the device.
+
+      Why:
+      - Birders are out with one bar or none. A server round trip defeats the point of the app.
+      - The privacy policy gets simpler. We never hold anyone's audio.
+      - No per-minute transcription bill on what might be a $5 app.
+
+      Cost:
+      - Species names are worse out of the box. Species hints fix most of it, but iOS caps them at about 100 a request, so they have to be regional and seasonal.
+      - Older phones are slow. 1.0 requires iOS 17 anyway.
+
+      Revisit if accuracy on the confirm sheet stays under 90% after the vocabulary work.
+    `,
+  },
+  {
+    title: 'eBird spreadsheet upload format',
+    area_name: 'Fieldnote',
+    url: 'https://support.ebird.org/en/support/solutions/articles/48000907878-upload-spreadsheet-data-to-ebird',
+    createdAt: daysAgo(31, 22, 30),
+    body: 'The CSV layout eBird accepts for spreadsheet uploads. Column order matters and there is no header row. This is what the export targets.',
+  },
+  {
+    title: 'Fieldnote name ideas',
+    area_name: 'Fieldnote',
+    status: 'archived',
+    createdAt: daysAgo(57, 22, 0),
+    body: md`
+      Picked Fieldnote. Keeping the list for the record.
+
+      - Fieldnote (winner, and the domain was free)
+      - Tally
+      - Birdsay
+      - Heard It
+      - Lister
+      - Morning Count (too long)
+    `,
   },
 
   // ─── Health ─────────────────────────────────────────────────────
   {
-    title: 'Sleep stack — what works',
+    title: 'Marathon training plan (16 weeks)',
     area_name: 'Health',
-    body:
-      "Durable observations. Update as evidence accumulates.\n\n" +
-      "- 7.5–8h target window\n" +
-      "- 18C bedroom, blackout curtains\n" +
-      "- No caffeine after noon (after 10am on bad days)\n" +
-      "- Last meal 3+ hours before bed\n" +
-      "- Phone on nightstand stays in DND\n\n" +
-      "Open experiments: blue blockers from 8pm (see active task).",
+    createdAt: daysAgo(56, 6, 45),
+    body: md`
+      Twin Rivers Marathon. Goal 3:45 (8:35 a mile). Loosely based on an intermediate plan, cut to four run days because Saturday is market day.
+
+      Long runs on Tuesdays. Easy runs at 9:45 or slower, no exceptions, even when it feels good.
+
+      ## The plan
+      - **Week 1:** 22 mi, long 8. Done
+      - **Week 2:** 24 mi, long 9. Done
+      - **Week 3:** 26 mi, long 10. Done
+      - **Week 4:** 22 mi, long 8 (cutback). Done
+      - **Week 5:** 28 mi, long 12. Done
+      - **Week 6:** 30 mi, long 13. Done, brutally hot
+      - **Week 7:** 32 mi, long 14. Done
+      - **Week 8:** 26 mi, long 10 (cutback). Done
+      - **Week 9:** 34 mi, long 15. Done, first calf twinge
+      - **Week 10:** 34 mi, long 15 again (calf). Done
+      - **Week 11:** 36 mi, long 16. Done, 2:24:40
+      - **Week 12:** 38 mi, long 18. **This week**
+      - **Week 13:** 40 mi, long 20. Peak
+      - **Week 14:** 32 mi, long 14. Taper
+      - **Week 15:** 26 mi, long 10. Taper
+      - **Week 16:** race week. 3, 3, 2 shakeout, then 26.2
+
+      ## Week 11 long run splits
+      {{file:long-run-splits.csv}}
+
+      Steady around 9:00 until the hill at 13, where the calf tightened and I gave up 20 seconds a mile for two miles. Back under 9:00 for the last one.
+
+      ## Paces
+      - Easy: 9:45 to 10:15
+      - Long: 8:55 to 9:15
+      - Marathon pace: 8:30 to 8:40
+      - Tempo: 7:55
+
+      ## Fueling
+      - Gel every 35 minutes from minute 40. Plain, not caffeinated (week 9 lesson)
+      - About 500 ml of water an hour, more if it's warm
+      - Breakfast 3 hours before: bagel, peanut butter, banana, coffee (obviously)
+    `,
   },
   {
-    title: 'Cardio zones (max HR 184)',
+    title: 'Calf strain log',
     area_name: 'Health',
-    body:
-      "Reference for training plan.\n\n" +
-      "- Z2: 110–129 (conversational, 80% of weekly volume)\n" +
-      "- Z3: 130–147 (tempo)\n" +
-      "- Z4: 148–166 (threshold, 1x/week)\n" +
-      "- Z5: 167–184 (VO2 intervals, 1x/2 weeks)",
+    createdAt: daysAgo(20, 8, 0),
+    body: md`
+      Left calf, lower and on the inside. Pain out of 10, after runs and the next morning.
+
+      - **Week 9 long run:** twinge at mile 13 of 15. 3 after, 1 the next morning.
+      - **Week 10:** easy runs fine. Long run tight from mile 11. 4 after.
+      - **Week 11 long run:** 16 miles, tight on the hill at 13 again. 3 after. Foam roller, calf raises.
+      - **This week:** 2 on the easy 6. Best it has felt in three weeks.
+
+      ## Rules I'm holding myself to
+      - Above 4 during a run: stop and walk home
+      - Calf raises three times a week, not "when I remember"
+      - See Jonas before the 20 miler, not after ({{task:Book physio for calf strain}})
+    `,
   },
   {
-    title: 'Day 4 observations',
-    task_title: 'Sleep stack experiment: blue blockers + 18C',
-    body:
-      "Sleep score 89 (baseline avg 81). HRV 62 (baseline 54). " +
-      "Subjective: easier sleep onset, no 3am wake. Holding pattern.",
+    title: 'Sleep: what the numbers say',
+    area_name: 'Health',
+    createdAt: daysAgo(15, 7, 0),
+    body: md`
+      Two months of the sleep ring. Averages, not vibes.
+
+      - Average 6h 52m. Goal is 7h 30m. Not close.
+      - Nights I code past 10:30: score 71. Nights I don't: 82.
+      - Long run days are the best sleep of the week.
+      - One glass of wine at dinner costs about 8 points. Even one.
+    `,
   },
 
   // ─── Family ─────────────────────────────────────────────────────
   {
-    title: "Sammy's school pickup window",
+    title: "Ruby's favorite banana bread",
     area_name: 'Family',
-    body:
-      "Tu/Th: 2:30–3:00 PM (early dismissal).\n" +
-      "M/W/F: 3:15 PM (regular).\n\n" +
-      "Late pickup grace: 10 min, then $5/min charge after.\n" +
-      "Backup pickup: Aunt Jen — on the approved list.",
+    createdAt: daysAgo(41, 10, 30),
+    body: md`
+      The one she asks for every Sunday. One loaf. The bananas should be riper than you think, nearly black.
+
+      ## Ingredients
+      - 3 very ripe bananas
+      - 1/3 cup melted butter
+      - 1/2 cup brown sugar (we use a little less)
+      - 1 egg
+      - 1 tsp vanilla
+      - 1 tsp baking soda
+      - Pinch of salt
+      - 1 1/2 cups flour
+      - 1/2 cup chocolate chips (Ruby's non-negotiable)
+
+      ## Steps
+      1. Oven to 350F, butter the loaf pan
+      2. Mash the bananas in the big bowl, stir in the melted butter
+      3. Mix in sugar, egg and vanilla
+      4. Sprinkle baking soda and salt over, stir, then fold in the flour
+      5. Chips in last. Ruby does this part, so expect extra chips on top
+      6. 55 to 60 minutes, until a toothpick comes out clean. Cool 10 minutes before Pepper starts begging
+    `,
   },
   {
-    title: 'Birthdays this year',
+    title: "Ruby's school info",
     area_name: 'Family',
-    body:
-      "Reference list. Move to calendar with reminders by January each year.\n\n" +
-      "- Mom: March 14\n" +
-      "- Dad: August 22\n" +
-      "- Sis: November 6\n" +
-      "- Sammy: July 19\n" +
-      "- Partner: October 3",
+    createdAt: daysAgo(55, 20, 0),
+    body: md`
+      - **School:** Maple Street Elementary, 2nd grade, Room 14
+      - **Teacher:** Ms. Adeyemi. Message her through the school app, she answers the same day
+      - **Drop-off:** 8:05 to 8:20. **Pickup:** 2:50, early release Wednesdays at 1:20
+      - **Lunch account:** top up when it drops under $10
+      - **After school:** piano Thursdays at 4 with Mrs. Halvorsen, soccer Saturdays at 9 (Theo takes her)
+      - **Best friends:** Nora, Asha (Priya's daughter), and "the twins"
+      - **Allergies:** none. Hates mushrooms, will tell you so.
+    `,
   },
   {
-    title: "Trip constraints — kids' edition",
-    task_title: 'Plan summer trip with kids',
-    body:
-      "Hard constraints to filter destinations against:\n\n" +
-      "- Flight ≤ 6h (Sammy can't sleep on planes)\n" +
-      "- Pool or beach access at lodging (non-negotiable for the kid sanity factor)\n" +
-      "- Walkable area for evenings (no rental car required at night)\n" +
-      "- At least one rainy-day backup activity",
+    title: 'Birthday gift ideas for Ruby',
+    area_name: 'Family',
+    task_title: "Ruby's 8th birthday party",
+    createdAt: daysAgo(10, 21, 0),
+    body: md`
+      Running list. Theo adds to it too.
+
+      - Real binoculars, kid size (she keeps borrowing mine)
+      - Her own field guide, the one with the big pictures
+      - Roller skates, if we do the rink
+      - An art kit with the good markers, not the washable ones
+      - Kid apron and a baking day with me
+      - From Pepper: a matching bandana, obviously
+    `,
   },
 
-  // ─── Home ───────────────────────────────────────────────────────
+  // ─── The Bungalow ───────────────────────────────────────────────
   {
-    title: 'Contractor contacts',
-    area_name: 'Home',
-    body:
-      "- **General contractor**: Mike (referred by a friend). Kitchen, bath, " +
-      "  whole-house. 555-0142.\n" +
-      "- **Chimney sweep**: local service, annual visit in November. 555-0188.\n" +
-      "- **Plumber**: 555-0166, has a 24h emergency line.\n" +
-      "- **Electrician**: still looking — ask around.",
+    title: 'Bungalow contractor contacts',
+    area_name: 'The Bungalow',
+    createdAt: daysAgo(54, 19, 0),
+    body: md`
+      Everyone who has worked on the house that I'd call again, plus one I wouldn't.
+
+      ## Electrical
+      - **Dana Whitfield**, Bright Spark Electric, 555-0172. Doing the panel. Fast, honest, books about three weeks out.
+
+      ## Roofing
+      - **Hector Salas**, Salas Roofing, 555-0119. Quoted the skylight. Text, don't call.
+
+      ## Plumbing
+      - **Mei Chen**, Chen Plumbing & Drain, 555-0136. Replaced the main shutoff. $145 call-out.
+
+      ## Tile
+      - **Andre Baptiste**, 555-0187. Did the bathroom floor at Gil's next door. Booked about four weeks out.
+
+      ## Handyman
+      - **Walt**, 555-0154. Cash only. Great for small stuff. Nothing structural.
+
+      ## Gutters
+      - **Clearflow Gutters**, 555-0161. $185 for the whole house, for the year I give up on doing it myself.
+
+      ## Trees
+      - **Fern Lindgren**, Treehouse Arbor Care, 555-0193. Looked at the big maple. Healthy, prune in late winter.
+
+      ## Not again
+      - Ruiz Electric. Wanted to skip the permit on a panel swap.
+    `,
   },
   {
-    title: 'Kitchen specs and measurements',
-    task_title: 'Kitchen renovation',
-    body:
-      "Pre-demo measurements (2026-04-15).\n\n" +
-      "- Galley: 14'2\" × 9'6\"\n" +
-      "- Existing cabinets: 8 base, 6 upper, plus pantry tower\n" +
-      "- Window above sink: 36\" × 42\", non-removable\n" +
-      "- Plumbing on east wall, gas on south wall\n" +
-      "- Sub-floor: 3/4\" plywood, in good shape per inspection",
+    title: 'Panel upgrade quotes',
+    area_name: 'The Bungalow',
+    createdAt: daysAgo(16, 12, 30),
+    body: md`
+      Replacing the 100A Federal Pacific panel with 200A. The insurance company flagged it, and the kitchen needs two new circuits anyway.
+
+      ## Quotes
+      - **Bright Spark Electric (Dana Whitfield):** $6,850. Permit, utility coordination and two kitchen circuits included. Three weeks out.
+      - **Volt Bros:** $8,200. Very thorough, very expensive.
+      - **Ruiz Electric:** $7,400, no permit in the quote, and "we usually don't bother" for a panel. No.
+
+      ## Decision
+      Dana. The cheapest one doing it properly, and she answered every question in writing.
+
+      Next step: {{task:Call Dana about the panel upgrade}}
+    `,
   },
   {
-    title: 'House maintenance calendar',
-    area_name: 'Home',
-    body:
-      "Recurring maintenance, set as recurring tasks where possible.\n\n" +
-      "- Water filter: every 6 months\n" +
-      "- HVAC filter: monthly check, replace quarterly\n" +
-      "- Gutters: spring + fall\n" +
-      "- Chimney sweep: annually, November\n" +
-      "- Smoke/CO detectors: test monthly, batteries annually\n" +
-      "- Termite inspection: annually, March",
+    title: 'Paint colors we used',
+    area_name: 'The Bungalow',
+    createdAt: daysAgo(53, 18, 0),
+    body: md`
+      For touch-ups. Cans are on the garage shelf, labeled.
+
+      - Living and dining: Benjamin Moore Pale Oak, eggshell
+      - Kitchen: Sherwin-Williams Alabaster, satin
+      - Ruby's room: Benjamin Moore Breath of Fresh Air. She picked it. It is very blue
+      - Front door: Benjamin Moore Hale Navy, exterior semi-gloss
+      - All trim: Alabaster, semi-gloss
+    `,
   },
 
-  // ─── Finance ────────────────────────────────────────────────────
+  // ─── Money ──────────────────────────────────────────────────────
   {
-    title: 'Tax document checklist',
-    area_name: 'Finance',
-    body:
-      "Annual filing reference. Pin to the spring tax task.\n\n" +
-      "Income: W-2s, 1099s (NEC, INT, DIV, B), K-1s\n" +
-      "Deductions: mortgage 1098, property tax, charitable receipts, " +
-      "state tax paid, medical (if itemizing)\n" +
-      "Investments: brokerage cost basis, crypto transaction log\n" +
-      "Business: P&L, mileage log, home-office sq ft\n" +
-      "Misc: HSA 5498, retirement contributions, dependent SSNs",
+    title: 'Where the money lives',
+    area_name: 'Money',
+    agent_slug: 'household',
+    createdAt: daysAgo(52, 21, 0),
+    body: md`
+      Not passwords. Just which account does what, so Theo can find things if I'm unreachable.
+
+      - **Joint checking** (credit union): paychecks in, mortgage and bills out
+      - **Joint savings:** emergency fund. Target six months of expenses, currently about four
+      - **Tidewater business checking:** roastery only. Priya has view access
+      - **Tax savings:** 30% of every roastery draw goes here for the quarterly estimates
+      - **Ruby's 529:** $100 a month on autopay (should be $150, there's a task)
+      - **Mortgage:** the servicer changed twice. The current one is on the fridge magnet
+      - **Home insurance:** Rosa Delgado at Harbor Mutual, 555-0142
+      - **Bookkeeper:** Priya Nair. Roastery books and our personal return
+    `,
   },
 
-  // ─── Reading ────────────────────────────────────────────────────
+  // ─── Garden Co-op ───────────────────────────────────────────────
   {
-    title: 'Antifragile — takeaways',
-    task_title: 'Antifragile — Taleb',
-    body:
-      "## Core idea\n\n" +
-      "Three categories: fragile (breaks under stress), robust (survives), " +
-      "antifragile (gains from disorder). Most systems we build aim for " +
-      "robust; we should aim for antifragile.\n\n" +
-      "## Stuck with me\n\n" +
-      "- *Via negativa*: improve by removing, not adding. Most interventions " +
-      "  add complexity that hides risk.\n" +
-      "- *Skin in the game*: predictions without consequences are noise.\n" +
-      "- *Barbell strategy*: extreme safety on one side, extreme risk on the " +
-      "  other, nothing in the middle. The middle is where ruin lives.\n\n" +
-      "Skeptical of: the casual way Taleb dismisses anyone who disagrees. " +
-      "Some of the swagger feels like substitute for engagement. Worth " +
-      "re-reading the chapters on iatrogenics — those land regardless.",
-  },
-  {
-    title: 'DDIA — Chapter 1 notes',
-    task_title: 'Designing Data-Intensive Applications — Kleppmann',
-    body:
-      "## Three concerns: reliability, scalability, maintainability\n\n" +
-      "Reliability: tolerating faults (hardware, software, human). Note that " +
-      "human errors dominate — design for them.\n\n" +
-      "Scalability: not a 1D property. Need to define which load parameter " +
-      "and which performance metric. Twitter timeline example: read-heavy " +
-      "vs write-heavy decision changes the architecture entirely.\n\n" +
-      "Maintainability: operability, simplicity, evolvability. Most expensive " +
-      "phase of software is maintenance, not building.\n\n" +
-      "Connects to the antifragile idea — maintainability ≈ tolerance for " +
-      "future disorder.",
-  },
-  {
-    title: 'Reading list',
-    area_name: 'Reading',
-    body:
-      "On deck (no commitment, just queue). Try to keep this varied — too " +
-      "much non-fiction in a row turns my brain to mush.\n\n" +
-      "- *The Power Broker* — Caro (long, slow burn)\n" +
-      "- *Piranesi* — Susanna Clarke\n" +
-      "- *Why We Sleep* — Walker\n" +
-      "- *The Body Keeps the Score* — van der Kolk\n" +
-      "- *The Beak of the Finch* — Weiner\n" +
-      "- *Just Kids* — Patti Smith (memoir)\n\n" +
-      "Recommended by friends but not started:\n" +
-      "- *Stoner* — John Williams\n" +
-      "- *A Pattern Language* — Alexander",
+    title: 'Treasurer handoff notes for Joan',
+    area_name: 'Garden Co-op',
+    task_title: 'Hand the treasurer books to Joan',
+    createdAt: daysAgo(47, 20, 0),
+    body: md`
+      For Joan. What the treasurer actually does.
+
+      ## Monthly
+      - Reconcile the co-op checking account against the ledger spreadsheet
+      - Pay the water bill. Autopay is NOT on, the city portal is ancient
+      - Deposit plot fees (checks trickle in through April)
+
+      ## Yearly
+      - Liability insurance renews in March, $612 last year
+      - Plot fees: $45 standard, $20 reduced, and nobody gets turned away
+      - Treasurer's report at the spring members meeting
+
+      ## Where things are
+      - Ledger: the shared drive, "Treasurer" folder
+      - Checkbook: the lockbox in the shed, combo is in the board email
+      - Bank: two signers over $500, me and Ruth. Swap me for Joan at the branch
+    `,
   },
 
-  // ─── Writing ────────────────────────────────────────────────────
+  // ─── Portuguese ─────────────────────────────────────────────────
   {
-    title: 'Essay seeds',
-    area_name: 'Writing',
-    body:
-      "Loose ideas, not yet drafts. Sit with each before committing to write.\n\n" +
-      "- The cost of optionality. Why having too many open doors makes it " +
-      "  harder to walk through any of them.\n" +
-      "- What I got wrong about productivity tools in my twenties.\n" +
-      "- The case against weekly reviews. (Or: when ritual becomes theater.)\n" +
-      "- A short piece on why my best ideas come on walks, not at the desk. " +
-      "  Probably been written 100 times. Worth my version anyway.",
+    title: 'Lisbon and Porto trip ideas',
+    area_name: 'Portuguese',
+    createdAt: daysAgo(43, 21, 30),
+    body: md`
+      Two weeks in April. Lisbon first (6 nights), train to Porto (5 nights), maybe a day trip, fly home from Porto.
+
+      ## Lisbon
+      - Stay in Graça or Alfama. The hills are brutal with a 7 year old, so near the 28 tram line
+      - Oceanário. Ruby will want to move in
+      - Pastéis de Belém, early, before the line
+      - LX Factory on a Sunday
+      - Miradouro da Senhora do Monte at sunset
+      - Time Out Market is touristy, but an easy dinner with a kid
+
+      ## Porto
+      - Livraria Lello (book tickets ahead)
+      - Walk the top deck of the Dom Luís I bridge
+      - Port lodge tour in Gaia. Theo and I take turns
+      - One francesinha, for the story
+      - Coffee: ask Ana for her list. Luis swears by a roaster in Cedofeita
+
+      ## Porto apartment shortlist
+      - Cedofeita, 2 bed, €128 a night, washer. Front-runner
+      - Ribeira, 2 bed, €152 a night, river view, 4th floor with no lift (no)
+      - Bonfim, 2 bed, €109 a night, 15 minute walk to the center
+
+      ## Before we go
+      - Passports (mine expires in June)
+      - Lisbon to Porto train tickets open about 60 days ahead
+      - Enough Portuguese to order for Ruby without pointing
+    `,
   },
   {
-    title: 'One-pager — for investor intros',
-    area_name: 'Writing',
-    body:
-      "Living draft. Currently v3. Hand to anyone offering an intro.\n\n" +
-      "**What:** an AI-native productivity tool that erases system maintenance " +
-      "for individuals and lets agents read and write alongside them.\n\n" +
-      "**Why now:** capture is finally cheap (voice, mobile, ambient). " +
-      "Retrieval is finally good (embeddings, LLMs). The bottleneck shifted " +
-      "from collecting to organizing — and humans are the worst at that step.\n\n" +
-      "**Why us:** *(rewrite this section — too generic right now)*\n\n" +
-      "**Traction:** 12 daily active dogfood users. Plan to widen to 100 in " +
-      "the next 60 days.\n\n" +
-      "**Ask:** intro + feedback. Not raising yet.",
+    title: 'Portuguese phrases that keep tripping me up',
+    area_name: 'Portuguese',
+    createdAt: daysAgo(26, 20, 30),
+    body: md`
+      The ones Ana keeps correcting.
+
+      - **Obrigada**, not obrigado. It agrees with me, not with the person I'm thanking.
+      - **Queria um café**, not "quero". Quero sounds like a demand.
+      - **Pois** means about nine things. Mostly "yeah, right, exactly".
+      - **Estou a fazer** (Portugal) vs **estou fazendo** (Brazil). Ana winces at the second one.
+      - **Uma bica** is an espresso in Lisbon. In Porto, ask for **um cimbalino**.
+      - **Com licença** to squeeze past someone, **desculpe** for sorry. I mix them up every single time.
+      - Swallowed vowels: "telefone" comes out like "tlfon". Listening is the hard part.
+    `,
   },
   {
-    title: 'Quote stash',
-    area_name: 'Writing',
-    body:
-      "Things worth holding onto. Source-tagged.\n\n" +
-      "> Everything should be made as simple as possible, but no simpler.\n" +
-      "> — Einstein (paraphrased)\n\n" +
-      "> The best way to predict the future is to invent it.\n" +
-      "> — Alan Kay\n\n" +
-      "> Make it work, make it right, make it fast.\n" +
-      "> — Kent Beck\n\n" +
-      "> If you wait until you can do everything for everybody, instead of " +
-      "> something for somebody, you end up doing nothing for nobody.\n" +
-      "> — Malcolm Forbes\n\n" +
-      "> What is essential is invisible to the eye.\n" +
-      "> — Saint-Exupéry, *The Little Prince*\n\n" +
-      "> The cure for boredom is curiosity. There is no cure for curiosity.\n" +
-      "> — Dorothy Parker",
+    title: 'Practice Portuguese (European)',
+    area_name: 'Portuguese',
+    url: 'https://www.practiceportuguese.com/',
+    createdAt: daysAgo(38, 19, 0),
+    body: 'Ana recommended it. European pronunciation, short episodes. The shorts are good on easy runs.',
   },
 
-  // ─── Network ────────────────────────────────────────────────────
+  // ─── Brightline Analytics ───────────────────────────────────────
   {
-    title: 'Investor friend — context',
-    area_name: 'Network',
-    body:
-      "Met at a conference a couple of years back. Now at a Series-A firm. " +
-      "Strong taste on B2B tools.\n\n" +
-      "**Last conversation (March):** catch-up coffee. Offered an intro to " +
-      "her partner once we're ready — wants a one-pager first.\n\n" +
-      "**Open loops:**\n" +
-      "- Owed: one-pager for the partner intro (active task)\n" +
-      "- Offered: feedback on her firm's new portfolio template (low priority)",
-  },
-  {
-    title: 'Intros — owed and outstanding',
-    area_name: 'Network',
-    body:
-      "**I owe:**\n" +
-      "- One-pager → investor friend's partner (draft is in Writing)\n" +
-      "- Designer intro → old colleague doing consulting (still thinking " +
-      "  who would actually be a fit)\n\n" +
-      "**Owed to me (no rush):**\n" +
-      "- An ex-colleague at a tools company — friend offered to make the intro\n" +
-      "- A founder doing parallel work — heard about them at dinner, name " +
-      "  pending from the person who mentioned it",
+    title: 'Brightline exit checklist',
+    area_name: 'Brightline Analytics',
+    status: 'archived',
+    createdAt: daysAgo(57, 21, 10),
+    body: md`
+      - [x] Hand off dashboards and the data dictionary
+      - [x] Return badge and laptop
+      - [x] Final expense report (mostly)
+      - [x] Download my own performance reviews
+      - [x] Benefits paperwork (didn't need it, went on Theo's plan)
+      - [x] Goodbye lunch with the team
+    `,
   },
 
-  // ─── Hobbies ────────────────────────────────────────────────────
+  // ─── No area ────────────────────────────────────────────────────
   {
-    title: 'Chess openings to study',
-    area_name: 'Hobbies',
-    body:
-      "Working through a small repertoire. No ambition beyond enjoyment.\n\n" +
-      "**As white**: London System (committed). Avoid theory-heavy mainlines.\n\n" +
-      "**As black vs e4**: Caro-Kann (working on the advance variation now).\n" +
-      "**As black vs d4**: King's Indian (long-term project).\n\n" +
-      "Resources: Lichess studies, Hanging Pawns YouTube, occasional Chessable.",
+    title: 'Weekly review: last week',
+    createdAt: daysAgo(2, 20, 30),
+    body: md`
+      ## What happened
+      - The wholesale order form finally handles case quantities. Luis did a small dance.
+      - 16 miles at 9:03s, no walking. The calf is the thing to watch.
+      - Fieldnote: proved where the sync bug lives. Sightings vanish when the phone locks mid-upload. Ugh, but relieved it's reproducible.
+      - Booked Ruby's parent-teacher conference. She has been calling it "the meeting about me".
+
+      ## What slipped
+      - Skylight. Again. Fourth week running. Either text Hector or admit I live with a bucket now ({{task:Fix the leaky skylight}}).
+      - Ruby's 529 bump. Five minutes. Still not done.
+      - The treasurer handoff. Joan hasn't asked, which somehow makes it worse.
+
+      ## Next week
+      1. Green coffee contract. Hard deadline, real money ({{task:Order green coffee for winter}})
+      2. The sync fix, so the App Store submission can happen
+      3. The 18 miler without wrecking the calf
+
+      ## How it felt
+      Tired, mostly the good kind. Too many evenings at the laptop and Theo noticed. Protect Friday.
+    `,
+  },
+  {
+    title: "Book notes: What It's Like to Be a Bird",
+    createdAt: daysAgo(29, 21, 45),
+    body: md`
+      David Allen Sibley. Reading a few pages a night with Ruby. She picks the bird.
+
+      - Crows recognize individual human faces and hold a grudge. Ruby now waves at every crow.
+      - A woodpecker's tongue wraps around the inside of its skull.
+      - Hummingbirds drop into torpor at night to save energy, a nightly mini-hibernation.
+      - Many owls have ears at different heights, so they can place a sound up and down, not just left and right.
+
+      Fieldnote idea from this: a "did you know" line on the confirm screen. Not for 1.0.
+    `,
+  },
+  {
+    title: 'Gym locker combo',
+    createdAt: hoursAgo(30),
+    body: '18-32-7. Top left bank, by the pool doors.',
   },
 ];

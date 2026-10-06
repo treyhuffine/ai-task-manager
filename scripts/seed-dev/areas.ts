@@ -1,124 +1,128 @@
 /**
- * Areas for the shared dev seed. Created first so tasks/notes can resolve
- * `area_name` → `areaId` against them.
+ * Areas for the shared dev seed. Created first so tasks, notes and stream
+ * items can resolve `area_name` to `areaId` against them.
  *
- * Names are the stable reference key — keep them unique across this file
- * and don't rename casually (tasks.ts and notes.ts reference these names).
+ * Names are the stable reference key. Keep them unique across this file and
+ * don't rename casually (tasks.ts and notes.ts reference these names).
  *
- * Modeling principles (see design conversations):
- *  - Flat. No hierarchy, no sub-areas. Sub-aspects (Sleep within Health,
- *    Engineering within Ri) live in note/task content, not in structure.
+ * The dataset is one fictional person's system, written so it can never be
+ * mistaken for real data: Maya Okafor, co-owner of Tidewater Coffee (a small
+ * roastery), building Fieldnote (an iOS birding app) on the side with coding
+ * agents, training for a marathon, renovating a 1924 bungalow, with partner
+ * Theo, daughter Ruby (7) and Pepper the dog. About two months of use, so
+ * there is history, finished work, and some rot.
+ *
+ * Modeling principles:
+ *  - Flat. No hierarchy, no sub-areas. Sub-aspects (sleep within Health,
+ *    wholesale within Tidewater) live in note and task content, not structure.
  *  - Each area passes two tests: durability ("still doing this in 2 years?")
  *    and coherence ("opening it feels like one thing"). Anything failing
- *    coherence is split; anything failing durability is a task with subtasks.
- *  - No catch-alls like "Personal Admin" or "Misc." Taxes go in Finance,
- *    school forms in Family, etc. Specific over absorbent.
- *  - Items have a single primary area (single-membership). Cross-cutting
- *    happens via item-to-item relationships, not duplicate area assignments.
- *
- * The set below is a representative model — the active work area (Ri),
- * core life domains (Health, Family, Home, Finance), craft (Reading,
- * Writing), relationships (Network), and joy (Hobbies). A multi-business
- * operator would add one area per active venture alongside Ri.
+ *    coherence is split. Anything failing durability is a task with subtasks
+ *    (the marathon is a project inside Health, not an area).
+ *  - No catch-alls like "Personal Admin" or "Misc". Taxes go in Money, school
+ *    forms in Family. Specific over absorbent.
+ *  - Items have a single primary area. Cross-cutting happens through links
+ *    between items, not duplicate area assignments.
+ *  - All three area states are shown: most are active, Garden Co-op is
+ *    inactive (paused this season, kept for the handoff), and Brightline
+ *    Analytics is archived (an old job with a few leftovers).
  */
 import type { CreateAreaInput } from '../../src/db/types';
 
 export const areas: CreateAreaInput[] = [
   {
-    name: 'AI Assistant',
-    emoji: '🤖',
-    description: 'Building this app. Architecture, decisions, dogfooding, roadmap.',
+    name: 'Tidewater Coffee',
+    emoji: '☕',
+    description: 'The roastery Luis and I own. Wholesale, subscriptions, the market stall, sourcing, production.',
     userContext:
-      'My primary work focus — the AI-native productivity tool I am building. ' +
-      'Engineering, product, and launch work all live here as tasks or notes; ' +
-      'they are not separate areas.',
+      'Co-owned with Luis Arroyo. He runs sales, deliveries and the Saturday stall at Harbor Street Market. ' +
+      'I run sourcing and production on our 15 kg drum roaster. Wholesale accounts are Little Owl Cafe, ' +
+      'Grain & Gather (two locations) and Northside Bakery. About 180 people on the monthly subscription box. ' +
+      'Green coffee comes mostly from Meridian Green Coffee. Priya Nair keeps the books.',
     status: 'active',
     sortOrder: 1,
   },
   {
-    name: 'Health',
-    emoji: '💪',
-    description: 'Sleep, training, nutrition, longevity. The substrate everything else runs on.',
+    name: 'Fieldnote',
+    emoji: '🐦',
+    description: 'My iOS app for logging bird sightings by voice. Side project, built with coding agents.',
     userContext:
-      'Physical and mental health. Sleep stack, training programs, nutrition ' +
-      'experiments, doctor visits, and notes on what is working. Sub-aspects ' +
-      'like sleep or strength are content within notes — not their own areas.',
+      'Nights and weekends. Two codebases: the SwiftUI app and the marketing site. About 40 TestFlight testers, ' +
+      'mostly from the Coastal Bird Club. The goal is 1.0 in the App Store while fall migration is still on, ' +
+      'because that is when birders log the most. Waitlist lives on the landing page.',
     status: 'active',
     sortOrder: 2,
   },
   {
-    name: 'Family',
-    emoji: '🏡',
-    description: 'Partner, kids, parents, household logistics.',
+    name: 'Health',
+    emoji: '🏃',
+    description: 'Running, recovery, sleep. Training for the Twin Rivers Marathon.',
     userContext:
-      'People I love and the logistics of being there for them. School pickups, ' +
-      'birthdays, family conversations to have, kid activities, parent check-ins.',
+      'Twin Rivers will be my second marathon (first was 4:11). Goal is 3:45. Long runs are on Tuesdays ' +
+      'because Saturdays are market day. Watching a left calf strain. Physio is Jonas at Kinetic Physio. ' +
+      'Sleep ring data lives in a note, not in my head.',
     status: 'active',
     sortOrder: 3,
   },
   {
-    name: 'Home',
-    emoji: '🔧',
-    description: 'House, renovations, maintenance, things to fix.',
+    name: 'Family',
+    emoji: '🏡',
+    description: 'Theo, Ruby, Pepper, and the people around us.',
     userContext:
-      'The physical place I live. Repair queue, contractor info, renovation ' +
-      'projects (as tasks-with-subtasks), vendor contacts, neighborhood notes.',
+      'Theo Brandt teaches chemistry at Jefferson High, so school-year evenings are grading. Ruby is 7, in second grade ' +
+      'at Maple Street Elementary, piano on Thursdays, soccer on Saturdays (Theo takes her, I am at the market). ' +
+      'Pepper is our five-year-old border collie mix. Theo\'s parents, Ray and Linda, come for Thanksgiving. ' +
+      'Ruby turns 8 in December.',
     status: 'active',
     sortOrder: 4,
   },
   {
-    name: 'Finance',
-    emoji: '💰',
-    description: 'Money in, money out. Taxes, investments, banking, big decisions.',
+    name: 'The Bungalow',
+    emoji: '🔨',
+    description: 'Our 1924 bungalow. Repairs, renovation, the yard.',
     userContext:
-      'Personal and business finance combined. Quarterly tax planning, ' +
-      'investment thesis notes, banking changes, subscription audits, big ' +
-      'purchase decisions. Tax filing is a recurring task, not a separate area.',
+      'Bought it three years ago. The big job is the 100A Federal Pacific panel, which Bright Spark Electric ' +
+      'is replacing. Kitchen got new cabinets last spring, the backsplash is still bare drywall. Raised beds ' +
+      'out back. Every contractor we would call again is in one contacts note.',
     status: 'active',
     sortOrder: 5,
   },
   {
-    name: 'Reading',
-    emoji: '📚',
-    description: 'Books I am reading, takeaways, reading list.',
+    name: 'Money',
+    emoji: '💵',
+    description: 'Household and business money admin. Taxes, insurance, the mortgage, Ruby\'s 529.',
     userContext:
-      'One note per book. Takeaways, quotes, and reflections go in the body. ' +
-      'A book becomes a task while actively reading (status=active, ' +
-      'completes on finish), then lives on as a note. Reading list is also a note.',
+      'Tidewater is an LLC taxed as a partnership, so Luis and I each pay quarterly estimates. Priya Nair does ' +
+      'the roastery books and our personal return. Theo handles his school retirement plan, I handle the rest.',
     status: 'active',
     sortOrder: 6,
   },
   {
-    name: 'Writing',
-    emoji: '✍️',
-    description: 'Essays, ideas, drafts, public output.',
+    name: 'Garden Co-op',
+    emoji: '🌱',
+    description: 'Volunteer treasurer for the Eastside Community Garden. Paused this season.',
     userContext:
-      'Things I am writing or want to write. Half-baked ideas live here until ' +
-      'they become something. Drafts in progress, published pieces, recurring ' +
-      'themes I keep returning to.',
-    status: 'active',
+      'Stepped back at the end of summer to make room for the marathon and Fieldnote. Joan Pruitt is covering ' +
+      'treasurer duties. I still owe her a clean handoff of the books.',
+    status: 'inactive',
     sortOrder: 7,
   },
   {
-    name: 'Network',
-    emoji: '🤝',
-    description: 'People and follow-ups. Conversations, intros, who to reach out to.',
+    name: 'Portuguese',
+    emoji: '🇵🇹',
+    description: 'Learning European Portuguese for Lisbon and Porto next April.',
     userContext:
-      'Professional and personal relationships. Notes from conversations, ' +
-      'follow-up reminders, intros owed and received. One note per person ' +
-      'when relationships are active enough to track over time.',
+      'Weekly video lesson with Ana on Wednesday evenings. European pronunciation, not Brazilian. The trip is ' +
+      'two weeks in April with Theo and Ruby: Lisbon first, then the train to Porto.',
     status: 'active',
     sortOrder: 8,
   },
   {
-    name: 'Hobbies',
-    emoji: '🎯',
-    description: 'Things I do for joy. Not work, not optimization.',
-    userContext:
-      'Non-work pursuits done because I want to, not because I should. If a ' +
-      'hobby becomes serious enough that it needs its own area (active project, ' +
-      'frequent items), promote it. Otherwise it lives here.',
-    status: 'active',
+    name: 'Brightline Analytics',
+    emoji: '📊',
+    description: 'My old job. Senior analyst, left last November.',
+    userContext: 'Kept only for the few leftovers from leaving. Nothing active here.',
+    status: 'archived',
     sortOrder: 9,
   },
 ];
