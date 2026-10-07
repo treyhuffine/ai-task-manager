@@ -31,9 +31,9 @@ export const PRESET_NOTE_MAX = 17;
 export const ORCHESTRATOR_PRESETS: readonly OrchestratorPreset[] = [
   { name: APP_NAME, emoji: null, color: null, note: 'The original' },
   { name: 'Rye', emoji: '🍞', color: '#f2a93b', note: `${APP_NAME}, with a crust` },
-  { name: 'Jarvis', emoji: '🤖', color: '#22b5c9', note: 'Runs every suit' },
-  { name: 'Dwight', emoji: '🐻', color: '#f2a93b', note: 'Assistant to the…' },
   { name: 'Chief of Staff', emoji: '💼', color: '#4f7cf0', note: 'Runs the show' },
+  { name: 'Dwight', emoji: '🐻', color: '#f2a93b', note: 'Assistant to the…' },
+  { name: 'Jarvis', emoji: '🤖', color: '#22b5c9', note: 'Runs every suit' },
   { name: 'GSD', emoji: '🏁', color: '#8cc63f', note: 'Gets stuff done' },
   { name: 'Atlas', emoji: '🌍', color: '#e2609a', note: 'Carries the load' },
   { name: 'Clippy', emoji: '📎', color: '#f3ead8', note: 'It looks like…' },
