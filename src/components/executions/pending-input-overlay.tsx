@@ -5,6 +5,7 @@ import {
   HelpCircle, ShieldCheck, Wrench, Check, ChevronRight, Loader2,
 } from 'lucide-react';
 import { usePendingInput, useResolvePendingInput } from '@/hooks/use-execution';
+import { toolDisplayName } from '@/lib/executions/tool-display';
 import { cn } from '@/lib/utils';
 import type {
   PendingInput, PendingPermission, PendingQuestion, AskUserQuestionItem,
@@ -344,7 +345,7 @@ function PermissionCard({
             Permission requested
           </span>
           <span className="text-[10.5px] text-muted-foreground/70 font-mono truncate">
-            {pending.toolName}
+            {toolDisplayName(pending.toolName)}
           </span>
         </div>
       </div>

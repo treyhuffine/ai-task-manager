@@ -25,7 +25,7 @@ import {
 import { approvalResponseView } from '@/lib/executions/integration-approvals';
 import { computeEditDiff } from '@/lib/executions/edit-diff';
 import { extractPullRequestUrl } from '@/lib/executions/pr-link';
-import { describeToolCall, describeToolResult, fileTargetPath, isSubagentTool, type ToolGlyph } from '@/lib/executions/tool-display';
+import { describeToolCall, describeToolResult, fileTargetPath, isSubagentTool, toolDisplayName, type ToolGlyph } from '@/lib/executions/tool-display';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { DEFAULT_HARNESS, harnessDefinition, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
 import { cn } from '@/lib/utils';
@@ -580,7 +580,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
       );
 
     case 'permission_request': {
-      const tool = event.toolName ?? 'tool';
+      const tool = event.toolName ? toolDisplayName(event.toolName) : 'tool';
       const summary = summarizeToolInput(event.toolInput);
       return (
         <div className="rounded-md border border-blue-500/30 bg-blue-500/5 px-2.5 py-1.5">

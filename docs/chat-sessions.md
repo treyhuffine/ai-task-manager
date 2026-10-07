@@ -593,6 +593,8 @@ No byte-offset synthesis needed — agentex surfaces `item.id` directly. Older d
 | rollout `turn_context` | skip by default; surface separately if user wants to see config changes |
 | stdio `item.started` (type=`command_execution` / `function_call`) | 1 row: `role="assistant"`, `source="tool_call"`, `tool_name`, `tool_input`, `external_tool_call_id` = item.id (or call_id for function_calls) |
 | stdio `item.completed` (type=`command_execution` / `function_call`) | 1 row: `role="tool"`, `source="tool_result"`, `tool_is_error`, `tool_exit_code` (command_execution only), `external_tool_call_id` matches |
+| stdio `item.started` (type=`mcpToolCall`, `mcp_tool_call` in exec) | 1 row: `source="tool_call"`, `tool_name` = `mcp__<server>__<tool>` (a ChatGPT app call is `mcp__codex_apps__github_create_branch`), `tool_input` = the arguments |
+| stdio `item.completed` (type=`mcpToolCall`) | 1 row: `source="tool_result"`, content = the error message, else the text content, else the structured content. `tool_is_error` for a failed or declined call |
 | stdio `item.completed` (type=`agent_message`) | 1 row: `role="assistant"`, `source="agent"`, content = text |
 | stdio / rollout `reasoning` | 1 row: `role="assistant"`, `source="thinking"`, content = placeholder |
 | rollout `response_item` role `developer` (permissions/skills instructions) | skip (Codex-internal, not user-meaningful) |
@@ -604,6 +606,18 @@ No byte-offset synthesis needed — agentex surfaces `item.id` directly. Older d
 | Any unknown `type` | 1 row: `source="unknown"`, raw preserved; do not crash |
 
 `created_at` = parsed `timestamp`. `raw` = the full event payload. Content fields are extracted into typed columns (`content`, `tool_name`, `tool_input`, `tool_is_error`, `tool_exit_code`) — no nested JSON in `content`.
+
+**Approvals and the sandbox.** A Codex chat is one `codex app-server` process, and agentex (0.0.42+) sets its approval policy and sandbox on the process (`-c approval_policy`, `-c sandbox_mode`) and on the thread. Before 0.0.42 it passed TUI flags app-server ignores, so every chat ran on Codex's defaults whatever its mode. The chat's permission mode (`src/lib/executor/permission-map.ts`) decides:
+
+| Mode | Codex runs with | What asks |
+|---|---|---|
+| `auto_all` | approvals `never`, `danger-full-access` | Nothing. Commands, edits, and MCP and ChatGPT app calls all run |
+| `plan` | `read-only` sandbox, approvals on | Escalations, as permission cards |
+| `ask`, `auto_edits` | Codex's defaults: approvals `on-request`, a sandbox that depends on the folder's trust | Sandbox escalations and every MCP or app call that isn't read-only |
+
+Every Codex prompt arrives through agentex's `onUserInputRequest` and goes through `src/lib/runner/pending.ts` like Claude's. In `auto_all` a permission is allowed without a card. Otherwise it is a card in the chat. An MCP or app approval names the call `mcp__<server>__<tool>`, titles it with Codex's own question (`Allow GitHub to run tool "create_branch"?`), and describes it with the parameters Codex shows. Its request id is the call's item id, so the card and the tool row pair up.
+
+`codex_apps` is not Ri. It is the apps connected to the user's ChatGPT account, which Codex brings into every session it runs (GitHub, Gmail, Google Drive, ...). They are outside an agent's connector scopes and Ri's write policy (`docs/integration-approvals.md`), and the transcript labels them "ChatGPT apps". Before 0.0.42 their writes failed as "user rejected MCP tool call" with nobody asked: agentex answered Codex's approval request (`mcpServer/elicitation/request`) with an empty reply, which Codex reads as a decline.
 
 **Session discovery.** Agentex `localHistory` owns the date-sharded walk, indexes, eligibility filtering, and metadata fallbacks. Ri asks Agentex only when the explicit import surface or sync path needs a trusted catalog.
 

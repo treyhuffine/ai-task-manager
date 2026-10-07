@@ -79,12 +79,28 @@ function hostOf(url: string): string {
   }
 }
 
+/**
+ * MCP servers whose wire name means nothing to a person. `codex_apps` is the
+ * apps connected to the user's ChatGPT account (GitHub, Gmail, ...), which
+ * Codex brings into every session it runs. They are not Ri's connectors.
+ */
+const MCP_SERVER_LABELS: Record<string, string> = {
+  codex_apps: 'ChatGPT apps',
+};
+
 /** Pretty-print an `mcp__server__tool` wire name → "server: tool". */
 function prettyMcp(name: string): string {
   const rest = name.slice('mcp__'.length);
   const sep = rest.indexOf('__');
-  if (sep < 0) return rest.replace(/__/g, ' ');
-  return `${rest.slice(0, sep)}: ${rest.slice(sep + 2).replace(/__/g, ' ')}`;
+  const server = sep < 0 ? rest : rest.slice(0, sep);
+  const label = MCP_SERVER_LABELS[server] ?? server.replace(/__/g, ' ');
+  if (sep < 0) return label;
+  return `${label}: ${rest.slice(sep + 2).replace(/__/g, ' ')}`;
+}
+
+/** A tool's name for people: MCP wire names prettified, anything else as it is. */
+export function toolDisplayName(name: string): string {
+  return name.startsWith('mcp__') ? prettyMcp(name) : name;
 }
 
 /**

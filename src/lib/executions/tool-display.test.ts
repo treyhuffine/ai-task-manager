@@ -5,6 +5,7 @@ import {
   basename,
   isSubagentTool,
   isPlumbingTool,
+  toolDisplayName,
 } from './tool-display';
 
 describe('basename', () => {
@@ -40,6 +41,20 @@ describe('describeToolCall', () => {
     expect(d.mono).toBe(true);
     // server prefix split out; tool id kept intact (recognizable / searchable)
     expect(d.verb).toBe('playwright: browser_navigate');
+  });
+
+  it('names Codex ChatGPT app calls for what they are', () => {
+    // `codex_apps` is the user's ChatGPT account connectors, not Ri's.
+    const d = describeToolCall('mcp__codex_apps__github_create_branch', { repository_full_name: 'acme/web' });
+    expect(d.verb).toBe('ChatGPT apps: github_create_branch');
+    expect(toolDisplayName('mcp__codex_apps__github_create_branch')).toBe('ChatGPT apps: github_create_branch');
+    expect(toolDisplayName('mcp__codex_apps')).toBe('ChatGPT apps');
+  });
+
+  it('gives permission prompts the same readable tool name', () => {
+    expect(toolDisplayName('mcp__probe__write_marker')).toBe('probe: write_marker');
+    expect(toolDisplayName('command_execution')).toBe('command_execution');
+    expect(toolDisplayName('Bash')).toBe('Bash');
   });
 
   it('marks Task as a subagent', () => {
