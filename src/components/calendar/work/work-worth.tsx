@@ -4,16 +4,16 @@ import { cn } from '@/lib/utils';
 import { Tip } from '@/components/ui/tip';
 
 /**
- * A day's worth in one line, the chain's grammar small (docs/work-view.md,
- * "The numbers"): "30h agents → 676 person-hours". Under each date in the
- * week, the list and the report. Hover for the commits.
+ * A day's worth in one line, the chain's words small (docs/work-view.md,
+ * "The numbers"): "30h agent time → 676h human time". Under each date in the
+ * week, the list and the report. Hover for it in a sentence, with commits.
  */
 export function WorkWorth({ stats, className }: { stats: WorkStats | undefined; className?: string }) {
   if (!stats || stats.agentMinutes < 1) return null;
   const person = stats.personHours >= 0.5;
   const title = [
-    `Agents ran ${formatDuration(stats.agentMinutes)}.`,
-    person && `A person would need about ${formatHours(stats.personHours)} hours.`,
+    `Your agents worked ${formatDuration(stats.agentMinutes)}.`,
+    person && `Doing the same by hand would take a person about ${formatHours(stats.personHours)} hours.`,
     stats.commits > 0 && `${stats.commits} ${stats.commits === 1 ? 'commit' : 'commits'}.`,
   ]
     .filter(Boolean)
@@ -21,11 +21,11 @@ export function WorkWorth({ stats, className }: { stats: WorkStats | undefined; 
   return (
     <Tip label={title}>
       <span className={cn('text-muted-foreground', className)}>
-        <span className="font-medium text-foreground/90">{formatSpan(stats.agentMinutes)}</span> agents
+        <span className="font-medium text-foreground/90">{formatSpan(stats.agentMinutes)}</span> agent time
         {person && (
           <>
             {' → '}
-            <span className="font-medium text-foreground/90">{formatHours(stats.personHours)}</span> person-hours
+            <span className="font-medium text-foreground/90">{formatHours(stats.personHours)}h</span> human time
           </>
         )}
       </span>

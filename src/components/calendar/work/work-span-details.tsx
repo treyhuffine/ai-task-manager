@@ -22,9 +22,9 @@ export function WorkSpanDetails({ span, agent }: { span: WorkSpan; agent: WorkAg
           </span>
         </div>
         <p className="mt-1 text-[11px] text-muted-foreground">
-          Agents {formatDuration(span.agentMinutes)}
-          {span.withYouMinutes >= 1 ? ` · you ${formatDuration(span.withYouMinutes)}` : ' · on its own'}
-          {span.personHours >= 0.5 && ` · about ${formatHours(span.personHours)} person-hours`}
+          Agent time {formatDuration(span.agentMinutes)}
+          {span.withYouMinutes >= 1 ? ` · your time ${formatDuration(span.withYouMinutes)}` : ' · on its own'}
+          {span.personHours >= 0.5 && ` · about ${formatHours(span.personHours)}h of human work`}
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto py-1">

@@ -263,7 +263,6 @@ function GridEvent({ placed, bounds }: { placed: PlacedEvent; bounds: MinuteWind
   );
 }
 
-/** Under a date: what the day's work was worth, in person-hours. */
 function OverflowRow({ event }: { event: CalendarEvent }) {
   return (
     <Popover>

@@ -36,16 +36,16 @@ const stats = (over: Partial<WorkStats> = {}): WorkStats => ({
 
 describe('equivalents', () => {
   it('says person-hours as a team for the week and people for a year', () => {
-    expect(personHoursLine(stats(), 7)).toBe('About 2,377 person-hours of work: a team of 59 for a week, or 1.2 people for a year.');
-    expect(personHoursLine(stats({ personHours: 30 }), 1)).toBe('About 30 person-hours of work: a team of 4 for a day.');
+    expect(personHoursLine(stats(), 7)).toBe('About 2,377 hours of human work, like a team of 59 for a week, or 1.2 people for a year.');
+    expect(personHoursLine(stats({ personHours: 30 }), 1)).toBe('About 30 hours of human work, like a team of 4 for a day.');
     expect(personHoursLine(stats({ personHours: 0.2 }), 1)).toBeNull();
     // Under a person-year, months read better than a fraction of a person.
-    expect(personHoursLine(stats({ personHours: 676 }), 1)).toBe('About 676 person-hours of work: a team of 85 for a day, or a person for 4 months.');
+    expect(personHoursLine(stats({ personHours: 676 }), 1)).toBe('About 676 hours of human work, like a team of 85 for a day, or a person for 4 months.');
   });
 
-  it('says what each of your hours became', () => {
-    expect(leverageLine(stats())).toBe('You were hands-on 41h 30m. Agents ran 162h. Each hour of yours became 57 hours of work.');
-    expect(leverageLine(stats({ handsOnMinutes: 0 }))).toBe('You stayed out of it. Agents ran 162h.');
+  it('says what each of your hours turned into', () => {
+    expect(leverageLine(stats())).toBe('You spent 41h 30m. Agents worked 162h. Each hour of yours turned into about 57 hours of human work.');
+    expect(leverageLine(stats({ handsOnMinutes: 0 }))).toBe('Agents worked 162h on their own.');
   });
 
   it('compares words to the closest book', () => {
@@ -60,7 +60,7 @@ describe('equivalents', () => {
   });
 
   it('notes the texture and speed', () => {
-    expect(textureLine(stats())).toMatch(/^38h while you were away · 9 at once at the peak, .+ · 256 commits across 10 agents$/);
+    expect(textureLine(stats())).toMatch(/^Agents worked 38h while you were away · up to 9 at once, .+ · 256 commits across 10 agents$/);
     expect(speedLine(stats())).toBe('On code, agents worked about 16× faster than a person would.');
     expect(speedLine(stats({ codeHours: 2 }))).toBeNull();
   });
@@ -101,7 +101,7 @@ describe('weeklyReport', () => {
     const [shipped, time, leverage] = weeklyReport(range({ agents: 13 }, 22, ['feat: a', 'fix: b', 'docs: c']));
     expect(shipped).toBe('Shipped 3 commits (1 feature, 1 fix) and finished 22 executions across 13 agents.');
     expect(time).toBe('Most agent time went to ai-task-manager: 51h of 162h (31%).');
-    expect(leverage).toBe('About 2,377 person-hours of work from 41h 30m of yours, 57× your own time.');
+    expect(leverage).toBe('From 42h of your time, agents did about 2,377 hours of human work, 57× your time.');
   });
 
   it('reads right with no commits', () => {
@@ -139,8 +139,8 @@ describe('workTiles', () => {
       ['peak', 'Agents at once', '9'],
       ['commits', 'Commits', '256'],
     ]);
-    expect(tiles[0]!.context).toEqual(['for a week', 'or 1.2 people for a year']);
-    expect(tiles[1]!.context).toEqual(['452k words, 188 hours to type']);
+    expect(tiles[0]!.context).toEqual(['working a full week', 'or 1.2 people for a year']);
+    expect(tiles[1]!.context).toEqual(['Agents wrote 452k words', '188 hours just to type']);
     expect(tiles[3]!.context).toEqual(['Across 10 agents']);
   });
 
@@ -159,7 +159,7 @@ describe('workTiles', () => {
 
   it('speaks in days for a day, and leaves out what has nothing to say', () => {
     const tiles = workTiles(stats({ personHours: 30, agentWords: 0, peak: null, commits: 0 }), 1);
-    expect(tiles).toEqual([{ key: 'team', label: 'Like a team of', value: '4', context: ['for a day'] }]);
+    expect(tiles).toEqual([{ key: 'team', label: 'Like a team of', value: '4', context: ['working a full day'] }]);
   });
 
   it('keeps tile copy free of long dashes and semicolons', () => {

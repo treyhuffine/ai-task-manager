@@ -12,7 +12,7 @@ import { minuteLabel, seriesColor, type WorkLayer } from './work-style';
  * (docs/work-view.md, "The ribbon"). Each 15-minute window is a row of
  * segments in the agents' colors, its width how many chats were working at
  * once, on a scale shared by the whole week. A thin line on the left is you,
- * hands-on. Hover a window for who was working, click to open the day.
+ * in the chats. Hover a window for who was working, click to open the day.
  */
 export function WorkRibbon({
   day,
@@ -31,7 +31,7 @@ export function WorkRibbon({
   if (bins.length === 0 && sittings.length === 0) return null;
 
   const binPct = (BIN_MINUTES / (bounds.endMinute - bounds.startMinute)) * 100;
-  const label = `Work on ${day.date}: agents ran ${formatDuration(day.stats.agentMinutes)}${
+  const label = `Work on ${day.date}: agents worked ${formatDuration(day.stats.agentMinutes)}${
     day.stats.peak ? `, up to ${day.stats.peak.count} at once` : ''
   }. Open the day for details.`;
 
@@ -122,7 +122,7 @@ function RibbonReadout({
       </ul>
       {(handsOn || commits > 0) && (
         <p className="mt-1 border-t border-border/60 pt-1 text-[10px] text-muted-foreground">
-          {[handsOn && 'You were hands-on', commits > 0 && `${commits} ${commits === 1 ? 'commit' : 'commits'}`].filter(Boolean).join(' · ')}
+          {[handsOn && 'You were in the chats', commits > 0 && `${commits} ${commits === 1 ? 'commit' : 'commits'}`].filter(Boolean).join(' · ')}
         </p>
       )}
     </div>

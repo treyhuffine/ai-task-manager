@@ -98,7 +98,7 @@ export function workReportMarkdown(range: WorkRange): { title: string; body: str
     lines.push('## By agent', '');
     for (const a of range.agents) {
       lines.push(
-        `- **${a.name}**: agents ${formatDuration(a.agentMinutes)}, about ${formatHours(a.personHours)} person-hours, ${a.commits} ${a.commits === 1 ? 'commit' : 'commits'}`,
+        `- **${a.name}**: ${formatDuration(a.agentMinutes)} of agent time, about ${formatHours(a.personHours)} hours of human work, ${a.commits} ${a.commits === 1 ? 'commit' : 'commits'}`,
       );
     }
     lines.push('');
@@ -109,7 +109,7 @@ export function workReportMarkdown(range: WorkRange): { title: string; body: str
     const s = d.stats;
     if (s.agentMinutes < 1 && s.commits === 0 && s.handsOnMinutes < 1) continue;
     lines.push(
-      `- **${formatDayLabel(d.date)}**: ${formatDuration(s.handsOnMinutes)} hands-on, agents ${formatDuration(s.agentMinutes)}, about ${formatHours(s.personHours)} person-hours, ${s.commits} ${s.commits === 1 ? 'commit' : 'commits'}`,
+      `- **${formatDayLabel(d.date)}**: ${formatDuration(s.handsOnMinutes)} of your time, ${formatDuration(s.agentMinutes)} of agent time, about ${formatHours(s.personHours)} hours of human work, ${s.commits} ${s.commits === 1 ? 'commit' : 'commits'}`,
     );
   }
   lines.push('');

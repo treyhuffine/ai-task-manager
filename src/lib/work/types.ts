@@ -59,7 +59,7 @@ export interface WorkStats {
   whileAwayMinutes: number;
   /** Wall clock with any work running, overlaps counted once. */
   activeMinutes: number;
-  /** The person-hours equivalent (docs/work-view.md, "Person-hours"). */
+  /** Human time for the same work, in hours (docs/work-view.md, "Human time"). */
   personHours: number;
   /** The share of `personHours` from commits. */
   codeHours: number;

@@ -10,7 +10,7 @@ import { Tip } from '@/components/ui/tip';
 /**
  * The numbers at the top of the calendar with agent work on (docs/work-view.md,
  * "The numbers"), the same on every tab: the leverage as a chain (your time,
- * the agent time it set going, what a person would need), then tiles that
+ * the agent time it set going, the human time for the same work), then tiles that
  * read as sentences. With `legend`, a row keying the ribbon's colors. The
  * sentences live in the Report tab, so the numbers stay scannable. While the
  * next range loads, the last one's numbers hold, dimmed.
@@ -56,34 +56,41 @@ export function WorkStats({ range, stale = false, legend = false }: { range: Wor
 }
 
 /**
- * You, hands-on → agents ran → a person would need. The multiplier on each
- * arrow is that step, and the two together are your leverage.
+ * Your time → agent time → human time for the same work. What it says: this
+ * much of your time set your agents working this long, and doing all of it
+ * by hand would take a person this long. The multiplier on each arrow is that
+ * step, and the two together are how far your time went.
  */
 function ChainCard({ chain }: { chain: LeverageChain }) {
   const toAgents = chain.agentsPerHour
-    ? `Agents ran ${formatHours(chain.agentsPerHour)} hours for each hour you were hands-on.`
+    ? `Your agents worked about ${formatHours(chain.agentsPerHour)} hours for every hour of yours.`
     : undefined;
   const toPerson = chain.personPerAgentHour
-    ? `A person would need ${formatHours(chain.personPerAgentHour)} hours for each hour agents ran.`
+    ? `Each hour of agent time did about ${formatHours(chain.personPerAgentHour)} hours of human work.`
     : undefined;
   return (
     <dl
       aria-label="Your leverage"
       className="flex min-w-[min(100%,30rem)] grow-[3] basis-[32rem] items-start gap-3 rounded-lg border border-border/70 px-3 py-2"
     >
-      <ChainStep label="You, hands-on" value={formatSpan(chain.handsOnMinutes)} title={`${formatDuration(chain.handsOnMinutes)} of your own time`} />
+      <ChainStep
+        label="Your time"
+        value={formatSpan(chain.handsOnMinutes)}
+        title={`${formatDuration(chain.handsOnMinutes)} in chats with your agents: prompting, answering and reviewing.`}
+        context="prompting and reviewing"
+      />
       <ChainArrow times={chain.agentsPerHour} title={toAgents} />
       <ChainStep
-        label="Agents ran"
+        label="Agent time"
         value={formatSpan(chain.agentMinutes)}
-        title={`${formatDuration(chain.agentMinutes)} of agent time, parallel chats summed`}
+        title={`${formatDuration(chain.agentMinutes)} of your agents working, added up across every chat. Two agents working side by side for an hour count as two hours.`}
         context={chain.whileAwayMinutes >= 30 ? `${formatSpan(chain.whileAwayMinutes)} while you were away` : undefined}
       />
       <ChainArrow times={chain.personPerAgentHour} title={toPerson} />
       <ChainStep
-        label="A person would need"
+        label="Human time for the same work"
         value={`${formatHours(chain.personHours)}h`}
-        title="Person-hours: commits sized the way an engineer sizes a change, other work one for one"
+        title="Roughly how long a skilled person would take to do all of this by hand. An estimate, to give a sense of scale."
         context={chain.leverage ? `${formatTimes(chain.leverage)} your time` : undefined}
         hero
       />
@@ -149,7 +156,7 @@ function AgentLegend({ range }: { range: WorkRange }) {
       )}
       <li className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         <span className="h-2.5 w-[3px] shrink-0 rounded-full bg-foreground/60" aria-hidden />
-        You, hands-on
+        Your time
       </li>
     </ul>
   );

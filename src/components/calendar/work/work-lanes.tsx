@@ -86,7 +86,7 @@ export function WorkLaneTrack({ lanes, day, bounds }: { lanes: Lane[]; day: Work
         >
           {lane.you
             ? lane.windows.map((w) => (
-                <Tip key={w.startMinute} label={`You, hands-on`}>
+                <Tip key={w.startMinute} label="Your time: you were in the chats">
                   <div
                     className="absolute left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-foreground/60"
                     style={pos(w, bounds)}

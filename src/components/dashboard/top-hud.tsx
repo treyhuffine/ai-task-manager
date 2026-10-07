@@ -13,7 +13,7 @@ import { DesktopNavButtons } from '@/components/desktop/desktop-nav-buttons';
 import { Tip } from '@/components/ui/tip';
 
 // What's happening, from every view: work by status, the way out of (or
-// back into) an execution, today's work in person-hours, the next calendar
+// back into) an execution, today's work in human time, the next calendar
 // event, the budget. Places (Board, Calendar, Schedules and Triggers) and
 // Settings live in the left rail (docs/rail.md). Create (tasks, notes, quick
 // capture) and ⌘K search stay here for now, beside the rail's own Create and

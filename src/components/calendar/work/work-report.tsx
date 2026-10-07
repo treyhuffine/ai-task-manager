@@ -17,7 +17,7 @@ const COMMITS_SHOWN = 6;
 
 /**
  * The Report tab (docs/work-view.md, "Report"): the week or day in words,
- * each agent's time beside what a person would need for the same work, then
+ * each agent's time beside the human time for the same work, then
  * day by day what shipped, which chats ran without a commit, and finished
  * executions and tasks. The calendar's own days stay in Calendar and List.
  */
@@ -99,7 +99,7 @@ function ReportSummary({ range }: { range: WorkRange }) {
 }
 
 /**
- * Each agent's time beside what a person would need for the same work, on one
+ * Each agent's time beside the human time for the same work, on one
  * scale, largest first. Every agent by name, so "Other" splits back out here.
  */
 function AgentTable({ range }: { range: WorkRange }) {
@@ -117,14 +117,14 @@ function AgentTable({ range }: { range: WorkRange }) {
         <thead>
           <tr className="whitespace-nowrap text-left text-[10px] text-muted-foreground">
             <th scope="col" className="pb-1 pr-3 font-normal">Agent</th>
-            <th scope="col" className="pb-1 pr-3 text-right font-normal">Agents ran</th>
-            <th scope="col" className="pb-1 pr-3 font-normal">A person would need</th>
+            <th scope="col" className="pb-1 pr-3 text-right font-normal">Agent time</th>
+            <th scope="col" className="pb-1 pr-3 font-normal">Human time for the same work</th>
             <th scope="col" className="pb-1 text-right font-normal">Commits</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((a) => (
-            <Tip key={a.id ?? 'ri'} label={`${a.name}: ran ${formatDuration(a.agentMinutes)}, a person would need about ${formatHours(a.personHours)} hours${a.commits ? `, ${a.commits} ${a.commits === 1 ? 'commit' : 'commits'}` : ''}`}>
+            <Tip key={a.id ?? 'ri'} label={`${a.name}: ${formatDuration(a.agentMinutes)} of agent time, about ${formatHours(a.personHours)} hours of human work${a.commits ? `, ${a.commits} ${a.commits === 1 ? 'commit' : 'commits'}` : ''}`}>
               <tr
                 className="hover:bg-muted/40"
               >
@@ -201,7 +201,7 @@ function DaySection({ day, agents, isToday }: { day: WorkDay; agents: ReadonlyMa
       <header className="sticky top-0 z-10 flex flex-wrap items-baseline gap-x-2 border-b border-border/60 bg-background pb-1.5">
         <h3 className={cn('text-sm font-medium', isToday && 'text-primary')}>{formatDayLabel(day.date)}</h3>
         <p className="text-[11px] text-muted-foreground">
-          {s.handsOnMinutes >= 1 && <>you {formatSpan(s.handsOnMinutes)} · </>}
+          {s.handsOnMinutes >= 1 && <>your time {formatSpan(s.handsOnMinutes)} · </>}
           <WorkWorth stats={s} />
           {s.commits > 0 && ` · ${s.commits} ${s.commits === 1 ? 'commit' : 'commits'}`}
         </p>
@@ -255,7 +255,7 @@ function AgentGroup({
       <div className="flex items-center gap-1.5">
         <span className="size-2 shrink-0 rounded-[2px]" style={colors.dot} aria-hidden />
         <span className="truncate text-xs font-medium">{agent?.name ?? 'Ri'}</span>
-        <Tip label={`Ran ${formatDuration(group.agentMinutes)}. A person would need about ${formatHours(group.personHours)} hours.`}>
+        <Tip label={`${formatDuration(group.agentMinutes)} of agent time, about ${formatHours(group.personHours)} hours of human work.`}>
           <span
             className="shrink-0 text-[10px] text-muted-foreground"
           >
@@ -267,7 +267,7 @@ function AgentGroup({
       </div>
       <ul className="mt-1 space-y-0.5 pl-3.5">
         {shown.map((c) => (
-          <Tip key={c.hash} label={`${c.lines} lines that count · about ${formatHours(c.effortHours)}h of work`}>
+          <Tip key={c.hash} label={`${c.lines} lines changed, about ${formatHours(c.effortHours)}h for a person by hand`}>
             <li className="flex items-start gap-1.5 text-[11.5px] leading-snug">
               <GitCommitHorizontal size={11} className="mt-[3px] shrink-0 text-muted-foreground" />
               <span className="min-w-0">{c.subject}</span>

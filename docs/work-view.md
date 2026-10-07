@@ -17,8 +17,8 @@ With agent work on, every tab starts with **the numbers** (see "The numbers"). T
 - **Calendar, Week**: meetings keep the left two thirds of each day, and the day's work is a ribbon in the right third (see "The ribbon"). A legend under the numbers keys the colors. Under each date, the day's worth in the chain's grammar: "30h agents → 676 person-hours".
 - **Calendar, Day**: meetings take the left third, and the rest is lanes, one for you and one per agent (see "Day lanes").
 - **List**: the week's agendas (meetings, all-day events, deadlines), each day with the same worth line. The breakdown of work moved to Report, so List is only ever the calendar.
-- **Report**: the summary in sentences, each agent's time beside what a person would need, and the days (see "Report").
-- **Header**: today's person-hours in a pill (see "Header").
+- **Report**: the summary in sentences, each agent's time beside the human time for the same work, and the days (see "Report").
+- **Header**: today's hours of human work in a pill (see "Header").
 
 Without a calendar connected, work still shows over empty days, free time is left out, and "Connect your calendar" becomes a small link in the header.
 
@@ -26,19 +26,27 @@ Without a calendar connected, work still shows over empty days, free time is lef
 
 `WorkStats` (`src/components/calendar/work/work-stats.tsx`), with the wording in `equivalents.ts` (`leverageChain`, `workTiles`). For the week or day in view, the same on every tab. Real data, Sep 28 to Oct 4, 2026:
 
-**The chain**, the widest card, is the whole model in one line:
+**The words.** Three kinds of time, named the same everywhere, so a person can follow the story without knowing how it's computed:
 
-> You, hands-on **42h** → 3× → Agents ran **124h** → 19× → A person would need **2,398h**
-> (42h while you were away) (58× your time)
+- **Your time**: the time you spent in chats with your agents, prompting, answering and reviewing.
+- **Agent time**: the time your agents spent working, added up across every chat. Two agents working side by side for an hour are two hours.
+- **Human time for the same work**: roughly how long a skilled person would take to do all of it by hand. Shown as an estimate, to give a sense of scale, never as a precise figure. In sentences it's "hours of human work".
 
-Your time sets agents going, and their work is worth what a person would need for it. The multiplier over each arrow is that step: agents ran 3 hours for each hour you were hands-on, and a person would need 19 hours for each hour agents ran. The two multiply out to your leverage, 58×. This is where agent hours and person-hours sit side by side, and the same grammar comes back smaller wherever a day or an agent has a total ("30h agents → 676 person-hours" under a date, "11h → 161h" beside an agent in Report).
+The point to land is "a ton happened from me prompting", so the copy states what each number means and lets the size speak. How the estimate is made lives here, in "Human time" below, not in the product: no tooltip defends a formula.
+
+**The chain**, the widest card, is the whole story in one line:
+
+> Your time **42h** → 3× → Agent time **124h** → 19× → Human time for the same work **2,398h**
+> (prompting and reviewing) (42h while you were away) (58× your time)
+
+Your time set your agents working, and doing all of their work by hand would take a person that long. The multiplier over each arrow is that step: your agents worked about 3 hours for every hour of yours, and each hour of agent time did about 19 hours of human work. The two multiply out to 58× your time. The same words come back smaller wherever a day or an agent has a total ("30h agent time → 676h human time" under a date, "11h → 161h" beside an agent in Report, "32h of human work today" in the header).
 
 **The tiles** beside it each read top to bottom as a sentence:
 
 | Label | Value | Under it |
 | --- | --- | --- |
-| Like a team of | 60 | for a week, or 1.2 people for a year |
-| Like writing | The Lord of the Rings | 452k words, 188 hours to type |
+| Like a team of | 60 | working a full week, or 1.2 people for a year |
+| Like writing | The Lord of the Rings | Agents wrote 452k words, 188 hours just to type |
 | Agents at once | 9 | At the peak, Mon 3:47 PM |
 | Commits | 256 | Across 13 agents |
 
@@ -58,9 +66,9 @@ So work gets its own encoding, and meetings keep theirs. Meetings stay as blocks
 
 - The day is cut into 15-minute windows. Each window is a row of segments, one per agent, in the agent's color, each as wide as that agent's count of chats working in the window. A chat counts in a window when one of its blocks overlaps it.
 - The width is on one scale for the whole range (the widest window of the week), so a busy Thursday reads as busier than a quiet Sunday. Segments stack in palette order, Other last, so an agent sits in the same place day to day.
-- A 3px line on the left edge is you, hands-on (your sittings).
+- A 3px line on the left edge is your time (your sittings in the chats).
 - 2px gaps between segments and rows, so neighbors stay readable without borders.
-- Hover a window for who was working: the time, the count of chats leading, each agent keyed by a line in its color with its count, then whether you were hands-on and how many commits landed. Click to open the day.
+- Hover a window for who was working: the time, the count of chats leading, each agent keyed by a line in its color with its count, then whether you were in the chats and how many commits landed. Click to open the day.
 - Nothing is cut off and there is no "+N". Nine at once is nine segments wide.
 
 ## Day lanes
@@ -72,15 +80,15 @@ So work gets its own encoding, and meetings keep theirs. Meetings stay as blocks
 `src/components/calendar/work/work-report.tsx`, the third tab.
 
 - **Summary**: the three-line report (what shipped, where agent time went, the leverage), with Copy and Save as note. Copy adds the numbers as sentences, since pasted text has no tiles above it. The note adds the numbers, a line per agent, a line per day and every commit subject by agent.
-- **By agent**: every agent by name (so "Other" splits back out), its agent time, a bar of what a person would need on one scale, largest first, and its commits. A table, so it's also the readable twin of the colors.
+- **By agent**: every agent by name (so "Other" splits back out), its agent time, a bar of the human time for the same work on one scale, largest first, and its commits. A table, so it's also the readable twin of the colors.
 - **By day**: each day with work, its worth line and commits, then by agent what it committed (six, then "Show all"), which chats ran without a commit, and finished executions and completed tasks.
 
 ## Header
 
-`src/components/calendar/work/work-hud-pill.tsx`, in the top HUD beside the next meeting. "32 person-hours today", and on hover what it's made of (the team phrase, your hands-on time, agent time and the leverage). Click to open today in the calendar's Day view.
+`src/components/calendar/work/work-hud-pill.tsx`, in the top HUD beside the next meeting. "32h of human work today", and on hover what it came from ("about 32 hours of human work, 26× your time, like a team of 4 for a day", then your time and agent time). Click to open today in the calendar's Day view.
 
 - Follows the Agent work switch, so turning it off in the calendar hides the pill too.
-- Shows from one person-hour on. Before that there is nothing worth saying.
+- Shows from one hour of human work on. Before that there is nothing worth saying.
 - Refreshes every five minutes, a glance rather than a ticker. Each read also asks git.
 - Desktop widths only, next to the other header pills.
 
@@ -105,26 +113,30 @@ Pure, in `src/lib/work/model.ts`, with tests.
 7. **Commits.** Read from git, per agent repo: your commits (the repo's `user.email`) on local branches, which include every execution worktree's branch. Remote branches are left out, since they carry teammates' work and rebased copies. A commit belongs to the span of an agent on that repo whose window holds it (1 minute before to 5 minutes after), else it's listed loose for its day.
 8. **Peak.** The most chats' blocks open at once.
 
-## Person-hours
+## Human time (how it's estimated)
 
-Agent time is real running time. It does not account for speed. Speed shows up in the person-hours estimate: how long a skilled person would need for the same output.
+For us, not for the screen. The product only ever says "roughly how long a skilled person would take to do all of this by hand". This is how that number is made. Internally the field is still `personHours`.
 
-- **Code.** Each commit is sized the way an engineer sizes a change, in bands, from the lines that took effort: additions plus a quarter of deletions, each file capped at 800, with generated, lock, vendored, data and binary files left out.
+Agent time is real time: how long agents were actually working. It says nothing about speed. Human time is the other half: how long the same output would take a skilled person working by hand. Two rules make it:
 
-  | Effort lines | Person-hours |
+- **Code** is sized the way an engineer sizes a change. Each commit lands in a size band by the lines that took effort (lines added, plus a quarter of lines deleted, each file capped at 800, with generated, lock, vendored, data and binary files left out):
+
+  | Lines that took effort | Hours for a person |
   | --- | --- |
-  | under 20 | 0.5 |
+  | under 20 | 0.5 (a small fix) |
   | under 100 | 2 |
-  | under 400 | 6 |
-  | under 1,200 | 14 |
-  | 1,200 and up | 24 |
+  | under 400 | 6 (most of a day) |
+  | under 1,200 | 14 (about two days) |
+  | 1,200 and up | 24 (three days) |
 
-  Bands, not a per-line rate: a per-line rate (25 lines an hour) put last week at 12,600 person-hours, which nobody would believe. The bands put it at about 2,400.
-- **Everything else** (research, writing, planning, reviews, chats that committed nothing) counts one for one: an hour of agent time is an hour of a person's. That undercounts, deliberately.
+  Bands, not a per-line rate: a rate (25 lines an hour) put the week at 12,600 hours, which nobody would believe. Bands keep a huge commit from counting for weeks. Three days is the most any single commit is credited with.
+- **Everything else** (research, writing, planning, reviews, chats that committed nothing) counts hour for hour: an hour of agent time is an hour of a person's. That undercounts on purpose, since an agent reads and writes far faster than a person.
 
-From there: a team for a week is person-hours over 40 (over 8 for a day), people for a year is person-hours over 2,000, shown as months under one person-year. "On code, N× faster" is code person-hours over the agent time of the spans that committed.
+**The week of Sep 28, worked through.** 256 commits: 42 small (21h), 50 at 2h (100h), 70 at 6h (420h), 42 at 14h (588h) and 52 at three days (1,248h), so 2,377 hours of code. Plus 21 hours of agent work that committed nothing, counted hour for hour. That's 2,398 hours of human work. Your time was about 42 hours, so 2,398 ÷ 42 is 58× your time. Agent time was 124 hours, so the arrows read 124 ÷ 42 ≈ 3× and 2,398 ÷ 124 ≈ 19×. Half the total comes from the 52 biggest commits, so the size of the largest changes moves the number most.
 
-It isn't perfect, and doesn't try to be. It's consistent, explainable, and errs low outside code.
+**The comparisons** are plain division: a team for a week is the hours over 40 (over 8 for a day), people for a year is the hours over 2,000 (months below a year), and "Like writing" compares the words agents wrote to well-known books, with typing time at 40 words a minute.
+
+It isn't exact and doesn't try to be. It's consistent week to week, it can be explained in a paragraph, and it errs low outside code.
 
 ## Equivalents and wording
 
@@ -152,12 +164,12 @@ If the trial sticks, the blocks move to a table written as events arrive. The mo
 - Only work in Ri chats counts. Claude Code and Codex sessions count once Ri has imported them.
 - Commits count by the repo's `user.email`. A repo without one counts every author on its local branches.
 - Agent time counts a chat's events, not the processes it started. A long build that emits nothing for over 10 minutes reads as waiting.
-- Non-git agents count one for one, with no code sizing.
+- Agents without a git repo count hour for hour, with no code sizing.
 
 ## Next
 
 - An agent's Overview: that agent's week.
-- One muted line in the morning deck: yesterday's person-hours and leverage, if the header pill isn't enough.
+- One muted line in the morning deck: yesterday's human time and leverage, if the header pill isn't enough.
 - A table instead of the file, if the trial sticks.
 
 ## Files

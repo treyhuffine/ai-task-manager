@@ -3264,8 +3264,9 @@ const work_summary_action = defineAction({
   name: 'work_summary',
   description:
     'What the person and their agents did over a range of days, measured (docs/work-view.md): ' +
-    'their hands-on time, agent time, the person-hours equivalent (commits sized like an engineer would, ' +
-    'other agent work one for one), commits by agent, finished executions and tasks, and a three-line report. ' +
+    'their own time, their agents\' time, and the human time the same work would take (an estimate for scale: ' +
+    'commits sized like an engineer would size them, other agent work hour for hour), commits by agent, ' +
+    'finished executions and tasks, and a three-line report. ' +
     'Use for "what did I do this week" and weekly reports. Defaults to this week (Monday on). ' +
     'Quote the numbers and lines as given rather than recomputing them.',
   params: {

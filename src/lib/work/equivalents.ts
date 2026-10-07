@@ -89,15 +89,15 @@ function plural(n: number, one: string, many = `${one}s`): string {
 }
 
 /**
- * The person-hours headline, in the unit that reads best for the range: a
- * team for a day or a week, people for a year once that's meaningful.
+ * The human-time headline, in the unit that reads best for the range: a team
+ * for a day or a week, people for a year once that's meaningful.
  */
 export function personHoursLine(stats: WorkStats, days: number): string | null {
   const h = stats.personHours;
   if (h < 0.5) return null;
   const parts = [teamPhrase(h, days), yearPhrase(h)].filter((p): p is string => !!p);
-  const head = `About ${formatHours(h)} person-hours of work`;
-  return parts.length ? `${head}: ${parts.join(', or ')}.` : `${head}.`;
+  const head = `About ${formatHours(h)} hours of human work`;
+  return parts.length ? `${head}, like ${parts.join(', or ')}.` : `${head}.`;
 }
 
 /** How many full-time people the hours keep busy for the day or the week, or null below 1.5. */
@@ -124,7 +124,7 @@ export function yearPhrase(personHours: number): string | null {
   return months >= 1 ? `a person for ${months} ${plural(months, 'month')}` : null;
 }
 
-/** Person-hours per hour you were hands-on, or null when you weren't. */
+/** Human-time hours per hour of yours (the leverage), or null when you weren't there. */
 export function leverage(stats: WorkStats): number | null {
   const hours = stats.handsOnMinutes / 60;
   return hours >= 0.25 && stats.personHours > hours ? stats.personHours / hours : null;
@@ -198,7 +198,7 @@ export function workTiles(stats: WorkStats, days: number, opts: { weekday?: bool
       key: 'team',
       label: 'Like a team of',
       value: String(team.size),
-      context: [`for a ${team.span}`, ...(year ? [`or ${year}`] : [])],
+      context: [`working a full ${team.span}`, ...(year ? [`or ${year}`] : [])],
     });
   }
   const book = bookMatch(stats.agentWords);
@@ -208,7 +208,7 @@ export function workTiles(stats: WorkStats, days: number, opts: { weekday?: bool
       key: 'book',
       label: 'Like writing',
       value: capitalize(bookObject(book)),
-      context: [`${formatCount(stats.agentWords)} words${typingHours >= 1 ? `, ${formatHours(typingHours)} hours to type` : ''}`],
+      context: [`Agents wrote ${formatCount(stats.agentWords)} words`, ...(typingHours >= 1 ? [`${formatHours(typingHours)} hours just to type`] : [])],
     });
   }
   if (stats.peak && stats.peak.count >= 2) {
@@ -226,26 +226,26 @@ export function workTiles(stats: WorkStats, days: number, opts: { weekday?: bool
   return tiles;
 }
 
-/** You, your agents, and what each of your hours became. */
+/** Your time, your agents' time, and what each of your hours turned into. */
 export function leverageLine(stats: WorkStats): string | null {
   if (stats.agentMinutes < 1 && stats.handsOnMinutes < 1) return null;
-  const you = stats.handsOnMinutes >= 1 ? `You were hands-on ${formatDuration(stats.handsOnMinutes)}.` : 'You stayed out of it.';
-  const agents = `Agents ran ${formatDuration(stats.agentMinutes)}.`;
+  const agents = formatDuration(stats.agentMinutes);
+  if (stats.handsOnMinutes < 1) return `Agents worked ${agents} on their own.`;
   const handsOnHours = stats.handsOnMinutes / 60;
   const each = handsOnHours >= 0.25 && stats.personHours > handsOnHours
-    ? ` Each hour of yours became ${formatHours(stats.personHours / handsOnHours)} hours of work.`
+    ? ` Each hour of yours turned into about ${formatHours(stats.personHours / handsOnHours)} hours of human work.`
     : '';
-  return `${you} ${agents}${each}`;
+  return `You spent ${formatDuration(stats.handsOnMinutes)}. Agents worked ${agents}.${each}`;
 }
 
 /** Texture: work done on its own, the busiest moment, what shipped. */
 export function textureLine(stats: WorkStats, opts: { weekday?: boolean } = {}): string | null {
   const parts: string[] = [];
-  if (stats.whileAwayMinutes >= 30) parts.push(`${formatDuration(stats.whileAwayMinutes)} while you were away`);
+  if (stats.whileAwayMinutes >= 30) parts.push(`Agents worked ${formatDuration(stats.whileAwayMinutes)} while you were away`);
   if (stats.peak && stats.peak.count >= 2) {
     const at = new Date(stats.peak.at);
     const when = at.toLocaleString('en-US', { ...(opts.weekday ? { weekday: 'short' } : {}), hour: 'numeric', minute: '2-digit' });
-    parts.push(`${stats.peak.count} at once at the peak, ${when}`);
+    parts.push(`up to ${stats.peak.count} at once, ${when}`);
   }
   if (stats.commits > 0) parts.push(`${formatCount(stats.commits)} ${plural(stats.commits, 'commit')} across ${stats.agents} ${plural(stats.agents, 'agent')}`);
   return parts.length ? parts.join(' · ') : null;
@@ -313,9 +313,11 @@ export function weeklyReport(range: Omit<WorkRange, 'report' | 'generatedAt'>): 
     : 'No agent time yet.';
 
   const handsOnHours = t.handsOnMinutes / 60;
-  const line3 = t.personHours >= 0.5
-    ? `About ${formatHours(t.personHours)} person-hours of work from ${formatDuration(t.handsOnMinutes)} of yours${handsOnHours >= 0.25 ? `, ${formatHours(t.personHours / handsOnHours)}× your own time` : ''}.`
-    : 'Nothing measurable yet.';
+  const line3 = t.personHours < 0.5
+    ? 'Nothing measurable yet.'
+    : handsOnHours >= 0.25
+      ? `From ${formatSpan(t.handsOnMinutes)} of your time, agents did about ${formatHours(t.personHours)} hours of human work, ${formatHours(t.personHours / handsOnHours)}× your time.`
+      : `Agents did about ${formatHours(t.personHours)} hours of human work on their own.`;
 
   return [line1, line2, line3];
 }
