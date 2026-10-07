@@ -267,7 +267,7 @@ function AgentGroup({
       </div>
       <ul className="mt-1 space-y-0.5 pl-3.5">
         {shown.map((c) => (
-          <Tip key={c.hash} label={`${c.lines} lines changed, about ${formatHours(c.effortHours)}h for a person by hand`}>
+          <Tip key={c.hash} label={`${c.lines.toLocaleString('en-US')} new lines, about ${formatHours(c.effortHours)}h for a person by hand`}>
             <li className="flex items-start gap-1.5 text-[11.5px] leading-snug">
               <GitCommitHorizontal size={11} className="mt-[3px] shrink-0 text-muted-foreground" />
               <span className="min-w-0">{c.subject}</span>

@@ -5,9 +5,7 @@ import {
   MINUTE,
   MIN_BLOCK_MS,
   buildRange,
-  commitEffortHours,
   countWords,
-  effortLines,
   extendBlocks,
   localDayStart,
   mergeIntervals,
@@ -97,23 +95,7 @@ describe('interval math', () => {
   });
 });
 
-describe('commit sizing', () => {
-  it('leaves out generated, lock and data files, caps a file, discounts deletions', () => {
-    expect(
-      effortLines([
-        { path: 'src/a.ts', added: 100, deleted: 40 },
-        { path: 'pnpm-lock.yaml', added: 5000, deleted: 0 },
-        { path: 'public/logo.svg', added: 300, deleted: 0 },
-        { path: 'data/prices.json', added: 900, deleted: 0 },
-        { path: 'src/huge.ts', added: 5000, deleted: 0 },
-      ]),
-    ).toBe(110 + 800);
-  });
-
-  it('sizes in bands', () => {
-    expect([5, 50, 200, 800, 5000].map(commitEffortHours)).toEqual([0.5, 2, 6, 14, 24]);
-  });
-
+describe('words', () => {
   it('counts words', () => {
     expect(countWords('  ship   it now ')).toBe(3);
     expect(countWords(null)).toBe(0);

@@ -2,6 +2,7 @@
 
 import { Loader2 } from 'lucide-react';
 import { formatDuration, formatHours, formatSpan, formatTimes, leverageChain, workTiles, type LeverageChain } from '@/lib/work/equivalents';
+import { HUMAN_LINES_PER_HOUR } from '@/lib/work/lines';
 import type { WorkRange } from '@/lib/work/types';
 import { cn } from '@/lib/utils';
 import { agentStyle } from './work-style';
@@ -90,7 +91,7 @@ function ChainCard({ chain }: { chain: LeverageChain }) {
       <ChainStep
         label="Human time for the same work"
         value={`${formatHours(chain.personHours)}h`}
-        title="Roughly how long a skilled person would take to do all of this by hand. Each commit counts as the time a change that size takes, from half an hour for a small fix to three days for a big feature. Other agent work counts hour for hour."
+        title={`Roughly how long a skilled person would take to do all of this by hand. Code, docs and comments count at about ${HUMAN_LINES_PER_HOUR} new lines an hour, each line once. Other agent work counts hour for hour.`}
         context={chain.leverage ? `${formatTimes(chain.leverage)} your time` : undefined}
         hero
       />

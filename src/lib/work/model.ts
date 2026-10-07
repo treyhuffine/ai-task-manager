@@ -8,9 +8,10 @@
  *   3. Agent time: a block's events no more than 10 minutes apart. Longer
  *      gaps are waiting, not working.
  *   4. Spans: one agent's blocks on a day, merged where they overlap.
- *   5. Commits: sized like an engineer would estimate them. A span's
- *      person-hours are its commits' sizes, or its agent time when nothing
- *      was committed (research, writing and planning count one for one).
+ *   5. Commits: the new lines each wrote, at a fast engineer's pace
+ *      (`lines.ts`). A span's human time is its commits' hours, or its
+ *      agent time when nothing was committed (research, writing and
+ *      planning count hour for hour).
  */
 
 import { addDaysLocal } from '@/lib/calendar/dates';
@@ -168,49 +169,6 @@ export function peakConcurrency(intervals: readonly Interval[]): { count: number
     if (open > best.count) best = { count: open, at: t };
   }
   return best;
-}
-
-// ─── Commit sizing ──────────────────────────────────────────────
-
-/** Files whose lines say nothing about effort: generated, vendored, lock and data files. */
-const NOT_EFFORT =
-  /(^|\/)(node_modules|dist|build|out|\.next|vendor|coverage)\/|lock|\.min\.|\.snap$|\.map$|\.(csv|tsv|svg|png|jpe?g|gif|webp|ico|pdf|zip|woff2?|ttf|mp[34]|wav)$|drizzle\/meta\/|generated/i;
-/** One file can't make a commit huge on its own. */
-const MAX_LINES_PER_FILE = 800;
-
-export interface FileChange {
-  path: string;
-  added: number;
-  deleted: number;
-}
-
-/**
- * The lines in a commit that took effort: additions, plus a quarter of
- * deletions (removing is cheaper than writing), per file capped, with
- * generated and data files left out. A big JSON change is data, not work.
- */
-export function effortLines(files: readonly FileChange[]): number {
-  let total = 0;
-  for (const f of files) {
-    if (NOT_EFFORT.test(f.path)) continue;
-    if (f.path.endsWith('.json') && f.added + f.deleted > 300) continue;
-    total += Math.min(f.added + Math.floor(f.deleted / 4), MAX_LINES_PER_FILE);
-  }
-  return total;
-}
-
-/**
- * Hours a skilled person would need for a commit of this size, the way an
- * engineer sizes a change: a tweak, a small change, a feature, a large one,
- * a very large one. Bands, not a per-line rate: a 2,000-line change isn't
- * ten times a 200-line one.
- */
-export function commitEffortHours(lines: number): number {
-  if (lines < 20) return 0.5;
-  if (lines < 100) return 2;
-  if (lines < 400) return 6;
-  if (lines < 1200) return 14;
-  return 24;
 }
 
 // ─── Assembling a range ─────────────────────────────────────────

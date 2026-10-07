@@ -32,7 +32,7 @@ Without a calendar connected, work still shows over empty days, free time is lef
 - **Agent time**: the time your agents spent working, added up across every chat. Two agents working side by side for an hour are two hours.
 - **Human time for the same work**: roughly how long a skilled person would take to do all of it by hand. Shown as an estimate, to give a sense of scale, never as a precise figure. In sentences it's "hours of human work".
 
-The point to land is "a ton happened from me prompting", so the copy states what each number means and lets the size speak. The human-time tooltip says how in one plain line ("each commit counts as the time a change that size takes, from half an hour for a small fix to three days for a big feature, other agent work hour for hour"). The full method lives here, in "Human time" below.
+The point to land is "a ton happened from me prompting", so the copy states what each number means and lets the size speak. The human-time tooltip says how in one plain line ("code, docs and comments count at about 100 new lines an hour, each line once, other agent work hour for hour"). The full method lives here, in "Human time" below.
 
 The comparison tiles ("Like a team of", "Like writing") only appear once there's enough to compare: 1.5 people's worth of hours, 10,000 words. A light day or a fresh home shows the chain alone, which is why the dev home's small fictional week has no tiles.
 
@@ -75,7 +75,7 @@ So work gets its own encoding, and meetings keep theirs. Meetings stay as blocks
 
 ## Day lanes
 
-`src/components/calendar/work/work-lanes.tsx`. You first, as the same thin line, then a lane per agent that worked, in palette order, its spans as bars in its color. A white dot on a bar is a commit. One thin lane of yours beside many of theirs is the leverage, drawn. Click a bar for its chats (click one to open it) and commits, each commit with its size in hours. Lane names sit in a header row above the scrolling track.
+`src/components/calendar/work/work-lanes.tsx`. You first, as the same thin line, then a lane per agent that worked, in palette order, its spans as bars in its color. A white dot on a bar is a commit. One thin lane of yours beside many of theirs is the leverage, drawn. Click a bar for its chats (click one to open it) and commits, each commit with its new lines and their hours. Lane names sit in a header row above the scrolling track.
 
 ## Report
 
@@ -109,7 +109,7 @@ Pure, in `src/lib/work/model.ts`, with tests.
 1. **Events.** Every chat's work events: your messages, agent replies, tool calls and results, thinking, turn results, approvals, errors. System frames, background-task heartbeats and recaps aren't work. Messages another chat sent don't count as yours.
 2. **Blocks.** Per chat, a new block starts after 30 minutes of quiet. A block is at least 5 minutes long.
 3. **Agent time.** Inside a block, the time between consecutive events that are no more than 10 minutes apart. Longer gaps are the agent waiting, usually on you. This is real running time, summed across parallel chats.
-4. **Your time (hands-on).** Your own messages, cut into sittings the same way (30 minutes of quiet ends one, each at least 5 minutes).
+4. **Your time.** Your own messages, cut into sittings the same way (30 minutes of quiet ends one, each at least 5 minutes).
 5. **While you were away.** Each block's agent time, minus the share of it that overlaps your sittings.
 6. **Spans.** On each day, one agent's blocks merged where they overlap or come within 10 minutes. Nine parallel chats in one agent draw as one span listing all nine.
 7. **Commits.** Read from git, per agent repo: your commits (the repo's `user.email`) on local branches, which include every execution worktree's branch. Remote branches are left out, since they carry teammates' work and rebased copies. A commit belongs to the span of an agent on that repo whose window holds it (1 minute before to 5 minutes after), else it's listed loose for its day.
@@ -117,24 +117,28 @@ Pure, in `src/lib/work/model.ts`, with tests.
 
 ## Human time (how it's estimated)
 
-For us, not for the screen. The product only ever says "roughly how long a skilled person would take to do all of this by hand". This is how that number is made. Internally the field is still `personHours`.
+For us, not for the screen. The product says "roughly how long a skilled person would take to do all of this by hand", and the tooltip adds the pace in one line. This is the whole method. Internally the field is still `personHours`.
 
-Agent time is real time: how long agents were actually working. It says nothing about speed. Human time is the other half: how long the same output would take a skilled person working by hand. Two rules make it:
+Agent time is real time: how long agents were actually working. It says nothing about speed. Human time is the other half: how long the same output would take a skilled person by hand.
 
-- **Code** is sized the way an engineer sizes a change. Each commit lands in a size band by the lines that took effort (lines added, plus a quarter of lines deleted, each file capped at 800, with generated, lock, vendored, data and binary files left out):
+**Code: the new lines written, at 100 an hour.** (`src/lib/work/lines.ts`, `commits.ts`)
 
-  | Lines that took effort | Hours for a person |
-  | --- | --- |
-  | under 20 | 0.5 (a small fix) |
-  | under 100 | 2 |
-  | under 400 | 6 (most of a day) |
-  | under 1,200 | 14 (about two days) |
-  | 1,200 and up | 24 (three days) |
+1. Read every commit of yours in the range from git, with its diff.
+2. Keep the lines that took writing. Leave out generated, lock, vendored, minified and data files (and any JSON file changed by more than 300 lines in one commit), blank lines, and lines of only brackets.
+3. Count each line once. A line counts for the first commit that writes it, so work written on a branch and then squashed onto main counts on the branch, and a rebase or cherry-pick adds nothing. Commits up to 28 days before the range are read too, so a branch built last week and squashed this week still counts once.
+4. Don't count moves. A line deleted in one place and added in another in the same commit (a refactor, or a reindent) counts neither way.
+5. Removing a line counts a quarter of writing one.
+6. Divide by `HUMAN_LINES_PER_HOUR`, 100: the pace of a fast, skilled engineer, for code, docs and comments alike.
 
-  Bands, not a per-line rate: a rate (25 lines an hour) put the week at 12,600 hours, which nobody would believe. Bands keep a huge commit from counting for weeks. Three days is the most any single commit is credited with.
-- **Everything else** (research, writing, planning, reviews, chats that committed nothing) counts hour for hour: an hour of agent time is an hour of a person's. That undercounts on purpose, since an agent reads and writes far faster than a person.
+Commit sizes don't matter: the same thousand lines in one commit or in fifty is ten hours either way. Each commit is credited with the lines it wrote, so the hours land on the day the work was done.
 
-**The week of Sep 28, worked through.** 256 commits: 42 small (21h), 50 at 2h (100h), 70 at 6h (420h), 42 at 14h (588h) and 52 at three days (1,248h), so 2,377 hours of code. Plus 21 hours of agent work that committed nothing, counted hour for hour. That's 2,398 hours of human work. Your time was about 42 hours, so 2,398 ÷ 42 is 58× your time. Agent time was 124 hours, so the arrows read 124 ÷ 42 ≈ 3× and 2,398 ÷ 124 ≈ 19×. Half the total comes from the 52 biggest commits, so the size of the largest changes moves the number most.
+**Everything else** (research, writing, planning, reviews, chats that committed nothing) counts hour for hour: an hour of agent time is an hour of a person's.
+
+**Why 100 an hour.** A judgment, not a measurement, and kept round. Fast enough that a few hundred lines of a React component reads as a few hours, not days. Docs and comments count at the same pace, which is generous to the person (a thousand words of good prose in an hour is fast), so the estimate stays on the low side. It's one constant. If it ever needs to be a setting it can be, but nobody has needed to change it yet.
+
+**How we got here.** The first version sized each commit in bands (half an hour up to three days, capped). That made the total depend on how the work was cut into commits: the same thousand lines came to 14 hours as one commit and 100 hours as fifty. It also undercounted big work, since one commit could never count past three days. Raw line totals, tried before that, counted the same lines several times: a branch, then its squash onto main.
+
+**The week of Sep 28, worked through.** 293 commits of yours across 11 repos wrote 181,200 new lines (after moves, repeats and generated files), so about 1,812 hours of code. Agents worked about 21 more hours that committed nothing, counted hour for hour. That's about 1,830 hours of human work. The bands had said 2,398, and raw line totals 12,600. The biggest single commit, "Rework connectors", wrote 12,862 new lines: 129 hours.
 
 **The comparisons** are plain division: a team for a week is the hours over 40 (over 8 for a day), people for a year is the hours over 2,000 (months below a year), and "Like writing" compares the words agents wrote to well-known books, with typing time at 40 words a minute.
 
@@ -151,7 +155,7 @@ It isn't exact and doesn't try to be. It's consistent week to week, it can be ex
 - **Kept current lazily but incrementally.** Each read first folds in the rows added since the last one, by rowid, so it's a handful of rows between two looks, and an imported transcript's old timestamps aren't missed (a chat that receives older history is rebuilt from all its events).
 - **The first build** reads all history in 20,000-row chunks, yielding between them. On prod's history (9.5 GB, 468k work events) it took 14 seconds, and later reads take milliseconds. The calendar says it's adding up the work meanwhile.
 - **Size:** about 470 KB for prod's history.
-- **Commits aren't stored.** Git is already an index. Each repo is asked for the range, cached a minute.
+- **Commits aren't stored.** Git is already an index. Each repo is asked for the range, cached a minute. A commit's diff is read once per server process and remembered as line hashes (a commit never changes), streamed a line at a time so the server keeps answering. The first look after a restart reads the range plus 28 days back: about 12 seconds for prod's busiest week across 11 repos, then a fraction of a second.
 
 If the trial sticks, the blocks move to a table written as events arrive. The model doesn't change.
 
@@ -173,6 +177,7 @@ If the trial sticks, the blocks move to a table written as events arrive. The mo
 - An agent's Overview: that agent's week.
 - One muted line in the morning deck: yesterday's human time and leverage, if the header pill isn't enough.
 - A table instead of the file, if the trial sticks.
+- The pace (`HUMAN_LINES_PER_HOUR`, 100) as a setting, only if someone needs to change it.
 
 ## Files
 

@@ -6,15 +6,19 @@
  * person share a machine, like the calendar's own day shape).
  */
 
-/** One commit, sized like an engineer would estimate it. */
+/** One commit, and the new lines it wrote. */
 export interface WorkCommit {
   hash: string;
   at: string;
   subject: string;
   agentId: string | null;
-  /** Changed lines that count: generated, lock and data files left out. */
+  /**
+   * The new lines it wrote, each counted once, plus a quarter of the lines it
+   * removed: moves, repeats (a squash of work already on a branch) and
+   * generated, lock and data files left out (`lines.ts`).
+   */
   lines: number;
-  /** What a person would need for it, by size (`commitEffortHours`). */
+  /** What a person would need for it: its lines at `HUMAN_LINES_PER_HOUR`. */
   effortHours: number;
 }
 

@@ -72,6 +72,8 @@ const PER_COPY: Record<string, string> = {
   'src/lib/workspaces/index.ts:cached': 'cache: one agentex workspace handle',
   'src/lib/work/commits.ts:cache': 'cache: TTL',
   'src/lib/work/commits.ts:emails': 'cache: git identities',
+  'src/lib/work/commits.ts:commitLines': 'cache: a commit never changes, each copy reads it once',
+  'src/lib/work/commits.ts:rememberedLines': 'the size of commitLines, kept beside it',
   'src/lib/pricing/models.ts:warnedUnknownModels': 'log dedupe only',
   'src/lib/skills/manage.ts:sessionControlOverride': 'test seam',
   'src/lib/service/runtime-job.ts:owner': 'controller process only',

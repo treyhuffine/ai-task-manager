@@ -11,6 +11,7 @@
  */
 
 import { INTEGRATION_LABELS } from '@/constants/integrations';
+import { HUMAN_LINES_PER_HOUR } from '@/lib/work/lines';
 import { AttachmentMetadataRepairError, MAX_ATTACHMENT_METADATA_REPAIRS, REPAIR_ATTACHMENT_FILE_NAME } from '@/lib/attachments/repair-metadata';
 import { actorFromAction } from '@/lib/auth/actor';
 import {
@@ -3265,7 +3266,7 @@ const work_summary_action = defineAction({
   description:
     'What the person and their agents did over a range of days, measured (docs/work-view.md): ' +
     'their own time, their agents\' time, and the human time the same work would take (an estimate for scale: ' +
-    'commits sized like an engineer would size them, other agent work hour for hour), commits by agent, ' +
+    `new lines of code and docs at about ${HUMAN_LINES_PER_HOUR} an hour, each line once, other agent work hour for hour), commits by agent, ` +
     'finished executions and tasks, and a three-line report. ' +
     'Use for "what did I do this week" and weekly reports. Defaults to this week (Monday on). ' +
     'Quote the numbers and lines as given rather than recomputing them.',
