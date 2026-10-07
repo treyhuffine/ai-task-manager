@@ -77,6 +77,7 @@ import {
   shouldThrottledBump,
   type ActivityReason,
 } from '@/lib/sessions/activity';
+import type { ReferencePage, ReferenceRow, ReferenceSection } from '@/lib/sessions/contracts';
 import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 import { assertSupportedPermissionMode } from '@/lib/executor/permission-map';
@@ -9469,6 +9470,206 @@ export function unpinSessionRef(args: {
     )
     .run();
   return result.changes > 0;
+}
+
+// ─── Session references (the Notes & tasks view) ─────────────
+
+/** Rows per page of the execution's Notes & tasks view. */
+export const REFERENCE_PAGE_SIZE = 50;
+const MAX_REFERENCE_PAGE_SIZE = 200;
+/** Words past this many are ignored, which bounds the statement. */
+const MAX_REFERENCE_SEARCH_TERMS = 8;
+const REFERENCE_SECTIONS: readonly ReferenceSection[] = ['inChat', 'workspace', 'all'];
+/** Statuses are constants, so they go in the SQL as literals. */
+const sqlList = (values: readonly string[]) => values.map((v) => `'${v}'`).join(', ');
+// Legacy `active` bytes count as open, as everywhere else (expandStatusFilter).
+const REFERENCE_OPEN_TASKS = sqlList(expandStatusFilter('active'));
+const REFERENCE_LISTED_TASKS = sqlList(expandStatusFilter(['active', 'done']));
+
+export class ReferenceCursorError extends Error {
+  constructor() {
+    super('Not a Notes & tasks cursor. Start again from the first page.');
+    this.name = 'ReferenceCursorError';
+  }
+}
+
+/** The last row's sort position: section, open rank, sort time, kind, id. */
+type ReferenceCursor = [number, number, string, 'task' | 'note', string];
+
+function encodeReferenceCursor(cursor: ReferenceCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+}
+
+function decodeReferenceCursor(raw: string): ReferenceCursor {
+  try {
+    const c: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    if (
+      Array.isArray(c) && c.length === 5 &&
+      Number.isInteger(c[0]) && Number.isInteger(c[1]) && typeof c[2] === 'string' &&
+      (c[3] === 'task' || c[3] === 'note') && typeof c[4] === 'string'
+    ) {
+      return c as ReferenceCursor;
+    }
+  } catch {
+    // Not base64url JSON. Same answer as a well-formed stranger.
+  }
+  throw new ReferenceCursorError();
+}
+
+/** A `LIKE` pattern for "contains", with `%`, `_` and the escape taken literally. */
+function likeContains(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+interface ReferenceScanRow {
+  kind: 'task' | 'note';
+  id: string;
+  title: string | null;
+  status: string | null;
+  areaId: string | null;
+  workspaceId: string | null;
+  updatedAt: string;
+  referencedAt: string | null;
+  sectionRank: number;
+  openRank: number;
+  sortAt: string;
+}
+
+/**
+ * One page of the tasks and notes a chat can pull in, for the execution's
+ * Notes & tasks view. Three sections in one order, so the view pages through
+ * them as a single list:
+ *
+ *   inChat     mentioned or pinned in this chat (chat_refs), any status,
+ *              last referenced first
+ *   workspace  in the chat's agent: open tasks first, then done tasks and
+ *              notes, each by recency
+ *   all        every other open or done task and active note, by recency
+ *
+ * `q` keeps the rows whose title contains every word of it, case-insensitive
+ * (ASCII), across the whole home rather than the pages already loaded.
+ * `counts` cover each section under the same search. The cursor is the last
+ * row's sort position, so an edit while the user scrolls can't shift the
+ * next page onto rows they have already seen.
+ */
+export function listSessionReferences(opts: {
+  sessionId: string;
+  workspaceId: string | null;
+  q?: string;
+  cursor?: string | null;
+  limit?: number;
+}): ReferencePage {
+  const limit = Math.min(Math.max(Math.trunc(opts.limit ?? REFERENCE_PAGE_SIZE), 1), MAX_REFERENCE_PAGE_SIZE);
+  const terms = (opts.q ?? '').trim().split(/\s+/).filter(Boolean).slice(0, MAX_REFERENCE_SEARCH_TERMS);
+  const params: Record<string, string | number | null> = {
+    sessionId: opts.sessionId,
+    workspaceId: opts.workspaceId,
+  };
+  const titleMatch = terms.map((term, i) => {
+    params[`term${i}`] = likeContains(term);
+    return `title LIKE :term${i} ESCAPE '\\'`;
+  });
+
+  // A NULL workspaceId never equals anything, so a chat without an agent
+  // has no workspace section and everything else lands in `all`.
+  const ranked = `
+    WITH refs AS (
+      SELECT entity_type AS type, entity_id AS id, MAX(created_at) AS referencedAt
+      FROM chat_refs
+      WHERE session_id = :sessionId AND entity_type IN ('task', 'note')
+      GROUP BY entity_type, entity_id
+    ),
+    candidates AS (
+      SELECT 'task' AS kind, t.id AS id, t.title AS title, t.status AS status,
+             t.area_id AS areaId, t.workspace_id AS workspaceId,
+             t.updated_at AS updatedAt, r.referencedAt AS referencedAt
+      FROM tasks t
+      LEFT JOIN refs r ON r.type = 'task' AND r.id = t.id
+      WHERE r.id IS NOT NULL OR t.status IN (${REFERENCE_LISTED_TASKS})
+      UNION ALL
+      SELECT 'note', n.id, n.title, NULL, n.area_id, n.workspace_id, n.updated_at, r.referencedAt
+      FROM notes n
+      LEFT JOIN refs r ON r.type = 'note' AND r.id = n.id
+      WHERE r.id IS NOT NULL OR n.status = 'active'
+    ),
+    ranked AS (
+      SELECT *,
+        CASE
+          WHEN referencedAt IS NOT NULL THEN 0
+          WHEN workspaceId = :workspaceId THEN 1
+          ELSE 2
+        END AS sectionRank,
+        CASE
+          WHEN referencedAt IS NULL AND workspaceId = :workspaceId
+               AND kind = 'task' AND status IN (${REFERENCE_OPEN_TASKS}) THEN 0
+          ELSE 1
+        END AS openRank,
+        COALESCE(referencedAt, updatedAt) AS sortAt
+      FROM candidates
+      ${titleMatch.length > 0 ? `WHERE ${titleMatch.join(' AND ')}` : ''}
+    )`;
+
+  const raw = getRawDb();
+  const counts: Record<ReferenceSection, number> = { inChat: 0, workspace: 0, all: 0 };
+  const countRows = raw
+    .prepare(`${ranked} SELECT sectionRank, COUNT(*) AS n FROM ranked GROUP BY sectionRank`)
+    .all(params) as Array<{ sectionRank: number; n: number }>;
+  for (const r of countRows) counts[REFERENCE_SECTIONS[r.sectionRank]] = r.n;
+
+  // Keyset: everything strictly after the cursor in
+  // (sectionRank, openRank, sortAt DESC, kind DESC, id DESC) order.
+  let after = '';
+  const pageParams: Record<string, string | number | null> = { ...params, limit: limit + 1 };
+  if (opts.cursor) {
+    const [section, open, at, kind, id] = decodeReferenceCursor(opts.cursor);
+    Object.assign(pageParams, { afterSection: section, afterOpen: open, afterAt: at, afterKind: kind, afterId: id });
+    after = `
+      WHERE (sectionRank, openRank) > (:afterSection, :afterOpen)
+         OR ((sectionRank, openRank) = (:afterSection, :afterOpen)
+             AND (sortAt < :afterAt OR (sortAt = :afterAt AND (kind, id) < (:afterKind, :afterId))))`;
+  }
+  const scan = raw
+    .prepare(`${ranked}
+      SELECT * FROM ranked ${after}
+      ORDER BY sectionRank, openRank, sortAt DESC, kind DESC, id DESC
+      LIMIT :limit`)
+    .all(pageParams) as ReferenceScanRow[];
+  const page = scan.slice(0, limit);
+
+  // The chevron's count matches what expanding shows: subtasks not archived.
+  const taskIds = page.filter((r) => r.kind === 'task').map((r) => r.id);
+  const subtaskCounts = new Map<string, number>();
+  if (taskIds.length > 0) {
+    const rows = getDb()
+      .select({ parentId: tasks.parentId, n: sql<number>`count(*)` })
+      .from(tasks)
+      .where(and(inArray(tasks.parentId, taskIds), notInArray(tasks.status, ['archived'])))
+      .groupBy(tasks.parentId)
+      .all();
+    for (const r of rows) if (r.parentId) subtaskCounts.set(r.parentId, r.n);
+  }
+
+  const last = page[page.length - 1];
+  return {
+    rows: page.map((r): ReferenceRow => ({
+      kind: r.kind,
+      id: r.id,
+      title: r.title ?? 'Untitled',
+      ...(r.kind === 'task'
+        ? { status: normalizeTaskStatus(r.status), subtaskCount: subtaskCounts.get(r.id) ?? 0 }
+        : {}),
+      areaId: r.areaId,
+      workspaceId: r.workspaceId,
+      updatedAt: r.updatedAt,
+      section: REFERENCE_SECTIONS[r.sectionRank],
+      referencedAt: r.referencedAt,
+    })),
+    counts,
+    nextCursor:
+      scan.length > limit && last
+        ? encodeReferenceCursor([last.sectionRank, last.openRank, last.sortAt, last.kind, last.id])
+        : null,
+  };
 }
 
 /**

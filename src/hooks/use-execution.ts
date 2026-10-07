@@ -18,7 +18,7 @@ import {
 import type { HarnessId } from '@/lib/harness/registry';
 import { deliveryClock, mergeDeliverySnapshot, noteDeliveryUpdate, streamedSince } from '@/lib/query/delivery-fence';
 import type { MessageDelivery } from '@/lib/workers/delivery';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { toast } from 'sonner';
 import { uuidv7 } from 'uuidv7';
@@ -1283,19 +1283,26 @@ export function usePicker(id: string | null, opts?: { all?: boolean }) {
 }
 
 /**
- * Three-section dataset that powers the references slide-over. The
- * server computes section membership (in-chat / workspace / all) so the
- * client can render without re-doing the precedence logic.
+ * The execution's Notes & tasks view, a page at a time. The server orders
+ * the three sections (in this chat, in this agent, everything else) and
+ * runs the search over the whole home, so each search is its own list that
+ * only ever appends pages. The rows on screen stay while a new search loads.
+ * With no search this is also where the panel's "N linked" count comes
+ * from (`pages[0].counts.inChat`), sharing the first page with the view.
  */
-export function useSessionReferences(
-  id: string | null,
-  scope: 'session' | 'workspace' | 'all' = 'session',
-) {
-  return useQuery({
-    queryKey: ['session', id, 'references', scope] as const,
-    queryFn: () => sessionsApi.references(id!, { scope }),
+export function useSessionReferences(id: string | null, q = '') {
+  const search = q.trim();
+  return useInfiniteQuery({
+    queryKey: ['session', id, 'references', search] as const,
+    queryFn: ({ pageParam, signal }) => sessionsApi.references(id!, { q: search, cursor: pageParam, signal }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
     enabled: !!id,
     staleTime: 10_000,
+    // Only across searches in the same chat. Another chat's rows would claim
+    // to be "in this chat" until the fetch landed.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === id ? keepPreviousData(previous) : undefined,
   });
 }
 

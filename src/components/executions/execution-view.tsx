@@ -412,8 +412,8 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
 
   // Status for the box, tabs and sheet.
   const diffStats = useDiffStats(folder ? sessionId : null, executionId);
-  const references = useSessionReferences(sessionId, 'all');
-  const linkedCount = references.data?.inChat.length ?? 0;
+  const references = useSessionReferences(sessionId);
+  const linkedCount = references.data?.pages[0]?.counts.inChat ?? 0;
   const { data: scratch } = useScratchpad(sessionId);
   const scratchHasContent = !!scratch?.scratchPad?.trim();
 

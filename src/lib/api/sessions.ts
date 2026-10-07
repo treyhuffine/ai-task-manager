@@ -175,14 +175,13 @@ export type PickerResponse = RouterOutputs['sessions']['pickerGet'];
 export type EntitiesResponse = RouterOutputs['sessions']['entitiesGet'];
 
 /**
- * Wire shape for the references slide-over. `inChat` is the
- * `[[task|note|scratchpad]]`-mentioned set for this session; `workspace`
- * is everything with `workspaceId === current` not already in chat;
- * `all` is everything else when the scope filter widens.
+ * One page of the execution's Notes & tasks view. Rows arrive in section
+ * order (in this chat, in this agent, everything else), each naming its
+ * section. `counts` are whole-section totals under the same search.
  */
-export type ReferenceRow = RouterOutputs['sessions']['referencesGet']['inChat'][number];
+export type ReferencesPage = RouterOutputs['sessions']['referencesGet'];
 
-export type ReferencesResponse = RouterOutputs['sessions']['referencesGet'];
+export type ReferenceRow = ReferencesPage['rows'][number];
 
 export type ExecutionChatHistoryEntry = RouterOutputs['sessions']['historyGet']['sessions'][number];
 
@@ -259,8 +258,12 @@ export const sessionsApi = {
     return trpcClient.sessions.entitiesGet.query({params: {id: id}});
   },
 
-  references(id: string, opts?: { scope?: 'session' | 'workspace' | 'all' }) {
-    return trpcClient.sessions.referencesGet.query({params: {id: id}, query: rpcQuery(opts?.scope ? { scope: opts.scope } : undefined)});
+  /** `q` searches every title in the home; `cursor` is the previous page's `nextCursor`. */
+  references(id: string, opts?: { q?: string; cursor?: string | null; signal?: AbortSignal }) {
+    return trpcClient.sessions.referencesGet.query(
+      {params: {id: id}, query: rpcQuery({ q: opts?.q || undefined, cursor: opts?.cursor ?? undefined })},
+      rpcOptions({ signal: opts?.signal }),
+    );
   },
 
   pinRef(id: string, body: { entityType: 'task' | 'note' | 'area'; entityId: string }) {

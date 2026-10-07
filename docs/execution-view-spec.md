@@ -151,8 +151,15 @@ switching keeps the preview loaded, the open file, and scroll positions.
   the tree column keeps only search (⌘P) and the full-width All / Changes
   switch, whose count caps at 99+. With nothing open: files changed in
   this worktree and recently opened files.
-- **Notes & tasks**, **Scratchpad**: the former slide-overs, now panel
-  views. The scratchpad is stored per chat, so its view names the chat.
+- **Notes & tasks** (`references-pane.tsx`): every task and note the chat
+  can pull in, one list in three sections: In this chat (mentioned or
+  pinned, any status), In this agent (open tasks first), then All. It pages
+  as the end scrolls into reach, a section's count is its whole size, and
+  search runs on the server over every title in the home, never just the
+  loaded pages (`listSessionReferences`, a keyset cursor so an edit while
+  scrolling can't skip a row).
+- **Scratchpad**: stored per chat, so its view names the chat. Both were
+  slide-overs before the panel.
 
 **Terminal.** A drawer across the whole bottom (under the chat and the
 panel), resizable and expandable. Mounted only while open. Hiding it never
