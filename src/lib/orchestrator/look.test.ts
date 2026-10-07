@@ -3,7 +3,7 @@ import { APP_NAME } from '@/constants/app';
 import { avatarArtSvg } from './art';
 import { ORCHESTRATOR_COLORS, isOrchestratorColor, parseOrchestratorLook, textColorOn } from './look';
 import { normalizeOrchestratorName } from './name';
-import { ORCHESTRATOR_PRESETS } from './presets';
+import { ORCHESTRATOR_PRESETS, PRESET_NOTE_MAX } from './presets';
 
 const image = {
   fileName: '01a0f8ec-b320-7fb4-8368-699677275515.png',
@@ -71,6 +71,7 @@ describe('ORCHESTRATOR_PRESETS', () => {
       const parsed = parseOrchestratorLook({ orchestratorEmoji: preset.emoji, orchestratorColor: preset.color });
       expect(parsed).toEqual({ patch: { orchestratorEmoji: preset.emoji, orchestratorColor: preset.color } });
       expect(preset.note).not.toMatch(/[—–;]/);
+      expect([...preset.note].length).toBeLessThanOrEqual(PRESET_NOTE_MAX);
     }
     expect(names.size).toBe(ORCHESTRATOR_PRESETS.length);
   });

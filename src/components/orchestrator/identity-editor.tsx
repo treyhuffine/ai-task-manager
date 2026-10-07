@@ -230,7 +230,7 @@ export function IdentityEditor({
                   aria-pressed={selected}
                   onClick={() => onChange({ name: preset.name, emoji: preset.emoji, color: preset.color, image: null })}
                   className={cn(
-                    'flex w-[8.5rem] flex-shrink-0 snap-start items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors',
+                    'flex w-36 flex-shrink-0 snap-start items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors',
                     selected ? 'border-primary/60 bg-primary/5' : 'border-border hover:bg-muted/50',
                   )}
                 >
