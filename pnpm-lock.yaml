@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@agentex/agent':
-        specifier: ^0.0.40
-        version: 0.0.40(zod@3.25.76)
+        specifier: ^0.0.42
+        version: 0.0.42(zod@3.25.76)
       '@agentex/github':
         specifier: ^0.0.1
         version: 0.0.1
@@ -68,9 +68,6 @@ importers:
       '@codemirror/view':
         specifier: ^6.42.1
         version: 6.42.1
-      '@integrations/engine':
-        specifier: workspace:*
-        version: link:packages/integrations
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -89,6 +86,9 @@ importers:
       '@google/generative-ai':
         specifier: ^0.24.1
         version: 0.24.1
+      '@integrations/engine':
+        specifier: workspace:*
+        version: link:packages/integrations
       '@lezer/highlight':
         specifier: ^1.2.3
         version: 1.2.3
@@ -475,8 +475,8 @@ packages:
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
 
-  '@agentex/agent@0.0.40':
-    resolution: {integrity: sha512-oNQLrlu8IfhPqa/6xYySCymRGwKQdxQZicpdFWqaqbVKc+Ss1qFI8vXghqFW+2qVB0Mwcven/MP1tcA2cDM3Cw==}
+  '@agentex/agent@0.0.42':
+    resolution: {integrity: sha512-7aG22pcSriqrbl/S5WQ7DO4ErTH1dH6YuOZ+3Db4LfQ+aovqIsZOkOwoqeNXFyk7DUYovtJ+IXmlune0b9WDRA==}
     engines: {node: '>=20.19.0'}
 
   '@agentex/github@0.0.1':
@@ -9514,7 +9514,7 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@agentex/agent@0.0.40(zod@3.25.76)':
+  '@agentex/agent@0.0.42(zod@3.25.76)':
     dependencies:
       '@agentclientprotocol/sdk': 0.24.0(zod@3.25.76)
     transitivePeerDependencies:
