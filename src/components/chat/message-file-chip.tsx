@@ -38,7 +38,7 @@ export function MessageFileChip({ attachment, variant = 'inline' }: MessageFileC
   if (isText) {
     return <TextExpandChip url={url} display={display} variant={variant} size={size} />;
   }
-  return <DownloadChip url={url} display={display} variant={variant} size={size} mime={mimeType} />;
+  return <DownloadChip url={url} display={display} variant={variant} size={size} />;
 }
 
 // ─── Image variant ─────────────────────────────────────────────
@@ -130,7 +130,7 @@ function TextExpandChip({ url, display, variant, size }: {
 
   return (
     <span className={cn(variant === 'block' && 'block my-1')}>
-      <Tip label={`${display} · ${formatSize(size)}`}>
+      <Tip label={`${display} · ${formatSize(size)}`} onlyWhenTextHidden>
         <button
           type="button"
           onClick={handleToggle}
@@ -173,12 +173,12 @@ function TextExpandChip({ url, display, variant, size }: {
 
 // ─── Download variant ─────────────────────────────────────────
 
-function DownloadChip({ url, display, variant, size, mime }: {
-  url: string; display: string; variant: 'inline' | 'block'; size: number; mime: string;
+function DownloadChip({ url, display, variant, size }: {
+  url: string; display: string; variant: 'inline' | 'block'; size: number;
 }) {
   return (
     <span className={cn(variant === 'block' && 'block my-1')}>
-      <Tip label={`${display} · ${mime} · ${formatSize(size)}`}>
+      <Tip label={`${display} · ${formatSize(size)}`} onlyWhenTextHidden>
         <a
           href={url}
           download={display}

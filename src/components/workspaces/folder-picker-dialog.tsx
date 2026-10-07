@@ -392,13 +392,11 @@ export function FolderPickerDialog({
                       {entry.name}
                     </span>
                     {entry.git && (
-                      <Tip label="A Git project">
-                        <span
-                          className="ml-auto flex shrink-0 items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] text-muted-foreground"
-                        >
-                          <GitBranch size={8} /> git
-                        </span>
-                      </Tip>
+                      <span
+                        className="ml-auto flex shrink-0 items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] text-muted-foreground"
+                      >
+                        <GitBranch size={8} /> git
+                      </span>
                     )}
                     {isDir && (
                       <ChevronRight

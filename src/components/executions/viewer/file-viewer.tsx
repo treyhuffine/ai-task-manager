@@ -302,17 +302,15 @@ function FileViewerHeader({
         </span>
       ) : (
         dirty && onDiscard && (
-          <Tip label="Discard unsaved changes">
-            <button
-              type="button"
-              onClick={onDiscard}
-              data-skip-autosave
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shrink-0"
-            >
-              <RotateCcw size={10} />
-              Discard
-            </button>
-          </Tip>
+          <button
+            type="button"
+            onClick={onDiscard}
+            data-skip-autosave
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shrink-0"
+          >
+            <RotateCcw size={10} />
+            Discard
+          </button>
         )
       )}
       {(isChanged || isMarkdown) && (

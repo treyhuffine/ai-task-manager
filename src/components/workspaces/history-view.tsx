@@ -110,14 +110,12 @@ export function HistoryView() {
               />
             ))}
             {selectedWs.size > 0 && (
-              <Tip label="Clear agent filter">
-                <button
-                  onClick={() => setSelectedWs(new Set())}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors flex-shrink-0"
-                >
-                  <X size={9} /> Clear
-                </button>
-              </Tip>
+              <button
+                onClick={() => setSelectedWs(new Set())}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors flex-shrink-0"
+              >
+                <X size={9} /> Clear
+              </button>
             )}
           </div>
         </div>

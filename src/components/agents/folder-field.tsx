@@ -43,7 +43,7 @@ export function FolderField({
           autoCorrect="off"
           className="h-8 min-w-0 flex-1 font-mono text-[12px]"
         />
-        <Tip label={browsable ? `Browse ${device.name}` : `${device.name} isn't running Ri right now. Type the path instead.`}>
+        <Tip label={browsable ? undefined : `${device.name} isn't running Ri right now. Type the path instead.`}>
           <Button
             type="button"
             variant="outline"

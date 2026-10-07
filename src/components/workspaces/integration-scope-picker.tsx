@@ -325,7 +325,7 @@ export function IntegrationScopePicker({ scopes, onChange, disabled }: Integrati
             const pins = scopePins(s);
             return (
               <div key={s.toolkitId} className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                <Tip label={pins.map((p) => p.accountId).join(', ')}>
+                <Tip label={pins.map((p) => p.accountId).join(', ')} onlyWhenTextHidden={pins.length < 2}>
                   <span className="min-w-0 truncate font-mono">
                     {s.toolkitId}
                     {pins.length === 1 ? ` · ${pins[0]!.accountId}` : pins.length > 1 ? ` · ${pins.length} accounts` : ''}

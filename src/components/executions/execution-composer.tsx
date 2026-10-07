@@ -983,7 +983,7 @@ function ModePicker({ harness, open, onOpenChange, current, options, onSelect, d
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Tip label={`${meta.title}: ${descriptionFor(current)}\nShift+Tab to cycle`}>
+        <Tip label={`${meta.title}: ${descriptionFor(current)}`}>
           <button
             type="button"
             disabled={disabled}

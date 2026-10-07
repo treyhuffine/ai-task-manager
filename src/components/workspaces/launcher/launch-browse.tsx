@@ -373,7 +373,7 @@ export function LaunchBrowse({
             const isIntegration = s.id !== SCOPE_ALL && s.id !== SCOPE_LOCAL;
             const selected = s.id === effectiveScope;
             return (
-              <Tip key={s.id} label={isIntegration ? (isTaskTab ? s.label : `Show ${s.label} tasks`) : undefined}>
+              <Tip key={s.id} label={isIntegration && !selected ? (isTaskTab ? s.label : `Show ${s.label} tasks`) : undefined}>
                 <button
                   type="button"
                   onClick={() => selectScope(s.id)}

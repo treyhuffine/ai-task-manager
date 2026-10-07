@@ -377,13 +377,11 @@ function ReviewBadge({ decision }: { decision: PrReviewDecision }) {
     },
   }[decision];
   return (
-    <Tip label={`Review: ${cfg.label}`}>
-      <span
-        className={`inline-flex items-center rounded border px-1 py-0.5 text-[10px] font-medium leading-none ${cfg.cls}`}
-      >
-        {cfg.label}
-      </span>
-    </Tip>
+    <span
+      className={`inline-flex items-center rounded border px-1 py-0.5 text-[10px] font-medium leading-none ${cfg.cls}`}
+    >
+      {cfg.label}
+    </span>
   );
 }
 
@@ -628,7 +626,6 @@ function NarrativeBody({ state, base, hasPr, badges, theme, sessionId, push, pul
             onClick={push.onClick}
             pending={push.pending}
             variant="primary"
-            title="Push branch to origin"
           />
         </>
       );

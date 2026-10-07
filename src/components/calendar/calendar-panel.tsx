@@ -107,21 +107,14 @@ export function CalendarPanel() {
           <div className="flex-1" />
 
           {/* Week look-ahead — opens the full-screen calendar (needs width) */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => openCalendarModal({ view: 'week', date: anchor })}
-                className="hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-border text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Columns3 size={11} />
-                Week
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-[11px]">
-              Open the week
-            </TooltipContent>
-          </Tooltip>
+          <button
+            type="button"
+            onClick={() => openCalendarModal({ view: 'week', date: anchor })}
+            className="hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-border text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Columns3 size={11} />
+            Week
+          </button>
 
           <Tooltip>
             <TooltipTrigger asChild>

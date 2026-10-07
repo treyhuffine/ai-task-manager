@@ -217,7 +217,7 @@ export function ToolsList({
       )}
       {row('files', <FileText size={15} />, 'Files', touch ? null : <Kbd>{HOTKEYS.goToFile.label}</Kbd>)}
       {terminal && (
-        <Tip label={terminal.open ? 'Hide the terminal. Shells keep running.' : 'Open the terminal below'}>
+        <Tip label={terminal.open ? 'Hide the terminal. Shells keep running.' : undefined}>
           <button
             type="button"
             onClick={terminal.onToggle}
