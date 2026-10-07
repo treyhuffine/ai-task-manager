@@ -44,4 +44,15 @@ describe('connectivity', () => {
     expect(isNetworkFailure(new TypeError('Failed to fetch'))).toBe(true);
     expect(isNetworkFailure(new DOMException('aborted', 'AbortError'))).toBe(false);
   });
+
+  it('ignores a failed health probe overtaken by a successful API response', async () => {
+    let finish!: (response: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(resolve => { finish = resolve; })));
+    const check = reportNetworkFailure();
+    reportReachable();
+    const joined = reportNetworkFailure();
+    finish(new Response(null, { status: 503 }));
+    await Promise.all([check, joined]);
+    expect(getConnectivity().reachable).toBe(true);
+  });
 });

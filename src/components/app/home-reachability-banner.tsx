@@ -4,10 +4,10 @@ import { trpcClient } from '@/lib/trpc/client';
 /**
  * "Cannot reach your Ri on Mac Mini" (docs/homes-spec.md §3.5).
  *
- * Shown on any screen while the home doesn't answer. It names the device
- * the home runs on, keeps checking quietly, and refreshes everything once
- * the home is back. Unsent messages stay in the chat as failed messages
- * with a retry, and drafts stay in the composer, so nothing typed is lost.
+ * Brief interruptions recover silently. A sustained outage gets a compact
+ * notice after another failed health check, without covering the title bar
+ * or disabling the app. Drafts and individual write errors keep their normal
+ * behavior, and cached data refreshes when the home answers again.
  */
 
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
@@ -15,10 +15,11 @@ import { getAuthToken } from '@/lib/api/client';
 import { getConnectivity, probeHome, reportReachable, subscribeConnectivity } from '@/lib/api/connectivity';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, RefreshCw, WifiOff } from 'lucide-react';
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 const HOME_CACHE_KEY = `${APP_SHORT_ID}.home`;
 const RETRY_EVERY_MS = 5000;
+const NOTICE_AFTER_MS = 10_000;
 
 interface HomeInfo {
   id: string;
@@ -43,6 +44,8 @@ export function HomeReachabilityBanner() {
   const connectivity = useHomeReachability();
   const queryClient = useQueryClient();
   const [checking, setChecking] = useState(false);
+  const checkInFlight = useRef(false);
+  const [warningSince, setWarningSince] = useState<number | null>(null);
 
   // Which device the home runs on, remembered so an offline screen can say it.
   const { data: home } = useQuery({
@@ -64,39 +67,60 @@ export function HomeReachabilityBanner() {
   const known = home ?? (typeof window !== 'undefined' ? cachedHome() : null);
 
   const check = useCallback(async () => {
+    if (checkInFlight.current) return;
+    const outage = getConnectivity();
+    checkInFlight.current = true;
     setChecking(true);
-    const ok = await probeHome();
-    setChecking(false);
-    if (ok) {
-      reportReachable();
-      void queryClient.invalidateQueries();
+    try {
+      const ok = await probeHome();
+      if (ok) {
+        reportReachable();
+      } else if (!outage.reachable && getConnectivity() === outage && outage.since !== null && Date.now() - outage.since >= NOTICE_AFTER_MS) {
+        // A timer alone is not evidence of an outage. Confirm it again after
+        // the grace period, and ignore a probe overtaken by a healthy request.
+        setWarningSince(outage.since);
+      }
+    } finally {
+      checkInFlight.current = false;
+      setChecking(false);
     }
+  }, []);
+
+  useEffect(() => {
+    // Recovery can come from any API response, not just this notice's probe.
+    let reachable = getConnectivity().reachable;
+    return subscribeConnectivity(() => {
+      const next = getConnectivity().reachable;
+      if (next && !reachable) void queryClient.invalidateQueries();
+      reachable = next;
+    });
   }, [queryClient]);
 
   useEffect(() => {
     if (connectivity.reachable) return;
     const timer = setInterval(() => void check(), RETRY_EVERY_MS);
-    return () => clearInterval(timer);
+    window.addEventListener('online', check);
+    window.addEventListener('focus', check);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('online', check);
+      window.removeEventListener('focus', check);
+    };
   }, [connectivity.reachable, check]);
 
-  if (connectivity.reachable) return null;
+  if (connectivity.reachable || warningSince !== connectivity.since) return null;
 
-  const where = known?.host?.name ? `your ${APP_NAME} on ${known.host.name}` : `your ${APP_NAME}`;
+  const where = known?.host?.name ? `${APP_NAME} on ${known.host.name}` : APP_NAME;
   return (
-    // Fixed over the top bar rather than in the flow: the app fills the
-    // viewport, and nothing in the top bar works until the home answers.
     <div
       role="status"
-      className="fixed inset-x-0 top-0 z-50 border-b border-amber-500/30 bg-background/95 px-5 py-2.5 shadow-sm backdrop-blur"
+      className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))] rounded-lg border border-border bg-background px-3 py-2 shadow-sm md:bottom-4"
     >
-      <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-3">
+      <div className="flex items-center gap-3">
         <WifiOff size={13} className="flex-shrink-0 text-amber-400" />
         <p className="min-w-0 flex-1 text-[11px] text-foreground/90">
-          <span className="font-medium">Cannot reach {where}.</span>{' '}
-          <span className="text-muted-foreground">
-            {known?.host?.name ? `${known.host.name} needs to be awake and online.` : 'It needs to be awake and online.'}{' '}
-            Unsent messages are kept. Checking again every few seconds.
-          </span>
+          <span className="font-medium">Reconnecting to {where}…</span>
+          <span className="block text-muted-foreground">Trying again automatically.</span>
         </p>
         <button
           type="button"

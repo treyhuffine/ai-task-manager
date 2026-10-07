@@ -21,6 +21,7 @@ export interface Connectivity {
 let state: Connectivity = { reachable: true, since: null };
 const listeners = new Set<() => void>();
 let probing: Promise<boolean> | null = null;
+let responseRevision = 0;
 
 function set(next: Connectivity) {
   if (next.reachable === state.reachable) return;
@@ -38,6 +39,7 @@ export function subscribeConnectivity(fn: () => void): () => void {
 }
 
 export function reportReachable(): void {
+  responseRevision++;
   set({ reachable: true, since: null });
 }
 
@@ -57,6 +59,7 @@ export function isGatewayFailure(status: number): boolean {
  */
 export function probeHome(timeoutMs = 5000): Promise<boolean> {
   if (!probing) {
+    const revision = responseRevision;
     probing = fetch('/api/health', { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) })
       .then(async (res) => {
         if (!res.ok) return false;
@@ -64,6 +67,9 @@ export function probeHome(timeoutMs = 5000): Promise<boolean> {
         return body?.app === APP_SHORT_ID;
       })
       .catch(() => false)
+      // A newer API response also proves reachability, including for callers
+      // that joined this shared probe after that response arrived.
+      .then(ok => ok || revision !== responseRevision)
       .finally(() => {
         probing = null;
       });
@@ -73,13 +79,17 @@ export function probeHome(timeoutMs = 5000): Promise<boolean> {
 
 export async function reportNetworkFailure(): Promise<void> {
   if (!state.reachable) return;
+  const revision = responseRevision;
   const ok = await probeHome();
+  // A successful request that arrived during the probe is newer evidence.
+  if (revision !== responseRevision) return;
   if (ok) reportReachable();
   else set({ reachable: false, since: Date.now() });
 }
 
 /** Tests only. */
 export function _resetConnectivity(): void {
+  responseRevision++;
   state = { reachable: true, since: null };
   probing = null;
 }

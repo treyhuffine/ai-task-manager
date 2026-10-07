@@ -1,5 +1,6 @@
 'use client';
 import { api } from '@/lib/api/client';
+import { reportNetworkFailure } from '@/lib/api/connectivity';
 import { getApiCompatibilityIssue, reportApiCompatibility, subscribeApiCompatibility } from '@/lib/client/api-compatibility';
 import { documentSaves } from '@/lib/client/document-saves';
 import { reloadVersion } from '@/lib/client/version-reload';
@@ -21,7 +22,6 @@ export function ServiceConnection() {
     let disposed = false;
     let checking = false;
     let knownBuild: string | undefined;
-    let managed = false;
     const showIssue = () => {
       const issue = getApiCompatibilityIssue();
       if (!issue || disposed) return false;
@@ -49,13 +49,14 @@ export function ServiceConnection() {
           return;
         }
         const status = await trpcClient.service.list.query({}, rpcOptions({ timeoutMs: 3000 }));
-        managed = status.phase !== 'unmanaged';
         if ('update' in status && status.update?.phase === 'draining') {
           setMessage('Preparing an update. Saving your changes.');
           await documentSaves.flushAll();
         } else { setMessage(status.phase === 'updating' ? 'Updating Ri. Your drafts are retained on this device.' : ''); setCanReload(false); }
       } catch {
-        if (!showIssue() && managed && !disposed) setMessage('Reconnecting to Ri. Your drafts are retained on this device.');
+        // Connection loss has one shared, delayed notice. A slow version or
+        // service request alone must not interrupt an otherwise usable app.
+        if (!showIssue() && !disposed) void reportNetworkFailure();
       } finally { checking = false; }
     };
     const timer = setInterval(() => void check(), 5000);
