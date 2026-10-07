@@ -161,10 +161,7 @@ export interface SessionSearchFilters {
 
 // ─── Picker / References / Scratchpad wire types ─────────────
 
-export type PickerTaskItem = RouterOutputs['sessions']['pickerGet']['tasks'][number];
-
-export type PickerNoteItem = RouterOutputs['sessions']['pickerGet']['notes'][number];
-
+/** The `@` picker's tasks and notes for one search, with every match counted. */
 export type PickerResponse = RouterOutputs['sessions']['pickerGet'];
 
 /**
@@ -250,8 +247,12 @@ export const sessionsApi = {
     return trpcClient.sessions.treeGet.query({params: {id: id}});
   },
 
-  picker(id: string, opts?: { all?: boolean }) {
-    return trpcClient.sessions.pickerGet.query({params: {id: id}, query: rpcQuery(opts?.all ? { all: '1' } : undefined)});
+  /** Tasks and notes for the `@` picker, searched across the home. `kind` asks for one. */
+  picker(id: string, opts?: { q?: string; kind?: 'task' | 'note'; limit?: number; signal?: AbortSignal }) {
+    return trpcClient.sessions.pickerGet.query(
+      {params: {id: id}, query: { ...rpcQuery({ q: opts?.q || undefined, limit: opts?.limit }), kind: opts?.kind }},
+      rpcOptions({ signal: opts?.signal }),
+    );
   },
 
   entities(id: string) {

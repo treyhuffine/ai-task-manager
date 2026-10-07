@@ -189,7 +189,7 @@ describe('listSessionReferences', () => {
     const first = q.listSessionReferences({ ...base, limit: 4 });
     // The top row gets done: it drops below every open task. An offset
     // would now start one row late and skip one.
-    q.updateTask(first.rows[0]!.id, { status: 'done' });
+    q.updateTask(first.rows[0]!.id, { status: 'done' }, { source: 'human' });
 
     const seen = new Set(first.rows.map((r) => r.id));
     let cursor = first.nextCursor;
@@ -223,6 +223,38 @@ describe('listSessionReferences', () => {
     expect(broad.pages[0]!.counts.all).toBe(150);
   });
 
+  it('ranks a title that is the search, then one that starts with it, within each section', async () => {
+    const { q, workspace, session, task, note } = await seed();
+    const contains = task('Fix the deploy script', { workspaceId: workspace.id, minute: 9 });
+    const prefix = task('Deploy keys rotation', { workspaceId: workspace.id, minute: 1 });
+    const exact = note('deploy', { workspaceId: workspace.id, minute: 0 });
+    const elsewhere = task('Deploy', { minute: 30 });
+    const base = { sessionId: session.id, workspaceId: workspace.id };
+
+    // Section still comes first: the exact match elsewhere trails the agent's.
+    expect(q.listSessionReferences({ ...base, q: 'DEPLOY' }).rows.map((r) => r.id))
+      .toEqual([exact, prefix, contains, elsewhere]);
+    // A phrase ranks the same way. The cursor carries the match rank too.
+    const pages = walk(q, { ...base, q: 'deploy keys' }, 1);
+    expect(pages.rows.map((r) => r.id)).toEqual([prefix]);
+    const all = walk(q, { ...base, q: 'deploy' }, 1);
+    expect(all.rows.map((r) => r.id)).toEqual([exact, prefix, contains, elsewhere]);
+  });
+
+  it('keeps one kind when asked, counts included', async () => {
+    const { q, workspace, session, task, note } = await seed();
+    const t = task('Plan launch', { workspaceId: workspace.id, minute: 1 });
+    const n = note('Launch notes', { minute: 2 });
+    const base = { sessionId: session.id, workspaceId: workspace.id, q: 'launch' };
+
+    const tasksOnly = q.listSessionReferences({ ...base, kind: 'task' });
+    expect(tasksOnly.rows.map((r) => r.id)).toEqual([t]);
+    expect(tasksOnly.counts).toEqual({ inChat: 0, workspace: 1, all: 0 });
+    const notesOnly = q.listSessionReferences({ ...base, kind: 'note' });
+    expect(notesOnly.rows.map((r) => r.id)).toEqual([n]);
+    expect(notesOnly.counts).toEqual({ inChat: 0, workspace: 0, all: 1 });
+  });
+
   it('takes % and _ literally', async () => {
     const { q, workspace, session, task } = await seed();
     const percent = task('Save 50% of build time', { minute: 1 });
@@ -251,7 +283,8 @@ describe('listSessionReferences', () => {
   it('refuses a cursor it did not issue', async () => {
     const { q, workspace, session } = await seed();
     const base = { sessionId: session.id, workspaceId: workspace.id };
-    for (const cursor of ['nope', Buffer.from('[1,2]').toString('base64url'), Buffer.from('{"a":1}').toString('base64url')]) {
+    const stale = Buffer.from(JSON.stringify([2, 1, '2026-10-07T10:00:00.000Z', 'task', 'x'])).toString('base64url');
+    for (const cursor of ['nope', stale, Buffer.from('[1,2]').toString('base64url'), Buffer.from('{"a":1}').toString('base64url')]) {
       expect(() => q.listSessionReferences({ ...base, cursor })).toThrow(q.ReferenceCursorError);
     }
   });
@@ -269,6 +302,34 @@ describe('GET /sessions/:id/references', () => {
     expect(ok).toMatchObject({ ok: true, data: { rows: [{ id, section: 'workspace' }], nextCursor: null } });
 
     expect(await GET({ params: { id: session.id }, query: { cursor: 'nope' } }, context)).toMatchObject({ ok: false, status: 400 });
+    expect(await GET({ params: { id: 'missing' } }, context)).toMatchObject({ ok: false, status: 404 });
+  });
+});
+
+describe('GET /sessions/:id/picker', () => {
+  const context = { headers: new Headers(), url: 'http://ri.test/', nextUrl: new URL('http://ri.test/'), signal: new AbortController().signal };
+
+  it('searches the whole home, a page per kind, with every match counted', async () => {
+    const { session, task, note, workspace, other } = await seed();
+    for (let i = 0; i < 12; i++) task(`Launch step ${i}`, { workspaceId: other.id, minute: i });
+    const mine = task('Launch checklist', { workspaceId: workspace.id, minute: 0 });
+    const n = note('Launch retro', { minute: 1 });
+    const { GET } = await import('@/lib/server/operations/sessions/[id]/picker');
+
+    const mixed = await GET({ params: { id: session.id }, query: { q: 'launch', limit: '6' } }, context);
+    if (!mixed.ok) throw new Error('picker failed');
+    // This agent's task leads, ahead of newer ones elsewhere.
+    expect(mixed.data.tasks[0]).toEqual({ id: mine, title: 'Launch checklist', status: 'todo' });
+    expect(mixed.data.tasks).toHaveLength(6);
+    expect(mixed.data.notes).toEqual([{ id: n, title: 'Launch retro' }]);
+    expect(mixed.data.totals).toEqual({ tasks: 13, notes: 1 });
+
+    const tasksOnly = await GET({ params: { id: session.id }, query: { q: 'launch', kind: 'task' } }, context);
+    if (!tasksOnly.ok) throw new Error('picker failed');
+    expect(tasksOnly.data.tasks).toHaveLength(13);
+    expect(tasksOnly.data.notes).toEqual([]);
+    expect(tasksOnly.data.totals).toEqual({ tasks: 13, notes: 0 });
+
     expect(await GET({ params: { id: 'missing' } }, context)).toMatchObject({ ok: false, status: 404 });
   });
 });

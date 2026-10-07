@@ -5,6 +5,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
   useImperativeHandle,
   forwardRef,
@@ -21,16 +22,26 @@ import {
   GitPullRequestDraft,
   GitPullRequestClosed,
   GitMerge,
+  ListFilter,
 } from 'lucide-react'
 import { FileIcon } from '@/components/file-icon'
 import type { SuggestionPopupRef } from '../suggestion/renderer'
 import { isSuggestionCommitKey, suggestionNavDelta } from '../suggestion/keys'
-import type { MentionItem } from './types'
+import { parseMentionQuery } from './ranking'
+import type { MentionItem, MoreMentionItem } from './types'
 
 interface MentionMenuListProps {
   items: MentionItem[]
   command: (item: MentionItem) => void
+  query?: string
 }
+
+/** In a list narrowed to one kind, "how many more" is a caption, not a row. */
+function isCaption(item: MentionItem): item is MoreMentionItem {
+  return item.kind === 'more' && item.narrowed
+}
+
+const KIND_NOUNS = { task: 'tasks', note: 'notes', file: 'files', pr: 'pull requests' } as const
 
 type Section = 'entity' | 'task' | 'note' | 'reference' | 'file' | 'pr' | `ref:${string}`
 
@@ -38,6 +49,7 @@ function sectionFor(item: MentionItem): Section {
   if (item.kind === 'scratchpad') return 'entity'
   if (item.kind === 'task') return 'task'
   if (item.kind === 'note') return 'note'
+  if (item.kind === 'more') return item.of
   if (item.kind === 'reference') return 'reference'
   if (item.kind === 'pr') return 'pr'
   // Files pulled out of a reference folder band under that folder's alias, so
@@ -58,6 +70,8 @@ function keyFor(item: MentionItem): string {
       return `reference:${item.id}`
     case 'pr':
       return `pr:${item.number}`
+    case 'more':
+      return `more:${item.of}`
     default:
       return `file:${item.path}`
   }
@@ -70,12 +84,18 @@ function keyFor(item: MentionItem): string {
  *
  * Single index drives both arrow navigation and selection — section
  * headers are non-interactive labels in between, not their own focus
- * targets.
+ * targets. So is the caption under a capped narrowed list.
+ *
+ * The mixed list ends with a line that teaches the filters (`task:`,
+ * `note:`, `file:`, `#`). A narrowed list says what it is when it's empty.
  */
 export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListProps>(
-  function MentionMenuList({ items, command }, ref) {
+  function MentionMenuList({ items: allItems, command, query = '' }, ref) {
     const [selectedIndex, setSelectedIndex] = useState(0)
     const listRef = useRef<HTMLDivElement>(null)
+    const items = useMemo(() => allItems.filter((item) => !isCaption(item)), [allItems])
+    const caption = allItems.find(isCaption)
+    const parsed = parseMentionQuery(query)
 
     useEffect(() => {
       setSelectedIndex(0)
@@ -113,10 +133,23 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
       },
     }))
 
+    // Mixed list, outside a reference folder: say how to narrow it.
+    const footer = parsed.filter === null && !query.includes('/') ? <FilterHint /> : null
+
     if (items.length === 0) {
+      // `@task:` takes spaces, so prose typed after a search that found
+      // nothing would drag an empty box along. Show nothing instead.
+      if (parsed.filter && /\s/.test(parsed.text)) return null
+      const search = parsed.text.trim()
+      const noun = parsed.filter ? KIND_NOUNS[parsed.filter] : null
       return (
-        <div className="slash-command-menu px-3 py-2 text-xs text-muted-foreground">
-          No matches
+        <div className="slash-command-menu chat-slash-menu">
+          <div className="px-2.5 py-1.5 text-xs text-muted-foreground">
+            {noun
+              ? search ? `No ${noun} match “${search}”` : `No ${noun} yet`
+              : 'No matches'}
+          </div>
+          {footer}
         </div>
       )
     }
@@ -147,13 +180,35 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
       )
     })
 
+    // The menu's own overflow is turned off so the hint stays put while
+    // the rows scroll above it.
     return (
-      <div ref={listRef} className="slash-command-menu chat-slash-menu">
-        {rows}
+      <div className="slash-command-menu chat-slash-menu" style={{ overflowY: 'hidden' }}>
+        <div ref={listRef} className="flex min-h-0 flex-col gap-px overflow-y-auto">
+          {rows}
+          {caption && (
+            <div className="px-2.5 pt-1 pb-0.5 text-[10.5px] text-muted-foreground/70">
+              Showing {caption.shown} of {caption.total}. Type more to narrow.
+            </div>
+          )}
+        </div>
+        {footer}
       </div>
     )
   },
 )
+
+/** The filters, in the words you'd type them. */
+function FilterHint() {
+  const code = (text: string) => (
+    <code className="rounded bg-muted px-1 py-px font-mono text-[10px] text-foreground/80">{text}</code>
+  )
+  return (
+    <div className="mt-0.5 flex shrink-0 flex-wrap items-center gap-x-1 gap-y-0.5 border-t border-border/60 px-2.5 pt-1.5 pb-1 text-[10.5px] text-muted-foreground/70">
+      Type {code('task:')} {code('note:')} {code('file:')} or {code('#')} to search one kind
+    </div>
+  )
+}
 
 function SectionHeader({ kind }: { kind: Section }) {
   let label: string
@@ -213,6 +268,9 @@ function PrRowIcon({ state, isDraft }: { state: string; isDraft: boolean }) {
 }
 
 function RowIcon({ item }: { item: MentionItem }) {
+  if (item.kind === 'more') {
+    return <ListFilter size={11} className="text-muted-foreground/80" />
+  }
   if (item.kind === 'scratchpad') {
     return <Notebook size={11} className="text-muted-foreground/80" />
   }
@@ -239,6 +297,17 @@ function RowIcon({ item }: { item: MentionItem }) {
 }
 
 function RowBody({ item }: { item: MentionItem }) {
+  if (item.kind === 'more') {
+    const noun = item.of === 'task' ? 'tasks' : 'notes'
+    return (
+      <>
+        <span className="text-[11px] text-muted-foreground truncate min-w-0">
+          {item.query ? `All ${item.total} ${noun} matching “${item.query}”` : `All ${item.total} ${noun}`}
+        </span>
+        <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/60">{item.of}:</span>
+      </>
+    )
+  }
   if (item.kind === 'scratchpad') {
     return (
       <>

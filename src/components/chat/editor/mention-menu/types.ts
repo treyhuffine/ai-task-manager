@@ -15,6 +15,12 @@
  *   - pr — a GitHub pull request, reached by typing `@#` (see
  *     `pr-trigger.ts`). Insertion → PrChipNode, which serializes to a
  *     full context line via `formatPrRef`.
+ *   - more — the end of a short task or note list: how many matched in
+ *     all. Picking it narrows the picker to that kind (`@task:<query>`).
+ *     In a narrowed picker it's only a caption.
+ *
+ * Tasks and notes come from a server search over the whole home
+ * (`SearchMentionEntities`), so a mention can reach any of them.
  */
 
 import type { PrMentionItem } from '../pr-menu/types';
@@ -42,7 +48,7 @@ export interface TaskMentionItem {
   kind: 'task';
   id: string;
   title: string;
-  /** active | done | archived — drives chip icon and ranking. */
+  /** Lifecycle status. Drives the chip icon and the row's tag. */
   status: string;
 }
 
@@ -79,10 +85,39 @@ export interface PrMentionMenuItem extends PrMentionItem {
   kind: 'pr';
 }
 
+export interface MoreMentionItem {
+  kind: 'more';
+  of: 'task' | 'note';
+  /** Every match, shown or not. */
+  total: number;
+  shown: number;
+  /** The search, carried into `@task:<query>` when picked. */
+  query: string;
+  /** Already narrowed to this kind: a caption, not a row to pick. */
+  narrowed: boolean;
+}
+
 export type MentionItem =
   | FileMentionItem
   | TaskMentionItem
   | NoteMentionItem
   | ScratchpadMentionItem
   | ReferenceFolderMentionItem
-  | PrMentionMenuItem;
+  | PrMentionMenuItem
+  | MoreMentionItem;
+
+/** One server search for the picker's tasks and notes. `kind` asks for one. */
+export interface MentionEntitySearch {
+  q: string;
+  kind?: 'task' | 'note';
+  limit: number;
+}
+
+export interface MentionEntityResults {
+  tasks: TaskMentionItem[];
+  notes: NoteMentionItem[];
+  /** Every match per kind, beyond the `limit` returned. */
+  totals: { tasks: number; notes: number };
+}
+
+export type SearchMentionEntities = (search: MentionEntitySearch) => Promise<MentionEntityResults>;

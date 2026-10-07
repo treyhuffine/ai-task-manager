@@ -3,18 +3,29 @@
 import { Extension } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
 import Suggestion, {
+  findSuggestionMatch,
   type SuggestionOptions,
   type SuggestionProps,
 } from '@tiptap/suggestion'
-import { createSuggestionPopupRenderer } from '../suggestion/renderer'
+import { createSuggestionPopupRenderer, settledItems } from '../suggestion/renderer'
 import { MentionMenuList } from './popup'
-import { buildItems, canBrowseReference, parseReferenceDrillDown, pickReference, toReferenceFileItems } from './ranking'
+import {
+  buildItems,
+  canBrowseReference,
+  entitySearchFor,
+  narrowedQueryText,
+  parseMentionQuery,
+  parseReferenceDrillDown,
+  pickReference,
+  queryAllowsSpaces,
+  toReferenceFileItems,
+} from './ranking'
 import type {
   MentionItem,
   FileMentionItem,
-  TaskMentionItem,
-  NoteMentionItem,
+  MentionEntityResults,
   ReferenceFolderMentionItem,
+  SearchMentionEntities,
 } from './types'
 import type { PrMentionItem } from '../pr-menu/types'
 
@@ -31,10 +42,12 @@ interface MentionMenuOptions {
    * editor when the tree refreshes.
    */
   getFileEntries?: () => FileMentionItem[]
-  /** Tasks for the current session's workspace. */
-  getTasks?: () => TaskMentionItem[]
-  /** Notes for the current session's workspace. */
-  getNotes?: () => NoteMentionItem[]
+  /**
+   * Searches tasks and notes across the home for one query (the server
+   * ranks this chat's and this agent's first). Expected to cache, since
+   * `items` runs on every keystroke. Omitted: no tasks or notes.
+   */
+  searchEntities?: SearchMentionEntities
   /**
    * Reference folders visible from this session's workspace
    * (docs/reference-folders-spec.md §8). Read-only folders outside the
@@ -75,7 +88,9 @@ interface MentionMenuOptions {
  *
  * PRs are gated behind a `#` after the `@` (`@#193`) — see `pr-trigger.ts`.
  * This replaced a standalone `#` trigger whose send-time raw-text expansion
- * surprised users by rewriting numbers they meant literally.
+ * surprised users by rewriting numbers they meant literally. `task:`,
+ * `note:` and `file:` narrow the same way (`parseMentionQuery`), and the
+ * task and note filters take spaces, since titles have them.
  */
 export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
   name: 'mentionMenu',
@@ -87,8 +102,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
   addOptions() {
     return {
       getFileEntries: undefined,
-      getTasks: undefined,
-      getNotes: undefined,
+      searchEntities: undefined,
       getReferenceFolders: undefined,
       loadReferenceTree: undefined,
       getPrs: undefined,
@@ -97,8 +111,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
 
   addProseMirrorPlugins() {
     const getFiles = () => this.options.getFileEntries?.() ?? []
-    const getTasks = () => this.options.getTasks?.() ?? []
-    const getNotes = () => this.options.getNotes?.() ?? []
+    const searchEntities = this.options.searchEntities
     const getReferences = () => this.options.getReferenceFolders?.() ?? []
     const getPrs = () => this.options.getPrs?.() ?? []
     const loadReferenceTree = this.options.loadReferenceTree
@@ -106,38 +119,47 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
     const suggestion: Partial<SuggestionOptions<MentionItem, MentionItem>> = {
       pluginKey: MENTION_MENU_PLUGIN_KEY,
       char: '@',
-      // Paths never contain spaces; entity queries are also single-token.
+      // Paths never contain spaces, so a query ends at one, except after
+      // `task:` or `note:`, where titles do.
       allowSpaces: false,
+      findSuggestionMatch: (config) => {
+        const spaced = findSuggestionMatch({ ...config, allowSpaces: true })
+        if (spaced && queryAllowsSpaces(spaced.query)) return spaced
+        return findSuggestionMatch(config)
+      },
       // `@` can appear mid-sentence; the picker fires from any position.
       startOfLine: false,
-      // Async because a drill-down fetches that reference's file list on
-      // demand. Tiptap awaits this and only re-runs it when the query
-      // actually changes, so the fetch happens once per drill-down rather
-      // than per render.
+      // Async: tasks and notes are a server search, and a drill-down
+      // fetches that reference's file list on demand. Tiptap awaits this and
+      // only re-runs it when the query actually changes. The renderer keeps
+      // the last list up until this one lands (`asyncItems`).
       items: async ({ query }: { query: string }) => {
+        const parsed = parseMentionQuery(query)
         const references = getReferences()
-        const drillDown = parseReferenceDrillDown(query, references)
-        let referenceFiles: FileMentionItem[] | null = null
-        if (drillDown && canBrowseReference(drillDown.reference) && loadReferenceTree) {
-          try {
-            const entries = await loadReferenceTree(drillDown.reference.id)
-            referenceFiles = toReferenceFileItems(drillDown.reference, entries)
-          } catch {
-            // A failed tree fetch degrades to worktree-only matches rather
-            // than emptying the picker mid-keystroke.
-            referenceFiles = null
-          }
-        }
-        return buildItems({
+        const drillDown = parsed.filter ? null : parseReferenceDrillDown(query, references)
+        const search = entitySearchFor(parsed, drillDown !== null)
+        const [referenceFiles, entities] = await Promise.all([
+          drillDown && canBrowseReference(drillDown.reference) && loadReferenceTree
+            ? loadReferenceTree(drillDown.reference.id)
+                .then((entries) => toReferenceFileItems(drillDown.reference, entries))
+                // A failed tree fetch degrades to worktree-only matches rather
+                // than emptying the picker mid-keystroke.
+                .catch(() => null)
+            : null,
+          // Same for a failed search: files and the rest still show.
+          search && searchEntities
+            ? searchEntities(search).catch((): MentionEntityResults | null => null)
+            : null,
+        ])
+        return settledItems(buildItems({
           files: getFiles(),
-          tasks: getTasks(),
-          notes: getNotes(),
+          entities,
           references,
           referenceFiles,
           prs: getPrs(),
           drillDown,
           query,
-        })
+        }))
       },
       command: ({
         editor,
@@ -180,6 +202,10 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
             .insertEntityChip({ kind: 'note', id: item.id, title: item.title })
             .insertContent(' ')
             .run()
+        } else if (item.kind === 'more') {
+          // Narrow to that kind, keeping the search. The suggestion stays
+          // active on the new text, as with a reference folder.
+          if (!item.narrowed) chain.insertContent(narrowedQueryText(item.of, item.query)).run()
         } else if (item.kind === 'pr') {
           // Drop the picker discriminator; the rest is exactly PrChipAttrs,
           // so the chip is self-describing and serializes without re-reading
@@ -188,7 +214,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
           chain.insertPrChip(pr).insertContent(' ').run()
         }
       },
-      render: createSuggestionPopupRenderer<MentionItem>(MentionMenuList),
+      render: createSuggestionPopupRenderer<MentionItem>(MentionMenuList, { asyncItems: true }),
     }
 
     return [

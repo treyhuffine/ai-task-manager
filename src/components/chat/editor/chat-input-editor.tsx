@@ -65,9 +65,8 @@ import type { SlashCommand } from './slash-menu/types';
 import { MentionMenuExtension } from './mention-menu/extension';
 import type {
   FileMentionItem,
-  TaskMentionItem,
-  NoteMentionItem,
   ReferenceFolderMentionItem,
+  SearchMentionEntities,
 } from './mention-menu/types';
 import {
   MentionChipNode,
@@ -212,10 +211,11 @@ interface ChatInputEditorProps {
    * `@` does nothing special on the file side.
    */
   mentionFiles?: FileMentionItem[];
-  /** Tasks surfaced in the `@`-picker. */
-  mentionTasks?: TaskMentionItem[];
-  /** Notes surfaced in the `@`-picker. */
-  mentionNotes?: NoteMentionItem[];
+  /**
+   * Searches tasks and notes for the `@`-picker, per query (the server
+   * covers the whole home). When omitted the picker offers none.
+   */
+  searchMentionEntities?: SearchMentionEntities;
   /**
    * Reference folders surfaced in the `@`-picker
    * (docs/reference-folders-spec.md §8). Picking one retargets the picker
@@ -365,8 +365,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       className,
       slashCommands,
       mentionFiles,
-      mentionTasks,
-      mentionNotes,
+      searchMentionEntities,
       mentionReferenceFolders,
       loadReferenceTree,
       prs,
@@ -394,10 +393,8 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     slashCommandsRef.current = slashCommands;
     const mentionFilesRef = useRef(mentionFiles);
     mentionFilesRef.current = mentionFiles;
-    const mentionTasksRef = useRef(mentionTasks);
-    mentionTasksRef.current = mentionTasks;
-    const mentionNotesRef = useRef(mentionNotes);
-    mentionNotesRef.current = mentionNotes;
+    const searchMentionEntitiesRef = useRef(searchMentionEntities);
+    searchMentionEntitiesRef.current = searchMentionEntities;
     const mentionReferenceFoldersRef = useRef(mentionReferenceFolders);
     mentionReferenceFoldersRef.current = mentionReferenceFolders;
     const loadReferenceTreeRef = useRef(loadReferenceTree);
@@ -746,8 +743,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         }),
         MentionMenuExtension.configure({
           getFileEntries: () => mentionFilesRef.current ?? [],
-          getTasks: () => mentionTasksRef.current ?? [],
-          getNotes: () => mentionNotesRef.current ?? [],
+          searchEntities: (search) =>
+            searchMentionEntitiesRef.current?.(search) ??
+            Promise.resolve({ tasks: [], notes: [], totals: { tasks: 0, notes: 0 } }),
           getReferenceFolders: () => mentionReferenceFoldersRef.current ?? [],
           loadReferenceTree: (id: string) =>
             loadReferenceTreeRef.current?.(id) ?? Promise.resolve([]),

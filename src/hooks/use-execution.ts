@@ -18,7 +18,8 @@ import {
 import type { HarnessId } from '@/lib/harness/registry';
 import { deliveryClock, mergeDeliverySnapshot, noteDeliveryUpdate, streamedSince } from '@/lib/query/delivery-fence';
 import type { MessageDelivery } from '@/lib/workers/delivery';
-import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { MentionEntitySearch } from '@/components/chat/editor/mention-menu/types';
+import { keepPreviousData, queryOptions, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { toast } from 'sonner';
 import { uuidv7 } from 'uuidv7';
@@ -1268,18 +1269,26 @@ export function useSessionEntities(id: string | null) {
 }
 
 /**
- * Tasks + notes surfaced in the composer's `@`-picker. Scoped to the
- * session's workspace by default; the popup widens via the `all` toggle
- * when the user wants cross-workspace search.
+ * One search of the composer's `@` picker (tasks and notes across the home).
+ * The picker fetches through these with `fetchQuery`, so repeating a search
+ * reads the cache and a search in flight is shared.
  */
-export function usePicker(id: string | null, opts?: { all?: boolean }) {
-  return useQuery({
-    queryKey: ['session', id, 'picker', opts?.all ? 'all' : 'workspace'] as const,
-    queryFn: () => sessionsApi.picker(id!, opts),
-    enabled: !!id,
-    // Stale-but-cheap is fine — re-fetch on focus picks up new tasks.
-    staleTime: 30_000,
+export function pickerQueryOptions(id: string, search: MentionEntitySearch) {
+  const q = search.q.trim();
+  return queryOptions({
+    queryKey: ['session', id, 'picker', q, search.kind ?? 'any', search.limit] as const,
+    queryFn: ({ signal }) => sessionsApi.picker(id, { q, kind: search.kind, limit: search.limit, signal }),
+    // Stale-but-cheap is fine. A new task shows up within seconds.
+    staleTime: 15_000,
   });
+}
+
+/**
+ * Keeps one picker search warm (the bare `@` list) while the composer is
+ * mounted, so typing `@` opens without a round trip.
+ */
+export function usePicker(id: string | null, search: MentionEntitySearch) {
+  return useQuery({ ...pickerQueryOptions(id ?? '', search), enabled: !!id });
 }
 
 /**

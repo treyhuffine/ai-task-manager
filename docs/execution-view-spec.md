@@ -157,7 +157,8 @@ switching keeps the preview loaded, the open file, and scroll positions.
   as the end scrolls into reach, a section's count is its whole size, and
   search runs on the server over every title in the home, never just the
   loaded pages (`listSessionReferences`, a keyset cursor so an edit while
-  scrolling can't skip a row).
+  scrolling can't skip a row). Within a section, a title that is or starts
+  with the search comes first.
 - **Scratchpad**: stored per chat, so its view names the chat. Both were
   slide-overs before the panel.
 
@@ -181,6 +182,20 @@ kills a shell: PTYs live on the server and reattach with their output.
 **Input region.** No rule above the composer. Pending questions sit above
 it, and running background work is a borderless strip attached to the top
 of the composer card, inset like a tab, so it reads as part of the input.
+
+**The `@` picker** (`chat/editor/mention-menu/`). One trigger for the
+scratchpad, tasks, notes, reference folders and files. Tasks and notes are
+a server search over the whole home per query (the `picker` operation over
+`listSessionReferences`), in the Notes & tasks order: this chat's, then the
+agent's (open tasks first), then everything else, with a title that is or
+starts with the search ahead of one that only contains it. The plain list
+shows a few of each, and each kind ends with "All N tasks" (or notes),
+which narrows to it. A path-like query (`src/`, `.tsx`) puts files first.
+A filter after the `@` searches one kind: `task:` and `note:` (spaces
+allowed, since titles have them, up to 50 with a "Showing 50 of N"
+caption), `file:`, and `#` for pull requests. The plain list ends with a
+line naming them. While a search is in flight the last list stays up
+(`asyncItems` in `suggestion/renderer.ts`) instead of flashing empty.
 
 **Chat tabs.** "≡ N" (all chats) leads the strip and never scrolls, then
 the open tabs, then +. Only the tabs scroll. + follows the last tab and

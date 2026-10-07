@@ -37,11 +37,34 @@ export type SuggestionPopupComponent<TItem> = ForwardRefExoticComponent<
   {
     items: TItem[]
     command: (item: TItem) => void
+    /** The text after the trigger character that produced `items`. */
+    query?: string
   } & RefAttributes<SuggestionPopupRef>
 >
 
+// What async `items` functions returned, told apart by identity from the
+// `[]` Tiptap puts on a query's props before its items land.
+const landed = new WeakSet<object>()
+
+/**
+ * Wrap what an async `items` returns, in an extension whose renderer sets
+ * `asyncItems`. Unwrapped lists (Tiptap's stand-in) never render.
+ */
+export function settledItems<TItem>(items: TItem[]): TItem[] {
+  landed.add(items)
+  return items
+}
+
 export interface SuggestionPopupRendererOptions {
   popupClassName?: string
+  /**
+   * The extension's `items` is async and returns through `settledItems`.
+   * Tiptap hands the renderer its newest query before that query's items
+   * have landed, with `[]` standing in, so without this a list that waits
+   * on the server flashes empty on every keystroke. With it the last list
+   * stays on screen until the new one lands.
+   */
+  asyncItems?: boolean
   /**
    * Called when the user explicitly dismisses the menu with Escape (as
    * opposed to the menu closing because the match broke). The `#` menu
@@ -86,15 +109,7 @@ export function createSuggestionPopupRenderer<TItem>(
         host.appendChild(popup)
 
         root = createRoot(popup)
-        root.render(
-          React.createElement(Component, {
-            ref: (r: SuggestionPopupRef | null) => {
-              componentRef = r
-            },
-            items: props.items,
-            command: (item: TItem) => props.command(item),
-          }),
-        )
+        renderList(props)
 
         updatePosition(popup, props)
 
@@ -107,15 +122,7 @@ export function createSuggestionPopupRenderer<TItem>(
 
       onUpdate(props: SuggestionProps<TItem>) {
         if (dismissed) return
-        root?.render(
-          React.createElement(Component, {
-            ref: (r: SuggestionPopupRef | null) => {
-              componentRef = r
-            },
-            items: props.items,
-            command: (item: TItem) => props.command(item),
-          }),
-        )
+        renderList(props)
         if (popup) updatePosition(popup, props)
       },
 
@@ -136,6 +143,20 @@ export function createSuggestionPopupRenderer<TItem>(
         dismissed = false
         cleanup()
       },
+    }
+
+    function renderList(props: SuggestionProps<TItem>) {
+      if (options?.asyncItems && !landed.has(props.items)) return
+      root?.render(
+        React.createElement(Component, {
+          ref: (r: SuggestionPopupRef | null) => {
+            componentRef = r
+          },
+          items: props.items,
+          command: (item: TItem) => props.command(item),
+          query: props.query,
+        }),
+      )
     }
 
     function dismiss() {

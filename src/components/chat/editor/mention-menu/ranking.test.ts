@@ -2,8 +2,14 @@ import { describe, it, expect } from 'vitest';
 import {
   buildItems,
   canBrowseReference,
+  ENTITY_PREVIEW_LIMIT,
+  entitySearchFor,
+  NARROWED_LIMIT,
+  narrowedQueryText,
+  parseMentionQuery,
   parseReferenceDrillDown,
   pickReference,
+  queryAllowsSpaces,
   toReferenceFileItems,
   rankReferences,
   rankPrs,
@@ -11,7 +17,9 @@ import {
 import type {
   FileMentionItem,
   ReferenceFolderMentionItem,
+  MentionEntityResults,
   MentionItem,
+  MoreMentionItem,
 } from './types';
 import type { PrMentionItem } from '../pr-menu/types';
 
@@ -50,10 +58,22 @@ function pr(overrides: Partial<PrMentionItem> = {}): PrMentionItem {
   };
 }
 
+/** What the server answered: rows in its order, and every match counted. */
+function entities(
+  taskTitles: string[],
+  noteTitles: string[],
+  totals?: Partial<MentionEntityResults['totals']>,
+): MentionEntityResults {
+  return {
+    tasks: taskTitles.map((title, i) => ({ kind: 'task', id: `t${i}`, title, status: 'todo' })),
+    notes: noteTitles.map((title, i) => ({ kind: 'note', id: `n${i}`, title })),
+    totals: { tasks: totals?.tasks ?? taskTitles.length, notes: totals?.notes ?? noteTitles.length },
+  };
+}
+
 const EMPTY = {
   files: [],
-  tasks: [],
-  notes: [],
+  entities: null,
   references: [],
   referenceFiles: null,
   prs: [],
@@ -240,8 +260,7 @@ describe('buildItems', () => {
     const items = buildItems({
       ...EMPTY,
       files: [file('src/app.ts')],
-      tasks: [{ kind: 'task', id: 't1', title: 'Ship it', status: 'active' }],
-      notes: [{ kind: 'note', id: 'n1', title: 'Ideas' }],
+      entities: entities(['Ship it'], ['Ideas']),
       query: '',
     });
     expect(kinds(items)).toEqual(['scratchpad', 'task', 'note', 'file']);
@@ -252,8 +271,7 @@ describe('buildItems', () => {
     const items = buildItems({
       ...EMPTY,
       files: [file('src/app.ts')],
-      tasks: [{ kind: 'task', id: 't1', title: 'Ship it', status: 'active' }],
-      notes: [{ kind: 'note', id: 'n1', title: 'Ideas' }],
+      entities: entities(['Ship it'], ['Ideas']),
       prs: [pr({ number: 193, title: 'Add SEO footer' })],
       query: '#',
     });
@@ -333,4 +351,117 @@ describe('a linked folder whose files are on another device', () => {
     expect(pickReference(here)).toEqual({ kind: 'drill', text: '@beamd-cli/' });
     expect(canBrowseReference({ ...here, exists: false })).toBe(false);
   });
+});
+
+describe('parseMentionQuery', () => {
+  it('reads the filter from how the query opens, case aside', () => {
+    expect(parseMentionQuery('#193')).toEqual({ filter: 'pr', text: '193' });
+    expect(parseMentionQuery('task:deploy')).toEqual({ filter: 'task', text: 'deploy' });
+    expect(parseMentionQuery('Tasks: deploy keys ')).toEqual({ filter: 'task', text: 'deploy keys' });
+    expect(parseMentionQuery('note:')).toEqual({ filter: 'note', text: '' });
+    expect(parseMentionQuery('NOTES:ideas')).toEqual({ filter: 'note', text: 'ideas' });
+    expect(parseMentionQuery('file:page.tsx')).toEqual({ filter: 'file', text: 'page.tsx' });
+  });
+
+  it('leaves everything else as a mixed search', () => {
+    expect(parseMentionQuery('deploy')).toEqual({ filter: null, text: 'deploy' });
+    expect(parseMentionQuery('taskboard')).toEqual({ filter: null, text: 'taskboard' });
+    expect(parseMentionQuery('src/task:x')).toEqual({ filter: null, text: 'src/task:x' });
+  });
+
+  it('lets only the task and note filters run across spaces', () => {
+    expect(queryAllowsSpaces('task:deploy keys')).toBe(true);
+    expect(queryAllowsSpaces('note:launch plan')).toBe(true);
+    expect(queryAllowsSpaces('file:src')).toBe(false);
+    expect(queryAllowsSpaces('#12')).toBe(false);
+    expect(queryAllowsSpaces('deploy keys')).toBe(false);
+  });
+
+  it('writes the narrowed query a "more" row turns into', () => {
+    expect(narrowedQueryText('task', 'dep')).toBe('@task:dep');
+    expect(narrowedQueryText('note', '')).toBe('@note:');
+  });
+});
+
+describe('entitySearchFor', () => {
+  it('asks for a short page of each kind in the mixed list', () => {
+    expect(entitySearchFor(parseMentionQuery('dep'), false)).toEqual({ q: 'dep', limit: ENTITY_PREVIEW_LIMIT });
+  });
+
+  it('asks for a long page of one kind once narrowed', () => {
+    expect(entitySearchFor(parseMentionQuery('task:deploy keys'), false)).toEqual({
+      q: 'deploy keys',
+      kind: 'task',
+      limit: NARROWED_LIMIT,
+    });
+    expect(entitySearchFor(parseMentionQuery('note:'), false)).toEqual({ q: '', kind: 'note', limit: NARROWED_LIMIT });
+  });
+
+  it('asks for nothing where no tasks or notes show', () => {
+    expect(entitySearchFor(parseMentionQuery('#12'), false)).toBeNull();
+    expect(entitySearchFor(parseMentionQuery('file:app'), false)).toBeNull();
+    expect(entitySearchFor(parseMentionQuery('backend/'), true)).toBeNull();
+  });
+});
+
+describe('buildItems with server results', () => {
+  const titles = (items: MentionItem[]) =>
+    items.map((i) => (i.kind === 'task' || i.kind === 'note' ? i.title : i.kind));
+
+  it('keeps the server order rather than re-ranking', () => {
+    const items = buildItems({ ...EMPTY, entities: entities(['Fix deploy', 'Deploy'], []), query: 'deploy' });
+    expect(titles(items)).toEqual(['Fix deploy', 'Deploy']);
+  });
+
+  it('ends a kind with an "All N" row when more matched, which narrows to it', () => {
+    const items = buildItems({
+      ...EMPTY,
+      entities: entities(['A', 'B'], ['C'], { tasks: 40, notes: 1 }),
+      query: 'x',
+    });
+    expect(kinds(items)).toEqual(['task', 'task', 'more', 'note']);
+    expect(items[2]).toEqual({ kind: 'more', of: 'task', total: 40, shown: 2, query: 'x', narrowed: false });
+  });
+
+  it('narrows to tasks alone for `task:`, with a caption when the page is capped', () => {
+    const items = buildItems({
+      ...EMPTY,
+      files: [file('src/deploy.ts')],
+      entities: entities(['Deploy keys'], [], { tasks: 120 }),
+      query: 'task:deploy',
+    });
+    expect(kinds(items)).toEqual(['task', 'more']);
+    expect((items[1] as MoreMentionItem).narrowed).toBe(true);
+  });
+
+  it('narrows to notes alone for `note:`', () => {
+    const items = buildItems({ ...EMPTY, entities: entities([], ['Launch plan']), query: 'note:launch' });
+    expect(kinds(items)).toEqual(['note']);
+  });
+
+  it('narrows to files alone for `file:`, with room for more of them', () => {
+    const many = Array.from({ length: 80 }, (_, i) => file(`src/page${i}.tsx`));
+    const items = buildItems({ ...EMPTY, files: many, entities: entities(['Page'], []), query: 'file:page' });
+    expect(kinds(items).every((k) => k === 'file')).toBe(true);
+    expect(items).toHaveLength(NARROWED_LIMIT);
+  });
+
+  it('puts files first for a query that looks like a path', () => {
+    const items = buildItems({
+      ...EMPTY,
+      files: [file('src/app/page.tsx')],
+      entities: entities(['Page layout'], []),
+      query: 'page.tsx',
+    });
+    expect(kinds(items)).toEqual(['file', 'task']);
+  });
+
+  it('still lists files when the search failed', () => {
+    const items = buildItems({ ...EMPTY, files: [file('src/app.ts')], entities: null, query: 'app' });
+    expect(kinds(items)).toEqual(['file']);
+  });
+
+  function kinds(items: MentionItem[]): string[] {
+    return items.map((i) => i.kind);
+  }
 });

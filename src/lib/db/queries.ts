@@ -9493,8 +9493,8 @@ export class ReferenceCursorError extends Error {
   }
 }
 
-/** The last row's sort position: section, open rank, sort time, kind, id. */
-type ReferenceCursor = [number, number, string, 'task' | 'note', string];
+/** The last row's sort position: section, match, open rank, sort time, kind, id. */
+type ReferenceCursor = [number, number, number, string, 'task' | 'note', string];
 
 function encodeReferenceCursor(cursor: ReferenceCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
@@ -9504,9 +9504,9 @@ function decodeReferenceCursor(raw: string): ReferenceCursor {
   try {
     const c: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
     if (
-      Array.isArray(c) && c.length === 5 &&
-      Number.isInteger(c[0]) && Number.isInteger(c[1]) && typeof c[2] === 'string' &&
-      (c[3] === 'task' || c[3] === 'note') && typeof c[4] === 'string'
+      Array.isArray(c) && c.length === 6 &&
+      Number.isInteger(c[0]) && Number.isInteger(c[1]) && Number.isInteger(c[2]) &&
+      typeof c[3] === 'string' && (c[4] === 'task' || c[4] === 'note') && typeof c[5] === 'string'
     ) {
       return c as ReferenceCursor;
     }
@@ -9516,9 +9516,9 @@ function decodeReferenceCursor(raw: string): ReferenceCursor {
   throw new ReferenceCursorError();
 }
 
-/** A `LIKE` pattern for "contains", with `%`, `_` and the escape taken literally. */
-function likeContains(term: string): string {
-  return `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+/** `text` as a `LIKE` pattern that matches only itself (case aside). */
+function likeLiteral(text: string): string {
+  return text.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 interface ReferenceScanRow {
@@ -9531,6 +9531,7 @@ interface ReferenceScanRow {
   updatedAt: string;
   referencedAt: string | null;
   sectionRank: number;
+  matchRank: number;
   openRank: number;
   sortAt: string;
 }
@@ -9548,14 +9549,18 @@ interface ReferenceScanRow {
  *
  * `q` keeps the rows whose title contains every word of it, case-insensitive
  * (ASCII), across the whole home rather than the pages already loaded.
- * `counts` cover each section under the same search. The cursor is the last
- * row's sort position, so an edit while the user scrolls can't shift the
- * next page onto rows they have already seen.
+ * Within a section a title that is the search, then one that starts with
+ * it, comes before one that only contains it. `kind` keeps one kind (the
+ * composer's `@task:` and `@note:`). `counts` cover each section under the
+ * same search. The cursor is the last row's sort position, so an edit while
+ * the user scrolls can't shift the next page onto rows they have already
+ * seen. The composer's `@` picker reads the same list, a page per kind.
  */
 export function listSessionReferences(opts: {
   sessionId: string;
   workspaceId: string | null;
   q?: string;
+  kind?: 'task' | 'note';
   cursor?: string | null;
   limit?: number;
 }): ReferencePage {
@@ -9565,10 +9570,25 @@ export function listSessionReferences(opts: {
     sessionId: opts.sessionId,
     workspaceId: opts.workspaceId,
   };
-  const titleMatch = terms.map((term, i) => {
-    params[`term${i}`] = likeContains(term);
+  const filters = terms.map((term, i) => {
+    params[`term${i}`] = `%${likeLiteral(term)}%`;
     return `title LIKE :term${i} ESCAPE '\\'`;
   });
+  if (opts.kind) {
+    params.kind = opts.kind;
+    filters.push('kind = :kind');
+  }
+  // LIKE without wildcards is equality that ignores (ASCII) case.
+  let matchRank = '0';
+  if (terms.length > 0) {
+    params.phrase = likeLiteral(terms.join(' '));
+    params.phrasePrefix = `${params.phrase}%`;
+    matchRank = `CASE
+          WHEN title LIKE :phrase ESCAPE '\\' THEN 0
+          WHEN title LIKE :phrasePrefix ESCAPE '\\' THEN 1
+          ELSE 2
+        END`;
+  }
 
   // A NULL workspaceId never equals anything, so a chat without an agent
   // has no workspace section and everything else lands in `all`.
@@ -9599,6 +9619,7 @@ export function listSessionReferences(opts: {
           WHEN workspaceId = :workspaceId THEN 1
           ELSE 2
         END AS sectionRank,
+        ${matchRank} AS matchRank,
         CASE
           WHEN referencedAt IS NULL AND workspaceId = :workspaceId
                AND kind = 'task' AND status IN (${REFERENCE_OPEN_TASKS}) THEN 0
@@ -9606,7 +9627,7 @@ export function listSessionReferences(opts: {
         END AS openRank,
         COALESCE(referencedAt, updatedAt) AS sortAt
       FROM candidates
-      ${titleMatch.length > 0 ? `WHERE ${titleMatch.join(' AND ')}` : ''}
+      ${filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : ''}
     )`;
 
   const raw = getRawDb();
@@ -9617,21 +9638,23 @@ export function listSessionReferences(opts: {
   for (const r of countRows) counts[REFERENCE_SECTIONS[r.sectionRank]] = r.n;
 
   // Keyset: everything strictly after the cursor in
-  // (sectionRank, openRank, sortAt DESC, kind DESC, id DESC) order.
+  // (sectionRank, matchRank, openRank, sortAt DESC, kind DESC, id DESC) order.
   let after = '';
   const pageParams: Record<string, string | number | null> = { ...params, limit: limit + 1 };
   if (opts.cursor) {
-    const [section, open, at, kind, id] = decodeReferenceCursor(opts.cursor);
-    Object.assign(pageParams, { afterSection: section, afterOpen: open, afterAt: at, afterKind: kind, afterId: id });
+    const [section, match, open, at, kind, id] = decodeReferenceCursor(opts.cursor);
+    Object.assign(pageParams, {
+      afterSection: section, afterMatch: match, afterOpen: open, afterAt: at, afterKind: kind, afterId: id,
+    });
     after = `
-      WHERE (sectionRank, openRank) > (:afterSection, :afterOpen)
-         OR ((sectionRank, openRank) = (:afterSection, :afterOpen)
+      WHERE (sectionRank, matchRank, openRank) > (:afterSection, :afterMatch, :afterOpen)
+         OR ((sectionRank, matchRank, openRank) = (:afterSection, :afterMatch, :afterOpen)
              AND (sortAt < :afterAt OR (sortAt = :afterAt AND (kind, id) < (:afterKind, :afterId))))`;
   }
   const scan = raw
     .prepare(`${ranked}
       SELECT * FROM ranked ${after}
-      ORDER BY sectionRank, openRank, sortAt DESC, kind DESC, id DESC
+      ORDER BY sectionRank, matchRank, openRank, sortAt DESC, kind DESC, id DESC
       LIMIT :limit`)
     .all(pageParams) as ReferenceScanRow[];
   const page = scan.slice(0, limit);
@@ -9667,7 +9690,7 @@ export function listSessionReferences(opts: {
     counts,
     nextCursor:
       scan.length > limit && last
-        ? encodeReferenceCursor([last.sectionRank, last.openRank, last.sortAt, last.kind, last.id])
+        ? encodeReferenceCursor([last.sectionRank, last.matchRank, last.openRank, last.sortAt, last.kind, last.id])
         : null,
   };
 }

@@ -6,7 +6,7 @@ import Suggestion, {
   type SuggestionOptions,
   type SuggestionProps,
 } from '@tiptap/suggestion';
-import { createSuggestionPopupRenderer } from '@/components/chat/editor/suggestion/renderer';
+import { createSuggestionPopupRenderer, settledItems } from '@/components/chat/editor/suggestion/renderer';
 import { searchApi } from '@/lib/api/search';
 import { EntityLinkMenuList } from './popup';
 import type { EntityLinkItem } from './types';
@@ -36,19 +36,19 @@ export const EntityLinkMenuExtension = Extension.create({
       startOfLine: false,
       items: async ({ query }: { query: string }) => {
         const q = query.trim();
-        if (!q) return [];
+        if (!q) return settledItems<EntityLinkItem>([]);
         try {
           const results = await searchApi.query(q, { mode: 'keyword', limit: 8 });
-          return results
+          return settledItems(results
             .filter((r) => r.entityType === 'task' || r.entityType === 'note')
             .map((r) => ({
               kind: r.entityType as EntityLinkItem['kind'],
               id: r.id,
               title: r.title ?? '',
               status: r.status,
-            }));
+            })));
         } catch {
-          return [];
+          return settledItems<EntityLinkItem>([]);
         }
       },
       command: ({
@@ -68,7 +68,7 @@ export const EntityLinkMenuExtension = Extension.create({
           .insertContent(' ')
           .run();
       },
-      render: createSuggestionPopupRenderer<EntityLinkItem>(EntityLinkMenuList),
+      render: createSuggestionPopupRenderer<EntityLinkItem>(EntityLinkMenuList, { asyncItems: true }),
     };
 
     return [Suggestion<EntityLinkItem, EntityLinkItem>({ editor: this.editor, ...suggestion })];

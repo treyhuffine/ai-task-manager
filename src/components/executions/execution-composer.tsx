@@ -20,6 +20,7 @@ import {
   useSessionMeta,
   useSessionTree,
   usePicker,
+  pickerQueryOptions,
   useSessionEvents,
 } from '@/hooks/use-execution';
 import { buildRecallHistory } from '@/components/chat/editor/history-recall';
@@ -60,10 +61,10 @@ import {
 } from '@/hooks/use-reference-folders';
 import type {
   FileMentionItem,
-  TaskMentionItem,
-  NoteMentionItem,
   ReferenceFolderMentionItem,
+  SearchMentionEntities,
 } from '@/components/chat/editor/mention-menu/types';
+import { ENTITY_PREVIEW_LIMIT } from '@/components/chat/editor/mention-menu/ranking';
 import type { PrMentionItem } from '@/components/chat/editor/pr-menu/types';
 import { usePrList } from '@/hooks/use-prs';
 import { useHarnessModels } from '@/hooks/use-harness-models';
@@ -286,28 +287,22 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       [treeQuery.data?.entries],
     );
 
-    // Tasks + notes from the session's workspace → @-picker entity items.
-    // The picker auto-scopes by workspaceId; a future "Show all" toggle
-    // in the popup will flip it to cross-workspace.
-    const pickerQuery = usePicker(sessionId);
-    const mentionTasks = useMemo<TaskMentionItem[]>(
-      () =>
-        (pickerQuery.data?.tasks ?? []).map((t) => ({
-          kind: 'task',
-          id: t.id,
-          title: t.title,
-          status: t.status,
-        })),
-      [pickerQuery.data?.tasks],
-    );
-    const mentionNotes = useMemo<NoteMentionItem[]>(
-      () =>
-        (pickerQuery.data?.notes ?? []).map((n) => ({
-          kind: 'note',
-          id: n.id,
-          title: n.title ?? '',
-        })),
-      [pickerQuery.data?.notes],
+    // Tasks + notes for the @-picker: a server search over the whole home
+    // per query, this chat's and this agent's first. Searches go through the
+    // query cache, and the bare `@` list stays warm so the picker opens
+    // without a round trip.
+    usePicker(sessionId, { q: '', limit: ENTITY_PREVIEW_LIMIT });
+    const searchMentionEntities = useCallback<SearchMentionEntities>(
+      async (search) => {
+        if (!sessionId) return { tasks: [], notes: [], totals: { tasks: 0, notes: 0 } };
+        const data = await queryClient.fetchQuery(pickerQueryOptions(sessionId, search));
+        return {
+          tasks: data.tasks.map((t) => ({ kind: 'task', id: t.id, title: t.title, status: t.status })),
+          notes: data.notes.map((n) => ({ kind: 'note', id: n.id, title: n.title })),
+          totals: data.totals,
+        };
+      },
+      [sessionId, queryClient],
     );
 
     // Reference folders → `@`-picker items (docs/reference-folders-spec.md).
@@ -689,7 +684,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
               ) : (
                 <ChatInputEditor
                   ref={editorRef}
-                  placeholder={placeholder ?? "Ask your agent to do any work. You can @mention files, tasks, or notes. Reference PRs with # or use a slash to run /skills"}
+                  placeholder={placeholder ?? "Ask your agent to do any work. You can @mention files, tasks, or notes. Reference PRs with @# or use a slash to run /skills"}
                   // Don't disable the editor while `sending` — the
                   // user can queue the next message during the POST
                   // round-trip (concurrent send is supported all the
@@ -708,8 +703,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   mentionFiles={mentionFiles}
                   mentionReferenceFolders={mentionReferenceFolders}
                   loadReferenceTree={loadReferenceTree}
-                  mentionTasks={mentionTasks}
-                  mentionNotes={mentionNotes}
+                  searchMentionEntities={searchMentionEntities}
                   prs={prMentions}
                   draftKey={sessionId ? `exec:${sessionId}` : undefined}
                   history={messageHistory}
