@@ -41,4 +41,5 @@ export const ORCHESTRATOR_PRESETS: readonly OrchestratorPreset[] = [
   { name: 'Navi', emoji: '🧚', color: '#4f7cf0', note: 'Hey! Listen!' },
   { name: 'Yoda', emoji: '🐸', color: '#e8664f', note: 'Do. Or do not.' },
   { name: 'Ada', emoji: '🧮', color: '#8b6cf0', note: 'Coded in 1843' },
+  { name: 'Alan', emoji: '🔐', color: '#2fb67c', note: 'Passes the test' },
 ];
