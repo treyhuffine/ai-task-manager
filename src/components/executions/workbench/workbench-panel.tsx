@@ -77,7 +77,7 @@ export function WorkbenchPanel({ workbench, ctx, changedFiles, linkedCount, scra
           const Icon = VIEW_ICONS[v];
           const on = view === v;
           return (
-            <Tip key={v} label={`${PANEL_VIEW_LABELS[v]}. Double-click to expand.`}>
+            <Tip key={v} label={PANEL_VIEW_LABELS[v]} onlyWhenTextHidden>
               <button
                 type="button"
                 data-tab={v}

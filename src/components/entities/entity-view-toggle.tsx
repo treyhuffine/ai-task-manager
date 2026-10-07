@@ -33,7 +33,7 @@ export function EntityViewToggle({
       className={cn('inline-flex rounded-md border border-border p-0.5 text-[10.5px]', className)}
     >
       {(['agent', 'editor'] as const).map((m) => (
-        <Tip key={m} label={m === 'agent' ? 'Agent view' : 'Document view'}>
+        <Tip key={m} label={m === 'agent' ? 'Agent view' : 'Document view'} onlyWhenTextHidden>
           <button
             type="button"
             role="tab"

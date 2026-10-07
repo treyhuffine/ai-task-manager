@@ -128,13 +128,10 @@ function EntityChipView({ node, editor, getPos, selected }: NodeViewProps) {
   };
 
   const label = entityLabel(attrs);
-  const tooltip =
-    attrs.kind === 'scratchpad'
-      ? 'Session scratchpad: inlined for the agent on send'
-      : `${attrs.kind === 'task' ? 'Task' : 'Note'}: ${label}`;
+  const scratchpad = attrs.kind === 'scratchpad';
 
   return (
-    <Tip label={tooltip}>
+    <Tip label={scratchpad ? 'Session scratchpad: inlined for the agent on send' : label} onlyWhenTextHidden={!scratchpad}>
       <NodeViewWrapper
         as="span"
         contentEditable={false}

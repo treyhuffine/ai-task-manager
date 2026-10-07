@@ -148,7 +148,7 @@ export function StartWithAgentButton({
 
   return (
     <>
-      <Tip label={label}>
+      <Tip label={label} onlyWhenTextHidden>
         <button
           onClick={onClick}
           disabled={busy}

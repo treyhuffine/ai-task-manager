@@ -479,16 +479,14 @@ export function FolderPickerDialog({
                     <FolderPlus size={12} />
                     New Folder
                   </button>
-                  <Tip label={showHidden ? 'Hide hidden files' : 'Show hidden files'}>
-                    <button
-                      type="button"
-                      onClick={() => setShowHidden((v) => !v)}
-                      className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors"
-                    >
-                      {showHidden ? <Eye size={12} /> : <EyeOff size={12} />}
-                      Hidden files
-                    </button>
-                  </Tip>
+                  <button
+                    type="button"
+                    onClick={() => setShowHidden((v) => !v)}
+                    className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors"
+                  >
+                    {showHidden ? <Eye size={12} /> : <EyeOff size={12} />}
+                    Hidden files
+                  </button>
                 </>
               )}
               <div className="ml-auto flex items-center gap-2">

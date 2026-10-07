@@ -333,7 +333,7 @@ function Row({
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium truncate">{trigger.name}</p>
           {isReservedTrigger(trigger.id) && (
-            <Tip label="Managed by the app">
+            <Tip label="Managed by the app. Change its schedule in Settings › General.">
               <span
                 className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider font-medium bg-muted text-muted-foreground"
               >

@@ -224,7 +224,7 @@ export function IdentityEditor({
           {ORCHESTRATOR_PRESETS.map((preset) => {
             const selected = matchesPreset(draft, preset);
             return (
-              <Tip key={preset.name} label={preset.note}>
+              <Tip key={preset.name} label={preset.note} onlyWhenTextHidden>
                 <button
                   type="button"
                   aria-pressed={selected}

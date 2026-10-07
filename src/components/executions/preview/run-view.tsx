@@ -57,7 +57,7 @@ export function RunView({ controller: c, onStartAndPreview, onOpenPreview, onOpe
             {status === 'elsewhere' && c.elsewhere ? `Runs on ${c.elsewhere.deviceName}` : RUN_STATUS_LABEL[status]}
           </span>
           {c.command && (
-            <Tip label={c.command}>
+            <Tip label={c.command} onlyWhenTextHidden>
               <code className="min-w-0 truncate font-mono text-[11.5px] text-muted-foreground">
                 {c.command}
               </code>
@@ -78,7 +78,7 @@ export function RunView({ controller: c, onStartAndPreview, onOpenPreview, onOpe
                 Stop
               </RunButton>
               {status === 'running' && onOpenPreview && (
-                <RunButton onClick={onOpenPreview} title="Open Preview">
+                <RunButton onClick={onOpenPreview}>
                   <AppWindow size={12} />
                   Preview
                 </RunButton>

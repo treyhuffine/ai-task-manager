@@ -276,7 +276,7 @@ function AgentTasksSection({ workspaceId }: { workspaceId: string }) {
     <Section title="Tasks" icon={<ListTodo size={10} />} count={tasks.length}>
       <div className="flex flex-wrap gap-1.5 px-1 pt-0.5">
         {tasks.map((t) => (
-          <Tip key={t.id} label={`Open "${t.title}"`}>
+          <Tip key={t.id} label={t.title || 'Untitled'} onlyWhenTextHidden>
             <button
               onClick={() => openTask(t.id)}
               className={cn(

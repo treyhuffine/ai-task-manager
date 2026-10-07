@@ -60,7 +60,6 @@ import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib
 import { cn } from '@/lib/utils';
 import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
 import type { Energy, Effort, Attachment } from '@/db/types';
-import { Tip } from '@/components/ui/tip';
 
 const DEFAULT_WIDTH = 1200;
 const MIN_WIDTH = 420;
@@ -426,21 +425,19 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                 {/* Complete/Reopen only where it is the real action (not for
                     Consider or Archived — change those with the status control). */}
                 {task && task.status !== 'consider' && task.status !== 'archived' && (
-                  <Tip label={isDone ? 'Completed' : 'Complete'}>
-                    <button
-                      onClick={handleComplete}
-                      aria-label={isDone ? 'Completed' : 'Complete'}
-                      className={cn(
-                        'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
-                        isDone
-                          ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                          : 'border border-border text-muted-foreground hover:text-foreground hover:bg-accent',
-                      )}
-                    >
-                      <Check size={12} />
-                      <span className={ENTITY_HEADER_LABEL}>{isDone ? 'Completed' : 'Complete'}</span>
-                    </button>
-                  </Tip>
+                  <button
+                    onClick={handleComplete}
+                    aria-label={isDone ? 'Completed' : 'Complete'}
+                    className={cn(
+                      'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
+                      isDone
+                        ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                        : 'border border-border text-muted-foreground hover:text-foreground hover:bg-accent',
+                    )}
+                  >
+                    <Check size={12} />
+                    <span className={ENTITY_HEADER_LABEL}>{isDone ? 'Completed' : 'Complete'}</span>
+                  </button>
                 )}
 
                 <DropdownMenu>

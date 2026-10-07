@@ -35,7 +35,7 @@ export function ActionButton({
 }: ActionButtonProps) {
   const isDisabled = !!disabled || !!pending;
   return (
-    <Tip label={title ?? label}>
+    <Tip label={title}>
       <button
         type="button"
         onClick={onClick}

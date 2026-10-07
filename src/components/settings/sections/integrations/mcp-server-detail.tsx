@@ -140,13 +140,13 @@ export function McpServerDetail({
                   className="grid grid-cols-[1fr_2.5rem_3.5rem] items-center gap-x-2 px-3 py-1.5 hover:bg-muted/30"
                 >
                   <div className="min-w-0">
-                    <Tip label={t.name}>
+                    <Tip label={t.name} onlyWhenTextHidden>
                       <div className="truncate font-mono text-[11px] text-foreground">
                         {t.name}
                       </div>
                     </Tip>
                     {t.description && (
-                      <Tip label={t.description}>
+                      <Tip label={t.description} onlyWhenTextHidden>
                         <div className="truncate text-[10px] text-muted-foreground">
                           {t.description}
                         </div>

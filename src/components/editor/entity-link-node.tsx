@@ -143,7 +143,7 @@ function EntityLinkView({ node, selected }: NodeViewProps) {
   };
 
   return (
-    <Tip label={`${isTask ? 'Task' : 'Note'}: ${title}`}>
+    <Tip label={title} onlyWhenTextHidden>
       <NodeViewWrapper
         as="span"
         contentEditable={false}

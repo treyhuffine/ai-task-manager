@@ -586,13 +586,13 @@ function ToolRow({
         {a.mutating ? 'Write' : 'Read'}
       </span>
       <div className="min-w-0 flex-1">
-        <Tip label={a.id}>
+        <Tip label={a.id} onlyWhenTextHidden>
           <div className="truncate font-mono text-[11px] text-foreground">
             {a.id}
           </div>
         </Tip>
         {a.description && (
-          <Tip label={a.description}>
+          <Tip label={a.description} onlyWhenTextHidden>
             <div className="truncate text-[10px] text-muted-foreground">
               {a.description}
             </div>

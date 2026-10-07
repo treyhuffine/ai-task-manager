@@ -785,7 +785,7 @@ function LaunchModalInner({
                   {suggestions.map((item) => {
                     const Icon = CHIP_ICON[item.kind];
                     return (
-                      <Tip key={`${item.kind}:${item.key}`} label={item.title}>
+                      <Tip key={`${item.kind}:${item.key}`} label={item.title} onlyWhenTextHidden>
                         <button
                           type="button"
                           onClick={() => handlePick(item)}
@@ -901,7 +901,7 @@ function Chip({ chip, onRemove }: { chip: LaunchChip; onRemove: () => void }) {
         : 'border-border bg-background';
 
   return (
-    <Tip label={chip.detail ?? chip.label}>
+    <Tip label={chip.detail ? `${chip.label} · ${chip.detail}` : chip.label} onlyWhenTextHidden>
       <span
         className={cn(
           'inline-flex max-w-[20rem] items-center gap-1.5 rounded-md border px-2 py-1 text-[11px]',

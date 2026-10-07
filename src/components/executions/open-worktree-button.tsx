@@ -218,28 +218,26 @@ export function OpenWorktreeButton({ path, source = null }: OpenWorktreeButtonPr
   if (isRemote) {
     return (
       <div className="relative inline-flex items-center gap-1.5">
-        <Tip label="Copy worktree path">
-          <button
-            type="button"
-            onClick={copyPath}
-            disabled={busy === 'copy'}
-            className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium',
-              'rounded-md border border-border bg-background',
-              'text-foreground/80 hover:text-foreground hover:bg-muted/40',
-              'transition-colors disabled:opacity-50',
-            )}
-          >
-            {busy === 'copy' ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : copied ? (
-              <Check size={12} />
-            ) : (
-              <Copy size={12} />
-            )}
-            {copied ? 'Copied' : 'Copy path'}
-          </button>
-        </Tip>
+        <button
+          type="button"
+          onClick={copyPath}
+          disabled={busy === 'copy'}
+          className={cn(
+            'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium',
+            'rounded-md border border-border bg-background',
+            'text-foreground/80 hover:text-foreground hover:bg-muted/40',
+            'transition-colors disabled:opacity-50',
+          )}
+        >
+          {busy === 'copy' ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : copied ? (
+            <Check size={12} />
+          ) : (
+            <Copy size={12} />
+          )}
+          {copied ? 'Copied' : 'Copy path'}
+        </button>
         <Tip
           label={
             filesOn

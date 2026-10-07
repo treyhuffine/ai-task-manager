@@ -369,7 +369,7 @@ function StopButton({
   const couldntStop = !stop.isPending && stop.data?.stopped === false;
   if (!canStop || providerType === 'codex') return null;
   return (
-    <Tip label={couldntStop ? 'Could not stop (already ended or unsupported)' : 'Stop this task'}>
+    <Tip label={couldntStop ? 'Could not stop (already ended or unsupported)' : undefined}>
       <button
         type="button"
         disabled={stop.isPending}

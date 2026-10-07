@@ -60,7 +60,7 @@ export function AgentTools({
     <div className="@container flex flex-col h-full min-h-0">
       <div role="tablist" aria-label="Agent tools" className="shrink-0 flex items-center gap-0.5 border-b border-border px-2 py-1 overflow-x-auto">
         {TABS.map((t) => (
-          <Tip key={t.id} label={t.label}>
+          <Tip key={t.id} label={t.label} onlyWhenTextHidden>
             <button
               role="tab"
               aria-selected={tab === t.id}

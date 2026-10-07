@@ -126,15 +126,13 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
           {eligible.length > 1 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Tip label="Accept the output and complete one of the tasks this workstream is working">
-                  <button
-                    disabled={pending}
-                    className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-emerald-600 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
-                  >
-                    <CheckCheck size={12} />
-                    Accept & complete…
-                  </button>
-                </Tip>
+                <button
+                  disabled={pending}
+                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-emerald-600 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  <CheckCheck size={12} />
+                  Accept & complete…
+                </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="max-w-xs">
                 <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">Complete which task?</div>
@@ -180,7 +178,7 @@ function ReviewButton({
     'emerald-solid': 'bg-emerald-600 text-white hover:bg-emerald-700',
   };
   return (
-    <Tip label={title ?? label}>
+    <Tip label={title}>
       <button
         onClick={onClick}
         disabled={disabled}

@@ -68,19 +68,17 @@ export function PreviewHeader({
   return (
     <div className="flex h-9 items-center gap-1.5 border-b border-border bg-background px-2">
       {!onStart || !onStop ? null : isStarted || isStarting ? (
-        <Tip label="Stop preview">
-          <button
-            type="button"
-            onClick={onStop}
-            disabled={isStarting}
-            className="flex h-7 items-center gap-1.5 rounded px-2 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-          >
-            <Square size={12} className="fill-current" />
-            Stop
-          </button>
-        </Tip>
+        <button
+          type="button"
+          onClick={onStop}
+          disabled={isStarting}
+          className="flex h-7 items-center gap-1.5 rounded px-2 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+        >
+          <Square size={12} className="fill-current" />
+          Stop
+        </button>
       ) : (
-        <Tip label={disableStart ? disableStartReason ?? 'Start unavailable' : 'Start preview'}>
+        <Tip label={disableStart ? disableStartReason ?? 'Start unavailable' : undefined}>
           <button
             type="button"
             onClick={onStart}
@@ -163,19 +161,17 @@ export function PreviewHeader({
       {shareControl}
 
       {onToggleLogs && (
-        <Tip label={logsOpen ? 'Hide logs' : 'Show logs'}>
-          <button
-            type="button"
-            onClick={onToggleLogs}
-            className={cn(
-              'flex h-7 items-center gap-1 rounded px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground',
-              logsOpen && 'bg-muted text-foreground',
-            )}
-          >
-            {logsOpen ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
-            Logs
-          </button>
-        </Tip>
+        <button
+          type="button"
+          onClick={onToggleLogs}
+          className={cn(
+            'flex h-7 items-center gap-1 rounded px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground',
+            logsOpen && 'bg-muted text-foreground',
+          )}
+        >
+          {logsOpen ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+          Logs
+        </button>
       )}
     </div>
   );

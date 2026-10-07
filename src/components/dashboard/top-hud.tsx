@@ -40,32 +40,28 @@ export function TopHud() {
       <RailStatusPills />
 
       {closeLabel ? (
-        <Tip label={closeLabel}>
-          <button
-            onClick={goHome}
-            className="flex items-center gap-1.5 h-7 pl-1.5 pr-1.5 rounded-lg border border-border bg-secondary text-foreground hover:bg-accent transition-all"
-            aria-label={closeLabel}
-          >
-            <X size={12} />
-            <span className="text-[11px] font-medium">{closeLabel}</span>
-            <kbd className="ml-0.5 px-1 py-0.5 bg-background/60 rounded text-[9px] font-mono leading-none text-muted-foreground">
-              {HOTKEYS.closeView.label}
-            </kbd>
-          </button>
-        </Tip>
+        <button
+          onClick={goHome}
+          className="flex items-center gap-1.5 h-7 pl-1.5 pr-1.5 rounded-lg border border-border bg-secondary text-foreground hover:bg-accent transition-all"
+          aria-label={closeLabel}
+        >
+          <X size={12} />
+          <span className="text-[11px] font-medium">{closeLabel}</span>
+          <kbd className="ml-0.5 px-1 py-0.5 bg-background/60 rounded text-[9px] font-mono leading-none text-muted-foreground">
+            {HOTKEYS.closeView.label}
+          </kbd>
+        </button>
       ) : latestExecutionId ? (
-        <Tip label="Open latest execution">
-          <button
-            onClick={() => openExecution(latestExecutionId)}
-            className="flex items-center gap-1.5 h-7 px-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-            aria-label="Open latest execution"
-          >
-            <span className="text-[11px] font-medium">Open latest execution</span>
-            <kbd className="px-1 py-0.5 bg-muted rounded text-[9px] font-mono leading-none">
-              {HOTKEYS.closeView.label}
-            </kbd>
-          </button>
-        </Tip>
+        <button
+          onClick={() => openExecution(latestExecutionId)}
+          className="flex items-center gap-1.5 h-7 px-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+          aria-label="Open latest execution"
+        >
+          <span className="text-[11px] font-medium">Open latest execution</span>
+          <kbd className="px-1 py-0.5 bg-muted rounded text-[9px] font-mono leading-none">
+            {HOTKEYS.closeView.label}
+          </kbd>
+        </button>
       ) : null}
 
       <div className="flex-1" />

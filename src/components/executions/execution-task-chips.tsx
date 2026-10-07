@@ -33,7 +33,7 @@ export function ExecutionTaskChips({ executionId }: { executionId: string }) {
         {active.length > 1 ? 'Working on' : 'Task'}
       </span>
       {active.map((t) => (
-        <Tip key={t.id} label={`Open "${t.title}"`}>
+        <Tip key={t.id} label={t.title || 'Untitled'} onlyWhenTextHidden>
           <button
             onClick={() => openTask(t.id)}
             className={cn(

@@ -67,7 +67,7 @@ export function EventPopoverContent({ event }: { event: CalendarEvent }) {
           </span>
         </p>
         {event.alsoOn.length > 0 && (
-          <Tip label={event.alsoOn.join(', ')}>
+          <Tip label={`Also on ${event.alsoOn.join(', ')}`} onlyWhenTextHidden>
             <p className="truncate text-[10px] text-muted-foreground/60">
               Also on {event.alsoOn.join(', ')}
             </p>

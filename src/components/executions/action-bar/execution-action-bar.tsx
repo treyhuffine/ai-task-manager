@@ -774,8 +774,7 @@ function NarrativeBody({ state, base, hasPr, badges, theme, sessionId, push, pul
             onClick={archive.onClick}
             pending={archive.pending}
             variant="primary"
-            title="Archive this execution"
-          />
+            />
         </>
       );
 

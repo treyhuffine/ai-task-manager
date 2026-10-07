@@ -31,7 +31,8 @@ import { Tip } from '@/components/ui/tip';
 export interface RailPlace {
   id: 'board' | 'calendar' | 'schedules';
   label: string;
-  /** Tooltip. */
+  /** Tooltip in the collapsed strip, where only the icon shows. The wide
+   *  rail's row shows `label` and needs none. */
   title: string;
   icon: LucideIcon;
   onClick: () => void;
@@ -117,35 +118,34 @@ export const RAIL_VERBS: readonly RailVerb[] = [
 export function RailPlaceRows({ places }: { places: readonly RailPlace[] }) {
   return (
     <nav aria-label="Places" className="flex flex-col gap-0.5 px-2 pt-1 pb-1.5">
-      {places.map(({ id, label, title, icon: Icon, onClick, onIntent, active, count }) => (
-        <Tip key={id} label={title}>
-          <button
-            type="button"
-            onClick={onClick}
-            onPointerEnter={onIntent}
-            onFocus={onIntent}
-            aria-current={active ? 'page' : undefined}
-            className={cn(
-              'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[12px] font-medium transition-colors',
-              'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-              active
-                ? 'bg-muted/60 text-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40',
-            )}
-          >
-            <Icon size={14} className="flex-shrink-0" />
-            <span className="truncate">{label}</span>
-            {count !== undefined && (
-              <span
-                className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] tabular-nums"
-                aria-label={`${count} active`}
-              >
-                <span className="size-1.5 rounded-full bg-blue-500" aria-hidden />
-                {count}
-              </span>
-            )}
-          </button>
-        </Tip>
+      {places.map(({ id, label, icon: Icon, onClick, onIntent, active, count }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={onClick}
+          onPointerEnter={onIntent}
+          onFocus={onIntent}
+          aria-current={active ? 'page' : undefined}
+          className={cn(
+            'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[12px] font-medium transition-colors',
+            'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+            active
+              ? 'bg-muted/60 text-foreground'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/40',
+          )}
+        >
+          <Icon size={14} className="flex-shrink-0" />
+          <span className="truncate">{label}</span>
+          {count !== undefined && (
+            <span
+              className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] tabular-nums"
+              aria-label={`${count} active`}
+            >
+              <span className="size-1.5 rounded-full bg-blue-500" aria-hidden />
+              {count}
+            </span>
+          )}
+        </button>
       ))}
     </nav>
   );

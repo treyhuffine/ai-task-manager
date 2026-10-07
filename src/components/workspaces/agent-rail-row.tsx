@@ -158,7 +158,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
           isActive ? 'bg-secondary' : 'hover:bg-muted/40',
         )}
       >
-        <Tip label={activity ? PRESENCE[activity].label : `Open ${workspace.name}`}>
+        <Tip label={activity ? PRESENCE[activity].label : undefined}>
           <button
             onClick={open}
             className="relative flex-shrink-0 rounded-md"
@@ -176,7 +176,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
             )}
           </button>
         </Tip>
-        <Tip label={voice ? `${workspace.name}: ${voice.text}` : workspace.name}>
+        <Tip label={voice ? `${workspace.name}: ${voice.text}` : workspace.name} onlyWhenTextHidden>
           <button
             onClick={open}
             className="flex-1 min-w-0 text-left"

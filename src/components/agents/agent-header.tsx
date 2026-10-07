@@ -67,16 +67,14 @@ export function AgentHeader({
       {/* Beside the name, so it reads as this agent's action. The app-wide
           CREATE owns the top-right corner. */}
       {!archived && (
-        <Tip label={`New execution in ${workspace.name}`}>
-          <button
-            onClick={() => openLauncher(workspace.id)}
-            className="flex flex-shrink-0 items-center gap-1.5 h-7 px-2.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:opacity-90 transition-opacity"
-            aria-label="New execution"
-          >
-            <Plus size={12} strokeWidth={2.5} />
-            <span className="hidden @[520px]:inline">New execution</span>
-          </button>
-        </Tip>
+        <button
+          onClick={() => openLauncher(workspace.id)}
+          className="flex flex-shrink-0 items-center gap-1.5 h-7 px-2.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:opacity-90 transition-opacity"
+          aria-label="New execution"
+        >
+          <Plus size={12} strokeWidth={2.5} />
+          <span className="hidden @[520px]:inline">New execution</span>
+        </button>
       )}
 
       <div className="flex-1" />

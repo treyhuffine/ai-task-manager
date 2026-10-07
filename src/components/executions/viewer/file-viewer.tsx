@@ -285,7 +285,7 @@ function FileViewerHeader({
   return (
     <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 min-w-0">
       <FileIcon name={displayPath} />
-      <Tip label={displayPath}>
+      <Tip label={displayPath} onlyWhenTextHidden>
         <span
           className="truncate text-[11px] font-medium text-foreground/85 flex-1"
         >

@@ -35,7 +35,7 @@ export function DeepLinkButton({
   if (!alwaysShow && location.kind !== 'host') return null;
 
   return (
-    <Tip label={title ?? label}>
+    <Tip label={title}>
       <a
         href={href}
         className={cn(

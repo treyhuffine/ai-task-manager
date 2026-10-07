@@ -62,6 +62,10 @@ type TipProps = Omit<ComponentProps<typeof TooltipPrimitive.Trigger>, 'asChild' 
   shortcut?: string;
   side?: ComponentProps<typeof TooltipContent>['side'];
   align?: ComponentProps<typeof TooltipContent>['align'];
+  /** The label repeats text the element already shows: open only while
+   *  some of that text is cut off (`truncate`, a line clamp) or hidden
+   *  (`display: none`, as a label folding away on a narrow panel). */
+  onlyWhenTextHidden?: boolean;
   children: ReactElement;
 };
 
@@ -86,6 +90,9 @@ type TipProps = Omit<ComponentProps<typeof TooltipPrimitive.Trigger>, 'asChild' 
  *   `<DropdownMenuTrigger asChild><Tip label="…"><button /></Tip>`. Put it
  *   inside such a trigger, never around one, or the tooltip's `data-state`
  *   replaces the menu's.
+ * - Never restate what the element already says ("Archive" on an Archive
+ *   button): leave the Tip out, or use `onlyWhenTextHidden` when the text
+ *   can be cut off or folded away.
  * - The label describes the element, it doesn't name it. An icon-only button
  *   still needs its own `aria-label`.
  */
@@ -98,7 +105,7 @@ export function Tip(props: TipProps) {
   );
 }
 
-function TipBody({ label, shortcut, side, align, children, ref, onFocus, onPointerDown, ...triggerProps }: TipProps) {
+function TipBody({ label, shortcut, side, align, onlyWhenTextHidden, children, ref, onFocus, onPointerDown, ...triggerProps }: TipProps) {
   const lastInputWasKey = useContext(LastInputWasKey);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -106,7 +113,10 @@ function TipBody({ label, shortcut, side, align, children, ref, onFocus, onPoint
   return (
     <Tooltip
       open={hasLabel && open}
-      onOpenChange={(next) => setOpen(next && trigger.current?.getAttribute('aria-expanded') !== 'true')}
+      onOpenChange={(next) => {
+        const el = trigger.current;
+        setOpen(next && !!el && el.getAttribute('aria-expanded') !== 'true' && (!onlyWhenTextHidden || textIsHidden(el)));
+      }}
     >
       {/* The primitive, not the shadcn part: that one stamps its own
           `data-slot` over the element's (a Button's "button"). */}
@@ -141,6 +151,21 @@ function TipBody({ label, shortcut, side, align, children, ref, onFocus, onPoint
       )}
     </Tooltip>
   );
+}
+
+/** Whether some of the element's text is cut off or not displayed. */
+function textIsHidden(el: HTMLElement): boolean {
+  return [el, ...el.querySelectorAll<HTMLElement>('*')].some((node) => {
+    if (!node.textContent?.trim()) return false;
+    const style = getComputedStyle(node);
+    if (style.display === 'none') return true;
+    // Only an element that clips its overflow can cut text off. A 1px
+    // absolute box is `sr-only` text, never meant to be seen.
+    if (style.overflowX === 'visible' && style.overflowY === 'visible') return false;
+    if (style.position === 'absolute' && node.clientWidth <= 1) return false;
+    // 1px of slack for subpixel layout. An ellipsis is wider than that.
+    return node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1;
+  });
 }
 
 function setRef<T>(ref: Ref<T> | undefined, value: T | null) {

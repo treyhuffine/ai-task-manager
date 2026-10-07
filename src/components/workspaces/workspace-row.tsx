@@ -190,7 +190,7 @@ export function WorkspaceRow({
               />
             </button>
           </Tip>
-          <Tip label={opensView ? `Open ${workspace.name}` : undefined}>
+          <Tip label={workspace.name} onlyWhenTextHidden>
             <button
               onClick={() => (opensView ? openAgent(workspace.id) : toggleCollapse())}
               className="flex-1 min-w-0 text-left text-[11.5px] font-semibold truncate text-foreground"

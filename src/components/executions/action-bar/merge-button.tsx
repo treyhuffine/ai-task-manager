@@ -101,7 +101,7 @@ export function MergeButton({
         onClick={() => setOpen(true)}
         disabled={!enabled}
         variant={variant}
-        title={enabled ? `Merge PR #${prNumber}` : reason ?? 'Merge unavailable'}
+        title={enabled ? undefined : reason ?? 'Merge unavailable'}
       />
       <DialogPrimitive.Root open={open} onOpenChange={(o) => !o && setOpen(false)}>
         <DialogPrimitive.Portal>

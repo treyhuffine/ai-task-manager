@@ -46,7 +46,7 @@ export function AgentAttentionRow({
 
   if (variant === 'rail') {
     return (
-      <Tip label={`${workspace.name}: ${voice.text}`}>
+      <Tip label={`${workspace.name}: ${voice.text}`} onlyWhenTextHidden>
         <button
           onClick={open}
           className={cn(
@@ -74,7 +74,7 @@ export function AgentAttentionRow({
   }
 
   return (
-    <Tip label={`${workspace.name}: ${voice.text}`}>
+    <Tip label={`${workspace.name}: ${voice.text}`} onlyWhenTextHidden>
       <button
         onClick={open}
         className={cn(

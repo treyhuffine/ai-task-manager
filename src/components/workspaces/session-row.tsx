@@ -211,17 +211,15 @@ export function SessionRow({
       </span>
       {density === 'compact' ? (
         <>
-          <Tip label={label}>
-            <span
-              className={cn(
-                'flex-1 min-w-0 truncate text-[11px]',
-                labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
-                isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
-              )}
-            >
-              {label}
-            </span>
-          </Tip>
+          <span
+            className={cn(
+              'flex-1 min-w-0 truncate text-[11px]',
+              labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
+              isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
+            )}
+          >
+            {label}
+          </span>
           {/* Static tokens only, so nothing arrives late and moves. The
               kebab takes this slot on hover. */}
           <span
@@ -246,17 +244,15 @@ export function SessionRow({
         </>
       ) : (
         <div className="flex-1 min-w-0">
-          <Tip label={label}>
-            <span
-              className={cn(
-                'block text-[11px] truncate',
-                labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
-                isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
-              )}
-            >
-              {label}
-            </span>
-          </Tip>
+          <span
+            className={cn(
+              'block text-[11px] truncate',
+              labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
+              isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
+            )}
+          >
+            {label}
+          </span>
           {/* Metadata line: the timestamp anchors it, then the workspace
               tag (Pinned and Needs you) and where it runs. */}
           <div className="flex items-center gap-1.5 mt-0.5 text-[9px] leading-none">

@@ -177,7 +177,7 @@ function WorkspacePill({
   onClick: () => void;
 }) {
   return (
-    <Tip label={name}>
+    <Tip label={name} onlyWhenTextHidden>
       <button
         onClick={onClick}
         className={cn(

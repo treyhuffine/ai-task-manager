@@ -34,7 +34,7 @@ export function EntityHistoryButton({
 
   return (
     <>
-      <Tip label={aiLatest ? 'Review changes' : 'History'}>
+      <Tip label={aiLatest ? 'Review changes' : 'History'} onlyWhenTextHidden>
         <button
           type="button"
           onClick={() => setOpen(true)}

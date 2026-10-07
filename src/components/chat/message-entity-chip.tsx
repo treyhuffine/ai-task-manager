@@ -65,7 +65,7 @@ function TaskChip({
   const status = task?.status ?? 'unknown';
   const Icon = status === 'done' ? CheckSquare : Square;
   return (
-    <Tip label={task ? `Task: ${title}` : `Task ${marker.id} (not found)`}>
+    <Tip label={task ? title : `Task ${marker.id} (not found)`} onlyWhenTextHidden={!!task}>
       <button
         type="button"
         onClick={() => onOpen?.(marker)}
@@ -89,7 +89,7 @@ function NoteChip({
 }) {
   const title = note?.title || (note ? 'Untitled note' : 'Unknown note');
   return (
-    <Tip label={note ? `Note: ${title}` : `Note ${marker.id} (not found)`}>
+    <Tip label={note ? title : `Note ${marker.id} (not found)`} onlyWhenTextHidden={!!note}>
       <button
         type="button"
         onClick={() => onOpen?.(marker)}

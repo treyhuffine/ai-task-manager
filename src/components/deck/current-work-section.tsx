@@ -60,11 +60,9 @@ export function CurrentWorkSection() {
               <span className="mt-1 flex flex-wrap items-center gap-1.5">
                 <TaskBadges signals={attention?.[task.id]} size="xs" />
                 {task.parentId && (
-                  <Tip label="Subtask">
-                    <span className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground">
-                      <ListTree size={9} /> subtask
-                    </span>
-                  </Tip>
+                  <span className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground">
+                    <ListTree size={9} /> subtask
+                  </span>
                 )}
               </span>
             </button>

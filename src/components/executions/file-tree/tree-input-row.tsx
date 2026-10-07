@@ -105,7 +105,7 @@ export function TreeInputRow({
         <Loader2 size={11} className="shrink-0 animate-spin text-muted-foreground" />
       )}
       {errorMessage && !isBusy && (
-        <Tip label={errorMessage}>
+        <Tip label={errorMessage} onlyWhenTextHidden>
           <span
             className="shrink-0 text-[10px] text-destructive truncate max-w-[140px]"
           >

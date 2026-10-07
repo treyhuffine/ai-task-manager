@@ -105,7 +105,7 @@ function AccountMultiSelect({ serviceName, accounts, pins, disabled, onChange }:
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild disabled={disabled}>
-        <Tip label={dormant.length > 0 ? dormantNote : summary}>
+        <Tip label={dormant.length > 0 ? dormantNote : summary} onlyWhenTextHidden={dormant.length === 0}>
           <button
             aria-label={`Accounts ${serviceName} may use: ${summary}`}
             className="flex h-7 min-w-0 max-w-[55%] shrink-0 items-center gap-1 rounded-lg border border-border bg-input/30 px-2 text-[11px] text-foreground outline-none transition-colors hover:bg-input/50 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 @sm:max-w-[200px]"

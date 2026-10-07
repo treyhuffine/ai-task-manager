@@ -54,7 +54,7 @@ export function WorkLaneHeader({ lanes }: { lanes: Lane[] }) {
   return (
     <div className="relative h-6 border-b border-border/60">
       {lanes.map((lane, i) => (
-        <Tip key={lane.key} label={lane.label}>
+        <Tip key={lane.key} label={lane.label} onlyWhenTextHidden>
           <div
             className="absolute top-1 flex min-w-0 items-center justify-center gap-1 px-0.5"
             style={{ left: `${(i / lanes.length) * 100}%`, width: `${100 / lanes.length}%` }}

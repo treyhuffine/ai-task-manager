@@ -335,13 +335,11 @@ function FolderRow({
 function PathLine({ path, state, deviceName }: { path: string; state: RowState; deviceName: string }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5">
-      <Tip label={path}>
-        <span
-          className={cn('min-w-0 break-all font-mono text-[11px]', state === 'missing' ? 'text-destructive/80 line-through' : 'text-foreground/85')}
-        >
-          {path}
-        </span>
-      </Tip>
+      <span
+        className={cn('min-w-0 break-all font-mono text-[11px]', state === 'missing' ? 'text-destructive/80 line-through' : 'text-foreground/85')}
+      >
+        {path}
+      </span>
       {state === 'found' && <Check size={12} className="shrink-0 text-emerald-500" aria-label="There" />}
       {state === 'missing' && <span className="shrink-0 text-[10.5px] text-destructive">Not there</span>}
       {state === 'unchecked' && (
@@ -381,11 +379,9 @@ function LinkedRow({
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-mono font-semibold text-foreground">@{refOn.alias}</span>
             {refOn.forEveryAgent && (
-              <Tip label="Every agent has it">
-                <span className="flex items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] text-muted-foreground">
-                  <Globe size={8} /> every agent
-                </span>
-              </Tip>
+              <span className="flex items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] text-muted-foreground">
+                <Globe size={8} /> every agent
+              </span>
             )}
             {agent && <span className="rounded bg-accent px-1 py-px text-[9px] text-muted-foreground">agent: {agent.name}</span>}
           </div>

@@ -179,7 +179,7 @@ export function FilesToCopySection({
               ) : (
                 <ul className="font-mono text-[10.5px] text-foreground/80">
                   {preview.files.map((f) => (
-                    <Tip key={f} label={f}>
+                    <Tip key={f} label={f} onlyWhenTextHidden>
                       <li className="px-2.5 py-0.5 hover:bg-muted/40 truncate">
                         {f}
                       </li>

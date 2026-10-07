@@ -86,8 +86,8 @@ export interface ChatStatusDescription {
   tone: ChatStatusTone;
   /** Live activity: the dot pulses. */
   pulse: boolean;
-  /** Tooltip explaining what the status covers. */
-  title: string;
+  /** Tooltip explaining what the status covers. None where the label says it all. */
+  title?: string;
 }
 
 /**
@@ -123,7 +123,7 @@ export function describeChatStatus(
     case 'pending':
       return { label: 'Needs input', tone: 'amber', pulse: true, title: 'This chat is waiting on you. The question is above the message box.' };
     case 'working':
-      return { label: 'Working', tone: 'green', pulse: true, title: 'This chat is working.' };
+      return { label: 'Working', tone: 'green', pulse: true };
     case 'waiting':
       return {
         label: `Waiting for ${name}`,

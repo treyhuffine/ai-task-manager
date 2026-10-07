@@ -49,7 +49,7 @@ export function SenderChip({ senderSessionId }: { senderSessionId: string }) {
     </>
   );
   return open ? (
-    <Tip label={`Open: ${label.replace(/^From /, '')}`}>
+    <Tip label={label} onlyWhenTextHidden>
       <button onClick={open} className={`${className} hover:text-foreground hover:bg-muted/60 transition-colors`}>
         {content}
       </button>

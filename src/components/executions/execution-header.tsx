@@ -503,7 +503,7 @@ export function ExecutionHeader({
           {/* Breadcrumb: the agent opens its view, the way back up from
               the workbench to the oversight surface. */}
           {workspace ? (
-            <Tip label={`Open ${workspace.name}`}>
+            <Tip label={workspace.name} onlyWhenTextHidden>
               <button
                 type="button"
                 onClick={() => openAgent(workspace.id)}
