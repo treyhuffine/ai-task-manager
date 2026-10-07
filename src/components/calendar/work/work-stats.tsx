@@ -63,10 +63,10 @@ export function WorkStats({ range, stale = false, legend = false }: { range: Wor
  */
 function ChainCard({ chain }: { chain: LeverageChain }) {
   const toAgents = chain.agentsPerHour
-    ? `Your agents worked about ${formatHours(chain.agentsPerHour)} hours for every hour of yours.`
+    ? `Your agents worked about ${hours(chain.agentsPerHour)} for every hour of yours.`
     : undefined;
   const toPerson = chain.personPerAgentHour
-    ? `Each hour of agent time did about ${formatHours(chain.personPerAgentHour)} hours of human work.`
+    ? `Each hour of agent time did about ${hours(chain.personPerAgentHour)} of human work.`
     : undefined;
   return (
     <dl
@@ -90,7 +90,7 @@ function ChainCard({ chain }: { chain: LeverageChain }) {
       <ChainStep
         label="Human time for the same work"
         value={`${formatHours(chain.personHours)}h`}
-        title="Roughly how long a skilled person would take to do all of this by hand. An estimate, to give a sense of scale."
+        title="Roughly how long a skilled person would take to do all of this by hand. Each commit counts as the time a change that size takes, from half an hour for a small fix to three days for a big feature. Other agent work counts hour for hour."
         context={chain.leverage ? `${formatTimes(chain.leverage)} your time` : undefined}
         hero
       />
@@ -108,6 +108,12 @@ function ChainStep({ label, value, context, title, hero = false }: { label: stri
       </div>
     </Tip>
   );
+}
+
+/** "1 hour", "3 hours", "0.5 hours". */
+function hours(x: number): string {
+  const n = formatHours(x);
+  return `${n} ${n === '1' ? 'hour' : 'hours'}`;
 }
 
 /** A connector across the gap between two steps, that step's multiplier over it. */

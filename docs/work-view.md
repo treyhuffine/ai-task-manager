@@ -32,7 +32,9 @@ Without a calendar connected, work still shows over empty days, free time is lef
 - **Agent time**: the time your agents spent working, added up across every chat. Two agents working side by side for an hour are two hours.
 - **Human time for the same work**: roughly how long a skilled person would take to do all of it by hand. Shown as an estimate, to give a sense of scale, never as a precise figure. In sentences it's "hours of human work".
 
-The point to land is "a ton happened from me prompting", so the copy states what each number means and lets the size speak. How the estimate is made lives here, in "Human time" below, not in the product: no tooltip defends a formula.
+The point to land is "a ton happened from me prompting", so the copy states what each number means and lets the size speak. The human-time tooltip says how in one plain line ("each commit counts as the time a change that size takes, from half an hour for a small fix to three days for a big feature, other agent work hour for hour"). The full method lives here, in "Human time" below.
+
+The comparison tiles ("Like a team of", "Like writing") only appear once there's enough to compare: 1.5 people's worth of hours, 10,000 words. A light day or a fresh home shows the chain alone, which is why the dev home's small fictional week has no tiles.
 
 **The chain**, the widest card, is the whole story in one line:
 
