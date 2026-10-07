@@ -3,7 +3,7 @@
  * main chat's first run and the edit dialog). Picking one fills the name and
  * the look, and everything stays editable after. The first is the default,
  * drawn with the Ri mark. The rest mix plain titles, names that aren't a
- * person, and homages to assistants from fiction and computing.
+ * person, and homages from fiction and computing.
  *
  * Copy rule: notes have no long dashes or semicolons, and each fits one line
  * of its card (`PRESET_NOTE_MAX` characters), since nothing shows the rest.
@@ -41,5 +41,4 @@ export const ORCHESTRATOR_PRESETS: readonly OrchestratorPreset[] = [
   { name: 'Navi', emoji: '🧚', color: '#4f7cf0', note: 'Hey! Listen!' },
   { name: 'Yoda', emoji: '🐸', color: '#e8664f', note: 'Do. Or do not.' },
   { name: 'Ada', emoji: '🧮', color: '#8b6cf0', note: 'Coded in 1843' },
-  { name: 'Grace', emoji: '🐛', color: '#2fb67c', note: 'Amazing Grace' },
 ];
