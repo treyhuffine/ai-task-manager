@@ -50,7 +50,7 @@ interface MentionMenuOptions {
   searchEntities?: SearchMentionEntities
   /**
    * Reference folders visible from this session's workspace
-   * (docs/reference-folders-spec.md §8). Read-only folders outside the
+   * (docs/reference-folders-spec.md §8). Linked folders outside the
    * worktree that the agent has been told about.
    */
   getReferenceFolders?: () => ReferenceFolderMentionItem[]

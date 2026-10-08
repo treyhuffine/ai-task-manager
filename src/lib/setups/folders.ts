@@ -32,6 +32,7 @@ import {
 import { isDeviceConnected, requestWorker, sendToWorker, WorkerUnavailableError } from '@/lib/workers/hub';
 import type { WorkerFolderSetup } from '@/lib/workers/protocol';
 import { checkFoldersHere, listFoldersHere, type FolderListing, FolderListingError } from './folders-here';
+import { isReadOnly } from '@/lib/reference-folders/read-only';
 
 export class FoldersUnavailableError extends Error {}
 
@@ -199,6 +200,8 @@ export interface LinkedFolderOn {
   description: string | null;
   /** For every agent, rather than this one. */
   forEveryAgent: boolean;
+  /** Agents are told not to change it (`isReadOnly`, resolved). */
+  readOnly: boolean;
   /** Another agent's project folder, rather than a folder. */
   agent: { id: string; name: string } | null;
   path: string | null;
@@ -242,6 +245,7 @@ export function agentFoldersEverywhere(workspaceId: string): AgentFoldersOn[] {
         alias: ref.alias,
         description: ref.description ?? null,
         forEveryAgent: ref.workspaceId === null,
+        readOnly: isReadOnly(ref),
         agent: target ? { id: target.id, name: target.name } : null,
       };
       if (ref.targetWorkspaceId) {

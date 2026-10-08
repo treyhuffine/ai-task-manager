@@ -22,6 +22,7 @@ function ref(overrides: Partial<ResolvedReferenceFolder> = {}): ResolvedReferenc
     exists: true,
     git: null,
     global: false,
+    readOnly: null,
     ...overrides,
   };
 }
@@ -33,14 +34,45 @@ describe('renderReferenceFoldersPrompt', () => {
 
   it('renders alias and absolute path for a minimal reference', () => {
     const out = renderReferenceFoldersPrompt([ref()]);
-    expect(out).toContain('# Reference folders (read-only)');
+    expect(out).toContain('# Linked folders');
     expect(out).toContain('- backend  ->  /code/api');
   });
 
-  it('tells the agent not to modify them', () => {
-    const out = renderReferenceFoldersPrompt([ref()]);
-    expect(out).toMatch(/Do not modify/i);
-    expect(out).toMatch(/say so instead of\s+making it/i);
+  it('lets the agent change a folder nobody marked read only, the default', () => {
+    for (const readOnly of [null, false]) {
+      const out = renderReferenceFoldersPrompt([ref({ readOnly })]);
+      expect(out).toMatch(/You may change these/);
+      // A shared checkout: where edits land, and no branch switching under other work.
+      expect(out).toMatch(/whatever is checked out there/);
+      expect(out).toMatch(/Don't switch a Git folder's branch/);
+      expect(out).not.toMatch(/Do not modify/i);
+      expect(out).not.toMatch(/read only|read-only/i);
+    }
+  });
+
+  it('tells the agent not to modify a read-only folder', () => {
+    const out = renderReferenceFoldersPrompt([ref({ readOnly: true })]);
+    expect(out.startsWith('# Linked folders (read only)')).toBe(true);
+    expect(out).toMatch(/Do not modify anything in these/);
+    expect(out).toMatch(/say so instead\s+of\s+making it/i);
+    expect(out).not.toMatch(/You may change/);
+  });
+
+  it('splits a mixed list into an editable section and a read-only one', () => {
+    const out = renderReferenceFoldersPrompt([
+      ref({ id: 'a', alias: 'vault', absolutePath: '/notes', readOnly: true }),
+      ref({ id: 'b', alias: 'backend', absolutePath: '/code/api' }),
+      ref({ id: 'c', alias: 'docs', absolutePath: '/docs', readOnly: false }),
+    ]);
+    const editable = out.indexOf('## Editable');
+    const readOnly = out.indexOf('## Read only');
+    expect(editable).toBeGreaterThan(-1);
+    expect(readOnly).toBeGreaterThan(editable);
+    expect(out.indexOf('- backend')).toBeGreaterThan(editable);
+    expect(out.indexOf('- docs')).toBeLessThan(readOnly);
+    expect(out.indexOf('- backend')).toBeLessThan(out.indexOf('- docs'));
+    expect(out.indexOf('- vault')).toBeGreaterThan(readOnly);
+    expect(out.indexOf('Do not modify')).toBeGreaterThan(readOnly);
   });
 
   it('includes the description when present and omits the line when absent', () => {

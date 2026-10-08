@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildReferenceFolderSessionConfig,
+  codexWritableRootsArgs,
   referenceFolderProviderWiring,
   editDenyRule,
 } from '@/lib/reference-folders/session-config';
@@ -23,6 +24,7 @@ function ref(overrides: Partial<ResolvedReferenceFolder> = {}): ResolvedReferenc
     exists: true,
     git: null,
     global: false,
+    readOnly: null,
     ...overrides,
   };
 }
@@ -36,32 +38,60 @@ describe('editDenyRule', () => {
   });
 });
 
+describe('codexWritableRootsArgs', () => {
+  it('is a root -c override with a TOML array of the paths', () => {
+    // Verified on codex-cli 0.160: `codex app-server --strict-config` accepts
+    // this key, and rejects a value that isn't a list.
+    expect(codexWritableRootsArgs(['/code/api', '/notes/my vault'])).toEqual([
+      '-c',
+      'sandbox_workspace_write.writable_roots=["/code/api","/notes/my vault"]',
+    ]);
+  });
+
+  it('is nothing when no folder is editable', () => {
+    expect(codexWritableRootsArgs([])).toEqual([]);
+  });
+});
+
 describe('buildReferenceFolderSessionConfig', () => {
   it('produces nothing for an empty list', () => {
     expect(buildReferenceFolderSessionConfig([])).toEqual({
       instructions: '',
       addDirs: [],
+      readOnlyDirs: [],
+      writableDirs: [],
       disallowedTools: [],
     });
   });
 
-  it('pairs every folder with an add-dir and a deny rule', () => {
+  it('exposes every folder, and guards only the read-only ones', () => {
     const config = buildReferenceFolderSessionConfig([
       ref({ id: 'a', alias: 'backend', absolutePath: '/code/api' }),
-      ref({ id: 'b', alias: 'vault', absolutePath: '/notes' }),
+      ref({ id: 'b', alias: 'vault', absolutePath: '/notes', readOnly: true }),
+      ref({ id: 'c', alias: 'docs', absolutePath: '/docs', readOnly: false }),
     ]);
-    expect(config.addDirs).toEqual(['/code/api', '/notes']);
-    expect(config.disallowedTools).toEqual(['Edit(//code/api/**)', 'Edit(//notes/**)']);
+    expect(config.addDirs).toEqual(['/code/api', '/notes', '/docs']);
+    expect(config.readOnlyDirs).toEqual(['/notes']);
+    expect(config.writableDirs).toEqual(['/code/api', '/docs']);
+    expect(config.disallowedTools).toEqual(['Edit(//notes/**)']);
     expect(config.instructions).toContain('backend');
     expect(config.instructions).toContain('vault');
+    expect(config.instructions).toContain('docs');
+  });
+
+  it('guards nothing when no folder is read only, the default', () => {
+    const config = buildReferenceFolderSessionConfig([ref({ absolutePath: '/code/api' })]);
+    expect(config.addDirs).toEqual(['/code/api']);
+    expect(config.writableDirs).toEqual(['/code/api']);
+    expect(config.disallowedTools).toEqual([]);
   });
 
   it('dedupes two aliases pointing at the same folder', () => {
     // Allowed by design — blocking it is more annoying than the duplication —
     // but the CLI should not be handed the same path twice.
     const config = buildReferenceFolderSessionConfig([
-      ref({ id: 'a', alias: 'api', absolutePath: '/code/api' }),
-      ref({ id: 'b', alias: 'backend', absolutePath: '/code/api' }),
+      ref({ id: 'a', alias: 'api', absolutePath: '/code/api', readOnly: true }),
+      ref({ id: 'b', alias: 'backend', absolutePath: '/code/api', readOnly: true }),
     ]);
     expect(config.addDirs).toEqual(['/code/api']);
     expect(config.disallowedTools).toEqual(['Edit(//code/api/**)']);
@@ -69,15 +99,25 @@ describe('buildReferenceFolderSessionConfig', () => {
     expect(config.instructions).toContain('api');
     expect(config.instructions).toContain('backend');
   });
+
+  it('keeps a folder read only when one of its aliases is', () => {
+    const config = buildReferenceFolderSessionConfig([
+      ref({ id: 'a', alias: 'api', absolutePath: '/code/api' }),
+      ref({ id: 'b', alias: 'backend', absolutePath: '/code/api', readOnly: true }),
+    ]);
+    expect(config.readOnlyDirs).toEqual(['/code/api']);
+    expect(config.writableDirs).toEqual([]);
+    expect(config.disallowedTools).toEqual(['Edit(//code/api/**)']);
+  });
 });
 
 describe('referenceFolderProviderWiring', () => {
   const config = buildReferenceFolderSessionConfig([
     ref({ id: 'a', alias: 'backend', absolutePath: '/code/api' }),
-    ref({ id: 'b', alias: 'vault', absolutePath: '/notes' }),
+    ref({ id: 'b', alias: 'vault', absolutePath: '/notes', readOnly: true }),
   ]);
 
-  it('gives claude the full treatment: instructions, add-dir, deny rules', () => {
+  it('gives claude the full treatment: instructions, add-dir, deny rules on read-only folders', () => {
     const wiring = referenceFolderProviderWiring(config, 'claude');
     expect(wiring.delivery).toBe('full');
     expect(wiring.deliversInstructions).toBe(true);
@@ -89,15 +129,27 @@ describe('referenceFolderProviderWiring', () => {
       '--add-dir',
       '/notes',
     ]);
-    expect(wiring.disallowedTools).toEqual(['Edit(//code/api/**)', 'Edit(//notes/**)']);
+    expect(wiring.disallowedTools).toEqual(['Edit(//notes/**)']);
   });
 
-  it('tells codex about the folders but cannot fence them off', () => {
+  it('tells codex about the folders, makes the editable ones writable, and cannot fence off the rest', () => {
     const wiring = referenceFolderProviderWiring(config, 'codex');
     expect(wiring.delivery).toBe('prompt-only');
     expect(wiring.deliversInstructions).toBe(true);
-    expect(wiring.extraArgs).toEqual([]);
+    expect(wiring.extraArgs).toEqual(['-c', 'sandbox_workspace_write.writable_roots=["/code/api"]']);
     expect(wiring.disallowedTools).toEqual([]);
+  });
+
+  it('has nothing to fence off on codex when every folder is editable', () => {
+    const editable = buildReferenceFolderSessionConfig([ref({ absolutePath: '/code/api' })]);
+    const wiring = referenceFolderProviderWiring(editable, 'codex');
+    expect(wiring.delivery).toBe('full');
+    expect(wiring.extraArgs).toEqual(['-c', 'sandbox_workspace_write.writable_roots=["/code/api"]']);
+  });
+
+  it('gives codex no writable roots when every folder is read only', () => {
+    const readOnly = buildReferenceFolderSessionConfig([ref({ absolutePath: '/notes', readOnly: true })]);
+    expect(referenceFolderProviderWiring(readOnly, 'codex').extraArgs).toEqual([]);
   });
 
   it('tells antigravity about the folders but cannot fence them off', () => {

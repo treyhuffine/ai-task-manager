@@ -3,14 +3,14 @@
 /**
  * An agent's folders on each of the person's devices (docs/homes-spec.md
  * §4.1-4.2): its project folder, and the folders it links to beside it,
- * which it can read but never change. A switcher across the devices, and
+ * which its agents can change unless one is read only. A switcher across the devices, and
  * for the one chosen, each folder with whether it's there, Change, and for a
  * linked folder, Go without it. The home's records are the only place these
  * are kept, so any screen can change any device's.
  */
 
 import { useState, type ReactNode } from 'react';
-import { AlertTriangle, Check, CornerUpLeft, GitBranch, Globe, Home as HomeIcon, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, CornerUpLeft, GitBranch, Globe, Home as HomeIcon, Loader2, Lock, Pencil, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import slugify from '@sindresorhus/slugify';
 import { Button } from '@/components/ui/button';
@@ -64,7 +64,7 @@ export function AgentFoldersSection({ workspace }: { workspace: WorkspaceRecord 
         <h3 className="text-sm font-semibold text-foreground">Folders</h3>
         <p className="mt-0.5 text-[11px] text-muted-foreground/75">
           Where {workspace.name} is on each of your devices, and the folders it links to beside it. Its executions and
-          main chat can read linked folders and are told never to change them.
+          main chat can read and change linked folders, except ones you make read only.
         </p>
       </div>
 
@@ -244,6 +244,7 @@ function OnDevice({ workspace, on }: { workspace: WorkspaceRecord; on: AgentFold
                       description: ref.description,
                       workspaceId: ref.forEveryAgent ? null : workspace.id,
                       targetWorkspaceId: ref.agent?.id ?? null,
+                      readOnly: ref.readOnly,
                     },
                   })
                 }
@@ -378,6 +379,11 @@ function LinkedRow({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-mono font-semibold text-foreground">@{refOn.alias}</span>
+            {refOn.readOnly && (
+              <span className="flex items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] text-muted-foreground">
+                <Lock size={8} /> read only
+              </span>
+            )}
             {refOn.forEveryAgent && (
               <span className="flex items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] text-muted-foreground">
                 <Globe size={8} /> every agent
@@ -619,7 +625,7 @@ function LinkedFolderDefiner({
     const { addReverse, ...input } = draft;
     if (editing) {
       update.mutate(
-        { id: editing.id, alias: input.alias, description: input.description, workspaceId: input.workspaceId, ...(input.targetWorkspaceId ? { targetWorkspaceId: input.targetWorkspaceId } : {}) },
+        { id: editing.id, alias: input.alias, description: input.description, workspaceId: input.workspaceId, readOnly: input.readOnly, ...(input.targetWorkspaceId ? { targetWorkspaceId: input.targetWorkspaceId } : {}) },
         {
           onSuccess: () => {
             toast.success(`@${draft.alias} saved`);
@@ -632,7 +638,7 @@ function LinkedFolderDefiner({
     }
     if (input.path) {
       change.add.mutate(
-        { alias: input.alias, description: input.description, forEveryAgent: input.workspaceId === null, deviceId: on.deviceId, folder: input.path },
+        { alias: input.alias, description: input.description, forEveryAgent: input.workspaceId === null, readOnly: input.readOnly, deviceId: on.deviceId, folder: input.path },
         {
           onSuccess: () => {
             toast.success(`@${draft.alias} added`);
@@ -654,7 +660,7 @@ function LinkedFolderDefiner({
         // but must not read as though the whole thing failed.
         const reverseAlias = slugify(workspace.name, { separator: '-' });
         try {
-          await create.mutateAsync({ workspaceId: input.targetWorkspaceId, alias: reverseAlias, targetWorkspaceId: workspace.id, path: null, description: null });
+          await create.mutateAsync({ workspaceId: input.targetWorkspaceId, alias: reverseAlias, targetWorkspaceId: workspace.id, path: null, description: null, readOnly: input.readOnly });
           toast.success(`@${draft.alias} added, and @${reverseAlias} back the other way`);
         } catch (err) {
           toast.warning(`@${draft.alias} added, but the link back failed: ${apiErrorText(err)}`);
@@ -706,16 +712,19 @@ function LinkedFolderDefiner({
   );
 }
 
-/** Agents that link to this one: they read its folder, and nothing here changes. */
+/** Agents that link to this one: they use its folder, and change it unless their link is read only. */
 function ReferencedBy({ workspaceId }: { workspaceId: string }) {
   const { data } = useReferencedBy(workspaceId);
   if (!data || data.referencedBy.length === 0) return null;
+  const names = data.referencedBy.map((r) => `${r.workspaceName ?? 'every agent'}${r.readOnly ? ' (read only)' : ''}`);
+  const anyEditable = data.referencedBy.some((r) => !r.readOnly);
   return (
     <div className="flex items-start gap-1.5 rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-[10.5px] text-muted-foreground">
       <CornerUpLeft size={11} className="mt-px shrink-0" />
       <span>
-        Linked from {data.referencedBy.map((r) => r.workspaceName ?? 'every agent').join(', ')}. Links go one way, so
-        those agents can read this one&apos;s folder and nothing here changes.
+        Linked from {names.join(', ')}. Those agents can read this one&apos;s folder
+        {anyEditable ? ", and change it where their link isn't read only" : ''}. Links go one way, so nothing in
+        this agent&apos;s setup changes.
       </span>
     </div>
   );

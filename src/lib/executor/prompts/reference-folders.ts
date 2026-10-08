@@ -1,5 +1,5 @@
 /**
- * The reference-folders block appended to an execution's system prompt
+ * The linked-folders block added to a session's instructions
  * (docs/reference-folders-spec.md §6).
  *
  * This block is the feature. The agent can already read any absolute path —
@@ -7,14 +7,20 @@
  * shape instead of going to look. Naming the folder and saying why you'd read
  * it closes that gap in a few lines of context.
  *
- * Delivered through Claude's `--append-system-prompt` at spawn so it never
- * shows up in the visible transcript, same as `renderContentFocusPrompt`.
+ * A folder is editable unless the person marked it read only. The two kinds
+ * get different rules, so a mixed list is split into two sections.
+ *
+ * Delivered through the session's instructions file at spawn so it never
+ * shows up in the visible transcript.
  */
 
 import type { ResolvedReferenceFolder } from '@/db/types';
+import { isReadOnly } from '@/lib/reference-folders/read-only';
 
 /** What the block says about a folder. A folder resolved on another device has no Git summary. */
-export type PromptReferenceFolder = Pick<ResolvedReferenceFolder, 'alias' | 'absolutePath' | 'description' | 'git'>;
+export type PromptReferenceFolder = Pick<ResolvedReferenceFolder, 'alias' | 'absolutePath' | 'description' | 'git'> & {
+  readOnly?: boolean | null;
+};
 
 /**
  * One-line git summary, or null when the folder isn't a repo. Drift is the
@@ -38,6 +44,17 @@ function renderEntry(ref: PromptReferenceFolder): string {
   return lines.join('\n');
 }
 
+const INTRO = `Folders outside your working directory that are part of this work. Read and
+search them rather than guessing at what they contain.`;
+
+const EDITABLE_RULES = `You may change these when the work calls for it. Each is a shared folder, not
+a copy of your own, so an edit lands in whatever is checked out there, beside
+any other work in progress. Don't switch a Git folder's branch. If a change
+belongs on another branch, make a worktree of that repository and work there.`;
+
+const READ_ONLY_RULES = `Do not modify anything in these. If a change is needed in one, say so instead
+of making it.`;
+
 /**
  * Render the block, or an empty string when there is nothing usable to say.
  * Callers should treat empty as "append nothing" so a workspace with no
@@ -50,15 +67,14 @@ function renderEntry(ref: PromptReferenceFolder): string {
 export function renderReferenceFoldersPrompt(refs: PromptReferenceFolder[]): string {
   if (refs.length === 0) return '';
 
-  const entries = refs.map(renderEntry).join('\n');
-  return `# Reference folders (read-only)
+  const editable = refs.filter((r) => !isReadOnly(r)).map(renderEntry).join('\n');
+  const readOnly = refs.filter(isReadOnly).map(renderEntry).join('\n');
 
-Folders outside your working directory that you may read and search. They are
-listed here because their contents are relevant to work in this workspace, so
-check them rather than guessing at what they contain.
-
-Do not modify anything in them. If a change is needed in one, say so instead of
-making it.
-
-${entries}`;
+  if (!readOnly) return `# Linked folders\n\n${INTRO}\n\n${EDITABLE_RULES}\n\n${editable}`;
+  if (!editable) return `# Linked folders (read only)\n\n${INTRO}\n\n${READ_ONLY_RULES}\n\n${readOnly}`;
+  return [
+    `# Linked folders\n\n${INTRO}`,
+    `## Editable\n\n${EDITABLE_RULES}\n\n${editable}`,
+    `## Read only\n\n${READ_ONLY_RULES}\n\n${readOnly}`,
+  ].join('\n\n');
 }

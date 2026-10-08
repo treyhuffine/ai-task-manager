@@ -16,8 +16,8 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
 
 /**
  * Add a linked folder: its alias and description, for this agent or every
- * agent, and where it is on the device it was added from. Other devices
- * choose their own place for it.
+ * agent, whether agents may change it, and where it is on the device it was
+ * added from. Other devices choose their own place for it.
  */
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
   const { id } = rpcInput.params;
@@ -26,6 +26,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     alias?: unknown;
     description?: unknown;
     forEveryAgent?: unknown;
+    readOnly?: unknown;
     deviceId?: unknown;
     folder?: unknown;
   };
@@ -40,6 +41,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
       workspaceId: body.forEveryAgent === true ? null : id,
       alias: body.alias,
       description: typeof body.description === 'string' ? body.description : null,
+      ...(typeof body.readOnly === 'boolean' ? { readOnly: body.readOnly } : {}),
     }).id;
   } catch (err) {
     if (err instanceof ReferenceFolderError) {
@@ -62,4 +64,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
 }
 
 export const GETInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict() }).strict();
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "alias": rpcZ.string().optional(), "description": rpcZ.string().nullable().optional(), "forEveryAgent": rpcZ.boolean().optional(), "deviceId": rpcZ.string().optional(), "folder": rpcZ.string().nullable().optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "alias": rpcZ.string().optional(), "description": rpcZ.string().nullable().optional(), "forEveryAgent": rpcZ.boolean().optional(), "readOnly": rpcZ.boolean().optional(), "deviceId": rpcZ.string().optional(), "folder": rpcZ.string().nullable().optional() }).strict().default({}) }).strict();

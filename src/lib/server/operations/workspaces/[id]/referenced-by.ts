@@ -1,5 +1,6 @@
 import { getWorkspace, listReferenceFoldersTargeting } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
+import { isReadOnly } from '@/lib/reference-folders/read-only';
 import { z as rpcZ } from 'zod/v4';
 
 /**
@@ -26,6 +27,7 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
         workspaceId: reference.workspaceId,
         // Null owner means a global reference: every workspace sees it.
         workspaceName: ownerName,
+        readOnly: isReadOnly(reference),
       })),
     });
   } catch (err) {

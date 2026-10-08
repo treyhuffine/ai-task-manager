@@ -563,7 +563,7 @@ function startSessionOnce(spec: SessionSpec): Promise<AgentSession> {
 
 /** A reference folder as this device resolved it, for the prompt block and the flags. */
 function asReferenceFolder(ref: EnvironmentReference) {
-  return { alias: ref.alias, absolutePath: ref.path!, description: ref.description, git: null };
+  return { alias: ref.alias, absolutePath: ref.path!, description: ref.description, git: null, readOnly: ref.readOnly ?? null };
 }
 
 /** Spawn the harness for a spec. The home decided what it needs; this adds what only this device knows. */
@@ -619,7 +619,11 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
       referenceArgs.push(...wiring.extraArgs);
       disallowedTools.push(...wiring.disallowedTools);
       if (wiring.delivery !== 'full') {
-        console.warn(`[runner] ${refs.length} reference folder(s) on provider "${providerType}": ${wiring.delivery === 'prompt-only' ? 'announced, not fenced off' : 'not delivered'}.`);
+        console.warn(
+          wiring.delivery === 'prompt-only'
+            ? `[runner] ${refConfig.readOnlyDirs.length} read-only linked folder(s) on provider "${providerType}": announced, not fenced off.`
+            : `[runner] ${refs.length} linked folder(s) on provider "${providerType}": not delivered.`,
+        );
       }
     }
   }

@@ -69,6 +69,29 @@ describe('reference folder queries', () => {
     expect(row.status).toBe('active');
   });
 
+  it('leaves read only unchosen on create, so the read-time default applies', async () => {
+    const { q, frontend } = await setup();
+    const { isReadOnly } = await import('@/lib/reference-folders/read-only');
+    const row = q.createReferenceFolder({ workspaceId: frontend.id, alias: 'api', path: '/tmp/api' });
+    expect(row.readOnly).toBeNull();
+    expect(isReadOnly(row)).toBe(false);
+  });
+
+  it('stores read only on create and switches it on update', async () => {
+    const { q, frontend } = await setup();
+    const { isReadOnly } = await import('@/lib/reference-folders/read-only');
+    const row = q.createReferenceFolder({ workspaceId: frontend.id, alias: 'vault', path: '/tmp/vault', readOnly: true });
+    expect(row.readOnly).toBe(true);
+    expect(isReadOnly(q.getReferenceFolder(row.id)!)).toBe(true);
+
+    const off = q.updateReferenceFolder(row.id, { readOnly: false });
+    expect(off?.readOnly).toBe(false);
+    // An update that doesn't mention it leaves it alone.
+    const renamed = q.updateReferenceFolder(row.id, { description: 'Notes' });
+    expect(renamed?.readOnly).toBe(false);
+    expect(q.updateReferenceFolder(row.id, { readOnly: true })?.readOnly).toBe(true);
+  });
+
   it('rejects an alias that would be ambiguous after @', async () => {
     const { q, frontend } = await setup();
     for (const alias of ['-leading', 'has space', 'UPPER CASE!', '']) {

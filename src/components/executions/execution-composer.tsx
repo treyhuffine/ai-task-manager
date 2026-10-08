@@ -306,7 +306,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     );
 
     // Reference folders → `@`-picker items (docs/reference-folders-spec.md).
-    // Read-only folders outside the worktree the agent already knows about;
+    // Linked folders outside the worktree the agent already knows about;
     // picking one drills the picker into it rather than inserting a chip.
     const referenceFoldersQuery = useSessionReferenceFolders(sessionId);
     const mentionReferenceFolders = useMemo<ReferenceFolderMentionItem[]>(

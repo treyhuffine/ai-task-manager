@@ -1,19 +1,25 @@
 /**
- * Turns a workspace's reference folders into the bits an agent session needs
- * (docs/reference-folders-spec.md §7).
+ * Turns a workspace's linked (reference) folders into the bits an agent
+ * session needs (docs/reference-folders-spec.md §7).
  *
- * Three separate concerns, and it's worth being precise about how far each one
- * reaches, because "read-only" is doing a lot of work in the UI copy:
+ * A folder is editable unless the person marked it read only (`isReadOnly`).
+ * Four separate concerns, and it's worth being precise about how far each one
+ * reaches, because "read only" is doing a lot of work in the UI copy:
  *
  *   1. `instructions` — the prompt block. Delivered through agentex's
  *      `instructionsFile`, which every provider resolves (claude maps it to
  *      `--append-system-prompt-file`, codex folds it into base instructions).
- *      This is the portable part and the actual feature.
+ *      This is the portable part and the actual feature. It says which folders
+ *      may be changed and which may not.
  *   2. `addDirs` — `--add-dir` per folder, claude only. Without it claude's
- *      Read tool is confined to the working directory. Verified against
- *      Claude Code 2.1.220: repeated `--add-dir` flags accumulate rather than
- *      overwrite, so these coexist with the one agentex pushes for skills.
- *   3. `disallowedTools` — the write guard, claude only.
+ *      Read tool is confined to the working directory. It grants read and
+ *      write. Verified against Claude Code 2.1.220: repeated `--add-dir` flags
+ *      accumulate rather than overwrite, so these coexist with the one agentex
+ *      pushes for skills.
+ *   3. `disallowedTools` — the write guard on read-only folders, claude only.
+ *   4. `writableDirs` — the editable folders, which codex's `workspace-write`
+ *      sandbox (its default in Ask and Auto-edit) would otherwise refuse to
+ *      write outside the working folder without asking.
  *
  * On the guard, verified empirically against Claude Code 2.1.220 rather than
  * assumed:
@@ -32,13 +38,18 @@
 
 import { renderReferenceFoldersPrompt, type PromptReferenceFolder } from '@/lib/executor/prompts/reference-folders';
 import { providerDeliversSessionInstructions } from '@/lib/executor/session-instructions';
+import { isReadOnly } from './read-only';
 
 export interface ReferenceFolderSessionConfig {
   /** The prompt block. Empty string when there is nothing to say. */
   instructions: string;
   /** Absolute paths to expose to the agent's file tools. */
   addDirs: string[];
-  /** Deny rules keeping the edit-family tools out of those paths. */
+  /** The read-only folders' paths, where the write guard applies. */
+  readOnlyDirs: string[];
+  /** The editable folders' paths. A path also linked read only isn't one. */
+  writableDirs: string[];
+  /** Deny rules keeping the edit-family tools out of the read-only folders. */
   disallowedTools: string[];
 }
 
@@ -50,18 +61,40 @@ export function editDenyRule(absolutePath: string): string {
   return `Edit(/${absolutePath}/**)`;
 }
 
+/**
+ * Codex's extra writable folders for its `workspace-write` sandbox, as a root
+ * `-c` override, which `codex app-server` reads (verified on codex-cli 0.160:
+ * `--strict-config` accepts the key and type-checks the list). The value is a
+ * TOML array, and a JSON array of strings is valid TOML. It replaces any
+ * `writable_roots` set in the person's `~/.codex/config.toml` for this
+ * session. Under `danger-full-access` (Auto) and `read-only` (Plan) Codex
+ * ignores it.
+ */
+export function codexWritableRootsArgs(paths: string[]): string[] {
+  if (paths.length === 0) return [];
+  return ['-c', `sandbox_workspace_write.writable_roots=${JSON.stringify(paths)}`];
+}
+
+const EMPTY: ReferenceFolderSessionConfig = { instructions: '', addDirs: [], readOnlyDirs: [], writableDirs: [], disallowedTools: [] };
+
 export function buildReferenceFolderSessionConfig(
   refs: PromptReferenceFolder[],
 ): ReferenceFolderSessionConfig {
-  if (refs.length === 0) return { instructions: '', addDirs: [], disallowedTools: [] };
+  if (refs.length === 0) return { ...EMPTY };
 
   // Two references may legitimately resolve to the same folder under different
   // aliases. Dedupe the argv side so the CLI doesn't get the same path twice.
+  // If either alias is read only, the folder is: the guard wins over the
+  // looser link.
   const paths = [...new Set(refs.map((r) => r.absolutePath))];
+  const readOnly = new Set(refs.filter(isReadOnly).map((r) => r.absolutePath));
+  const readOnlyDirs = paths.filter((p) => readOnly.has(p));
   return {
     instructions: renderReferenceFoldersPrompt(refs),
     addDirs: paths,
-    disallowedTools: paths.map(editDenyRule),
+    readOnlyDirs,
+    writableDirs: paths.filter((p) => !readOnly.has(p)),
+    disallowedTools: readOnlyDirs.map(editDenyRule),
   };
 }
 
@@ -71,8 +104,10 @@ const ARGV_TOOL_FILTER_PROVIDERS = new Set(['claude']);
 /**
  * How much of the feature a given provider actually gets.
  *
- *   full        — prompt block, read scope, and the edit deny rules.
- *   prompt-only — the agent is told, but nothing fences it off.
+ *   full        — the prompt block, read scope, and the read-only folders
+ *                 fenced off (or none to fence).
+ *   prompt-only — the agent is told, but the read-only folders aren't fenced
+ *                 off. Only ever reported when there is a read-only folder.
  *   unsupported — the provider cannot be told at all through the session API.
  */
 export type ReferenceFolderDelivery = 'full' | 'prompt-only' | 'unsupported';
@@ -101,10 +136,15 @@ export function referenceFolderProviderWiring(
   // On cursor and opencode the session path drops `instructionsFile`, so the
   // agent never learns the folders exist (see session-instructions.ts). Every
   // harness that reads it but isn't Claude (codex, antigravity) is told about
-  // the folders without being fenced off.
+  // the folders without the read-only ones being fenced off.
   if (!providerDeliversSessionInstructions(providerType)) return inert;
   if (!ARGV_TOOL_FILTER_PROVIDERS.has(providerType)) {
-    return { ...inert, delivery: 'prompt-only', deliversInstructions: true };
+    return {
+      ...inert,
+      delivery: config.readOnlyDirs.length > 0 ? 'prompt-only' : 'full',
+      deliversInstructions: true,
+      extraArgs: providerType === 'codex' ? codexWritableRootsArgs(config.writableDirs) : [],
+    };
   }
   return {
     delivery: 'full',

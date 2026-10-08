@@ -1,0 +1,1 @@
+ALTER TABLE `reference_folders` ADD `read_only` integer;

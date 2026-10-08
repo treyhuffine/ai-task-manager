@@ -134,7 +134,7 @@ describe('linked folders', () => {
     const added = await addLinked({ alias: 'docs', description: 'The docs', forEveryAgent: false, deviceId: hostId, folder: docsHere });
     expect(added.status).toBe(201);
     const docs = on(added, hostId).linked.find((l) => l.alias === 'docs')!;
-    expect(docs).toMatchObject({ path: docsHere, state: 'found', forEveryAgent: false, description: 'The docs' });
+    expect(docs).toMatchObject({ path: docsHere, state: 'found', forEveryAgent: false, description: 'The docs', readOnly: false });
 
     await setProject(laptopId, '/Users/trey/ri');
     const laptop = on(await view(), laptopId);
@@ -144,6 +144,14 @@ describe('linked folders', () => {
     expect(on(without, laptopId).linked[0]).toMatchObject({ state: 'omitted' });
     // The agent's live sessions learn about the change.
     expect(recycled.linked).toContain(agentId);
+  });
+
+  it('adds one read only when asked, and every device sees it so', async () => {
+    const added = await addLinked({ alias: 'docs', description: null, forEveryAgent: false, readOnly: true, deviceId: hostId, folder: docsHere });
+    expect(added.status).toBe(201);
+    expect(on(added, hostId).linked.find((l) => l.alias === 'docs')).toMatchObject({ readOnly: true });
+    await setProject(laptopId, '/Users/trey/ri');
+    expect(on(await view(), laptopId).linked[0]).toMatchObject({ alias: 'docs', readOnly: true });
   });
 
   it('leaves nothing behind when the folder it is added with is not there', async () => {

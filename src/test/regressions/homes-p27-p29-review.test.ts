@@ -62,7 +62,9 @@ describe('P2.7 session authority', () => {
     const q = await import('@/lib/db/queries');
     const newRef = path.join(home.root, 'new-reference');
     fs.mkdirSync(newRef);
-    q.createReferenceFolder({ workspaceId: agentId, alias: 'docs', path: path.join(home.root, 'on-the-home') });
+    // Read only, so the deny rule names the wired path too, and the switch is
+    // seen to reach the device the session runs on.
+    q.createReferenceFolder({ workspaceId: agentId, alias: 'docs', path: path.join(home.root, 'on-the-home'), readOnly: true });
     await setUpAgentOn(agentId, deviceId, home.root, { links: { docs: newRef } });
     const { buildSessionSpec } = await import('@/lib/executor/session-spec');
     const spec = await buildSessionSpec({ chatSessionId: chatId, harness: 'claude', cwd: home.root,
@@ -103,7 +105,7 @@ describe('P2.7 session authority', () => {
     const newRef = path.join(home.root, 'new-reference');
     fs.mkdirSync(oldRef);
     fs.mkdirSync(newRef);
-    q.createReferenceFolder({ workspaceId: agentId, alias: 'docs', path: oldRef });
+    q.createReferenceFolder({ workspaceId: agentId, alias: 'docs', path: oldRef, readOnly: true });
     await setUpAgentOn(agentId, deviceId, home.root, { links: { docs: newRef } });
     const mainChat = q.createChatSession({ type: 'orchestration', workspaceId: agentId, harness: 'claude', status: 'active' });
     const { buildSessionSpec } = await import('@/lib/executor/session-spec');

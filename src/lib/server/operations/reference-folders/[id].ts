@@ -67,4 +67,4 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
 }
 
 export const GETInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict() }).strict();
-export const PATCHInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: createInsertSchema(referenceFolders).pick({ "status": true, "description": true, "updatedAt": true, "position": true, "archivedAt": true, "workspaceId": true, "path": true, "alias": true, "targetWorkspaceId": true }).partial().strict().default({}) }).strict();
+export const PATCHInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: createInsertSchema(referenceFolders).pick({ "status": true, "description": true, "updatedAt": true, "position": true, "archivedAt": true, "workspaceId": true, "path": true, "alias": true, "targetWorkspaceId": true, "readOnly": true }).partial().strict().default({}) }).strict();

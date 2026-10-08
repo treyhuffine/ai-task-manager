@@ -38,6 +38,7 @@ import { resolveOrchestratorName } from '@/lib/orchestrator/name';
 import { isBrowserEnabled } from '@/lib/browser/config';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
 import { buildReferenceFolderSessionConfig, referenceFolderProviderWiring } from '@/lib/reference-folders/session-config';
+import { isReadOnly } from '@/lib/reference-folders/read-only';
 import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
 import { integrationRequestsEnabled } from '@/lib/integrations/request-settings';
 import { mintSessionToken } from '@/lib/auth/session-token';
@@ -113,6 +114,7 @@ function expectedAgentFolders(workspace: WorkspaceRecord, target: SpecTarget, us
       return {
         alias: ref.alias,
         description: ref.description ?? null,
+        readOnly: isReadOnly(ref),
         path: here?.absolutePath ?? null,
         state: here ? ('ready' as const) : form === 'omitted' ? ('omitted' as const) : form === 'unconfigured' || !form ? ('unconfigured' as const) : ('missing' as const),
       };
@@ -370,8 +372,9 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     // because every provider resolves that, unlike the claude-only
     // `--append-system-prompt` used by the content branch above.
     //
-    // `--add-dir` and the Edit deny rules are claude-only argv, so they're
-    // gated. Broken references are dropped upstream by
+    // `--add-dir` and the Edit deny rules (on read-only folders) are
+    // claude-only argv, and codex gets the editable ones as writable roots,
+    // so they're gated by provider. Broken references are dropped upstream by
     // `listUsableReferenceFolders` — pointing an agent at a path that isn't
     // there is worse than saying nothing.
     //
@@ -396,9 +399,9 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
           if (wiring.disallowedTools.length > 0) spec.disallowedTools.push(...wiring.disallowedTools);
           if (wiring.delivery === 'prompt-only') {
             console.warn(
-              `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
-                'announced in the prompt, but the read scope and edit deny rules are claude-only argv ' +
-                '(this provider is told about them without being fenced off).',
+              `[executor] execution on provider "${providerType}": ${refConfig.readOnlyDirs.length} read-only linked folder(s) ` +
+                'announced in the prompt, but the edit deny rules are claude-only argv ' +
+                '(this provider is told not to change them without being fenced off).',
             );
           } else if (wiring.delivery === 'unsupported') {
             // Not a partial degradation — a total one. This provider's session

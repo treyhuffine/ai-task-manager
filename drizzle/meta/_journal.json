@@ -64,6 +64,13 @@
       "when": 1791311009636,
       "tag": "0008_abandoned_mentallo",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1791483005340,
+      "tag": "0009_linked_folder_read_only",
+      "breakpoints": true
     }
   ]
 }

@@ -64,4 +64,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
 }
 
 export const GETInput = rpcZ.object({ query: rpcZ.object({ "workspaceId": rpcZ.string().optional() }).strict().optional() }).strict().default({});
-export const POSTInput = rpcZ.object({ body: createInsertSchema(referenceFolders).pick({ "description": true, "createdAt": true, "updatedAt": true, "position": true, "archivedAt": true, "workspaceId": true, "path": true, "alias": true, "targetWorkspaceId": true, "status": true, "id": true }).partial().extend({ "alias": createInsertSchema(referenceFolders).shape.alias }).strict() }).strict();
+export const POSTInput = rpcZ.object({ body: createInsertSchema(referenceFolders).pick({ "description": true, "createdAt": true, "updatedAt": true, "position": true, "archivedAt": true, "workspaceId": true, "path": true, "alias": true, "targetWorkspaceId": true, "status": true, "id": true, "readOnly": true }).partial().extend({ "alias": createInsertSchema(referenceFolders).shape.alias }).strict() }).strict();

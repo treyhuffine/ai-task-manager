@@ -120,7 +120,7 @@ export const workspacesApi = {
   },
 
   /** A new linked folder, placed on the device it's added from. */
-  addLinkedFolder(id: string, body: { alias: string; description: string | null; forEveryAgent: boolean; deviceId: string; folder: string }) {
+  addLinkedFolder(id: string, body: { alias: string; description: string | null; forEveryAgent: boolean; readOnly: boolean; deviceId: string; folder: string }) {
     return trpcClient.workspaces.foldersPost.mutate({params: {id: id}, body: body});
   },
 

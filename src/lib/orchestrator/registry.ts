@@ -150,6 +150,7 @@ import { todayLocalDate } from '@/lib/deck/date';
 import { assertSupportedPermissionMode, UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 import { PERMISSION_MODES } from '@/lib/permissions/modes';
 import { listResolvedReferenceFolders } from '@/lib/reference-folders/resolve';
+import { isReadOnly } from '@/lib/reference-folders/read-only';
 import { isSessionInactive, resolveInactiveAfterDays } from '@/lib/sessions/inactive';
 import { SkillError } from '@/lib/skills/library';
 import { parseSkillRef, skillRef } from '@/lib/skills/locations';
@@ -1561,7 +1562,8 @@ const archive_workspace_action = defineAction({
 });
 
 // ─── Reference folders ────────────────────────────────────────
-// Read-only folders a workspace's agents may consult. See
+// Folders beside a workspace that its agents work with (the UI calls them
+// linked folders), editable unless marked read only. See
 // docs/reference-folders-spec.md. `workspaceId: null` = global (every
 // workspace sees it).
 
@@ -1598,6 +1600,27 @@ function assertCallerOnHome(ctx: ActionContext, what: string): void {
   );
 }
 
+/**
+ * Read only is a guard the person set on a folder. An untrusted caller may
+ * add it, never take it off: an agent over HTTP lifting it would be granting
+ * itself the writes the person ruled out. The trusted local CLI and the app
+ * may.
+ */
+function assertReadOnlyLiftAllowed(
+  ctx: { remote?: boolean },
+  before: { readOnly?: boolean | null } | undefined,
+  readOnly: boolean | undefined,
+): void {
+  if (readOnly !== false || !before || !isReadOnly(before)) return;
+  if (ctx.remote ?? true) {
+    throw new ActionError(
+      'unsupported',
+      'Remote callers cannot take read only off a linked folder.',
+      "Ask the person to turn off Read only in the agent's Setup tab.",
+    );
+  }
+}
+
 function assertPathAllowed(ctx: { remote?: boolean }, path: string | null | undefined): void {
   if (!path) return;
   if (ctx.remote ?? true) {
@@ -1611,7 +1634,7 @@ function assertPathAllowed(ctx: { remote?: boolean }, path: string | null | unde
 const list_reference_folders_action = defineAction({
   name: 'list_reference_folders',
   description:
-    'List reference folders (read-only folders agents may consult), resolved to absolute paths with existence and git state. Pass workspaceId to see what that workspace sees (its own plus every global one); omit it for the global ones alone.',
+    'List reference folders (the folders beside a workspace its agents work with, called linked folders in the app), resolved to absolute paths with existence and git state. `readOnly: true` means agents are told not to change it; false or null means they may. Pass workspaceId to see what that workspace sees (its own plus every global one); omit it for the global ones alone.',
   params: { workspaceId: z.string().nullable().optional() },
   handler: (_ctx, { workspaceId }) => listResolvedReferenceFolders(workspaceId ?? null),
 });
@@ -1619,13 +1642,14 @@ const list_reference_folders_action = defineAction({
 const create_reference_folder_action = defineAction({
   name: 'create_reference_folder',
   description:
-    'Add a reference folder. Give exactly one of `path` (a folder on disk) or `targetWorkspaceId` (another workspace). Omit workspaceId to make it global. Safe under retry: a repeat with the same alias in the same scope returns a conflict rather than duplicating.',
+    'Add a reference folder. Give exactly one of `path` (a folder on disk) or `targetWorkspaceId` (another workspace). Omit workspaceId to make it global. Agents may change it unless `readOnly` is true. Safe under retry: a repeat with the same alias in the same scope returns a conflict rather than duplicating.',
   params: {
     alias: z.string().min(1),
     workspaceId: z.string().nullable().optional(),
     path: z.string().nullable().optional(),
     targetWorkspaceId: z.string().nullable().optional(),
     description: z.string().nullable().optional(),
+    readOnly: z.boolean().optional().describe('Keep agents from changing anything in it. Off by default.'),
   },
   mutating: true,
   handler: async (ctx, input) => {
@@ -1640,6 +1664,7 @@ const create_reference_folder_action = defineAction({
         path: input.path ?? null,
         targetWorkspaceId: input.targetWorkspaceId ?? null,
         description: input.description ?? null,
+        ...(input.readOnly !== undefined ? { readOnly: input.readOnly } : {}),
       });
     } catch (err) {
       rethrowReferenceFolderError(err);
@@ -1654,7 +1679,7 @@ const create_reference_folder_action = defineAction({
 const update_reference_folder_action = defineAction({
   name: 'update_reference_folder',
   description:
-    'Update a reference folder. Only the fields you pass change. Switching targets means passing the new one and nulling the other.',
+    'Update a reference folder. Only the fields you pass change. Switching targets means passing the new one and nulling the other. A remote caller may set `readOnly` but not take it off.',
   params: {
     id: z.string().min(1),
     alias: z.string().min(1).optional(),
@@ -1662,6 +1687,7 @@ const update_reference_folder_action = defineAction({
     targetWorkspaceId: z.string().nullable().optional(),
     description: z.string().nullable().optional(),
     workspaceId: z.string().nullable().optional(),
+    readOnly: z.boolean().optional().describe('Keep agents from changing anything in it.'),
   },
   mutating: true,
   cli: { positional: ['id'] },
@@ -1672,6 +1698,7 @@ const update_reference_folder_action = defineAction({
       if (v !== undefined) patch[k] = v;
     }
     const before = getReferenceFolder(id);
+    assertReadOnlyLiftAllowed(ctx, before, rest.readOnly);
     let row;
     try {
       row = updateReferenceFolder(id, patch);

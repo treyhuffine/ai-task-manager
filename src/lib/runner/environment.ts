@@ -25,6 +25,11 @@ export interface EnvironmentReference {
   description: string | null;
   path: string | null;
   state: ReferenceState;
+  /**
+   * Agents are told not to change it. Absent from a home that predates the
+   * switch, which read as editable, the default now (`isReadOnly`).
+   */
+  readOnly?: boolean;
 }
 
 /** What the home says about an execution's environment. Paths are its best knowledge, which the running side replaces. */
@@ -150,7 +155,7 @@ export function renderEnvironment(env: ResolvedEnvironment, file: string): strin
     lines.push('- Connected folders:');
     for (const ref of env.references) {
       const where = ref.state === 'ready' && ref.path ? `\`${ref.path}\`` : REFERENCE_STATE[ref.state];
-      lines.push(`  - ${ref.alias}: ${where}${ref.description ? `. ${ref.description}` : ''}`);
+      lines.push(`  - ${ref.alias}: ${where}${ref.readOnly ? ', read only' : ''}${ref.description ? `. ${ref.description}` : ''}`);
     }
   }
   const tools = [env.tools.integrations ? 'integrations' : null, env.tools.browser ? 'the agent browser' : null].filter(Boolean);

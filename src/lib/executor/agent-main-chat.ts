@@ -116,7 +116,7 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
     extraArgs.push(...wiring.extraArgs);
     disallowedTools.push(...wiring.disallowedTools);
     if (wiring.delivery === 'prompt-only') {
-      warnings.push(`${refs.length} reference folder(s) announced in the prompt, but not fenced off`);
+      warnings.push(`${refConfig.readOnlyDirs.length} read-only linked folder(s) announced in the prompt, but not fenced off`);
     }
   } catch (err) {
     // A reference-folder failure must never cost the user their chat.

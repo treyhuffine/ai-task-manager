@@ -6893,6 +6893,7 @@ const REFERENCE_FOLDER_WRITABLE = [
   'targetWorkspaceId',
   'description',
   'position',
+  'readOnly',
 ] as const;
 
 function pickReferenceFolderFields<T extends Record<string, unknown>>(input: T): Partial<T> {

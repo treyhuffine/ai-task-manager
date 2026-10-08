@@ -107,4 +107,14 @@ describe('the environment', () => {
     expect(text).toContain('Tools from My Ri: the agent browser.');
     expect(text).not.toMatch(/[—;]/);
   });
+
+  it('marks a read-only folder, and only that one', async () => {
+    const source = await setUp();
+    const { resolveEnvironment, renderEnvironment } = await import('./environment');
+    const env = expected(source, source);
+    env.references = env.references.map((ref) => (ref.alias === 'docs' ? { ...ref, readOnly: true } : ref));
+    const text = renderEnvironment(await resolveEnvironment(env), '/work/env.json');
+    expect(text).toContain('- docs: `' + path.join(root, 'projects', 'docs') + '`, read only. docs folder');
+    expect(text.match(/read only/g)).toHaveLength(1);
+  });
 });

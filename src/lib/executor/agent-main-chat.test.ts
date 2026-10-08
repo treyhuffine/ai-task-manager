@@ -219,13 +219,20 @@ describe('prepareAgentMainChatSpawn', () => {
     expect(appOff.config.mcpServers!.some((s) => s.name === 'browser')).toBe(false);
   });
 
-  it("carries the agent's reference folders, read-only", async () => {
+  it("carries the agent's linked folders, editable unless marked read only", async () => {
     const seeded = await seed();
-    seeded.q.createReferenceFolder({ workspaceId: seeded.ws.id, alias: 'api', path: REFERENCE });
-    const spawn = await prepare(seeded);
-    expect(spawn.instructions).toContain(REFERENCE);
-    expect(spawn.extraArgs).toEqual(expect.arrayContaining(['--add-dir', REFERENCE]));
-    expect(spawn.config.disallowedTools!.some((rule) => rule.includes(REFERENCE))).toBe(true);
+    const ref = seeded.q.createReferenceFolder({ workspaceId: seeded.ws.id, alias: 'api', path: REFERENCE });
+    const editable = await prepare(seeded);
+    expect(editable.instructions).toContain(REFERENCE);
+    expect(editable.instructions).toContain('You may change these');
+    expect(editable.extraArgs).toEqual(expect.arrayContaining(['--add-dir', REFERENCE]));
+    expect((editable.config.disallowedTools ?? []).some((rule) => rule.includes(REFERENCE))).toBe(false);
+
+    seeded.q.updateReferenceFolder(ref.id, { readOnly: true });
+    const readOnly = await prepare(seeded);
+    expect(readOnly.instructions).toContain('# Linked folders (read only)');
+    expect(readOnly.extraArgs).toEqual(expect.arrayContaining(['--add-dir', REFERENCE]));
+    expect(readOnly.config.disallowedTools!.some((rule) => rule.includes(REFERENCE))).toBe(true);
   });
 
   it('sends the brief with the first message where the harness drops session instructions', async () => {
@@ -245,7 +252,7 @@ describe('prepareAgentMainChatSpawn', () => {
 
   it('hands Antigravity the brief and references as session instructions, unfenced', async () => {
     const seeded = await seed();
-    seeded.q.createReferenceFolder({ workspaceId: seeded.ws.id, alias: 'api', path: REFERENCE });
+    seeded.q.createReferenceFolder({ workspaceId: seeded.ws.id, alias: 'api', path: REFERENCE, readOnly: true });
     const spawn = await prepare(seeded, { providerType: 'antigravity', strictMcpIsolation: false });
     // agentex sends the file ahead of the first message, so no preamble of our own.
     expect(spawn.instructions).toContain('# The "ri" agent\'s main chat');
@@ -255,7 +262,7 @@ describe('prepareAgentMainChatSpawn', () => {
     expect(spawn.extraArgs).toEqual([]);
     expect(spawn.warnings).toEqual(expect.arrayContaining([
       'the git write guard is prompt-only (this harness ignores tool filtering)',
-      '1 reference folder(s) announced in the prompt, but not fenced off',
+      '1 read-only linked folder(s) announced in the prompt, but not fenced off',
     ]));
     // No MCP on Antigravity, so no integrations or browser either.
     expect(spawn.config.mcpServers?.some((server) => server.name === 'integrations' || server.name === 'browser') ?? false)

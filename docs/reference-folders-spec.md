@@ -4,6 +4,15 @@ Status: Phases 1 and 2 implemented. Phase 3 done except the agentex swap,
 which is blocked on a field that does not exist yet.
 Owner: Trey
 
+**Changed 2026-10-08: linked folders are editable unless marked read only.**
+An agent in `insiderfinance-app` refused to change its linked
+`insiderfinance-tradedata` repo because the prompt said "do not modify", and
+there was no way to say otherwise. Read only is now a per-folder switch
+(`reference_folders.read_only`), off by default, set in the agent's Setup tab.
+It reverses the "writable references" non-goal (§3). The prompt (§6), the
+guard (§7), the UI (§9) and the actions (§10) say how. The UI calls these
+**linked folders**, and so does the prompt now.
+
 Three things changed during implementation, all recorded in place below:
 
 - **§6/§7** — the prompt block ships via agentex's `instructionsFile`, not
@@ -42,7 +51,9 @@ tree, which pollutes the file tree and the `@` picker.
   "linked folders" (linking reads as bidirectional). Referencing something
   implies you consult it and do not change it, which is exactly the semantics.
   UI label "Reference folders", subtitle "read-only folders this workspace can
-  see". Table `reference_folders`.
+  see". Table `reference_folders`. *Superseded in the UI by "linked folders"
+  (homes build), and since 2026-10-08 a linked folder is editable unless it is
+  marked read only. The table keeps its name.*
 - **A table, not a JSON column on `workspaces`.** Rows need FK integrity when
   pointing at another workspace, need to be queried in reverse ("what
   references this?"), and will grow columns. This follows the same lift that
@@ -63,7 +74,10 @@ tree, which pollutes the file tree and the `@` picker.
 
 ## 3. Non-goals
 
-- Writable references. If you need to change it, make it a workspace.
+- ~~Writable references. If you need to change it, make it a workspace.~~
+  Reversed 2026-10-08: work that spans two repos (a producer in one, its
+  schema in another) is normal, and making the agent stop and ask was the
+  failure. Editable is the default, and read only is the opt-in.
 - Syncing, fetching, cloning, or pulling a reference folder. Ri reads what is
   on disk and reports drift. It never mutates.
 - Auto-detecting sibling repos.
@@ -107,6 +121,12 @@ export const referenceFolders = sqliteTable(
       .notNull()
       .default('active'),
     archivedAt: text(),
+    // Added 2026-10-08 (0009_linked_folder_read_only). True keeps agents
+    // from changing it. A preference with no schema default: null means
+    // never chosen and resolves through `isReadOnly`
+    // (src/lib/reference-folders/read-only.ts), so folders linked before the
+    // column follow the current default, editable.
+    readOnly: integer({ mode: 'boolean' }),
   },
   (table) => [
     index('idx_reference_folders_workspace').on(table.workspaceId, table.status),
@@ -191,22 +211,42 @@ block is portable. It was previously unused in Ri, and
 The file is written to `<workDir>/reference-folders/<chatSessionId>.md` on every
 session build, so it always matches the current reference list.
 
-Renderer in `src/lib/executor/prompts/reference-folders.ts`:
+Renderer in `src/lib/executor/prompts/reference-folders.ts`. Since 2026-10-08
+a folder is editable unless marked read only, and the two kinds get different
+rules. A list of one kind has no subsections (the heading reads
+`# Linked folders (read only)` when every folder is read only). A mixed list:
 
 ```
-## Reference folders (read-only)
+# Linked folders
 
-Folders outside your working directory that you may read and search.
-Do not modify anything in them. If a change is needed there, say so
-instead of making it.
+Folders outside your working directory that are part of this work. Read and
+search them rather than guessing at what they contain.
+
+## Editable
+
+You may change these when the work calls for it. Each is a shared folder, not
+a copy of your own, so an edit lands in whatever is checked out there, beside
+any other work in progress. Don't switch a Git folder's branch. If a change
+belongs on another branch, make a worktree of that repository and work there.
 
 - backend  ->  /Users/trey/code/api
   Go API server this app calls. HTTP routes live in internal/http/.
   git: main, clean, 4 behind origin
 - design-system  ->  /Users/trey/code/ds
   Shared React components. Source of truth for design tokens.
+
+## Read only
+
+Do not modify anything in these. If a change is needed in one, say so instead
+of making it.
+
 - vault  ->  /Users/trey/notes
 ```
+
+The editable rules exist because a linked folder is the person's own checkout,
+not a worktree: switching its branch would pull it out from under whatever
+else is open there. The session's environment block lists the same folders
+and marks the read-only ones (`, read only`).
 
 `description` is optional. When absent, the entry is just the alias, the path,
 and the git line. The alias plus path already carry most of the signal, and a
@@ -230,6 +270,20 @@ accumulate a file per chat forever.
 ## 7. Read access and the read-only guarantee
 
 Be precise about this, because "read-only" is doing a lot of work in the copy.
+
+**Since 2026-10-08 this guard applies only to folders marked read only.** An
+editable folder gets `--add-dir` (read and write) and no deny rule on Claude,
+and on Codex is passed as a writable root, `-c
+sandbox_workspace_write.writable_roots=[...]`, so the `workspace-write`
+sandbox Codex uses in Ask and Auto-edit lets it write there without asking.
+Under Auto (`danger-full-access`) and Plan (`read-only`) Codex ignores that
+key. Verified on codex-cli 0.160: `codex app-server --strict-config` accepts
+the key and rejects a value that isn't a list. The override replaces any
+`writable_roots` in the person's `~/.codex/config.toml` for that session. A
+folder linked twice, once read only, is treated as read only. Checked end to
+end on an isolated home: with the switch off, a Claude and a Codex execution
+each wrote a file straight into the linked folder, and with it on, a Claude
+execution declined and said the folder is linked read only.
 
 `@agentex/agent@0.0.34` `ProviderConfig` has **no** `additionalDirectories`
 field. It does have `extraArgs`, `allowedTools`, and `disallowedTools`, so
@@ -280,11 +334,14 @@ spec originally assumed.** `instructionsFile` is read in agentex's
 
 | Ri harness | delivery | what the agent gets |
 |---|---|---|
-| claude | `full` | prompt block, `--add-dir`, `Edit(...)` deny rules |
-| codex | `prompt-only` | prompt block, no tool-level fence |
+| claude | `full` | prompt block, `--add-dir`, `Edit(...)` deny rules on read-only folders |
+| codex | `prompt-only` (`full` when nothing is read only) | prompt block, editable folders as writable roots, no tool-level fence |
 | cursor | `unsupported` | **nothing** |
 | opencode | `unsupported` | **nothing** |
-| antigravity | `prompt-only` | prompt block, no tool-level fence |
+| antigravity | `prompt-only` (`full` when nothing is read only) | prompt block, no tool-level fence |
+
+`prompt-only` means "a read-only folder is announced but not fenced off", so
+it is only reported, and only logged, when there is a read-only folder.
 
 Antigravity (agentex 0.0.39) reads `instructionsFile` in its session and sends
 it ahead of the first message of a conversation it starts. A resumed
@@ -300,9 +357,9 @@ A regression test pins the classification.
 
 Revisit whenever agentex grows session-scoped instructions for the rest.
 
-The UI copy must not promise more than this delivers. "Read-only" in the
-subtitle, and a one-line note in the section that the guard is an instruction
-plus a tool filter, not an OS sandbox.
+The UI copy must not promise more than this delivers. The Read only switch
+says agents "are told not to change anything there" and that "Claude's file
+edits there are blocked too", nothing stronger.
 
 ## 8. `@alias` in the mention picker
 
@@ -404,6 +461,14 @@ A "visible in every workspace" toggle writes `workspaceId: null`. Global rows
 render in every workspace's list with a marker and are editable from any of
 them.
 
+*As built (homes build, then 2026-10-08):* the agent's Setup tab, Folders
+section (`src/components/agents/agent-folders.tsx`), with the add and edit
+dialog in `src/components/workspaces/reference-folder-dialog.tsx`. The dialog
+has a **Read only** switch, off by default, above "For every agent". A
+read-only row carries a "read only" marker beside its alias. "Also link back"
+creates the reverse link read only when this one is. The "Linked from" note on
+the target agent names which of those links are read only.
+
 Use semantic design tokens throughout. No raw Tailwind palette.
 
 ## 10. Orchestrator actions
@@ -423,6 +488,11 @@ safe under retry, so a repeated create with the same scope and alias is a
 Path validation branches on `ctx.remote`: a trusted local CLI call may pass any
 absolute path, an untrusted HTTP call may not, since arbitrary-path reads from
 a remote caller is a disclosure vector.
+
+`create_reference_folder` and `update_reference_folder` take `readOnly`. A
+remote caller may turn it on but never off (`unsupported`): read only is a
+guard the person set, and an agent lifting it would be granting itself writes
+they ruled out. The trusted local CLI and the app may.
 
 ## 11. Edge cases
 

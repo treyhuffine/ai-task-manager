@@ -5,8 +5,8 @@
  * docs/homes-spec.md §4.2).
  *
  * The whole point is that adding one should feel like nothing: pick a folder,
- * confirm the alias we guessed, done. Description is optional and the global
- * toggle is off by default, so the common path is two clicks.
+ * confirm the alias we guessed, done. Description is optional, and Read only
+ * and the global toggle are off by default, so the common path is two clicks.
  *
  * A folder has a place on each device. Adding one places it on the device
  * it's added from, and editing changes only what it is. Its place on each
@@ -30,9 +30,12 @@ import { useWorkspaces } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import type { ReferenceFolderRecord } from '@/db/types';
 import { Tip } from '@/components/ui/tip';
+import { READ_ONLY_DEFAULT } from '@/lib/reference-folders/read-only';
 
 /** The linked folder being edited: what it is, not where. */
-export type LinkedFolderDefinition = Pick<ReferenceFolderRecord, 'id' | 'alias' | 'description' | 'workspaceId' | 'targetWorkspaceId'>;
+export type LinkedFolderDefinition = Pick<ReferenceFolderRecord, 'id' | 'alias' | 'description' | 'workspaceId' | 'targetWorkspaceId'> & {
+  readOnly: boolean;
+};
 
 export interface ReferenceFolderDraft {
   alias: string;
@@ -40,6 +43,8 @@ export interface ReferenceFolderDraft {
   targetWorkspaceId: string | null;
   description: string | null;
   workspaceId: string | null;
+  /** Agents are told not to change it, and Claude's editing tools are blocked there. */
+  readOnly: boolean;
   /**
    * Also create the mirror reference, pointing the target workspace back at
    * this one. References are one-way by design, so this is opt-in — but when
@@ -110,6 +115,7 @@ function ReferenceFolderForm({
   const [typedAlias, setTypedAlias] = useState<string | null>(editing?.alias ?? null);
   const [description, setDescription] = useState(editing?.description ?? '');
   const [global, setGlobal] = useState(editing ? editing.workspaceId === null : false);
+  const [readOnly, setReadOnly] = useState(editing?.readOnly ?? READ_ONLY_DEFAULT);
   const [addReverse, setAddReverse] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -157,6 +163,7 @@ function ReferenceFolderForm({
       targetWorkspaceId: mode === 'workspace' ? targetWorkspaceId : null,
       description: description.trim() || null,
       workspaceId: global ? null : workspaceId,
+      readOnly,
       addReverse: canAddReverse && addReverse,
     });
   };
@@ -166,7 +173,7 @@ function ReferenceFolderForm({
       <DialogHeader>
         <DialogTitle>{editing ? `Edit @${editing.alias}` : 'Add a linked folder'}</DialogTitle>
         <DialogDescription>
-          A folder this agent can read and search but never change.
+          Another folder this agent works with. It can read, search and change it, unless you make it read only.
         </DialogDescription>
       </DialogHeader>
 
@@ -272,6 +279,17 @@ function ReferenceFolderForm({
 
         <label className="flex cursor-pointer items-start justify-between gap-3">
           <span className="text-[11px] leading-relaxed text-muted-foreground/85">
+            Read only
+            <span className="block text-muted-foreground/60">
+              Agents can read and search it, and are told not to change anything there. Claude&apos;s file
+              edits there are blocked too.
+            </span>
+          </span>
+          <Switch checked={readOnly} onCheckedChange={setReadOnly} className="mt-0.5" />
+        </label>
+
+        <label className="flex cursor-pointer items-start justify-between gap-3">
+          <span className="text-[11px] leading-relaxed text-muted-foreground/85">
             For every agent
             <span className="block text-muted-foreground/60">
               Use for something shared, like a design system several apps consume. Every agent
@@ -288,7 +306,8 @@ function ReferenceFolderForm({
               <span className="block text-muted-foreground/60">
                 Adds{' '}
                 <span className="font-mono">@{slugify(workspaceName ?? '', { separator: '-' })}</span>{' '}
-                inside {reverseTargetName ?? 'that agent'}, so the two can read each other.
+                inside {reverseTargetName ?? 'that agent'}, read only if this one is, so each can use the
+                other&apos;s folder.
               </span>
             </span>
             <Switch checked={addReverse} onCheckedChange={setAddReverse} className="mt-0.5" />

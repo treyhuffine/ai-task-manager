@@ -1189,10 +1189,11 @@ export const workspaces = sqliteTable(
 );
 
 // ─── Reference folders ────────────────────────────────────────
-// A read-only folder a workspace's agents may consult: a sibling repo, a docs
+// A folder beside a workspace that its agents work with: a sibling repo, a docs
 // directory, an installed dependency's source. The agent is told the folder
 // exists and why, which is the actual gap — it can already read any absolute
-// path, it just never knows to look. See docs/reference-folders-spec.md.
+// path, it just never knows to look. Editable unless marked read only. See
+// docs/reference-folders-spec.md.
 //
 // Points at either another workspace (`targetWorkspaceId`) or a bare path on
 // disk (`path`), never both. Forcing every consultable folder to be a full
@@ -1231,6 +1232,11 @@ export const referenceFolders = sqliteTable(
     position: integer().notNull().default(0),
     status: text({ enum: ['active', 'archived'] }).notNull(),
     archivedAt: text(),
+    // True keeps agents from changing anything in the folder: the prompt says
+    // so, and Claude's editing tools are denied there. Null means the person
+    // never chose, resolved by `isReadOnly` at read time, so folders linked
+    // before this column follow the current default (editable).
+    readOnly: integer({ mode: 'boolean' }),
   },
   (table) => [
     index('idx_reference_folders_workspace').on(table.workspaceId, table.status),
