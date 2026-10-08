@@ -17,29 +17,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { APP_ROOT_ENV, BRAIN_PATH_ENV, CONFIG_DIR_ENV, DB_PATH_ENV, WORK_DIR_ENV } from '@/lib/config/paths';
-import { vi } from 'vitest';
-import { applyPendingTestSchema, assertTestDatabasePath } from './pending-schema';
-
-// Keep the production bootstrap and release migration runner unchanged while
-// uncommitted nullable columns are tested ahead of migration generation.
-vi.mock('@/lib/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/db')>();
-  return {
-    ...actual,
-    getDb(...args: Parameters<typeof actual.getDb>) {
-      assertTestDatabasePath(args[0] ?? actual.getDefaultDbPath());
-      const db = actual.getDb(...args);
-      applyPendingTestSchema(actual.getRawDb(...args));
-      return db;
-    },
-    getRawDb(...args: Parameters<typeof actual.getRawDb>) {
-      assertTestDatabasePath(args[0] ?? actual.getDefaultDbPath());
-      const sqlite = actual.getRawDb(...args);
-      applyPendingTestSchema(sqlite);
-      return sqlite;
-    },
-  };
-});
 
 process.env[APP_ROOT_ENV] = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-vitest-root-'));
 for (const name of [DB_PATH_ENV, CONFIG_DIR_ENV, WORK_DIR_ENV, BRAIN_PATH_ENV]) delete process.env[name];

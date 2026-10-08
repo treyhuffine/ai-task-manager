@@ -4,14 +4,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { runMigrations, inspectMigrationHistory } from './migrate';
-import { applyPendingTestSchema } from '@/test/pending-schema';
 
-// Exercise the pending feature schema on top of the unchanged released main
-// history. Fixture DDL is test-only, and never claims a migration was shipped.
+// 0010 adds the four work result tables and four nullable preferences. Upgrade
+// a populated 0009 home through it, then exercise the tables it built.
 const migrationsFolder = path.resolve(process.cwd(), 'drizzle');
+const workResultMigration = '0010_many_captain_universe';
 const fixtureTables = ['work_results', 'work_result_tasks', 'work_result_decisions', 'work_result_ai_reviews'] as const;
 const expectedIndexes = [
   'idx_work_results_source_chat',
+  'idx_work_results_source_event',
   'idx_work_results_source_execution',
   'idx_work_results_user',
   'uniq_work_results_successor',
@@ -31,7 +32,7 @@ let dir: string;
 let sqlite: Database.Database;
 
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-work-result-rename-'));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-work-result-migration-'));
   sqlite = new Database(path.join(dir, 'test.db'));
   sqlite.pragma('foreign_keys = ON');
 });
@@ -45,6 +46,21 @@ function releaseJournal() {
   return JSON.parse(fs.readFileSync(path.join(migrationsFolder, 'meta', '_journal.json'), 'utf8')) as {
     entries: Array<{ idx: number; tag: string }>;
   };
+}
+
+/** The released history up to, not including, the work result migration. */
+function migrationsBeforeWorkResults() {
+  const journal = releaseJournal();
+  const index = journal.entries.findIndex((entry) => entry.tag === workResultMigration);
+  expect(index).toBeGreaterThan(0);
+  const entries = journal.entries.slice(0, index);
+  const folder = path.join(dir, 'before-work-results');
+  fs.mkdirSync(path.join(folder, 'meta'), { recursive: true });
+  fs.writeFileSync(path.join(folder, 'meta', '_journal.json'), JSON.stringify({ ...journal, entries }));
+  for (const entry of entries) {
+    fs.copyFileSync(path.join(migrationsFolder, `${entry.tag}.sql`), path.join(folder, `${entry.tag}.sql`));
+  }
+  return { folder, count: entries.length };
 }
 
 function insert(table: string, row: SqlRow) {
@@ -61,9 +77,10 @@ function rows(table: string) {
   return sqlite.prepare(`SELECT rowid, * FROM "${table}" ORDER BY id`).all();
 }
 
-function releasedFixture() {
-  expect(runMigrations(sqlite, migrationsFolder)).toEqual({ applied: releaseJournal().entries.length });
-  applyPendingTestSchema(sqlite);
+/** A home that ran 0009 with chats, work and tasks, upgraded, then given results. */
+function upgradedHome() {
+  const before = migrationsBeforeWorkResults();
+  expect(runMigrations(sqlite, before.folder)).toEqual({ applied: before.count });
 
   for (const id of ['actor', 'source', 'event-source', 'feedback', 'reviewer']) {
     insert('chat_sessions', { id, harness: 'codex', type: 'orchestration', status: 'active', permission_mode: 'ask' });
@@ -77,6 +94,7 @@ function releasedFixture() {
   insert('chat_events', { id: 'source-event', session_id: 'event-source', role: 'assistant', source: 'harness', content: 'Retained outcome' });
   insert('chat_events', { id: 'feedback-message', session_id: 'feedback', role: 'user', source: 'human', content: 'Please preserve this feedback' });
   insert('tasks', { id: 'task', raw_input: 'Verify migration', title: 'Verify migration', status: 'todo' });
+  expect(runMigrations(sqlite, migrationsFolder)).toEqual({ applied: 1 });
 
   const attachment = {
     file_name: '0199d70b-9b00-7000-8000-000000000001.md', original_name: 'inspection.md',
@@ -117,9 +135,8 @@ function releasedFixture() {
   expect(sqlite.pragma('foreign_key_check')).toEqual([]);
 }
 
-function applyFixtureSchema() {
-  applyPendingTestSchema(sqlite);
-  expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
+function journalRows() {
+  return sqlite.prepare('SELECT * FROM __drizzle_migrations ORDER BY rowid').all();
 }
 
 function foreignKeys(table: string) {
@@ -129,21 +146,62 @@ function foreignKeys(table: string) {
     .sort((a, b) => a.from.localeCompare(b.from));
 }
 
-function assertFixtureIndexes() {
+function assertWorkResultIndexes() {
   const tables = [...fixtureTables];
   const indexes = sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL AND tbl_name IN (${tables.map(() => '?').join(', ')})`)
     .pluck().all(...tables);
   expect(indexes.sort()).toEqual(expectedIndexes);
 }
 
-describe('pending work result database fixture', () => {
-  it('keeps retained rows, sparse rowids, all 15 foreign keys, indexes, and release journal through fixture retries', () => {
-    releasedFixture();
+describe('work result migration', () => {
+  it('upgrades a populated 0009 home in place, adding only null preferences to its records', () => {
+    const before = migrationsBeforeWorkResults();
+    runMigrations(sqlite, before.folder);
+    insert('areas', { rowid: 73, id: 'area', name: 'Active area', status: 'active' });
+    insert('user_state', { id: 1, description: 'About the owner', active_area_id: 'area' });
+    insert('workspaces', {
+      rowid: 241, id: 'agent', name: 'Agent', slug: 'agent', cwd: dir, is_git: 0,
+      files_to_copy: '[]', collapsed: 0, skip_live_confirm: 0, browser_enabled: 0,
+      status: 'active', instructions: 'Standing instructions stay distinct.',
+    });
+    insert('tasks', { rowid: 321, id: 'task', raw_input: 'Keep this task', title: 'Keep this task', status: 'todo' });
+    insert('chat_sessions', { rowid: 58, id: 'chat', harness: 'codex', type: 'orchestration', status: 'active', permission_mode: 'ask' });
+    insert('chat_events', { rowid: 9001, id: 'event', session_id: 'chat', role: 'assistant', source: 'harness', content: 'Earlier answer' });
+    const untouched = ['areas', 'tasks', 'chat_sessions', 'chat_events'].map((name) => ({ name, rows: rows(name), foreignKeys: foreignKeys(name) }));
+    const ownerBefore = rows('user_state');
+    const agentBefore = rows('workspaces');
+    const ownerKeysBefore = foreignKeys('user_state');
+    const agentKeysBefore = foreignKeys('workspaces');
+    const journalBefore = journalRows();
+    expect(inspectMigrationHistory(sqlite, migrationsFolder).pending).toHaveLength(1);
+
+    expect(runMigrations(sqlite, migrationsFolder)).toEqual({ applied: 1 });
+
+    expect(rows('user_state')).toEqual(ownerBefore.map((r) => ({ ...(r as SqlRow), work_result_guidance: null })));
+    expect(rows('workspaces')).toEqual(agentBefore.map((r) => ({
+      ...(r as SqlRow), work_result_guidance: null, review_before_handoff: null, review_defaults: null,
+    })));
+    expect(foreignKeys('user_state')).toEqual(ownerKeysBefore);
+    expect(foreignKeys('workspaces')).toEqual(agentKeysBefore);
+    for (const table of untouched) {
+      expect(rows(table.name)).toEqual(table.rows);
+      expect(foreignKeys(table.name)).toEqual(table.foreignKeys);
+    }
+    expect(sqlite.pragma('foreign_key_check')).toEqual([]);
+    expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
+    const journal = journalRows();
+    expect(journal.slice(0, journalBefore.length)).toEqual(journalBefore);
+    expect(journal).toHaveLength(journalBefore.length + 1);
+    expect(inspectMigrationHistory(sqlite, migrationsFolder).pending).toEqual([]);
+  });
+
+  it('keeps work result rows, sparse rowids, all 15 foreign keys and indexes when migrations run again', () => {
+    upgradedHome();
     const before = fixtureTables.map((name) => ({ rows: rows(name), foreignKeys: foreignKeys(name) }));
-    const journalBefore = sqlite.prepare('SELECT * FROM __drizzle_migrations ORDER BY rowid').all();
+    const journalBefore = journalRows();
     expect(before.reduce((count, table) => count + table.foreignKeys.length, 0)).toBe(15);
 
-    applyFixtureSchema();
+    expect(runMigrations(sqlite, migrationsFolder)).toEqual({ applied: 0 });
 
     for (const [index, name] of fixtureTables.entries()) {
       expect(rows(name)).toEqual(before[index].rows);
@@ -152,42 +210,14 @@ describe('pending work result database fixture', () => {
     expect(JSON.parse(row('work_result_decisions', 'decision').context as string)).toEqual({
       reviewId: 'ai-review', attachmentFileName: '0199d70b-9b00-7000-8000-000000000001.md', previewTargetId: 'preview-target',
     });
-    assertFixtureIndexes();
+    assertWorkResultIndexes();
     expect(sqlite.pragma('foreign_key_check')).toEqual([]);
-    expect(sqlite.prepare('SELECT * FROM __drizzle_migrations ORDER BY rowid').all()).toEqual(journalBefore);
+    expect(journalRows()).toEqual(journalBefore);
     expect(inspectMigrationHistory(sqlite, migrationsFolder).pending).toEqual([]);
-    expect(runMigrations(sqlite, migrationsFolder)).toEqual({ applied: 0 });
-    for (const [index, name] of fixtureTables.entries()) expect(rows(name)).toEqual(before[index].rows);
-  });
-
-  it('preserves populated released user and agent records while adding nullable preferences', () => {
-    runMigrations(sqlite, migrationsFolder);
-    insert('areas', { rowid: 73, id: 'area', name: 'Active area', status: 'active' });
-    insert('user_state', { id: 1, description: 'About the owner', active_area_id: 'area' });
-    insert('workspaces', {
-      rowid: 241, id: 'agent', name: 'Agent', slug: 'agent', cwd: dir, is_git: 0,
-      files_to_copy: '[]', collapsed: 0, skip_live_confirm: 0, browser_enabled: 0,
-      status: 'active', instructions: 'Standing instructions stay distinct.',
-    });
-    const ownerBefore = rows('user_state');
-    const agentBefore = rows('workspaces');
-    const foreignKeysBefore = foreignKeys('user_state');
-    const journalBefore = sqlite.prepare('SELECT * FROM __drizzle_migrations ORDER BY rowid').all();
-
-    applyFixtureSchema();
-
-    expect(rows('user_state')).toEqual(ownerBefore.map((r) => ({ ...(r as SqlRow), work_result_guidance: null })));
-    expect(rows('workspaces')).toEqual(agentBefore.map((r) => ({
-      ...(r as SqlRow), work_result_guidance: null, review_before_handoff: null, review_defaults: null,
-    })));
-    expect(foreignKeys('user_state')).toEqual(foreignKeysBefore);
-    expect(sqlite.pragma('foreign_key_check')).toEqual([]);
-    expect(sqlite.prepare('SELECT * FROM __drizzle_migrations ORDER BY rowid').all()).toEqual(journalBefore);
   });
 
   it('preserves SET NULL provenance and feedback plus task-association CASCADE behavior', () => {
-    releasedFixture();
-    applyFixtureSchema();
+    upgradedHome();
     const snapshot = row('work_results', 'snapshot');
     const decision = row('work_result_decisions', 'decision');
     const review = row('work_result_ai_reviews', 'ai-review');
@@ -219,8 +249,7 @@ describe('pending work result database fixture', () => {
   });
 
   it('keeps each retained-result RESTRICT relationship and every unique/check guard', () => {
-    releasedFixture();
-    applyFixtureSchema();
+    upgradedHome();
 
     // Isolate each RESTRICT relationship so another child cannot mask its loss.
     for (const keeper of ['successor', 'association', 'decision', 'ai-review', 'report']) {
@@ -257,13 +286,21 @@ describe('pending work result database fixture', () => {
     expect(sqlite.pragma('foreign_key_check')).toEqual([]);
   });
 
-  it('builds the pending fixture after released bootstrap without adding a release migration', () => {
+  // Deleting a session's chat_events checks this foreign key once per event,
+  // so a long chat would scan work_results once for every event it held.
+  it('finds the work results that cite a deleted chat event by index', () => {
+    runMigrations(sqlite, migrationsFolder);
+    const plan = (sqlite.prepare('EXPLAIN QUERY PLAN SELECT 1 FROM work_results WHERE source_event_id = ?').all('event') as { detail: string }[])
+      .map((step) => step.detail);
+    expect(plan).toEqual(['SEARCH work_results USING COVERING INDEX idx_work_results_source_event (source_event_id=?)']);
+  });
+
+  it('builds the work result tables on a new home from the release history alone', () => {
     expect(runMigrations(sqlite, migrationsFolder)).toEqual({ applied: releaseJournal().entries.length });
-    applyFixtureSchema();
     for (const name of fixtureTables) {
       expect(sqlite.prepare('SELECT name FROM sqlite_master WHERE name = ?').pluck().get(name)).toBe(name);
     }
-    assertFixtureIndexes();
+    assertWorkResultIndexes();
     expect(sqlite.pragma('foreign_key_check')).toEqual([]);
     expect(inspectMigrationHistory(sqlite, migrationsFolder).pending).toEqual([]);
     expect(runMigrations(sqlite, migrationsFolder)).toEqual({ applied: 0 });

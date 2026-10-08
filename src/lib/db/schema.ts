@@ -1564,6 +1564,8 @@ export const workResults = sqliteTable('work_results', {
 }, (table) => [
   index('idx_work_results_source_chat').on(table.sourceChatSessionId, table.createdAt, table.id),
   index('idx_work_results_source_execution').on(table.sourceExecutionId, table.createdAt, table.id),
+  // Deleting a session's chat_events checks this FK once per event, which scans the table without it.
+  index('idx_work_results_source_event').on(table.sourceEventId),
   index('idx_work_results_user').on(table.userId, table.createdAt, table.id),
   uniqueIndex('uniq_work_results_successor').on(table.supersedesId).where(sql`${table.supersedesId} IS NOT NULL`),
   // Historical CHECK names stay stable because renaming them would rebuild the table.

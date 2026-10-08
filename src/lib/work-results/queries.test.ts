@@ -20,7 +20,6 @@ import {
 import type { WorkResultActor, WorkResultReviewScope, WorkResultReviewSelection } from '@/db/types';
 import { ensureWorkResultOperationMessage } from '@/lib/db/work-result-runtime-queries';
 import { runMigrations } from '@/lib/db/migrate';
-import { applyPendingTestSchema } from '@/test/pending-schema';
 import { subscribe, sessionChannel } from '@/lib/realtime/bus';
 
 // This suite exercises SQLite writes and retention. External asynchronous
@@ -525,8 +524,8 @@ describe('disable admission and durable decisions', () => {
   });
 });
 
-describe('pending feature fixture after released migrations', () => {
-  it('preserves existing task rowids and content while adding pending tables without changing released history', () => {
+describe('work result tables on an upgraded home', () => {
+  it('preserves existing task rowids and content while the release history adds the work result tables', () => {
     const folder = path.join(root, 'old-migrations');
     fs.mkdirSync(path.join(folder, 'meta'), { recursive: true });
     const source = path.join(process.cwd(), 'drizzle');
@@ -538,10 +537,7 @@ describe('pending feature fixture after released migrations', () => {
     try {
       runMigrations(db, folder);
       db.prepare("INSERT INTO tasks(rowid,id,title,status,raw_input) VALUES (321,'prior-task','Preserved content','todo','original request')").run();
-      runMigrations(db, source);
-      const journalBefore = db.prepare('SELECT * FROM __drizzle_migrations ORDER BY rowid').all();
-      applyPendingTestSchema(db);
-      expect(db.prepare('SELECT * FROM __drizzle_migrations ORDER BY rowid').all()).toEqual(journalBefore);
+      expect(runMigrations(db, source)).toEqual({ applied: journal.entries.length - oldEntries.length });
       expect(db.prepare('SELECT rowid,title,status FROM tasks WHERE id = ?').get('prior-task')).toEqual({ rowid: 321, title: 'Preserved content', status: 'todo' });
       for (const table of ['work_results', 'work_result_tasks', 'work_result_decisions', 'work_result_ai_reviews']) {
         expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)).toEqual({ name: table });

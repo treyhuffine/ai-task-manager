@@ -33,9 +33,9 @@ No new skill-management layer or MCP server is needed. Ri owns the built-in meth
 
 ## Schema integration
 
-The schema source and all runtime, query, API, and UI code use the two new columns. Migration generation is deliberately deferred until this work lands on main with the other changes. Integration preserves main's released migration history through `0009_linked_folder_read_only`. The feature branch's conflicting development migrations are excluded from the squash, and the obsolete uncommitted broad-global-instructions migration was removed. No replacement migration has been generated.
+The schema source and all runtime, query, API, and UI code use the two new columns. Integration preserves main's released migration history through `0009_linked_folder_read_only`. The feature branch's conflicting development migrations are excluded from the squash, and the obsolete uncommitted broad-global-instructions migration was removed. Once this work was on main, the release migration `0010_many_captain_universe` was generated. It adds both guidance columns and the reviewer preferences as nullable columns with no default, alongside the result tables described in [durable result storage](durable-results-storage.md).
 
-Vitest prepares the pending result tables and nullable preference columns in throwaway databases after normal release bootstrap, without changing the release journal. The fixture guard requires Vitest and an OS-temporary database path, and rejects paths or symlinks outside that directory before opening the database. Production database bootstrap and the safe migration runner are unchanged. The final release migration must be generated and applied before this updated application is run against an existing home.
+Vitest builds the result tables and preference columns from the release history like any home. Production database bootstrap and the safe migration runner are unchanged. An existing home applies 0010 the next time its server starts.
 
 ## Acceptance checks
 
@@ -45,9 +45,9 @@ Vitest prepares the pending result tables and nullable preference columns in thr
 - [x] Manual preparation and independent review retain the captured assignment context.
 - [x] Ordinary chats and background jobs do not automatically inherit preference text.
 - [x] Existing report, review, acceptance, and task lifecycle authority remains intact.
-- [x] No migration generated and no real home data changed for this follow-up.
+- [x] No real home data changed for this follow-up. Its release migration is `0010_many_captain_universe`.
 
-Automated evidence covers mounted editors, optimistic cache concurrency, query normalization, API ownership, signed action scope, feature gates, all harness instruction surfaces, background-call exclusion, immutable review assignments, and manual handoff preparation. Historical pilot and preview evidence in the durable-results documents describes the earlier builds. It does not claim a live trial of this pending schema change.
+Automated evidence covers mounted editors, optimistic cache concurrency, query normalization, API ownership, signed action scope, feature gates, all harness instruction surfaces, background-call exclusion, immutable review assignments, and manual handoff preparation. Historical pilot and preview evidence in the durable-results documents describes the earlier builds. It does not claim a live trial of this schema change.
 
 Before integration with the newer main branch, the repository suite passed 3,028 tests with 26 skipped across 323 passing files and two skipped files. Typecheck, the Next.js production build, and the CLI build passed. The build used an isolated temporary home and a separate output directory. Final API and background-call regression checks passed another 25 tests after test-only cleanup. Targeted lint passed with existing unused-import warnings. A broader check of 157 changed TypeScript files found 11 errors, all reproduced in the unchanged HEAD versions of those files. No real home or running preview was migrated for this follow-up.
 
