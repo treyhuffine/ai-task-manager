@@ -15,11 +15,13 @@ import {
   Copy,
   AtSign,
   Search,
+  Lock,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiErrorText } from '@/lib/api/client';
 import { useFolderRoot, useFolderTree, useWriteFile } from '@/hooks/use-folder';
 import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
+import { isOutsideFolderPath } from '@/lib/entity-refs/open-file-event';
 import { useOpener } from '@/hooks/use-opener';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
 import { revealLabel, detectClientPlatform } from '@/lib/client/deep-links';
@@ -94,6 +96,9 @@ export function FileViewer({
   // on `useWorktreeScope` resolving the session row, which `isFetching`
   // alone would miss (a disabled query never fetches).
   const treeLoading = !tree && (treeQuery.isPending || treeQuery.isFetching);
+  // A file chip can open a file outside the folder, one the agent read or
+  // wrote (a screenshot in /tmp). It has no tree entry and opens read only.
+  const outside = !!selectedPath && isOutsideFolderPath(selectedPath);
 
   // Look up the selected entry — drives Diff/Current toggle availability.
   const entry: TreeEntry | undefined = useMemo(() => {
@@ -204,13 +209,14 @@ export function FileViewer({
   // Edit only makes sense in Current mode against a file that exists on
   // disk. Deleted-but-not-committed files have no working-tree copy to
   // edit; the user should restore via git first. Render is read-only.
-  const editable = writable && effectiveMode === 'current' && !isDeleted;
+  const editable = writable && !outside && effectiveMode === 'current' && !isDeleted;
 
   return (
     <div className="flex h-full w-full flex-col bg-background min-w-0">
       <FileViewerHeader
         source={source}
         path={selectedPath}
+        outside={outside}
         isChanged={isChanged}
         isConflict={isConflict}
         isMarkdown={isMarkdown}
@@ -248,6 +254,8 @@ export function FileViewer({
 interface HeaderProps {
   source: FolderSource;
   path: string;
+  /** An absolute path outside the folder, open read only. */
+  outside: boolean;
   isChanged: boolean;
   isConflict: boolean;
   isMarkdown: boolean;
@@ -264,6 +272,7 @@ interface HeaderProps {
 function FileViewerHeader({
   source,
   path,
+  outside,
   isChanged,
   isConflict,
   isMarkdown,
@@ -281,7 +290,8 @@ function FileViewerHeader({
   // honest even if a legacy state, race, or new code path slips an
   // absolute path through to the viewer.
   const root = useFolderRoot(source);
-  const displayPath = toRelativePath(path, root);
+  // A file outside the folder shows its whole path, the only one it has.
+  const displayPath = outside ? path : toRelativePath(path, root);
   return (
     <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 min-w-0">
       <FileIcon name={displayPath} />
@@ -292,6 +302,14 @@ function FileViewerHeader({
           {displayPath}
         </span>
       </Tip>
+      {outside && (
+        <Tip label="Outside this chat's folder. It opens because the agent read or wrote it.">
+          <span className="inline-flex items-center gap-1 text-[10px] font-normal text-muted-foreground/70 shrink-0">
+            <Lock size={10} />
+            Read only
+          </span>
+        </Tip>
+      )}
       {saving ? (
         <span
           className="inline-flex items-center gap-1 text-[10px] font-normal text-muted-foreground/70 shrink-0"
@@ -376,10 +394,10 @@ function FileViewerHeader({
           )}
         </div>
       )}
-      <RevealButton source={source} root={root} path={path} />
+      <RevealButton source={source} root={root} path={path} outside={outside} />
       <FileHeaderMoreMenu
-        relativePath={displayPath}
-        worktreePath={root}
+        relativePath={outside ? null : displayPath}
+        absolutePath={outside ? path : root ? `${root.replace(/\/$/, '')}/${displayPath}` : null}
         onReferenceInChat={onReferenceInChat}
       />
       {onClose && (
@@ -399,10 +417,10 @@ function FileViewerHeader({
 }
 
 interface FileHeaderMoreMenuProps {
-  /** Worktree-relative path. */
-  relativePath: string;
-  /** Used to compute absolute path. Null for non-git workspaces. */
-  worktreePath: string | null;
+  /** Worktree-relative path. Null for a file outside the folder. */
+  relativePath: string | null;
+  /** Absolute path on disk. Null while the folder isn't known. */
+  absolutePath: string | null;
   onReferenceInChat?: (relativePath: string) => void;
 }
 
@@ -415,12 +433,11 @@ interface FileHeaderMoreMenuProps {
  */
 function FileHeaderMoreMenu({
   relativePath,
-  worktreePath,
+  absolutePath,
   onReferenceInChat,
 }: FileHeaderMoreMenuProps) {
-  const absolutePath = worktreePath
-    ? `${worktreePath.replace(/\/$/, '')}/${relativePath}`
-    : null;
+  // The chat can reference a file outside the folder by its absolute path.
+  const referencePath = relativePath ?? absolutePath;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -434,27 +451,29 @@ function FileHeaderMoreMenu({
         </Tip>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={4} className="min-w-44">
-        {onReferenceInChat && (
+        {onReferenceInChat && referencePath && (
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
-              onReferenceInChat(relativePath);
+              onReferenceInChat(referencePath);
             }}
           >
             <AtSign size={14} />
             Reference in chat
           </DropdownMenuItem>
         )}
-        {onReferenceInChat && <DropdownMenuSeparator />}
-        <DropdownMenuItem
-          onClick={(e) => {
-            e.stopPropagation();
-            void copyText(relativePath, 'Relative path copied');
-          }}
-        >
-          <Copy size={14} />
-          Copy relative path
-        </DropdownMenuItem>
+        {onReferenceInChat && referencePath && <DropdownMenuSeparator />}
+        {relativePath !== null && (
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              void copyText(relativePath, 'Relative path copied');
+            }}
+          >
+            <Copy size={14} />
+            Copy relative path
+          </DropdownMenuItem>
+        )}
         {absolutePath && (
           <DropdownMenuItem
             onClick={(e) => {
@@ -477,6 +496,8 @@ interface RevealButtonProps {
   /** Absolute path of the folder the file lives in. */
   root: string | null;
   path: string;
+  /** `path` is absolute, outside the folder. */
+  outside: boolean;
 }
 
 /**
@@ -485,12 +506,13 @@ interface RevealButtonProps {
  * on a remote client because the path in the URL doesn't exist on the
  * user's laptop.
  */
-function RevealButton({ source, root, path }: RevealButtonProps) {
+function RevealButton({ source, root, path, outside }: RevealButtonProps) {
   // Opens on the device the file is on, for a browser there (P3.5).
   const { opener } = useOpener(source, root);
   const { label, openInEditor } = useOpenInPreferredEditor(opener);
-  const worktreePath = root;
-  const absolutePath = worktreePath ? `${worktreePath}/${path}` : null;
+  // A file outside the folder opens on its own, not in the folder's project.
+  const worktreePath = outside ? null : root;
+  const absolutePath = outside ? path : worktreePath ? `${worktreePath}/${path}` : null;
   const [revealing, setRevealing] = useState(false);
   const [opening, setOpening] = useState(false);
 

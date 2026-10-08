@@ -70,7 +70,7 @@ import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { linksFromTexts } from '@/lib/entity-refs/derive-links';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import { OUTCOME_SOURCES } from '@/db/types';
-import { isSubagentTool } from '@/lib/executions/tool-display';
+import { FILE_TOOL_NAMES, fileTargetPath, isSubagentTool } from '@/lib/executions/tool-display';
 import {
   activityReasonForEventSource,
   isActivity,
@@ -8896,6 +8896,41 @@ export function agentReplyMentions(sessionId: string, text: string): boolean {
     .limit(1)
     .get();
   return !!row;
+}
+
+/**
+ * Whether a file tool call (Read, Write, Edit, apply_patch, …) in this chat,
+ * or in any chat on its execution, named the absolute path `file`. The file
+ * viewer opens a file outside the chat's folder only then
+ * (`src/lib/sessions/named-files.ts`): it is what the transcript's file chips
+ * point at.
+ *
+ * `instr` over the stored JSON finds the candidates and `fileTargetPath`
+ * confirms the exact path, so `/tmp/a.png` never matches `/tmp/a.png.bak`.
+ * Reads one execution's chats through the session index, never the table.
+ */
+export function fileToolCallNamed(scope: { sessionId: string; executionId: string | null }, file: string): boolean {
+  if (!file) return false;
+  const db = getDb();
+  // The path as it sits inside the stored JSON string.
+  const needle = JSON.stringify(file).slice(1, -1);
+  const rows = db
+    .select({ toolName: chatEvents.toolName, toolInput: chatEvents.toolInput })
+    .from(chatEvents)
+    .where(and(
+      scope.executionId
+        ? inArray(chatEvents.sessionId, db.select({ id: chatSessions.id }).from(chatSessions).where(eq(chatSessions.executionId, scope.executionId)))
+        : eq(chatEvents.sessionId, scope.sessionId),
+      eq(chatEvents.source, 'tool_call'),
+      inArray(chatEvents.toolName, [...FILE_TOOL_NAMES]),
+      sql`instr(${chatEvents.toolInput}, ${needle}) > 0`,
+    ))
+    .limit(20)
+    .all();
+  return rows.some((row) => {
+    const named = fileTargetPath(row.toolName, row.toolInput);
+    return !!named && nodePath.isAbsolute(named) && nodePath.normalize(named) === file;
+  });
 }
 
 /**

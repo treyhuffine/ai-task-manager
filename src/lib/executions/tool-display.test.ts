@@ -3,6 +3,8 @@ import {
   describeToolCall,
   describeToolResult,
   basename,
+  FILE_TOOL_NAMES,
+  fileTargetPath,
   isSubagentTool,
   isPlumbingTool,
   toolDisplayName,
@@ -183,5 +185,17 @@ describe('describeToolResult', () => {
 
   it('returns null for tools with no useful summary', () => {
     expect(describeToolResult('Edit', 'The file has been updated.')).toBeNull();
+  });
+});
+
+describe('FILE_TOOL_NAMES', () => {
+  // The server finds the tool calls that named a file by this list
+  // (`fileToolCallNamed`), so it has to be exactly the tools that get a chip.
+  it('is every tool fileTargetPath reads a path from', () => {
+    const input = { file_path: '/tmp/a.png', input: '*** Update File: /tmp/a.png\n' };
+    for (const name of FILE_TOOL_NAMES) expect(fileTargetPath(name, input)).toBe('/tmp/a.png');
+    for (const name of ['Bash', 'Grep', 'Glob', 'LS', 'WebFetch', 'exec_command', 'mcp__x__read']) {
+      expect(fileTargetPath(name, input)).toBeNull();
+    }
   });
 });

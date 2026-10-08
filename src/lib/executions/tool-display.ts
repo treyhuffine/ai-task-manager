@@ -254,6 +254,9 @@ export function describeToolCall(toolName: string | null | undefined, input: unk
   }
 }
 
+/** The tools `fileTargetPath` reads a file from: every tool that gets a file chip. */
+export const FILE_TOOL_NAMES = ['Read', 'read_file', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'apply_patch'] as const;
+
 /**
  * The single file a tool reads or edits, as a chip-able path (absolute or
  * relative), or null for non-file tools (and directory tools like LS).

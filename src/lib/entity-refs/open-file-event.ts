@@ -39,12 +39,22 @@ export function useOpenFileListener(handler: (detail: OpenFileDetail) => void): 
 /**
  * Normalize a possibly-absolute path to worktree-relative. Returns the
  * input unchanged when it doesn't sit under `worktreePath` (already
- * relative, or outside the worktree).
+ * relative, or outside the worktree), or while the worktree isn't known:
+ * the file route makes an absolute path under the folder relative itself.
  */
 export function toWorktreeRelative(path: string, worktreePath: string | null | undefined): string {
-  if (!worktreePath) return path.replace(/^\/+/, '');
+  if (!worktreePath) return path;
   const root = worktreePath.replace(/\/+$/, '');
   if (path === root) return '';
   if (path.startsWith(root + '/')) return path.slice(root.length + 1);
   return path;
+}
+
+/**
+ * Whether a viewer path is a file outside the folder: one `toWorktreeRelative`
+ * left absolute. The viewer opens it read only, and only when the agent's file
+ * tools named it (`src/lib/sessions/named-files.ts`).
+ */
+export function isOutsideFolderPath(path: string): boolean {
+  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
 }

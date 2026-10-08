@@ -1,4 +1,7 @@
-import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
+import type { ChatSessionWithExecution } from '@/db/types';
+import { fileToolCallNamed, getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
+import { preparedFolder } from '@/lib/executions/location';
+import { NOT_NAMED_MESSAGE, placeViewerPath } from '@/lib/sessions/named-files';
 import { readAnswerOnOwner, writeAnswerOnOwner } from '@/lib/executor/owner-files';
 import { fileBody } from '@/lib/server/inputs';
 import { answerResult, failureResponse, reply, searchParams, type OperationContext } from '@/lib/server/operation';
@@ -6,6 +9,7 @@ import { deletePathSchema, fileResponseSchema, writeFileSchema } from '@/lib/ser
 import { whileOperationAdmitted as whileAdmitted } from '@/lib/transfer/moving';
 import { openWorktreeHandle } from '@/lib/workspaces';
 import { fileReadResult } from '@/lib/workspaces/file-http';
+import { readFileAt } from '@/lib/workspaces/read-file';
 import { mapFileError, openSessionWorktree } from "@/lib/workspaces/session-files";
 import { deleteWorkspacePath, writeWorkspaceFile } from '@/lib/workspaces/write-file';
 import { z as rpcZ } from 'zod/v4';
@@ -40,8 +44,15 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
 
     const session = getChatSessionWithExecution(id);
     if (!session) return reply({ error: 'Session not found' }, { status: 404 });
+
+    // A file chip can name a file outside the folder (a screenshot in /tmp
+    // the agent took and then read). It opens when the agent's file tools
+    // named it, read only (src/lib/sessions/named-files.ts).
+    const placed = placeViewerPath(relPath, preparedFolder(session));
+    if (placed.kind === 'outside') return await namedFileResult(session, placed.file, wantBase);
+
     // An execution on a connected device: its worker answers.
-    const remote = await readAnswerOnOwner(id, { kind: 'file', path: relPath, base: wantBase });
+    const remote = await readAnswerOnOwner(id, { kind: 'file', path: placed.path, base: wantBase });
     if (remote) return answerResult(remote, fileResponseSchema);
     if (!session.workspaceId || !session.worktreePath) {
       return reply({ error: 'Workspace has no worktree' }, { status: 404 });
@@ -53,10 +64,24 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
     const handle = await openWorktreeHandle(session, ws);
     if (!handle) return reply({ error: 'Worktree unavailable' }, { status: 404 });
 
-    return await fileReadResult(handle, relPath, wantBase);
+    return await fileReadResult(handle, placed.path, wantBase);
   } catch (err) {
     return failureResponse(mapFileError(err, '[GET /api/sessions/:id/file]'));
   }
+}
+
+/** A file outside the chat's folder, for the viewer: only one its agent's file tools named. */
+async function namedFileResult(session: ChatSessionWithExecution, file: string, wantBase: boolean) {
+  if (!fileToolCallNamed({ sessionId: session.id, executionId: session.executionId }, file)) {
+    return reply({ error: NOT_NAMED_MESSAGE, code: 'not_named' }, { status: 403 });
+  }
+  // The file is on the device the chat runs on, which only reads its own folder.
+  if (session.location && !session.location.isHome) {
+    return reply({ error: `This file is on ${session.location.name}.`, code: 'elsewhere' }, { status: 409 });
+  }
+  // No git base outside the folder: the diff's "old" side is empty.
+  if (wantBase) return reply({ path: file, content: '', encoding: 'utf8', mime: 'text/plain', size: 0, isBinary: false, tooLarge: false });
+  return reply(await readFileAt(file, file));
 }
 
 async function handlePUT(rpcInput: rpcZ.infer<typeof PUTInput>, request: OperationContext) {

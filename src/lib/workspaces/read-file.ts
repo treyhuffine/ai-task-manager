@@ -40,29 +40,37 @@ export async function readWorkspaceFile(
   if (!safe) {
     throw new FileReadError('invalid_path', `Invalid path: ${relPath}`);
   }
+  return readFileAt(path.join(ws.path, safe), safe);
+}
 
-  const absolute = path.join(ws.path, safe);
+/**
+ * Read the file at `absolute` for the viewer, answering with `shown` as its
+ * path. No boundary of its own: `readWorkspaceFile` keeps reads inside a
+ * folder, and a file outside one is read only when its agent named it
+ * (`src/lib/sessions/named-files.ts`).
+ */
+export async function readFileAt(absolute: string, shown: string): Promise<FileResponse> {
   let stat: import('node:fs').Stats;
   try {
     stat = await fs.stat(absolute);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      throw new FileReadError('not_found', `File not found: ${relPath}`);
+      throw new FileReadError('not_found', `File not found: ${shown}`);
     }
     throw new FileReadError('io_error', `Failed to stat: ${(err as Error).message}`);
   }
 
   if (stat.isDirectory()) {
-    throw new FileReadError('is_directory', `${relPath} is a directory`);
+    throw new FileReadError('is_directory', `${shown} is a directory`);
   }
 
   const size = stat.size;
-  const mime = mimeFor(safe);
+  const mime = mimeFor(shown);
 
   if (size > MAX_PREVIEW_BYTES) {
     return {
-      path: safe,
+      path: shown,
       content: null,
       encoding: 'utf8',
       mime,
@@ -86,7 +94,7 @@ export async function readWorkspaceFile(
     // "can't preview" card.
     const isImage = mime.startsWith('image/');
     return {
-      path: safe,
+      path: shown,
       content: isImage ? buffer.toString('base64') : null,
       encoding: 'base64',
       mime,
@@ -96,7 +104,7 @@ export async function readWorkspaceFile(
   }
 
   return {
-    path: safe,
+    path: shown,
     content: buffer.toString('utf8'),
     encoding: 'utf8',
     mime,

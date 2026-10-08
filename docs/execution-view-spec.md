@@ -321,7 +321,7 @@ useExecutionActions(sessionId)    composes useCommit/usePush/usePullBase + new o
 
 ```
 GET  /api/sessions/[id]/tree              → { entries: TreeEntry[] }
-GET  /api/sessions/[id]/file?path=<rel>   → { content, encoding, mime, size, sha, isBinary }
+GET  /api/sessions/[id]/file?path=<rel>   → { content, encoding, mime, size, sha, isBinary } (or an absolute path the agent named)
 GET  /api/sessions/[id]/reply-image?path= → image bytes, for a local image path in an agent reply
 POST /api/sessions/[id]/pr                → ask agent to draft + open PR (prompt injection)
 POST /api/sessions/[id]/merge             → merge PR (uses @agentex/github)
@@ -338,6 +338,19 @@ address for `/tmp/shot.png` and every such image failed, in the repo or not. A
 chat on another device keeps its files there, and the route says so.
 `[[file:<name>]]` in a reply shows the file from the home's attachments folder,
 like one in a user's message.
+
+**Files outside the folder.** A file chip in the transcript (a Read, Write,
+Edit or apply_patch row, or a turn's "files changed" footer) can name a file
+outside the worktree, like a screenshot the agent took in `/tmp` and then read.
+Clicking it opens the file in Files by its absolute path. `file?path=` reads
+an absolute path under the folder as the folder file it is, and any other
+absolute path only when a file tool call in this chat, or in another chat on
+its execution, named that exact path (`src/lib/sessions/named-files.ts`,
+`fileToolCallNamed`). Anything else answers 403 `not_named`. Such a file
+opens read only, with its full path in the header and no relative-path
+actions. A chat on another device answers 409 with where the file is, as
+images in replies do. Before this, the chip asked for the absolute path and
+the reader refused it as `invalid_path`.
 
 Existing routes reused unchanged:
 - `GET /api/sessions/[id]/diff[?file=]` — diff hunks (already structured)
