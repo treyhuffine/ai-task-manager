@@ -153,21 +153,20 @@ export function flattenTree(
 }
 
 /**
- * Collect every directory path inside the tree (used for "expand all"
- * defaults and parent-of-changed-file computations).
+ * Every folder the tree can open, read straight from the flat entries
+ * without building the tree: each ancestor of an entry, plus listed
+ * folders that aren't `collapsed` (node_modules shows but never opens).
+ * What Expand all opens, and what the collapse/expand button checks.
  */
-export function collectDirPaths(root: TreeDirNode): string[] {
-  const out: string[] = [];
-  walk(root);
-  return out;
-  function walk(node: TreeDirNode): void {
-    for (const child of node.children) {
-      if (child.kind === 'dir') {
-        out.push(child.path);
-        walk(child);
-      }
+export function expandableDirPaths(entries: readonly TreeEntry[]): Set<string> {
+  const out = new Set<string>();
+  for (const entry of entries) {
+    if (entry.kind === 'dir' && !entry.collapsed) out.add(entry.path);
+    for (let slash = entry.path.indexOf('/'); slash !== -1; slash = entry.path.indexOf('/', slash + 1)) {
+      out.add(entry.path.slice(0, slash));
     }
   }
+  return out;
 }
 
 /**

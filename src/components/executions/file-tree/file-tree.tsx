@@ -30,20 +30,27 @@ import { copyText } from '@/lib/clipboard';
 import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
 import { useMutationState } from '@tanstack/react-query';
 import { FilePlus, FolderPlus, Plus } from 'lucide-react';
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { OpenWorktreeButton } from '../open-worktree-button';
 import { TreeRowsSkeleton } from '../skeletons';
-import { ancestorsOfChanged } from './build-tree';
+import { ancestorsOfChanged, expandableDirPaths } from './build-tree';
 import {
+	anyFolderOpen,
+	collapseAll,
+	collapseEvery,
+	defaultOpen,
+	expandAll,
 	forceOpenAncestors,
-	parseOverrides,
+	parseExpandState,
 	resolveExpanded,
-	serializeOverrides,
+	serializeExpandState,
 	setOverride,
 	toggleOverride,
 	type ExpandOverrides,
+	type ExpandState,
 } from './expand-state';
+import { TreeCollapseAllButton } from './tree-collapse-all-button';
 import { TreeList, type PendingCreate, type PendingError } from './tree-list';
 import { TreeSearchBar } from './tree-search-bar';
 import { TreeViewToggle, type TreeViewMode } from './tree-view-toggle';
@@ -121,17 +128,25 @@ function readPersistedMode(id: string): TreeViewMode {
 }
 
 /**
- * Read the persisted directory expand/collapse overrides for a session.
- * The tri-state model + format details live in `./expand-state`.
+ * Read the persisted directory expand/collapse state for a session.
+ * The model + format details live in `./expand-state`.
  */
-function readPersistedOverrides(id: string): ExpandOverrides {
-  if (typeof window === 'undefined') return new Map();
+function readPersistedExpand(id: string): ExpandState {
+  if (typeof window === 'undefined') return parseExpandState(null);
   try {
-    return parseOverrides(window.localStorage.getItem(EXPANDED_KEY(id)));
+    return parseExpandState(window.localStorage.getItem(EXPANDED_KEY(id)));
   } catch {
-    return new Map();
+    return parseExpandState(null);
   }
 }
+
+/** Folders opened or closed during one search, kept with the search they belong to. */
+interface SearchExpand {
+  query: string;
+  overrides: ExpandOverrides;
+}
+
+const NO_SEARCH_EXPAND: SearchExpand = { query: '', overrides: new Map() };
 
 interface DeleteTarget {
   path: string;
@@ -143,7 +158,8 @@ interface DeleteTarget {
  * view's Files tool). Owns:
  *
  *   - View mode (`changed` vs `all`), persisted per-session.
- *   - Directory expand/collapse state, persisted per-session.
+ *   - Directory expand/collapse state, persisted per-session, with
+ *     Collapse / Expand all. Search keeps its own, unpersisted.
  *   - CRUD orchestration: in-flight create / rename, delete confirm,
  *     mutation hooks. The actual tree rows + virtualization live in
  *     `TreeList`; row click / kebab actions bubble back up here.
@@ -169,20 +185,28 @@ export function FileTree({
 
   const [mode, setModeState] = useState<TreeViewMode>(() => readPersistedMode(worktreeId));
   // Explicit user expand/collapse intent per dir. See `./expand-state`.
-  const [overrides, setOverridesState] = useState<ExpandOverrides>(() =>
-    readPersistedOverrides(worktreeId),
-  );
+  const [expand, setExpandState] = useState<ExpandState>(() => readPersistedExpand(worktreeId));
   // Search query is intentionally ephemeral — not persisted. Different
   // worktrees are different mental contexts; carrying a stale filter
   // across them would mostly confuse rather than help.
   const [query, setQuery] = useState('');
+  // Search opens every folder in its results so the matches show. Folders
+  // the user opens or closes on top of that live here, tagged with their
+  // query: a new search starts with everything open again, and none of it
+  // touches the persisted state the tree returns to when search clears.
+  const [searchExpand, setSearchExpand] = useState<SearchExpand>(NO_SEARCH_EXPAND);
 
-  // Re-read persisted state when navigating between worktrees.
-  useEffect(() => {
+  // Re-read persisted state when navigating between worktrees, during
+  // render rather than in an effect, so the old worktree's state never
+  // paints against the new one's files.
+  const [stateFor, setStateFor] = useState(worktreeId);
+  if (stateFor !== worktreeId) {
+    setStateFor(worktreeId);
     setModeState(readPersistedMode(worktreeId));
-    setOverridesState(readPersistedOverrides(worktreeId));
+    setExpandState(readPersistedExpand(worktreeId));
     setQuery('');
-  }, [worktreeId]);
+    setSearchExpand(NO_SEARCH_EXPAND);
+  }
 
   const setMode = useCallback(
     (next: TreeViewMode) => {
@@ -197,15 +221,15 @@ export function FileTree({
   );
 
   const writeExpandedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const setOverrides = useCallback(
-    (updater: (prev: ExpandOverrides) => ExpandOverrides) => {
-      setOverridesState((prev) => {
+  const setExpand = useCallback(
+    (updater: (prev: ExpandState) => ExpandState) => {
+      setExpandState((prev) => {
         const next = updater(prev);
         if (next === prev) return prev;
         if (writeExpandedTimer.current) clearTimeout(writeExpandedTimer.current);
         writeExpandedTimer.current = setTimeout(() => {
           try {
-            window.localStorage.setItem(EXPANDED_KEY(worktreeId), serializeOverrides(next));
+            window.localStorage.setItem(EXPANDED_KEY(worktreeId), serializeExpandState(next));
           } catch {
             /* ignore */
           }
@@ -220,30 +244,83 @@ export function FileTree({
   // their changes without drilling in. Computed from the full entries
   // (unfiltered) so search pruning never collapses a change out of view.
   const autoExpanded = useMemo(() => ancestorsOfChanged(entries), [entries]);
+  // Every folder that can open: what Expand all opens.
+  const allDirs = useMemo(() => expandableDirPaths(entries), [entries]);
 
-  // The effective expand set the tree renders: the auto-expand defaults
+  // Search narrows the entries here, once, for the list, the match count
+  // and the folders search opens. It matches the full path, not just the
+  // basename, so the user can scope by dir segment ("components/ui").
+  const trimmedQuery = query.trim();
+  const filtering = trimmedQuery.length > 0;
+  const filteredEntries = useMemo(() => {
+    if (!trimmedQuery) return entries;
+    const q = trimmedQuery.toLowerCase();
+    return entries.filter((e) => e.path.toLowerCase().includes(q));
+  }, [entries, trimmedQuery]);
+  // The folders on screen to open or close: the whole tree's, or the
+  // search results'. Search opens all of them by default.
+  const visibleDirs = useMemo(
+    () => (filtering ? expandableDirPaths(filteredEntries) : allDirs),
+    [filtering, filteredEntries, allDirs],
+  );
+  const searchOverrides =
+    searchExpand.query === trimmedQuery ? searchExpand.overrides : NO_SEARCH_EXPAND.overrides;
+
+  // The effective expand set the tree renders: the defaults (auto-expand,
+  // or every folder after Expand all, or every result while searching)
   // with the user's explicit overrides applied on top. This is the single
   // source of truth for both display and toggle direction, so a manual
   // collapse of an auto-expanded folder actually takes effect.
   const effectiveExpanded = useMemo(
-    () => resolveExpanded(autoExpanded, overrides),
-    [autoExpanded, overrides],
+    () =>
+      filtering
+        ? resolveExpanded(visibleDirs, searchOverrides)
+        : resolveExpanded(defaultOpen(expand.base, autoExpanded, allDirs), expand.overrides),
+    [filtering, visibleDirs, searchOverrides, expand, autoExpanded, allDirs],
   );
 
   const toggleDir = useCallback(
     (path: string) => {
       const currentlyOpen = effectiveExpanded.has(path);
-      setOverrides((prev) => toggleOverride(prev, autoExpanded, path, currentlyOpen));
+      if (filtering) {
+        setSearchExpand({
+          query: trimmedQuery,
+          overrides: toggleOverride(searchOverrides, visibleDirs, path, currentlyOpen),
+        });
+        return;
+      }
+      setExpand((prev) => ({
+        ...prev,
+        overrides: toggleOverride(prev.overrides, defaultOpen(prev.base, autoExpanded, allDirs), path, currentlyOpen),
+      }));
     },
-    [effectiveExpanded, autoExpanded, setOverrides],
+    [effectiveExpanded, filtering, trimmedQuery, searchOverrides, visibleDirs, autoExpanded, allDirs, setExpand],
+  );
+
+  /**
+   * Open folders for a create: in the persisted state, so they stay open
+   * after search clears, and in the current search's, so the new-name
+   * field and the new entry show now.
+   */
+  const openFolders = useCallback(
+    (update: (overrides: ExpandOverrides, defaults: ReadonlySet<string>) => ExpandOverrides) => {
+      setExpand((prev) => ({
+        ...prev,
+        overrides: update(prev.overrides, defaultOpen(prev.base, autoExpanded, allDirs)),
+      }));
+      if (filtering) {
+        setSearchExpand({ query: trimmedQuery, overrides: update(searchOverrides, visibleDirs) });
+      }
+    },
+    [autoExpanded, allDirs, filtering, trimmedQuery, searchOverrides, visibleDirs, setExpand],
   );
 
   const ensureExpanded = useCallback(
     (path: string) => {
       if (!path) return;
-      setOverrides((prev) => setOverride(prev, autoExpanded, path, true));
+      openFolders((overrides, defaults) => setOverride(overrides, defaults, path, true));
     },
-    [autoExpanded, setOverrides],
+    [openFolders],
   );
 
   /** Walk every ancestor of a path and force them open so the user can
@@ -251,9 +328,9 @@ export function FileTree({
   const expandAncestors = useCallback(
     (path: string) => {
       if (!path) return;
-      setOverrides((prev) => forceOpenAncestors(prev, autoExpanded, path));
+      openFolders((overrides, defaults) => forceOpenAncestors(overrides, defaults, path));
     },
-    [autoExpanded, setOverrides],
+    [openFolders],
   );
 
   const changedEntries = useMemo(
@@ -267,20 +344,38 @@ export function FileTree({
   // changes yet" signal next to the toggle's `(0)`.
   const effectiveMode: TreeViewMode = mode;
 
-  // Match count drives the small "n/m" pill in the search bar — same
-  // filter the TreeList applies, so the user trusts that the count
+  // Match count drives the small "n/m" pill in the search bar — the same
+  // entries the TreeList renders, so the user trusts that the count
   // matches what's visible. Computed against the current effectiveMode
   // so 'changed' mode counts only changed matches.
-  const trimmedQuery = query.trim();
   const matchCount = useMemo(() => {
-    if (!trimmedQuery) return undefined;
-    const q = trimmedQuery.toLowerCase();
-    const pool = effectiveMode === 'changed' ? changedEntries : entries;
+    if (!filtering) return undefined;
+    if (effectiveMode !== 'changed') return filteredEntries.length;
     let n = 0;
-    for (const e of pool) if (e.path.toLowerCase().includes(q)) n++;
+    for (const e of filteredEntries) if (e.status) n++;
     return n;
-  }, [trimmedQuery, effectiveMode, entries, changedEntries]);
+  }, [filtering, effectiveMode, filteredEntries]);
   const searchTotal = effectiveMode === 'changed' ? changedCount : totalCount;
+
+  // Collapse / Expand all. Collapses while any folder shows open, else
+  // opens every one. Acts on what's on screen: the search's own folders
+  // while searching, the persisted state otherwise.
+  const anyOpen = anyFolderOpen(visibleDirs, effectiveExpanded);
+  const toggleAllFolders = useCallback(() => {
+    if (filtering) {
+      setSearchExpand({ query: trimmedQuery, overrides: anyOpen ? collapseEvery(visibleDirs) : new Map() });
+      return;
+    }
+    setExpand(() => (anyOpen ? collapseAll(autoExpanded) : expandAll()));
+  }, [filtering, trimmedQuery, anyOpen, visibleDirs, autoExpanded, setExpand]);
+  const collapseDisabledReason =
+    effectiveMode === 'changed'
+      ? 'Changes lists files without folders'
+      : visibleDirs.size === 0
+        ? filtering
+          ? 'No folders in these results'
+          : 'No folders here'
+        : undefined;
 
   // ─── CRUD state ─────────────────────────────────────────────
 
@@ -513,16 +608,25 @@ export function FileTree({
         </div>
       )}
 
-      {/* Find first, then narrow: search on top, the full-width All /
-          Changes switch under it. */}
+      {/* Find first, then narrow: search on top with Collapse / Expand
+          all beside it, the full-width All / Changes switch under it. */}
       <div className="flex flex-col gap-1.5 border-b border-border p-2 min-w-0">
-        <TreeSearchBar
-          query={query}
-          onChange={setQuery}
-          matchCount={matchCount}
-          totalCount={searchTotal}
-          shortcut={searchShortcut}
-        />
+        <div className="flex items-center gap-1 min-w-0">
+          <div className="flex-1 min-w-0">
+            <TreeSearchBar
+              query={query}
+              onChange={setQuery}
+              matchCount={matchCount}
+              totalCount={searchTotal}
+              shortcut={searchShortcut}
+            />
+          </div>
+          <TreeCollapseAllButton
+            anyOpen={anyOpen}
+            onClick={toggleAllFolders}
+            disabledReason={collapseDisabledReason}
+          />
+        </div>
         <TreeViewToggle
           mode={effectiveMode}
           onChange={setMode}
@@ -541,7 +645,7 @@ export function FileTree({
           <TreeRowsSkeleton />
         ) : (
           <TreeList
-            entries={entries}
+            entries={filteredEntries}
             mode={effectiveMode}
             selectedPath={selectedPath}
             onSelect={onSelect}

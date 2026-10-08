@@ -149,8 +149,12 @@ switching keeps the preview loaded, the open file, and scroll positions.
   thin bar across the whole view holds its controls (show or hide the
   tree, New file or folder, recent files, open the worktree in an app), so
   the tree column keeps only search (⌘P) and the full-width All / Changes
-  switch, whose count caps at 99+. With nothing open: files changed in
-  this worktree and recently opened files.
+  switch, whose count caps at 99+. Beside search, one button collapses
+  every folder while any shows open and expands them all once none does.
+  Expand all opens folders that appear later too. During a search it acts
+  on the results only, and the tree returns to its own folders when search
+  clears. With nothing open: files changed in this worktree and recently
+  opened files.
 - **Notes & tasks** (`references-pane.tsx`): every task and note the chat
   can pull in, one list in three sections: In this chat (mentioned or
   pinned, any status), In this agent (open tasks first), then All. It pages

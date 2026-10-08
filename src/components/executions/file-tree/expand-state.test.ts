@@ -1,12 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import {
+  anyFolderOpen,
+  collapseAll,
+  collapseEvery,
+  defaultOpen,
+  expandAll,
   resolveExpanded,
   setOverride,
   toggleOverride,
   forceOpenAncestors,
-  parseOverrides,
-  serializeOverrides,
+  parseExpandState,
+  serializeExpandState,
   type ExpandOverrides,
+  type ExpandState,
 } from './expand-state';
 
 const auto = (...paths: string[]) => new Set(paths);
@@ -118,25 +124,111 @@ describe('forceOpenAncestors', () => {
   });
 });
 
-describe('parseOverrides / serializeOverrides', () => {
-  it('round-trips the current pair format', () => {
-    const map = ov([['a', true], ['b/c', false]]);
-    expect(parseOverrides(serializeOverrides(map))).toEqual(map);
+describe('Collapse all / Expand all', () => {
+  // The tree: src/{components,lib}, docs. A change in src/components/a.tsx
+  // auto-expands src and src/components.
+  const dirs = auto('src', 'src/components', 'src/lib', 'docs');
+  const autoExpanded = auto('src', 'src/components');
+  const shown = (state: ExpandState) =>
+    resolveExpanded(defaultOpen(state.base, autoExpanded, dirs), state.overrides);
+
+  it('expand all opens every folder, auto default or not', () => {
+    expect(shown(expandAll())).toEqual(dirs);
+  });
+
+  it('expand all opens folders that appear later', () => {
+    const state = expandAll();
+    const grown = auto(...dirs, 'scripts');
+    expect(resolveExpanded(defaultOpen(state.base, autoExpanded, grown), state.overrides).has('scripts')).toBe(true);
+  });
+
+  it('expand all stores no per-folder overrides, so a big tree persists small', () => {
+    expect(expandAll().overrides.size).toBe(0);
+  });
+
+  it('collapse all closes every folder, auto-expanded ones included', () => {
+    const before: ExpandState = { base: 'auto', overrides: ov([['docs', true], ['src/lib', true]]) };
+    expect(anyFolderOpen(dirs, shown(before))).toBe(true);
+    const after = collapseAll(autoExpanded);
+    expect(shown(after).size).toBe(0);
+    expect(anyFolderOpen(dirs, shown(after))).toBe(false);
+  });
+
+  it('collapse all after expand all returns to the auto default, all closed', () => {
+    expect(anyFolderOpen(dirs, shown(expandAll()))).toBe(true);
+    const after = collapseAll(autoExpanded);
+    expect(after.base).toBe('auto');
+    expect(shown(after).size).toBe(0);
+  });
+
+  it('after collapse all, a change in an untouched folder still opens its way', () => {
+    const state = collapseAll(autoExpanded);
+    const withNewChange = auto('src', 'src/components', 'docs');
+    const out = resolveExpanded(defaultOpen(state.base, withNewChange, dirs), state.overrides);
+    expect(out.has('docs')).toBe(true);
+    // The folders the user collapsed stay collapsed.
+    expect(out.has('src')).toBe(false);
+  });
+
+  it('toggling one folder after expand all closes just that folder, then prunes back', () => {
+    const state = expandAll();
+    const defaults = defaultOpen(state.base, autoExpanded, dirs);
+    const closed = toggleOverride(state.overrides, defaults, 'docs', true);
+    expect(closed.get('docs')).toBe(false);
+    expect(resolveExpanded(defaults, closed).has('docs')).toBe(false);
+    expect(toggleOverride(closed, defaults, 'docs', false).has('docs')).toBe(false);
+  });
+
+  it('collapseEvery closes every folder search opened by default', () => {
+    const results = auto('src', 'src/components');
+    expect(resolveExpanded(results, collapseEvery(results)).size).toBe(0);
+  });
+});
+
+describe('anyFolderOpen', () => {
+  it('is false when only folders under a closed top-level folder are open', () => {
+    // src/components is open in state, but src is closed, so nothing shows open.
+    expect(anyFolderOpen(auto('src', 'src/components'), auto('src/components'))).toBe(false);
+  });
+
+  it('is true when a top-level folder is open', () => {
+    expect(anyFolderOpen(auto('src', 'docs'), auto('docs'))).toBe(true);
+  });
+
+  it('ignores open paths that are no longer folders in the tree', () => {
+    expect(anyFolderOpen(auto('src'), auto('gone'))).toBe(false);
+  });
+});
+
+describe('parseExpandState / serializeExpandState', () => {
+  it('round-trips the current format', () => {
+    const state: ExpandState = { base: 'open', overrides: ov([['a', true], ['b/c', false]]) };
+    expect(parseExpandState(serializeExpandState(state))).toEqual(state);
+  });
+
+  it('reads the earlier bare array of pairs as the auto default', () => {
+    const raw = JSON.stringify([['a', true], ['b/c', false]]);
+    expect(parseExpandState(raw)).toEqual({ base: 'auto', overrides: ov([['a', true], ['b/c', false]]) });
   });
 
   it('reads the legacy string[] format as all force-open', () => {
     const legacy = JSON.stringify(['src', 'src/components']);
-    expect(parseOverrides(legacy)).toEqual(ov([['src', true], ['src/components', true]]));
+    expect(parseExpandState(legacy)).toEqual({
+      base: 'auto',
+      overrides: ov([['src', true], ['src/components', true]]),
+    });
   });
 
-  it('returns an empty map for null, malformed, or non-array JSON', () => {
-    expect(parseOverrides(null)).toEqual(ov());
-    expect(parseOverrides('not json')).toEqual(ov());
-    expect(parseOverrides('{"a":1}')).toEqual(ov());
+  it('returns the initial state for null, malformed, or unexpected JSON', () => {
+    const initial = { base: 'auto', overrides: ov() };
+    expect(parseExpandState(null)).toEqual(initial);
+    expect(parseExpandState('not json')).toEqual(initial);
+    expect(parseExpandState('42')).toEqual(initial);
+    expect(parseExpandState('{"base":"sideways","overrides":"no"}')).toEqual(initial);
   });
 
   it('ignores malformed entries but keeps well-formed ones', () => {
-    const raw = JSON.stringify([['a', true], ['b', 'nope'], 42, ['c', false]]);
-    expect(parseOverrides(raw)).toEqual(ov([['a', true], ['c', false]]));
+    const raw = JSON.stringify({ base: 'auto', overrides: [['a', true], ['b', 'nope'], 42, ['c', false]] });
+    expect(parseExpandState(raw)).toEqual({ base: 'auto', overrides: ov([['a', true], ['c', false]]) });
   });
 });

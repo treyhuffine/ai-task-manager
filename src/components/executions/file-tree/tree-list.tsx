@@ -3,12 +3,7 @@
 import { useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { TreeEntry } from '@/lib/api/sessions';
-import {
-  buildTree,
-  flattenTree,
-  collectDirPaths,
-  type TreeRenderNode,
-} from './build-tree';
+import { buildTree, flattenTree, type TreeRenderNode } from './build-tree';
 import { TreeDirRow, TreeFileRow, CollapsedDirRow, TreeSectionHeader } from './tree-entry-row';
 import { TreeInputRow } from './tree-input-row';
 
@@ -23,19 +18,23 @@ export interface PendingError {
 }
 
 interface TreeListProps {
+  /** The entries to show, already narrowed by the search (`file-tree.tsx`). */
   entries: readonly TreeEntry[];
   /** 'all' = full hierarchical tree; 'changed' = flat list of changed files. */
   mode: 'all' | 'changed';
   selectedPath: string | null;
   onSelect: (path: string) => void;
-  /** Stable cross-render expand/collapse state for directories. */
-  expanded: Set<string>;
+  /**
+   * The open directories, final: `file-tree.tsx` folds in the auto-expand
+   * defaults, the user's overrides, and search, which opens every folder
+   * in its results until the user closes one.
+   */
+  expanded: ReadonlySet<string>;
   onToggleDir: (path: string) => void;
 
   /**
-   * Case-insensitive substring filter. When non-empty, the tree is
-   * filtered to entries whose path matches, every ancestor of a match
-   * is force-expanded, and matches are highlighted in the rendered name.
+   * The search the entries were narrowed by. Highlights it in each name
+   * and words the empty state ("No matches").
    */
   filterQuery?: string;
 
@@ -125,42 +124,14 @@ export function TreeList({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const trimmedQuery = (filterQuery ?? '').trim();
-  const lowerQuery = trimmedQuery.toLowerCase();
-  const isFiltering = lowerQuery.length > 0;
+  const isFiltering = trimmedQuery.length > 0;
 
-  // Apply the search filter at the entry level so the same `entries`
-  // input drives both 'all' and 'changed' modes consistently. Match on
-  // the full path, not just basename, so the user can scope by dir
-  // segment ("components/ui").
-  const filteredEntries = useMemo(() => {
-    if (!isFiltering) return entries;
-    return entries.filter((e) => e.path.toLowerCase().includes(lowerQuery));
-  }, [entries, isFiltering, lowerQuery]);
-
-  const tree = useMemo(() => buildTree(filteredEntries), [filteredEntries]);
-
-  // `expanded` already folds in the auto-expand defaults (ancestors of
-  // changed files) and the user's explicit collapse/expand overrides —
-  // it's computed by `file-tree.tsx`. The only thing left to layer on
-  // here is the transient search behavior: when filtering, expand every
-  // directory in the (already-pruned) tree, otherwise the user would type
-  // a query and see a single closed directory at the root with no visible
-  // matches inside.
-  const filterExpanded = useMemo(() => {
-    if (!isFiltering) return null;
-    return new Set(collectDirPaths(tree));
-  }, [isFiltering, tree]);
-  const effectiveExpanded = useMemo(() => {
-    if (!filterExpanded) return expanded;
-    const out = new Set(expanded);
-    for (const p of filterExpanded) out.add(p);
-    return out;
-  }, [expanded, filterExpanded]);
+  const tree = useMemo(() => buildTree(entries), [entries]);
 
   const flat: FlatNode[] = useMemo(() => {
     if (mode === 'changed') {
       // Changed files, alphabetical by full path.
-      const changed = filteredEntries
+      const changed = entries
         .filter((e) => !!e.status)
         .slice()
         .sort((a, b) => a.path.localeCompare(b.path));
@@ -191,7 +162,7 @@ export function TreeList({
       return out;
     }
 
-    const base = flattenTree(tree, effectiveExpanded);
+    const base = flattenTree(tree, expanded);
     if (!pendingCreate) return base;
 
     // Splice in the inline create-input row. Root inserts at the very
@@ -220,7 +191,7 @@ export function TreeList({
       return [inputNode, ...base];
     }
     return [...base.slice(0, idx + 1), inputNode, ...base.slice(idx + 1)];
-  }, [filteredEntries, mode, tree, effectiveExpanded, pendingCreate]);
+  }, [entries, mode, tree, expanded, pendingCreate]);
 
   const virtualizer = useVirtualizer({
     count: flat.length,
@@ -297,7 +268,7 @@ export function TreeList({
                   <TreeDirRow
                     name={node.name}
                     depth={node.depth}
-                    expanded={effectiveExpanded.has(node.path)}
+                    expanded={expanded.has(node.path)}
                     onToggle={() => onToggleDir(node.path)}
                     highlightQuery={isFiltering ? trimmedQuery : null}
                     actions={{
