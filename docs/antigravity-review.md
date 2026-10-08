@@ -18,6 +18,8 @@ Reviewed on 2026-10-01 in `ai-task-manager/antigravity-harness`. The initial sta
 
 ## Layout decision and screenshots
 
+Superseded on October 8, 2026: Ri doesn't recommend a harness, so the picker is now one equal row per harness, with no featured card and no Recommended badge. Name and description share a line from a 440px container width and stack below it. All five rows are the same height (42px on desktop, 60px on a phone), the list is shorter than the featured grid was, and any number of harnesses lines up without an odd one left over. The record below is the October 1 review.
+
 Selected: a full-width Codex card, followed by a responsive two-column grid. Below a 400px container width, every option becomes a single row. An unpaired final card spans both columns. Settings and onboarding share the picker, and model/settings controls use container queries.
 
 Compared with a single-column list, the featured layout keeps authentication and model controls higher on desktop while retaining the same readable phone layout. Three, four and five visible options all render without horizontal overflow. The comparison changed only grid CSS for the list alternative.

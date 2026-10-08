@@ -150,7 +150,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     agentexProviderId: 'opencode',
     commandEnv: 'OPENCODE_COMMAND',
     name: 'OpenCode',
-    description: 'OpenCode with your configured upstream providers',
+    description: 'Models from your OpenCode providers',
     icon: 'braces',
     installHint: 'npm install -g opencode-ai',
     loginCommand: 'opencode auth login',

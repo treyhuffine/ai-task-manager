@@ -67,7 +67,7 @@ export function harnessLines(check: HarnessCheck | undefined): ReactNode {
   return (
     <>
       <Says>
-        Before we go on, I need a way to think. I work through a coding tool on your computer, like Codex with your ChatGPT account,
+        Before we go on, I need a way to think. I work through a coding tool on your computer, like Claude Code or Codex,
         {installed ? ' and the one here needs a hand.' : ' and I couldn’t find one yet.'}
       </Says>
       <Says>

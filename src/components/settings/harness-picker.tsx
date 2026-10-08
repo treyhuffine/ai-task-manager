@@ -1,8 +1,13 @@
 import { HarnessIcon } from './harness-connection-ui';
-import { DEFAULT_HARNESS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
+import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import { cn } from '@/lib/utils';
 
-/** Registry-ordered choices shared by onboarding and settings. */
+/**
+ * Registry-ordered choices shared by onboarding and settings, one equal row
+ * each: no harness is featured or recommended, and any number of them lines
+ * up without an odd one left over. Name and description share a line when
+ * there's room, and stack on a narrow panel.
+ */
 export function HarnessPicker({
   harnesses,
   value,
@@ -16,7 +21,7 @@ export function HarnessPicker({
 }) {
   return (
     <div className="@container">
-      <div data-harness-picker className="grid grid-cols-1 gap-2 @min-[400px]:grid-cols-2">
+      <div data-harness-picker className="flex flex-col gap-1.5">
         {harnesses.map(({ id, hint }) => (
           <button
             key={id}
@@ -25,22 +30,19 @@ export function HarnessPicker({
             onClick={() => onChange(id)}
             data-harness-card={id}
             className={cn(
-              'flex min-w-0 items-start gap-3 rounded-lg border p-3 text-left transition-colors first:col-span-full last:[&:nth-child(even)]:col-span-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+              'flex min-w-0 items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
               value === id ? 'border-primary bg-primary/5' : 'border-border bg-card hover:bg-muted/50',
             )}
           >
-            <HarnessIcon id={id} className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 space-y-1">
-              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <HarnessIcon id={id} className="size-[18px] shrink-0 text-muted-foreground" />
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5 @min-[440px]:flex-row @min-[440px]:items-baseline @min-[440px]:gap-2.5">
+              <span className="flex shrink-0 items-center gap-2">
                 <span className="text-sm font-medium">{harnessDefinition(id).name}</span>
-                {id === DEFAULT_HARNESS && (
-                  <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">Recommended</span>
-                )}
                 {id === defaultHarness && (
                   <span className="text-[10px] font-medium text-muted-foreground">Default</span>
                 )}
               </span>
-              <span className="block text-xs text-muted-foreground">{hint ?? harnessDefinition(id).description}</span>
+              <span className="min-w-0 text-xs text-muted-foreground">{hint ?? harnessDefinition(id).description}</span>
             </span>
           </button>
         ))}
