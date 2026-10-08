@@ -530,6 +530,20 @@ it.each(HOSTED_MCP_PROVIDERS.filter(provider => provider.tokenAuth).map(provider
   expect(servers.list()).toHaveLength(0);
 });
 
+it('connects DataForSEO with its API login and password, and names the format when a paste is wrong', async () => {
+  successfulDiscovery();
+  const rejected = await connectDirect(request('connectDirect', { providerId: 'dataforseo', addAccount: true, fields: { token: 'account-password-only' } }));
+  expect(rejected.status).toBe(400);
+  expect(await rejected.json()).toEqual({ error: 'Enter your API login and API password as login:password.' });
+  expect(servers.list()).toHaveLength(0);
+  expect(mocked.runtime).not.toHaveBeenCalled();
+  const response = await connectDirect(request('connectDirect', { providerId: 'dataforseo', addAccount: true, fields: { token: 'seo@example.com:api-password' } }));
+  expect(response.status).toBe(200);
+  const entry = servers.list()[0]!;
+  expect(entry).toMatchObject({ providerId: 'dataforseo', url: 'https://mcp.dataforseo.com/v3/mcp', auth: { kind: 'bearer' } });
+  expect(await servers.openSecret(entry.id)).toBe(Buffer.from('seo@example.com:api-password').toString('base64'));
+});
+
 describe('hosted disconnect route', () => {
   it('disables the authority and invalidates the derived connection through the MCP settings route', async () => {
     successfulDiscovery();

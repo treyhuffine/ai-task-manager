@@ -19,7 +19,7 @@ These entries are implemented and fixture-tested. They are not a claim that all 
 | Cloudflare | `https://mcp.cloudflare.com/mcp` |
 | Context7 | `https://mcp.context7.com/mcp/oauth` |
 | Craft | `https://mcp.craft.do/my/mcp` |
-| DataForSEO | `https://mcp.dataforseo.com/v3/mcp` |
+| DataForSEO | `https://mcp.dataforseo.com/v3/mcp`, or its API login and password |
 | Fastmail | `https://api.fastmail.com/mcp` |
 | Fathom | `https://api.fathom.ai/mcp` |
 | Fibery | `https://mcp.fibery.io/mcp` |
@@ -91,7 +91,7 @@ Robinhood requires desktop Agentic account onboarding. Its documented reads span
 
 The seventh wave adds website and publishing coverage through [Webflow](integration-audit/seventh-wave-webflow.md) and [WordPress.com](integration-audit/seventh-wave-wordpress.md), plus [monday.com](integration-audit/seventh-wave-monday.md), [Smartsheet](integration-audit/seventh-wave-smartsheet.md) and [Fibery](integration-audit/seventh-wave-fibery.md). Webflow authorizes one workspace per connection, with an open Designer and Bridge App required for current visual context. WordPress.com requires MCP enabled and an eligible WordPress.com or Jetpack plan. Its sign-in requests the documented `auth` scope rather than all advertised REST scopes. Smartsheet requires a supported paid plan and keeps regional tokens separate. monday.com's personal-token route covers personal/internal use, while public distribution requires vendor approval. All five retain per-account credentials, canonical tools and high mutation-risk approval defaults.
 
-The eighth wave adds SEO research through [DataForSEO](integration-audit/eighth-wave-dataforseo.md): keyword volumes and difficulty, search results, backlinks and competitor rankings. It signs in with browser OAuth and the `api` scope. Agents read the API documentation through three free read-only tools and request data through one `api_request` tool, which spends the account's prepaid DataForSEO balance. That tool runs without approval by default, like other paid research reads, and Ask first can gate it in Settings.
+The eighth wave adds SEO research through [DataForSEO](integration-audit/eighth-wave-dataforseo.md): keyword volumes and difficulty, search results, backlinks and competitor rankings. It signs in with browser OAuth and the `api` scope, or takes the API login and password as Basic credentials. Agents read the API documentation through three free read-only tools and request data through one `api_request` tool, which spends the account's prepaid DataForSEO balance. That tool runs without approval by default, like other paid research reads, and Ask first can gate it in Settings.
 
 Ramp, Canva and Vercel remain outside the connectable catalog because of [documented client-admission requirements](integration-audit/seventh-wave-admission.md). Figma is listed for the [plugins evaluation](plugins-evaluation-accounts.md), and its sign-in works only once Figma admits this client. Shopify has a real [hosted Admin MCP](integration-audit/seventh-wave-shopify.md), but a supported custom-client registration path has not been established for this app. Native API credentials do not automatically qualify as hosted MCP client credentials.
 

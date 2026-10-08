@@ -30,8 +30,11 @@ export interface HostedMcpProvider {
   } | { kind: 'bearer'; label?: string; helpUrl?: string } | { kind: 'none' };
   /** Provider-specific write floor, for broad automation or administrative tools. */
   defaultMutationRisk?: 'medium' | 'high';
-  /** A documented API-key path alongside OAuth, without changing saved accounts. */
-  tokenAuth?: { label: string; helpUrl: string };
+  /**
+   * A documented API-key path alongside OAuth, without changing saved accounts. The key is
+   * sent as `Bearer`, or with `basic` as HTTP Basic credentials (`login:password` in Base64).
+   */
+  tokenAuth?: { label: string; helpUrl: string; scheme?: 'basic' };
 }
 
 export const HOSTED_MCP_PROVIDERS: readonly HostedMcpProvider[] = [
@@ -136,9 +139,11 @@ export const HOSTED_MCP_PROVIDERS: readonly HostedMcpProvider[] = [
     auth: { kind: 'oauth', scopes: ['auth'], authorizeBeforeConnect: true }, defaultMutationRisk: 'high' },
   // Its live resource metadata omits scopes_supported. The 401 challenge and the
   // vendor's server source both require `api`, so keep it when no challenge applies.
+  // The same endpoint takes the API login and password as Basic credentials.
   // Data requests go through one `api_request` tool, a paid read with no write floor.
   { id: 'dataforseo', displayName: 'DataForSEO', url: 'https://mcp.dataforseo.com/v3/mcp',
-    auth: { kind: 'oauth', scopes: ['api'] } },
+    auth: { kind: 'oauth', scopes: ['api'] },
+    tokenAuth: { label: 'API login:password', helpUrl: 'https://app.dataforseo.com/api-access', scheme: 'basic' } },
 ];
 
 export function getHostedMcpProvider(id: string): HostedMcpProvider | undefined {

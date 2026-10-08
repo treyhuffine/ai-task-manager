@@ -415,10 +415,13 @@ export function mcpOAuthProviderFor(entry: { id: string }, onRedirect?: (url: UR
   });
 }
 
-/** Build the auth header for `connectMcpClient` from the server's auth + unsealed secret. */
-export function mcpAuthHeaders(auth: McpServerAuth, secret: string | null): Record<string, string> | undefined {
+/**
+ * Build the auth header for `connectMcpClient` from the server's auth + unsealed secret. A
+ * `bearer` account is any static key. The catalog's `basic` scheme sends it as Basic credentials.
+ */
+export function mcpAuthHeaders(auth: McpServerAuth, secret: string | null, scheme?: 'basic'): Record<string, string> | undefined {
   if (!secret) return undefined;
-  if (auth.kind === 'bearer') return { Authorization: `Bearer ${secret}` };
+  if (auth.kind === 'bearer') return { Authorization: `${scheme === 'basic' ? 'Basic' : 'Bearer'} ${secret}` };
   if (auth.kind === 'header') return { [auth.header]: secret };
   return undefined;
 }
@@ -620,7 +623,7 @@ async function build(): Promise<Built> {
       if (candidate.ready) invalidateIntegrationRuntime();
     };
     try {
-      hostedMcpDefinition(entry);
+      const hosted = hostedMcpDefinition(entry);
       let sessionToken = 'mcp-session';
       if (entry.auth.kind === 'oauth') {
         const state = await mcpStore.getOAuthState(entry.id);
@@ -644,7 +647,7 @@ async function build(): Promise<Built> {
         if (secret) redactor.register(secret, 'mcp_secret');
         sessionToken = secret ?? 'mcp-session';
         client = await withTimeout(
-          connectMcpClient({ url: entry.url, name: entry.slug, headers: mcpAuthHeaders(entry.auth, secret), onToolsChanged }),
+          connectMcpClient({ url: entry.url, name: entry.slug, headers: mcpAuthHeaders(entry.auth, secret, hosted?.tokenAuth?.scheme), onToolsChanged }),
           MCP_TIMEOUT_MS, `connect MCP "${entry.slug}"`, lateClient => lateClient.close(),
         );
       }

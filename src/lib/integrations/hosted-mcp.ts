@@ -18,6 +18,24 @@ export function hostedMcpDefinition(entry: McpServerEntry): HostedMcpProvider | 
   return definition;
 }
 
+/**
+ * The stored form of a pasted API key. Basic credentials accept `login:password`, the vendor's
+ * Base64 token, or a copied `Basic …` header value, and are always stored as the Base64 token.
+ */
+export function hostedTokenSecret(definition: HostedMcpProvider, raw: string): string {
+  const value = raw.trim();
+  if (definition.tokenAuth?.scheme !== 'basic' || !value) return value;
+  const token = value.replace(/^basic\s+/i, '').trim();
+  // Base64 never contains a colon, so a colon means the plain pair.
+  if (token.includes(':')) {
+    if (!/^[^:\s]+:\S/.test(token)) throw new Error('Enter your API login and API password as login:password.');
+    return Buffer.from(token, 'utf8').toString('base64');
+  }
+  const decoded = /^[A-Za-z0-9+/]+={0,2}$/.test(token) ? Buffer.from(token, 'base64').toString('utf8') : '';
+  if (!/^[^:\s]+:\S/.test(decoded)) throw new Error('Enter your API login and API password as login:password.');
+  return token;
+}
+
 /** Presence of the catalog-selected credential, without exposing its value. */
 export async function hostedMcpRequiresAuth(
   entry: McpServerEntry | undefined,
@@ -114,7 +132,7 @@ export async function ensureHostedMcpServer(
     throw new Error(`The built-in ${INTEGRATION_LABELS.singular.toLowerCase()} does not match its trusted service configuration.`);
   }
   if (auth.kind !== 'bearer' && options.secret !== undefined) throw new Error(`This ${INTEGRATION_LABELS.singular.toLowerCase()} does not accept a token.`);
-  const secret = options.secret?.trim();
+  const secret = options.secret === undefined ? undefined : hostedTokenSecret(pinned, options.secret);
   if (auth.kind === 'bearer' && options.secret !== undefined && !secret) throw new Error('A connection token is required.');
   const existing = await resolveHostedMcpAccount(definition, servers, connections, ownerId, options);
   if (usesRegisteredOAuth(pinned)) {

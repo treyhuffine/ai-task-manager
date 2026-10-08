@@ -229,7 +229,8 @@ export const INTEGRATION_META: Record<string, IntegrationMeta> = {
     brandHex: '87C000',
     docsUrl: 'https://dataforseo.com/help-center/setting-up-the-official-dataforseo-mcp-server-simple-guide',
     setup: [
-      'Sign in to DataForSEO and authorize access.',
+      'Sign in to DataForSEO and approve access, or choose Use API key.',
+      'For an API key, enter the API login and API password from API Access as login:password. The API password is not your account password. After its first day, API Access sends it by email.',
       'Each data request spends your DataForSEO balance at standard API prices. Documentation lookups are free.',
       'Data requests run without approval. Turn on Ask first for api_request to approve each one.',
     ],

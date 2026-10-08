@@ -1,6 +1,6 @@
 # DataForSEO hosted MCP qualification
 
-Checked October 8, 2026. Use the official endpoint `https://mcp.dataforseo.com/v3/mcp` with discovered public-client OAuth and the `api` scope.
+Checked October 8, 2026. Use the official endpoint `https://mcp.dataforseo.com/v3/mcp` with discovered public-client OAuth and the `api` scope, or with the account's API login and password as Basic credentials.
 
 The vendor's [server source and README](https://github.com/dataforseo/mcp-server-typescript) (version 3.1.3, commit `1fc6d19`) name `/v3/mcp` as the public remote server, as does the [product page](https://dataforseo.com/seo-mcp-server). Their [OAuth guide](https://dataforseo.com/help-center/connecting-the-remote-dataforseo-mcp-server-using-oauth) still shows `/mcp`. Both answer, but only `/v3/mcp` returns the current challenge with `scope="api"`, so the catalog pins `/v3/mcp`. The README calls OAuth the default for HTTP clients, discovered through protected-resource metadata.
 
@@ -30,11 +30,17 @@ The server exposes four tools. `docs_index`, `docs_list_sections` and `docs_sear
 
 The catalog sets no write floor. `api_request` therefore lands at medium risk and runs on standing intent, as paid research reads do for Tavily, Exa and Firecrawl. Gating it would stop an agent before every lookup. The user can turn on Ask first for `api_request` in Settings to approve each request. The policy is pinned in [hosted-provider-policy.test.ts](../../src/lib/integrations/hosted-provider-policy.test.ts).
 
-DataForSEO also accepts `Authorization: Basic` with the API login and password. The catalog uses browser OAuth only. Bearer token auth sends `Bearer`, and Basic credentials would need a new credential kind for one provider. Add it if OAuth proves unworkable.
+## API login and password
+
+The server also accepts `Authorization: Basic` with the API login and API password, and checks it before a Bearer token. Settings offers it as Use API key beside Sign in, the same switch PostHog has. The catalog's `tokenAuth.scheme: 'basic'` sends the stored key as `Basic` instead of `Bearer`. The account is still a `bearer` (static key) account in the store, so no stored credential kind changed.
+
+The field takes `login:password`, the Base64 token, or a copied `Basic …` header value, and always stores the Base64 token, encrypted. A value that is neither is refused with the expected format. The API password comes from [API Access](https://app.dataforseo.com/api-access), differs from the account password, and after its first day is sent by email.
+
+The server does not check Basic credentials when it connects or lists tools. It passes them to the API on each `api_request`, so a wrong password shows up on the first data request, as a DataForSEO authentication error.
 
 ## Validation and limits
 
-[Real-SDK fixtures](../../src/lib/integrations/mcp-oauth-dataforseo.test.ts) use the captured metadata with intercepted registration and token responses, for web and desktop callbacks. They verify the 404 fallback to root resource metadata, public DCR with `api`, PKCE, the normalized resource, saved callback reuse and refresh.
+[API key tests](../../src/lib/integrations/mcp-dataforseo-api-key.test.ts) send the Basic header through the real MCP transport and confirm a rejected key never falls back to OAuth registration. Store and route tests cover the accepted formats, the refusal message and coexistence with an OAuth account. [Real-SDK fixtures](../../src/lib/integrations/mcp-oauth-dataforseo.test.ts) use the captured metadata with intercepted registration and token responses, for web and desktop callbacks. They verify the 404 fallback to root resource metadata, public DCR with `api`, PKCE, the normalized resource, saved callback reuse and refresh.
 
 A live check in the dev app went through the real connect page to DataForSEO. Dynamic registration issued a client for the web callback. The authorization endpoint accepted `scope=api`, PKCE and the trailing-slash resource, opened a consent request naming the client Ri with scope `api`, and redirected to the account sign-in page. The pending dev connection was then disconnected.
 

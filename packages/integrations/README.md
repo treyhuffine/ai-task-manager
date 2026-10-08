@@ -47,7 +47,8 @@ side effect ungated.
   picker. Intercom asks for a supported region and n8n asks for an instance address.
   Robinhood, PostHog, PayPal and Docusign use official hosted services. PayPal and
   Docusign ask for a production or test environment, saved per connection.
-  Webflow, WordPress.com, Fibery and DataForSEO use browser OAuth. monday.com supports personal
+  Webflow, WordPress.com, Fibery and DataForSEO use browser OAuth. DataForSEO also takes
+  its API login and password, sent as Basic credentials (`tokenAuth.scheme: 'basic'`). monday.com supports personal
   and internal token-based connections. Smartsheet uses separate regional API tokens.
   MCP transport owns authentication while existing account/client scope pins remain
   enforced by the runtime. See [Todoist migration and host wiring](../../docs/todoist-mcp.md)

@@ -92,6 +92,26 @@ describe('multiple hosted accounts', () => {
     expect((await ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: bearer.id, secret: 'rotated-key' })).id).toBe(bearer.id);
     expect(await servers.openSecret(bearer.id)).toBe('rotated-key');
   });
+  it('stores DataForSEO API credentials as one Basic token beside its OAuth account', async () => {
+    const provider = getHostedMcpProvider('dataforseo')!;
+    const servers = freshStore(true), connections = connectionStore();
+    const encoded = Buffer.from('seo@example.com:api-password').toString('base64');
+    const oauth = await ensureHostedMcpServer(provider, servers, connections, 'local');
+    const key = await ensureHostedMcpServer(provider, servers, connections, 'local', { addAccount: true, setupId, secret: ' seo@example.com:api-password ', label: 'API key' });
+    expect(key.auth).toEqual({ kind: 'bearer' }); expect(hostedMcpDefinition(key)).toBe(provider);
+    expect(hostedMcpDefinition(oauth)).toBe(provider);
+    expect(await servers.openSecret(key.id)).toBe(encoded);
+    for (const pasted of [encoded, `Basic ${encoded}`, `basic  ${encoded}`]) {
+      await ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: key.id, secret: pasted });
+      expect(await servers.openSecret(key.id)).toBe(encoded);
+    }
+    for (const invalid of ['only-a-login', ':password', 'login:', 'bm8tY29sb24=', 'not base64!']) {
+      await expect(ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: key.id, secret: invalid }))
+        .rejects.toThrow('as login:password');
+    }
+    expect(await servers.openSecret(key.id)).toBe(encoded);
+    await expect(ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: key.id, secret: '  ' })).rejects.toThrow('token is required');
+  });
   it('never attaches an API key to a concurrently created OAuth account', async () => {
     const provider = getHostedMcpProvider('posthog')!, servers = freshStore(true), connections = connectionStore();
     const outcomes = await Promise.allSettled([
