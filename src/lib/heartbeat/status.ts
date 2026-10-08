@@ -81,3 +81,42 @@ export function describeHeartbeat(config: HeartbeatConfig, now: Date = new Date(
   }
   return { chip: when, tone: 'idle', detail: `Last check-in ${when}.${changed}${next}` };
 }
+
+/** Why the deck should mention the heartbeat at all. */
+export type HeartbeatDeckSignalKind = 'setup' | 'paused' | 'failed' | 'report';
+
+export interface HeartbeatDeckSignal {
+  kind: HeartbeatDeckSignalKind;
+  /** Short chip text for the deck's status row. */
+  label: string;
+}
+
+/**
+ * Whether the deck should show the heartbeat, and as what. The deck mentions
+ * it only when it needs the user; a healthy heartbeat is silent there (its home
+ * is Settings > Heartbeat):
+ *
+ *   - never set up (off, no check-in ever)  → "Set up heartbeat"
+ *   - paused by the app (budget ran out)     → "Heartbeat paused"
+ *   - the last check-in failed               → "Heartbeat failed"
+ *   - the last check-in left an unread report → "Heartbeat · 1 for you"
+ *
+ * Running, idle, quiet, and turned off by the user after using it all return
+ * null. The ordering mirrors `describeHeartbeat` so the chip and its tooltip
+ * never disagree.
+ */
+export function heartbeatDeckSignal(config: HeartbeatConfig): HeartbeatDeckSignal | null {
+  if (config.running) return null;
+
+  if (!config.enabled) {
+    if (config.disabledReason === 'budget_exceeded') return { kind: 'paused', label: 'Heartbeat paused' };
+    if (!config.lastCheckIn) return { kind: 'setup', label: 'Set up heartbeat' };
+    return null; // the user turned it off after using it: a choice, not a problem
+  }
+
+  const last = config.lastCheckIn;
+  if (!last) return null;
+  if (last.status === 'failed') return { kind: 'failed', label: 'Heartbeat failed' };
+  if (!last.quiet && last.unread) return { kind: 'report', label: 'Heartbeat · 1 for you' };
+  return null;
+}

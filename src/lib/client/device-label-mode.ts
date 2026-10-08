@@ -13,7 +13,7 @@ import { useCallback, useSyncExternalStore } from 'react';
  *   - `always` — every execution names its device once there's more than
  *     one, the home included ("Mac Mini"), as before.
  *
- * Per-browser in localStorage, like `deck-quick-add-mode.ts`. When the trial
+ * Per-browser in localStorage, like `entity-view-mode.ts`. When the trial
  * settles, fold the winner in and retire the switch.
  */
 

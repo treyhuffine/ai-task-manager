@@ -8,9 +8,9 @@ export interface DeckChangeSummary {
 }
 
 /**
- * Summarize a deck's change log for display. Shared by the classic change
- * brief and the focused layout's "Today" section header so both say the same
- * thing. `reordered` is intentionally not counted: it is noise at a glance.
+ * Summarize a deck's change log for display, as the quiet meta in the Today
+ * section header ("6 carried over · 1 new"). `reordered` is intentionally not
+ * counted: it is noise at a glance.
  */
 export function summarizeDeckChanges(
   changes: Pick<DeckChangeView, 'kind' | 'source'>[],

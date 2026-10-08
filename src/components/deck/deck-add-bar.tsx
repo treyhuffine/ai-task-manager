@@ -118,11 +118,13 @@ export function DeckAddBar({ candidates, excludeIds, onTaskCreated, onAddExistin
     <div className="relative">
       <div
         className={cn(
-          'group flex items-center gap-2 rounded-lg border bg-background px-3 py-2 transition-colors',
-          'border-border focus-within:border-ring focus-within:ring-1 focus-within:ring-ring',
+          // A quiet fill (not a bare outline) so it reads as the deck's one input
+          // at a glance; it lifts to the panel color while you type.
+          'group flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 transition-colors',
+          'border-border hover:border-muted-foreground/40 focus-within:border-ring focus-within:bg-background focus-within:ring-1 focus-within:ring-ring',
         )}
       >
-        <Plus className="h-4 w-4 shrink-0 text-muted-foreground/70 transition-colors group-focus-within:text-foreground" />
+        <Plus className="h-4 w-4 shrink-0 text-primary" />
         <input
           ref={inputRef}
           value={query}
@@ -136,7 +138,7 @@ export function DeckAddBar({ candidates, excludeIds, onTaskCreated, onAddExistin
           onBlur={() => setTimeout(() => setFocused(false), 120)}
           placeholder="Add a task, or find an existing one"
           aria-label="Add a task, or find an existing one"
-          className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
+          className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
         />
         {createTask.isPending ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />

@@ -6,7 +6,7 @@ Design and decisions: `docs/heartbeat-spec.md`. How other tools do this, and wha
 
 ## Using it
 
-Open **Settings > Heartbeat**, or tap the **Heartbeat** chip on the deck (right side of the bar under the day strip). Both show the same settings.
+Open **Settings > Heartbeat**. When it needs you (never set up, paused, failed, or a report waiting), a **Heartbeat** chip also appears in the deck's Today status row, and tapping it opens the same settings. While it's running fine, the deck doesn't mention it.
 
 | Setting | What it does | Default |
 |---|---|---|

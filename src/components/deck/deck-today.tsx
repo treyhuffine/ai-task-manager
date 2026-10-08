@@ -1,22 +1,20 @@
 "use client";
 
-import { useMemo, useState } from 'react';
-import { Inbox, Activity, History } from 'lucide-react';
+import { useMemo, useState, type ComponentProps, type ReactNode } from 'react';
+import { Inbox, Activity, History, Check, ListChecks } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTasks, useTaskAttention } from '@/hooks/use-tasks';
-import { useProposedDecisions } from '@/hooks/use-stream';
+import { useProposedDecisions, useTriagePasses, useMarkPassSeen } from '@/hooks/use-stream';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { summarizeDeckChanges } from '@/lib/deck/change-summary';
+import { HeartbeatChip, useHeartbeatDeckSignal } from '@/components/heartbeat/heartbeat-chip';
 import { CurrentWorkSection } from './current-work-section';
 import { DeckStack } from './deck-stack';
-import { DeckAddBar } from './deck-add-bar';
-import { DeckVersionList, type DeckVersionSummary } from './deck-change-brief';
+import { DeckVersionList, type DeckVersionSummary } from './deck-versions';
 import type { DeckItem, DeckChangeView } from '@/types/dashboard';
-import type { TaskRecord } from '@/db/types';
-import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import { Tip } from '@/components/ui/tip';
 
-interface DeckFocusedViewProps {
+interface DeckTodayProps {
   items: DeckItem[];
   framing?: string;
   /** This deck version's change log — summarized as quiet header meta. */
@@ -25,6 +23,8 @@ interface DeckFocusedViewProps {
   versions: DeckVersionSummary[];
   currentDeckId?: string;
   onRevert: (deckId: string) => void;
+  /** Tasks completed from the deck this session, for the "done" chip. */
+  completedItems: DeckItem[];
   onComplete: (id: string) => void;
   onStart: (id: string) => void;
   onNotToday: (id: string) => void;
@@ -33,37 +33,34 @@ interface DeckFocusedViewProps {
   onSubtaskComplete: (itemId: string, subtaskId: string) => void;
   onSubtaskDefer: (itemId: string, subtaskId: string) => void;
   onSubtaskFocus?: (itemId: string, subtaskId: string) => void;
-  onTaskCreated: (task: TaskRecord) => void;
-  /** Task ids already on the deck — excluded from the add bar's match list. */
-  excludeIds: Set<string>;
-  /** Pull an existing task onto the deck (from the add bar's match list). */
-  onAddExisting: (task: TaskListDTO) => void;
 }
 
 /**
- * The Deck's "focused" layout (trial, behind Settings > Deck layout).
+ * The deck's Today section: everything under the DEADLINES band.
  *
- * Same ranked stack as classic — flat, nothing singled out, nothing collapsed
- * (work is parallel in the agent world, so there is no one "hero" task). What
- * this layout does is give the deck body the same section grammar as the
- * DEADLINES band above it — a labeled "Today" header with a rule — so nothing
- * floats loose between sections:
+ * It uses the band's section grammar (an uppercase label, quiet inline meta, a
+ * rule) so nothing floats loose between sections. Below the header:
  *
- *   - the change log ("5 carried over · 1 new") is quiet header meta, with the
- *     revert escape hatch behind a small "Versions" toggle, not its own banner;
- *   - the deck's framing is a one-line muted glimpse that expands on click, the
- *     same treatment as each item's rationale, not a paragraph of italic prose;
- *   - status (in progress, triage) folds into a compact ribbon one tap away.
+ *   - the deck's framing as a one-line muted glimpse that expands on click, the
+ *     same treatment as each card's reasoning;
+ *   - one status row of chips, each a tap away and each shown only when it has
+ *     something to say: work in progress (and what's waiting for review), what
+ *     needs triage (or a triage digest you haven't seen), what you finished
+ *     today, and the heartbeat when it needs you;
+ *   - the ranked stack, flat and whole. Work is parallel in the agent world, so
+ *     no task is singled out and nothing is collapsed.
  *
- * Urgent hard deadlines are untouched — the always-on DeadlineBand above.
+ * Adding a task is the add bar pinned at the top of the deck, not part of this
+ * section. Urgent hard deadlines are the always-on DeadlineBand above it.
  */
-export function DeckFocusedView({
+export function DeckToday({
   items,
   framing,
   changes,
   versions,
   currentDeckId,
   onRevert,
+  completedItems,
   onComplete,
   onStart,
   onNotToday,
@@ -72,20 +69,14 @@ export function DeckFocusedView({
   onSubtaskComplete,
   onSubtaskDefer,
   onSubtaskFocus,
-  onTaskCreated,
-  excludeIds,
-  onAddExisting,
-}: DeckFocusedViewProps) {
-  const [workOpen, setWorkOpen] = useState(false);
+}: DeckTodayProps) {
+  const [open, setOpen] = useState<'work' | 'done' | null>(null);
   const [framingOpen, setFramingOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const toggle = (which: 'work' | 'done') => setOpen((o) => (o === which ? null : which));
 
-  // Candidates for the add bar's "pull existing" path. Shares the active-tasks
-  // query key with the container, so it comes from cache.
-  const { data: activeTasks } = useTasks({ status: 'active', limit: 300 });
-
-  // Ribbon counts. These queries share their keys with CurrentWorkSection and
-  // DeckTriagePrompt, so React Query serves them from cache — no extra fetch.
+  // Status counts. These queries share their keys with CurrentWorkSection and
+  // the stream surfaces, so React Query serves them from cache.
   const { data: inProgress } = useTasks({ status: 'in_progress', orderBy: 'sortKey' });
   const inProgressIds = useMemo(() => (inProgress ?? []).map((t) => t.id), [inProgress]);
   const { data: attention } = useTaskAttention(inProgressIds);
@@ -97,9 +88,22 @@ export function DeckFocusedView({
 
   const { data: proposals } = useProposedDecisions();
   const triageCount = proposals?.length ?? 0;
+  const { data: passes } = useTriagePasses(3);
+  const markSeen = useMarkPassSeen();
+  // A triage pass that ran while you were away and left a digest you haven't
+  // opened. Only worth a chip when nothing is waiting for a decision.
+  const unseenDigest =
+    triageCount === 0
+      ? (passes ?? []).find(
+          (p) => p.status === 'completed' && !p.digestSeenAt && (p.decisions.length > 0 || p.summary),
+        )
+      : undefined;
+
+  const heartbeatSignal = useHeartbeatDeckSignal();
+  const doneCount = completedItems.length;
 
   const { setPanelTab, focusedPanel } = useDashboard();
-  const openTriage = () => setPanelTab(focusedPanel, 'stream');
+  const openStream = () => setPanelTab(focusedPanel, 'stream');
 
   // Header meta: what changed since the last deck, in the band's quiet voice.
   const changeLine = useMemo(() => {
@@ -107,6 +111,8 @@ export function DeckFocusedView({
     return (fromCalendar ? ['adjusted for calendar', ...parts] : parts).join(' · ');
   }, [changes]);
   const hasHistory = versions.length > 1;
+
+  const hasStatus = inProgressCount > 0 || triageCount > 0 || !!unseenDigest || doneCount > 0 || !!heartbeatSignal;
 
   return (
     <section className="px-4 pt-4 pb-3">
@@ -149,44 +155,60 @@ export function DeckFocusedView({
         </Tip>
       )}
 
-      {/* ── Add: create a new task or pull an existing one ── */}
-      <div className="mb-3">
-        <DeckAddBar
-          candidates={activeTasks ?? []}
-          excludeIds={excludeIds}
-          onTaskCreated={onTaskCreated}
-          onAddExisting={onAddExisting}
-        />
-      </div>
-
-      {/* ── Ribbon: status folded to a tap, not a section ── */}
-      {(inProgressCount > 0 || triageCount > 0) && (
+      {/* ── Status row: each chip a tap away, each shown only when it has
+          something to say ── */}
+      {hasStatus && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {inProgressCount > 0 && (
-            <RibbonChip
-              active={workOpen}
-              onClick={() => setWorkOpen((o) => !o)}
-              icon={<Activity size={12} />}
-            >
+            <StatusChip active={open === 'work'} onClick={() => toggle('work')} icon={<Activity size={12} />}>
               <span className="text-violet-600 dark:text-violet-400">{inProgressCount}</span> in progress
-              {reviewCount > 0 && (
-                <span className="text-muted-foreground"> · {reviewCount} to review</span>
-              )}
-            </RibbonChip>
+              {reviewCount > 0 && <span className="text-muted-foreground"> · {reviewCount} to review</span>}
+            </StatusChip>
           )}
           {triageCount > 0 && (
-            <RibbonChip onClick={openTriage} icon={<Inbox size={12} />}>
+            <StatusChip onClick={openStream} icon={<Inbox size={12} />}>
               {triageCount} to triage
-            </RibbonChip>
+            </StatusChip>
           )}
+          {unseenDigest && (
+            <Tip label={unseenDigest.summary ?? 'Your captures were triaged while you were away.'}>
+              <StatusChip
+                onClick={() => {
+                  markSeen.mutate(unseenDigest.id);
+                  openStream();
+                }}
+                icon={<ListChecks size={12} />}
+              >
+                Triaged while you were away
+              </StatusChip>
+            </Tip>
+          )}
+          {doneCount > 0 && (
+            <StatusChip active={open === 'done'} onClick={() => toggle('done')} icon={<Check size={12} />}>
+              {doneCount} done
+            </StatusChip>
+          )}
+          <HeartbeatChip />
         </div>
       )}
 
-      {/* In-progress work, revealed on demand from the ribbon. */}
-      {workOpen && inProgressCount > 0 && (
+      {/* What's in progress, revealed from its chip. */}
+      {open === 'work' && inProgressCount > 0 && (
         <div className="mb-3">
           <CurrentWorkSection />
         </div>
+      )}
+
+      {/* What you finished from the deck today, revealed from its chip. */}
+      {open === 'done' && doneCount > 0 && (
+        <ul className="mb-3 space-y-1 rounded-md border border-border/60 px-3 py-2">
+          {completedItems.map((item) => (
+            <li key={item.id} className="truncate text-xs text-muted-foreground/60 line-through">
+              {item.parentTitle && <>{item.parentTitle} · </>}
+              {item.title}
+            </li>
+          ))}
+        </ul>
       )}
 
       {/* ── The ranked stack: flat and whole. Nothing is the "top" task. ── */}
@@ -206,7 +228,7 @@ export function DeckFocusedView({
         <div className="rounded-lg border border-border bg-muted/20 px-4 py-6 text-center">
           <p className="text-sm font-medium text-foreground">Nothing queued right now</p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Add a task above to start today&apos;s deck.
+            Add a task at the top to start today&apos;s deck.
           </p>
         </div>
       )}
@@ -214,25 +236,27 @@ export function DeckFocusedView({
   );
 }
 
-function RibbonChip({
+/**
+ * A chip in the Today status row. Forwards the rest of its props and its ref
+ * to the button, so it works as a `Tip` trigger.
+ */
+function StatusChip({
   children,
   icon,
-  onClick,
   active,
-}: {
-  children: React.ReactNode;
-  icon: React.ReactNode;
-  onClick: () => void;
-  active?: boolean;
-}) {
+  className,
+  ...rest
+}: ComponentProps<'button'> & { icon: ReactNode; active?: boolean }) {
   return (
     <button
-      onClick={onClick}
+      type="button"
+      {...rest}
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
         active
           ? 'border-border bg-muted text-foreground'
           : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+        className,
       )}
     >
       <span className="shrink-0 text-muted-foreground">{icon}</span>

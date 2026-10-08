@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeHeartbeat, formatCheckInTime } from './status';
+import { describeHeartbeat, formatCheckInTime, heartbeatDeckSignal } from './status';
 import type { HeartbeatCheckIn, HeartbeatConfig } from './types';
 
 // Local wall-clock times so the formatter's same-day logic is timezone-proof.
@@ -115,5 +115,41 @@ describe('describeHeartbeat', () => {
       const { chip, detail } = describeHeartbeat(c, NOW);
       expect(`${chip} ${detail}`).not.toMatch(/[—–;]/);
     }
+  });
+});
+
+describe('heartbeatDeckSignal', () => {
+  it('is silent while healthy: running, on with no check-in yet, or a normal last check-in', () => {
+    expect(heartbeatDeckSignal(config({ running: true }))).toBeNull();
+    expect(heartbeatDeckSignal(config({ lastCheckIn: null }))).toBeNull();
+    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn() }))).toBeNull();
+    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ quiet: true }) }))).toBeNull();
+    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ status: 'cancelled' }) }))).toBeNull();
+  });
+
+  it('asks to be set up when it is off and has never checked in', () => {
+    expect(heartbeatDeckSignal(config({ enabled: false, nextCheckInAt: null }))).toEqual({
+      kind: 'setup',
+      label: 'Set up heartbeat',
+    });
+  });
+
+  it('stays silent when the user turned it off after using it', () => {
+    expect(heartbeatDeckSignal(config({ enabled: false, lastCheckIn: checkIn() }))).toBeNull();
+  });
+
+  it('says paused when the app turned it off for budget, even if it ran before', () => {
+    expect(
+      heartbeatDeckSignal(config({ enabled: false, disabledReason: 'budget_exceeded', lastCheckIn: checkIn() }))?.kind,
+    ).toBe('paused');
+  });
+
+  it('flags a failed last check-in', () => {
+    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ status: 'failed' }) }))?.kind).toBe('failed');
+  });
+
+  it('flags an unread report, but not an unread quiet check-in', () => {
+    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ unread: true }) }))?.kind).toBe('report');
+    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ unread: true, quiet: true }) }))).toBeNull();
   });
 });

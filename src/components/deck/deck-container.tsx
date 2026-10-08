@@ -9,8 +9,6 @@ import { useCompleteTask, useTasks } from '@/hooks/use-tasks';
 import type { DeckGenerationContext } from '@/lib/ai/deck-generation';
 import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
-import { useDeckLayoutMode } from '@/lib/client/deck-layout-mode';
-import { useDeckQuickAddMode } from '@/lib/client/deck-quick-add-mode';
 import { calendarDaysUntil, formatLocalDate } from '@/lib/dates';
 import { isClientReadyTodo } from '@/lib/deck/client-ready';
 import { todayLocalDate } from '@/lib/deck/date';
@@ -30,17 +28,14 @@ import { toast } from 'sonner';
 import { CheckInIntake } from './check-in-intake';
 import { CurrentWorkSection } from './current-work-section';
 import { DeadlineBand } from './deadline-band';
-import { DeckAddComposer } from './deck-add-composer';
-import { DeckChangeBrief, type DeckVersionSummary } from './deck-change-brief';
+import { DeckAddBar } from './deck-add-bar';
 import { DeckConductor } from './deck-conductor';
 import { DeckDayBar } from './deck-day-bar';
-import { DeckFocusedView } from './deck-focused-view';
 import { DeckInterruptBanner } from './deck-interrupt-banner';
 import { DeckMoreOptions } from './deck-more-options';
-import { DeckQuickAddCard } from './deck-quick-add';
-import { DeckStack } from './deck-stack';
 import { DeckTaskBrowser } from './deck-task-browser';
-import { DeckTriagePrompt } from './deck-triage-prompt';
+import { DeckToday } from './deck-today';
+import type { DeckVersionSummary } from './deck-versions';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -186,11 +181,6 @@ export function DeckContainer() {
   const completeTask = useCompleteTask();
   const lifecycle = useTaskLifecycle();
 
-  // Deck quick-add presentation trial (Settings > General > Deck quick-add).
-  const { mode: quickAddMode } = useDeckQuickAddMode();
-  // Deck layout trial: 'classic' dense command center vs 'focused' hero+ribbon.
-  const { mode: layoutMode } = useDeckLayoutMode();
-
   const areaMap = useMemo(() => {
     const m = new Map<string, string>();
     areas?.forEach(a => m.set(a.id, a.name));
@@ -224,7 +214,6 @@ export function DeckContainer() {
   const [routines, setRoutines] = useState<RoutineItem[]>(MOCK_ROUTINES);
   const [moreOptionsCollapsed, setMoreOptionsCollapsed] = useState(true);
   const [taskBrowserOpen, setTaskBrowserOpen] = useState(false);
-  const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   // Tasks created via quick-add this session, held locally until the shared
   // tasks list refetches. `useCreateTask` deliberately doesn't insert a new row
@@ -264,7 +253,6 @@ export function DeckContainer() {
 
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [activeDeckRecord, setActiveDeckRecord] = useState<DeckRecord | null>(null);
-  const [briefDismissed, setBriefDismissed] = useState(false);
   const [interruptDismissed, setInterruptDismissed] = useState(false);
   const [versions, setVersions] = useState<DeckVersionSummary[]>([]);
 
@@ -296,7 +284,6 @@ export function DeckContainer() {
           const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
           setPlan(hydrated);
           setActiveDeckRecord(record);
-          setBriefDismissed(false);
           setPhase('deck');
           loadVersions(record.forDate ?? undefined);
         }
@@ -322,7 +309,6 @@ export function DeckContainer() {
         const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
         setPlan(hydrated);
         setActiveDeckRecord(record);
-        setBriefDismissed(false);
         setPhase('deck');
         setInitialLoadDone(true);
         loadVersions(record.forDate ?? undefined);
@@ -407,7 +393,6 @@ export function DeckContainer() {
       const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
       setPlan(hydrated);
       setActiveDeckRecord(record);
-      setBriefDismissed(false);
       setPhase('deck');
       loadVersions(record.forDate ?? undefined);
     } catch (err) {
@@ -471,7 +456,6 @@ export function DeckContainer() {
       const hydrated = hydrateDeckRecord(record, tasks, areaMap, parentMap);
       setPlan(hydrated);
       setActiveDeckRecord(record);
-      setBriefDismissed(false);
       loadVersions(record.forDate ?? undefined);
     } catch (err) {
       console.error('Failed to revert deck:', err);
@@ -735,19 +719,36 @@ export function DeckContainer() {
     item.rationale = '';
     setPlan(prev => {
       if (!prev) return prev;
-      // The redesigned variants (and the focused layout) put the composer at
-      // the top and land the new task right under it, ready to work on. The
-      // classic dense layout keeps its bottom append.
-      const placeOnTop = layoutMode === 'focused' || quickAddMode !== 'classic';
-      const items = placeOnTop
-        ? prependDeckItem(prev.items, item)
-        : appendDeckItem(prev.items, item);
+      // A task you just added is one you mean to work on now: it lands at the
+      // top of the stack, ready to start.
+      const items = prependDeckItem(prev.items, item);
       if (items === prev.items) return prev; // already on the deck — no-op
       const updated = { ...prev, items };
       if (prev.deckId) persistDeck(prev.deckId, updated);
       return updated;
     });
-  }, [areaMap, parentMap, persistDeck, quickAddMode, layoutMode]);
+  }, [areaMap, parentMap, persistDeck]);
+
+  // Pulling an existing task in from the add bar is the same intent as creating
+  // one ("I want to work on this now"), so it gets the same treatment: filters
+  // that would hide it are cleared and it lands at the top of the stack. (The
+  // full task browser under More options keeps appending.)
+  const handlePullExisting = useCallback((task: TaskListDTO) => {
+    setAreaFilter(null);
+    setWorkMode(null);
+    setFilterDueToday(false);
+
+    const item = taskToDeckItem(task, areaMap, parentMap);
+    item.manuallyAdded = true;
+    setPlan(prev => {
+      if (!prev) return prev;
+      const items = prependDeckItem(prev.items, item);
+      if (items === prev.items) return prev; // already on the deck — no-op
+      const updated = { ...prev, items };
+      if (prev.deckId) persistDeck(prev.deckId, updated);
+      return updated;
+    });
+  }, [areaMap, parentMap, persistDeck]);
 
   const deckTaskIds = useMemo(() => {
     if (!plan) return new Set<string>();
@@ -780,7 +781,10 @@ export function DeckContainer() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Conductor + day bar — visible when deck is active */}
+      {/* Conductor, day strip and the add bar: the deck's fixed header, visible
+          whenever a deck is on screen. The add bar lives here so it is always in
+          the same place and never scrolls away, however many deadlines sit
+          above today's stack. */}
       {phase === 'deck' && plan && (
         <>
           <DeckConductor
@@ -796,17 +800,17 @@ export function DeckContainer() {
           />
           <DeckDayBar
             items={plan.items}
-            completedItems={completedItems}
             routines={routines}
             onRoutineComplete={handleRoutineComplete}
-            quickAddOpen={quickAddOpen}
-            onToggleQuickAdd={() => setQuickAddOpen(o => !o)}
-            addTaskVariant={
-              layoutMode === 'focused'
-                ? 'hidden' // focused layout owns a persistent composer in the body
-                : quickAddMode === 'persistent' ? 'hidden' : quickAddMode === 'trigger' ? 'prominent' : 'pill'
-            }
           />
+          <div className="border-b border-border/50 px-4 py-2">
+            <DeckAddBar
+              candidates={tasks ?? []}
+              excludeIds={deckTaskIds}
+              onTaskCreated={handleQuickAdd}
+              onAddExisting={handlePullExisting}
+            />
+          </div>
         </>
       )}
 
@@ -822,8 +826,8 @@ export function DeckContainer() {
           <div className="px-4 pt-2">
             <div className="flex items-center gap-2 rounded-md border border-amber-500/25 bg-amber-500/[0.05] px-2.5 py-1.5 text-[11px] text-muted-foreground">
               <span className="flex-1 leading-snug">
-                Showing {formatLocalDate(activeDeckRecord?.forDate) ?? 'an earlier'} plan — today&apos;s
-                couldn&apos;t be built. Your deadlines above are current.
+                Showing {formatLocalDate(activeDeckRecord?.forDate) ?? 'an earlier'} plan because
+                today&apos;s couldn&apos;t be built. Your deadlines above are current.
               </span>
               <button
                 onClick={() => generateDeck()}
@@ -835,11 +839,12 @@ export function DeckContainer() {
           </div>
         )}
 
-        {/* Current Work sits above every phase — what is actually underway must
-            stay visible whether or not a daily deck has been generated yet. It
-            self-hides when nothing is In progress. The focused layout folds it
-            into its ribbon instead, so it is not rendered standalone there. */}
-        {initialLoadDone && layoutMode !== 'focused' && (
+        {/* What is actually underway must stay visible whether or not a daily
+            deck exists yet. With a deck on screen it is the "in progress" chip in
+            the Today section, so it renders standalone only without one (intake,
+            generating, or generation unavailable). Self-hides when nothing is In
+            progress. */}
+        {initialLoadDone && !(phase === 'deck' && plan) && (
           <div className="px-4 pt-3">
             <CurrentWorkSection />
           </div>
@@ -882,75 +887,12 @@ export function DeckContainer() {
           </div>
         )}
 
-        {/* ─── The deck — classic dense layout ─── */}
-        {phase === 'deck' && plan && layoutMode !== 'focused' && (
-          <div className="px-4 py-3">
-            <DeckTriagePrompt />
-            {!interruptDismissed && (
-              <DeckInterruptBanner
-                interrupts={interruptChanges}
-                onRestore={handleRestore}
-                onDismiss={() => setInterruptDismissed(true)}
-              />
-            )}
-            {!briefDismissed && (
-              <DeckChangeBrief
-                changes={plan.changes ?? []}
-                versions={versions}
-                currentDeckId={plan.deckId}
-                onRevert={handleRevert}
-                onDismiss={() => setBriefDismissed(true)}
-              />
-            )}
-            {plan.framing && (
-              <p className="text-xs text-muted-foreground italic mb-3 leading-relaxed">
-                {plan.framing}
-              </p>
-            )}
-            {/* Redesigned quick-add composer (trial). Sits at the top so the
-                new task lands right where the eye is. Persistent is always
-                shown; trigger opens from the day bar's prominent button. */}
-            {quickAddMode === 'persistent' && (
-              <div className="mb-3">
-                <DeckAddComposer variant="persistent" onTaskCreated={handleQuickAdd} />
-              </div>
-            )}
-            {quickAddMode === 'trigger' && quickAddOpen && (
-              <div className="mb-3">
-                <DeckAddComposer
-                  variant="trigger"
-                  onTaskCreated={handleQuickAdd}
-                  onClose={() => setQuickAddOpen(false)}
-                />
-              </div>
-            )}
-            <DeckStack
-              items={filteredItems}
-              onComplete={handleComplete}
-              onStart={handleStart}
-              onNotToday={handleNotToday}
-              onFocus={handleFocus}
-              onReorder={handleReorder}
-              onSubtaskComplete={handleSubtaskComplete}
-              onSubtaskDefer={handleSubtaskDefer}
-              onSubtaskFocus={handleSubtaskFocus}
-            />
-            {/* Classic variant: the original faded inline card at the bottom. */}
-            {quickAddMode === 'classic' && quickAddOpen && (
-              <DeckQuickAddCard
-                onTaskCreated={handleQuickAdd}
-                onClose={() => setQuickAddOpen(false)}
-              />
-            )}
-          </div>
-        )}
-
-        {/* ─── The deck — focused layout (trial) ─── */}
-        {phase === 'deck' && plan && layoutMode === 'focused' && (
+        {/* ─── The deck ─── */}
+        {phase === 'deck' && plan && (
           <>
             {/* A priority interrupt is rare and must be seen, so only then does
-                it take space above the section. The change log lives in the
-                section header as quiet meta, so there is no brief banner here. */}
+                it take space above the section. The change log is quiet meta in
+                the Today header, not a banner. */}
             {!interruptDismissed && interruptChanges.length > 0 && (
               <div className="px-4 pt-3">
                 <DeckInterruptBanner
@@ -960,13 +902,14 @@ export function DeckContainer() {
                 />
               </div>
             )}
-            <DeckFocusedView
+            <DeckToday
               items={filteredItems}
               framing={plan.framing}
               changes={plan.changes ?? []}
               versions={versions}
               currentDeckId={plan.deckId}
               onRevert={handleRevert}
+              completedItems={completedItems}
               onComplete={handleComplete}
               onStart={handleStart}
               onNotToday={handleNotToday}
@@ -975,9 +918,6 @@ export function DeckContainer() {
               onSubtaskComplete={handleSubtaskComplete}
               onSubtaskDefer={handleSubtaskDefer}
               onSubtaskFocus={handleSubtaskFocus}
-              onTaskCreated={handleQuickAdd}
-              excludeIds={deckTaskIds}
-              onAddExisting={handleAddFromBrowser}
             />
           </>
         )}

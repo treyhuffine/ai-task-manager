@@ -9,7 +9,7 @@ The heartbeat is a regular check-in. On a schedule you set, an agent goes over y
 
 A check-in with nothing to report leaves no trace. A check-in that did or found something leaves one short report in Unread. Each line of the report links to the task or note it's about, where you can see what changed and undo it.
 
-You configure it in Settings > Heartbeat, or from a chip on the deck.
+You configure it in Settings > Heartbeat, or from the deck's heartbeat chip when it needs you.
 
 ## 2. Goals and non-goals
 
@@ -212,16 +212,17 @@ Checks in on your work on a schedule and tells you what it did.
 
 ### 7.2 Deck chip
 
-The chip goes on the right side of `DeckDayBar`, which both deck layouts share.
+The deck mentions the heartbeat only when it needs you. A healthy heartbeat is silent there: its home is Settings > Heartbeat. When it does need you, the chip sits in the Today section's status row, next to "in progress" and "to triage". The rule is `heartbeatDeckSignal` (`src/lib/heartbeat/status.ts`), in the same order as `describeHeartbeat` so the chip and its tooltip agree.
 
 | State | Chip |
 |---|---|
-| Off | `Heartbeat off` (muted) |
-| On, last check-in quiet or already read | `Heartbeat · 2:00 PM` |
-| On, last report unread | `Heartbeat · 1 for you` (accent dot) |
-| Last check-in failed | `Heartbeat · failed` |
+| Off and never checked in | `Set up heartbeat` (muted) |
+| Paused by the app (budget ran out) | `Heartbeat paused` (amber) |
+| Last check-in failed | `Heartbeat failed` (destructive) |
+| Last report unread | `Heartbeat · 1 for you` (accent dot) |
+| Running, on and fine, quiet, or turned off by you after using it | nothing |
 
-Tapping the chip opens a sheet with `<HeartbeatSettings compact />`. It's the same component as in Settings, with the instructions box collapsed behind "Edit instructions", so the two can't drift apart. In the "1 for you" state the sheet puts the report link at the top. The sheet uses `@container` queries, not viewport breakpoints, because it renders inside panels.
+The tooltip is `describeHeartbeat`'s detail. Tapping the chip opens a sheet with `<HeartbeatSettings compact />`. It's the same component as in Settings, with the instructions box collapsed behind "Edit instructions", so the two can't drift apart. In the "1 for you" state the sheet puts the report link at the top. The sheet uses `@container` queries, not viewport breakpoints, because it renders inside panels.
 
 ### 7.3 Triggers screen
 
@@ -296,10 +297,11 @@ Steps 1 and 2 can land and be tested without any UI, through `ri agent get_heart
 5. **Hours follow your timezone.** The row is seeded with your timezone from Settings > General (else the host's). Editing the schedule in the app brings the heartbeat's timezone along with yours. If they ever differ, Settings offers a one-click fix.
 6. **`catchUpPolicy` is locked too.** A heartbeat that replays missed slots would fire several check-ins back to back after the host wakes up.
 7. **Name collision fallback.** If you already have a trigger named "Heartbeat", the app's row takes "Ri heartbeat" instead and leaves yours alone. The name index is unique per scope.
-8. **The deck bar always renders.** It carries the heartbeat chip, so the focused layout's bar no longer hides when nothing is done yet.
+8. ~~**The deck bar always renders.** It carries the heartbeat chip, so the focused layout's bar no longer hides when nothing is done yet.~~ Superseded by 15.
 9. **The quiet reply check tolerates wrapping.** Backticks, bold, quotes, and a trailing period around `HEARTBEAT_OK` still count as quiet. Any other words make it a report.
 10. **"Check in now" works while it's off.** It fires the trigger once through `run_trigger`, independent of the schedule.
 11. **Provenance on task and note versions is unchanged.** `entity_versions.actorSessionId` is defined as the content chat that made an edit, and pointing it at an orchestrator chat could confuse the in-document diff features. The run's change list is the audit path instead. Linking versions to runs is a candidate follow-up.
 12. **Report formatting mirrors the orchestrator brief.** The first real reports showed the agent opening with a preamble, putting references inside bullets (where chips don't render), and once mistyping an id. The ground rules now spell out the same reference rules as the orchestrator brief (`[[task:ID]]`, `[[note:ID]]`, `[[execution:SESSION_ID]]`, each on its own line, ids copied from tool results) and ask for one opening line on what it checked and found fine (the agent wrote one anyway, and it's useful: it says what came back clean), then the sections.
 13. **Run summaries drop entity references.** A summary is one plain line for run lists. The raw `[[task:…]]` ids were noise there, and the chat already renders them as chips. This applies to every run's summary, not just the heartbeat's (`summarizeText` in `src/lib/runs/event-hooks.ts`).
 14. **Area changes are now part of task and note history.** Setting an area is the one thing the default instructions have the heartbeat do on its own, and history snapshots didn't record `areaId`, so that change couldn't be seen or undone. Snapshots now include it, the history view shows it by area name, and undo restores it. Older snapshots lack the field, which means "not recorded", so the diff skips it and undo leaves the current area alone. Undo also leaves the area alone if the recorded area no longer exists. Verified in the app: an agent's area change appears as "Area: Ri Product → Work", and "Undo this change" puts it back.
+15. **The deck shows the heartbeat only when it needs you.** With the chip always on the day bar, the bar rendered as a near-empty row holding one status the user rarely needs, on a surface whose job is today's work. The heartbeat's home is Settings > Heartbeat, so the deck now follows its own rule that a healthy status is silent: the chip appears only when it is never set up, paused, failed, or holding an unread report, and it lives in the Today status row with the other "needs you" chips (2026-10-08). The day bar no longer carries it, so it no longer renders an empty row.
