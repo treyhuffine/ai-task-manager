@@ -58,6 +58,9 @@ export interface AuthConfig {
   /** Name of the default agent browser profile. Null = "agent". Letters,
    *  digits, underscore, and hyphen only (it becomes a directory name). */
   browserDefaultProfile: string | null;
+  /** Durable handoffs and independent review require an explicit opt-in. */
+  handoffsEnabled: boolean | null;
+  aiReviewEnabled: boolean | null;
 }
 
 export function getAuthConfigDir(): string {
@@ -91,6 +94,8 @@ export function readAuthConfig(): AuthConfig | null {
       browserHeadlessDefault: parsed.browserHeadlessDefault ?? null,
       browserIdleCloseMs: parsed.browserIdleCloseMs ?? null,
       browserDefaultProfile: parsed.browserDefaultProfile ?? null,
+      handoffsEnabled: parsed.handoffsEnabled ?? null,
+      aiReviewEnabled: parsed.aiReviewEnabled ?? null,
     };
   } catch (err) {
     console.error('[auth] failed to read config.json:', err);
@@ -138,6 +143,8 @@ function writeLockedConfig(config: Partial<AuthConfig>): AuthConfig {
     browserHeadlessDefault: pick('browserHeadlessDefault'),
     browserIdleCloseMs: pick('browserIdleCloseMs'),
     browserDefaultProfile: pick('browserDefaultProfile'),
+    handoffsEnabled: pick('handoffsEnabled'),
+    aiReviewEnabled: pick('aiReviewEnabled'),
   };
 
   atomicWriteFile(file, JSON.stringify({ ...original, ...next }, null, 2) + '\n');

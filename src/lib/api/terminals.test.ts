@@ -8,13 +8,14 @@ import { setTransportMode } from '@/lib/trpc/transport-state';
 import { homeTerminals, sessionFolder, terminalApiBase, terminalFolder, terminalSourceFromBase, workspaceFolder } from '@/lib/folders/source';
 
 const { calls, unsubscribe } = vi.hoisted(() => ({ calls: vi.fn(), unsubscribe: vi.fn() }));
-vi.mock('@/lib/trpc/client', () => {
+vi.mock('@/lib/trpc/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/trpc/client')>();
   const client = (path: string[]): object => new Proxy({}, { get: (_target, key: string) => {
     if (key === 'query' || key === 'mutate') return (...args: unknown[]) => { calls([...path, key].join('.'), ...args); return Promise.resolve([]); };
     if (key === 'subscribe') return (...args: unknown[]) => { calls([...path, key].join('.'), ...args); return { unsubscribe }; };
     return client([...path, key]);
   } });
-  return { terminalTRPCClient: client([]), trpcClient: {} };
+  return { ...actual, terminalTRPCClient: client([]), trpcClient: {} };
 });
 afterEach(() => { vi.clearAllMocks(); setTransportMode('websocket'); });
 

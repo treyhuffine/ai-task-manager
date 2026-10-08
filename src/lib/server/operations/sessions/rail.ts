@@ -1,4 +1,4 @@
-import { listAgentMainChats, listRailSessions } from '@/lib/db/queries';
+import { listAgentMainChats, listRailSessions, listWorkResultReviewAttentionSessions } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 // Read running/pending state via a leaf snapshot module (globalThis-backed)
@@ -49,7 +49,10 @@ export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: Oper
       const request = pending.has(chat.id) ? listForSession(chat.id)[0] : undefined;
       return { ...chat, waitingOn: request ? pendingSummary(request) : null };
     });
-    return reply({ sessions, pendingSessionIds, runningSessionIds, backgroundSessionIds, mainChats });
+    const resultReviewAttention = listWorkResultReviewAttentionSessions().filter((review) =>
+      pendingSessionIds.includes(review.sessionId) || review.status === 'queued' || review.status === 'running'
+      || (review.status === 'failed' && (review.lastOutcomeEventAt ?? '') > (review.lastViewedAt ?? '')));
+    return reply({ sessions, pendingSessionIds, runningSessionIds, backgroundSessionIds, mainChats, resultReviewAttention });
   } catch (err) {
     console.error('[GET /api/sessions/rail]', err);
     return reply({ error: String(err) }, { status: 500 });

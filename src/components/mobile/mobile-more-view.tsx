@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import {
-  CheckSquare, FileText, Activity, Layers, Calendar, Sun, Moon, Settings, ChevronLeft,
+  CheckSquare, FileText, Activity, Layers, Calendar, Sun, Moon, Settings, ChevronLeft, FileCheck2,
 } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { TaskList } from '@/components/tasks/task-list';
@@ -11,10 +11,15 @@ import { StreamList } from '@/components/stream/stream-list';
 import { CalendarPanel } from '@/components/calendar/calendar-panel';
 import { openSettings } from '@/components/settings/settings-store';
 import { cn } from '@/lib/utils';
+import { useRouter } from 'next/navigation';
+import { useResultCapabilities } from '@/hooks/use-results';
+import { SAVED_RESULTS_COMMAND } from '@/constants/commands';
 
 type MoreSubView = 'menu' | 'tasks' | 'notes' | 'stream' | 'calendar';
 
 export function MobileMoreView() {
+  const router = useRouter();
+  const capabilities = useResultCapabilities();
   const { theme, toggleTheme, openAreasList } = useDashboard();
   const isDark = theme === 'dark';
   const [subView, setSubView] = useState<MoreSubView>('menu');
@@ -46,6 +51,7 @@ export function MobileMoreView() {
     { id: 'stream' as const, label: 'Stream', icon: Activity, action: () => setSubView('stream') },
     { id: 'calendar' as const, label: 'Calendar', icon: Calendar, action: () => setSubView('calendar') },
     { id: 'areas' as const, label: 'Areas', icon: Layers, action: () => openAreasList() },
+    ...(capabilities.data?.handoffsEnabled ? [{ id: 'results' as const, label: SAVED_RESULTS_COMMAND.label, icon: FileCheck2, action: () => router.push(SAVED_RESULTS_COMMAND.href) }] : []),
   ];
 
   return (

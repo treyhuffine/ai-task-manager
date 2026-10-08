@@ -19,6 +19,7 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
     const record=(kind,value)=>window.actions.push({kind,value});
     export const trpcClient=new Proxy({}, {get:()=>new Proxy({}, {get:()=>({query:async()=>({}),mutate:async()=>({})})})});
     export const useWorkspaces=()=>({data:[workspace],isLoading:false});
+    export const useRailSessions=()=>({data:{resultReviewAttention:[],pendingSessionIds:[]}});
     export const useNeedsReviewSessions=()=>({data:[]});
     export const useWorkspaceSessions=()=>({data:[]});
     export const useUpdateWorkspace=()=>({mutate:()=>{}});
@@ -40,7 +41,10 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
       import React from 'react';import {createRoot} from 'react-dom/client';
       import {MobileAgentsView} from '@/components/mobile/mobile-agents-view';
       window.actions=[];createRoot(document.getElementById('root')).render(<MobileAgentsView/>);
-    `},bundle:true,write:false,format:'iife',platform:'browser',jsx:'automatic',define:{'process.env.NODE_ENV':'"development"'},
+    `},bundle:true,write:false,format:'iife',platform:'browser',jsx:'automatic',
+    // Next's Link arrives through review attention. This standalone browser
+    // bundle needs the same compile-time environment replacement as Next.
+    define:{'process.env.NODE_ENV':'"development"','process.env':'{}'},
     plugins:[{name:'fixtures',setup(api:{
       onResolve(opts:{filter:RegExp},fn:()=>{path:string;namespace:string}):void;
       onLoad(opts:{filter:RegExp;namespace:string},fn:()=>{contents:string;loader:string}):void;
@@ -58,9 +62,15 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
   const browser=await chromium.launch({executablePath:`${process.env.HOME}/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell`,headless:true});
   try{
     const page=await browser.newPage({viewport:{width:390,height:844},hasTouch:true});
+    const pageErrors: string[]=[];
+    page.on('pageerror',(error)=>pageErrors.push(error.message));
     page.setDefaultTimeout(5000);
     await page.goto(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
     const menu=page.getByRole('button',{name:'More for Review agent'});
+    await menu.waitFor().catch((error: unknown)=>{
+      expect(pageErrors, 'Phone fixture browser errors').toEqual([]);
+      throw error;
+    });
     const plus=page.getByRole('button',{name:'New execution',exact:true});
     for(const pick of [false,true,false]){
       await menu.tap();
@@ -84,6 +94,7 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
       {kind:'start',value:'default'},{kind:'start',value:'worker'},{kind:'start',value:'default'},{kind:'start',value:'default'},
       {kind:'open',value:'files'},{kind:'open',value:'terminal'},{kind:'open',value:'setup'},
     ]);
+    expect(pageErrors, 'Phone fixture browser errors').toEqual([]);
   }finally{
     await browser.close();server.closeAllConnections();await new Promise<void>((resolve)=>server.close(()=>resolve()));
   }

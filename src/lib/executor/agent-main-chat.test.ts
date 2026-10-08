@@ -246,7 +246,7 @@ describe('prepareAgentMainChatSpawn', () => {
     expect(sent.endsWith('What is running?')).toBe(true);
 
     const resumed = await prepare(seeded, { providerType: 'opencode', strictMcpIsolation: false, freshSession: false });
-    expect(resumed.firstTurnPreamble).toBeNull();
+    expect(resumed.firstTurnPreamble).toContain('# The "ri" agent');
     expect(withFirstTurnPreamble('hi', null)).toBe('hi');
   });
 

@@ -21,10 +21,10 @@ function headerOf(headers: McpHeaders, name: string): string | undefined {
 }
 
 /** The remote-call context for an MCP request: the acting chat and where the key lives. */
-export function mcpCallContext(headers: McpHeaders): ActionContext {
+export function mcpCallContext(headers: McpHeaders, options: { allowMissing?: boolean } = {}): ActionContext {
   const sessionChat =
     headerOf(headers, API_KEY_SCOPE_HEADER) === 'session' ? headerOf(headers, SESSION_CHAT_HEADER) : undefined;
-  const actor = sessionChat ? actorOfChat(sessionChat) : actorFromSessionCredential(sessionCredentialFromHeaders(headers));
+  const actor = sessionChat ? actorOfChat(sessionChat, options) : actorFromSessionCredential(sessionCredentialFromHeaders(headers), options);
   return {
     remote: true,
     actor,
@@ -33,4 +33,9 @@ export function mcpCallContext(headers: McpHeaders): ActionContext {
       apiKeyId: headerOf(headers, API_KEY_ID_HEADER) ?? null,
     },
   };
+}
+
+/** Agent identity is carried by a signed local credential or validated scoped worker token. */
+export function requestHasSessionAuthority(headers: McpHeaders): boolean {
+  return Boolean(sessionCredentialFromHeaders(headers)) || headerOf(headers, API_KEY_SCOPE_HEADER) === 'session';
 }

@@ -159,3 +159,44 @@ describe('workspace integration scopes (docs/integrations-workspace-scoping-spec
     expect(q.getWorkspace(ws.id)!.integrationScopes).toEqual(scopes);
   });
 });
+
+
+describe('agent reviewer preferences', () => {
+  it('keeps inherited values nullable and declares neither a boolean nor JSON policy default', async () => {
+    const q = await setup();
+    const ws = q.createWorkspace(BASE);
+    expect(ws).toMatchObject({ reviewBeforeHandoff: null, reviewDefaults: null });
+    const { getRawDb } = await import('@/lib/db');
+    const fields = getRawDb().prepare('PRAGMA table_info(workspaces)').all() as Array<{ name: string; notnull: number; dflt_value: unknown }>;
+    for (const name of ['review_before_handoff', 'review_defaults']) {
+      expect(fields.find((field) => field.name === name)).toMatchObject({ notnull: 0, dflt_value: null });
+    }
+  });
+
+  it('persists scoped reviewer fields without turning on automatic review and resets inheritance', async () => {
+    const q = await setup();
+    const ws = q.createWorkspace({ ...BASE, reviewDefaults: { harness: 'codex', model: 'gpt-5.5', effort: 'high' } });
+    expect(ws.reviewBeforeHandoff).toBeNull();
+    expect(q.getWorkspace(ws.id)?.reviewDefaults).toEqual({ harness: 'codex', model: 'gpt-5.5', effort: 'high' });
+    q.updateWorkspace(ws.id, { reviewBeforeHandoff: true, reviewDefaults: { harness: 'claude', model: null, effort: null } });
+    q.updateWorkspace(ws.id, { purpose: 'Keep these preferences' });
+    expect(q.getWorkspace(ws.id)).toMatchObject({ reviewBeforeHandoff: true, reviewDefaults: { harness: 'claude', model: null, effort: null } });
+    q.updateWorkspace(ws.id, { reviewDefaults: null, reviewBeforeHandoff: null });
+    expect(q.getWorkspace(ws.id)).toMatchObject({ reviewBeforeHandoff: null, reviewDefaults: null });
+  });
+
+  it('rejects malformed, unknown and mistyped reviewer preference fields in the shared query layer', async () => {
+    const q = await setup();
+    const ws = q.createWorkspace(BASE);
+    for (const patch of [
+      { reviewBeforeHandoff: 'true' }, { reviewBeforeHandoff: 1 },
+      { reviewDefaults: [] }, { reviewDefaults: { harness: 'unknown' } },
+      { reviewDefaults: { model: '' } }, { reviewDefaults: { effort: 'very-high' } },
+      { reviewDefaults: { enableAuto: true } },
+    ]) {
+      expect(() => q.updateWorkspace(ws.id, patch as never)).toThrow(q.WorkspaceFieldError);
+      expect(() => q.createWorkspace({ ...BASE, ...patch } as never)).toThrow(q.WorkspaceFieldError);
+    }
+    expect(q.getWorkspace(ws.id)).toMatchObject({ reviewBeforeHandoff: null, reviewDefaults: null });
+  });
+});

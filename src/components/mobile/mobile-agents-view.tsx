@@ -40,6 +40,7 @@ import {
 import { useMemo, useState } from 'react';
 import { RunOnSheet } from './run-on-sheet';
 import { Tip } from '@/components/ui/tip';
+import { MobileReviewAttention } from '@/components/results/mobile-review-attention';
 
 /**
  * Mobile-tab "Agents" surface. Mirrors the desktop rail's structure
@@ -58,6 +59,7 @@ export function MobileAgentsView() {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       <NeedsReviewBlock />
+      <MobileReviewAttention />
 
       <div className="px-4 pt-3 pb-2 flex items-center justify-between">
         <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">

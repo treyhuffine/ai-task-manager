@@ -34,6 +34,7 @@ export function ModelList({
   switchHintProvider,
   onManageModels,
   defaultSelection,
+  selectionOnly = false,
 }: {
   selected: ModelSelection;
   onPick: (harness: ProviderId, model: ModelOption) => void;
@@ -53,6 +54,8 @@ export function ModelList({
    * differs. Settings omits it: there the pick is the default.
    */
   defaultSelection?: { harness: ProviderId; model: string | null } | null;
+  /** One request only. Picking does not change the global model catalog. */
+  selectionOnly?: boolean;
 }) {
   return (
     <div className={cn('space-y-3', className)}>
@@ -64,6 +67,7 @@ export function ModelList({
           onPick={onPick}
           isSwitch={switchHintProvider != null && p.id !== switchHintProvider}
           defaultModel={defaultSelection?.harness === p.id ? defaultSelection.model : null}
+          selectionOnly={selectionOnly}
         />
       ))}
       {onManageModels && (
@@ -86,6 +90,7 @@ function ProviderGroup({
   onPick,
   isSwitch,
   defaultModel,
+  selectionOnly,
 }: {
   providerId: ProviderId;
   selected: ModelSelection;
@@ -93,6 +98,7 @@ function ProviderGroup({
   isSwitch?: boolean;
   /** The home's default model, when it's on this provider. */
   defaultModel?: string | null;
+  selectionOnly?: boolean;
 }) {
   const { connection } = useHarnessConnection(providerId);
   const { models } = useHarnessModels(providerId);
@@ -201,7 +207,7 @@ function ProviderGroup({
             isDefault={defaultModel === m.id}
             disabled={!connected}
             onSelect={() => onPick(providerId, m)}
-            onRemove={m.custom ? () => void unpin(m) : undefined}
+            onRemove={!selectionOnly && m.custom ? () => void unpin(m) : undefined}
             removePending={removeCustom.isPending && removeCustom.variables?.modelId === m.id}
           />
         ))}
@@ -221,32 +227,32 @@ function ProviderGroup({
           {showMore
             ? 'Show less'
             : hidden.length > 0
-              ? `${hidden.length} more · pin a model ID`
-              : 'Pin a model ID'}
+              ? selectionOnly ? `${hidden.length} more models` : `${hidden.length} more · pin a model ID`
+              : selectionOnly ? 'More models' : 'Pin a model ID'}
         </button>
         {showMore && (
           <>
-            <PinModelInput
+            {!selectionOnly && <PinModelInput
               providerId={providerId}
               disabled={!connected}
               onPinned={(model) => {
                 setShowMore(false);
                 onPick(providerId, model);
               }}
-            />
+            />}
             {hidden.map((m) => (
               <ModelRow
                 key={m.id}
                 model={m}
                 selected={false}
-                disabled={!connected || save.isPending}
+                disabled={!connected || (!selectionOnly && save.isPending)}
                 muted
                 pending={save.isPending && save.variables?.enabledModelIds.includes(m.id)}
-                title={`Turn on ${m.label} and use it`}
-                onSelect={() => void revealAndPick(m)}
+                title={selectionOnly ? `Use ${m.label} for this request` : `Turn on ${m.label} and use it`}
+                onSelect={() => selectionOnly ? onPick(providerId, m) : void revealAndPick(m)}
                 // A pin the user has since hidden still needs a way out, or
                 // it can only be cleared from settings.
-                onRemove={m.custom ? () => void unpin(m) : undefined}
+                onRemove={!selectionOnly && m.custom ? () => void unpin(m) : undefined}
                 removePending={removeCustom.isPending && removeCustom.variables?.modelId === m.id}
               />
             ))}

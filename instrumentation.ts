@@ -92,6 +92,16 @@ export async function register() {
     console.warn('[mirror] init failed', err);
   }
 
+  // Retire interrupted result-origin deliveries before generic orphan healing
+  // can see their user messages. Retained records stay inspectable when off.
+  try {
+    const { recoverWorkResultOperations, reconcileWorkResultCapabilities } = await import('@/lib/work-results/runtime');
+    recoverWorkResultOperations();
+    reconcileWorkResultCapabilities();
+  } catch (err) {
+    console.warn('[results] startup recovery failed', err);
+  }
+
   // Sweep active Claude sessions against their on-disk JSONL transcripts
   // AND heal in-memory state. Catches drift introduced when the server
   // died mid-turn or the live stream missed events, drops dead cached

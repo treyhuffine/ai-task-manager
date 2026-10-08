@@ -156,7 +156,8 @@ describe('Antigravity chats through the real runner', () => {
     await dispatch(session.id, 'first');
     await dispatch(session.id, 'second');
     expect(agy.sessionSpawns()).toHaveLength(1);
-    expect(agy.stdin().map((line) => line.message.content)).toEqual(['first', 'second']);
+    expect(agy.stdin().map((line) => String(line.message.content).split('\n').at(-1))).toEqual(['first', 'second']);
+    expect(agy.stdin()[0].message.content).toContain('Current Ri agent instruction preferences');
 
     const conversation = q.getChatSession(session.id)!.externalSessionId!;
     await close(session.id);
@@ -166,7 +167,7 @@ describe('Antigravity chats through the real runner', () => {
     expect(spawns).toHaveLength(2);
     expect(flagValue(spawns[1]!, '--conversation')).toBe(conversation);
     expect(q.getChatSession(session.id)!.externalSessionId).toBe(conversation);
-    expect(q.listChatEvents(session.id).some((event) => event.content === 'agy heard: third')).toBe(true);
+    expect(q.listChatEvents(session.id).some((event) => event.content?.endsWith('third'))).toBe(true);
   });
 
   it('runs plan mode read-only, without skipping permissions', async () => {

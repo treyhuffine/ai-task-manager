@@ -66,6 +66,7 @@ import type {
   TriageDisposition, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel,
 } from '@/db/types';
 import { DEFAULT_HARNESS, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
+import { workspaceReviewPreferencesSchema } from '@/lib/workspaces/review-preferences';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { linksFromTexts } from '@/lib/entity-refs/derive-links';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
@@ -82,6 +83,7 @@ import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 import { assertSupportedPermissionMode } from '@/lib/executor/permission-map';
 import { DEFAULT_FILES_TO_COPY } from '@/lib/workspaces/defaults';
+import { normalizeWorkResultGuidance } from '@/lib/instructions/preferences';
 import { deriveAttachments } from '@/lib/attachments/derive';
 import { AttachmentMetadataRepairError, planNoteAttachmentMetadataRepair } from '@/lib/attachments/repair-metadata';
 import { publishChatEvent } from '@/lib/realtime/bus';
@@ -105,6 +107,9 @@ import type { LifecycleCommandResult } from '@/lib/db/schema';
 import { camelizeKeys, snakeizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
 import { messagePreview } from '@/lib/utils/message-preview';
+export * from '@/lib/work-results/queries';
+export * from '@/lib/work-results/completion-queries';
+export * from './work-result-runtime-queries';
 import {
   bundledModelIds,
   curatedDefaultModelIds,
@@ -1895,7 +1900,7 @@ function executionSessionIds(executionId: string): string[] {
   return getDb()
     .select({ id: chatSessions.id })
     .from(chatSessions)
-    .where(eq(chatSessions.executionId, executionId))
+    .where(and(eq(chatSessions.executionId, executionId), sql`COALESCE(${chatSessions.surfaceKind}, '') <> 'result_review'`))
     .all()
     .map((s) => s.id);
 }
@@ -4143,12 +4148,15 @@ export function getWorkdayBounds(): { workdayStart: string; workdayEnd: string }
 }
 
 export function updateUserState(input: UpdateUserStateInput): UserStateRecord | undefined {
+  const workResultGuidance = input.workResultGuidance === undefined
+    ? undefined : normalizeWorkResultGuidance(input.workResultGuidance);
   const db = getDb();
   const { orchestratorImage, ...rest } = input;
   const row = db
     .update(userState)
     .set({
       ...rest,
+      ...(workResultGuidance !== undefined ? { workResultGuidance } : {}),
       ...(orchestratorImage !== undefined
         ? { orchestratorImage: orchestratorImage ? snakeizeKeys(orchestratorImage) : null }
         : {}),
@@ -6727,13 +6735,22 @@ function normalizeScopeText(value: unknown, label: string, max: number): string 
   return text;
 }
 
-function normalizeScopeFields<T extends { purpose?: string | null; instructions?: string | null }>(input: T): T {
+function normalizeScopeFields<T extends { purpose?: string | null; instructions?: string | null; workResultGuidance?: string | null; reviewBeforeHandoff?: boolean | null; reviewDefaults?: WorkspaceRecord['reviewDefaults'] }>(input: T): T {
+  const review = workspaceReviewPreferencesSchema.safeParse({
+    ...('reviewBeforeHandoff' in input ? { reviewBeforeHandoff: input.reviewBeforeHandoff } : {}),
+    ...('reviewDefaults' in input ? { reviewDefaults: input.reviewDefaults } : {}),
+  });
+  if (!review.success) throw new WorkspaceFieldError(`Invalid review preferences: ${review.error.issues.map((issue) => issue.message).join(', ')}`);
   const purpose = normalizeScopeText(input.purpose, 'Purpose', WORKSPACE_PURPOSE_MAX);
   const instructions = normalizeScopeText(input.instructions, 'Instructions', WORKSPACE_INSTRUCTIONS_MAX);
+  const workResultGuidance = input.workResultGuidance === undefined
+    ? undefined : normalizeWorkResultGuidance(input.workResultGuidance);
   return {
     ...input,
+    ...review.data,
     ...(purpose !== undefined ? { purpose } : {}),
     ...(instructions !== undefined ? { instructions } : {}),
+    ...(workResultGuidance !== undefined ? { workResultGuidance } : {}),
   };
 }
 
@@ -6767,6 +6784,9 @@ export function createWorkspace(input: Omit<CreateWorkspaceInput, 'slug'> & { sl
       collapsed: input.collapsed ?? false,
       skipLiveConfirm: input.skipLiveConfirm ?? false,
       browserEnabled: input.browserEnabled ?? true,
+      reviewBeforeHandoff: input.reviewBeforeHandoff ?? null,
+      reviewDefaults: rest.reviewDefaults ?? null,
+      workResultGuidance: rest.workResultGuidance ?? null,
       ...(inputAttachments !== undefined ? { attachments: dehydrateAttachments(inputAttachments) ?? [] } : {}),
       createdAt: now,
       updatedAt: now,
@@ -7745,9 +7765,12 @@ export function listChatSessions(filter: {
   executionId?: string;
   status?: 'active' | 'archived';
   type?: 'orchestration' | 'content' | 'execution';
+  /** Operational tooling may inspect dedicated reviewer contexts explicitly. */
+  includeInternal?: boolean;
 } = {}): ChatSessionWithExecution[] {
   const db = getDb();
   const conditions: SQL[] = [];
+  if (!filter.includeInternal) conditions.push(sql`COALESCE(${chatSessions.surfaceKind}, '') <> 'result_review'`);
   if (filter.workspaceId) conditions.push(eq(chatSessions.workspaceId, filter.workspaceId));
   if (filter.executionId) conditions.push(eq(chatSessions.executionId, filter.executionId));
   if (filter.status) conditions.push(eq(chatSessions.status, filter.status));
@@ -7782,6 +7805,7 @@ export function listMainChats(
   const db = getDb();
   const conditions: SQL[] = [
     eq(chatSessions.type, 'orchestration'),
+    sql`COALESCE(${chatSessions.surfaceKind}, '') <> 'result_review'`,
     isNull(chatSessions.createdByRunId),
     isNull(chatSessions.executionId),
     workspaceId === null ? isNull(chatSessions.workspaceId) : eq(chatSessions.workspaceId, workspaceId),
@@ -8361,6 +8385,7 @@ export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
     .where(
       and(
         eq(chatSessions.status, 'active'),
+        sql`COALESCE(${chatSessions.surfaceKind}, '') <> 'result_review'`,
         // The interactive orchestrator chat (orchestration + no creating
         // run) is "the assistant in the Chat tab" — its replies are the
         // conversation itself, not output owed review, so it never belongs
@@ -8452,6 +8477,7 @@ export function listRailSessions(): RailSessionRow[] {
       sql`${chatSessions.id} = (
         SELECT cs2.id FROM chat_sessions cs2
         WHERE cs2.execution_id = ${executions.id} AND cs2.status = 'active'
+          AND COALESCE(cs2.surface_kind, '') <> 'result_review'
         ORDER BY COALESCE(cs2.last_activity_at, cs2.started_at) DESC
         LIMIT 1
       )`,
@@ -8502,6 +8528,7 @@ export function listWorkspaceExecutions(
       sql`${chatSessions.id} = (
         SELECT cs2.id FROM chat_sessions cs2
         WHERE cs2.execution_id = ${executions.id} AND ${sessionStatus}
+          AND COALESCE(cs2.surface_kind, '') <> 'result_review'
         ORDER BY COALESCE(cs2.last_activity_at, cs2.started_at) DESC, cs2.id DESC
         LIMIT 1
       )`,
@@ -8550,6 +8577,7 @@ export function listHistorySessions(opts: { limit?: number; workspaceId?: string
     .where(
       and(
         eq(chatSessions.type, 'execution'),
+        sql`COALESCE(${chatSessions.surfaceKind}, '') <> 'result_review'`,
         opts.workspaceId ? eq(chatSessions.workspaceId, opts.workspaceId) : undefined,
       ),
     )
@@ -8633,7 +8661,7 @@ export function searchChatSessions(opts: {
     // Scan more events than sessions: many events collapse to one session.
     scanLimit: limit * 20,
   };
-  const conds: string[] = ["cs.type = 'execution'"];
+  const conds: string[] = ["cs.type = 'execution'", "COALESCE(cs.surface_kind, '') <> 'result_review'"];
   if (opts.status) {
     conds.push('cs.status = :status');
     params.status = opts.status;
@@ -9075,11 +9103,11 @@ export function listRecentChatEvents(sessionId: string, limit = 30): ChatEventRe
 }
 
 /**
- * Events newer than `afterId` for a session, ordered chronologically.
- * Used by the per-session SSE endpoint to replay missed events when an
- * EventSource reconnects with a `Last-Event-ID` header. UUIDv7 ids are
- * monotonic-by-creation-time per process, so an id-comparison is a
- * cheap, correct cursor without a separate sequence column.
+ * Events appended after the cursor. Hash-derived request IDs and equal or
+ * backdated creation times cannot act as durable transport positions.
+ * If pruning removed the cursor, conservatively replay the latest available
+ * page in append order. The client deduplicates by identity, sorts presentation
+ * chronologically, and refreshes its snapshot on reconnect.
  */
 /**
  * What a session's stream missed while a client was away (P3 re-check): the

@@ -6,7 +6,7 @@ import type { HarnessId } from '@/lib/harness/registry';
 import type {
   userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, devices, deviceGrants, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
-  triggers, runs, previewTargets, entityVersions,
+  triggers, runs, previewTargets, entityVersions, workResults, workResultTasks, workResultDecisions, workResultAiReviews,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
   Attachment,
@@ -36,6 +36,31 @@ type WithCamelAttachments<T> =
 // them optional again. Authorship columns (actorSource/source/createdBy) are
 // deliberately NOT here: callers must always say who acted.
 type PolicyOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+
+// Handoff types come from their tables, including the attachment boundary.
+export type WorkResultRecord = WithCamelAttachments<InferSelectModel<typeof workResults>>;
+export type CreateWorkResultInput = WithCamelAttachments<Omit<InferInsertModel<typeof workResults>, 'id'>>;
+export type WorkResultTaskRecord = InferSelectModel<typeof workResultTasks>;
+export type WorkResultDecisionRecord = WithCamelAttachments<InferSelectModel<typeof workResultDecisions>>;
+export type WorkResultAiReviewRecord = InferSelectModel<typeof workResultAiReviews>;
+export type WorkResultActor = {
+  userId: WorkResultRecord['userId'];
+  source: WorkResultRecord['actorSource'];
+  sessionId?: WorkResultRecord['actorSessionId'];
+  executionId?: WorkResultRecord['sourceExecutionId'];
+  runId?: WorkResultAiReviewRecord['runId'];
+};
+export type WorkResultDetail = {
+  result: WorkResultRecord;
+  taskIds: WorkResultTaskRecord['taskId'][];
+  reviews: WorkResultDecisionRecord[];
+  aiReviews: Array<WorkResultAiReviewRecord & { report: WorkResultRecord | null }>;
+  supersedes: WorkResultRecord | null;
+  successor: WorkResultRecord | null;
+  successorId: string | null;
+  reviewTargetId: string | null;
+};
+export type { WorkResultLink, WorkResultCodeRevision, WorkResultReviewSelection, WorkResultReviewScope, WorkResultReviewProvenance, WorkResultFeedbackContext } from '@/lib/db/schema';
 
 // ─── User State ────────────────────────────────────────────────
 
@@ -205,6 +230,7 @@ export type UpdateApiKeyInput = Partial<Pick<CreateApiKeyInput, 'name' | 'descri
 // ─── Workspaces ───────────────────────────────────────────────
 
 export type WorkspaceRecord = WithCamelAttachments<InferSelectModel<typeof workspaces>>;
+export type WorkspaceReviewDefaults = NonNullable<WorkspaceRecord['reviewDefaults']>;
 export type CreateWorkspaceInput = WithCamelAttachments<PolicyOptional<Omit<InferInsertModel<typeof workspaces>, 'id'>, 'status' | 'filesToCopy' | 'collapsed' | 'skipLiveConfirm' | 'browserEnabled'>>;
 export type UpdateWorkspaceInput = Partial<Omit<CreateWorkspaceInput, 'createdAt'>>;
 export type WorkspaceStatus = WorkspaceRecord['status'];

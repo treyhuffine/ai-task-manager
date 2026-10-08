@@ -126,6 +126,21 @@ describe.skipIf(!RUN)('browser integration (e2e)', () => {
     T,
   );
 
+  it('retains screenshot bytes only with handoffs enabled and keeps them after disable', async () => {
+    const { page } = await blankPage();
+    await page.setContent('<h1>Durable visual evidence</h1>');
+    writeAuthConfig({ handoffsEnabled: false });
+    const ordinary = await readPage(page, { mode: 'screenshot' });
+    expect(ordinary.image).toBeTruthy();
+    expect(ordinary.attachment).toBeUndefined();
+    writeAuthConfig({ handoffsEnabled: true });
+    const enabled = await readPage(page, { mode: 'screenshot' });
+    expect(enabled.attachment?.mimeType).toBe('image/png');
+    expect(fs.readFileSync(attachmentPath(enabled.attachment!.fileName))).toEqual(Buffer.from(enabled.image!, 'base64'));
+    writeAuthConfig({ handoffsEnabled: false });
+    expect(fs.existsSync(attachmentPath(enabled.attachment!.fileName))).toBe(true);
+  }, T);
+
   it(
     'evaluate runs and returns a value',
     async () => {
@@ -241,7 +256,7 @@ describe.skipIf(!RUN)('browser integration (e2e)', () => {
     'blocked-on-act reports a login wall',
     async () => {
       const { session, page } = await blankPage();
-      await page.setContent('<input type="password"><button aria-label="N">n</button>');
+      await page.setContent('<input type="password" style="width:200px;height:44px"><button aria-label="N">n</button>');
       const snap = await readPage(page, { mode: 'snapshot' });
       const res = await performAct(session, { kind: 'hover', ref: ref(snap.content, 'N') });
       expect(res.blocked?.kind).toBe('login');

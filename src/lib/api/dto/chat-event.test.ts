@@ -53,6 +53,17 @@ describe('toChatEventDTO', () => {
     expect(decodeBackgroundTaskEvent(dto.raw)).not.toBeNull();
   });
 
+  it('retains the exact saved handoff reference without provider payloads', () => {
+    const dto = toChatEventDTO(row({ source: 'work_result', raw: { resultId: 'r1', bulk: 'x'.repeat(5000) } }));
+    expect(dto.raw).toEqual({ resultId: 'r1' });
+  });
+
+  it('retains feature operation delivery and cancellation state after reload', () => {
+    const resultOperation = { kind: 'handoff_preparation', requestId: 'key', status: 'cancelled', statusReason: 'feature_disabled' };
+    const dto = toChatEventDTO(row({ source: 'user', raw: { resultOperation, bulk: 'x'.repeat(5000) } }));
+    expect(dto.raw).toEqual({ resultOperation });
+  });
+
   it('keeps raw on the legacy Claude unknown envelope', () => {
     // Agentex <=0.0.32 surfaced task lifecycle as `unknown` + providerType
     // claude. Stored transcripts still contain these.

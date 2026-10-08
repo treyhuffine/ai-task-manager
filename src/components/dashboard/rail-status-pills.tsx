@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useSessionBuckets } from '@/hooks/use-session-buckets';
+import { useRailSessions } from '@/hooks/use-workspaces';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   BUCKET_CONFIG,
@@ -17,6 +18,9 @@ import { useAgentAttention, type AgentAttentionItem } from '@/hooks/use-agent-at
 import { AgentAttentionRow } from '@/components/workspaces/agent-attention-row';
 import { WorkspaceAvatar } from '@/components/workspaces/history-row';
 import { Tip } from '@/components/ui/tip';
+import Link from 'next/link';
+import { ClipboardCheck, ShieldAlert } from 'lucide-react';
+import type { RailResponse } from '@/lib/api/sessions';
 
 // Top-HUD status pills: every active execution by status, as a compact
 // dot+count strip that stays visible regardless of rail collapse state or
@@ -26,6 +30,7 @@ import { Tip } from '@/components/ui/tip';
 // stable and the eye learns where to look.
 
 export function RailStatusPills() {
+  const { data } = useRailSessions();
   // Inactive work and settled imports are left out (`bucketSessions`), the
   // same reading the collapsed rail's Agents badge counts.
   const buckets = useSessionBuckets();
@@ -43,7 +48,32 @@ export function RailStatusPills() {
           agents={agents.filter((a) => a.bucket === bucketId)}
         />
       ))}
+      <ReviewAttentionPill reviews={data?.resultReviewAttention ?? []} pendingSessionIds={data?.pendingSessionIds ?? []} />
     </div>
+  );
+}
+
+export function ReviewAttentionPill({ reviews, pendingSessionIds }: { reviews: NonNullable<RailResponse['resultReviewAttention']>; pendingSessionIds: string[] }) {
+  const [open, setOpen] = useState(false);
+  if (!reviews.length) return null;
+  const needsAttention = reviews.some((review) => review.status === 'failed' || pendingSessionIds.includes(review.sessionId));
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Tip label="AI review activity"><button aria-label={`AI reviews: ${reviews.length}${needsAttention ? ', attention needed' : ''}`} className={cn('flex h-[18px] items-center gap-1 rounded px-1.5 text-[10px]', needsAttention ? 'bg-amber-500/15 text-amber-500' : 'bg-muted text-muted-foreground')}>
+          {needsAttention ? <ShieldAlert size={10} /> : <ClipboardCheck size={10} />}<span className="font-mono font-semibold">{reviews.length}</span>
+        </button></Tip>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 p-2">
+        <p className="px-1 pb-2 text-xs font-medium">AI review activity</p>
+        <div className="max-h-72 overflow-y-auto space-y-1">
+          {reviews.map((review) => <Link key={review.reviewId} href={`/results/${review.resultId}`} onClick={() => setOpen(false)} className="block rounded-md px-2 py-2 hover:bg-muted">
+            <p className="truncate text-xs font-medium">{review.label ?? 'AI review'}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{pendingSessionIds.includes(review.sessionId) ? 'Needs your response' : review.statusReason ? review.statusReason.replaceAll('_', ' ') : review.status === 'running' ? 'Reviewing with AI' : review.status === 'queued' ? 'Queued' : 'Review failed'}</p>
+          </Link>)}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

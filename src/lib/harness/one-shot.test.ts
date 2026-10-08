@@ -7,7 +7,7 @@ vi.mock('@agentex/agent', () => ({
   getProvider: () => ({ execute: executeMock, capabilities }),
 }));
 
-let userState: { defaultHarness?: string | null; defaultModel?: string | null } | undefined;
+let userState: { defaultHarness?: string | null; defaultModel?: string | null; workResultGuidance?: string | null } | undefined;
 vi.mock('@/lib/db/queries', () => ({
   getUserState: () => userState,
 }));
@@ -225,4 +225,18 @@ describe('runHarnessJson', () => {
     );
     expect(executeMock).toHaveBeenCalledTimes(2);
   });
+});
+
+
+it.each(['claude', 'codex', 'cursor', 'opencode', 'antigravity'] as const)('keeps scoped handoff preferences out of %s one-shot calls', async (harness) => {
+  userState = { defaultHarness: harness, workResultGuidance: 'HANDOFF_ONLY_HINT' };
+  const { runHarnessText } = await import('./one-shot');
+  if (harness === 'antigravity') {
+    await expect(runHarnessText({ label: 'test', system: 'SYSTEM', prompt: 'REQUEST' })).rejects.toThrow(/background calls are unavailable/);
+    expect(executeMock).not.toHaveBeenCalled();
+    return;
+  }
+  await runHarnessText({ label: 'test', system: 'SYSTEM', prompt: 'REQUEST' });
+  expect(lastCall().prompt).toBe('SYSTEM\n\n---\n\nREQUEST');
+  expect(lastCall().prompt).not.toContain('get_handoff_context');
 });

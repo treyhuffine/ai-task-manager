@@ -7,7 +7,7 @@ import type { Serialize } from '@trpc/server/unstable-core-do-not-import';
  * a real 100-row page, `raw` was 424.8KB of 529KB, and across the whole table
  * it is 1.44GB against 68MB of `content`. Almost none of it is read.
  *
- * Only three things ever look at `raw`:
+ * Provider fields read from `raw`:
  *
  *   - the transcript reads `raw.subtype` (and only as a fallback behind
  *     `content`, for `system` rows)
@@ -15,6 +15,8 @@ import type { Serialize } from '@trpc/server/unstable-core-do-not-import';
  *     `system` rows, for the token counter and model label
  *   - `decodeBackgroundTaskEvent` reads the whole object, but returns null
  *     for anything that isn't a background-task envelope
+ *   - app-owned handoff events and operation messages retain their small
+ *     result reference or delivery envelope so they survive reloads
  *
  * So the first two become derived scalars, and `raw` survives only where the
  * decoder can actually use it. The condition is expressed *as* a decoder call
@@ -56,9 +58,11 @@ export function toChatEventDTO(row: ChatEventRecord): ChatEventDTO {
   const raw = asRecord(row.raw);
   return {
     ...row,
-    // Kept for a background task's rows, and for a continuation's, whose
-    // handoff is shown under "Continued on MacBook" (P4.3).
-    raw: decodeBackgroundTaskEvent(row.raw) || row.source === 'continuation' ? row.raw : null,
+    // Background tasks and device continuations retain their existing payloads.
+    raw: decodeBackgroundTaskEvent(row.raw) || row.source === 'continuation' ? row.raw
+      : row.source === 'work_result' && str(raw?.resultId) ? { resultId: raw!.resultId }
+      : raw?.resultOperation && typeof raw.resultOperation === 'object' ? { resultOperation: raw.resultOperation }
+      : null,
     rawSubtype: str(raw?.subtype),
     rawModel: str(raw?.model),
     rawUsage: raw?.usage ?? null,

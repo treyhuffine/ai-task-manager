@@ -63,6 +63,9 @@ function wipe() {
 }
 
 beforeEach(async () => {
+  // Remote embeddings are unrelated to heartbeat dispatch, and could finish
+  // after the next fixture closes this test's database connection.
+  vi.stubEnv('OPENAI_API_KEY', '');
   wipe();
   process.env.RI_DB_PATH = TEST_DB;
   const { resetDb } = await import('@/lib/db');
@@ -73,7 +76,10 @@ beforeEach(async () => {
   notifySpy.mockClear();
 });
 
-afterAll(wipe);
+afterAll(() => {
+  vi.unstubAllEnvs();
+  wipe();
+});
 
 /** Fire the heartbeat once and wait for its run to settle. */
 async function fireHeartbeat() {

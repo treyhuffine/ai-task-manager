@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { actions, type ActionName, type ActionOutput } from './registry';
 import type { Action, ActionContext } from './types';
 import { ActionError } from './types';
+import { getChatSession } from '@/lib/db/queries';
 
 export function findAction(name: string): Action | undefined {
   return actions.find((a) => a.name === name);
@@ -51,7 +52,8 @@ async function dispatch(
     };
   }
 
-  const schema = z.object(action.params);
+  const objectSchema = z.object(action.params);
+  const schema = ['get_handoff_context', 'report_result', 'get_result', 'list_results', 'request_result_review', 'report_result_review'].includes(name) ? objectSchema.strict() : objectSchema;
   const parsed = schema.safeParse(rawInput ?? {});
   if (!parsed.success) {
     return {
@@ -66,11 +68,16 @@ async function dispatch(
   }
 
   try {
+    const serverReport = !ctx.remote && ['report_result', 'report_result_review'].includes(name);
+    const caller = ctx.actor?.sessionId && !serverReport ? getChatSession(ctx.actor.sessionId) : null;
+    if (caller?.surfaceKind === 'result_review' && !['get_result', 'report_result_review'].includes(name)) {
+      throw new ActionError('unsupported', 'Background reviewers may only read their assigned result and report findings.');
+    }
     const result = await action.handler(ctx, parsed.data);
     // Attribute what changed to the run in flight in the calling chat, so a
     // run's "what did it change" list is exact whichever transport the agent
     // used (MCP or the CLI from its shell).
-    if (action.mutating) {
+    if (action.mutating && !serverReport) {
       recordRunArtifacts({
         actionName: name,
         input: parsed.data as Record<string, unknown>,

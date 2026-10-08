@@ -34,6 +34,12 @@ export interface GuardCommand {
   command: 'complete' | 'archive' | 'return_to_todo';
 }
 
+export interface GuardAcknowledgments {
+  acknowledgedChildIds?: string[];
+  runtimeChoice?: RuntimeChoice;
+  acknowledgedExecutionIds?: string[];
+}
+
 const VERB: Record<GuardCommand['command'], { verb: string; done: string }> = {
   complete: { verb: 'complete', done: 'completed the task' },
   archive: { verb: 'archive', done: 'archived the task' },
@@ -45,10 +51,10 @@ interface GuardContextValue {
    * Open children and a running workstream COMPOSE: it collects each
    * acknowledgement in turn and re-issues with all of them, so a parent that has
    * both can still be completed/archived. */
-  resolve: (cmd: GuardCommand) => Promise<void>;
+  resolve: (cmd: GuardCommand, operation?: (acknowledgments: GuardAcknowledgments) => Promise<void>) => Promise<boolean>;
 }
 
-const GuardContext = createContext<GuardContextValue>({ resolve: async () => {} });
+const GuardContext = createContext<GuardContextValue>({ resolve: async () => false });
 
 export function useLifecycleGuard(): GuardContextValue {
   return useContext(GuardContext);
@@ -90,13 +96,15 @@ export function LifecycleGuardProvider({ children }: { children: ReactNode }) {
   );
 
   const resolve = useCallback(
-    async (cmd: GuardCommand) => {
-      const acks: { acknowledgedChildIds?: string[]; runtimeChoice?: RuntimeChoice; acknowledgedExecutionIds?: string[] } = {};
+    async (cmd: GuardCommand, operation?: (acknowledgments: GuardAcknowledgments) => Promise<void>) => {
+      const acks: GuardAcknowledgments = {};
       // At most: children confirm, then workstream choice, then success.
       for (let attempt = 0; attempt < 4; attempt++) {
         const key = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now());
         try {
-          if (cmd.command === 'complete') {
+          if (operation) {
+            await operation(acks);
+          } else if (cmd.command === 'complete') {
             await tasksApi.complete(cmd.taskId, { ...acks, idempotencyKey: key });
           } else {
             await tasksApi.transition(cmd.taskId, cmd.command, { ...acks, idempotencyKey: key });
@@ -111,27 +119,30 @@ export function LifecycleGuardProvider({ children }: { children: ReactNode }) {
                 ? `Kept the workstream running and ${VERB[cmd.command].done}`
                 : `${VERB[cmd.command].done[0].toUpperCase()}${VERB[cmd.command].done.slice(1)}`,
           );
-          return;
+          return true;
         } catch (e) {
           const code = apiErrorCode(e);
           const details = apiErrorDetails<{ requiresChildAck?: boolean; openChildren?: GuardChild[]; requiresChoice?: boolean; running?: GuardWorkstream[] }>(e);
           if (code === 'conflict' && details?.requiresChildAck) {
             const ok = await askChildren(details.openChildren ?? [], cmd.command);
-            if (!ok) return;
+            if (!ok) return false;
             acks.acknowledgedChildIds = (details.openChildren ?? []).map((c) => c.id);
             continue;
           }
           if (code === 'active_execution' && details?.requiresChoice) {
             const choice = await askWorkstream(details.running ?? [], cmd.command);
-            if (!choice) return;
+            if (!choice) return false;
             acks.runtimeChoice = choice;
             acks.acknowledgedExecutionIds = (details.running ?? []).map((w) => w.executionId);
             continue;
           }
+          if (operation) throw e;
           toast.error(apiErrorText(e));
-          return;
+          return false;
         }
       }
+      if (operation) throw new Error('The task changed while confirming. Try again.');
+      return false;
     },
     [qc, askChildren, askWorkstream],
   );

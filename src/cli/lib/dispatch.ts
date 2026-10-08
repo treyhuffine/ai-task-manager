@@ -27,7 +27,7 @@ export async function dispatchAction(name: string, input: unknown): Promise<Disp
   if (getInstallationRole() === 'connected') return runActionAtHome(name, input);
   // From a harness session's shell, its signed credential names the chat that
   // is calling. A human at a terminal has none, and runs with no actor.
-  const actor = actorFromSessionCredential(process.env[SESSION_CREDENTIAL_ENV]);
+  const actor = actorFromSessionCredential(process.env[SESSION_CREDENTIAL_ENV], { allowMissing: ['report_result', 'report_result_review'].includes(name) });
   return runAction(name, input, { remote: false, actor, caller: { location: 'home' } });
 }
 

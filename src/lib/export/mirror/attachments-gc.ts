@@ -6,8 +6,8 @@
  *
  * Algorithm:
  *   1. Enumerate every `fileName` referenced by any entity's `attachments[]`
- *      column across all six tables (tasks, notes, areas, stream, workspaces,
- *      chat_events). Missing a table here causes the GC to see referenced
+ *      column across every attachment-bearing entity, including immutable
+ *      results and the retained inputs of AI reviews. Missing a root sees referenced
  *      files as orphans and silently break the user's images.
  *   2. Heal any reference whose file is only in `<brain>/.archive/attachments/`
  *      by moving it back to `<brain>/attachments/`. Always runs.
@@ -34,6 +34,7 @@ import {
   workspaces as workspacesTbl,
   chatEvents as chatEventsTbl,
 } from '@/lib/db/schema';
+import { getAllWorkResultAttachmentFileNames } from '@/lib/work-results/queries';
 import { getAttachmentsDir, getBrainDir } from '@/lib/config/paths';
 import { isAttachmentGcEnabled } from './config';
 import type { Attachment } from '@/db/types';
@@ -83,6 +84,9 @@ export function collectReferencedFileNames(): Set<string> {
       .all()
       .map((r) => hydrateRow(r)),
   );
+  // Results and retained review inputs survive both source and reviewer pruning.
+  // These roots stay active when handoff/review capabilities are disabled.
+  for (const fileName of getAllWorkResultAttachmentFileNames()) out.add(fileName);
 
   return out;
 }

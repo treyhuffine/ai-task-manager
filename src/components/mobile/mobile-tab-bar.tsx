@@ -52,10 +52,14 @@ export function MobileTabBar() {
   const reviewCount = (needsReview ?? []).filter(
     (s) => (pendingInputSessionIds.has(s.id) || !streamingSessionIds.has(s.id)) && !isInactive(s),
   ).length;
+  const reviewAttention = rail?.resultReviewAttention ?? [];
+  const resultPending = reviewAttention.filter((review) => rail?.pendingSessionIds.includes(review.sessionId)).length;
+  const resultWorking = reviewAttention.filter((review) => !rail?.pendingSessionIds.includes(review.sessionId) && (review.status === 'queued' || review.status === 'running')).length;
+  const resultFailed = reviewAttention.filter((review) => review.status === 'failed').length;
   const badgeKind: 'pending' | 'working' | 'review' | null =
-    pendingCount > 0 ? 'pending' : workingCount > 0 ? 'working' : reviewCount > 0 ? 'review' : null;
+    pendingCount + resultPending > 0 ? 'pending' : workingCount + resultWorking > 0 ? 'working' : reviewCount + resultFailed > 0 ? 'review' : null;
   const badgeCount =
-    badgeKind === 'pending' ? pendingCount : badgeKind === 'working' ? workingCount : reviewCount;
+    badgeKind === 'pending' ? pendingCount + resultPending : badgeKind === 'working' ? workingCount + resultWorking : reviewCount + resultFailed;
 
   return (
     <nav className="flex-shrink-0 border-t border-border bg-background flex items-end justify-around px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] select-none">

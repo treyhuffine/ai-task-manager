@@ -9,6 +9,8 @@ import { isValidInactiveAfterDays, MAX_INACTIVE_AFTER_DAYS } from '@/lib/session
 import { createInsertSchema } from 'drizzle-zod';
 import fs from 'node:fs';
 import { z as rpcZ } from 'zod/v4';
+import { requestHasSessionAuthority } from '@/lib/orchestrator/mcp-caller';
+import { normalizeWorkResultGuidance, WorkResultGuidanceError } from '@/lib/instructions/preferences';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
@@ -23,9 +25,13 @@ export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: Oper
   }
 }
 
-export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: OperationContext) {
+export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, request: OperationContext) {
   try {
-    const body = rpcInput.body;
+    const { workResultGuidance, ...settings } = rpcInput.body;
+    if ('workResultGuidance' in rpcInput.body && requestHasSessionAuthority(request.headers)) {
+      return reply({ error: 'Only the owner can change shared workflow guidance.', code: 'unsupported' }, { status: 403 });
+    }
+    const body = { ...settings, ...(workResultGuidance !== undefined ? { workResultGuidance: normalizeWorkResultGuidance(workResultGuidance) } : {}) };
     if ('executionInactiveAfterDays' in body && !isValidInactiveAfterDays(body.executionInactiveAfterDays)) {
       return reply(
         { error: `executionInactiveAfterDays must be null (default), 0 (never), or whole days up to ${MAX_INACTIVE_AFTER_DAYS}` },
@@ -72,10 +78,11 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
     }
     return reply(row);
   } catch (err) {
+    if (err instanceof WorkResultGuidanceError) return reply({ error: err.message, code: err.code }, { status: 400 });
     console.error('[PATCH /api/user-state]', err);
     return reply({ error: String(err) }, { status: 400 });
   }
 }
 
 export const GETInput = rpcZ.object({}).strict().default({});
-export const PATCHInput = rpcZ.object({ body: createInsertSchema(userState).pick({ "name": true, "description": true, "createdAt": true, "updatedAt": true, "activeAreaId": true, "activeParentTaskId": true, "activeEnergy": true, "availableMinutes": true, "workdayStart": true, "workdayEnd": true, "timezone": true, "voiceAutoSend": true, "voiceModel": true, "defaultHarness": true, "defaultModel": true, "defaultEffort": true, "monthlyBudgetUsd": true, "onboardedAt": true, "executionInactiveAfterDays": true, "orchestratorName": true, "orchestratorEmoji": true, "orchestratorColor": true, "orchestratorIntroducedAt": true }).partial().extend({ "streamAutonomy": rpcZ.union([rpcZ.null(), rpcZ.object({ "killSwitch": rpcZ.boolean().optional(), "levels": rpcZ.object({ "promote_task": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "promote_note": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "merge_task": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "merge_note": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "combine_task": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "combine_note": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "journal": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "dismiss": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "incubate": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional() }).strict().optional() }).strict()]).optional(), "orchestratorImage": rpcZ.union([rpcZ.null(), rpcZ.object({ "fileName": rpcZ.string(), "originalName": rpcZ.string(), "mimeType": rpcZ.string(), "size": rpcZ.number().finite(), "uploadedAt": rpcZ.string() }).strict()]).optional() }).strict().default({}) }).strict();
+export const PATCHInput = rpcZ.object({ body: createInsertSchema(userState).pick({ "name": true, "description": true, "createdAt": true, "updatedAt": true, "activeAreaId": true, "activeParentTaskId": true, "activeEnergy": true, "availableMinutes": true, "workdayStart": true, "workdayEnd": true, "timezone": true, "voiceAutoSend": true, "voiceModel": true, "defaultHarness": true, "defaultModel": true, "defaultEffort": true, "monthlyBudgetUsd": true, "onboardedAt": true, "executionInactiveAfterDays": true, "orchestratorName": true, "orchestratorEmoji": true, "orchestratorColor": true, "orchestratorIntroducedAt": true }).partial().extend({ "workResultGuidance": rpcZ.unknown().optional(), "streamAutonomy": rpcZ.union([rpcZ.null(), rpcZ.object({ "killSwitch": rpcZ.boolean().optional(), "levels": rpcZ.object({ "promote_task": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "promote_note": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "merge_task": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "merge_note": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "combine_task": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "combine_note": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "journal": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "dismiss": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional(), "incubate": rpcZ.enum(["suggest", "auto_digest", "silent"]).optional() }).strict().optional() }).strict()]).optional(), "orchestratorImage": rpcZ.union([rpcZ.null(), rpcZ.object({ "fileName": rpcZ.string(), "originalName": rpcZ.string(), "mimeType": rpcZ.string(), "size": rpcZ.number().finite(), "uploadedAt": rpcZ.string() }).strict()]).optional() }).strict().default({}) }).strict();

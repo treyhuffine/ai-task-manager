@@ -59,15 +59,15 @@ export function verifySessionCredential(
 }
 
 /** Resolve a credential to the acting chat, if it verifies and the chat still exists. */
-export function actorFromSessionCredential(credential: unknown): ActionContext['actor'] | undefined {
+export function actorFromSessionCredential(credential: unknown, options: { allowMissing?: boolean } = {}): ActionContext['actor'] | undefined {
   const sessionId = verifySessionCredential(credential);
-  return sessionId ? actorOfChat(sessionId) : undefined;
+  return sessionId ? actorOfChat(sessionId, options) : undefined;
 }
 
 /** A chat, already verified as the caller, as the acting agent. Undefined when the chat is gone. */
-export function actorOfChat(sessionId: string): ActionContext['actor'] | undefined {
+export function actorOfChat(sessionId: string, options: { allowMissing?: boolean } = {}): ActionContext['actor'] | undefined {
   const session = getChatSession(sessionId);
-  if (!session) return undefined;
+  if (!session) return options.allowMissing ? { source: 'ai', sessionId, executionId: null } : undefined;
   return { source: 'ai', sessionId, executionId: session.executionId ?? null };
 }
 

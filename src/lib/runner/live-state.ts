@@ -25,6 +25,10 @@ export interface LiveSessionInfo {
   prePlanMode: PermissionMode | null;
   /** The native session id last reported to the sink. */
   nativeSessionId: string | null;
+  standingInstructions?: string;
+  messagePreamble?: string | null;
+  requiresMessageSnapshot?: boolean;
+  readOnlyReview?: { runId: string; message: string } | null;
 }
 
 export interface RunnerState {

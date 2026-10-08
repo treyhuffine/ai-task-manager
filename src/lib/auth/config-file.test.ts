@@ -91,6 +91,8 @@ describe('readAuthConfig', () => {
       browserHeadlessDefault: null,
       browserIdleCloseMs: null,
       browserDefaultProfile: null,
+      handoffsEnabled: null,
+      aiReviewEnabled: null,
     });
   });
 
@@ -113,6 +115,8 @@ describe('readAuthConfig', () => {
       browserHeadlessDefault: null,
       browserIdleCloseMs: null,
       browserDefaultProfile: null,
+      handoffsEnabled: null,
+      aiReviewEnabled: null,
     });
   });
 });
@@ -163,6 +167,8 @@ describe('writeAuthConfig', () => {
       browserHeadlessDefault: null,
       browserIdleCloseMs: null,
       browserDefaultProfile: null,
+      handoffsEnabled: null,
+      aiReviewEnabled: null,
     });
   });
 
@@ -185,6 +191,8 @@ describe('writeAuthConfig', () => {
       browserHeadlessDefault: null,
       browserIdleCloseMs: null,
       browserDefaultProfile: null,
+      handoffsEnabled: null,
+      aiReviewEnabled: null,
     });
   });
 

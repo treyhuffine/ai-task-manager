@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { DesktopSettings } from './desktop-settings';
 import { ApiTransportSettings } from './api-transport';
+import { ResultPilotSettings } from '@/components/results/result-pilot-settings';
+import { WorkResultGuidanceField } from './work-result-guidance-field';
 import { Switch } from '@/components/ui/switch';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
@@ -88,8 +90,8 @@ export function GeneralSection() {
     setEnd(userState.workdayEnd ?? DEFAULT_END);
   }, [userState?.workdayStart, userState?.workdayEnd]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const browserTz = useMemo(browserTimezone, []);
-  const zones = useMemo(allTimezones, []);
+  const browserTz = useMemo(() => browserTimezone(), []);
+  const zones = useMemo(() => allTimezones(), []);
   const effectiveTz = userState?.timezone ?? browserTz;
   const usingBrowserDefault = userState?.timezone == null;
   // Guarantee the effective zone is selectable even if it's not in the list.
@@ -121,6 +123,8 @@ export function GeneralSection() {
     <div className="space-y-6">
       <DesktopSettings />
       <ApiTransportSettings />
+      <ResultPilotSettings />
+      <WorkResultGuidanceField />
       {/* Theme */}
       <section className="space-y-2">
         <h3 className="text-[12px] font-medium text-foreground">Theme</h3>

@@ -30,10 +30,18 @@
  * write a server-normalized body into the live cache.
  */
 
-import type { QueryClient, QueryKey } from '@tanstack/react-query';
+import type { QueryClient, QueryFilters, QueryKey } from '@tanstack/react-query';
 import { LIST_BODY_EXCERPT_CHARS } from '@/lib/api/dto/entity-list';
 import { entityKeys, entityQueryFilter, taskListFilter, type EntityRoot } from './entity-keys';
 export type { EntityRoot } from './entity-keys';
+type OptimisticEntityRoot = EntityRoot | 'workspaces';
+
+/** Core entities use tRPC keys. Agent caches keep their shared domain keys. */
+function optimisticQueryFilter(root: OptimisticEntityRoot): QueryFilters {
+  return root === 'workspaces'
+    ? { queryKey: ['workspaces'], predicate: (query) => query.queryKey.length === 2 }
+    : entityQueryFilter(root);
+}
 
 /** Every cache entry we touched, captured before mutating, for rollback. */
 export type OptimisticSnapshot = Array<[QueryKey, unknown]>;
@@ -72,11 +80,11 @@ export function projectPatchToList(patch: EntityPatch): EntityPatch {
  */
 export async function optimisticPatch(
   qc: QueryClient,
-  root: EntityRoot,
+  root: OptimisticEntityRoot,
   id: string,
   patch: EntityPatch,
 ): Promise<OptimisticSnapshot> {
-  const filter = entityQueryFilter(root);
+  const filter = optimisticQueryFilter(root);
   await qc.cancelQueries(filter);
   const snapshot = qc.getQueriesData(filter) as OptimisticSnapshot;
 
@@ -102,10 +110,10 @@ export async function optimisticPatch(
  */
 export async function optimisticRemove(
   qc: QueryClient,
-  root: EntityRoot,
+  root: OptimisticEntityRoot,
   id: string,
 ): Promise<OptimisticSnapshot> {
-  const filter = entityQueryFilter(root);
+  const filter = optimisticQueryFilter(root);
   await qc.cancelQueries(filter);
   const snapshot = qc.getQueriesData(filter) as OptimisticSnapshot;
 
@@ -113,7 +121,7 @@ export async function optimisticRemove(
     if (Array.isArray(data)) return data.filter((row) => !hasId(row, id));
     return data;
   });
-  qc.removeQueries({ queryKey: entityKeys[root].detail(id), exact: true });
+  qc.removeQueries({ queryKey: root === 'workspaces' ? ['workspaces', id] : entityKeys[root].detail(id), exact: true });
 
   return snapshot;
 }
@@ -230,8 +238,8 @@ export function rollbackOptimistic(qc: QueryClient, snapshot: OptimisticSnapshot
  * state, so this never gates responsiveness, and the editor's focus guard means
  * a body refetch cannot disturb an open document.
  */
-export function settleEntity(qc: QueryClient, root: EntityRoot) {
-  qc.invalidateQueries({ queryKey: entityKeys[root].all });
+export function settleEntity(qc: QueryClient, root: OptimisticEntityRoot) {
+  qc.invalidateQueries({ queryKey: root === 'workspaces' ? ['workspaces'] : entityKeys[root].all });
   // Backlinks point at *targets*, so editing/renaming this entity changes the
   // backlink views of the entities it links to. And a rename changes this
   // entity's title everywhere it is referenced as a chip. Invalidate both

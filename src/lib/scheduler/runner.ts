@@ -107,6 +107,10 @@ export function startScheduler(): void {
   // execution-level mutexes clear.
   try {
     reapStaleRunningRuns();
+    void import('@/lib/work-results/runtime').then(({ recoverWorkResultOperations, reconcileWorkResultCapabilities }) => {
+      recoverWorkResultOperations();
+      reconcileWorkResultCapabilities();
+    }).catch((error) => console.warn('[scheduler] result recovery failed', error));
   } catch (err) {
     console.warn('[scheduler] startup reap failed', err);
   }

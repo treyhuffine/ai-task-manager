@@ -18,6 +18,8 @@ export interface PrInfo {
   state: 'OPEN' | 'CLOSED' | 'MERGED';
   isDraft: boolean;
   headRefName: string;
+  /** Exact head returned with live checks, or null when unavailable. */
+  headSha: string | null;
   baseRefName: string;
   title: string;
   updatedAt: string;
@@ -54,6 +56,7 @@ function toPrInfo(pr: PrLike, status: PrStatus | null): PrInfo {
     state: pr.state,
     isDraft: pr.isDraft,
     headRefName: pr.headRefName,
+    headSha: status?.headSha ?? null,
     baseRefName: pr.baseRefName,
     title: pr.title,
     updatedAt: pr.updatedAt,

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StreamEvent } from '@agentex/agent';
 import {
   _resetExecutorState,
@@ -7,6 +7,9 @@ import {
   persistStreamEvent,
 } from './adapter';
 import type { EventWriter } from './event-writer';
+
+const automatic = vi.hoisted(() => ({ drain: vi.fn() }));
+vi.mock('@/lib/work-results/automatic', () => ({ dispatchAutomaticWorkResultReviews: automatic.drain }));
 
 /**
  * Claude Code ends the root turn when it launches a background task, then
@@ -39,6 +42,7 @@ const noopWriter: EventWriter = { write: async () => true /* rows are asserted e
 describe('turn liveness from the provider stream', () => {
   beforeEach(() => {
     _resetExecutorState();
+    automatic.drain.mockClear();
   });
 
   it('marks a session running on a turn the provider started itself', async () => {
@@ -62,6 +66,32 @@ describe('turn liveness from the provider stream', () => {
     // They would otherwise persist as `unknown` rows and render once per turn.
     expect(parseStreamEvent('chat-1', turnStart('send'))).toBeNull();
     expect(parseStreamEvent('chat-1', turnEnd())).toBeNull();
+  });
+
+  it('drains a live autonomous turn completion after its original send has ended', async () => {
+    await persistStreamEvent('chat-1', turnStart('resume'), noopWriter, { trackBackgroundTaskRuntime: true });
+    await persistStreamEvent('chat-1', turnEnd(), noopWriter, { trackBackgroundTaskRuntime: true });
+    await vi.waitFor(() => expect(automatic.drain).toHaveBeenCalledWith('chat-1'));
+  });
+
+  it('does not schedule automatic work while replaying a recorded completion', async () => {
+    await persistStreamEvent('chat-1', turnEnd(), noopWriter);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(automatic.drain).not.toHaveBeenCalled();
+  });
+
+  it('waits for the last background author and drains its terminal live edge', async () => {
+    const task = (id: string, phase: string, status: string) => ({ ...base, type: 'background_task',
+      taskId: id, taskType: 'subagent', phase, status, description: 'Author work' }) as unknown as StreamEvent;
+    const live = { trackBackgroundTaskRuntime: true };
+    await persistStreamEvent('chat-1', task('first', 'started', 'running'), noopWriter, live);
+    await persistStreamEvent('chat-1', task('last', 'started', 'running'), noopWriter, live);
+    await persistStreamEvent('chat-1', turnEnd(), noopWriter, live);
+    await persistStreamEvent('chat-1', task('first', 'completed', 'completed'), noopWriter, live);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(automatic.drain).not.toHaveBeenCalled();
+    await persistStreamEvent('chat-1', task('last', 'completed', 'completed'), noopWriter, live);
+    await vi.waitFor(() => expect(automatic.drain).toHaveBeenCalledWith('chat-1'));
   });
 });
 

@@ -26,8 +26,7 @@ function timeAgo(date: Date): string {
  * on blur; the assistant's name and look (the orchestrator) save with their
  * own button, since trying on looks shouldn't change it; the "about you"
  * description debounced-saves to `user_state.description`.
- * Both seed every plan and every agent reply, so this pane leads the modal and
- * sells why filling it in is worth the minute.
+ * Profile context supports planning and the app's background assistance.
  */
 export function ProfileSection() {
   const { data: userState } = useUserState();
@@ -94,9 +93,7 @@ export function ProfileSection() {
       {/* Why this matters — the pitch, up front and unmuted. */}
       <div className="rounded-xl border border-primary/20 border-l-2 border-l-primary bg-primary/5 p-4">
         <p className="text-[12.5px] leading-relaxed text-foreground/90">
-          This is the context your agents build on. The more they know about you (your role, how you work, what
-          you&apos;re focused on), the sharper your daily plan gets and the more their replies feel like they actually
-          know you. Worth a minute now. It pays off in every chat.
+          Share your role, how you work, and what you&apos;re focused on to give your daily plan more useful context.
         </p>
       </div>
 

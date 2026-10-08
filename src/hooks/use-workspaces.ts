@@ -5,10 +5,16 @@ import type { ChatSessionRecord, ChatSessionWithExecution } from '@/lib/api/dto/
 import { sessionsApi, type HistoryResponse, type RailResponse } from '@/lib/api/sessions';
 import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
 import type { DirtyWorktreeBody, UncommittedFile } from '@/lib/workspaces/uncommitted-files';
-import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query';
 import { invalidateReferencePickers } from '@/hooks/use-reference-folders';
+import { toast } from 'sonner';
+import { optimisticPatch } from '@/lib/query/optimistic-entity';
+import type { WorkResultDetailResponse } from '@/lib/api/results';
 
 const WORKSPACES_KEY = ['workspaces'] as const;
+const UPDATE_WORKSPACE_KEY = ['workspaces', 'update'] as const;
+const workspaceFieldWrites = new WeakMap<QueryClient, Map<string, Map<string, object>>>();
+const resultsAwaitingWorkspaceRefresh = new WeakSet<QueryClient>();
 
 /** Detected setup/start command suggestions for a checkout (placeholders only). */
 export function useStackDetection(cwd: string | null) {
@@ -196,14 +202,80 @@ export function useCreateWorkspace() {
 export function useUpdateWorkspace() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: UPDATE_WORKSPACE_KEY,
+    meta: { carriesInput: true },
     mutationFn: ({ id, ...input }: UpdateWorkspaceInput & { id: string }) =>
       workspacesApi.update(id, input),
+    onMutate: async ({ id, ...input }) => {
+      const workspaceSnapshot = await optimisticPatch(qc, 'workspaces', id, input);
+      const preferences = 'reviewBeforeHandoff' in input || 'reviewDefaults' in input;
+      if (preferences) await qc.cancelQueries({ queryKey: ['results'] });
+      const resultsSnapshot = preferences ? qc.getQueriesData({ queryKey: ['results'] }) : [];
+      const token = {};
+      const byWorkspace = workspaceFieldWrites.get(qc) ?? new Map<string, Map<string, object>>();
+      const writes = byWorkspace.get(id) ?? new Map<string, object>();
+      workspaceFieldWrites.set(qc, byWorkspace);
+      byWorkspace.set(id, writes);
+      for (const field of Object.keys(input)) writes.set(field, token);
+      if (preferences) {
+        resultsAwaitingWorkspaceRefresh.add(qc);
+        qc.setQueriesData<WorkResultDetailResponse>({ queryKey: ['results'] }, (data) => {
+          if (!data?.associatedWorkspace || data.associatedWorkspace.id !== id) return data;
+          return { ...data, associatedWorkspace: { ...data.associatedWorkspace,
+            ...('reviewBeforeHandoff' in input ? { reviewBeforeHandoff: input.reviewBeforeHandoff ?? null } : {}),
+            ...('reviewDefaults' in input ? { reviewDefaults: input.reviewDefaults ?? null } : {}),
+          } };
+        });
+      }
+      return { workspaceSnapshot, resultsSnapshot, token };
+    },
+    onError: (error, { id, ...input }, context) => {
+      // A failed save owns only the fields it wrote. Other settings editors
+      // may have written unrelated fields, or chosen the same value later.
+      const restore = (current: Record<string, unknown>, previous: Record<string, unknown>, patch: Record<string, unknown>) => {
+        const restored = { ...current };
+        for (const field of Object.keys(patch)) {
+          if (workspaceFieldWrites.get(qc)?.get(id)?.get(field) === context?.token && Object.is(current[field], patch[field])) {
+            restored[field] = previous[field];
+          }
+        }
+        return restored;
+      };
+      for (const [key, previous] of context?.workspaceSnapshot ?? []) {
+        qc.setQueryData(key, (current: unknown) => {
+          if (Array.isArray(current) && Array.isArray(previous)) {
+            const before = previous.find((row) => row?.id === id);
+            return before ? current.map((row) => row?.id === id ? restore(row, before, input) : row) : current;
+          }
+          if (current && previous && (current as { id?: string }).id === id) {
+            return restore(current as Record<string, unknown>, previous as Record<string, unknown>, input);
+          }
+          return current;
+        });
+      }
+      for (const [key, previous] of context?.resultsSnapshot ?? []) {
+        const before = (previous as WorkResultDetailResponse | undefined)?.associatedWorkspace;
+        qc.setQueryData<WorkResultDetailResponse>(key, (current) => {
+          if (!before || before.id !== id || current?.associatedWorkspace?.id !== id) return current;
+          const patch = {
+            ...('reviewBeforeHandoff' in input ? { reviewBeforeHandoff: input.reviewBeforeHandoff ?? null } : {}),
+            ...('reviewDefaults' in input ? { reviewDefaults: input.reviewDefaults ?? null } : {}),
+          };
+          return { ...current, associatedWorkspace: restore(current.associatedWorkspace, before, patch) as typeof before };
+        });
+      }
+      toast.error(apiErrorText(error));
+    },
     // Rail rows carry a join-cached copy of workspace icon/emoji/attachments
     // (see listRailSessions), so a workspace edit has to bust both caches
     // — otherwise the rail keeps the old glyph until the next 15s poll.
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
-      qc.invalidateQueries({ queryKey: RAIL_KEY });
+    onSettled: () => {
+      // Refresh only after the last overlapping save, and let the Save
+      // acknowledgment finish while these background reads are pending.
+      if (qc.isMutating({ mutationKey: UPDATE_WORKSPACE_KEY }) !== 1) return;
+      void qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+      void qc.invalidateQueries({ queryKey: RAIL_KEY });
+      if (resultsAwaitingWorkspaceRefresh.delete(qc)) void qc.invalidateQueries({ queryKey: ['results'] });
     },
   });
 }

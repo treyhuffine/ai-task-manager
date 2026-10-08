@@ -76,6 +76,9 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
 
     const session = getChatSessionWithExecution(id);
     if (!session) return reply({ error: 'Session not found' }, { status: 404 });
+    if (session.surfaceKind === 'result_review') {
+      return reply({ error: 'An assigned background reviewer cannot receive ordinary continuation messages. Use the result actions for another review, or answer its pending question through the existing input controls.' }, { status: 409 });
+    }
     if (session.status === 'archived') {
       // Stale state — `ExecutionView` auto-resumes archived sessions on
       // mount via `useContinueSession`, so the canonical UI flow never

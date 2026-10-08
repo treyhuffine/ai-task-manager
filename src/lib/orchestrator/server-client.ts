@@ -102,7 +102,7 @@ export async function serverFetch<T>(path: string, init: RequestInit = {}): Prom
     res = await fetch(`${base}/api${path}`, {
       ...init,
       headers: {
-        'Content-Type': 'application/json',
+        ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
         Authorization: `Bearer ${token}`,
         [API_PROTOCOL_HEADER]: String(API_PROTOCOL),
         Connection: 'close',

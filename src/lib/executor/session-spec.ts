@@ -22,6 +22,7 @@ import {
   getHome,
   getUserState,
   getWorkspace,
+  getWorkResultAiReviewForSession,
   listReferenceFoldersForWorkspace,
   type ChatPlacement,
 } from '@/lib/db/queries';
@@ -50,9 +51,11 @@ import { SESSION_CLI_ENV, ensureSessionCli, sessionPath } from './session-cli';
 import { planSessionInstructions } from './session-instructions';
 import { renderSkillBuilderBrief } from '@/lib/skills/builder-brief';
 import { sessionSkillPlan } from '@/lib/skills/exclusions';
-import { renderAgentInstructionsPrompt } from './prompts/agent-instructions';
 import { harnessCapabilitiesOn } from './devices';
 import { pendingHandoff } from '@/lib/transfer/continue';
+import { renderStandingAgentInstructionsPrompt } from './prompts/standing-instructions';
+import { getWorkResultCapabilities } from '@/lib/work-results/capabilities';
+import { workResultsMcpServer } from '@/lib/work-results/instructions';
 import { handoffPreamble } from '@/lib/transfer/handoff';
 
 /** Where the session will run. The home's own device unless a placement says otherwise. */
@@ -231,10 +234,17 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     disallowedTools: [],
     extraArgs: [],
     instructions: null,
+    standingInstructions: renderStandingAgentInstructionsPrompt(args.workspaceId ? getWorkspace(args.workspaceId) ?? null : null),
+    messagePreamble: null,
+    readOnlyReview: args.surfaceKind === 'result_review' ? (() => {
+      const review = getWorkResultAiReviewForSession(args.chatSessionId);
+      if (!review?.runId || !review.brief) throw new Error('The saved reviewer assignment is unavailable.');
+      return { runId: review.runId, message: review.brief };
+    })() : null,
     firstTurnPreamble: null,
     env: {},
     attachUserSkills: true,
-    cleanLegacySkillLinks: args.sessionType === 'execution',
+    cleanLegacySkillLinks: args.sessionType === 'execution' && args.surfaceKind !== 'result_review',
   };
 
   // An agent's main chat: an orchestration chat with a workspace, running in
@@ -259,7 +269,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     if (!target.isHome) reachFromElsewhere();
     spec.extraArgs.push(...spawn.extraArgs);
     spec.instructions = spawn.instructions;
-    spec.firstTurnPreamble = spawn.firstTurnPreamble;
+    spec.messagePreamble = spawn.firstTurnPreamble;
     for (const warning of spawn.warnings) {
       console.warn(`[executor] agent main chat on provider "${providerType}": ${warning}.`);
     }
@@ -288,14 +298,13 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
       // messages still keep them on-task — no write guard either way there).
       if (
         args.sessionType === 'content' &&
-        providerType === 'claude' &&
         (args.surfaceKind === 'task' || args.surfaceKind === 'note') &&
         args.surfaceRef
       ) {
-        spec.extraArgs.push(
-          '--append-system-prompt',
-          renderContentFocusPrompt({ entityType: args.surfaceKind, entityId: args.surfaceRef }),
-        );
+        const focus = renderContentFocusPrompt({ entityType: args.surfaceKind, entityId: args.surfaceRef });
+        const plan = planSessionInstructions(providerType, [{ name: 'content focus', text: focus }]);
+        spec.instructions = plan.text || null;
+        if (plan.undelivered.length > 0) spec.messagePreamble = focus;
       }
       // A skill's builder chat: the brief rides the session instructions (or
       // the first message, on a harness that drops them), since unlike the
@@ -304,8 +313,8 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
       if (args.sessionType === 'content' && args.surfaceKind === 'skill' && args.surfaceRef) {
         const brief = renderSkillBuilderBrief(args.surfaceRef);
         const plan = planSessionInstructions(providerType, [{ name: 'skill builder brief', text: brief }]);
-        if (plan.text) spec.instructions = plan.text;
-        if (plan.undelivered.length > 0 && !args.existingExternalSessionId) spec.firstTurnPreamble = brief;
+        if (plan.text) spec.instructions = [spec.instructions, plan.text].filter(Boolean).join('\n\n');
+        if (plan.undelivered.length > 0) spec.messagePreamble = [spec.messagePreamble, brief].filter(Boolean).join('\n\n');
       }
       if (providerType !== 'claude') {
         console.warn(
@@ -328,11 +337,15 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     if (caps.strictMcpIsolation) {
       spec.strictMcpConfig = true; // no ambient/user/repo MCP leaks into the worktree agent
       const servers: McpServerConfig[] = [];
+      if (getWorkResultCapabilities().handoffsEnabled || args.surfaceKind === 'result_review') {
+        const results = workResultsMcpServer(args.chatSessionId);
+        if (results) servers.push(results);
+      }
       // Workspace-scoped integrations (opt-in via the workspace's integration allowlist). With none
       // allowed yet, still attached while agents may ask for connections, so the execution has
       // `request_connection` (and nothing else) when a task needs an account.
       const scopes = workspace?.integrationScopes ?? [];
-      if ((scopes.length > 0 || integrationRequestsEnabled()) && args.workspaceId) {
+      if ((scopes.length > 0 || integrationRequestsEnabled()) && args.workspaceId && args.surfaceKind !== 'result_review') {
         const integrations = integrationsMcpServer(undefined, {
           workspaceId: args.workspaceId,
           sessionId: args.chatSessionId,
@@ -344,7 +357,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
       // run cannot reach the user's logged-in default identity. The profile is
       // forced by the browser MCP route, the execution cannot switch it.
       const browserOn = isBrowserEnabled() && (workspace ? workspace.browserEnabled : true);
-      if (browserOn) {
+      if (browserOn && args.surfaceKind !== 'result_review') {
         const profile = args.workspaceId ? `ws-${args.workspaceId}` : 'execution';
         const browser = browserMcpServer(undefined, { profile, sessionId: args.chatSessionId });
         if (browser) servers.push(browser);
@@ -363,7 +376,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     // the agent's standing instructions (docs/agents-view-spec.md Phase 3),
     // then the reference-folder block below.
     const instructionBlocks = [
-      { name: 'agent instructions', text: workspace ? renderAgentInstructionsPrompt(workspace) : '' },
+      { name: 'agent instructions', text: '' },
     ];
 
     // Reference folders (docs/reference-folders-spec.md §6/§7). The prompt
@@ -392,9 +405,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
         const refConfig = buildReferenceFolderSessionConfig(refs);
         if (refConfig.instructions) {
           const wiring = referenceFolderProviderWiring(refConfig, providerType);
-          if (wiring.deliversInstructions) {
-            instructionBlocks.push({ name: 'reference folders', text: refConfig.instructions });
-          }
+          instructionBlocks.push({ name: 'reference folders', text: refConfig.instructions });
           spec.extraArgs.push(...wiring.extraArgs);
           if (wiring.disallowedTools.length > 0) spec.disallowedTools.push(...wiring.disallowedTools);
           if (wiring.delivery === 'prompt-only') {
@@ -404,13 +415,10 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
                 '(this provider is told not to change them without being fenced off).',
             );
           } else if (wiring.delivery === 'unsupported') {
-            // Not a partial degradation — a total one. This provider's session
-            // path drops `instructionsFile`, so the agent is never told the
-            // folders exist, which is the whole feature.
             console.warn(
               `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
-                'configured but NOT delivered — this harness ignores session-scoped instructions, ' +
-                'so the agent will not be told these folders exist. Use claude, codex or antigravity for reference folders.',
+                'announced with each submitted message because this harness ignores session-scoped instructions. ' +
+                'Folder edit restrictions remain prompt guidance on this harness.',
             );
           }
         }
@@ -422,7 +430,8 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
 
     const plan = planSessionInstructions(providerType, instructionBlocks);
     if (plan.text) spec.instructions = plan.text;
-    if (workspace && args.executionId) {
+    if (plan.undelivered.length > 0) spec.messagePreamble = instructionBlocks.map((b) => b.text).filter(Boolean).join('\n\n') || null;
+    if (workspace && args.executionId && args.surfaceKind !== 'result_review') {
       spec.environment = expectedEnvironment({ workspace, executionId: args.executionId, args, target, usable: refs, servers: spec.mcpServers });
       // Continued from another device (P4.3): the fresh session there starts
       // from the handoff, on its first message.
@@ -442,7 +451,14 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
 
   // An agent's main chat runs in the user's own folder, so it gets no user
   // skills on a harness that would write them there.
-  spec.attachUserSkills = !(agentMainChat && skillDirsWriteIntoCwd(providerType));
+  spec.attachUserSkills = !((agentMainChat || args.surfaceKind === 'result_review') && skillDirsWriteIntoCwd(providerType));
+  const standing = planSessionInstructions(providerType, [{ name: 'standing preferences', text: spec.standingInstructions }]);
+  if (standing.text && !agentMainChat) spec.instructions = [standing.text, spec.instructions].filter(Boolean).join('\n\n');
+  if (args.surfaceKind === 'result_review') {
+    spec.permissionMode = 'plan';
+    spec.prePlanMode = null;
+    spec.disallowedTools.push('ExitPlanMode', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'ApplyPatch');
+  }
   // A skill's builder and try chats get a little more or less than the usual
   // skills (src/lib/skills/exclusions.ts). Decided here because the runner
   // may be on a device without the database.

@@ -12,6 +12,9 @@
 
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { HUMAN_LINES_PER_HOUR } from '@/lib/work/lines';
+import { resultActions } from './result-actions';
+import { getWorkResultSourceWorkspace } from '@/lib/work-results/reviewer-preferences';
+import { normalizeWorkResultGuidance, WorkResultGuidanceError } from '@/lib/instructions/preferences';
 import { AttachmentMetadataRepairError, MAX_ATTACHMENT_METADATA_REPAIRS, REPAIR_ATTACHMENT_FILE_NAME } from '@/lib/attachments/repair-metadata';
 import { actorFromAction } from '@/lib/auth/actor';
 import {
@@ -34,6 +37,7 @@ import {
 	firstLineTitle,
 	getArea,
 	getChatSession,
+  getChatSessionWithExecution,
 	getDeadlineTasks,
 	getDeck,
 	getHarnessSettings,
@@ -1328,6 +1332,34 @@ const search_action = defineAction({
 
 // ── User state ────────────────────────────────────────────────
 
+/** Remembered workflow preferences are owner choices, separate from author output. */
+function assertWorkResultGuidanceScope(ctx: ActionContext, workspaceId: string | null): void {
+  if (ctx.remote === false && !ctx.actor?.sessionId && ctx.actor?.source !== 'ai') return;
+  const session = ctx.actor?.sessionId ? getChatSessionWithExecution(ctx.actor.sessionId) : null;
+  if (!session || session.userId !== 'local' || session.status !== 'active'
+    || session.execution?.status === 'archived' || isImportMirror(session)
+    || session.surfaceKind === 'result_review' || session.createdByRunId) {
+    throw new ActionError('unsupported', 'Remember workflow preferences from the app or an active authorized Ri chat, only when the user explicitly asks.');
+  }
+  if (ctx.actor?.executionId && ctx.actor.executionId !== session.executionId) {
+    throw new ActionError('unsupported', 'Caller execution does not match the producing conversation.');
+  }
+  const appMain = session.type === 'orchestration' && !session.workspaceId && !session.executionId;
+  if (appMain) return;
+  if (workspaceId && getWorkResultSourceWorkspace(session.userId, session.id, session.executionId)?.id === workspaceId) return;
+  throw new ActionError('unsupported', workspaceId
+    ? 'This chat can remember workflow preferences only for its own agent. Use the app main chat or agent setup for another agent.'
+    : 'Shared workflow preferences can be remembered only from the app main chat, Settings, or the local CLI.');
+}
+
+function normalizedWorkResultGuidance(value: string | null): string | null {
+  try { return normalizeWorkResultGuidance(value); }
+  catch (error) {
+    if (error instanceof WorkResultGuidanceError) throw new ActionError('invalid_params', error.message);
+    throw error;
+  }
+}
+
 const get_user_state_action = defineAction({
   name: 'get_user_state',
   description:
@@ -1341,17 +1373,23 @@ const update_user_state_action = defineAction({
   name: 'update_user_state',
   description:
     "Update the user's current state (energy, available time, active area/task, focus text). " +
-    'Only these focus fields are exposed. App settings are not writable from the agent surface.',
+    'Focus fields and explicitly requested shared handoff and review preferences are exposed. Other app settings are not writable from the agent surface.',
   params: {
     activeAreaId: z.string().nullable().optional(),
     activeParentTaskId: z.string().nullable().optional(),
     activeEnergy: z.enum(['deep', 'light']).nullable().optional(),
     availableMinutes: z.number().int().nullable().optional(),
     description: z.string().optional(),
+    work_result_guidance: z.string().nullable().optional().describe('Only when the user explicitly asks to remember preferences for future handoffs or reviews across all agents. App main chat or trusted local CLI only. Null clears the preference.'),
   },
   mutating: true,
-  handler: (_ctx, input) => {
-    const updates = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined));
+  handler: (ctx, input) => {
+    const { work_result_guidance: guidance, ...focus } = input;
+    const updates = Object.fromEntries(Object.entries(focus).filter(([, v]) => v !== undefined));
+    if (guidance !== undefined) {
+      assertWorkResultGuidanceScope(ctx, null);
+      updates.workResultGuidance = normalizedWorkResultGuidance(guidance);
+    }
     return updateUserState(updates) ?? null;
   },
 });
@@ -1451,6 +1489,7 @@ const update_workspace_action = defineAction({
   description:
     'Edit a workspace (the user calls it an agent): name, emoji, area, `purpose` (a sentence, 500 characters ' +
     'max), standing `instructions` (delivered to every execution it starts, 20,000 characters max), ' +
+    '`work_result_guidance` (only explicitly remembered handoff and review preferences), ' +
     `${INTEGRATION_LABELS.singular.toLowerCase()} access, the agent browser, and \`defaultDeviceId\`, the device its new executions run on ` +
     '(one it is set up on, see get_workspace runOn, or null to go back to the automatic choice). ' +
     'Pass null to clear purpose or instructions. Its folder, ' +
@@ -1465,6 +1504,7 @@ const update_workspace_action = defineAction({
     areaId: z.string().nullable().optional(),
     purpose: z.string().nullable().optional(),
     instructions: z.string().nullable().optional(),
+    work_result_guidance: z.string().nullable().optional().describe('Only when the user explicitly asks to remember future handoff or review preferences for this agent. Supplements shared guidance. Null restores inheritance.'),
     integrationScopes: z
       .array(
         z.object({
@@ -1498,8 +1538,13 @@ const update_workspace_action = defineAction({
   mutating: true,
   cli: { positional: ['id'] },
   handler: async (ctx, input) => {
-    const { id, integrationScopes, defaultDeviceId, ...fields } = input;
+    const { id, integrationScopes, defaultDeviceId, work_result_guidance: guidance, ...rest } = input;
+    const fields = { ...rest, ...(guidance !== undefined ? { workResultGuidance: guidance } : {}) };
     if (!getWorkspace(id)) throw new ActionError('not_found', `Workspace not found: ${id}`);
+    if (guidance !== undefined) {
+      assertWorkResultGuidanceScope(ctx, id);
+      fields.workResultGuidance = normalizedWorkResultGuidance(guidance);
+    }
     // Granting integration access or the browser widens what this agent's
     // executions can reach. Over MCP the caller is a harness session that
     // reads untrusted content (web pages, email), so an injected instruction
@@ -3437,6 +3482,7 @@ export const typedActions = [
   save_skill_action,
   move_skill_action,
   ...browserActions,
+  ...resultActions,
 ];
 
 /** Dynamic CLI/MCP dispatch validates the selected shape before invoking it.

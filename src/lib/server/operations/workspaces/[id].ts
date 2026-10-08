@@ -5,6 +5,9 @@ import { reply, type OperationContext } from '@/lib/server/operation';
 import { createInsertSchema } from 'drizzle-zod';
 import path from 'node:path';
 import { z as rpcZ } from 'zod/v4';
+import { requestHasSessionAuthority } from '@/lib/orchestrator/mcp-caller';
+import { WorkResultGuidanceError, normalizeWorkResultGuidance } from '@/lib/instructions/preferences';
+import { workspaceReviewPreferencesSchema } from '@/lib/workspaces/review-preferences';
 
 /** Fields every live session of the agent receives at spawn: its executions and its main chat. */
 const SESSION_FIELDS = ['browserEnabled', 'instructions', 'cwd', 'isGit'] as const;
@@ -28,16 +31,25 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
 
 class WorkspaceMissingError extends Error { }
 
-export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: OperationContext) {
+export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
     // `integrationScopes` is security-relevant (it governs what a workspace's executions may touch) and
     // must go through PUT /integration-scopes, which validates pins and recycles live sessions. Strip it
     // here so the generic PATCH can't write scopes unvalidated and without a session recycle.
     const raw = rpcInput.body;
+    if (['workResultGuidance', 'reviewBeforeHandoff', 'reviewDefaults'].some((field) => field in raw)
+      && requestHasSessionAuthority(request.headers)) {
+      return reply({ error: 'Only the owner can change handoff and review preferences.', code: 'unsupported' }, { status: 403 });
+    }
     // Check the whole patch before changing anything, so a bad field can't
     // leave the folder already moved.
-    const body = validateWorkspaceUpdate(raw);
+    const { workResultGuidance, reviewBeforeHandoff, reviewDefaults, ...fields } = raw;
+    const review = workspaceReviewPreferencesSchema.safeParse({ reviewBeforeHandoff, reviewDefaults });
+    if (!review.success) return reply({ error: 'Invalid reviewer preferences.', code: 'invalid_params' }, { status: 400 });
+    const body = validateWorkspaceUpdate({ ...fields, ...review.data,
+      ...(workResultGuidance !== undefined ? { workResultGuidance: normalizeWorkResultGuidance(workResultGuidance) } : {}),
+    });
     const before = getWorkspace(id);
     if (!before) return reply({ error: 'Workspace not found' }, { status: 404 });
 
@@ -66,6 +78,10 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
       row = updateWorkspace(id, body);
     }
     if (!row) return reply({ error: 'Workspace not found' }, { status: 404 });
+    if (body.reviewBeforeHandoff === false || body.reviewBeforeHandoff === null) {
+      const { reconcileAutomaticWorkResultReviewPreferences } = await import('@/lib/work-results/automatic');
+      reconcileAutomaticWorkResultReviewPreferences(id);
+    }
     // Session config is fixed at spawn (the browser changes the tool set, the
     // instructions and folder are read at spawn), so recycle live sessions to
     // apply a change now rather than only on the next session. The next
@@ -78,10 +94,11 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
     if (err instanceof WorkspaceFieldError) {
       return reply({ error: err.message }, { status: 400 });
     }
+    if (err instanceof WorkResultGuidanceError) return reply({ error: err.message, code: err.code }, { status: 400 });
     console.error('[PATCH /api/workspaces/:id]', err);
     return reply({ error: String(err) }, { status: 400 });
   }
 }
 
 export const GETInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict() }).strict();
-export const PATCHInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: createInsertSchema(workspaces).pick({ "name": true, "status": true, "slug": true, "emoji": true, "cwd": true, "isGit": true, "baseBranch": true, "remoteName": true, "worktreeRoot": true, "setupCommand": true, "teardownCommand": true, "startCommand": true, "updatedAt": true, "areaId": true, "purpose": true, "instructions": true, "defaultDeviceId": true, "position": true, "collapsed": true, "skipLiveConfirm": true, "browserEnabled": true, "archivedAt": true }).partial().extend({ "attachments": rpcZ.union([rpcZ.null(), rpcZ.array(rpcZ.object({ "fileName": rpcZ.string(), "originalName": rpcZ.string(), "mimeType": rpcZ.string(), "size": rpcZ.number().finite(), "uploadedAt": rpcZ.string() }).strict())]).optional(), "filesToCopy": rpcZ.array(rpcZ.string()).optional() }).strip().default({}) }).strict();
+export const PATCHInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: createInsertSchema(workspaces).pick({ "name": true, "status": true, "slug": true, "emoji": true, "cwd": true, "isGit": true, "baseBranch": true, "remoteName": true, "worktreeRoot": true, "setupCommand": true, "teardownCommand": true, "startCommand": true, "updatedAt": true, "areaId": true, "purpose": true, "instructions": true, "defaultDeviceId": true, "position": true, "collapsed": true, "skipLiveConfirm": true, "browserEnabled": true, "archivedAt": true }).partial().extend({ "workResultGuidance": rpcZ.unknown().optional(), "reviewBeforeHandoff": rpcZ.unknown().optional(), "reviewDefaults": rpcZ.unknown().optional(), "attachments": rpcZ.union([rpcZ.null(), rpcZ.array(rpcZ.object({ "fileName": rpcZ.string(), "originalName": rpcZ.string(), "mimeType": rpcZ.string(), "size": rpcZ.number().finite(), "uploadedAt": rpcZ.string() }).strict())]).optional(), "filesToCopy": rpcZ.array(rpcZ.string()).optional() }).strip().default({}) }).strict();

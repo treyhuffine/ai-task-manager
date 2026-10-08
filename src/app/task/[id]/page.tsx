@@ -30,6 +30,7 @@ import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib
 import { RichEditor } from '@/components/editor/rich-editor';
 import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { SubtaskSection } from '@/components/tasks/subtask-section';
+import { TaskResults } from '@/components/results/task-results';
 import { AreaSelect } from '@/components/shared/area-select';
 import {
   DropdownMenu,
@@ -523,6 +524,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                     onFoldedHeadingsChange={handleFoldedHeadingsChange}
                   />
                 </div>
+                <TaskResults key={task.id} taskId={task.id} />
               </div>
             ) : (
               <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">

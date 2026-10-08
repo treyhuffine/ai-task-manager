@@ -35,6 +35,7 @@ import { ResyncMenuItem } from './resync-menu-item';
 import { useSteadyRunning } from './steady-running';
 import { LocationMenu, MoveActions } from './transfer/location-menu';
 import { Tip } from '@/components/ui/tip';
+import { ExecutionResultsShortcut } from '@/components/results/execution-results-shortcut';
 
 interface ExecutionHeaderProps {
   session: ChatSessionWithExecution;
@@ -484,6 +485,7 @@ export function ExecutionHeader({
           </div>
         </div>
 
+        {session.executionId && <ExecutionResultsShortcut executionId={session.executionId} />}
         {onOpenTools && (
           <button
             type="button"
@@ -540,6 +542,8 @@ export function ExecutionHeader({
         {menu('start', 'p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex-shrink-0', 14)}
 
         <span className="flex-1" />
+
+        {session.executionId && <ExecutionResultsShortcut executionId={session.executionId} />}
 
         {workbench && (
           <>

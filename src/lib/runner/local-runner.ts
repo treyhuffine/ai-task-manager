@@ -54,6 +54,7 @@ import { getHarnessRuntime, runtimeContextForHarness } from '@/lib/harness/runti
 import { redactHarnessRuntimeValue } from '@/lib/harness/redaction';
 import { perfScope } from '@/lib/perf/recorder';
 import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
+import { withAppSessionInstructions } from '@/lib/executor/prompts/standing-instructions';
 import { ExecutorError } from './errors';
 import { withFirstTurnPreamble } from './first-turn';
 import { runnerState, isRunning, hasBackgroundTasks } from './live-state';
@@ -103,12 +104,7 @@ function setRunning(chatSessionId: string, running: boolean): void {
   else state.runningSessions.delete(chatSessionId);
   if (state.harnessSessions.has(chatSessionId)) state.lastActivityAt.set(chatSessionId, Date.now());
   if (wasRunning !== running) report(chatSessionId, { type: 'running', running });
-  // The turn a deferred recycle was waiting on just ended.
-  if (!running && state.pendingRecycles.delete(chatSessionId)) {
-    void recycleForModeChange(chatSessionId).catch((err) => {
-      console.error(`[runner] deferred recycle failed for ${chatSessionId}:`, err);
-    });
-  }
+  if (!running) drainPendingRecycle(chatSessionId);
 }
 
 /**
@@ -125,6 +121,11 @@ function setRunning(chatSessionId: string, running: boolean): void {
  * events (Codex, OpenCode) working exactly as before: they only ever
  * contribute the dispatch side.
  */
+function drainPendingRecycle(chatSessionId: string): void {
+  if (isRunning(chatSessionId) || hasBackgroundTasks(chatSessionId) || !state.pendingRecycles.delete(chatSessionId)) return;
+  void recycleForModeChange(chatSessionId).catch((err) => console.error(`[runner] deferred recycle failed for ${chatSessionId}:`, err));
+}
+
 function refreshRunning(chatSessionId: string): void {
   const dispatching = (state.inflightCount.get(chatSessionId) ?? 0) > 0;
   setRunning(chatSessionId, dispatching || state.openStreamTurns.has(chatSessionId));
@@ -233,6 +234,7 @@ export function _recordBackgroundTaskEvent(chatSessionId: string, event: unknown
     active: state.backgroundTasks.has(chatSessionId),
     taskIds: Array.from(state.backgroundTasks.get(chatSessionId) ?? []),
   });
+  if (!state.backgroundTasks.has(chatSessionId) && state.pendingRecycles.has(chatSessionId)) setImmediate(() => drainPendingRecycle(chatSessionId));
   return true;
 }
 
@@ -341,6 +343,7 @@ function harnessProcessOf(
  * down. Next dispatch lazily spawns a fresh one.
  */
 export function invalidateHarnessSession(chatSessionId: string): void {
+  state.pendingRecycles.delete(chatSessionId);
   state.harnessSessions.delete(chatSessionId);
   state.sessionInfo.delete(chatSessionId);
   state.lastActivityAt.delete(chatSessionId);
@@ -485,6 +488,7 @@ function liveHandle(chatSessionId: string): AgentSession | null {
  */
 export async function send(req: SendRequest): Promise<SendResult> {
   const { chatSessionId } = req;
+  if (req.admission && !await req.admission()) throw new ExecutorError('unsupported', 'This result operation is no longer eligible to send.');
   const live = liveHandle(chatSessionId);
   const info = live ? state.sessionInfo.get(chatSessionId) : undefined;
   const harness = info?.harness ?? req.spec?.harness;
@@ -499,11 +503,26 @@ export async function send(req: SendRequest): Promise<SendResult> {
   let result: Promise<unknown>;
   let commandUuid: string;
   try {
-    const handle = live ?? (await startSessionOnce(req.spec!));
+    const handle = live ?? (await startSessionOnce(req.spec!, req.admission));
     // Starting a session can take a while: the sender may have given up
     // meanwhile. The session stays, for the next message.
     if (req.signal?.aborted) throw new ExecutorError('invalid_state', 'It was given up before it was sent.');
-    const sent = await handle.send(withFirstTurnPreamble(req.message, takeFirstTurnPreamble(handle)));
+    if (req.admission && !await req.admission()) {
+      if (state.sessionInfo.get(chatSessionId)?.readOnlyReview) await close(chatSessionId);
+      throw new ExecutorError('unsupported', 'This result operation ended while its runtime was starting.');
+    }
+    const currentInfo = state.sessionInfo.get(chatSessionId);
+    const assigned = currentInfo?.readOnlyReview;
+    if (assigned && (req.runId !== assigned.runId || req.message !== assigned.message)) {
+      throw new ExecutorError('unsupported', 'A reviewer may submit only its saved exact assignment.');
+    }
+    const currentStanding = req.currentStandingInstructions?.() ?? req.standingInstructions ?? req.spec?.standingInstructions;
+    const native = providerDeliversSessionInstructions(harnessDefinition(harness).agentexProviderId);
+    if (currentInfo && currentStanding !== undefined && currentStanding !== currentInfo.standingInstructions) currentInfo.requiresMessageSnapshot = true;
+    const instructions = !native || currentInfo?.requiresMessageSnapshot
+      ? [currentStanding, currentInfo?.messagePreamble].filter(Boolean).join('\n\n') || null
+      : null;
+    const sent = await handle.send(withAppSessionInstructions(withFirstTurnPreamble(req.message, takeFirstTurnPreamble(handle)), instructions));
     result = sent.result;
     // A harness that names no message still has its sends kept apart.
     commandUuid = sent.uuid ?? `turn:${req.turnId}`;
@@ -514,16 +533,20 @@ export async function send(req: SendRequest): Promise<SendResult> {
     throw err;
   }
   void result.then(
-    () => finishTurn(req, ref, null, commandUuid),
+    (value) => {
+      const turn = value as { status?: string; summary?: string | null; errorMessage?: string } | null;
+      const error = req.admission && turn?.status && turn.status !== 'completed' ? turn.errorMessage ?? `The result operation ended with runtime status ${turn.status}.` : null;
+      finishTurn(req, ref, error, commandUuid, turn?.summary ?? null);
+    },
     (err: unknown) => finishTurn(req, ref, err instanceof Error ? err.message : String(err), commandUuid),
   );
   return { status: 'delivered' };
 }
 
-function finishTurn(req: SendRequest, ref: DispatchLifecycleRef, error: string | null, commandUuid: string): void {
+function finishTurn(req: SendRequest, ref: DispatchLifecycleRef, error: string | null, commandUuid: string, summary: string | null = null): void {
   forgetSend(req.chatSessionId, commandUuid);
   _endActiveDispatch(req.chatSessionId, ref);
-  report(req.chatSessionId, { type: 'turn_result', turnId: req.turnId, runId: req.runId, ok: error === null, error });
+  report(req.chatSessionId, { type: 'turn_result', turnId: req.turnId, runId: req.runId, ok: error === null, error, summary });
 }
 
 /**
@@ -551,10 +574,10 @@ const startingRef = globalThis as unknown as { [STARTING_KEY]?: Map<string, Prom
 if (!startingRef[STARTING_KEY]) startingRef[STARTING_KEY] = new Map();
 const startingSessions = startingRef[STARTING_KEY]!;
 
-function startSessionOnce(spec: SessionSpec): Promise<AgentSession> {
+function startSessionOnce(spec: SessionSpec, admission?: () => boolean | Promise<boolean>): Promise<AgentSession> {
   const inFlight = startingSessions.get(spec.chatSessionId);
   if (inFlight) return inFlight;
-  const starting = startSession(spec).finally(() => {
+  const starting = startSession(spec, admission).finally(() => {
     if (startingSessions.get(spec.chatSessionId) === starting) startingSessions.delete(spec.chatSessionId);
   });
   startingSessions.set(spec.chatSessionId, starting);
@@ -567,7 +590,7 @@ function asReferenceFolder(ref: EnvironmentReference) {
 }
 
 /** Spawn the harness for a spec. The home decided what it needs; this adds what only this device knows. */
-async function startSession(spec: SessionSpec): Promise<AgentSession> {
+async function startSession(spec: SessionSpec, admission?: () => boolean | Promise<boolean>): Promise<AgentSession> {
   const providerType = harnessDefinition(spec.harness).agentexProviderId;
   const provider = getProvider(providerType);
   if (!provider.createSession) {
@@ -584,7 +607,12 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
   // Translate the app-native permission mode into harness config at the one
   // boundary that owns it (see permission-map.ts). auto_all/plan ride agentex's
   // generic skipPermissions/planMode; ask/auto_edits become Claude flags.
-  const perm = harnessPermissionConfig(spec.permissionMode, providerType, {
+  if (spec.readOnlyReview && (!runtime.capabilities.planMode.supported
+    || (spec.effort && !runtime.capabilities.reasoningEffort.supported)
+    || (spec.modelVariant && !runtime.capabilities.modelVariants.supported))) {
+    throw new ExecutorError('unsupported', 'This reviewer cannot apply its saved read-only settings.');
+  }
+  const perm = harnessPermissionConfig(spec.readOnlyReview ? 'plan' : spec.permissionMode, providerType, {
     planMode: runtime.capabilities.planMode.supported,
   });
   const config: ProviderConfig = {
@@ -603,7 +631,8 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
   const disallowedTools = [...spec.disallowedTools];
   const referenceArgs: string[] = [];
   let instructions = spec.instructions;
-  let firstTurnPreamble = spec.firstTurnPreamble;
+  const firstTurnPreamble = spec.firstTurnPreamble;
+  let messagePreamble = spec.messagePreamble ?? null;
   // A session elsewhere: the agent's folders as the home records them on
   // this device, checked here and now, once, and the reference folders
   // wired from that (docs/homes-spec.md §4.1). One that isn't there isn't
@@ -615,7 +644,7 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
     if (refConfig.instructions) {
       const wiring = referenceFolderProviderWiring(refConfig, providerType);
       if (wiring.deliversInstructions) instructions = [instructions, refConfig.instructions].filter(Boolean).join('\n\n');
-      else if (firstTurnPreamble !== null) firstTurnPreamble = [firstTurnPreamble, refConfig.instructions].join('\n\n');
+      else messagePreamble = [messagePreamble, refConfig.instructions].filter(Boolean).join('\n\n');
       referenceArgs.push(...wiring.extraArgs);
       disallowedTools.push(...wiring.disallowedTools);
       if (wiring.delivery !== 'full') {
@@ -636,7 +665,7 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
       const file = writeSessionEnvironment(spec.chatSessionId, environment);
       if (providerDeliversSessionInstructions(providerType)) {
         instructions = [instructions, renderEnvironment(environment, file)].filter(Boolean).join('\n\n');
-      }
+      } else messagePreamble = [messagePreamble, renderEnvironment(environment, file)].filter(Boolean).join('\n\n');
     } catch (err) {
       // Never worth losing the session over.
       console.warn('[runner] failed to resolve the execution environment:', err);
@@ -693,6 +722,7 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
     recordHarnessProcess(chatSessionId, pid).catch((err: unknown) => {
       console.warn(`[runner] couldn't record the harness process for ${chatSessionId}:`, err);
     });
+  if (admission && !await admission()) throw new ExecutorError('unsupported', 'This result operation ended before its runtime could start.');
   const handle = await provider.createSession({
     cwd: spec.cwd,
     env: { ...runtimeContext.env, ...spec.env },
@@ -702,7 +732,7 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
     onLifecycle: (event) => {
       if (event.phase === 'running') void recordProcess(event.pid);
     },
-    onUserInputRequest: (req) => handleUserInputRequest(chatSessionId, req),
+    onUserInputRequest: (req) => handleUserInputRequest(chatSessionId, req, !!spec.readOnlyReview),
     onEvent: async (event) => {
       try {
         const safeEvent = redactHarnessRuntimeValue(event);
@@ -728,6 +758,10 @@ async function startSession(spec: SessionSpec): Promise<AgentSession> {
     permissionMode: spec.permissionMode,
     prePlanMode: spec.prePlanMode,
     nativeSessionId: spec.nativeSessionId,
+    standingInstructions: spec.standingInstructions,
+    messagePreamble,
+    requiresMessageSnapshot: spec.harness === 'antigravity' && !!spec.nativeSessionId,
+    readOnlyReview: spec.readOnlyReview ?? null,
   });
   state.lastActivityAt.set(chatSessionId, Date.now());
   if (firstTurnPreamble) firstTurnPreambles.set(handle, firstTurnPreamble);
@@ -765,10 +799,14 @@ function reportNativeSession(chatSessionId: string, nativeSessionId: string | nu
  * In `auto_all` mode tool permissions short-circuit. The mode is the one the
  * session started with, or the mode it returned to on leaving plan mode.
  */
-async function handleUserInputRequest(chatSessionId: string, req: UserInputRequest): Promise<UserInputResponse> {
+async function handleUserInputRequest(chatSessionId: string, req: UserInputRequest, assignedReview = false): Promise<UserInputResponse> {
   const info = state.sessionInfo.get(chatSessionId);
   const mode = info?.permissionMode ?? DEFAULT_PERMISSION_MODE;
   const pending = classifyRequest(chatSessionId, req);
+  if ((info?.readOnlyReview || assignedReview) && pending.kind === 'permission'
+    && ['ExitPlanMode', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'ApplyPatch'].includes(pending.toolName)) {
+    return { allow: false, message: 'This reviewer is authorized to inspect and report only. It cannot edit the deliverable or enter implementation mode.' };
+  }
 
   // auto_all: only AskUserQuestion still needs UI. Auto-allowing a question
   // returns empty answers to Claude and the agent stalls — surface it.
@@ -926,6 +964,7 @@ export async function close(chatSessionId: string): Promise<StopReport> {
     }
     forgetClosedHarness(chatSessionId, handle);
   }
+  state.pendingRecycles.delete(chatSessionId);
   state.harnessSessions.delete(chatSessionId);
   state.sessionInfo.delete(chatSessionId);
   state.lastActivityAt.delete(chatSessionId);
@@ -965,7 +1004,7 @@ export async function closeIdleForMaintenance(): Promise<void> {
  * closing a handle mid-turn cuts the turn off.
  */
 export async function recycleWhenIdle(chatSessionId: string): Promise<void> {
-  if (isRunning(chatSessionId)) {
+  if (isRunning(chatSessionId) || hasBackgroundTasks(chatSessionId)) {
     state.pendingRecycles.add(chatSessionId);
     return;
   }
@@ -996,6 +1035,8 @@ export async function recycleHarnessSessions(harness: HarnessId): Promise<void> 
  */
 export async function recycleForModeChange(chatSessionId: string): Promise<void> {
   const handle = state.harnessSessions.get(chatSessionId);
+  state.pendingRecycles.delete(chatSessionId);
+  clearSessionInstructions(chatSessionId);
   if (!handle) return;
   state.harnessSessions.delete(chatSessionId);
   state.sessionInfo.delete(chatSessionId);

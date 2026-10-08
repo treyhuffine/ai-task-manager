@@ -16,6 +16,7 @@ import { evaluationChatInputSchema } from '@/lib/plugins/evaluation-contract';
 import { accountEvaluationCatalog, accountEvaluationRpc, accountRpcSchema, endAccountEvaluation, launchAccountEvaluation } from '@/lib/server/operations/plugins/account-evaluation';
 import { MAX_WORK_DAYS, getWorkRange, saveWorkReport } from '@/lib/work/service';
 import { ONBOARDING_REPLY_MAX, ONBOARDING_STEPS } from '@/lib/onboarding/progress';
+import { resultsRouter } from './results-router';
 
 /** A run of days for the work view (docs/work-view.md). */
 const workRangeInput = z.object({
@@ -33,6 +34,7 @@ function required<T>(value: T | null | undefined, entity: string): T {
 
 export const appRouter = router({
   ...internalRouters,
+  results: resultsRouter,
   transport: router({
     capabilities: p.query(() => ({ websocket: hasWebSocketRuntime() })),
     ping: p.query(() => ({ now: Date.now() })),

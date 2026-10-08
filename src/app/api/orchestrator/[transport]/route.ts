@@ -19,6 +19,7 @@ import { APP_NAME } from '@/constants/app';
 import { actions } from '@/lib/orchestrator/registry';
 import { runAction } from '@/lib/orchestrator/dispatch';
 import { mcpCallContext } from '@/lib/orchestrator/mcp-caller';
+import { discoverableResultActions, resultActions, handleUndiscoveredResultCall } from '@/lib/orchestrator/result-actions';
 
 const SERVER_INSTRUCTIONS = `${APP_NAME} orchestrator: typed, fine-grained tools for reading and writing the user's productivity brain.
 
@@ -32,9 +33,15 @@ Guidelines:
 
 Today's date: ${new Date().toISOString().slice(0, 10)}.`;
 
+async function handle(request: Request) {
+const staleCall = await handleUndiscoveredResultCall(request);
+if (staleCall) return staleCall;
+const visibleResultNames = new Set<string>(discoverableResultActions().map((action) => action.name));
+const resultNames = new Set<string>(resultActions.map((action) => action.name));
 const handler = createMcpHandler(
   (server) => {
     for (const action of actions) {
+      if (resultNames.has(action.name) && !visibleResultNames.has(action.name)) continue;
       server.registerTool(
         action.name,
         {
@@ -45,7 +52,7 @@ const handler = createMcpHandler(
           // Which chat and which key called, as the proxy validated them. The
           // home's own sessions use the home's own key, so their folder paths
           // are the home's (mcp-caller.ts).
-          const envelope = await runAction(action.name, input, mcpCallContext(extra?.requestInfo?.headers));
+          const envelope = await runAction(action.name, input, mcpCallContext(extra?.requestInfo?.headers, { allowMissing: ['report_result', 'report_result_review'].includes(action.name) }));
           return {
             content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }],
             isError: !envelope.ok,
@@ -67,7 +74,9 @@ const handler = createMcpHandler(
     verboseLogs: process.env.NODE_ENV !== 'production',
   },
 );
+return handler(request);
+}
 
-export const GET = handler;
-export const POST = handler;
-export const DELETE = handler;
+export const GET = handle;
+export const POST = handle;
+export const DELETE = handle;

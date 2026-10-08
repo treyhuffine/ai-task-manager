@@ -26,6 +26,9 @@ import {
   getSendForEvent,
   getWorkerKeyId,
   getWorkspace,
+  getWorkResultAiReview,
+  getRun,
+  getChatEventById,
   updateChatSession,
   listChatSessions,
   listMainChats,
@@ -59,6 +62,10 @@ import type { EventWriter, SendRequest } from '@/lib/runner/types';
 import type { PendingInput } from '@/lib/runner/pending';
 import { localEventWriter } from './event-writer';
 import { installHomeSink } from './home-sink';
+import { renderStandingAgentInstructionsPrompt } from './prompts/standing-instructions';
+import { withWorkResultSessionInstructions } from '@/lib/work-results/instructions';
+import { workResultOperationMetadata } from '@/lib/db/queries';
+import { isRunning, hasBackgroundTasks } from './live-state';
 import { activeSendCount } from './live-state';
 import { runnerFor } from './placement';
 import { buildSessionSpec } from './session-spec';
@@ -177,6 +184,8 @@ export {
 export interface DispatchOptions {
   overBudget?: boolean;
   internalCall?: boolean;
+  /** Saved app-owned operation, rechecked at provider admission. */
+  resultOperationRunId?: string;
   runId?: string;
   /** The user's chat event this sends, so a message reaches its harness once however many paths try. */
   sourceEventId?: string | null;
@@ -287,6 +296,17 @@ async function dispatchOnce(
 ): Promise<void> {
   const session = getChatSessionWithExecution(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
+  if (session.surfaceKind === 'result_review' && !options.resultOperationRunId) {
+    throw new ExecutorError('unsupported', 'An assigned background reviewer can run only its saved review request.');
+  }
+  if (options.resultOperationRunId) {
+    const run = getRun(options.resultOperationRunId);
+    const op = workResultOperationMetadata(run?.triggerPayload);
+    const event = op?.messageId ? getChatEventById(op.messageId) : null;
+    if (!run || run.chatSessionId !== chatSessionId || !event || event.content !== userMessage) {
+      throw new ExecutorError('unsupported', 'A result operation may submit only its saved exact request.');
+    }
+  }
   // An import nobody has taken over has no session to resume. A send would
   // start a blank one under a transcript it never saw, on whichever device
   // the import came from, whoever is sending.
@@ -443,6 +463,14 @@ async function dispatchTo(
     { model: session.model, variant: session.modelVariant, effort: session.effort },
     catalog,
   );
+  if (session.surfaceKind === 'result_review' && session.surfaceRef) {
+    const assigned = getWorkResultAiReview(session.surfaceRef, session.userId);
+    if (!assigned || assigned.reviewerSessionId !== session.id || assigned.selection.harness !== selection.providerId
+      || assigned.selection.model !== selection.model || assigned.selection.variant !== selection.variant
+      || assigned.selection.effort !== selection.effort) {
+      throw new ExecutorError('unsupported', 'The saved reviewer selection is no longer available. Start a deliberate new review with an available selection.');
+    }
+  }
   if (session.modelVariant && selection.variant !== session.modelVariant) {
     throw new ExecutorError(
       'invalid_state',
@@ -499,6 +527,17 @@ async function dispatchTo(
         : (caps.sessionsReason ?? `${selection.providerId} sessions are unavailable`),
     );
   }
+  if (session.surfaceKind === 'result_review' && (!caps.planMode
+    || (selection.effort && !caps.reasoningEffort) || (selection.variant && !caps.modelVariants))) {
+    throw new ExecutorError('unsupported', 'This reviewer cannot apply its saved read-only settings.');
+  }
+  if (options.resultOperationRunId) {
+    const runtime = await import('@/lib/work-results/runtime');
+    if (!await runtime.verifyQueuedWorkResultReviewScope(options.resultOperationRunId)
+      || !runtime.admitWorkResultOperationDispatch(options.resultOperationRunId, chatSessionId, resultAuthorBusy)) {
+      throw new ExecutorError('unsupported', 'This result operation is no longer eligible for dispatch.');
+    }
+  }
   const starting = startingSends.get(chatSessionId) ?? 0;
   if (!remote && !caps.concurrentSend && activeSendCount(chatSessionId) + starting > 0) {
     throw new ExecutorError('already_running', 'This provider does not support concurrent send.');
@@ -550,7 +589,8 @@ async function deliver(
   placement: ChatPlacement | null,
   concurrentSend: boolean,
 ): Promise<Delivered> {
-  const buildSpec = async () => ({
+  const buildSpec = async () => {
+    const built = {
     ...(await buildSessionSpec(
       {
       chatSessionId,
@@ -571,7 +611,10 @@ async function deliver(
       remote ?? undefined,
     )),
     preparedWorktreeOf: preparing,
-  });
+    };
+    if (built.readOnlyReview) built.readOnlyReview.message = remote ? userMessage : placeFilesAtHome(userMessage, options.attachments ?? []);
+    return built;
+  };
   // A live session here needs no spec, so a follow-up does no spec work. A
   // connected device always gets one. Attached files: paths here for a chat
   // at home. A connected device gets the markers as they are and the files
@@ -647,7 +690,14 @@ async function sendAdmitted(
     const runner = runnerFor(chatSessionId);
     const request: SendRequest = {
       chatSessionId,
-      message: remote ? userMessage : placeFilesAtHome(userMessage, attachments),
+      message: withWorkResultSessionInstructions(remote ? userMessage : placeFilesAtHome(userMessage, attachments), session.surfaceKind),
+      standingInstructions: renderStandingAgentInstructionsPrompt(session.workspaceId ? getWorkspace(session.workspaceId) ?? null : null),
+      currentStandingInstructions: () => renderStandingAgentInstructionsPrompt(session.workspaceId ? getWorkspace(session.workspaceId) ?? null : null),
+      admission: options.resultOperationRunId ? async () => {
+        const runtime = await import('@/lib/work-results/runtime');
+        return await runtime.verifyQueuedWorkResultReviewScope(options.resultOperationRunId!)
+          && runtime.canContinueWorkResultOperationDispatch(options.resultOperationRunId!, chatSessionId, resultAuthorBusy);
+      } : undefined,
       turnId,
       runId,
       spec,
@@ -690,6 +740,14 @@ async function sendAdmitted(
  * stops below.
  */
 export async function abort(chatSessionId: string, actor?: WorkerCommandActor): Promise<void> {
+  const automatic = await import('@/lib/work-results/automatic');
+  automatic.cancelQueuedAutomaticReviewsForAuthor(chatSessionId);
+  const runtime = await import('@/lib/work-results/runtime');
+  runtime.cancelQueuedPreparationsForSession(chatSessionId);
+  runtime.stopQueuedWorkResultFeedbackForSession(chatSessionId);
+  runtime.stopActiveWorkResultOperationsForSession(chatSessionId);
+  const { withdrawChatQueue } = await import('@/lib/workers/undelivered');
+  withdrawChatQueue(chatSessionId, 'Stopped by the user');
   await runnerFor(chatSessionId).interrupt(chatSessionId, actor);
 }
 
@@ -856,12 +914,28 @@ export async function persistStreamEvent(
  * exception is an agent's main chat, which has no execution and runs in the
  * folder by design (docs/agents-view-spec.md §4).
  */
+export function isWorkResultReviewerSession(sessionId: string): boolean {
+  return getChatSessionWithExecution(sessionId)?.surfaceKind === 'result_review';
+}
+
+function resultAuthorBusy(sessionId: string): boolean {
+  return isRunning(sessionId) || hasBackgroundTasks(sessionId);
+}
+
 export function resolveCwd(session: {
   worktreePath: string | null;
   workspaceId: string | null;
   type: 'orchestration' | 'content' | 'execution';
   executionId: string | null;
+  surfaceKind?: string | null;
+  surfaceRef?: string | null;
 }): string | null {
+  if (session.surfaceKind === 'result_review' && session.surfaceRef) {
+    const assigned = getWorkResultAiReview(session.surfaceRef);
+    const repository = assigned?.scope.requested.repository;
+    if (repository) return existsSync(repository) ? repository : null;
+    return assigned?.scope.requested.codeRevision ? null : getAppRoot();
+  }
   if (session.worktreePath && existsSync(session.worktreePath)) return session.worktreePath;
   if (!session.workspaceId) {
     // No workspace → the session runs in the app data root. This is the

@@ -30,6 +30,8 @@ import {
   chatPlacement,
   getChatSession,
   listRecentChatEvents,
+  workResultOperationForMessage,
+  workResultOperationMetadata,
 } from '@/lib/db/queries';
 import { expandMarkers } from '@/lib/attachments/expand-markers';
 import { getExternalSessionImportForChat } from '@/lib/db/queries';
@@ -213,6 +215,18 @@ export async function healthCheckSession(
       && activity.orphan.source === 'user'
       && !activity.orphan.externalEventId
       && !isMirroredImport;
+    const resultOperation = workResultOperationMetadata(activity.orphan.raw);
+    if (resultOperation) {
+      // Feature messages are admitted through their conditional durable run.
+      // Generic orphan recovery must never replay cancelled/disabled work or
+      // resurrect an interrupted reviewer under a new runtime.
+      const run = workResultOperationForMessage(activity.orphan.id);
+      if (run?.status === 'queued' && options.redispatchOrphans) {
+        const { dispatchQueuedWorkResultOperations } = await import('@/lib/work-results/runtime');
+        void dispatchQueuedWorkResultOperations(sessionId);
+      }
+      return { classification: 'dead', fixes, redispatched: false, replayed, error };
+    }
     if (options.redispatchOrphans && isRedispatchable) {
       const now = Date.now();
       const last = redispatchThrottle.lastAttempt.get(sessionId) ?? 0;

@@ -108,7 +108,7 @@ interface OperationRouteHandler {
 export function serveOperation<Input, Result extends OperationSuccess<unknown> | OperationFailure>(
   schema: ZodType<Input>,
   operation: (input: Input, context: OperationContext) => Promise<Result>,
-  options: { maxBodyBytes?: number; oversizedStatus?: 400 | 413; prepareBody?: (body: unknown) => unknown } = {},
+  options: { maxBodyBytes?: number; oversizedStatus?: 400 | 413; prepareBody?: (body: unknown) => unknown; validationStatus?: 400 | 422; validationCode?: string } = {},
 ): OperationRouteHandler {
   let shapeSchema: ZodType = schema;
   while (!(shapeSchema instanceof ZodObject) && 'unwrap' in shapeSchema && typeof shapeSchema.unwrap === 'function') shapeSchema = shapeSchema.unwrap();
@@ -131,7 +131,7 @@ export function serveOperation<Input, Result extends OperationSuccess<unknown> |
     const querySchema = objectSchema?.shape.query?.unwrap?.();
     const knownQuery = querySchema instanceof ZodObject ? Object.fromEntries(Object.entries(query).filter(([key]) => key in querySchema.shape)) : query;
     const parsed = schema.safeParse({ ...(params && objectSchema && 'params' in objectSchema.shape ? { params } : {}), ...(objectSchema && 'query' in objectSchema.shape && Object.keys(knownQuery).length ? { query: knownQuery } : {}), ...(body !== undefined ? { body } : {}) });
-    if (!parsed.success) return Response.json({ error: parsed.error.message }, { status: 400 });
+    if (!parsed.success) return Response.json({ error: parsed.error.message, ...(options.validationCode ? { code: options.validationCode } : {}) }, { status: options.validationStatus ?? 400 });
     const result = await operation(parsed.data, {
       headers: request.headers, url: request.url, nextUrl: new URL(request.url), signal: request.signal,
     });

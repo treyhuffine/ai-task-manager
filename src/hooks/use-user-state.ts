@@ -1,10 +1,13 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { userStateApi } from '@/lib/api/user-state';
 import { resolveOrchestratorName } from '@/lib/orchestrator/name';
 import { attachmentUrl } from '@/lib/attachments/view';
 import type { UpdateUserStateInput, UserStateRecord } from '@/db/types';
+import { toast } from 'sonner';
 
 const USER_STATE_KEY = ['user-state'] as const;
+const UPDATE_USER_STATE_KEY = ['user-state', 'update'] as const;
+const fieldWrites = new WeakMap<QueryClient, Map<keyof UpdateUserStateInput, object>>();
 
 export function useUserState() {
   return useQuery({
@@ -16,22 +19,42 @@ export function useUserState() {
 export function useUpdateUserState() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: UPDATE_USER_STATE_KEY,
     meta: { carriesInput: true },
     mutationFn: (input: UpdateUserStateInput) => userStateApi.update(input),
-    // A partial merge into the cached row, so a setting (a rename in the
-    // rail, a toggle) shows this frame rather than after a refetch. The
-    // server may normalize what it stores (the orchestrator's name is folded
-    // to one line), and the settle refetch brings that back.
     onMutate: async (input) => {
       await qc.cancelQueries({ queryKey: USER_STATE_KEY });
       const previous = qc.getQueryData<UserStateRecord>(USER_STATE_KEY);
-      if (previous) qc.setQueryData<UserStateRecord>(USER_STATE_KEY, { ...previous, ...input });
-      return { previous };
+      const token = {};
+      const writes = fieldWrites.get(qc) ?? new Map<keyof UpdateUserStateInput, object>();
+      fieldWrites.set(qc, writes);
+      for (const key of Object.keys(input) as Array<keyof UpdateUserStateInput>) writes.set(key, token);
+      if (previous) qc.setQueryData(USER_STATE_KEY, { ...previous, ...input });
+      return { previous, token };
     },
-    onError: (_err, _input, context) => {
-      if (context?.previous) qc.setQueryData(USER_STATE_KEY, context.previous);
+    onError: (_error, input, context) => {
+      if (context?.previous) {
+        qc.setQueryData<UserStateRecord>(USER_STATE_KEY, (current) => {
+          if (!current) return context.previous;
+          const restored = { ...current };
+          for (const key of Object.keys(input) as Array<keyof UpdateUserStateInput>) {
+            // Roll back this mutation's fields, preserving any newer choices.
+            if (fieldWrites.get(qc)?.get(key) === context.token && Object.is(current[key], input[key])) {
+              Object.assign(restored, { [key]: context.previous![key] });
+            }
+          }
+          return restored;
+        });
+      }
+      toast.error('Could not save settings. Try again.');
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: USER_STATE_KEY }),
+    onSettled: () => {
+      // A refetch from an earlier save would replace a later optimistic choice.
+      // The current mutation remains pending until this callback returns.
+      if (qc.isMutating({ mutationKey: UPDATE_USER_STATE_KEY }) === 1) {
+        void qc.invalidateQueries({ queryKey: USER_STATE_KEY });
+      }
+    },
   });
 }
 

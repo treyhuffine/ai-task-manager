@@ -26,6 +26,7 @@ import { installRoleGuard } from './lib/role-guard';
 import { registerUpdateCommand } from './commands/update';
 import { registerServiceCommand } from './commands/service';
 import { registerPerfCommand } from './commands/perf';
+import { registerAttachmentCommand } from './commands/attachment';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -40,6 +41,10 @@ program
 
 let releaseCommand: (() => void) | undefined;
 program.hook('preAction', (_program, action) => {
+  // These commands only read local inputs and call the running server. The
+  // server owns persistence, including reports from a read-only reviewer.
+  if (['report_result', 'report_result_review'].includes(action.name())
+    || (action.name() === 'upload' && action.parent?.name() === 'attachment')) return;
   let command = action;
   while (command.parent && command.parent !== program) command = command.parent;
   if (!['service', 'update', 'start', 'stop'].includes(command.name())) {
@@ -121,6 +126,7 @@ registerWorkerCommand(program);
 registerServiceCommand(program);
 registerPerfCommand(program);
 registerUpdateCommand(program);
+registerAttachmentCommand(program);
 installRoleGuard(program);
 
 program.parseAsync(process.argv).catch((err) => {

@@ -16,7 +16,9 @@ const coreRoutes = new Set([
 const protocolRoutes = new Set([
   '/[transport]', '/attachments', '/attachments/[fileName]', '/capture', '/integrations/[transport]', '/integrations/callback',
   '/integrations/mcp-oauth/[sid]', '/desktop/activity', '/desktop/notifications', '/desktop/oauth/complete', '/desktop/oauth/events',
-  '/health', '/live', '/orchestrator/[transport]', '/orchestrator/actions/[name]', '/orchestrator/browser/[transport]', '/playground/chat',
+  '/health', '/live', '/orchestrator/[transport]', '/orchestrator/actions/[name]', '/orchestrator/browser/[transport]', '/orchestrator/results/[transport]', '/playground/chat',
+  // Signed harness reports and reviewer completion keep their language-neutral wire contract.
+  '/results/reports', '/results/review-reports',
   '/preview/settings/connect-device', '/session', '/sessions/[id]/reply-image', '/sessions/[id]/stream', '/sessions/[id]/terminals/[terminalId]/stream', '/sessions/stream',
   '/stt-bench', '/trpc/[trpc]', '/version', '/webhooks/pebble', '/webhooks/pocket', '/webhooks/triggers/[public_id]',
   '/workers/enroll', '/workers/grants', '/workers/me/associations', '/workers/me/attachments/[fileName]', '/workers/me/commands/[id]/ack',
@@ -26,8 +28,16 @@ const protocolRoutes = new Set([
 
 describe('complete UI migration coverage', () => {
   it('accounts for every route with a typed procedure or an explicit protocol boundary', () => {
-    const source = fs.readFileSync('src/lib/trpc/operation-router.ts', 'utf8');
-    const mapped = new Set([...source.matchAll(/operationContext\(ctx.request, input, "([^"]+)"\)/g)].map(match => match[1]));
+    const mapped = new Set<string>();
+    for (const file of ['src/lib/trpc/operation-router.ts', 'src/lib/trpc/results-router.ts']) {
+      const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+      const visit = (node: ts.Node) => {
+        if (ts.isCallExpression(node) && node.expression.getText(source) === 'operationContext'
+          && node.arguments[2] && ts.isStringLiteral(node.arguments[2])) mapped.add(node.arguments[2].text);
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
     const uncovered = files('src/app/api').filter(file => file.endsWith('/route.ts'))
       .map(file => '/' + path.relative('src/app/api', path.dirname(file)))
       .filter(route => !mapped.has(route) && !coreRoutes.has(route) && !protocolRoutes.has(route));

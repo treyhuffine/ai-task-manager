@@ -62,6 +62,10 @@ import { backgroundTaskOutcomePresentation } from './background-task-presentatio
 import { ConnectionRequestCard } from './connection-request-card';
 import { IntegrationApprovalCard } from './integration-approval-card';
 import { DiffLines, FileChip } from './file-chip';
+import { ResultRenderer } from '@/components/results/result-renderer';
+import { OutputHandoffActions } from '@/components/results/output-handoff-actions';
+import { resultEventId } from '@/components/results/presentation';
+import { PreparationStatus } from '@/components/results/preparation-status';
 
 interface ExecutionEventProps {
   event: ChatEventRecord;
@@ -115,6 +119,8 @@ interface ExecutionEventProps {
    * lib/executions/integration-approvals.ts). Absent → the row stands alone.
    */
   approvalGroup?: readonly ChatEventRecord[];
+  /** Internal reviewer activity remains inspectable without packaging actions. */
+  handoffActions?: boolean;
 }
 
 /**
@@ -127,11 +133,15 @@ interface ExecutionEventProps {
  *   - tool_call / tool_result — collapsible cards, paired visually.
  *   - system / result / background_task / recap / rate_limit / error / unknown — bespoke.
  */
-export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent, clientStatus, resultByCallId, subagentEventsByCallId, nestedAncestorCallIds, approvalGroup }: ExecutionEventProps) {
+export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent, clientStatus, resultByCallId, subagentEventsByCallId, nestedAncestorCallIds, approvalGroup, handoffActions = true }: ExecutionEventProps) {
   hot(`render ExecutionEvent[${event.source}]`);
   const [expanded, setExpanded] = useState(false);
 
   switch (event.source) {
+    case 'work_result': {
+      const id = resultEventId(event);
+      return id ? <ResultRenderer resultId={id} /> : <p className="text-xs text-muted-foreground">Saved handoff reference is unavailable.</p>;
+    }
     case 'user': {
       const content = event.content ?? '';
       const segments = parseEntitySegments(content);
@@ -160,6 +170,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
             </MessageContent>
           </Message>
           {voiceSent && <VoiceSentBadge />}
+          <PreparationStatus event={event} />
           {isFailed && sessionId && (
             <FailedSendBadge sessionId={sessionId} eventId={event.id} error={clientStatus?.error} />
           )}
@@ -216,6 +227,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
               timestamp={event.createdAt}
             />
           )}
+          {handoffActions && sessionId && !event.externalParentToolCallId && <OutputHandoffActions event={event} sessionId={sessionId} />}
         </div>
       );
 

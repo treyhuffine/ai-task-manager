@@ -110,7 +110,10 @@ export function sessionMayReach(chat: ChatSessionRecord, pathname: string, param
   const isExecution = chat.type === 'execution';
   const isAgentMainChat = chat.type === 'orchestration' && agent !== null;
   if (!isExecution && !isAgentMainChat) return false;
+  if (chat.surfaceKind === 'result_review') return pathname === '/api/orchestrator/results/mcp';
   switch (pathname) {
+    case '/api/orchestrator/results/mcp':
+      return isExecution || isAgentMainChat;
     case ORCHESTRATOR_MCP:
       return isAgentMainChat;
     case INTEGRATIONS_MCP:

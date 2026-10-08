@@ -24,7 +24,7 @@ function msg(err: unknown): string {
 /** The chat-session ids of an execution that have an in-flight turn right now. */
 export function runningSessionsForExecution(executionId: string): string[] {
   const running = new Set(listRunningSessions());
-  return listChatSessions({ executionId }).map((s) => s.id).filter((id) => running.has(id));
+  return listChatSessions({ executionId, includeInternal: true }).map((s) => s.id).filter((id) => running.has(id));
 }
 
 /**

@@ -18,6 +18,7 @@ import type { MessageDelivery } from '@/lib/workers/delivery';
 import { noteDeliveryUpdate } from '@/lib/query/delivery-fence';
 import { pageStream } from '@/lib/realtime/page-stream';
 import { integrationApprovalsKey } from '@/hooks/use-integration-approvals';
+import { refreshResultOperationEvent } from '@/components/results/presentation';
 
 /**
  * Subscribes to the session's frames and folds every frame into
@@ -99,7 +100,7 @@ export function useSessionStream(sessionId: string | null): void {
         // cumulative text), live or replayed on resume (P3 re-check).
         const at = list.findIndex((e) => e.id === event.id);
         if (at >= 0) {
-          if (!isNewerRevision(event, list[at]!)) return list;
+          if (!isNewerRevision(event, list[at]!)) return refreshResultOperationEvent(list, event);
           const out = [...list];
           out[at] = event;
           return out;
@@ -133,6 +134,9 @@ export function useSessionStream(sessionId: string | null): void {
       // server-side running/pending lists.
       if (event.source === 'result' || event.source === 'background_task') {
         invalidateRail();
+      }
+      if (event.source === 'work_result') {
+        void queryClient.invalidateQueries({ queryKey: ['results'] });
       }
 
       // Tier-1 of the file-tree refresh strategy: when the agent emits

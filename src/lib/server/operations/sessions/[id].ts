@@ -76,6 +76,9 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
 
     const existing = getChatSessionWithExecution(id);
     if (!existing) return reply({ error: 'Session not found' }, { status: 404 });
+    if (existing.surfaceKind === 'result_review' && Object.keys(body).some((key) => key !== 'label')) {
+      return reply({ error: 'An assigned reviewer keeps its inspection authority and saved selection. Start a deliberate new review to change settings.' }, { status: 409 });
+    }
 
     const updates: PatchBody = {};
     if ('label' in body) {

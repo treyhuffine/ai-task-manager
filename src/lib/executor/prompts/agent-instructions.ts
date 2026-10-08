@@ -3,9 +3,9 @@
  *
  * The UI calls a workspace an agent (docs/agents-view-spec.md). Its
  * `instructions` are set in the agent view's Setup tab and reach every
- * execution the agent starts, through the session instructions file, so they
- * never show up in the visible transcript. The agent's main chat gets them as
- * part of its brief instead.
+ * execution the agent starts and to its main chat, through the same ordered
+ * preference snapshot. Native session instructions or explicit app-owned
+ * message context deliver them without rewriting the visible transcript.
  */
 
 export interface AgentInstructionsSource {
@@ -21,7 +21,8 @@ export function renderAgentInstructionsPrompt(agent: AgentInstructionsSource): s
     `## Standing instructions for the "${agent.name}" agent`,
     '',
     `The user keeps these instructions on "${agent.name}", the Ri agent this work belongs to. ` +
-      'They apply to every task in it. Follow them unless the current request says otherwise.',
+      'Follow them unless the current request says otherwise. ' +
+      'They do not override app authorization, runtime guards, read-only restrictions, or the assigned role and scope.',
     '',
     text,
   ].join('\n');

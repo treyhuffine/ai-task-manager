@@ -23,6 +23,7 @@ import { Command } from 'cmdk';
 import {
 	Calendar,
 	FileText,
+	FileCheck2,
 	LayoutDashboard, ListTodo,
 	Loader2,
 	MessageSquare,
@@ -42,11 +43,13 @@ import {
 } from 'lucide-react';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useResultCapabilities } from '@/hooks/use-results';
 
 // ── Icon lookup for palette commands ─────────────────────────
 
 const ICON_MAP: Record<string, LucideIcon> = {
-  Plus, StickyNote, LayoutDashboard, ListTodo, FileText, Radio, MessagesSquare, Sun, Moon, Mic, Settings, Calendar, TextSearch, SquareKanban,
+  Plus, StickyNote, LayoutDashboard, ListTodo, FileText, Radio, MessagesSquare, Sun, Moon, Mic, Settings, Calendar, TextSearch, SquareKanban, FileCheck2,
 };
 
 function CommandIcon({ name, size = 14 }: { name: string; size?: number }) {
@@ -92,6 +95,8 @@ const ITEM_CLASS = "flex items-center gap-3 px-2 py-2 rounded-md text-left curso
 // ── Main component ───────────────────────────────────────────
 
 export function SearchOverlay() {
+  const router = useRouter();
+  const capabilities = useResultCapabilities();
   const [open, setOpen] = useState(false);
   const [rawQuery, setRawQuery] = useState('');
   const { searchQuery, typeFilter, isCommand } = parseQuery(rawQuery);
@@ -142,6 +147,11 @@ export function SearchOverlay() {
 
   // Command handlers keyed by command id
   const executeCommand = useCallback((cmd: PaletteCommand) => {
+    if (cmd.href) {
+      setOpen(false);
+      router.push(cmd.href);
+      return;
+    }
     switch (cmd.id) {
       case 'create-task':
         setOpen(false);
@@ -188,7 +198,7 @@ export function SearchOverlay() {
         }
         break;
     }
-  }, [createTask, createNote, openTask, openNote, toggleTheme, handleNavigate, triggerVoiceChat]);
+  }, [createTask, createNote, openTask, openNote, toggleTheme, handleNavigate, triggerVoiceChat, router]);
 
   // Hotkey + custom event listeners
   useEffect(() => {
@@ -293,6 +303,7 @@ export function SearchOverlay() {
           {isCommand && (
             <Command.Group heading="Actions" className={GROUP_CLASS}>
               {PALETTE_COMMANDS
+                .filter((cmd) => cmd.capability !== 'handoffs' || capabilities.data?.handoffsEnabled)
                 .filter((cmd) =>
                   !searchQuery ||
                   `${cmd.label} ${cmd.keywords}`.toLowerCase().includes(searchQuery.toLowerCase()),

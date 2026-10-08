@@ -70,7 +70,14 @@ export interface PaletteCommand {
   icon: string;       // Lucide icon name
   shortcut?: string;  // Hint shown in the palette
   group: 'create' | 'navigate' | 'settings';
+  href?: string;
+  capability?: 'handoffs';
 }
+
+export const SAVED_RESULTS_COMMAND: PaletteCommand & { href: string } = {
+  id: 'go-results', label: 'Saved results', keywords: 'navigate results handoffs artifacts saved history',
+  icon: 'FileCheck2', group: 'navigate', href: '/results', capability: 'handoffs',
+};
 
 export const PALETTE_COMMANDS: PaletteCommand[] = [
   // Create
@@ -91,6 +98,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'go-stream', label: 'Go to Stream', keywords: 'navigate stream capture', icon: 'Radio', group: 'navigate' },
   { id: 'go-chat', label: 'Go to Chat', keywords: 'navigate chat ai', icon: 'MessagesSquare', group: 'navigate' },
   { id: 'open-calendar', label: 'Open calendar', keywords: 'calendar day week schedule meetings agenda events', icon: 'Calendar', group: 'navigate' },
+  SAVED_RESULTS_COMMAND,
 
   // Settings
   { id: 'open-settings', label: 'Settings', keywords: 'settings preferences config profile account voice notifications billing devices', icon: 'Settings', group: 'settings' },

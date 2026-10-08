@@ -1,6 +1,7 @@
 # Agents view: spec and task list
 
 **Status:** done 2026-09-22 (Phases 0 to 10). Written 2026-09-22. Follow-ups are in §7.
+**Current follow-up:** shared and agent-specific handoff preferences are implemented through [Handoff and review preferences](work-result-guidance.md). The dated phase evidence below remains historical.
 **How to use this doc:** it is the task list. Check a box (`- [x]`) when the work lands on `main`, and append the short commit hash when useful. Keep the "Done when" lines honest: a phase is done when every line under it is true, not when the code compiles. Record surprises inline under the task they affect.
 
 ---
@@ -41,9 +42,10 @@ Not decided. None of these block the phases below.
 - **Rename `workspaces` to `agents` in code** (table, types, API paths, orchestrator actions). Trey is not convinced it is the right move. Revisit once purpose and instructions exist and we can see whether they feel like part of the folder's settings or a separate layer. If it happens, it is a separate spec.
 - **The `ri agent <action>` CLI namespace.** It means "the command group agents use to call Ri". With "agent" meaning a scope in the UI, `ri agent list_workspaces` reads oddly. Changing it breaks every skill that learned it. Decide together with the rename above.
 - **The app's main chat as an agent record** (a "home agent"). Nothing in this project needs it. The main chat stays a chat with no workspace.
-- **A shared persona layer** that reaches every chat (how Trey works, standing preferences). Today each chat type gets different instructions (§5.6). Follow-up work.
 - **Integrations vs Plugins naming.** Decided 2026-09-30: the catalog is Plugins, and Skills and Integrations keep their names inside it. See docs/skills.md.
 - **Whether an agent main chat's replies count as unread in the rail.** Default for this spec: no, same as the app's main chat.
+
+The shared-preferences follow-up is scoped to **Handoff and review preferences** in Settings, General and Agent setup, Handoff review. Ri loads these only while preparing, reporting or independently reviewing a handoff. Agent preferences supplement shared preferences, with the current request taking precedence. Existing general agent instructions remain in `workspaces.instructions`. See [Handoff and review preferences](work-result-guidance.md).
 
 ---
 
@@ -113,13 +115,13 @@ Evidence gathered while aligning. Line numbers are as of 2026-09-22.
 - **The orchestrator surface installs files into the Ri home** (`installOrchestratorSurface`, `agents-md-template.ts`). An agent main chat runs inside the user's own folder, so it must never install files there.
 - **The write guard** is `disallowedTools: ['Write', 'Edit', 'NotebookEdit']` (`ORCHESTRATOR_DISALLOWED_TOOLS` in `harness-surface.ts`). Codex ignores tool filtering upstream, so there it is prompt-only.
 
-### 5.6 Instructions today, per chat type
+### 5.6 Instructions at alignment, per chat type
 
 - App main chat: the orchestrator brief, installed into the Ri home.
 - Note and task chats: a document prompt via `--append-system-prompt` (Claude only).
 - Execution chats: the repo's own `CLAUDE.md` / `AGENTS.md`, plus the reference-folder block via the session `instructionsFile` (adapter, around line 1095). Harnesses that ignore session instructions get a logged warning.
 
-Nothing shared reaches all four. That is the persona follow-up in §3.
+At alignment, nothing shared reached all four. The later [Handoff and review preferences](work-result-guidance.md) implementation loads shared and agent preferences at the handoff boundary through signed context reads or captured preparation and review assignments. Ordinary turns receive a small discovery rule, and background calls receive no handoff preferences. Existing native and fallback delivery of general agent instructions supports fresh, cached, and resumed contexts, including explicit clearing.
 
 ---
 
@@ -228,6 +230,8 @@ Leave "agent" where it means the AI in general: "agent browser", the "Agent (tri
   - Landed with Phase 6: `renderAgentMainChatBrief` in `harness-surface.ts`. Name and purpose edits recycle only the agent's main chat, since executions never receive them.
 - [x] Tests: caps, round-trip, delivery into an execution's instructions file.
   - `queries.workspace-scope.test.ts` (round-trip, trim, blank, partial update, caps at and over the limit, rejected writes leave the row alone, non-text), `session-instructions.test.ts` (block content, order, claude and codex deliver, cursor and opencode report the loss, the file's path, mode, rewrite and removal), `app/api/workspaces/[id]/route.test.ts` (400 mapping, recycle on instructions only). The live end-to-end check is part of Phase 10's run.
+
+Current follow-up: unsupported session-instruction transports no longer leave standing preferences undelivered. The executor supplies an app-owned turn fallback and refreshes stale cached or resumed preference snapshots. Global changes recycle idle sessions and let active turns finish. The original Phase 3 checks above describe the earlier transport boundary.
 
 **Done when:** purpose and instructions can be set, and every new execution in that agent receives the instructions (or logs why it can't).
 
@@ -525,7 +529,7 @@ Recorded so they are not lost:
 - **Execution view redesign.** Next. It must read as a workbench, distinct from the agent view.
 - **Renaming `workspaces` to `agents` in code, and the `ri agent` namespace** (§3).
 - **A home agent record** for the app's main chat (§3).
-- **A shared persona layer** reaching every chat (§3).
+- **Shared workflow preferences**, implemented after this spec as [Handoff and review preferences](work-result-guidance.md). Settings, General stores shared preferences separately from About you. Agent setup stores scoped supplements. Existing general agent instructions remain in `workspaces.instructions`. This follow-up adds no reusable personas or broad global instruction injection.
 - **Several agents sharing one folder.** If it becomes real, split scope fields (name, icon, area, purpose, instructions, integrations, browser, rail order) from folder fields (path, git, worktree root, scripts, files to copy). Reference folders are a judgment call, since they can point at another workspace.
 - ~~**Renaming Integrations to Plugins.**~~ Decided 2026-09-30, docs/skills.md: Plugins is the catalog, Integrations stays the kind.
 

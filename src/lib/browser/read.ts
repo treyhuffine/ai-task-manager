@@ -18,6 +18,7 @@ import type { Page } from 'playwright-core';
 import { saveAttachment } from '@/lib/attachments/save';
 import type { Attachment } from '@/db/types';
 import { ActionError } from '@/lib/orchestrator/types';
+import { handoffsEnabled } from '@/lib/work-results/capabilities';
 import { applyCap } from './cap';
 import { redactSecrets } from './redact';
 import { baselineOf, captureSnapshot, type SnapshotBaseline } from './snapshot';
@@ -267,7 +268,11 @@ export async function readPage(page: Page, opts: ReadOptions = {}): Promise<Read
 
   if (mode === 'screenshot') {
     const { image, marks } = await setOfMarks(page, opts.fullPage ?? false);
-    return { url, title, mode, content: '', marks, image, imageMimeType: 'image/png', blocked };
+    const base = (title || 'page').slice(0, 80).replace(/[^\w.-]+/g, '_') || 'page';
+    const attachment = handoffsEnabled()
+      ? await saveAttachment({ data: Buffer.from(image, 'base64'), originalName: `${base}.png`, mimeType: 'image/png' })
+      : undefined;
+    return { url, title, mode, content: '', marks, image, imageMimeType: 'image/png', blocked, ...(attachment ? { attachment } : {}) };
   }
 
   if (mode === 'pdf') {

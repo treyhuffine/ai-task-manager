@@ -1,5 +1,5 @@
 /**
- * `gh pr view <number> --json mergeable,mergeStateStatus,reviewDecision,statusCheckRollup`
+ * `gh pr view <number> --json headRefOid,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup`
  *
  * `@agentex/github`'s `getPR` surfaces `statusCheckRollup`/`reviews` but not
  * `mergeable` or the rolled-up `reviewDecision`, and its `statusCheckRollup`
@@ -21,6 +21,8 @@ const exec = promisify(execFile);
 export type PrMergeable = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
 
 export interface PrStatus {
+  /** The exact PR head returned with this check rollup, or null if unavailable. */
+  headSha: string | null;
   mergeable: PrMergeable;
   /** `null` when the PR has no checks configured at all. */
   checks: PrChecks | null;
@@ -48,6 +50,7 @@ interface RawRollupItem {
 }
 
 interface GhPrStatusResponse {
+  headRefOid?: unknown;
   mergeable?: string;
   mergeStateStatus?: string;
   reviewDecision?: string;
@@ -56,6 +59,7 @@ interface GhPrStatusResponse {
 }
 
 const UNKNOWN_STATUS: PrStatus = {
+  headSha: null,
   mergeable: 'UNKNOWN',
   checks: null,
   reviewDecision: null,
@@ -141,7 +145,7 @@ export async function getPrStatus(cwd: string, prNumber: number): Promise<PrStat
         'view',
         String(prNumber),
         '--json',
-        'mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,autoMergeRequest',
+        'headRefOid,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,autoMergeRequest',
       ],
       { cwd, encoding: 'utf8' },
     );
@@ -150,6 +154,8 @@ export async function getPrStatus(cwd: string, prNumber: number): Promise<PrStat
     const mergeable: PrMergeable =
       rawMergeable === 'MERGEABLE' || rawMergeable === 'CONFLICTING' ? rawMergeable : 'UNKNOWN';
     return {
+      headSha: typeof parsed.headRefOid === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(parsed.headRefOid)
+        ? parsed.headRefOid.toLowerCase() : null,
       mergeable,
       checks: summarizeChecks(parsed.statusCheckRollup),
       reviewDecision: mapReviewDecision(parsed.reviewDecision),

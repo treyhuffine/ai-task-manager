@@ -31,6 +31,7 @@ import {
   buildReferenceFolderSessionConfig,
   referenceFolderProviderWiring,
 } from '@/lib/reference-folders/session-config';
+import { renderStandingAgentInstructionsPrompt } from './prompts/standing-instructions';
 import { planSessionInstructions } from './session-instructions';
 
 /** Providers that enforce argv tool filtering (`disallowedTools`). */
@@ -67,8 +68,8 @@ export interface AgentMainChatSpawn {
   instructions: string | null;
   /**
    * The brief (and reference-folder block) when this harness drops session
-   * instructions. Sent ahead of the first message of a fresh session so the
-   * chat still knows its role. Null when the instructions file carries it.
+   * instructions. The legacy field supplies the role ahead of every message,
+   * including resumed chats. Null when the instructions file carries it.
    */
   firstTurnPreamble: string | null;
   /** Degradations worth a log line. */
@@ -124,9 +125,10 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
   }
 
   const blocks = [
+    { name: 'agent preferences', text: renderStandingAgentInstructionsPrompt(ws) },
     {
       name: 'agent brief',
-      text: renderAgentMainChatBrief(ws, {
+      text: renderAgentMainChatBrief({ ...ws, instructions: 'Use the current Ri instruction preferences supplied separately with this session.' }, {
         integrations: !!integrations,
         browser: !!browser,
         ...(args.elsewhere ? { elsewhere: { folder: args.elsewhere.folder } } : {}),
@@ -139,16 +141,10 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
   if (servers.length > 0) config.mcpServers = servers;
   if (disallowedTools.length > 0) config.disallowedTools = disallowedTools;
 
-  let firstTurnPreamble: string | null = null;
-  if (plan.undelivered.length > 0) {
-    const undelivered = blocks.filter((b) => plan.undelivered.includes(b.name)).map((b) => b.text.trim());
-    if (args.freshSession) {
-      firstTurnPreamble = undelivered.join('\n\n');
-      warnings.push('this harness ignores session instructions, so the brief rides the first message instead');
-    } else {
-      warnings.push('this harness ignores session instructions, and a resumed chat keeps the brief it started with');
-    }
-  }
+  const firstTurnPreamble = plan.undelivered.length > 0
+    ? blocks.filter((b) => b.name !== 'agent preferences').map((b) => b.text.trim()).filter(Boolean).join('\n\n') || null
+    : null;
+  if (firstTurnPreamble) warnings.push('this harness ignores session instructions, so the brief accompanies each submitted message');
 
   return { config, extraArgs, instructions: plan.text || null, firstTurnPreamble, warnings };
 }

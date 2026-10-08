@@ -47,6 +47,12 @@ export interface SessionSpec {
   extraArgs: string[];
   /** Session instructions, already planned for this harness. The runner writes them where the harness reads them. */
   instructions: string | null;
+  /** Complete home-resolved general agent preferences, including unset. */
+  standingInstructions?: string;
+  /** Role and scope fallback delivered on every submitted turn when native instructions are unavailable. */
+  messagePreamble?: string | null;
+  /** Immutable home-assigned reviewer request. Runners may submit only this run and text. */
+  readOnlyReview?: { runId: string; message: string } | null;
   /** A brief to put before the first message of a fresh session, for harnesses that drop session instructions. */
   firstTurnPreamble: string | null;
   /** Extra environment for the harness, such as the session's caller credential. */
@@ -83,6 +89,12 @@ export interface SendRequest {
   chatSessionId: string;
   /** The text as the harness should receive it, labels already applied. */
   message: string;
+  /** Live home-resolved snapshot for a cached local handle. Remote sends use their spec. */
+  standingInstructions?: string;
+  /** Local-only live preference read after startup awaits. */
+  currentStandingInstructions?: () => string;
+  /** Local-only admission callback, rechecked after runtime and spawn awaits. */
+  admission?: () => boolean | Promise<boolean>;
   /** Names this turn in `turn_result`. */
   turnId: string;
   runId: string | null;
@@ -137,7 +149,7 @@ export type RunnerSignal =
   | { type: 'pending_input'; pending: PendingInput }
   | { type: 'pending_resolved'; pending: PendingInput; response: UserInputResponse }
   | { type: 'pending_changed'; pending: PendingInput[] }
-  | { type: 'turn_result'; turnId: string; runId: string | null; ok: boolean; error: string | null };
+  | { type: 'turn_result'; turnId: string; runId: string | null; ok: boolean; error: string | null; summary?: string | null };
 
 /** Where chat events go: inserted, or replacing a cumulative provider part. */
 export interface EventWriter {

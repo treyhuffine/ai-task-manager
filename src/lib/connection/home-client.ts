@@ -98,7 +98,7 @@ export async function homeFetch(
         authorization: `Bearer ${connection.credential}`,
         [API_PROTOCOL_HEADER]: String(API_PROTOCOL),
         'user-agent': userAgent(),
-        ...(rest.body && !(headers as Record<string, string> | undefined)?.['content-type']
+        ...(rest.body && !(rest.body instanceof FormData) && !(headers as Record<string, string> | undefined)?.['content-type']
           ? { 'content-type': 'application/json' }
           : {}),
         ...(headers as Record<string, string> | undefined),

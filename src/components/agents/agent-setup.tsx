@@ -11,8 +11,8 @@ import type { Attachment, UpdateWorkspaceInput, WorkspaceRecord } from '@/db/typ
 import { useAreas } from '@/hooks/use-areas';
 import { useDevices } from '@/hooks/use-devices';
 import { useArchiveWorkspace, useUpdateWorkspace } from '@/hooks/use-workspaces';
-import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { uploadAttachment } from '@/lib/attachments/client';
+import { apiErrorText } from '@/lib/api/client';
 import { trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 import type { GhStatus } from '@/lib/workspaces/gh';
@@ -22,6 +22,10 @@ import { useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { AgentFoldersSection } from './agent-folders';
 import { AgentSkillsSection } from './agent-skills-section';
+import { ReviewerSelection } from '@/components/results/reviewer-selection';
+import { useResultCapabilities } from '@/hooks/use-results';
+import type { ReviewerOverrides } from '@/lib/api/results';
+import { WORK_RESULT_GUIDANCE_MAX } from '@/lib/instructions/preferences';
 
 /** Caps enforced by the query layer (`WORKSPACE_PURPOSE_MAX`, `WORKSPACE_INSTRUCTIONS_MAX`). */
 const PURPOSE_MAX = 500;
@@ -35,6 +39,9 @@ interface SetupForm {
   areaId: string;
   purpose: string;
   instructions: string;
+  workResultGuidance: string;
+  reviewBeforeHandoff: WorkspaceRecord['reviewBeforeHandoff'];
+  reviewDefaults: WorkspaceRecord['reviewDefaults'];
   browserEnabled: boolean;
   baseBranch: string;
   worktreeRoot: string;
@@ -53,6 +60,9 @@ function formFromWorkspace(ws: WorkspaceRecord): SetupForm {
     areaId: ws.areaId ?? '',
     purpose: ws.purpose ?? '',
     instructions: ws.instructions ?? '',
+    workResultGuidance: ws.workResultGuidance ?? '',
+    reviewBeforeHandoff: ws.reviewBeforeHandoff,
+    reviewDefaults: ws.reviewDefaults,
     browserEnabled: ws.browserEnabled ?? true,
     baseBranch: ws.baseBranch ?? '',
     worktreeRoot: ws.worktreeRoot ?? '',
@@ -81,6 +91,9 @@ function patchFrom(form: SetupForm, ws: WorkspaceRecord): Omit<UpdateWorkspaceIn
   if (form.areaId !== base.areaId) patch.areaId = form.areaId || null;
   if (form.purpose.trim() !== base.purpose.trim()) patch.purpose = text(form.purpose);
   if (form.instructions.trim() !== base.instructions.trim()) patch.instructions = text(form.instructions);
+  if (form.workResultGuidance.trim() !== base.workResultGuidance.trim()) patch.workResultGuidance = text(form.workResultGuidance);
+  if (form.reviewBeforeHandoff !== base.reviewBeforeHandoff) patch.reviewBeforeHandoff = form.reviewBeforeHandoff;
+  if (JSON.stringify(form.reviewDefaults) !== JSON.stringify(base.reviewDefaults)) patch.reviewDefaults = form.reviewDefaults;
   if (form.browserEnabled !== base.browserEnabled) patch.browserEnabled = form.browserEnabled;
   if (form.baseBranch.trim() !== base.baseBranch.trim()) patch.baseBranch = text(form.baseBranch);
   if (form.worktreeRoot.trim() !== base.worktreeRoot.trim()) patch.worktreeRoot = text(form.worktreeRoot);
@@ -90,6 +103,18 @@ function patchFrom(form: SetupForm, ws: WorkspaceRecord): Omit<UpdateWorkspaceIn
   if (form.teardownCommand.trim() !== base.teardownCommand.trim()) patch.teardownCommand = text(form.teardownCommand);
   if (JSON.stringify(form.filesToCopy) !== JSON.stringify(base.filesToCopy)) patch.filesToCopy = form.filesToCopy;
   return patch;
+}
+
+/** Accept saved fields without replacing edits made after Save was pressed. */
+function reconcileSavedForm(current: SetupForm, submitted: SetupForm, row: WorkspaceRecord): SetupForm {
+  const saved = formFromWorkspace(row);
+  const next = { ...current };
+  for (const key of Object.keys(saved) as Array<keyof SetupForm>) {
+    if (JSON.stringify(current[key]) === JSON.stringify(submitted[key])) {
+      Object.assign(next, { [key]: saved[key] });
+    }
+  }
+  return next;
 }
 
 /**
@@ -103,6 +128,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
   const { data: devices } = useDevices();
   const homeName = devices?.find((d) => d.isHome)?.name ?? 'This home';
   const update = useUpdateWorkspace();
+  const { data: resultCapabilities } = useResultCapabilities();
   const archive = useArchiveWorkspace();
   const confirm = useConfirm();
   const { data: gh } = useQuery({
@@ -113,19 +139,38 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
   });
 
   const [form, setForm] = useState<SetupForm>(() => formFromWorkspace(workspace));
-  const patch = patchFrom(form, workspace);
+  const [savedWorkspace, setSavedWorkspace] = useState(workspace);
+  const [observedWorkspace, setObservedWorkspace] = useState(workspace);
+  const [pendingWorkspace, setPendingWorkspace] = useState<WorkspaceRecord | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const [guidanceFeedback, setGuidanceFeedback] = useState<'saved' | 'inherited' | null>(null);
+  const patch = patchFrom(form, savedWorkspace);
   const dirty = Object.keys(patch).length > 0;
 
   // Follow edits made elsewhere (the agent's main chat can change its
   // purpose and instructions) while the form is untouched. Unsaved edits are
   // never overwritten.
-  const [syncedAt, setSyncedAt] = useState(workspace.updatedAt);
-  if (workspace.updatedAt !== syncedAt && !dirty) {
-    setSyncedAt(workspace.updatedAt);
-    setForm(formFromWorkspace(workspace));
+  if (workspace !== observedWorkspace) {
+    setObservedWorkspace(workspace);
+    if (!dirty && !saving && !update.isPending) {
+      setSavedWorkspace(workspace);
+      setForm(formFromWorkspace(workspace));
+      setPendingWorkspace(null);
+    } else {
+      setPendingWorkspace(workspace);
+    }
+  } else if (pendingWorkspace && !dirty && !saving && !update.isPending) {
+    setSavedWorkspace(pendingWorkspace);
+    setForm(formFromWorkspace(pendingWorkspace));
+    setPendingWorkspace(null);
   }
 
-  const set = <K extends keyof SetupForm>(key: K, value: SetupForm[K]) => setForm((f) => ({ ...f, [key]: value }));
+  const set = <K extends keyof SetupForm>(key: K, value: SetupForm[K]) => {
+    setSaveError(false);
+    setGuidanceFeedback(null);
+    setForm((f) => ({ ...f, [key]: value }));
+  };
 
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -145,20 +190,41 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
 
   const purposeOver = form.purpose.trim().length > PURPOSE_MAX;
   const instructionsOver = form.instructions.trim().length > INSTRUCTIONS_MAX;
+  const guidanceOver = form.workResultGuidance.length > WORK_RESULT_GUIDANCE_MAX;
+  const guidanceStatus = saving
+    ? 'Saving...'
+    : 'workResultGuidance' in patch
+      ? 'Unsaved preferences'
+      : guidanceFeedback === 'saved'
+        ? 'Preferences saved'
+        : guidanceFeedback === 'inherited'
+          ? 'Agent preferences cleared. Using shared preferences.'
+          : !form.workResultGuidance.trim()
+            ? 'Using shared preferences'
+            : 'Saved for this agent';
 
   const save = () => {
-    if (!dirty || purposeOver || instructionsOver) return;
+    if (!dirty || saving || update.isPending || purposeOver || instructionsOver || guidanceOver) return;
+    const submitted = form;
+    const savedGuidance = 'workResultGuidance' in patch;
+    setSaving(true);
+    setSaveError(false);
+    setGuidanceFeedback(null);
     update.mutate(
       { id: workspace.id, ...patch },
       {
         onSuccess: (row) => {
-          setSyncedAt(row.updatedAt);
+          setSavedWorkspace(row);
+          // The acknowledged write supersedes earlier deferred snapshots.
+          setPendingWorkspace(null);
+          setForm((current) => reconcileSavedForm(current, submitted, row));
+          setSaving(false);
+          if (savedGuidance) setGuidanceFeedback(row.workResultGuidance ? 'saved' : 'inherited');
           toast.success(`${row.name} saved`);
         },
-        onError: (err) => {
-          const message =
-            apiErrorStatus(err) !== undefined ? ((apiErrorBody(err) as { error?: string } | null)?.error ?? apiErrorText(err)) : String(err);
-          toast.error(message);
+        onError: () => {
+          setSaving(false);
+          setSaveError(true);
         },
       },
     );
@@ -300,6 +366,50 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
 
           <AgentSkillsSection workspace={workspace} />
 
+          <Section title="Handoff review" description="Reviewer preferences apply only to work produced by this agent. They leave your authoring model and normal defaults unchanged.">
+            <Field
+              label="Handoff and review preferences"
+              htmlFor="agent-work-result-guidance"
+              counter={{ value: form.workResultGuidance.length, max: WORK_RESULT_GUIDANCE_MAX }}
+            >
+              <textarea
+                id="agent-work-result-guidance"
+                aria-describedby="agent-work-result-guidance-description agent-work-result-guidance-status"
+                aria-invalid={guidanceOver || undefined}
+                value={form.workResultGuidance}
+                onChange={(e) => set('workResultGuidance', e.target.value)}
+                maxLength={WORK_RESULT_GUIDANCE_MAX}
+                rows={5}
+                placeholder="e.g. Include links to the finished work and explain what needs my review."
+                className={cn(
+                  'w-full px-3 py-2 text-[12.5px] leading-relaxed bg-background border rounded-md focus:outline-none focus:ring-1 resize-y',
+                  guidanceOver ? 'border-destructive focus:ring-destructive' : 'border-border focus:ring-primary',
+                )}
+              />
+              <p id="agent-work-result-guidance-description" className="mt-1 text-[11px] leading-relaxed text-muted-foreground/70">
+                Adds to your shared preferences in Settings. This agent&apos;s preferences take precedence when they
+                conflict. Leave blank to inherit shared preferences. Used only for handoffs and reviews, not ordinary chat.
+              </p>
+              <p id="agent-work-result-guidance-status" role="status" aria-live="polite" className="mt-1 text-[11px] text-muted-foreground/60">
+                {guidanceStatus}
+              </p>
+            </Field>
+            <ReviewerSelection
+              value={Object.fromEntries(Object.entries(form.reviewDefaults ?? {}).filter(([, value]) => value != null)) as ReviewerOverrides}
+              inheritedDefaults={null}
+              onChange={(value) => set('reviewDefaults', Object.keys(value).length ? value : null)}
+            />
+            {form.reviewDefaults && <button type="button" onClick={() => set('reviewDefaults', null)} className="text-xs text-primary hover:underline">Reset reviewer to normal settings</button>}
+            <label className="flex items-start justify-between gap-3 cursor-pointer">
+              <span className="text-[12px] text-muted-foreground leading-relaxed">
+                Review before handoff
+                <span className="block text-[11px]">Run one independent review after this agent saves a new handoff. Saving a reviewer choice does not turn this on.</span>
+              </span>
+              <Switch aria-label="Review before handoff" checked={form.reviewBeforeHandoff === true} onCheckedChange={(on) => set('reviewBeforeHandoff', on)} className="mt-0.5" />
+            </label>
+            {form.reviewBeforeHandoff === true && !resultCapabilities?.aiReviewEnabled && <p className="text-xs text-muted-foreground">This preference is saved, but automatic reviews wait until handoffs and AI review are enabled in settings.</p>}
+          </Section>
+
           <WorkspaceIntegrationsSection workspaceId={workspace.id} />
 
           <Section title="Browser">
@@ -396,19 +506,28 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
 
       {dirty && (
         <div className="shrink-0 flex items-center justify-end gap-2 border-t border-border bg-card px-5 py-2.5">
-          <span className="mr-auto text-[11px] text-muted-foreground">Unsaved changes</span>
+          <span className="mr-auto text-[11px] text-muted-foreground" role={saveError ? 'alert' : undefined}>
+            {saveError ? 'Could not save. Your changes are still here. Try again.' : saving ? 'Saving...' : 'Unsaved changes'}
+          </span>
           <button
-            onClick={() => setForm(formFromWorkspace(workspace))}
+            onClick={() => {
+              setSavedWorkspace(workspace);
+              setPendingWorkspace(null);
+              setForm(formFromWorkspace(workspace));
+              setSaveError(false);
+              setGuidanceFeedback(null);
+            }}
+            disabled={saving || update.isPending}
             className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent transition-colors"
           >
             Discard
           </button>
           <button
             onClick={save}
-            disabled={update.isPending || purposeOver || instructionsOver}
+            disabled={saving || update.isPending || purposeOver || instructionsOver || guidanceOver}
             className="flex items-center gap-1.5 px-4 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-all disabled:opacity-40"
           >
-            {update.isPending && <Loader2 size={13} className="animate-spin" />}
+            {(saving || update.isPending) && <Loader2 size={13} className="animate-spin" />}
             Save
           </button>
         </div>
@@ -431,11 +550,13 @@ function Section({ title, description, children }: { title: string; description?
 
 function Field({
   label,
+  htmlFor,
   hint,
   counter,
   children,
 }: {
   label?: string;
+  htmlFor?: string;
   hint?: string;
   counter?: { value: number; max: number };
   children: ReactNode;
@@ -446,7 +567,7 @@ function Field({
       {(label || counter) && (
         <div className="flex items-baseline justify-between mb-1.5">
           {label ? (
-            <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</label>
+            <label htmlFor={htmlFor} className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</label>
           ) : (
             <span />
           )}

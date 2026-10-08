@@ -15,6 +15,8 @@ import { TASK_STATUSES } from '@/lib/tasks/lifecycle';
 import { PERMISSION_MODES } from '@/lib/permissions/modes';
 import { KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
 import type { OnboardingRecord } from '@/lib/onboarding/progress';
+import type { HarnessId } from '@/lib/harness/registry';
+import type { ExplicitHarnessSelection } from '@/lib/harness/options';
 
 // ─── Attachments ──────────────────────────────────────────────
 // Generic file reference stored on any entity that can carry uploads.
@@ -113,6 +115,8 @@ export const userState = sqliteTable('user_state', {
   // deck plans the day in the user's actual local time.
   timezone: text(),
   description: text().notNull().default(''),
+  // Shared handoff and review workflow guidance. NULL means unset.
+  workResultGuidance: text(),
   // Null → readers resolve `?? true` at read time, so users who never
   // touched the toggle follow the current product default.
   voiceAutoSend: integer({ mode: 'boolean' }),
@@ -1165,6 +1169,17 @@ export const workspaces = sqliteTable(
     // usable, otherwise the first device set up for the agent. A one-off
     // "Run on" choice never changes it.
     defaultDeviceId: text().references((): AnySQLiteColumn => devices.id, { onDelete: 'set null' }),
+    // Local handoff and review guidance, layered after the shared preference.
+    workResultGuidance: text(),
+    // Null keeps inheritance: automatic review is off until this agent opts in.
+    reviewBeforeHandoff: integer({ mode: 'boolean' }),
+    // Reviewer settings are independent of authoring and global preferences.
+    reviewDefaults: text({ mode: 'json' }).$type<Partial<{
+      harness: HarnessId | null;
+      model: string | null;
+      variant: string | null;
+      effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | null;
+    }>>(),
     position: integer().notNull().default(0),
     collapsed: integer({ mode: 'boolean' }).notNull(),
     // When true, the Live-session explainer modal is skipped for this workspace
@@ -1454,6 +1469,168 @@ export const executionReviews = sqliteTable(
     index('idx_execution_reviews_output').on(table.outputEventId),
   ],
 );
+
+// Durable handoff snapshots. These feature-owned rows never change task lifecycle.
+export type WorkResultLink =
+  | { kind: 'url'; label: string; url: string }
+  | { kind: 'preview'; label: string; previewTargetId: string };
+
+export interface WorkResultCodeRevision {
+  commitSha: string | null;
+  workingTreeState: 'clean' | 'dirty' | 'unknown';
+  capturedAt: string;
+  checkpointRef?: string;
+}
+
+export type WorkResultReviewSelection = {
+  harness: ExplicitHarnessSelection['providerId'] | null;
+  model: string | null;
+  variant: string | null;
+  effort: ExplicitHarnessSelection['effort'];
+  explicit?: {
+    harness?: ExplicitHarnessSelection['providerId'];
+    model?: string | null;
+    variant?: string | null;
+    effort?: ExplicitHarnessSelection['effort'];
+  };
+};
+
+export interface WorkResultReviewScope {
+  requested: {
+    resultId: string;
+    codeRevision?: WorkResultCodeRevision | null;
+    repository?: string | null;
+    baseSha?: string | null;
+    attachments: StoredAttachment[];
+    capturedAt: string;
+    limitations?: string[];
+  };
+  observed?: {
+    codeRevision?: WorkResultCodeRevision | null;
+    repository?: string | null;
+    baseSha?: string | null;
+    attachments?: StoredAttachment[];
+    capturedAt?: string;
+    drift?: boolean | null;
+    limitations?: string[];
+  };
+  /** Evidence supplied by a reporter, kept distinct from server observations. */
+  reported?: WorkResultReviewScope['observed'];
+}
+
+export interface WorkResultReviewProvenance {
+  method: 'native_review' | 'fresh_session' | 'reported_review';
+  independence: 'observed' | 'reported' | 'unknown';
+  observedHarness?: ExplicitHarnessSelection['providerId'] | null;
+  observedModel?: string | null;
+  observedEffort?: ExplicitHarnessSelection['effort'];
+  nativeReviewId?: string | null;
+  /** Historical server-observed identities remain after nullable runtime FKs prune. */
+  reviewerSessionId?: string;
+  runtimeRunId?: string;
+  reporterSessionId?: string;
+  reusedReviewId?: string;
+  /** Server-owned opt-in policy identity, retained independently of the authoring chat. */
+  automaticWorkspaceId?: string;
+  automaticRequestId?: string;
+  limitations?: string[];
+}
+
+/** Exact retained inspection selected when feedback was submitted. */
+export interface WorkResultFeedbackContext {
+  reviewId?: string;
+  attachmentFileName?: string;
+  previewTargetId?: string;
+}
+
+export const workResults = sqliteTable('work_results', {
+  id: text().primaryKey(),
+  ...timestamps,
+  userId: text().notNull().default('local'),
+  actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull(),
+  actorUserId: text().notNull(),
+  actorSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
+  sourceChatSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
+  sourceExecutionId: text().references((): AnySQLiteColumn => executions.id, { onDelete: 'set null' }),
+  sourceEventId: text().references((): AnySQLiteColumn => chatEvents.id, { onDelete: 'set null' }),
+  requestHash: text().notNull(),
+  title: text(),
+  body: text().notNull(),
+  attention: text(),
+  attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().notNull().default([]),
+  links: text({ mode: 'json' }).$type<WorkResultLink[]>().notNull().default([]),
+  codeRevision: text({ mode: 'json' }).$type<WorkResultCodeRevision>(),
+  supersedesId: text().references((): AnySQLiteColumn => workResults.id, { onDelete: 'restrict' }),
+}, (table) => [
+  index('idx_work_results_source_chat').on(table.sourceChatSessionId, table.createdAt, table.id),
+  index('idx_work_results_source_execution').on(table.sourceExecutionId, table.createdAt, table.id),
+  index('idx_work_results_user').on(table.userId, table.createdAt, table.id),
+  uniqueIndex('uniq_work_results_successor').on(table.supersedesId).where(sql`${table.supersedesId} IS NOT NULL`),
+  // Historical CHECK names stay stable because renaming them would rebuild the table.
+  check('results_no_self_supersession', sql`${table.supersedesId} IS NULL OR ${table.supersedesId} <> ${table.id}`),
+]);
+
+export const workResultTasks = sqliteTable('work_result_tasks', {
+  id: text().primaryKey(),
+  ...timestamps,
+  resultId: text().notNull().references(() => workResults.id, { onDelete: 'restrict' }),
+  taskId: text().notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+}, (table) => [
+  uniqueIndex('uniq_work_result_tasks_pair').on(table.resultId, table.taskId),
+  index('idx_work_result_tasks_task').on(table.taskId, table.resultId),
+]);
+
+export const workResultDecisions = sqliteTable('work_result_decisions', {
+  id: text().primaryKey(),
+  ...timestamps,
+  userId: text().notNull().default('local'),
+  resultId: text().notNull().references(() => workResults.id, { onDelete: 'restrict' }),
+  requestHash: text().notNull(),
+  disposition: text({ enum: ['accepted', 'changes_requested', 'dismissed'] }).notNull(),
+  actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull(),
+  actorUserId: text().notNull(),
+  actorSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
+  note: text(),
+  attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().notNull().default([]),
+  context: text({ mode: 'json' }).$type<WorkResultFeedbackContext>(),
+  feedbackSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
+  // A soft message reference preserves delivery identity after transcript pruning.
+  feedbackMessageId: text(),
+}, (table) => [
+  index('idx_work_result_decisions_result').on(table.resultId, table.createdAt, table.id),
+  uniqueIndex('uniq_work_result_decision_feedback').on(table.feedbackSessionId, table.feedbackMessageId)
+    .where(sql`${table.feedbackSessionId} IS NOT NULL AND ${table.feedbackMessageId} IS NOT NULL`),
+]);
+
+export const workResultAiReviews = sqliteTable('work_result_ai_reviews', {
+  id: text().primaryKey(),
+  ...timestamps,
+  userId: text().notNull().default('local'),
+  resultId: text().notNull().references(() => workResults.id, { onDelete: 'restrict' }),
+  actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull(),
+  actorUserId: text().notNull(),
+  actorSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
+  requestHash: text().notNull(),
+  focus: text(),
+  brief: text(),
+  selection: text({ mode: 'json' }).$type<WorkResultReviewSelection>().notNull(),
+  scope: text({ mode: 'json' }).$type<WorkResultReviewScope>().notNull(),
+  provenance: text({ mode: 'json' }).$type<WorkResultReviewProvenance>().notNull(),
+  reviewerSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
+  runId: text().references((): AnySQLiteColumn => runs.id, { onDelete: 'set null' }),
+  reportResultId: text().unique().references(() => workResults.id, { onDelete: 'restrict' }),
+  status: text({ enum: ['queued', 'running', 'completed', 'failed', 'cancelled'] }).notNull(),
+  statusReason: text(),
+}, (table) => [
+  index('idx_work_result_ai_reviews_result').on(table.resultId, table.createdAt, table.id),
+  index('idx_work_result_ai_reviews_session').on(table.reviewerSessionId),
+  index('idx_work_result_ai_reviews_run').on(table.runId),
+  uniqueIndex('uniq_work_result_ai_review_active').on(table.resultId)
+    .where(sql`${table.status} IN ('queued', 'running')`),
+  // Retain historical CHECK names to keep the forward migration rowid-safe.
+  check('result_ai_review_distinct_report', sql`${table.reportResultId} IS NULL OR ${table.reportResultId} <> ${table.resultId}`),
+  check('result_ai_review_completed_report', sql`${table.status} <> 'completed' OR ${table.reportResultId} IS NOT NULL`),
+]);
 
 /**
  * One manually-pasted preview URL on an execution. `service` scopes it to a

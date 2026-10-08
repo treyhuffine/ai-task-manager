@@ -76,12 +76,23 @@ describe('a session token', () => {
     expect(may('/api/orchestrator/browser/mcp', 'profile=default')).toBe(false);
     // An execution isn't given the orchestrator, and nothing else is a server.
     expect(may('/api/orchestrator/mcp')).toBe(false);
+    expect(may('/api/orchestrator/results/mcp')).toBe(true);
     expect(may('/api/tasks')).toBe(false);
 
     const mainChat = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active', permissionMode: 'ask', workspaceId: agentId } as never);
     expect(sessionMayReach(q.getChatSession(mainChat.id)!, '/api/orchestrator/mcp', new URLSearchParams())).toBe(true);
     const appChat = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active', permissionMode: 'ask' });
     expect(sessionMayReach(q.getChatSession(appChat.id)!, '/api/orchestrator/mcp', new URLSearchParams())).toBe(false);
+  });
+
+  it('restricts a reviewer token to its assigned results server', async () => {
+    const { sessionMayReach } = await import('./session-token');
+    const q = await import('@/lib/db/queries');
+    const reviewer = { ...q.getChatSession(executionChat)!, surfaceKind: 'result_review' as const };
+    expect(sessionMayReach(reviewer, '/api/orchestrator/results/mcp', new URLSearchParams())).toBe(true);
+    for (const path of ['/api/orchestrator/mcp', '/api/integrations/mcp', '/api/orchestrator/browser/mcp', '/api/results/reports']) {
+      expect(sessionMayReach(reviewer, path, new URLSearchParams(`ws=${agentId}&profile=ws-${agentId}`))).toBe(false);
+    }
   });
 });
 

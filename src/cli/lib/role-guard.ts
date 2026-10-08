@@ -25,6 +25,7 @@ import { describeRetired, retiredHomes } from '@/lib/home/retired';
 /** Top-level commands that read or write a home's data. */
 const DATA_COMMANDS = new Set([
   'agent',
+  'attachment',
   'trigger',
   'runs',
   'run',
@@ -45,7 +46,7 @@ const DATA_COMMANDS = new Set([
  * browser on the machine it runs on, and a connected device's own browser
  * is not the home's.
  */
-export const ROUTED_WHEN_CONNECTED = new Set(['agent', 'trigger', 'runs', 'run', 'spend', 'setup']);
+export const ROUTED_WHEN_CONNECTED = new Set(['attachment', 'agent', 'trigger', 'runs', 'run', 'spend', 'setup']);
 
 export class RoleGuardError extends Error {
   constructor(message: string) {

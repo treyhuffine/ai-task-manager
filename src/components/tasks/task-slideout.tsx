@@ -41,6 +41,7 @@ import { RichEditor } from '@/components/editor/rich-editor';
 import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { LinkedReferences } from '@/components/shared/linked-references';
 import { SubtaskSection } from './subtask-section';
+import { TaskResults } from '@/components/results/task-results';
 import { AreaSelect } from '@/components/shared/area-select';
 import {
   DropdownMenu,
@@ -751,6 +752,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                         onFoldedHeadingsChange={handleFoldedHeadingsChange}
                       />
                     </div>
+                    <div className="px-4 md:px-12"><TaskResults key={task.id} taskId={task.id} /></div>
                     <div className="px-4 md:px-12 pb-8">
                       <LinkedReferences entityType="task" entityId={task.id} />
                     </div>

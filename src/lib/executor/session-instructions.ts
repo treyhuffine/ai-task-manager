@@ -23,8 +23,8 @@ import { isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
  * read in `providers/<p>/session.ts` for claude, codex and pi, but only in
  * `execute.ts` (the one-shot path) for cursor and opencode. Ri always goes
  * through `createSession`, so on cursor and opencode the field is silently
- * dropped and the session never sees the text. Callers report that honestly
- * rather than as a partial degradation, because it is a total one. Revisit
+ * dropped. The adapter delivers those blocks as explicit app context with
+ * each submitted message, including resumed sessions. Revisit
  * whenever agentex grows session-scoped instructions for the rest.
  *
  * antigravity (agentex 0.0.39, `providers/antigravity/session.ts`) reads the
@@ -54,13 +54,13 @@ export interface SessionInstructionBlock {
 export interface SessionInstructionsPlan {
   /** Text for `instructionsFile`, or '' when there is nothing to deliver. */
   text: string;
-  /** Names of blocks that had something to say but this provider can't receive. */
+  /** Names of blocks that must use explicit message delivery on this provider. */
   undelivered: string[];
 }
 
 /**
  * Decide what a session is told at spawn: the non-empty blocks in order,
- * joined, or nothing plus the list of what was lost when the provider drops
+ * joined, or nothing plus the list to deliver in messages when the provider drops
  * session instructions.
  */
 export function planSessionInstructions(

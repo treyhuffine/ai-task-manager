@@ -81,10 +81,16 @@ export function applyRunnerSignal(
   if (from) after.tasks.push(() => mirrorSignal(from.deviceId, chatSessionId, signal, from.eventPosition));
   switch (signal.type) {
     case 'running':
-      if (current) after.tasks.push(() => publishRuntime(chatSessionId, signal.running));
+      if (current) after.tasks.push(() => {
+        publishRuntime(chatSessionId, signal.running);
+        if (!signal.running) scheduleQuietWorkResultDispatch(chatSessionId);
+      });
       return;
     case 'background_tasks':
-      if (current) after.tasks.push(() => publishBackgroundTaskActivity(chatSessionId, signal.active, signal.taskIds));
+      if (current) after.tasks.push(() => {
+        publishBackgroundTaskActivity(chatSessionId, signal.active, signal.taskIds);
+        if (!signal.active) scheduleQuietWorkResultDispatch(chatSessionId);
+      });
       return;
     case 'inventory':
       // Read through the live-state facade when the slash-command list asks.
@@ -121,7 +127,9 @@ export function applyRunnerSignal(
       return;
     case 'turn_result':
       if (signal.runId) finishRunInTransaction(signal.runId, turnOutcome(signal), after);
-      after.tasks.push(() => settleTurn(signal.turnId, signal.ok ? null : signal.error ?? 'The turn failed'));
+      after.tasks.push(() => {
+        void settleWorkResultTurn(chatSessionId, signal).catch((error) => console.warn('[results] turn completion failed', error)).finally(() => settleTurn(signal.turnId, signal.ok ? null : signal.error ?? 'The turn failed'));
+      });
       return;
   }
 }
@@ -280,7 +288,7 @@ function recordPendingResponse(chatSessionId: string, pending: PendingInput, res
 
 function revertFromPlanMode(chatSessionId: string): void {
   const session = getChatSession(chatSessionId);
-  if (!session || session.permissionMode !== 'plan') return;
+  if (!session || session.permissionMode !== 'plan' || session.surfaceKind === 'result_review') return;
   const target: PermissionMode = (session.prePlanMode as PermissionMode | null) ?? DEFAULT_PERMISSION_MODE;
   updateChatSession(chatSessionId, { permissionMode: target, prePlanMode: null });
 }
@@ -353,4 +361,28 @@ function buildPendingResponseEvent(
 
 function formatAnswerSummary(answers: Record<string, string>): string {
   return Object.entries(answers).map(([q, a]) => `${q}: ${a}`).join('\n');
+}
+
+/** Finish explicit completion envelopes before releasing the dispatch waiter. */
+async function settleWorkResultTurn(sessionId: string, signal: Extract<RunnerSignal, { type: 'turn_result' }>): Promise<void> {
+  const session = getChatSession(sessionId);
+  const runtime = await import('@/lib/work-results/runtime');
+  await runtime.settleWorkResultOperationTurn(sessionId, signal.runId, signal);
+  if (session?.surfaceKind !== 'result_review') {
+    void runtime.dispatchQueuedWorkResultOperations(sessionId);
+    void import('@/lib/work-results/automatic').then((m) => m.dispatchAutomaticWorkResultReviews(sessionId)).catch(() => {});
+  }
+}
+
+/** Give an immediate provider continuation its boundary before draining saved work. */
+function scheduleQuietWorkResultDispatch(sessionId: string): void {
+  setImmediate(() => {
+    void import('./live-state').then(async ({ isRunning, hasBackgroundTasks }) => {
+      if (isRunning(sessionId) || hasBackgroundTasks(sessionId)) return;
+      const automatic = await import('@/lib/work-results/automatic');
+      await automatic.dispatchAutomaticWorkResultReviews(sessionId);
+      const runtime = await import('@/lib/work-results/runtime');
+      await runtime.dispatchQueuedWorkResultOperations(sessionId);
+    }).catch(() => {});
+  });
 }
