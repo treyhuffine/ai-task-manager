@@ -9,14 +9,14 @@ The point is leverage: how much work comes out of your time, with numbers that a
 Open the calendar (the rail's Calendar, or the header's work pill). Its header has three controls that each answer one question:
 
 - **Week | Day**: how much time.
-- **Calendar | List | Report**: how to show it. Calendar is the hour grid, List is the week's days as stacked agendas (Week only), Report is what got done (only with agent work on). The choice is remembered, and holds while a tab isn't there, so turning agent work back on returns to Report.
+- **Calendar | List | Report**: how to show it. Calendar is the hour grid, List is the calendar as a list (Week and Day), Report is what got done (only with agent work on). The choice is remembered, and holds while a tab isn't there, so turning agent work back on returns to Report.
 - **Agent work**, a switch (on to start, remembered per browser): whether Ri shows what you and your agents did. Off, the calendar is just a calendar: no numbers, no ribbon, no Report tab, and no pill in the header.
 
 With agent work on, every tab starts with **the numbers** (see "The numbers"). Then:
 
 - **Calendar, Week**: meetings keep the left two thirds of each day, and the day's work is a ribbon in the right third (see "The ribbon"). A legend under the numbers keys the colors. Under each date, the day's worth in the chain's grammar: "30h agents → 676 person-hours".
 - **Calendar, Day**: meetings take the left third, and the rest is lanes, one for you and one per agent (see "Day lanes").
-- **List**: the week's agendas (meetings, all-day events, deadlines), each day with the same worth line. The breakdown of work moved to Report, so List is only ever the calendar.
+- **List**: in Week, the seven days' agendas (meetings, all-day events, deadlines), each day with the same worth line. In Day, one column (`day-list.tsx`): each meeting with its whole time range, calendar, location and Join, the free stretches of half an hour or more between them, and a Now line. The breakdown of work moved to Report, so List is only ever the calendar.
 - **Report**: the summary in sentences, each agent's time beside the human time for the same work, and the days (see "Report").
 - **Header**: today's hours of human work in a pill (see "Header").
 

@@ -14,8 +14,9 @@
  *   - **Day**: one day on an hour axis.
  *
  * And up to three tabs, also remembered: **Calendar** (the hour grid),
- * **List** (the week's days as stacked agendas, Week only) and **Report**
- * (what got done, only with agent work on).
+ * **List** (the week's days as stacked agendas, or one day as a list with
+ * its free stretches) and **Report** (what got done, only with agent work
+ * on).
  *
  * The Agent work switch (on to start) adds what you and your agents did:
  * the numbers at the top, a ribbon of work beside each day's meetings,
@@ -61,6 +62,7 @@ import { toDateOnly } from '@/lib/dates';
 import { todayLocalDate } from '@/lib/deck/date';
 import { cn } from '@/lib/utils';
 import { CalendarConnectPrompt } from './calendar-connect-prompt';
+import { DayList } from './day-list';
 import { DayView } from './day-view';
 import { WeekGrid } from './week-grid';
 import { WeekView, type DeadlineMarker } from './week-view';
@@ -230,13 +232,12 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
     }
     setTabState(next);
   }, []);
-  // The choice holds while a tab isn't there (List in Day, Report with work
-  // off), and comes back with it.
-  const tab: Tab =
-    (tabChoice === 'list' && view === 'day') || (tabChoice === 'report' && !workOn) ? 'calendar' : tabChoice;
+  // The choice holds while Report isn't there (agent work off), and comes
+  // back with it. Calendar and List are always there, in Week and in Day.
+  const tab: Tab = tabChoice === 'report' && !workOn ? 'calendar' : tabChoice;
   const tabs: { value: Tab; label: string }[] = [
     { value: 'calendar', label: 'Calendar' },
-    ...(view === 'week' ? [{ value: 'list' as const, label: 'List' }] : []),
+    { value: 'list', label: 'List' },
     ...(workOn ? [{ value: 'report' as const, label: 'Report' }] : []),
   ];
 
@@ -334,7 +335,7 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
           </button>
         )}
 
-        {!showConnect && tabs.length > 1 && <Segmented label="Show" value={tab} options={tabs} onChange={setTab} />}
+        {!showConnect && <Segmented label="Show" value={tab} options={tabs} onChange={setTab} />}
 
         <Tip label="What you and your agents did: the numbers, a ribbon of work beside your meetings, and the report. Also today's total in the header.">
           <label
@@ -387,6 +388,14 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
         ) : tab === 'report' ? (
           // Until the work arrives, the numbers above say it's adding up.
           workRange ? <WorkReport range={workRange} today={today} /> : null
+        ) : view === 'day' && tab === 'list' ? (
+          <DayList
+            day={days_?.[0]}
+            deadlines={deadlinesByDate.get(anchor) ?? []}
+            onOpenTask={openTask}
+            isToday={anchor === today}
+            showGaps={!noCalendar}
+          />
         ) : view === 'day' ? (
           <DayView
             date={anchor}
