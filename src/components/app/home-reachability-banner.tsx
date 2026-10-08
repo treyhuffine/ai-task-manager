@@ -16,10 +16,11 @@ import { getConnectivity, probeHome, reportReachable, subscribeConnectivity } fr
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, RefreshCw, WifiOff } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useDesktopConnection } from '@/hooks/use-desktop-connection';
+import { CONNECTION_NOTICE_DELAY_MS, type DesktopConnectionAction } from '@/lib/connection/desktop-contract';
 
 const HOME_CACHE_KEY = `${APP_SHORT_ID}.home`;
 const RETRY_EVERY_MS = 5000;
-const NOTICE_AFTER_MS = 10_000;
 
 interface HomeInfo {
   id: string;
@@ -42,10 +43,12 @@ export function useHomeReachability() {
 
 export function HomeReachabilityBanner() {
   const connectivity = useHomeReachability();
+  const desktop = useDesktopConnection();
   const queryClient = useQueryClient();
   const [checking, setChecking] = useState(false);
   const checkInFlight = useRef(false);
   const [warningSince, setWarningSince] = useState<number | null>(null);
+  const [actionError, setActionError] = useState('');
 
   // Which device the home runs on, remembered so an offline screen can say it.
   const { data: home } = useQuery({
@@ -75,7 +78,7 @@ export function HomeReachabilityBanner() {
       const ok = await probeHome();
       if (ok) {
         reportReachable();
-      } else if (!outage.reachable && getConnectivity() === outage && outage.since !== null && Date.now() - outage.since >= NOTICE_AFTER_MS) {
+      } else if (!outage.reachable && getConnectivity() === outage && outage.since !== null && Date.now() - outage.since >= CONNECTION_NOTICE_DELAY_MS) {
         // A timer alone is not evidence of an outage. Confirm it again after
         // the grace period, and ignore a probe overtaken by a healthy request.
         setWarningSince(outage.since);
@@ -108,7 +111,17 @@ export function HomeReachabilityBanner() {
     };
   }, [connectivity.reachable, check]);
 
-  if (connectivity.reachable || warningSince !== connectivity.since) return null;
+  const nativeNotice = desktop?.showNotice && desktop.phase !== 'connected';
+  const issue = nativeNotice ? desktop.issue : null;
+  if (!nativeNotice && (connectivity.reachable || warningSince !== connectivity.since)) return null;
+
+  const nativeAction = async (action: DesktopConnectionAction) => {
+    setChecking(true);
+    setActionError('');
+    try { await window.riDesktop?.connection?.(action); }
+    catch { setActionError('Could not complete that action. Try again or open Desktop Settings from the Ri menu.'); }
+    finally { setChecking(false); }
+  };
 
   const where = known?.host?.name ? `${APP_NAME} on ${known.host.name}` : APP_NAME;
   return (
@@ -119,12 +132,12 @@ export function HomeReachabilityBanner() {
       <div className="flex items-center gap-3">
         <WifiOff size={13} className="flex-shrink-0 text-amber-400" />
         <p className="min-w-0 flex-1 text-[11px] text-foreground/90">
-          <span className="font-medium">Reconnecting to {where}…</span>
-          <span className="block text-muted-foreground">Trying again automatically.</span>
+          <span className="font-medium">{issue?.message ?? `Reconnecting to ${where}…`}</span>
+          <span className="block text-muted-foreground">{issue && !issue.retryable ? 'Your current view and drafts are kept.' : 'Trying again automatically.'}</span>
         </p>
         <button
           type="button"
-          onClick={() => void check()}
+          onClick={() => void (nativeNotice ? nativeAction('retry') : check())}
           disabled={checking}
           className="flex items-center gap-1.5 rounded px-2 py-1 text-[11px] text-foreground/90 transition-colors hover:bg-foreground/5 disabled:opacity-50"
         >
@@ -132,6 +145,16 @@ export function HomeReachabilityBanner() {
           Retry
         </button>
       </div>
+      {issue && !issue.retryable && <button type="button" disabled={checking}
+        onClick={() => void nativeAction(issue.kind === 'sign_in' ? 'connect' : 'settings')}
+        className="mt-2 text-[11px] underline disabled:opacity-50">
+        {issue.kind === 'sign_in' ? 'Sign in again' : 'Connection settings'}
+      </button>}
+      <details className="mt-1 text-[11px] text-muted-foreground">
+        <summary className="cursor-pointer">Connection details</summary>
+        <p className="mt-1 break-words">{issue?.detail ?? 'This view cannot reach your Ri. Its service may be restarting, or the network may be unavailable.'}</p>
+      </details>
+      {actionError && <p role="alert" className="mt-1 text-[11px] text-destructive">{actionError}</p>}
     </div>
   );
 }

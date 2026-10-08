@@ -4,7 +4,7 @@ import { companionPage } from './companion-page';
 import type { LocalPageStyleOptions } from './local-page-style';
 import type { LocalWindow } from './local-window';
 
-export const companionActions = ['status', 'preferences', 'create-home', 'use-detected', 'connect', 'enable-worker', 'stop-worker', 'resume-worker', 'login', 'open', 'updates', 'update-check', 'update-download', 'update-apply', 'update-later', 'recovery', 'notification-enable', 'notification-disable', 'notification-test'] as const;
+export const companionActions = ['status', 'preferences', 'create-home', 'use-detected', 'connect', 'enable-worker', 'stop-worker', 'resume-worker', 'login', 'open', 'return-to-app', 'updates', 'update-check', 'update-download', 'update-apply', 'update-later', 'recovery', 'notification-enable', 'notification-disable', 'notification-test'] as const;
 export type CompanionAction = typeof companionActions[number];
 export interface CompanionViewOptions extends LocalPageStyleOptions { view?: 'auto' | 'settings' | 'connect' | 'help' }
 

@@ -56,4 +56,4 @@ export interface BackendReady {
   token: string;
 }
 
-export type BackendMessage = BackendReady | { type: 'setup'; status: import('./connection-setup').ConnectionSetupStatus } | { type: 'status'; status: import('../src/lib/service/client').ServiceStatus } | { type: 'certificate'; origin: string; certificate: string } | { type: 'error'; message: string };
+export type BackendMessage = BackendReady | { type: 'setup'; status: import('./connection-setup').ConnectionSetupStatus } | { type: 'status'; status: import('../src/lib/service/client').ServiceStatus } | { type: 'certificate'; origin: string; certificate: string } | { type: 'error'; message: string; issue?: import('../src/lib/connection/desktop-contract').DesktopConnectionIssue };

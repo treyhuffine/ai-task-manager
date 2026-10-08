@@ -13,13 +13,20 @@ import { installedRuntime } from '../src/lib/service/runtime';
 import { stageFirstDesktopRuntime } from '../src/lib/service/initialization';
 import { connectionSetup, type ConnectionSetupStatus, type ConnectedViewerSession } from './connection-setup';
 import { assertLocalBridge, remoteViewerOrigin } from './viewer-trust';
+import { connectionFailure } from './connection-failure';
+import { DesktopSessionError } from './session-auth';
 
 const repo = process.env.RI_DESKTOP_REPO!;
 const mode = process.env.RI_DESKTOP_MODE === 'development' ? 'development' : 'production';
 const env = demoEnvironment(repo, process.env, mode);
 Object.assign(process.env, env);
 const send = (message: BackendMessage) => { if (process.connected) process.send?.(message); };
-process.on('message', message => { if ((message as { type?: string }).type === 'stop') process.exit(0); });
+let retrySession = false;
+process.on('message', message => {
+  const type = (message as { type?: string }).type;
+  if (type === 'stop') process.exit(0);
+  if (type === 'retry-session') retrySession = true;
+});
 process.once('disconnect', () => process.exit(0));
 process.once('SIGTERM', () => process.exit(0));
 process.once('SIGINT', () => process.exit(0));
@@ -86,36 +93,37 @@ void (async () => {
   async function connect(owner: ServiceStatus) {
     send({ type: 'status', status: owner });
     const next = await ready(owner);
-    if (!last || reportedFailure || next.serviceRunId !== last.serviceRunId || next.origin !== last.origin || next.token !== last.token || next.connection !== last.connection) send(next);
+    if (!last || reportedFailure || retrySession || next.serviceRunId !== last.serviceRunId || next.origin !== last.origin || next.token !== last.token || next.connection !== last.connection) send(next);
     else if (next.certificate !== last.certificate) send({ type: 'certificate', origin: next.origin, certificate: next.certificate });
-    last = next; reportedFailure = undefined;
+    last = next; reportedFailure = undefined; retrySession = false;
   }
   // An unavailable Home does not stop its local worker/controller. Retry the
   // verified connection while retaining the existing renderer and its drafts.
   try { await connect(status); }
-  catch (error) { reportedFailure = error instanceof Error ? error.message : 'Cannot reach your Home.'; send({ type: 'error', message: reportedFailure }); }
+  catch (error) { const issue = connectionFailure(error); reportedFailure = issue.detail; send({ type: 'error', message: reportedFailure, issue }); }
   const monitor = setInterval(async () => {
     if (checking) return;
     checking = true;
     try {
       const current = await serviceStatus();
       if (current?.phase === 'running') {
-        if (last && current.runId === last.serviceRunId && current.role !== 'worker' && current.role !== 'viewer') {
+        if (last && !reportedFailure && !retrySession && current.runId === last.serviceRunId && current.role !== 'worker' && current.role !== 'viewer') {
           send({ type: 'status', status: current });
           const local = await serviceRequest<ServiceSession>('/session');
           if (local.certificate !== last.certificate) { last.certificate = local.certificate; send({ type: 'certificate', origin: local.origin, certificate: local.certificate }); }
         } else await connect(current);
       } else if (current?.phase === 'failed') throw new Error(current.error ?? 'The background service needs recovery.');
-      else if (!current) throw new Error('This device’s background service stopped. Open Ri on This Device and retry after restarting it.');
+      else if (!current) throw new DesktopSessionError('This computer’s Ri service is not responding. Checking again automatically. If it stays unavailable, review Desktop Settings.', 'network');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Cannot reach your Home.';
-      if (message !== reportedFailure) send({ type: 'error', message });
+      if (message !== reportedFailure) send({ type: 'error', message, issue: connectionFailure(error) });
       reportedFailure = message;
     } finally { checking = false; }
   }, remote ? 5000 : 2000);
   monitor.unref();
 })().catch(error => {
-  send({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+  const issue = connectionFailure(error);
+  send({ type: 'error', message: issue.detail, issue });
   process.exitCode = 1;
   process.disconnect?.();
 });

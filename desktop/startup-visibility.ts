@@ -68,8 +68,10 @@ export function createStartupVisibility(options: {
       // override an explicit hide, but a later user presentation request can.
       if (!options.quitting() && intent === visibilityIntent) options.backgroundWindow();
     },
-    connected() {
-      if (options.quitting()) return;
+    connected({ preserveView = false }: { preserveView?: boolean } = {}) {
+      // Reconnecting an accepted document must not steal its input focus or
+      // close local settings the person deliberately opened during the outage.
+      if (options.quitting() || preserveView) return;
       revision++;
       options.local.close();
       // No show()/restore(): quiet login and user-minimized windows stay so.

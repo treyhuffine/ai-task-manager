@@ -4,7 +4,7 @@ import { PAIRING_TOKEN_FRAGMENT_KEY } from '../src/constants/app';
 import { getInstallationRole } from '../src/lib/config/role';
 import { readConnection, writeConnection, rememberDeviceId, rememberedDeviceId, type ConnectionConfig } from '../src/lib/connection/config';
 import { parsePairingLink } from '../src/lib/connection/connect';
-import { homeFetch, type HomeSummary } from '../src/lib/connection/home-client';
+import { homeFetch, HomeRequestError, type HomeSummary } from '../src/lib/connection/home-client';
 import { thisDeviceFacts } from '../src/lib/home/device-name';
 import { readWorkerConfig, writeWorkerConfig } from '../src/lib/worker/config';
 import { resolveServiceRole, type ServiceRole } from '../src/lib/service/role';
@@ -66,7 +66,8 @@ async function jsonAtHome(connection: ConnectionConfig, route: string, body?: un
     redirect: 'error', ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }),
   });
   // Never echo an untrusted response, which could contain the credential we sent.
-  if (!response.ok) throw new Error(`Your Home could not complete setup (HTTP ${response.status}). Check its version and device access, then retry.`);
+  if (!response.ok) throw new HomeRequestError(response.status >= 500 || response.status === 408 || response.status === 429 ? 'unreachable' : 'error',
+    `Your Home could not complete setup (HTTP ${response.status}). Check its version and device access, then retry.`, response.status);
   const length = Number(response.headers.get('content-length'));
   if (length > 64 * 1024) throw new Error('Your Home returned an oversized setup response.');
   const reader = response.body?.getReader();

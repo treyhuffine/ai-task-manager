@@ -58,5 +58,21 @@ it('remote Home viewers get save/capture hooks without native settings or notifi
   expect(bridge.notifications).toBeUndefined();
   expect(bridge.onPrepareClose).toBeTypeOf('function');
   expect(bridge.onQuickCapture).toBeTypeOf('function');
+  expect(bridge.connection).toBeTypeOf('function');
+  expect(bridge.onConnectionChange).toBeTypeOf('function');
   mocks.sendSync.mockReturnValue('local');
+});
+
+it('connection updates expose only presentation data and remove their exact listener', async () => {
+  vi.stubGlobal('process', { ...process, isMainFrame: true });
+  await import('./preload');
+  const bridge = mocks.expose.mock.calls[0][1];
+  const callback = vi.fn();
+  const off = bridge.onConnectionChange(callback);
+  const listener = mocks.on.mock.calls.find(call => call[0] === 'desktop:connection')![1];
+  const state = { phase: 'failed', issue: null, showNotice: false };
+  listener({ sender: { invoke: vi.fn() } }, state);
+  expect(callback).toHaveBeenCalledExactlyOnceWith(state);
+  off();
+  expect(mocks.remove).toHaveBeenLastCalledWith('desktop:connection', listener);
 });

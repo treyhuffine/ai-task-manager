@@ -8,6 +8,7 @@ import { reportApiCompatibility } from '@/lib/client/api-compatibility';
 import { API_PROTOCOL } from '@/lib/releases/api-contract';
 import { ServiceConnection } from '@/components/desktop/service-connection';
 import { HomeReachabilityBanner } from './home-reachability-banner';
+import type { DesktopConnectionState } from '@/lib/connection/desktop-contract';
 
 const mocks = vi.hoisted(() => ({ version: vi.fn(), service: vi.fn(), health: vi.fn(), flush: vi.fn() }));
 vi.mock('@/lib/api/client', () => ({ api: { get: mocks.version }, getAuthToken: () => null }));
@@ -36,6 +37,7 @@ beforeEach(() => {
   vi.stubGlobal('document', document);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('fetch', mocks.health);
+  delete window.riDesktop;
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -66,6 +68,21 @@ async function disconnect() {
   await act(async () => { await reportNetworkFailure(); });
 }
 const notice = () => container.querySelector('[role="status"]');
+
+function nativeBridge() {
+  let state: DesktopConnectionState = { phase: 'connected', issue: null, showNotice: false };
+  let listener: ((next: DesktopConnectionState) => void) | undefined;
+  const unsubscribe = vi.fn(() => { listener = undefined; });
+  const connection = vi.fn(async () => state);
+  Object.assign(window, { riDesktop: {
+    platform: 'darwin', connection,
+    onConnectionChange: (callback: typeof listener) => { listener = callback; return unsubscribe; },
+  } });
+  return {
+    connection, unsubscribe,
+    async publish(next: DesktopConnectionState) { state = next; await act(async () => listener?.(next)); },
+  };
+}
 
 it('recovers from a short interruption without showing either connection warning', async () => {
   await mount();
@@ -158,4 +175,54 @@ it('keeps a known update visible immediately', async () => {
   mocks.service.mockResolvedValue({ phase: 'updating' });
   await mount();
   expect(notice()?.textContent).toContain('Updating Ri.');
+});
+
+it('uses one notice for shell and Home outages and keeps the same draft through native recovery', async () => {
+  const native = nativeBridge();
+  await mount();
+  const draft = container.querySelector('textarea')!;
+  draft.value = 'Keep my work';
+  const failure: DesktopConnectionState = { phase: 'failed', showNotice: false,
+    issue: { kind: 'network', message: 'Reconnecting to Ri…', detail: 'Connection timed out.', retryable: true } };
+  await native.publish(failure);
+  expect(notice()).toBeNull();
+  await disconnect();
+  await advance(10_000);
+  await native.publish({ ...failure, showNotice: true });
+  expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+  expect(container.querySelector('details')?.textContent).toContain('Connection timed out.');
+  await act(async () => container.querySelector('button')!.click());
+  expect(native.connection).toHaveBeenCalledWith('retry');
+  await native.publish({ phase: 'connected', issue: null, showNotice: false });
+  expect(notice()).toBeNull();
+  expect(invalidate).toHaveBeenCalledOnce();
+  expect(container.querySelector('textarea')).toBe(draft);
+  expect(draft.value).toBe('Keep my work');
+  expect(draft.disabled).toBe(false);
+});
+
+it.each([
+  ['sign_in', 'Sign in again', 'connect'],
+  ['certificate', 'Connection settings', 'settings'],
+] as const)('shows %s problems immediately with an explicit recovery action', async (kind, label, action) => {
+  const native = nativeBridge();
+  await mount();
+  await native.publish({ phase: 'failed', showNotice: true,
+    issue: { kind, message: 'Action needed.', detail: 'The precise failure.', retryable: false } });
+  expect(notice()?.textContent).toContain('Action needed.');
+  expect(notice()?.textContent).not.toContain('Trying again automatically');
+  const button = [...container.querySelectorAll('button')].find(button => button.textContent === label)!;
+  await act(async () => button.click());
+  expect(native.connection).toHaveBeenCalledWith(action);
+});
+
+it('ignores a stale initial shell status arriving after a live connection update', async () => {
+  const native = nativeBridge();
+  let finish!: (state: DesktopConnectionState) => void;
+  native.connection.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  await mount();
+  await native.publish({ phase: 'failed', showNotice: true,
+    issue: { kind: 'sign_in', message: 'Sign in again.', detail: 'Access removed.', retryable: false } });
+  await act(async () => finish({ phase: 'connected', issue: null, showNotice: false }));
+  expect(notice()?.textContent).toContain('Sign in again.');
 });

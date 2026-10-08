@@ -55,7 +55,7 @@ export async function serviceRequest<T>(route: string, method = 'GET', timeoutMs
       });
       response.on('error', reject);
     });
-    request.setTimeout(timeoutMs, () => request.destroy(new Error('Service control request timed out')));
+    request.setTimeout(timeoutMs, () => request.destroy(Object.assign(new Error('Service control request timed out'), { code: 'ETIMEDOUT' })));
     request.on('error', reject);
     request.end(body === undefined ? undefined : JSON.stringify(body));
   });

@@ -245,10 +245,10 @@ describe('configured desktop settings', () => {
   });
 
   it('shows persistent reconnect controls with collapsed preferences after a connection failure', async () => {
-    const ui = await renderPage(viewer);
+    const ui = await renderPage(viewer, { view: 'settings' });
     ui.element('preferences').setAttribute('open', '');
     await ui.refresh({ ...viewer, connectionError: 'Sign-in key revoked.' });
-    expect(ui.element('heading').textContent).toBe('Your Ri is unreachable');
+    expect(ui.element('heading').textContent).toBe('Ri on this device');
     expect(ui.element('open').textContent).toBe('Try again');
     expect(ui.visible('reconnect')).toBe(true);
     expect(ui.element('preferences').hasAttribute('open')).toBe(false);
@@ -283,6 +283,51 @@ describe('configured desktop settings', () => {
     const ui = await renderPage({ ...viewer, home: { name: '<img src=x onerror=alert(1)>' } });
     expect(ui.element('status').textContent).toContain('<img src=x onerror=alert(1)>');
     expect(ui.element('status').querySelector('img')).toBeNull();
+  });
+});
+
+describe('quiet startup recovery', () => {
+  const issue = { kind: 'network', message: 'Reconnecting to Ri…', detail: 'The request timed out.', retryable: true };
+  it('keeps a transient startup error behind the connecting screen until the grace period ends', async () => {
+    const state = { ...viewer, connectionError: issue.detail, connection: { phase: 'failed', issue, showNotice: false } };
+    const ui = await renderPage(state);
+    expect(ui.visible('starting')).toBe(true);
+    expect(ui.visible('device')).toBe(false);
+    expect(ui.visible('settings')).toBe(false);
+    await ui.refresh({ ...state, connection: { ...state.connection, showNotice: true } });
+    expect(ui.visible('starting')).toBe(false);
+    expect(ui.visible('device')).toBe(true);
+    expect(ui.visible('settings')).toBe(false);
+    expect(ui.visible('advanced')).toBe(false);
+    expect(ui.element('intro').textContent).toBe('');
+    expect(ui.element('connection-message').textContent).toContain('automatically');
+    expect(ui.element('connection-error').textContent).toBe(issue.detail);
+    expect(ui.visible('reconnect')).toBe(false);
+    await ui.click('startup-settings');
+    expect(ui.visible('settings')).toBe(true);
+  });
+
+  it('offers retry for a slow initial connection even before the request fails', async () => {
+    const ui = await renderPage({ ...viewer, connecting: true, connection: { phase: 'connecting', issue: null, showNotice: true } });
+    expect(ui.element('heading').textContent).toBe('Taking longer to connect');
+    expect(ui.visible('settings')).toBe(false);
+    expect(ui.input('open').disabled).toBe(false);
+    await ui.click('open');
+    expect(ui.request).toHaveBeenCalledWith('open', undefined);
+    expect(ui.visible('progress')).toBe(false);
+  });
+
+  it('offers sign-in for rejected credentials and retains a route back to the loaded view', async () => {
+    const auth = { kind: 'sign_in', message: 'This computer needs to sign in again.', detail: 'Device access was removed.', retryable: false };
+    const ui = await renderPage({ ...viewer, hasViewer: true, connectionError: auth.detail, connection: { phase: 'failed', issue: auth, showNotice: true } });
+    expect(ui.element('heading').textContent).toBe(auth.message);
+    expect(ui.element('reconnect').textContent).toBe('Sign in again');
+    expect(ui.element('connection-message').textContent).not.toContain('awake');
+    expect(ui.visible('return-to-app')).toBe(true);
+    await ui.click('return-to-app');
+    expect(ui.request).toHaveBeenCalledWith('return-to-app', undefined);
+    await ui.click('reconnect');
+    expect(ui.visible('connect')).toBe(true);
   });
 });
 

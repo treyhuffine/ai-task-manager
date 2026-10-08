@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { observeDesktopTheme } from './appearance-observer';
+import type { DesktopConnectionAction, DesktopConnectionState } from '../src/lib/connection/desktop-contract';
 
 // No Node, filesystem, arbitrary IPC, or credentials cross this bridge.
 if (process.isMainFrame) {
@@ -8,6 +9,12 @@ if (process.isMainFrame) {
   contextBridge.exposeInMainWorld('riDesktop', Object.freeze({
     platform: process.platform,
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('desktop:open-external', url),
+    connection: (action: DesktopConnectionAction): Promise<DesktopConnectionState> => ipcRenderer.invoke('desktop:connection', action),
+    onConnectionChange: (callback: (state: DesktopConnectionState) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: DesktopConnectionState) => callback(state);
+      ipcRenderer.on('desktop:connection', listener);
+      return () => ipcRenderer.removeListener('desktop:connection', listener);
+    },
     ...(local ? {
       notifications: (action: unknown) => ipcRenderer.invoke('desktop:notifications', action),
       settings: (action: unknown) => ipcRenderer.invoke('desktop:settings', action),

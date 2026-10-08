@@ -63,6 +63,21 @@ it('does not foreground quiet login, minimized app or explicitly hidden settings
   expect(hidden.focusViewer).not.toHaveBeenCalled();
 });
 
+it('preserves the current document focus and deliberately opened settings on reconnection', async () => {
+  const f = fixture(); f.flow.show();
+  f.focusViewer.mockClear(); f.reveal.mockClear();
+  f.flow.connected({ preserveView: true });
+  expect(f.focusViewer).not.toHaveBeenCalled();
+  expect(f.reveal).not.toHaveBeenCalled();
+  await f.flow.showLocal(f.open('settings'));
+  f.local.close.mockClear(); f.local.focus.mockClear(); f.reveal.mockClear();
+  f.flow.connected({ preserveView: true });
+  expect(f.state.local).toBe('settings');
+  expect(f.local.close).not.toHaveBeenCalled();
+  expect(f.local.focus).not.toHaveBeenCalled();
+  expect(f.reveal).not.toHaveBeenCalled();
+});
+
 it('closes a pending local page when readiness arrives without changing native visibility', async () => {
   const f = fixture(); const loaded = deferred();
   const opening = f.flow.showLocal(f.open('setup', loaded.promise));

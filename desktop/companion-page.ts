@@ -13,6 +13,7 @@ export function companionPage(nonce: string, options: CompanionPageOptions = {})
 ${style.head}<title>Ri</title></head><body>${style.chrome}<main>
 ${style.brand}
 <button id="back" class="link" hidden>‹ Back</button>
+<button id="return-to-app" class="link" hidden>Back to Ri</button>
 <h1 id="heading">Welcome to Ri</h1><p id="intro">A place for your tasks, notes and conversations.</p>
 <p id="error" role="alert"></p><p id="progress" role="status" hidden></p>
 <section id="starting" hidden><p id="startup-status" role="status" aria-live="polite">Starting Ri…</p><p>Your Ri will open as soon as it is ready.</p></section>
@@ -32,6 +33,7 @@ ${style.brand}
 <section id="device" hidden>
   <p id="status" role="status" aria-live="polite"></p><p id="connection-message"></p><p id="home-name" class="hint"></p>
   <div class="actions"><button id="open">Open Ri</button><button id="reconnect" class="secondary" hidden>Change connection</button></div><details id="connection-details" class="nested" hidden><summary>Connection details</summary><p id="connection-error"></p></details>
+  <button id="startup-settings" class="link" hidden>Desktop Settings</button>
 </section>
 <section id="settings" hidden>
   <details id="execution" hidden><summary>Agents on this computer</summary><p id="worker-status"></p><p id="worker-reason"></p><p class="hint">Local agents use the folders, tools and sign-ins on this computer.</p><div class="actions"><button id="enable-worker" class="secondary" hidden>Enable local execution</button><button id="stop-worker" class="secondary" hidden>Stop local execution</button><button id="resume-worker" class="secondary" hidden>Resume local execution</button></div></details>
@@ -63,25 +65,29 @@ function navigate(next){returnView=view;view=next;$('error').textContent='';if(n
 function render(){
  const role=state?.role,remote=isRemote(),fresh=role==='first-run',homeChosen=fresh&&state?.homeSelected,configured=homeChosen||['home','worker','viewer'].includes(role);
  const failed=!!state?.connectionError;
+ const issue=state?.connection?.issue;
+ const notice=state?.connection?.showNotice??failed;
  const reconnecting=!!state?.connecting&&!failed;
- const starting=view==='auto'&&!failed&&(state?.connecting||homeChosen);
- const current=starting?'starting':view==='auto'?(fresh&&!homeChosen&&!failed?'welcome':'settings'):view==='connect'&&!canConnect()?'settings':view;
- const welcome=current==='welcome',connecting=current==='connect',help=current==='help',settings=current==='settings';
+ const pending=state?.connecting||homeChosen||failed;
+ const current=view==='auto'?(pending?(notice?'recovery':'starting'):fresh&&!homeChosen?'welcome':'settings'):view==='connect'&&!canConnect()?'settings':view;
+ const starting=current==='starting',recovery=current==='recovery',welcome=current==='welcome',connecting=current==='connect',help=current==='help',settings=current==='settings';
  if(failed&&!connectionFailed)document.querySelectorAll('#settings details').forEach(el=>el.removeAttribute('open'));
  connectionFailed=failed;
  $('starting').hidden=!starting;$('startup-status').textContent=remote?'Connecting to your Ri…':'Starting Ri…';
  $('welcome').hidden=!welcome;$('connect').hidden=!connecting;$('help').hidden=!help;$('settings').hidden=!settings;
- $('device').hidden=!settings||!state||(fresh&&!homeChosen&&!failed);$('back').hidden=!(connecting||help||(settings&&fresh&&!homeChosen&&!failed));
- $('heading').textContent=starting?(remote?'Connecting to your Ri':'Starting your Ri'):welcome?'Welcome to Ri':connecting?'Connect to your Ri':help?'Your Ri, on every computer':failed?(remote?'Your Ri is unreachable':'Ri could not start'):!configured&&!fresh&&state?'Ri needs your attention':'Ri on this device';
+ $('device').hidden=(!settings&&!recovery)||!state||(fresh&&!homeChosen&&!failed);$('back').hidden=!(connecting||help||(settings&&fresh&&!homeChosen&&!failed));
+ $('return-to-app').hidden=!state?.hasViewer;
+ $('heading').textContent=starting?(remote?'Connecting to your Ri':'Starting your Ri'):welcome?'Welcome to Ri':connecting?'Connect to your Ri':help?'Your Ri, on every computer':recovery?(issue?.message||'Taking longer to connect'):!configured&&!fresh&&state?'Ri needs your attention':'Ri on this device';
  $('heading').setAttribute('tabindex','-1');
- $('intro').textContent=starting?'':welcome?'A place for your tasks, notes and conversations.':connecting?'Bring your existing work to this computer.':help?'One place for your work, wherever you are.':fresh?'Preferences for this computer.':configured?'Manage this computer’s connection and preferences.':'Review this installation to continue.';
+ $('intro').textContent=starting||recovery?'':welcome?'A place for your tasks, notes and conversations.':connecting?'Bring your existing work to this computer.':help?'One place for your work, wherever you are.':fresh?'Preferences for this computer.':configured?'Manage this computer’s connection and preferences.':'Review this installation to continue.';
  $('help-link').hidden=help;$('settings-link').hidden=!connecting||!configured;$('refresh').hidden=!settings;
- $('advanced').hidden=connecting||help||starting;$('footer').hidden=help||starting;
- $('status').textContent=reconnecting?(remote?'Connecting to your Ri…':'Starting Ri…'):failed&&remote?'We could not connect to '+(state?.home?.name||'your Ri')+'.':role==='home'?'Your Ri lives on this computer':homeChosen?'Your Ri starts on this computer':remote?'Connected to '+(state?.home?.name||'your Ri'):state?.reason||'This installation needs attention';
- $('connection-message').textContent=failed?(remote?'Check that the other computer is awake and reachable, then try again. Your saved connection stays in place.':state.connectionError):'';
- $('connection-details').hidden=!failed;$('connection-error').textContent=state?.connectionError||'';
+ $('advanced').hidden=connecting||help||starting||recovery;$('footer').hidden=help||starting||recovery;
+ $('status').textContent=recovery?'':failed?(issue?.message||'The Ri connection needs attention.'):reconnecting?(remote?'Connecting to your Ri…':'Starting Ri…'):role==='home'?'Your Ri lives on this computer':homeChosen?'Your Ri starts on this computer':remote?'Connected to '+(state?.home?.name||'your Ri'):state?.reason||'This installation needs attention';
+ $('connection-message').textContent=recovery||failed?(issue&&!issue.retryable?'Review the connection details to continue. Your saved connection stays in place.':'Ri is trying to reconnect automatically. Your saved connection stays in place.'):'';
+ $('connection-details').hidden=!failed;$('connection-error').textContent=issue?.detail||state?.connectionError||'';
+ $('startup-settings').hidden=!recovery;
  $('home-name').textContent=remote&&!failed?'Your data stays on '+(state?.home?.hostName||'your other computer')+'.':'';
- $('open').hidden=!configured;$('open').textContent=reconnecting?'Connecting…':failed?'Try again':'Open Ri';$('reconnect').hidden=!remote&&role!=='retired';$('reconnect').textContent=remote?'Change connection':'Connect to your Ri';
+ $('open').hidden=!configured;$('open').textContent=recovery?'Try again':reconnecting?'Connecting…':failed?'Try again':'Open Ri';$('reconnect').hidden=recovery?issue?.kind!=='sign_in':!remote&&role!=='retired';$('reconnect').textContent=issue?.kind==='sign_in'?'Sign in again':remote?'Change connection':'Connect to your Ri';
  $('run-work-label').hidden=remote;
  const detected=state?.detectedInstallation;$('detected').hidden=!detected;
  $('detected-description').textContent=detected?.canUse?'You can open the Ri you already use here.':'Review its setup before opening it.';
@@ -101,7 +107,7 @@ function render(){
 }
 function updateDisabled(){
  const prefs=state?.preferences;document.querySelectorAll('button,input').forEach(el=>el.disabled=busy);
- $('open').disabled=busy||!!state?.connecting&&!state?.connectionError;
+ $('open').disabled=busy||!!state?.connecting&&!state?.connectionError&&!state?.connection?.showNotice;
  $('desktop-login').disabled=busy||!prefs?.login.supported;$('login').disabled=busy||!state?.service;
  $('native-notifications').disabled=busy||state?.notifications?.supported===false;$('notification-test').disabled=busy||state?.notifications?.supported===false;
 }
@@ -112,6 +118,8 @@ async function run(fn,progress=''){
  finally{busy=false;$('progress').hidden=true;try{await refresh();}catch(error){if(!$('error').textContent)$('error').textContent=error.message||'Could not check this computer. Try again.';render();}}
 }
 $('choose-connect').onclick=()=>navigate('connect');$('reconnect').onclick=()=>navigate('connect');$('help-link').onclick=()=>navigate('help');$('settings-link').onclick=()=>navigate('settings');
+$('startup-settings').onclick=()=>navigate('settings');
+$('return-to-app').onclick=()=>run(()=>call('return-to-app'));
 $('back').onclick=()=>{const previous=view==='help'?returnView:'auto';view=previous==='help'?'auto':previous;$('error').textContent='';render();$('heading').focus();};
 $('create-home').onclick=()=>run(()=>call('create-home'),'Starting your new Ri…');
 $('use-detected').onclick=()=>run(()=>call('use-detected'),'Opening your existing Ri…');
@@ -124,7 +132,7 @@ $('connect-home').onclick=()=>run(async()=>{
   $('error').textContent='Connected to your Ri, but local agents could not be enabled. '+result.executionError+' You can retry below or open Ri without local agents.';
  }else view='auto';
 },'Connecting to your Ri…');
-$('open').onclick=()=>{if(state?.connecting&&!state?.connectionError)return;return run(()=>call('open'),'Connecting to your Ri…');};
+$('open').onclick=()=>{if(state?.connecting&&!state?.connectionError&&!state?.connection?.showNotice)return;return run(()=>call('open'));};
 ['stop-worker','resume-worker','recovery','update-check','update-download','update-apply','update-later','notification-test','enable-worker'].forEach(id=>$(id).onclick=()=>run(()=>call(id)));
 $('login').onchange=()=>run(()=>call('login',{enabled:$('login').checked}));
 $('native-notifications').onchange=()=>run(()=>call($('native-notifications').checked?'notification-enable':'notification-disable'));
