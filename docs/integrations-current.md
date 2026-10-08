@@ -1,14 +1,14 @@
 # Current integration catalog
 
-After the seventh delivery wave: **65 integrations, comprising 55 external MCP integrations and 10 native integrations.** Reconciled against the TypeScript catalog on September 28, 2026. Implementation and validation details are in the [delivery tracker](integration-implementation.md).
+After the eighth delivery wave: **67 integrations, comprising 57 external MCP integrations and 10 native integrations.** Reconciled against the TypeScript catalog on October 8, 2026. Implementation and validation details are in the [delivery tracker](integration-implementation.md).
 
 **Hosted/external MCP** means the service supplies tool names, schemas and execution. We maintain connection setup, encrypted credentials, permissions and any typed app consumers. n8n connects to the user-selected instance, which may be self-hosted. **Native** means our code implements operations against the service API. Native does not imply the same tool surface Claude exposes.
 
 The eight registered-app integrations use official services of the kind exposed through Claude, with our own client registration. Hosted service adoption does not transfer Claude's app admission, account permissions or commercial terms. Generic client endpoints may differ from Claude-specific endpoints. No integration compatibility aliases remain.
 
-These entries are implemented and fixture-tested. They are not a claim that all 65 have passed real-account sign-in and workflow acceptance.
+These entries are implemented and fixture-tested. They are not a claim that all 67 have passed real-account sign-in and workflow acceptance.
 
-## Hosted MCP with browser sign-in (40)
+## Hosted MCP with browser sign-in (42)
 
 | Integration | Endpoint or setup |
 | --- | --- |
@@ -19,9 +19,11 @@ These entries are implemented and fixture-tested. They are not a claim that all 
 | Cloudflare | `https://mcp.cloudflare.com/mcp` |
 | Context7 | `https://mcp.context7.com/mcp/oauth` |
 | Craft | `https://mcp.craft.do/my/mcp` |
+| DataForSEO | `https://mcp.dataforseo.com/v3/mcp` |
 | Fastmail | `https://api.fastmail.com/mcp` |
 | Fathom | `https://api.fathom.ai/mcp` |
 | Fibery | `https://mcp.fibery.io/mcp` |
+| Figma | `https://mcp.figma.com/mcp`, after Figma admits this client |
 | Firecrawl | `https://mcp.firecrawl.dev/v2/mcp-oauth` |
 | Fireflies | `https://api.fireflies.ai/mcp` |
 | GitLab | `https://gitlab.com/api/v4/mcp` |
@@ -89,7 +91,9 @@ Robinhood requires desktop Agentic account onboarding. Its documented reads span
 
 The seventh wave adds website and publishing coverage through [Webflow](integration-audit/seventh-wave-webflow.md) and [WordPress.com](integration-audit/seventh-wave-wordpress.md), plus [monday.com](integration-audit/seventh-wave-monday.md), [Smartsheet](integration-audit/seventh-wave-smartsheet.md) and [Fibery](integration-audit/seventh-wave-fibery.md). Webflow authorizes one workspace per connection, with an open Designer and Bridge App required for current visual context. WordPress.com requires MCP enabled and an eligible WordPress.com or Jetpack plan. Its sign-in requests the documented `auth` scope rather than all advertised REST scopes. Smartsheet requires a supported paid plan and keeps regional tokens separate. monday.com's personal-token route covers personal/internal use, while public distribution requires vendor approval. All five retain per-account credentials, canonical tools and high mutation-risk approval defaults.
 
-Ramp, Figma, Canva and Vercel remain outside the connectable catalog because of [documented client-admission requirements](integration-audit/seventh-wave-admission.md). Shopify has a real [hosted Admin MCP](integration-audit/seventh-wave-shopify.md), but a supported custom-client registration path has not been established for this app. Native API credentials do not automatically qualify as hosted MCP client credentials.
+The eighth wave adds SEO research through [DataForSEO](integration-audit/eighth-wave-dataforseo.md): keyword volumes and difficulty, search results, backlinks and competitor rankings. It signs in with browser OAuth and the `api` scope. Agents read the API documentation through three free read-only tools and request data through one `api_request` tool, which spends the account's prepaid DataForSEO balance. That tool runs without approval by default, like other paid research reads, and Ask first can gate it in Settings.
+
+Ramp, Canva and Vercel remain outside the connectable catalog because of [documented client-admission requirements](integration-audit/seventh-wave-admission.md). Figma is listed for the [plugins evaluation](plugins-evaluation-accounts.md), and its sign-in works only once Figma admits this client. Shopify has a real [hosted Admin MCP](integration-audit/seventh-wave-shopify.md), but a supported custom-client registration path has not been established for this app. Native API credentials do not automatically qualify as hosted MCP client credentials.
 
 ## Native API integrations (10)
 

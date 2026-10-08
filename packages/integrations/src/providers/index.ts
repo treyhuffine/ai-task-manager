@@ -112,6 +112,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
   { id: 'fibery', displayName: 'Fibery', method: 'mcp' },
   { id: 'webflow', displayName: 'Webflow', method: 'mcp' },
   { id: 'wordpress', displayName: 'WordPress.com', method: 'mcp' },
+  { id: 'dataforseo', displayName: 'DataForSEO', method: 'mcp' },
 ];
 
 /**

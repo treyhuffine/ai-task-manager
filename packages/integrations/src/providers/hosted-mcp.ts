@@ -134,6 +134,11 @@ export const HOSTED_MCP_PROVIDERS: readonly HostedMcpProvider[] = [
   // documented MCP scope explicitly during initial consent and registration.
   { id: 'wordpress', displayName: 'WordPress.com', url: 'https://public-api.wordpress.com/wpcom/v2/mcp/v1',
     auth: { kind: 'oauth', scopes: ['auth'], authorizeBeforeConnect: true }, defaultMutationRisk: 'high' },
+  // Its live resource metadata omits scopes_supported. The 401 challenge and the
+  // vendor's server source both require `api`, so keep it when no challenge applies.
+  // Data requests go through one `api_request` tool, a paid read with no write floor.
+  { id: 'dataforseo', displayName: 'DataForSEO', url: 'https://mcp.dataforseo.com/v3/mcp',
+    auth: { kind: 'oauth', scopes: ['api'] } },
 ];
 
 export function getHostedMcpProvider(id: string): HostedMcpProvider | undefined {

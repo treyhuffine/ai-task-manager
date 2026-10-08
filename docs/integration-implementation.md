@@ -4,6 +4,27 @@ Started September 28, 2026 from the [ranked audit](integration-audit/README.md).
 
 **Current direction:** Build a broadly useful integration catalog across personal and business services. The user explicitly broadened the scope beyond productivity tools and endorsed the ten candidates below. Rank additions by useful capabilities, likely use, incremental coverage and integration effort. Prefer vendor-maintained hosted MCP where available. QuickBooks remains paused at the user's request. Do not pursue its setup or live account acceptance until the user resumes it.
 
+## Eighth delivery wave
+
+The user asked to add DataForSEO, which publishes an official hosted MCP server, so agents can research keywords, search results and competitors.
+
+- [x] Verify the official endpoint and custom-client authentication against vendor sources and public discovery.
+- [x] Add the named hosted catalog entry, category, description and setup guidance.
+- [x] Add real-SDK OAuth fixtures and pin the approval policy for its paid data tool.
+- [x] Reconcile catalog counts and provider evidence, and run relevant checks.
+
+**Delivered:** DataForSEO, bringing the catalog to **67 providers: 57 external MCP and 10 native**. That count includes Figma, listed earlier for the plugins evaluation and still subject to Figma's client admission.
+
+| Integration | Useful coverage | Connection |
+| --- | --- | --- |
+| DataForSEO | Keyword volumes and difficulty, search results, backlinks, competitor rankings and site audits | Browser OAuth, `api` scope |
+
+The vendor's README and product page name `https://mcp.dataforseo.com/v3/mcp`, and only that path returns the current challenge with `scope="api"`. Its resource metadata names no scopes, so the catalog keeps `api` as the client scope fallback. Every data request goes through one `api_request` tool that spends the account's prepaid balance. The catalog sets no write floor, so the tool runs on standing intent at medium risk, as paid research reads do elsewhere. Ask first can gate it per account. The vendor's Basic credential path is not offered, since OAuth is its documented default for HTTP clients. No SQLite schema change, native adapter or compatibility alias was introduced.
+
+Provider evidence: [DataForSEO](integration-audit/eighth-wave-dataforseo.md). The [public capture](integration-audit/eighth-wave-discovery.json) and [reproduction script](integration-audit/discover-eighth-wave.mjs) record unauthenticated discovery and the anonymous initialization challenge. No account was connected, no OAuth client registered in tests, and no data request made.
+
+**Validation:** 1,025 host/Settings/connect tests and 396 engine tests pass. Real-SDK fixtures cover root resource-metadata fallback, public registration with `api`, PKCE, the normalized resource, code exchange and refresh for web and desktop callbacks. A policy test pins the vendor's annotations: the three documentation tools are reads and `api_request` runs on standing intent. App and engine typechecks pass and ESLint reports nothing on the changed files. A live dev-app connect reached DataForSEO's sign-in with a dynamically registered client and an accepted `api` consent request. Live account sign-in and a real data request remain untested.
+
 ## Seventh delivery wave
 
 The user requested the next high-leverage integrations. Recheck the remaining cross-category queue first, then select useful additions with a documented custom-client path. Vendor admission is distinct from code support. QuickBooks remains paused.
@@ -55,7 +76,7 @@ Public sources, exact profiles and acceptance limits are recorded for [Robinhood
 
 ## Next integration queue
 
-This supersedes the original audit's productivity-first ranking. The first four and monday.com are delivered, while five candidates require vendor qualification or admission. The seventh wave also delivered Webflow, WordPress.com, Smartsheet and Fibery. The current catalog contains 65 providers. An app-specific task picker is not a prerequisite for adding a hosted integration. Account access is needed for live acceptance, and sometimes to discover undocumented contracts for a fixed app feature, but it is not a general prerequisite for writing integration setup code.
+This supersedes the original audit's productivity-first ranking. The first four and monday.com are delivered, while five candidates require vendor qualification or admission. The seventh wave also delivered Webflow, WordPress.com, Smartsheet and Fibery, and the eighth added DataForSEO. The current catalog contains 67 providers. An app-specific task picker is not a prerequisite for adding a hosted integration. Account access is needed for live acceptance, and sometimes to discover undocumented contracts for a fixed app feature, but it is not a general prerequisite for writing integration setup code.
 
 | Order | Integration | Added capability | Integration path and next step |
 | --- | --- | --- | --- |

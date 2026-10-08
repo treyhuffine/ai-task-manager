@@ -1,0 +1,68 @@
+{
+  "checked_at": "2026-10-08T16:46:57.248Z",
+  "method": "GET-only MCP SDK OAuth discovery, plus one anonymous initialization POST for the challenge. No client registration, authorization or account reads.",
+  "records": [
+    {
+      "id": "dataforseo",
+      "endpoint": "https://mcp.dataforseo.com/v3/mcp",
+      "checked_at": "2026-10-08T16:46:55.753Z",
+      "requests": [
+        {
+          "url": "https://mcp.dataforseo.com/v3/mcp",
+          "status": 405,
+          "final_url": "https://mcp.dataforseo.com/v3/mcp"
+        },
+        {
+          "url": "https://mcp.dataforseo.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "final_url": "https://mcp.dataforseo.com/.well-known/oauth-protected-resource"
+        },
+        {
+          "url": "https://data.dataforseo.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "final_url": "https://data.dataforseo.com/.well-known/oauth-authorization-server"
+        }
+      ],
+      "endpoint_status": 405,
+      "www_authenticate": null,
+      "initialize_status": 401,
+      "initialize_www_authenticate": "Bearer error=\"invalid_token\", error_description=\"token is null or empty\", resource_metadata=\"https://mcp.dataforseo.com/.well-known/oauth-protected-resource\", scope=\"api\"",
+      "discovery": {
+        "authorizationServerUrl": "https://data.dataforseo.com",
+        "authorizationServerMetadata": {
+          "issuer": "https://data.dataforseo.com",
+          "authorization_endpoint": "https://data.dataforseo.com/oauth/authorize",
+          "token_endpoint": "https://data.dataforseo.com/oauth/token",
+          "registration_endpoint": "https://data.dataforseo.com/oauth/clients/register",
+          "scopes_supported": [
+            "api",
+            "profile"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "none"
+          ],
+          "revocation_endpoint": "https://data.dataforseo.com/oauth/tokens/revoke",
+          "code_challenge_methods_supported": [
+            "S256"
+          ]
+        },
+        "resourceMetadata": {
+          "resource": "https://mcp.dataforseo.com",
+          "authorization_servers": [
+            "https://data.dataforseo.com"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        }
+      }
+    }
+  ]
+}

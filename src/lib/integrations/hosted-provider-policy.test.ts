@@ -30,4 +30,30 @@ describe('broad hosted integration permissions', () => {
     const read = registry.getAction(`${id}.search_records`)!.action;
     expect(defaultApprovalMode({ actionId: read.id, risk: read.risk ?? 'low', mutating: read.mutating ?? false })).toBe('auto');
   });
+
+  // Vendor annotations from dataforseo/mcp-server-typescript 3.1.3 (src/core/tools/tool-annotations.ts).
+  it('runs DataForSEO data requests on standing intent, like other paid research reads', async () => {
+    const definition = HOSTED_MCP_PROVIDERS.find((provider) => provider.id === 'dataforseo')!;
+    const read = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
+    const registry = createRegistry();
+    await ingestMcpServer(registry, inMemoryStore(), plaintextSecretBox(), {
+      name: 'builtin_dataforseo',
+      identity: { providerId: definition.id, displayName: definition.displayName },
+      trustToolAnnotations: true,
+      ...(definition.defaultMutationRisk ? { defaultRisk: definition.defaultMutationRisk } : {}),
+      client: {
+        listTools: async () => ({ tools: [
+          ...['docs_index', 'docs_list_sections', 'docs_search'].map((name) => ({ name, inputSchema: { type: 'object' as const }, annotations: read })),
+          { name: 'api_request', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true } },
+        ] }),
+        callTool: async () => ({ content: [] }),
+      },
+    });
+    for (const name of ['docs_index', 'docs_list_sections', 'docs_search']) {
+      expect(registry.getAction(`dataforseo.${name}`)!.action).toMatchObject({ mutating: false, risk: 'low' });
+    }
+    const request = registry.getAction('dataforseo.api_request')!.action;
+    expect(request).toMatchObject({ mutating: true, risk: 'medium' });
+    expect(defaultApprovalMode({ actionId: request.id, risk: request.risk!, mutating: true })).toBe('auto');
+  });
 });

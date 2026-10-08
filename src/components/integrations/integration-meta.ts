@@ -223,6 +223,17 @@ export const INTEGRATION_META: Record<string, IntegrationMeta> = {
       'Self-hosted sites need Jetpack with a Jetpack AI or Jetpack Complete plan. One connection reaches your eligible sites.',
     ],
   },
+  dataforseo: {
+    category: 'Websites & publishing',
+    description: 'Research keywords, search results, backlinks and competitor rankings.',
+    brandHex: '87C000',
+    docsUrl: 'https://dataforseo.com/help-center/setting-up-the-official-dataforseo-mcp-server-simple-guide',
+    setup: [
+      'Sign in to DataForSEO and authorize access.',
+      'Each data request spends your DataForSEO balance at standard API prices. Documentation lookups are free.',
+      'Data requests run without approval. Turn on Ask first for api_request to approve each one.',
+    ],
+  },
   todoist: {
     category: 'Productivity',
     description: 'Manage tasks, projects, sections, and assignments.',
