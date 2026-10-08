@@ -1,5 +1,6 @@
 'use client';
 
+import { AgentIcon } from '@/components/agents/agent-icon';
 import { AttachButton } from '@/components/chat/editor/attach-button';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import {
@@ -8,7 +9,7 @@ import {
 } from '@/components/chat/editor/chat-input-editor';
 import { Popover, PopoverTrigger } from '@/components/ui/popover';
 import { useDashboard } from '@/contexts/dashboard-context';
-import type { EffortLevel } from '@/db/types';
+import type { EffortLevel, WorkspaceRecord } from '@/db/types';
 import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { useUserState } from '@/hooks/use-user-state';
@@ -54,8 +55,8 @@ import { Command } from 'cmdk';
 import {
 	ArrowDownToLine,
 	ChevronDown,
+	Bot,
 	CircleDot,
-	Folder,
 	GitBranch,
 	GitPullRequest,
 	Loader2,
@@ -946,7 +947,7 @@ function WorkspacePicker({
   onOpenChange,
   onChange,
 }: {
-  workspaces: { id: string; name: string; emoji: string | null }[];
+  workspaces: Pick<WorkspaceRecord, 'id' | 'name' | 'emoji' | 'attachments' | 'areaId'>[];
   workspaceId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -970,11 +971,7 @@ function WorkspacePicker({
               : 'border border-dashed border-primary/50 text-primary hover:bg-primary/5',
           )}
         >
-          {current?.emoji ? (
-            <span className="text-[13px] leading-none">{current.emoji}</span>
-          ) : (
-            <Folder size={12} className={current ? 'text-muted-foreground/70' : 'text-primary/80'} />
-          )}
+          {current ? <AgentIcon workspace={current} size="xs" /> : <Bot size={12} className="text-primary/80" />}
           {current?.name ?? 'Pick an agent'}
           <ChevronDown size={11} className={current ? 'text-muted-foreground/60' : 'text-primary/70'} />
         </button>
@@ -1008,11 +1005,7 @@ function WorkspacePicker({
                   w.id === workspaceId && 'font-medium text-foreground',
                 )}
               >
-                {w.emoji ? (
-                  <span className="text-[13px] leading-none">{w.emoji}</span>
-                ) : (
-                  <Folder size={11} className="text-muted-foreground/70" />
-                )}
+                <AgentIcon workspace={w} size="xs" />
                 <span className="truncate">{w.name}</span>
               </Command.Item>
             ))}

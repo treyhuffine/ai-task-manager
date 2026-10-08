@@ -19,7 +19,7 @@ import type { AreaSuggestion } from '@/lib/onboarding/area-suggestions';
 import { baseOnboardingRecord, type OnboardingRecord, type OnboardingStepName } from '@/lib/onboarding/progress';
 import { cn } from '@/lib/utils';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, ArrowUp, FolderPlus, ListChecks, PenLine } from 'lucide-react';
+import { ArrowRight, ArrowUp, ListChecks, PenLine, Plus } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useImportRun } from './import-runner';
@@ -635,7 +635,7 @@ function AgentStep({ onDone }: { onDone: (summary: string) => void }) {
     <Card className="flex items-center justify-end gap-1.5">
       <QuietButton onClick={() => onDone('Later')}>Later</QuietButton>
       <PrimaryButton onClick={() => setOpen(true)}>
-        <FolderPlus size={12} /> Add an agent
+        <Plus size={12} /> Add an agent
       </PrimaryButton>
       <WorkspaceCreateModal open={open} onOpenChange={setOpen} />
     </Card>

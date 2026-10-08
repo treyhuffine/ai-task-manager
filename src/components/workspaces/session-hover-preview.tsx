@@ -1,6 +1,7 @@
 'use client';
 
 import { MessageResponse } from '@/components/ai-elements/message';
+import { AgentInitials } from '@/components/agents/agent-icon';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AreaRecord, WorkspaceRecord } from '@/db/types';
 import { useAreas } from '@/hooks/use-areas';
@@ -10,7 +11,7 @@ import type { ChatEventRecord, ChatSessionRecord } from '@/lib/api/dto/records';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { conversationText, pickConversationMessages } from '@/lib/executions/conversation';
 import { cn } from '@/lib/utils';
-import { Bot, Folder, User } from 'lucide-react';
+import { Bot, User } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSessionHover } from './session-hover-context';
@@ -291,8 +292,8 @@ function PreviewHeader({
   workspace: WorkspaceRecord | undefined;
   area: AreaRecord | undefined;
 }) {
-  // Icon resolution mirrors WorkspaceRow: workspace's own image / emoji,
-  // falling back to the linked area's, then a default folder glyph.
+  // Icon resolution mirrors AgentIcon: workspace's own image / emoji,
+  // falling back to the linked area's, then the agent's initials.
   const wsImage = workspace ? coverAttachmentUrl(workspace.attachments) : null;
   const areaImage = area ? coverAttachmentUrl(area.attachments) : null;
   const iconImage = wsImage ?? (workspace?.emoji ? null : areaImage);
@@ -315,7 +316,7 @@ function PreviewHeader({
         ) : iconEmoji ? (
           <span className="text-base leading-none">{iconEmoji}</span>
         ) : (
-          <Folder size={14} className="text-muted-foreground/70" />
+          workspace && <AgentInitials name={workspace.name} />
         )}
       </span>
       <div className="flex-1 min-w-0">

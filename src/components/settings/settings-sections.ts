@@ -2,7 +2,7 @@ import { INTEGRATION_LABELS } from '@/constants/integrations';
 import {
   User,
   SlidersHorizontal,
-  Bot,
+  Cpu,
   Mic,
   Plug,
   Bell,
@@ -95,7 +95,7 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
   {
     id: 'models',
     label: 'Models',
-    icon: Bot,
+    icon: Cpu,
     title: 'AI & Models',
     description: 'Default provider and model, and usage.',
   },

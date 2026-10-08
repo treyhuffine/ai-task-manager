@@ -1,21 +1,21 @@
 'use client';
 
-import { Folder } from 'lucide-react';
 import { useAreas } from '@/hooks/use-areas';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
+import { agentInitials } from '@/lib/client/agent-initials';
 import type { WorkspaceRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
 
 const SIZES = {
-  xs: { box: 'w-4 h-4', emoji: 'text-[12px]', icon: 10 },
-  sm: { box: 'w-5 h-5', emoji: 'text-base', icon: 12 },
-  md: { box: 'w-7 h-7', emoji: 'text-xl', icon: 15 },
-  lg: { box: 'w-9 h-9', emoji: 'text-2xl', icon: 18 },
+  xs: { box: 'w-4 h-4', emoji: 'text-[12px]', initials: 'text-[7px]' },
+  sm: { box: 'w-5 h-5', emoji: 'text-base', initials: 'text-[9px]' },
+  md: { box: 'w-7 h-7', emoji: 'text-xl', initials: 'text-[11px]' },
+  lg: { box: 'w-9 h-9', emoji: 'text-2xl', initials: 'text-[13px]' },
 } as const;
 
 /**
  * An agent's icon, resolved the way the rail resolves it: the workspace's
- * own image or emoji, then its area's, then a folder glyph.
+ * own image or emoji, then its area's, then the initials of its name.
  */
 export function AgentIcon({
   workspace,
@@ -44,10 +44,29 @@ export function AgentIcon({
           {emoji}
         </span>
       ) : (
-        <span className={cn('rounded-md flex items-center justify-center bg-muted text-muted-foreground', dims.box)}>
-          <Folder size={dims.icon} aria-hidden />
-        </span>
+        <AgentInitials name={workspace.name} size={size} />
       )}
+    </span>
+  );
+}
+
+/**
+ * The tile an agent shows with no image or emoji: its initials, so agents
+ * without pictures still look different from each other. For rows that
+ * resolve the picture themselves; everything else uses `AgentIcon`.
+ */
+export function AgentInitials({ name, size = 'md' }: { name: string; size?: keyof typeof SIZES }) {
+  const dims = SIZES[size];
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'rounded-md flex items-center justify-center bg-muted text-muted-foreground font-bold tracking-wide',
+        dims.box,
+        dims.initials,
+      )}
+    >
+      {agentInitials(name)}
     </span>
   );
 }

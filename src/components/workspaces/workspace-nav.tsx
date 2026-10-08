@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Folder, FolderPlus, Archive, X } from 'lucide-react';
+import { Archive, Bot, Plus, X } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -202,10 +202,10 @@ function WorkspaceNavInner() {
                 <Tip label="New agent">
                   <button
                     onClick={() => setCreateOpen(true)}
-                    className="p-1 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                    className="p-1 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors"
                     aria-label="New agent"
                   >
-                    <FolderPlus size={12} />
+                    <Plus size={12} />
                   </button>
                 </Tip>
               </div>
@@ -269,7 +269,7 @@ function WorkspaceHeaderSkeleton() {
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="px-3 py-4 text-center">
-      <Folder size={20} className="mx-auto text-muted-foreground/40 mb-2" />
+      <Bot size={20} className="mx-auto text-muted-foreground/40 mb-2" />
       <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
         No agents yet. Add one to get started.
       </p>
@@ -277,7 +277,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
         onClick={onCreate}
         className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium text-primary hover:bg-primary/10 transition-colors"
       >
-        <FolderPlus size={11} /> New agent
+        <Plus size={11} /> New agent
       </button>
     </div>
   );

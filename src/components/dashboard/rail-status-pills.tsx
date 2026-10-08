@@ -15,6 +15,7 @@ import type { RailSession } from '@/lib/api/sessions';
 import { executionView } from '@/lib/client/active-view';
 import { useAgentAttention, type AgentAttentionItem } from '@/hooks/use-agent-attention';
 import { AgentAttentionRow } from '@/components/workspaces/agent-attention-row';
+import { WorkspaceAvatar } from '@/components/workspaces/history-row';
 import { Tip } from '@/components/ui/tip';
 
 // Top-HUD status pills: every active execution by status, as a compact
@@ -165,7 +166,7 @@ function PillSessionRow({ session, onPick }: PillSessionRowProps) {
         isActive ? 'bg-secondary' : 'hover:bg-muted/50',
       )}
     >
-      <PillWorkspaceAvatar wsImage={wsImage} wsEmoji={wsEmoji} wsName={wsName} />
+      <WorkspaceAvatar wsImage={wsImage} wsEmoji={wsEmoji} wsName={wsName} />
       <div className="flex-1 min-w-0 leading-tight">
         <div className={cn(
           'text-[11.5px] truncate',
@@ -178,41 +179,5 @@ function PillSessionRow({ session, onPick }: PillSessionRowProps) {
         </div>
       </div>
     </button>
-  );
-}
-
-function initialsFor(name: string): string {
-  const cleaned = name.trim();
-  if (!cleaned) return '·';
-  const words = cleaned.split(/\s+/);
-  if (words.length === 1) return words[0]!.charAt(0).toUpperCase();
-  return (words[0]!.charAt(0) + words[1]!.charAt(0)).toUpperCase();
-}
-
-function PillWorkspaceAvatar({
-  wsImage,
-  wsEmoji,
-  wsName,
-}: {
-  wsImage: string | null;
-  wsEmoji: string | null;
-  wsName: string;
-}) {
-  return (
-    <span className="relative w-5 h-5 flex items-center justify-center flex-shrink-0 mt-px">
-      {wsImage ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={wsImage} alt="" className="w-5 h-5 rounded object-cover" />
-      ) : wsEmoji ? (
-        <span className="text-base leading-none">{wsEmoji}</span>
-      ) : (
-        <span
-          aria-hidden
-          className="w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold tracking-wide bg-muted text-muted-foreground"
-        >
-          {initialsFor(wsName)}
-        </span>
-      )}
-    </span>
   );
 }

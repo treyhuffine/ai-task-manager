@@ -30,7 +30,7 @@ import {
 import { DEFAULT_HARNESS, HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
 import { cn } from '@/lib/utils';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Bot, Globe2, Loader2, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
+import { Cpu, Globe2, Loader2, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CursorCredentialPanel } from './cursor-credential-panel';
@@ -51,7 +51,7 @@ export function HarnessSettingsPanel() {
     <section className="@container space-y-4 text-[12px]">
       <header className="space-y-1">
         <div className="flex items-center gap-2 text-foreground">
-          <Bot size={14} className="text-muted-foreground" />
+          <Cpu size={14} className="text-muted-foreground" />
           <h3 className="text-[13px] font-semibold">Harnesses and models</h3>
         </div>
         <p className="text-[11px] text-muted-foreground/85">

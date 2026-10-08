@@ -4,6 +4,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { BACKGROUND_DOT, BACKGROUND_LABEL } from '@/components/workspaces/activity-style';
 import { InactiveFold } from '@/components/workspaces/inactive-fold';
 import { WorkspaceCreateModal } from '@/components/workspaces/workspace-create-modal';
+import { AgentInitials } from '@/components/agents/agent-icon';
 import { useDashboard } from '@/contexts/dashboard-context';
 import type { WorkspaceWithCounts } from '@/db/types';
 import { useAreas } from '@/hooks/use-areas';
@@ -25,12 +26,10 @@ import { isSessionUnread } from '@/lib/utils/session-sort';
 import type { AgentTab } from '@/types/dashboard';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+	Bot,
 	ChevronRight,
 	FileText,
-	Folder,
-	FolderPlus,
 	GitBranch,
-	Inbox,
 	Laptop,
 	Moon,
 	MoreHorizontal,
@@ -70,7 +69,7 @@ export function MobileAgentsView() {
           className="w-8 h-8 -mr-1.5 flex items-center justify-center rounded-lg text-primary bg-primary/10 active:bg-primary/20 transition-colors"
           aria-label="New agent"
         >
-          <FolderPlus size={16} />
+          <Plus size={16} />
         </button>
       </div>
 
@@ -232,7 +231,7 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
             ) : iconEmoji ? (
               <span className="text-2xl leading-none">{iconEmoji}</span>
             ) : (
-              <Folder size={18} className="text-muted-foreground/60" />
+              <AgentInitials name={workspace.name} />
             )}
           </span>
           <span className="flex-1 min-w-0">
@@ -480,7 +479,7 @@ function Badge({ streaming, review }: { streaming: number; review: number }) {
 function EmptyWorkspaces({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="px-6 py-10 text-center text-muted-foreground">
-      <Inbox className="w-8 h-8 mx-auto opacity-30 mb-3" />
+      <Bot className="w-8 h-8 mx-auto opacity-30 mb-3" />
       <p className="text-[13px] font-medium text-foreground">No agents yet</p>
       <p className="text-[11px] text-muted-foreground/70 mt-1 leading-relaxed">
         Add one to get started.
@@ -490,7 +489,7 @@ function EmptyWorkspaces({ onCreate }: { onCreate: () => void }) {
         onClick={onCreate}
         className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-primary bg-primary/10 active:bg-primary/20 transition-colors"
       >
-        <FolderPlus size={13} />
+        <Plus size={13} />
         New agent
       </button>
     </div>

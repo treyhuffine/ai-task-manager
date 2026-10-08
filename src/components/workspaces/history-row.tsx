@@ -11,6 +11,7 @@ import { hasChatStatus, StatusPip, useChatStatus } from './chat-status';
 import { SessionRowMenu } from './session-row-menu';
 import { useSessionRowHover } from './session-hover-context';
 import { executionView } from '@/lib/client/active-view';
+import { agentInitials } from '@/lib/client/agent-initials';
 
 interface HistoryRowProps {
   session: RailSession;
@@ -189,14 +190,6 @@ export function SearchSnippet({ snippet }: { snippet: string }) {
   );
 }
 
-function initialsFor(name: string): string {
-  const cleaned = name.trim();
-  if (!cleaned) return '·';
-  const words = cleaned.split(/\s+/);
-  if (words.length === 1) return words[0]!.charAt(0).toUpperCase();
-  return (words[0]!.charAt(0) + words[1]!.charAt(0)).toUpperCase();
-}
-
 /**
  * An agent's picture: its cover, else its emoji, else its initials. `sm` is
  * for one-line chips and menu items (chat search's agent filter). The default
@@ -234,7 +227,7 @@ export function WorkspaceAvatar({
             sm ? 'w-4 h-4 rounded-sm text-[7px]' : 'w-5 h-5 rounded text-[9px]',
           )}
         >
-          {initialsFor(wsName)}
+          {agentInitials(wsName)}
         </span>
       )}
     </span>

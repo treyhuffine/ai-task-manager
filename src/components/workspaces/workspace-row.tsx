@@ -1,14 +1,12 @@
 'use client';
 
 import { useMemo } from 'react';
-import { ArrowUpRight, ChevronRight, Folder, Plus } from 'lucide-react';
+import { ArrowUpRight, ChevronRight, Plus } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useUpdateWorkspace, useWorkspaceSessions, useRailSessions } from '@/hooks/use-workspaces';
-import { useAreas } from '@/hooks/use-areas';
 import { useAgentViewMode } from '@/lib/client/agent-view-mode';
-import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { sortSessionsHotnessDesc, isSessionUnread } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
 import { hot } from '@/lib/_debug/hot-path';
@@ -17,6 +15,7 @@ import { SessionRow } from './session-row';
 import { InactiveFold } from './inactive-fold';
 import { useInactivity } from '@/hooks/use-inactivity';
 import { Tip } from '@/components/ui/tip';
+import { AgentIcon } from '@/components/agents/agent-icon';
 
 interface WorkspaceRowProps {
   workspace: WorkspaceWithCounts;
@@ -68,17 +67,7 @@ export function WorkspaceRow({
   // `sessions` again below.
   useWorkspaceSessions(null);
   const { data: railData } = useRailSessions();
-  const { data: areas } = useAreas();
   const { isInactive, partition } = useInactivity();
-
-  // Icon resolution: workspace own > linked area > default folder.
-  const wsImage = coverAttachmentUrl(workspace.attachments);
-  const linkedArea = workspace.areaId
-    ? areas?.find((a) => a.id === workspace.areaId)
-    : undefined;
-  const areaImage = linkedArea ? coverAttachmentUrl(linkedArea.attachments) : null;
-  const iconImage = wsImage ?? (workspace.emoji ? null : areaImage);
-  const iconEmoji = workspace.emoji ?? (wsImage ? null : linkedArea?.emoji ?? null);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: workspace.id,
@@ -172,14 +161,7 @@ export function WorkspaceRow({
               aria-label={expanded ? `Fold ${workspace.name}` : `Unfold ${workspace.name}`}
             >
               <span className="group-hover:hidden flex items-center justify-center">
-                {iconImage ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={iconImage} alt="" className="w-5 h-5 rounded object-cover" />
-                ) : iconEmoji ? (
-                  <span className="text-base leading-none">{iconEmoji}</span>
-                ) : (
-                  <Folder size={13} className="text-muted-foreground/60" />
-                )}
+                <AgentIcon workspace={workspace} size="sm" />
               </span>
               <ChevronRight
                 size={13}
