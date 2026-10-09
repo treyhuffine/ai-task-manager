@@ -27,7 +27,8 @@ export interface HarnessRuntimeView {
 
 interface CachedRuntime {
   expiresAt: number;
-  value: HarnessRuntimeView;
+  /** The resolution in flight or done, so concurrent callers share one probe. */
+  value: Promise<HarnessRuntimeView>;
 }
 
 const cache = new Map<string, CachedRuntime>();
@@ -153,6 +154,23 @@ export async function getHarnessRuntime(
   const cached = cache.get(key);
   if (!options.refresh && cached && cached.expiresAt > Date.now()) return cached.value;
 
+  // In flight, the entry never expires. A probe can take seconds, and every
+  // caller that arrives meanwhile waits on it instead of starting its own.
+  // The TTL starts when it settles. A failure is dropped, so the next caller retries.
+  const value = resolveHarnessRuntime(harness, options);
+  const entry: CachedRuntime = { value, expiresAt: Number.POSITIVE_INFINITY };
+  cache.set(key, entry);
+  value.then(
+    () => { entry.expiresAt = Date.now() + CACHE_TTL_MS; },
+    () => { if (cache.get(key) === entry) cache.delete(key); },
+  );
+  return value;
+}
+
+async function resolveHarnessRuntime(
+  harness: HarnessId,
+  options: { cwd?: string; refresh?: boolean },
+): Promise<HarnessRuntimeView> {
   const provider = getProvider(HARNESS_REGISTRY[harness].agentexProviderId);
   const ctx = await runtimeContextForHarness(harness, options);
   let report: ProviderRuntimeReport;
@@ -188,9 +206,7 @@ export async function getHarnessRuntime(
     );
   }
 
-  const value = { harness, binary: report.binary, capabilities };
-  cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
-  return value;
+  return { harness, binary: report.binary, capabilities };
 }
 
 export function clearHarnessRuntimeCache(harness?: HarnessId): void {
