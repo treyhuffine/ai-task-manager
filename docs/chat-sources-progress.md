@@ -22,7 +22,7 @@ Implemented scope: sections 1 through 8 of [the source-mentions contract](app-co
 
 Use one Apps group. Chat/View describe capabilities. Ready/Allow access/Reconnect/Unavailable describe current usability in the receiving chat. An externally advertised MCP view is described as unavailable here yet until section 9's host is qualified. The existing Settings, Plugins, Connectors flow remains available.
 
-`RI_CHAT_SOURCES=1` enables source discovery and bound calls. Local package mentions additionally require `RI_LOCAL_APPS=1`. With local apps removed, connected-account mentions remain usable. With mentions disabled, historical chips remain readable and unavailable, and ordinary chat continues normally.
+`RI_CHAT_SOURCES=1` enables source discovery and bound calls. Local package mentions additionally require local apps to be enabled. Apps now default to enabled, with `RI_LOCAL_APPS=0` as an explicit opt-out. With local apps removed, connected-account mentions remain usable. With mentions disabled, historical chips remain readable and unavailable, and ordinary chat continues normally.
 
 The current harness registry qualifies strict MCP isolation only for Claude Code. The installed runtime is checked again on send and call. Codex, Cursor, OpenCode and Antigravity are not newly qualified by this change. This is an existing harness boundary, not a mention-specific credential bypass. The shared CLI requires its signed calling chat and forwards execution to the running Home.
 

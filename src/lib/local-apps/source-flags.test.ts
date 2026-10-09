@@ -13,6 +13,14 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('keeps cha
   if (!sources || !apps) expect(spies.loadedLocal).not.toHaveBeenCalled();
 });
 
+it('includes local sources when mentions are enabled and local apps use their default', async () => {
+  process.env.RI_CHAT_SOURCES = '1';
+  delete process.env.RI_LOCAL_APPS;
+  await chatSources.search('chat', '');
+  expect(spies.integration).toHaveBeenCalledTimes(1);
+  expect(spies.local).toHaveBeenCalledTimes(1);
+});
+
 it.each(['0', '1'])('does not expose connected or local sources to result reviewers with local apps=%s', async (localApps) => {
   process.env.RI_CHAT_SOURCES = '1';
   process.env.RI_LOCAL_APPS = localApps;

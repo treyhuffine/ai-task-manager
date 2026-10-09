@@ -62,8 +62,8 @@ export function AppsShell({ route }: { route: string }) {
   if (error) return notice('Apps couldn’t load.', error.message);
   if (!checking && !enabled) {
     return notice(
-      'Local apps aren’t on for this Home.',
-      'Start the Home with RI_LOCAL_APPS=1 to try them. Nothing about your tasks, notes or chats changes either way.',
+      'Apps are disabled for this Home.',
+      'Remove the RI_LOCAL_APPS override and restart the Home to enable Apps.',
     );
   }
   if (!data) {

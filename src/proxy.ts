@@ -16,6 +16,7 @@ import {
 import { isSessionToken, sessionMayReach, verifySessionToken } from '@/lib/auth/session-token';
 import { isHostKeyHash } from '@/lib/auth/host-key';
 import { permitsCookieMutation } from '@/lib/auth/request-origin';
+import { localAppsEnabled } from '@/lib/config/features';
 
 export const config = {
   matcher: ['/api/:path*'],
@@ -108,7 +109,7 @@ export function proxy(request: NextRequest) {
   }
 
   // Local app broker credentials are verified by this narrow protocol adapter.
-  if (process.env.RI_LOCAL_APPS === '1' && /^\/api\/local-apps\/broker\/v1\/(capabilities|call)$/.test(request.nextUrl.pathname)) return nextWithoutKeyHeaders(request);
+  if (localAppsEnabled() && /^\/api\/local-apps\/broker\/v1\/(capabilities|call)$/.test(request.nextUrl.pathname)) return nextWithoutKeyHeaders(request);
 
   if (request.nextUrl.pathname.startsWith('/api/webhooks/')) {
     return nextWithoutKeyHeaders(request);

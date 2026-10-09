@@ -1,4 +1,5 @@
 import { localAppMetadata } from './metadata';
+import { localAppsEnabled } from '@/lib/config/features';
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -52,9 +53,7 @@ import {
   validateCronExpression,
 } from "@/lib/scheduler/cron";
 
-export function localAppsEnabled() {
-  return process.env.RI_LOCAL_APPS === "1";
-}
+export { localAppsEnabled };
 export function requireLocalApps() {
   if (!localAppsEnabled())
     throw new AppError(

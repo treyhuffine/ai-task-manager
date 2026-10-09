@@ -17,5 +17,5 @@ it('binds file capabilities to declared human views and denies stale, foreign an
   await expect(service.fileAccess(view.viewId,'other-tab','select')).rejects.toThrow(/expired/);await expect(service.fileAccess(view.viewId,'human-viewer','download')).rejects.toThrow(/not declared/);
   const owner=service.store.read().grants[0];await service.revokeGrant(owner.id,service.store.read().revision);
   await expect(service.fileAccess(view.viewId,'human-viewer','select')).rejects.toThrow(/expired|authorized/);
-  delete process.env.RI_LOCAL_APPS;await expect(service.fileAccess(view.viewId,'human-viewer','select')).rejects.toThrow(/not enabled/);
+  process.env.RI_LOCAL_APPS='0';await expect(service.fileAccess(view.viewId,'human-viewer','select')).rejects.toThrow(/not enabled/);
 });

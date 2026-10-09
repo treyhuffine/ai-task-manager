@@ -1,4 +1,5 @@
 import { localApps } from '@/lib/local-apps/service';
+import { localAppsEnabled } from '@/lib/config/features';
 /**
  * The home's executor API (docs/homes-build.md, "P2.1 The runner split").
  *
@@ -379,7 +380,7 @@ async function dispatchOnce(
     // loading app context. Recovery must see the saved message immediately.
     if (session.surfaceKind !== 'result_review') {
       if (options.sourceEventId) userMessage += await (await import('@/lib/server/chat-sources')).chatSources.turnContext(chatSessionId, options.sourceEventId);
-      if (options.sourceEventId && process.env.RI_LOCAL_APPS === '1') {
+      if (options.sourceEventId && localAppsEnabled()) {
         const event = (await import('@/lib/db/queries')).getChatEventById(options.sourceEventId);
         if (event && event.sessionId !== chatSessionId) throw new ExecutorError('invalid_state', 'This message belongs to another chat');
         const raw = event?.raw as { localAppContext?: unknown } | null;
@@ -389,7 +390,7 @@ async function dispatchOnce(
         }
       }
     }
-    if (session.surfaceKind !== 'result_review' && process.env.RI_LOCAL_APPS === '1') userMessage += '\n\n' + await (await import('@/lib/local-apps/brief')).appAvailabilityBrief(chatSessionId);
+    if (session.surfaceKind !== 'result_review' && localAppsEnabled()) userMessage += '\n\n' + await (await import('@/lib/local-apps/brief')).appAvailabilityBrief(chatSessionId);
     await dispatchTo(chatSessionId, userMessage, options, session, remote, placement, (attempt) => sending?.settle(attempt));
   } catch (err) {
     sending?.settle(err instanceof StartOver ? { kind: 'again' } : { kind: 'failed', error: err });

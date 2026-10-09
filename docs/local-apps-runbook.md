@@ -1,6 +1,14 @@
-# Running the local apps trial
+# Running local apps
 
-The experiment defaults off. Set `RI_LOCAL_APPS=1` on the Home process before it starts. Browser input cannot enable it. Set `RI_CHAT_SOURCES=1` separately to enable exact `@` references to apps and connected accounts. That shared feature also works when local apps are off. Use a disposable Home first, with the qualified macOS arm64 Node 26.5.0 runtime, ABI 147.
+Apps are enabled by default on the Home. Normal startup needs no environment flag. Set `RI_LOCAL_APPS=0` before starting the Home to disable the feature. Browser input cannot change it. Set `RI_CHAT_SOURCES=1` separately to enable exact `@` references to apps and connected accounts. That shared feature also works when local apps are off. Use disposable Homes for qualification, with the qualified macOS arm64 Node 26.5.0 runtime, ABI 147.
+
+Normal startup after pulling and building:
+
+```sh
+pnpm cli:dev start
+```
+
+For an isolated development Home:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -39,7 +47,7 @@ Archive revokes grants, panels, credentials and jobs, stops owned processes, and
 
 A package export contains reusable source, artifacts, documentation and workflows. It carries no app records, connector credentials, grants or private chats. Whole-Home backup uses a stopped snapshot of enabled apps and resumes them afterward. If quiescence or ownership verification fails, the backup reports incomplete app data. Restore leaves app grants revoked, jobs disabled and panels removed pending explicit review.
 
-To disable the trial, stop its Home, then restart that same Home without `RI_LOCAL_APPS=1`. App metadata and records remain untouched. App APIs/tools are unavailable, no app workers or scheduler participant start, and tasks, notes and chats still work. Deliberately created Ri records and external effects are retained.
+To disable Apps, stop the Home, then restart that same Home with `RI_LOCAL_APPS=0`. App metadata and records remain untouched. App APIs/tools are unavailable, no app workers or scheduler participant start, and tasks, notes and chats still work. Deliberately created Ri records and external effects are retained.
 
 ## Qualification commands
 

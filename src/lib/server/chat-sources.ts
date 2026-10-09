@@ -3,6 +3,7 @@ import { integrationSourceAdapter } from '@/lib/chat-sources/integration-adapter
 import { getChatEventById, getChatSessionWithExecution } from '@/lib/db/queries';
 import { HARNESS_REGISTRY } from '@/lib/harness/registry';
 import { isImportMirror } from '@/lib/import/mirror';
+import { localAppsEnabled } from '@/lib/config/features';
 
 export const chatSourcesEnabled = () => process.env.RI_CHAT_SOURCES === '1';
 export const chatSources = new ChatSources({
@@ -21,7 +22,7 @@ export const chatSources = new ChatSources({
       harnessReady = runtime.capabilities.mcp.supported && runtime.capabilities.strictMcpIsolation.supported;
     }
     // Builder/fixture chats cannot use a mention to escape their restricted tool surface.
-    if (chatSourcesEnabled() && process.env.RI_LOCAL_APPS === '1') {
+    if (chatSourcesEnabled() && localAppsEnabled()) {
       const { sourceChatAllowed } = await import('@/lib/local-apps/source-adapter');
       if (!sourceChatAllowed(chatId)) harnessReady = false;
     }
@@ -29,7 +30,7 @@ export const chatSources = new ChatSources({
   },
   async adapters() {
     const adapters = [integrationSourceAdapter];
-    if (chatSourcesEnabled() && process.env.RI_LOCAL_APPS === '1')
+    if (chatSourcesEnabled() && localAppsEnabled())
       adapters.push((await import('@/lib/local-apps/source-adapter')).localAppSourceAdapter);
     return adapters;
   },

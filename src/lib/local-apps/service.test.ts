@@ -14,7 +14,7 @@ afterEach(async () => {
 it("builds, activates and restarts a portable generated tracker with separate preview records", async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), "ri-local-apps-"));
   process.env.RI_ROOT = root;
-  process.env.RI_LOCAL_APPS = "1";
+  delete process.env.RI_LOCAL_APPS;
   service = new LocalAppsService();
   await service.initialize();
   const draft = await service.createDraft("react");
@@ -164,6 +164,7 @@ it("builds, activates and restarts a portable generated tracker with separate pr
 it("feature off has no metadata or process side effects", async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), "ri-local-apps-off-"));
   process.env.RI_ROOT = root;
+  process.env.RI_LOCAL_APPS = "0";
   service = new LocalAppsService();
   expect(() => service.initialize()).toThrowError(/not enabled/);
   expect(await fs.readdir(root)).toEqual([]);

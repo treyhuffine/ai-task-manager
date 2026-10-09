@@ -41,3 +41,8 @@ for (const name of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GROQ_API_KEY', 'CURS
 if (!process.env.PORT) {
   process.env.PORT = '9';
 }
+
+/** Ordinary fixtures keep the optional app runtime out of their chat prompts
+ * and scheduler ticks. App tests explicitly unset this override to exercise
+ * normal default-on startup, or set it when testing enable/disable behavior. */
+process.env.RI_LOCAL_APPS = '0';

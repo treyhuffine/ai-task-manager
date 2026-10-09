@@ -1,4 +1,5 @@
 import { localApps } from '@/lib/local-apps/service';
+import { localAppsEnabled } from '@/lib/config/features';
 /** The service's ordinary-Node HTTP boundary. Next remains the application. */
 import http from 'node:http';
 import next from 'next';
@@ -66,13 +67,13 @@ async function start() {
         return;
       }
       if (pathname === '/__ri_resume') {
-        const resumed=process.env.RI_LOCAL_APPS === '1' ? localApps().resume() : Promise.resolve();
+        const resumed=localAppsEnabled() ? localApps().resume() : Promise.resolve();
         void resumed.then(()=>response.end('{}')).catch(()=>response.writeHead(409).end());
         return;
       }
       if (pathname === '/__ri_activity') {
         response.setHeader('content-type', 'application/json');
-        response.end(JSON.stringify({ executions: listRunningSessions().length + (process.env.RI_LOCAL_APPS === '1' ? localApps().activeCount() : 0), background: listBackgroundTaskSessions().length, permissions: listSessionsWithPending().length }));
+        response.end(JSON.stringify({ executions: listRunningSessions().length + (localAppsEnabled() ? localApps().activeCount() : 0), background: listBackgroundTaskSessions().length, permissions: listSessionsWithPending().length }));
         return;
       }
       response.setHeader('content-type', 'application/json');
@@ -139,7 +140,7 @@ async function start() {
     stopping = true;
     stopPerfRecorder();
     server.close();
-    void (async () => { if (process.env.RI_LOCAL_APPS === '1') await localApps().dispose(); await globalThis.__riTRPCWebSocket?.close(); await application.close(); })().finally(() => process.exit(0));
+    void (async () => { if (localAppsEnabled()) await localApps().dispose(); await globalThis.__riTRPCWebSocket?.close(); await application.close(); })().finally(() => process.exit(0));
   };
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);

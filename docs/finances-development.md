@@ -4,6 +4,10 @@ Finances source lives at `apps/finances` in the same repository and worktree as 
 
 Ri owns navigation, chats, permissions, approvals and supervision. Finance owns its service, calculations, migrations and database. Ri never imports Finance domain code. Finance consumes the shared workspace SDK only through `@ri/app-kit` public exports.
 
+Apps are enabled on a normally started Ri Home without an environment override.
+Set `RI_LOCAL_APPS=0` before startup to opt out. Catalog staging and installation
+remain separate from enabling the Apps destination.
+
 ## Development commands
 
 Run these from the repository root:

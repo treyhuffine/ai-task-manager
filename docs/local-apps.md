@@ -2,7 +2,7 @@
 
 October 8 clarification: this document describes the Ri-managed origin of apps. The [connected-app contract](app-connector-mentions-spec.md#9-connected-mcp-apps-and-a-common-view-host) adds externally connected MCP services with UI to the same Apps destination, source picker and view host. Local ownership is not a requirement for an app experience. Both origins use MCP Apps for views, with separately qualified capabilities and authority adapters. Connected apps retain their provider's storage/runtime and Ri's existing account connections. They do not require the builder, a local package or Finances. The older deferral of independently running service attachment does not exclude this defined connected-MCP slice.
 
-Product direction and implementation handoff, October 7, 2026. The opt-in MVP is implemented in isolated worktrees. Start with [the handoff](local-apps-handoff.md), [verified evidence](local-apps-progress.md) and [the trial runbook](local-apps-runbook.md). This document preserves the product direction and future boundaries.
+Product direction and implementation handoff, October 7, 2026, updated October 8. The MVP is implemented in Ri and enabled by default. Start with [the handoff](local-apps-handoff.md), [verified evidence](local-apps-progress.md) and [the runbook](local-apps-runbook.md). This document preserves the product direction and future boundaries.
 
 This records the owner's current direction and the design discussion that grew out of chat `01a11269-1dc0-77fd-a5f6-2fac63be12fb`. It supersedes the hosting-only scope and assumptions in [plugins-spec.md](plugins-spec.md) where they conflict. That earlier document and its evaluations remain useful research, not an independently authoritative backlog. This design can change as we learn. Future ideas below are not MVP acceptance requirements.
 
@@ -100,7 +100,7 @@ Proposed ownership:
 
 The implementation contract names the file store and code seams. Keep the import direction deliberate: the app subsystem calls a small Ri host interface, implemented with existing domain operations. Existing tasks and notes should not depend on app internals. The explicit connections into core code are navigation, tRPC/orchestrator registration, builder chat context, connector caller/approval attribution, scheduler dispatch, and Home service startup/shutdown. They are real changes, but can remain small and identifiable. Record them in the implementation notes as they land.
 
-Use an opt-in feature flag during the trial. Disabled means no app process startup, no app schedule callbacks, no app metadata initialization, and unavailable app actions/routes. Hiding the navigation alone is insufficient. The flag does not reverse work already done by an app and is not a substitute for an isolated test Home.
+Apps default to enabled, with `RI_LOCAL_APPS=0` as an explicit Home-level opt-out. Disabled means no app process startup, no app schedule callbacks, no app metadata initialization, and unavailable app actions/routes. Hiding the navigation alone is insufficient. The flag does not reverse work already done by an app and is not a substitute for an isolated test Home.
 
 ### Separate the code trial from the data trial
 

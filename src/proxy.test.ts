@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 
 /**
@@ -25,6 +25,7 @@ afterEach(async () => {
   const { resetHomeIdentityCache } = await import('@/lib/home/identity');
   resetHomeIdentityCache();
   await home.cleanup();
+  vi.unstubAllEnvs();
 });
 
 function request(pathname: string, bearer?: string) {
@@ -70,6 +71,27 @@ describe('proxy', () => {
     );
     expect(passesThrough(res)).toBe(true);
     expect(forwarded(res, 'x-ri-caller-location')).toBeNull();
+  });
+
+  it('passes only the local broker protocol to its credential adapter by default', async () => {
+    vi.stubEnv('RI_LOCAL_APPS', undefined);
+    const { proxy } = await import('./proxy');
+    for (const operation of ['capabilities', 'call']) {
+      const res = proxy(new NextRequest(`http://127.0.0.1/api/local-apps/broker/v1/${operation}`, {
+        headers: { 'x-ri-api-key-id': 'forged', 'x-ri-caller-location': 'home' },
+      }));
+      expect(passesThrough(res)).toBe(true);
+      expect(forwarded(res, 'x-ri-api-key-id')).toBeNull();
+      expect(forwarded(res, 'x-ri-caller-location')).toBeNull();
+    }
+    expect(proxy(request('/api/local-apps/import')).status).toBe(401);
+    expect(proxy(request('/api/local-apps/broker/v1/unknown')).status).toBe(401);
+  });
+
+  it('does not bypass Home authentication for a disabled local broker', async () => {
+    vi.stubEnv('RI_LOCAL_APPS', '0');
+    const { proxy } = await import('./proxy');
+    expect(proxy(request('/api/local-apps/broker/v1/call')).status).toBe(401);
   });
 
   it('answers 503 on a root that is not the active home, apart from health', async () => {

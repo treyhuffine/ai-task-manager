@@ -110,4 +110,13 @@ The integration retains main's Saved results surfaces and exact saved-request va
 
 The full suite was rerun after the transfer fix and fixture updates. Original run logs are `/tmp/ri-plugins-merge-tests-final.log`, `/tmp/ri-plugins-merge-kit-tests.log`, `/tmp/ri-plugins-merge-finances-tests.log`, `/tmp/ri-plugins-merge-integrations-final.log`, `/tmp/ri-plugins-merge-finances-artifact.log` and `/tmp/ri-plugins-merge-build-final.log`. Retained copies, including baseline lint evidence, are in `/Users/agent/worktrees/ri-plugins-merge-backup.hp8ilho1/merge-evidence`.
 
-The squash adds no core Ri schema changes or migrations and preserves main's newer migration history. Finances retains its separate app-owned migration history. `RI_LOCAL_APPS` and `RI_CHAT_SOURCES` remain off by default. Connected external MCP UI hosting and additional harness qualification remain outside this delivery.
+The squash adds no core Ri schema changes or migrations and preserves main's newer migration history. Finances retains its separate app-owned migration history. Both feature flags defaulted off at the squash. The subsequent October 8 availability change enables local apps by default, with `RI_LOCAL_APPS=0` as an explicit opt-out. `RI_CHAT_SOURCES` remains opt-in. Connected external MCP UI hosting and additional harness qualification remain outside this delivery.
+
+Default availability verification: 873 targeted tests pass across 105 files, with
+the optional packaged Finances integration skipped. Ri typecheck, changed-file
+lint, CLI/service bundles and an isolated production build pass. With
+`RI_LOCAL_APPS` unset, a separately started disposable Home returns
+`{ enabled: true }` from the authenticated `localApps.enabled` procedure. That
+Home was stopped after verification. Default-on app tools and the broker, an
+explicit opt-out with no app metadata writes, and a complete generated-app
+workflow without an environment override have regression coverage.
