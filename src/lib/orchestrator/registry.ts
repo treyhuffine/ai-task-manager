@@ -1797,10 +1797,12 @@ const list_workspace_sessions_action = defineAction({
 const search_sessions_action = defineAction({
   name: 'search_sessions',
   description:
-    'Full-text search across chat + execution transcripts (the message content of user and agent ' +
-    'turns, including imported Claude, Codex, and OpenCode history). Returns matching sessions, each with the best-' +
-    'matching passage as a snippet, ranked by relevance — use it to find "the chat where we discussed ' +
-    'X". Searches active AND archived by default. Follow up with get_session_messages(sessionId) to ' +
+    'Search chat + execution titles and transcripts (the message content of user and agent turns, ' +
+    'including imported Claude, Codex, and OpenCode history). Titles that contain every word of the ' +
+    'query come first (matchedIn "title"), then transcript matches ranked by relevance (matchedIn ' +
+    '"messages"), each with the best-matching passage as a snippet (null for a title match whose ' +
+    'messages do not match). Use it to find "the chat where we discussed X" or a chat by its name. ' +
+    'Searches active AND archived by default. Follow up with get_session_messages(sessionId) to ' +
     'read a match in full.',
   params: {
     query: z.string().min(1),
@@ -1819,7 +1821,8 @@ const search_sessions_action = defineAction({
       status: r.status,
       imported: r.surfaceKind === 'imported_agent',
       source: r.surfaceRef,
-      snippet: stripHighlight(r.snippet),
+      matchedIn: r.matchedIn,
+      snippet: r.snippet === null ? null : stripHighlight(r.snippet),
       score: r.score,
       lastActivityAt: r.lastOutcomeEventAt ?? r.startedAt,
     })),

@@ -4,7 +4,7 @@ import { GitBranch, Pin } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
-import { splitHighlight } from '@/lib/search/highlight';
+import { splitHighlight, type HighlightSegment } from '@/lib/search/highlight';
 import { cn } from '@/lib/utils';
 import type { RailSession } from '@/lib/api/sessions';
 import { hasChatStatus, StatusPip, useChatStatus } from './chat-status';
@@ -171,22 +171,23 @@ export function sessionRankedAt(session: RailSession): string | null {
  * at a glance. Two-line clamp keeps rows scannable.
  */
 export function SearchSnippet({ snippet }: { snippet: string }) {
-  const segments = splitHighlight(snippet);
   return (
     <p className="mt-0.5 text-[9.5px] leading-snug text-muted-foreground/75 line-clamp-2">
-      {segments.map((seg, i) =>
-        seg.highlighted ? (
-          <mark
-            key={i}
-            className="rounded-[2px] bg-primary/20 px-0.5 text-foreground/90"
-          >
-            {seg.text}
-          </mark>
-        ) : (
-          <span key={i}>{seg.text}</span>
-        ),
-      )}
+      <HighlightedText segments={splitHighlight(snippet)} />
     </p>
+  );
+}
+
+/** Text with its matched parts marked, inline, the way snippets mark them. */
+export function HighlightedText({ segments }: { segments: readonly HighlightSegment[] }) {
+  return segments.map((seg, i) =>
+    seg.highlighted ? (
+      <mark key={i} className="rounded-[2px] bg-primary/20 px-0.5 text-foreground/90">
+        {seg.text}
+      </mark>
+    ) : (
+      <span key={i}>{seg.text}</span>
+    ),
   );
 }
 

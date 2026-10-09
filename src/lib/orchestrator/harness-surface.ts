@@ -288,7 +288,7 @@ or weeks, and the user just keeps talking to you. That changes how you work:
   "today", recurrence), check the current date with \`date\` first.
 - **Older context may be compacted** into summaries. If you need exactly
   what was said or decided, look it up (\`search\` for tasks/notes/stream,
-  \`search_sessions\` for past chat + execution transcripts, then
+  \`search_sessions\` for past chats by title or transcript, then
   \`get_session_messages\` to read a match in full, or the entity itself)
   rather than reconstructing from memory.
 - **Pick up mid-conversation.** Never re-introduce yourself, recap
@@ -596,7 +596,7 @@ ${instructions}`,
   leave inactive ones out of what needs the user unless they ask.
 - \`get_session_messages\`: an execution's transcript tail. **Always read it
   before answering about an execution or acting on it.**
-- \`search_sessions\` with \`workspaceId\` "${id}": find past work by content.`,
+- \`search_sessions\` with \`workspaceId\` "${id}": find past work by title or content.`,
     changingCode,
     `## Steering and closing out
 

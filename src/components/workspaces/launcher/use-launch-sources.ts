@@ -351,7 +351,8 @@ export function useLaunchSources({
             sessionId: c.id,
             archived: c.status === 'archived',
             title: c.label ?? c.execution?.label ?? 'Untitled chat',
-            subtitle: stripHighlight(c.snippet),
+            // A title match has no passage unless its messages match too.
+            subtitle: c.snippet === null ? c.branchName ?? null : stripHighlight(c.snippet),
           }))
         : (recentChats.data ?? []).map((c) => ({
             kind: 'chat' as const,
@@ -373,7 +374,7 @@ export function useLaunchSources({
         error: errorMessage(searching ? chats.error : recentChats.error),
         keepWhenEmpty: true,
         emptyHint: searching
-          ? 'No chat matched. Search covers your and the agent\u2019s messages, not tool output.'
+          ? 'No chat matched. Search covers chat titles and what you and the agent said, not tool output.'
           : includeArchivedChats
             ? 'No chats in this agent, archived or otherwise.'
             : 'No active chats. Turn on Show archived to include finished work.',

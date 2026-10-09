@@ -14,8 +14,15 @@ import { executionView } from '@/lib/client/active-view';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import type { RailSession, SessionSearchFilters } from '@/lib/api/sessions';
+import { containsAllTerms, highlightTerms, searchTerms } from '@/lib/search/highlight';
 import { cn } from '@/lib/utils';
-import { SearchSnippet, WorkspaceAvatar, sessionDisplayLabel, sessionRankedAt } from './history-row';
+import {
+  HighlightedText,
+  SearchSnippet,
+  WorkspaceAvatar,
+  sessionDisplayLabel,
+  sessionRankedAt,
+} from './history-row';
 import { closeChatSearch, useChatSearchOpen } from './chat-search-store';
 import { LauncherPopoverContent } from './launcher/launcher-popover';
 
@@ -37,13 +44,14 @@ const GROUP_CLASS =
   'px-2 pb-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[9px] [&_[cmdk-group-heading]]:font-bold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-widest [&_[cmdk-group-heading]]:text-muted-foreground/60';
 
 /**
- * Search every chat's transcript, in a modal. It used to be a box in the rail
- * that swapped the rail's body for results, which left a 256px column to read
- * snippets in and hid the agents you'd come back to. Here results get the
- * width, and the rail stays as it was.
+ * Search every chat's title and transcript, in a modal. It used to be a box in
+ * the rail that swapped the rail's body for results, which left a 256px column
+ * to read snippets in and hid the agents you'd come back to. Here results get
+ * the width, and the rail stays as it was.
  *
- * Same search and same controls as before: ranked by relevance (BM25), each
- * row with its date, agent, branch and a highlighted snippet, narrowed by
+ * Chats whose title has every word come first, with the words marked in it,
+ * then message matches ranked by relevance (BM25). Each row has its date,
+ * agent, branch and, for a message match, a highlighted snippet, narrowed by
  * status (active / archived) and source (native / imported). With no query it
  * lists recent chats, so it doubles as a quick switcher. The agent filter
  * beside the query narrows both, the recent list and the results, to one
@@ -64,7 +72,7 @@ export function ChatSearchModal() {
       <VisuallyHidden.Root>
         <DialogPrimitive.Title>Search chats</DialogPrimitive.Title>
         <DialogPrimitive.Description>
-          Search the transcripts of every chat and execution, active or archived.
+          Search the titles and transcripts of every chat, active or archived.
         </DialogPrimitive.Description>
       </VisuallyHidden.Root>
       {/* Mounted only while open, so every open starts from an empty query. */}
@@ -118,6 +126,7 @@ function ChatSearchPanel() {
 
   const hits = results ?? [];
   const trimmed = deferredQuery.trim();
+  const terms = useMemo(() => searchTerms(trimmed), [trimmed]);
   const settling = searching && (deferredQuery !== query || isFetching);
 
   return (
@@ -189,7 +198,7 @@ function ChatSearchPanel() {
               <p className="p-8 text-center text-[11px] text-muted-foreground">No chats in {agent.name} yet</p>
             ) : (
               <p className="p-8 text-center text-[11px] text-muted-foreground">
-                Type to search what was said in every chat
+                Type to search every chat{'’'}s title and messages
               </p>
             )
           ) : hits.length > 0 ? (
@@ -198,13 +207,20 @@ function ChatSearchPanel() {
               className={GROUP_CLASS}
             >
               {hits.map((r) => (
-                <ChatResultItem key={r.id} session={r} snippet={r.snippet} onOpen={openChat} />
+                <ChatResultItem
+                  key={r.id}
+                  session={r}
+                  terms={terms}
+                  matchedIn={r.matchedIn}
+                  snippet={r.snippet}
+                  onOpen={openChat}
+                />
               ))}
             </Command.Group>
           ) : isLoading || settling ? (
             <p className="flex items-center justify-center gap-2 p-8 text-[11px] text-muted-foreground">
               <Loader2 size={12} className="animate-spin" />
-              Searching transcripts…
+              Searching chats…
             </p>
           ) : (
             <p className="p-8 text-center text-[11px] text-muted-foreground">
@@ -231,18 +247,35 @@ function ChatSearchPanel() {
   );
 }
 
-/** One chat: its name and date, agent and branch, and the matching line. */
+/**
+ * One chat: its name and date, agent and branch, and why it matched. The
+ * search's words are marked in the name. A tab whose own name lacks them
+ * matched by its chat's name (the execution's title), which shows under it.
+ * A message match shows its passage.
+ */
 function ChatResultItem({
   session,
+  terms = [],
+  matchedIn,
   snippet,
   onOpen,
 }: {
   session: RailSession;
-  snippet?: string;
+  /** The search's words, marked in the name. None in the recent list. */
+  terms?: readonly string[];
+  matchedIn?: 'title' | 'messages';
+  snippet?: string | null;
   onOpen: (sessionId: string) => void;
 }) {
   const label = sessionDisplayLabel(session);
   const placeholder = !(session.label ?? session.execution?.label);
+  const chatTitle =
+    matchedIn === 'title' &&
+    session.label &&
+    session.execution?.label &&
+    !containsAllTerms(session.label, terms)
+      ? session.execution.label
+      : null;
   const archived = session.status === 'archived';
   const wsName = session.workspaceName ?? 'Agent removed';
   return (
@@ -264,7 +297,7 @@ function ChatResultItem({
               placeholder ? 'italic text-muted-foreground/70' : 'font-medium text-foreground/90',
             )}
           >
-            {label}
+            {placeholder ? label : <HighlightedText segments={highlightTerms(label, terms)} />}
           </span>
           <span className="flex-shrink-0 text-[9.5px] text-muted-foreground/60">
             {formatCompactRelative(sessionRankedAt(session))}
@@ -284,6 +317,11 @@ function ChatResultItem({
             </span>
           )}
         </div>
+        {chatTitle && (
+          <p className="mt-0.5 truncate text-[9.5px] leading-snug text-muted-foreground/75">
+            In <HighlightedText segments={highlightTerms(chatTitle, terms)} />
+          </p>
+        )}
         {snippet && <SearchSnippet snippet={snippet} />}
       </div>
     </Command.Item>

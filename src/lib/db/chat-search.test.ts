@@ -16,6 +16,7 @@ import { openAsServer } from '@/test/fixtures/home';
  *   - only message-bearing events are indexed (tool_result/thinking excluded)
  *   - archived + imported chats are searchable, and the status/source filters
  *   - the agent filter, on search and on the recent feed it falls back to
+ *   - titles: the chat's own or its execution's, ranked before messages
  *   - multiple matching events collapse to one result per session
  *   - the one-shot backfill indexes rows that predate the index (upgrade path)
  */
@@ -58,11 +59,12 @@ describe('chat/session search', () => {
   /** Seed one execution chat + its events (events inserted directly so the DB
    *  trigger — not app code — is what indexes them). Returns the session id. */
   async function seedSession(opts: {
-    label?: string;
+    label?: string | null;
     status?: 'active' | 'archived';
     surfaceKind?: string | null;
     surfaceRef?: string | null;
     workspaceId?: string | null;
+    executionId?: string | null;
     events: SeedEvent[];
   }): Promise<string> {
     const { getDb } = await import('@/lib/db');
@@ -76,7 +78,8 @@ describe('chat/session search', () => {
       surfaceKind: opts.surfaceKind ?? null,
       surfaceRef: opts.surfaceRef ?? null,
       workspaceId: opts.workspaceId ?? null,
-      label: opts.label ?? 'Test session',
+      executionId: opts.executionId ?? null,
+      label: opts.label === undefined ? 'Test session' : opts.label,
     });
 
     const db = getDb();
@@ -357,7 +360,7 @@ describe('chat/session search', () => {
     const { getDb, resetDb } = await import('@/lib/db');
     const q = await import('@/lib/db/queries');
     const { default: Database } = await import('better-sqlite3');
-    const session = q.createChatSession({ harness: 'claude', type: 'execution', status: 'active', label: 'Indexed' });
+    const session = q.createChatSession({ harness: 'claude', type: 'execution', status: 'active', label: 'Trigger check' });
     q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'already indexed by the trigger' });
 
     resetDb();
@@ -372,5 +375,166 @@ describe('chat/session search', () => {
       exec.mockRestore();
     }
     expect(q.searchChatSessions({ query: 'indexed' })).toHaveLength(1);
+  });
+
+  // ── Titles ──────────────────────────────────────────────────
+
+  /** Set when a chat last did anything, which orders title matches of one rank. */
+  async function setActivity(sessionId: string, at: string): Promise<void> {
+    const { getRawDb } = await import('@/lib/db');
+    getRawDb().prepare('UPDATE chat_sessions SET last_activity_at = ? WHERE id = ?').run(at, sessionId);
+  }
+
+  it('finds a chat by its title when no message mentions it', async () => {
+    const q = await import('@/lib/db/queries');
+    const id = await seedSession({
+      label: 'Quarterly roadmap review',
+      events: [{ source: 'user', content: 'hello there' }],
+    });
+
+    const [hit, ...rest] = q.searchChatSessions({ query: 'roadmap' });
+    expect(rest).toHaveLength(0);
+    expect(hit).toMatchObject({ id, matchedIn: 'title', snippet: null, matchedEventId: null, score: 1 });
+    // Every word, in any order and any case, each anywhere in the title.
+    expect(q.searchChatSessions({ query: 'REVIEW quarter' }).map((r) => r.id)).toEqual([id]);
+    expect(q.searchChatSessions({ query: '"roadmap review"' }).map((r) => r.id)).toEqual([id]);
+    expect(q.searchChatSessions({ query: 'roadmap budget' })).toHaveLength(0);
+  });
+
+  it("finds a tab by its chat's title, the execution's, but not by words split across the two", async () => {
+    const q = await import('@/lib/db/queries');
+    const agent = q.createWorkspace({ name: 'Charts', cwd: root, isGit: false, filesToCopy: [], status: 'active' });
+    const execution = q.createExecution({ workspaceId: agent.id, label: 'Charting go-live data' });
+    const tab = await seedSession({
+      workspaceId: agent.id,
+      executionId: execution.id,
+      label: 'Adversarial review',
+      events: [{ source: 'user', content: 'look this over' }],
+    });
+    const untitledTab = await seedSession({
+      workspaceId: agent.id,
+      executionId: execution.id,
+      label: null,
+      events: [{ source: 'user', content: 'and this' }],
+    });
+
+    expect(q.searchChatSessions({ query: 'go-live charting' }).map((r) => r.id).sort()).toEqual(
+      [tab, untitledTab].sort(),
+    );
+    expect(q.searchChatSessions({ query: 'adversarial' }).map((r) => r.id)).toEqual([tab]);
+    expect(q.searchChatSessions({ query: 'adversarial charting' })).toHaveLength(0);
+  });
+
+  it('lists title matches first, the exact title, then one that starts with it, then newest, then messages', async () => {
+    const q = await import('@/lib/db/queries');
+    const exact = await seedSession({
+      label: 'Deploy pipeline',
+      events: [{ source: 'agent', content: 'The deploy pipeline is green again.' }],
+    });
+    const prefix = await seedSession({ label: 'Deploy pipeline cleanup', events: [] });
+    const containsOld = await seedSession({ label: 'Fix the deploy pipeline', events: [] });
+    const containsNew = await seedSession({ label: 'Why the pipeline deploy failed', events: [] });
+    const message = await seedSession({
+      label: 'Morning check-in',
+      events: [{ source: 'user', content: 'the deploy pipeline broke overnight' }],
+    });
+    // Newest last in rank order, so rank and not recency puts them there.
+    await setActivity(exact, '2026-10-01T09:00:00.000Z');
+    await setActivity(prefix, '2026-10-02T09:00:00.000Z');
+    await setActivity(containsOld, '2026-10-03T09:00:00.000Z');
+    await setActivity(containsNew, '2026-10-04T09:00:00.000Z');
+    await setActivity(message, '2026-10-05T09:00:00.000Z');
+
+    const results = q.searchChatSessions({ query: 'deploy pipeline' });
+    expect(results.map((r) => r.id)).toEqual([exact, prefix, containsNew, containsOld, message]);
+    expect(results.map((r) => r.matchedIn)).toEqual(['title', 'title', 'title', 'title', 'messages']);
+    // A chat whose title and messages both match is listed once, with its passage.
+    expect(results[0]!.snippet).toContain('deploy');
+    expect(results[0]!.matchedEventId).toBeTruthy();
+    expect(results[4]!.snippet).toContain('overnight');
+    // Scores run down the list: titles at 1, messages below.
+    expect(results.slice(0, 4).every((r) => r.score === 1)).toBe(true);
+    expect(results[4]!.score).toBeGreaterThan(0);
+    expect(results[4]!.score).toBeLessThan(1);
+  });
+
+  it('narrows title matches by status, agent and source, and counts them toward the limit', async () => {
+    const q = await import('@/lib/db/queries');
+    const agent = await seedAgent('Ri');
+    const active = await seedSession({ label: 'Limitfacet one', workspaceId: agent, events: [] });
+    const archived = await seedSession({ label: 'Limitfacet two', status: 'archived', events: [] });
+    const imported = await seedSession({
+      label: 'Limitfacet three',
+      surfaceKind: 'imported_agent',
+      surfaceRef: 'codex',
+      events: [],
+    });
+    const message = await seedSession({ label: 'Other', events: [{ source: 'agent', content: 'limitfacet in a message' }] });
+    await setActivity(active, '2026-10-03T09:00:00.000Z');
+    await setActivity(archived, '2026-10-02T09:00:00.000Z');
+    await setActivity(imported, '2026-10-01T09:00:00.000Z');
+
+    expect(q.searchChatSessions({ query: 'limitfacet', status: 'archived' }).map((r) => r.id)).toEqual([archived]);
+    expect(q.searchChatSessions({ query: 'limitfacet', workspaceId: agent }).map((r) => r.id)).toEqual([active]);
+    expect(q.searchChatSessions({ query: 'limitfacet', source: 'imported' }).map((r) => r.id)).toEqual([imported]);
+    expect(q.searchChatSessions({ query: 'limitfacet', source: 'native' }).map((r) => r.id)).toEqual([
+      active,
+      archived,
+      message,
+    ]);
+
+    // A bigger limit only appends, so paging by limit keeps the rows it had.
+    expect(q.searchChatSessions({ query: 'limitfacet', limit: 2 }).map((r) => r.id)).toEqual([active, archived]);
+    expect(q.searchChatSessions({ query: 'limitfacet', limit: 4 }).map((r) => r.id)).toEqual([
+      active,
+      archived,
+      imported,
+      message,
+    ]);
+  });
+
+  it("matches a title's % and _ as themselves, not as wildcards", async () => {
+    const q = await import('@/lib/db/queries');
+    const percent = await seedSession({ label: 'Roll out to 50% of users', events: [] });
+    await seedSession({ label: 'Roll out to 500 users', events: [] });
+    const underscore = await seedSession({ label: 'Rename user_id', events: [] });
+    await seedSession({ label: 'Rename userxid', events: [] });
+
+    expect(q.searchChatSessions({ query: '50%' }).map((r) => r.id)).toEqual([percent]);
+    expect(q.searchChatSessions({ query: 'user_id' }).map((r) => r.id)).toEqual([underscore]);
+  });
+
+  it('says what matched over HTTP and to agents, with plain text and no passage for a title match', async () => {
+    const titled = await seedSession({ label: 'Wireframes for onboarding', events: [] });
+    const said = await seedSession({
+      label: 'Standup',
+      events: [{ source: 'user', content: 'send the wireframes to Dana' }],
+    });
+
+    const { NextRequest } = await import('next/server');
+    const { GET } = await import('@/app/api/sessions/search/route');
+    const response = await GET(new NextRequest('http://localhost/api/sessions/search?q=wireframes'));
+    expect(response.status).toBe(200);
+    expect(
+      (await response.json() as Array<{ id: string; matchedIn: string; snippet: string | null }>).map((r) => [
+        r.id,
+        r.matchedIn,
+        r.snippet === null,
+      ]),
+    ).toEqual([
+      [titled, 'title', true],
+      [said, 'messages', false],
+    ]);
+
+    const { runAction } = await import('@/lib/orchestrator/dispatch');
+    const env = await runAction('search_sessions', { query: 'wireframes' }, { remote: false });
+    expect(env.ok).toBe(true);
+    expect(env.result).toEqual([
+      expect.objectContaining({ sessionId: titled, label: 'Wireframes for onboarding', matchedIn: 'title', snippet: null, score: 1 }),
+      expect.objectContaining({ sessionId: said, matchedIn: 'messages', snippet: expect.stringContaining('wireframes') }),
+    ]);
+    // Plain text for agents: the highlight sentinels are gone.
+    const { CHAT_SEARCH_HL_START } = await import('@/lib/search/highlight');
+    expect(JSON.stringify(env.result)).not.toContain(CHAT_SEARCH_HL_START);
   });
 });

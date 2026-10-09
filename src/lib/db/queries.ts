@@ -23,6 +23,7 @@ import { uuidv7 } from 'uuidv7';
 import slugify from '@sindresorhus/slugify';
 import { upsertEmbedding, buildEmbeddingText, deleteEmbedding } from '@/lib/embeddings/embed';
 import { toFtsMatchQuery, normalizeFtsRank } from '@/lib/embeddings/fts-query';
+import { searchTerms } from '@/lib/search/highlight';
 import { calendarDaysUntil, toDateOnly } from '@/lib/dates';
 import { todayLocalDate } from '@/lib/deck/date';
 import { syncEntity, syncDeletion, MutationContext, syncBatch } from '@/lib/export/mirror';
@@ -8607,11 +8608,18 @@ function hydrateRailRow(
 
 // ─── Chat / session search ────────────────────────────────────
 //
-// Full-text search over chat transcripts, backed by the `chat_events_fts`
-// index (see EXTRA_SQL in src/lib/db/index.ts). Only message-bearing events
+// Search over chat titles and transcripts. Titles first: a chat whose own
+// title, or its execution's, contains every word of the search. Then
+// transcripts, backed by the `chat_events_fts` index (see EXTRA_SQL in
+// src/lib/db/index.ts), where only message-bearing events
 // (source IN ('user','agent')) are indexed. The result unit is a *session*:
 // event hits are grouped to their session, keeping the best-ranked hit's
 // snippet, so the UI lands on the conversation with the matching passage.
+//
+// Branch names are not titles here. Most chats run on the agent's own
+// checkout (`main`, `develop`), so matching them would rank hundreds of chats
+// above every message for those words, and a chat's own branch is named
+// from its title anyway.
 //
 // Scoped to `type='execution'` chats (native + imported). Orchestration and
 // content chats have no workspace/execution and render differently, so folding
@@ -8621,15 +8629,22 @@ function hydrateRailRow(
 /** Filter for native vs. imported (and which importer) chats. */
 export type ChatSearchSource = 'native' | 'imported' | 'claude' | 'codex' | 'opencode';
 
-/** A rail session row plus the FTS snippet + relevance that matched it. */
+/** A rail session row plus what matched it: its title, or a message's snippet. */
 export interface ChatSearchResult extends RailSessionRow {
+  /** `title` when the chat's title or its execution's contains every word of
+   *  the search (`containsAllTerms` in `@/lib/search/highlight`). These come
+   *  first. `messages` when only the transcript matched. */
+  matchedIn: 'title' | 'messages';
   /** FTS `snippet()` of the best-matching event. Matched terms are wrapped in
    *  the sentinels from `@/lib/search/highlight` (CHAT_SEARCH_HL_START/END);
-   *  render with `splitHighlight`, or `stripHighlight` for plain text. */
-  snippet: string;
-  /** The event whose content produced the snippet — for future deep-linking. */
-  matchedEventId: string;
-  /** Normalized 0-1 BM25 relevance (higher = better). */
+   *  render with `splitHighlight`, or `stripHighlight` for plain text. Null
+   *  for a title match whose messages don't match too. */
+  snippet: string | null;
+  /** The event whose content produced the snippet, for future deep-linking.
+   *  Null exactly when `snippet` is. */
+  matchedEventId: string | null;
+  /** 0-1, higher is better, descending down the list. A title match is 1.
+   *  A message match is its normalized BM25 relevance, which is below 1. */
   score: number;
 }
 
@@ -8645,30 +8660,28 @@ export function searchChatSessions(opts: {
   status?: 'active' | 'archived';
   workspaceId?: string;
   source?: ChatSearchSource;
-  /** Max sessions to return. Default 30. */
+  /** Max sessions to return, title and message matches together. Default 30. */
   limit?: number;
 }): ChatSearchResult[] {
   const match = toFtsMatchQuery(opts.query);
-  if (!match) return [];
+  const terms = searchTerms(opts.query);
+  if (!match && terms.length === 0) return [];
   const limit = opts.limit ?? 30;
 
   // Named params so MATCH and the filters can't get transposed. The snippet()
   // highlight markers are emitted as char(2)/char(3) literals in SQL (== the
   // exported CHAT_SEARCH_HL_* sentinels) rather than bound, sidestepping any
   // FTS aux-function bind-arg quirks. Source clauses use constant literals.
-  const params: Record<string, unknown> = {
-    match,
-    // Scan more events than sessions: many events collapse to one session.
-    scanLimit: limit * 20,
-  };
+  // The filters bind into both statements, each with its own params besides.
+  const filterParams: Record<string, unknown> = {};
   const conds: string[] = ["cs.type = 'execution'", "COALESCE(cs.surface_kind, '') <> 'result_review'"];
   if (opts.status) {
     conds.push('cs.status = :status');
-    params.status = opts.status;
+    filterParams.status = opts.status;
   }
   if (opts.workspaceId) {
     conds.push('cs.workspace_id = :workspaceId');
-    params.workspaceId = opts.workspaceId;
+    filterParams.workspaceId = opts.workspaceId;
   }
   if (opts.source === 'imported') {
     conds.push("cs.surface_kind = 'imported_agent'");
@@ -8679,20 +8692,62 @@ export function searchChatSessions(opts: {
   }
 
   const raw = getRawDb();
-  const scanRows = raw
-    .prepare(
-      `SELECT f.session_id AS sessionId,
-              f.event_id AS matchedEventId,
-              snippet(chat_events_fts, 2, char(2), char(3), '…', 12) AS snippet,
-              rank
-       FROM chat_events_fts f
-       JOIN chat_sessions cs ON cs.id = f.session_id
-       WHERE chat_events_fts MATCH :match
-         AND ${conds.join(' AND ')}
-       ORDER BY rank
-       LIMIT :scanLimit`,
-    )
-    .all(params) as ChatSearchScanRow[];
+
+  // Titles: the chat's own (what search rows show) or its execution's (what
+  // the rail shows), each containing every word, case-insensitive (ASCII,
+  // as LIKE folds). One whose title is the search, then one that starts with
+  // it, before one that only contains it, then newest first. chat_sessions is
+  // hundreds of rows, not the millions chat_events holds, so a scan is cheap.
+  let titleIds: string[] = [];
+  if (terms.length > 0) {
+    const titleParams: Record<string, unknown> = { ...filterParams, titleLimit: limit };
+    terms.forEach((term, i) => {
+      titleParams[`term${i}`] = `%${likeLiteral(term)}%`;
+    });
+    titleParams.phrase = likeLiteral(terms.join(' '));
+    titleParams.phrasePrefix = `${titleParams.phrase}%`;
+    const containsAll = (column: string) =>
+      terms.map((_, i) => `${column} LIKE :term${i} ESCAPE '\\'`).join(' AND ');
+    const titleRows = raw
+      .prepare(
+        `SELECT cs.id AS sessionId
+         FROM chat_sessions cs
+         LEFT JOIN executions e ON e.id = cs.execution_id
+         WHERE ${conds.join(' AND ')}
+           AND ((${containsAll('cs.label')}) OR (${containsAll('e.label')}))
+         ORDER BY
+           CASE
+             WHEN cs.label LIKE :phrase ESCAPE '\\' OR e.label LIKE :phrase ESCAPE '\\' THEN 0
+             WHEN cs.label LIKE :phrasePrefix ESCAPE '\\' OR e.label LIKE :phrasePrefix ESCAPE '\\' THEN 1
+             ELSE 2
+           END,
+           COALESCE(cs.last_activity_at, cs.started_at) DESC,
+           cs.id DESC
+         LIMIT :titleLimit`,
+      )
+      .all(titleParams) as { sessionId: string }[];
+    titleIds = titleRows.map((r) => r.sessionId);
+  }
+
+  // Transcripts. Still scanned for title matches, so one whose messages match
+  // too carries its best passage.
+  const scanRows = match
+    ? (raw
+        .prepare(
+          `SELECT f.session_id AS sessionId,
+                  f.event_id AS matchedEventId,
+                  snippet(chat_events_fts, 2, char(2), char(3), '…', 12) AS snippet,
+                  rank
+           FROM chat_events_fts f
+           JOIN chat_sessions cs ON cs.id = f.session_id
+           WHERE chat_events_fts MATCH :match
+             AND ${conds.join(' AND ')}
+           ORDER BY rank
+           LIMIT :scanLimit`,
+        )
+        // Scan more events than sessions: many events collapse to one session.
+        .all({ ...filterParams, match, scanLimit: limit * 20 }) as ChatSearchScanRow[])
+    : [];
 
   // Collapse to one hit per session. scanRows is rank-ascending (best first),
   // so the first time a session appears is its best hit, and Map insertion
@@ -8701,7 +8756,13 @@ export function searchChatSessions(opts: {
   for (const r of scanRows) {
     if (!bySession.has(r.sessionId)) bySession.set(r.sessionId, r);
   }
-  const orderedIds = Array.from(bySession.keys()).slice(0, limit);
+  // Title matches, then message matches that aren't already among them. A
+  // bigger limit only appends, so a caller paging by limit keeps its rows.
+  const byTitle = new Set(titleIds);
+  const orderedIds = [...titleIds, ...Array.from(bySession.keys()).filter((id) => !byTitle.has(id))].slice(
+    0,
+    limit,
+  );
   if (orderedIds.length === 0) return [];
 
   // Hydrate the matched sessions with the same joins as listHistorySessions
@@ -8740,12 +8801,14 @@ export function searchChatSessions(opts: {
     .map((id): ChatSearchResult | null => {
       const row = rowById.get(id);
       const hit = bySession.get(id);
-      if (!row || !hit) return null;
+      const titled = byTitle.has(id);
+      if (!row || (!hit && !titled)) return null;
       return {
         ...row,
-        snippet: hit.snippet,
-        matchedEventId: hit.matchedEventId,
-        score: normalizeFtsRank(hit.rank),
+        matchedIn: titled ? 'title' : 'messages',
+        snippet: hit?.snippet ?? null,
+        matchedEventId: hit?.matchedEventId ?? null,
+        score: titled ? 1 : normalizeFtsRank(hit!.rank),
       };
     })
     .filter((r): r is ChatSearchResult => r !== null);

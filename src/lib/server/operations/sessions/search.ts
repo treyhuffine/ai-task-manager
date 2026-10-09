@@ -3,9 +3,10 @@ import { reply, searchParams, type OperationContext } from '@/lib/server/operati
 import { z as rpcZ } from 'zod/v4';
 
 /**
- * Full-text search across chat/execution transcripts. Backed by the
- * `chat_events_fts` index — matches message content (user + agent turns),
- * grouped to one result per session with a highlighted snippet.
+ * Search across chat/execution titles and transcripts. Titles containing
+ * every word come first, then transcript matches from the `chat_events_fts`
+ * index (message content of user + agent turns), grouped to one result per
+ * session with a highlighted snippet. See `searchChatSessions`.
  *
  * Query params:
  *   q            required; blank returns [].

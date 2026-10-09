@@ -29,6 +29,10 @@ message **snippet** (with match highlighting) and the matched event id so the
 UI can deep-link into the transcript. Grouping happens at query time — we index
 individual events for precision, then collapse to one row per session.
 
+Since 2026-10-09 titles match too, ahead of messages: `matchedIn` says which
+(`title` | `messages`), and a title match whose messages don't match has a
+null `snippet` and `matchedEventId`. See "Titles match first" below.
+
 ## Locked decisions
 
 - **FTS-first, no embeddings for chats in v1.** "Deep search into transcripts"
@@ -65,6 +69,25 @@ individual events for precision, then collapse to one row per session.
   rail's order, filters as you type, and `All agents` at its top clears it.
   It sits in the query row rather than with the status and source facets
   because it applies before there's a query. Each open starts unscoped.
+- **Titles match first (since 2026-10-09).** A chat matches by title when its
+  own title (what search and history rows show) or its execution's (what the
+  rail and the chat header show) contains every word of the search, any
+  order, case-insensitive (ASCII, as SQLite's `LIKE` folds). Words split
+  across the two titles don't count. Title matches come before message
+  matches: a title that is the search, then one that starts with it, then
+  newest first. Message matches follow in BM25 order, skipping chats already
+  listed, and a chat that matches both is listed once with its passage.
+  `score` stays descending: 1 for a title match, the normalized BM25 (below
+  1) for a message match. `limit` covers both, and a bigger limit only
+  appends, so the launcher's paging keeps its rows. Results mark the words in
+  the title, and a tab whose own title lacks them shows the chat title it
+  matched by ("In Charting go-live data"). One definition of "the words"
+  (`searchTerms` in `src/lib/search/highlight.ts`) serves the SQL and the
+  highlighting. Branch names are not titles: 312 of 572 chats on the real
+  home sit on `main` or `develop`, so they'd rank hundreds of chats above
+  every message for those words, and a worktree's branch is named from its
+  chat's title anyway. Titles are a scan of `chat_sessions` (hundreds of
+  rows), not `chat_events`.
 - **Chat search stays out of ⌘K's results (deliberate).** ⌘K is a low-volume,
   high-precision launcher across tasks/notes/stream; folding noisy transcript
   hits into it risks drowning those results. ⌘K's command mode has a "Search
