@@ -2,7 +2,7 @@
 
 The desktop shell has two pieces of chrome, and each has one job:
 
-- **The header (top HUD)** shows what's happening, from every view: work by status (the Needs approval, Unread, Working and Waiting pills), the way out of an execution or agent (or back into the latest one, ⌘E), the next calendar event, and the budget warning.
+- **The header (top HUD)** shows what's happening, from every view: work by status (the Needs approval, Unread, Working and Waiting pills), the harness rate limits on hover beside them, the way out of an execution or agent (or back into the latest one, ⌘E), the next calendar event, and the budget warning.
 - **The rail (left)** holds the things you start and the places you go: home, New chat, Search chats, Apps, Task Board, Calendar, Schedules and Triggers, the list of work, and Settings.
 
 Reworked 2026-10-05 from a rail that listed every execution even when collapsed, and a header that mixed status with buttons (Inbox, Board, Settings). Reworked again 2026-10-08 so everything above the list is one kind of row and the list has one header (see "What went away").
@@ -74,4 +74,5 @@ New chat and Search chats each exist twice. The rail's are the agent side (a new
 - `src/components/workspaces/rail-flyout.tsx`: the flyout both rails use. `agent-chats-flyout.tsx`: the collapsed agent's chat chooser. `rail-strip.tsx`: the collapsed strip and its Agents flyout.
 - `src/components/workspaces/rail-home.tsx`, `rail-footer.tsx`: top and bottom.
 - `src/components/dashboard/top-hud.tsx`, `rail-status-pills.tsx`: the header.
+- `src/components/dashboard/rate-limits-pill.tsx`: the rate limits icon. Its hover lists each harness account's windows (5-hour, weekly, a model family's weekly), credits and extra usage, each with its own reset. Limits belong to the harness account, so every chat on one harness shares them. They come from the `rate_limits` events this home's chats report (agentex 0.0.43), merged per harness in `src/lib/harness/rate-limits.ts` and saved to `<config>/harness-rate-limits.json`. Nothing is polled: each block says how old it is. Claude Code and Codex report limits. Other harnesses and chats on connected devices don't appear.
 - `src/lib/client/rail-tab.ts`, `rail-flyout.ts`: the tab choice and the flyout rules.

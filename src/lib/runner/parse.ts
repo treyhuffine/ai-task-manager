@@ -155,6 +155,14 @@ export function parseStreamEvent(
     case 'turn_start':
     case 'turn_end':
       return null;
+    // Agentex 0.0.43 telemetry. Account rate limits go to the runner's
+    // per-harness store (`harness/rate-limits.ts`), and context occupancy is
+    // not shown yet. Neither belongs in the transcript, where each would be an
+    // `unknown` row per turn.
+    case 'rate_limits':
+    case 'context_usage':
+    case 'context_usage_invalidated':
+      return null;
     case 'system':
       return {
         ...base,

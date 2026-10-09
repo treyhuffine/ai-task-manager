@@ -81,6 +81,7 @@ import type {
   StopReport,
 } from './types';
 import { processState } from '@/lib/process-state';
+import { recordRateLimits } from '@/lib/harness/rate-limits';
 
 const state = runnerState;
 
@@ -736,6 +737,8 @@ async function startSession(spec: SessionSpec, admission?: () => boolean | Promi
     onEvent: async (event) => {
       try {
         const safeEvent = redactHarnessRuntimeValue(event);
+        // Account limits are per harness, not per chat (harness/rate-limits.ts).
+        if (safeEvent.type === 'rate_limits') recordRateLimits(spec.harness, safeEvent.update);
         _recordSessionInventory(chatSessionId, safeEvent);
         state.lastActivityAt.set(chatSessionId, Date.now());
         await persistStreamEvent(chatSessionId, safeEvent, runnerSink().writer, { trackBackgroundTaskRuntime: true });

@@ -7,6 +7,7 @@ import { HOTKEYS } from '@/constants/commands';
 import { CreateMenu } from './create-menu';
 import { RailStatusPills } from './rail-status-pills';
 import { BudgetWarningPill } from './budget-warning-pill';
+import { RateLimitsPill } from './rate-limits-pill';
 import { HudDayButton } from '@/components/calendar/hud-day-button';
 import { WorkHudPill } from '@/components/calendar/work/work-hud-pill';
 import { DesktopNavButtons } from '@/components/desktop/desktop-nav-buttons';
@@ -43,7 +44,10 @@ export function TopHud() {
       {/* Desktop app only, right after the window controls. */}
       <DesktopNavButtons className="-mx-1" />
 
-      <RailStatusPills />
+      <div className="flex items-center gap-1">
+        <RailStatusPills />
+        <RateLimitsPill />
+      </div>
 
       {closeLabel ? (
         <button

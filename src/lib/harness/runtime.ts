@@ -105,7 +105,7 @@ async function providerRuntimeReport(
   ctx: ProviderRuntimeContext,
 ): Promise<ProviderRuntimeReport> {
   const provider = getProvider(HARNESS_REGISTRY[harness].agentexProviderId);
-  if (provider.probeCapabilities) return provider.probeCapabilities(ctx);
+  if (provider.probeCapabilities && HARNESS_REGISTRY[harness].runtimeProbe) return provider.probeCapabilities(ctx);
 
   const auth = await provider.resolveAuth({
     env: ctx.env,

@@ -43,6 +43,15 @@ export interface HarnessDefinition {
   docsUrl: string;
   apiKeyVar: string | null;
   resumeCommandTemplate: string | null;
+  /**
+   * Whether `getHarnessRuntime` asks the provider's `probeCapabilities` to
+   * verify the binary and protocol. Off for Claude Code and Codex: their
+   * probe (agentex 0.0.43) starts the CLI to read context and rate-limit
+   * support, which availability doesn't need, and a slow start would mark
+   * the whole harness unusable until the cache expires. Ri reads their rate
+   * limits from chat events instead (`harness/rate-limits.ts`).
+   */
+  runtimeProbe: boolean;
   maximumCapabilities: HarnessCapabilities;
 }
 
@@ -84,6 +93,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     docsUrl: 'https://developers.openai.com/codex/',
     apiKeyVar: 'OPENAI_API_KEY',
     resumeCommandTemplate: 'codex resume {id}',
+    runtimeProbe: false,
     maximumCapabilities: {
       ...base,
       durableCatchUp: true,
@@ -109,6 +119,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     docsUrl: 'https://docs.anthropic.com/en/docs/claude-code',
     apiKeyVar: 'ANTHROPIC_API_KEY',
     resumeCommandTemplate: 'claude --resume {id}',
+    runtimeProbe: false,
     maximumCapabilities: {
       ...base,
       durableCatchUp: true,
@@ -138,6 +149,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     docsUrl: 'https://cursor.com/cli',
     apiKeyVar: 'CURSOR_API_KEY',
     resumeCommandTemplate: 'agent --resume {id}',
+    runtimeProbe: true,
     maximumCapabilities: {
       ...base,
       modelDiscovery: true,
@@ -157,6 +169,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     docsUrl: 'https://opencode.ai/docs/',
     apiKeyVar: null,
     resumeCommandTemplate: null,
+    runtimeProbe: true,
     maximumCapabilities: {
       ...base,
       durableCatchUp: true,
@@ -194,6 +207,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     // Conversations are scoped to the folder they ran in, so this resumes from
     // the chat's own working folder, like `claude --resume`.
     resumeCommandTemplate: 'agy --conversation {id}',
+    runtimeProbe: true,
     maximumCapabilities: {
       ...base,
       modelDiscovery: true,
