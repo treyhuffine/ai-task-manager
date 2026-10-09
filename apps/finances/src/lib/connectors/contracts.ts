@@ -1,0 +1,10 @@
+import {z} from 'zod/v4';
+export const connectorOperation=z.enum(['plaid.link.begin','plaid.link.complete','plaid.transactions.sync','plaid.accounts.read','plaid.liabilities.read','plaid.item.remove','plaid.webhook.key','gmail.messages.read','outlook.messages.read','connection.release']);
+export type ConnectorOperation=z.infer<typeof connectorOperation>;
+export const brokerConnectionSchema=z.object({id:z.string().min(1).max(128),provider:z.enum(['plaid','google','microsoft']),label:z.string().max(300),status:z.enum(['active','revoked','reconnect']),scopes:z.array(z.string().max(300)).max(100)}).strict();
+export const capabilitiesSchema=z.object({version:z.literal(1),principal:z.object({id:z.string().min(1).max(128),kind:z.literal('plugin')}).strict(),operations:z.array(connectorOperation).max(20),connections:z.array(brokerConnectionSchema).max(100)}).strict();
+export type BrokerConnection=z.infer<typeof brokerConnectionSchema>;
+export const connectorCallSchema=z.object({version:z.literal(1),requestId:z.string().uuid(),connectionId:z.string().min(1).max(128),operation:connectorOperation,input:z.record(z.string(),z.unknown())}).strict();
+export const brokerResultSchema=z.discriminatedUnion('ok',[z.object({ok:z.literal(true),version:z.literal(1),result:z.unknown()}).strict(),z.object({ok:z.literal(false),version:z.literal(1),code:z.string().max(100),message:z.string().max(1000)}).strict()]);
+export const bankLinkResultSchema=z.object({setupId:z.string().min(1).max(128),linkToken:z.string().max(1000),expiresAt:z.iso.datetime()}).strict();
+export const bankCompleteSchema=z.object({connectionId:z.string().min(1).max(128),itemId:z.string().min(1).max(128),accounts:z.array(z.object({account_id:z.string().max(128),name:z.string().max(300),type:z.string().max(50),mask:z.string().nullable(),balances:z.object({current:z.number().nullable(),iso_currency_code:z.string().length(3).nullable()}).strict()}).strict()).max(100)}).strict();

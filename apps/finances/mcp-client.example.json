@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "personal-finance": {
+      "command": "pnpm",
+      "args": ["--dir", "<absolute-finance-app-folder>", "--silent", "mcp:stdio"],
+      "env": {
+        "FINANCE_ROOT": "<finance-data-folder>",
+        "FINANCE_MCP_TOKEN": "<account-scoped-client-key>"
+      }
+    }
+  }
+}

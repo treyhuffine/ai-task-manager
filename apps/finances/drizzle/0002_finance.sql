@@ -1,0 +1,1 @@
+ALTER TABLE `finance_allocations` ADD `role` text;

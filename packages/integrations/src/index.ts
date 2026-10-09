@@ -27,7 +27,7 @@ export type { AuthConfigAdmin, AuthConfigAdminDeps, AddAuthConfigInput } from '.
 export { createRedactor, noopRedactor } from './core/redactor';
 export { systemClock, noopLogger, defaultApprovalPolicy, connectionMetadata, uniqueScopes } from './core/defaults';
 // The canonical model-facing account token ("me@x.com (Work)"), which `runAction` accepts back.
-export { accountDisplay } from './core/projection-shared';
+export { accountDisplay, modelSafeOutcome } from './core/projection-shared';
 export { inProcessLock, fileLock } from './lock';
 export type { FileLockOptions } from './lock';
 

@@ -77,6 +77,7 @@ export interface HarnessOneShotOpts {
    */
   skipPermissions?: boolean;
   onEvent?: (event: StreamEvent) => void | Promise<void>;
+  signal?: AbortSignal;
   /** Fail rather than silently run a harness that the caller has not qualified. */
   requiredHarness?: ProviderId;
   /** Trusted host-only flags for a qualified CLI workflow. Never accept from UI input. */
@@ -145,6 +146,7 @@ async function executeHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneS
   const runtime = await runtimeContextForHarness(providerType, { cwd });
 
   const result = await provider.execute({
+    ...(opts.signal ? {signal: opts.signal} : {}),
     prompt: opts.system ? `${opts.system}\n\n---\n\n${opts.prompt}` : opts.prompt,
     ...(model ? { model } : {}),
     cwd,

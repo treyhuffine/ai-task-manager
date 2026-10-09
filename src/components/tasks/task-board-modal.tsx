@@ -17,7 +17,7 @@ const BOARD_PARAM = 'board';
 
 /**
  * The task board, nearly full screen, over whatever is on screen. Opened from
- * the rail's Board or "Open board" in ⌘K, and closed with Esc, the X
+ * the rail's Task Board or "Open Task Board" in ⌘K, and closed with Esc, the X
  * or a click outside, which leaves you exactly where you were (often an
  * execution you were watching). Same board as the Tasks panel's Board view,
  * just with the width to read it.
@@ -30,7 +30,7 @@ const BOARD_PARAM = 'board';
 export function TaskBoardModal() {
   const open = useTaskBoardOpen();
   const { activeView, closeAllSlideouts, openExecution } = useDashboard();
-  // Whatever had focus when the board opened (the HUD's Board button). Radix
+  // Whatever had focus when the board opened (the rail's Task Board button). Radix
   // hands focus back to a `Dialog.Trigger`, and this board has none.
   const openerRef = useRef<HTMLElement | null>(null);
 
@@ -117,14 +117,14 @@ export function TaskBoardModal() {
             leading={
               <DialogTitle className="flex items-center gap-1.5 px-1 text-sm font-semibold">
                 <SquareKanban className="size-4 text-muted-foreground" />
-                Board
+                Task Board
               </DialogTitle>
             }
             trailing={
-              <Tip label="Close board" shortcut="Esc">
+              <Tip label="Close Task Board" shortcut="Esc">
                 <DialogPrimitive.Close
                   className="ml-1 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  aria-label="Close board"
+                  aria-label="Close Task Board"
                 >
                   <X className="size-4" />
                 </DialogPrimitive.Close>

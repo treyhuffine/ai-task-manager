@@ -86,6 +86,7 @@ function sample(schema: z.ZodTypeAny): unknown {
 const INPUT_OVERRIDES: Record<string, Record<string, unknown>> = {
   'gmail.send_email': { to: 'a@b.com', subject: 'x', body: 'x' },
   'gmail.create_draft': { to: 'a@b.com', subject: 'x', body: 'x' },
+  'gmail.list_history': { startHistoryId: '1' },
   'outlook_mail.send_mail': { to: ['a@b.com'], subject: 'x', content: 'x' },
   'quickbooks.query': { query: 'SELECT * FROM Customer STARTPOSITION 1 MAXRESULTS 20' },
   'quickbooks.list_invoices': {},
@@ -158,6 +159,12 @@ function returnsArray(call: FakeHttpCall): boolean {
 
 function responseFor(call: FakeHttpCall): unknown {
   const { url } = call;
+  const pathname = new URL(url).pathname;
+  if (pathname.startsWith('/gmail/v1/users/me/')) {
+    if (pathname.endsWith('/profile')) return { emailAddress: 'a@b.com', historyId: '2' };
+    if (pathname.includes('/attachments/')) return { data: 'eA', size: 1 };
+    if (pathname.endsWith('/history')) return { historyId: '2', history: [] };
+  }
   if (new URL(url).hostname.endsWith('quickbooks.api.intuit.com')) {
     if (url.includes('/companyinfo/')) return { CompanyInfo: { CompanyName: 'Fixture company' } };
     if (url.includes('/customer/')) return { Customer: { Id: '1' } };

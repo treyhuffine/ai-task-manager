@@ -227,3 +227,17 @@ Issues and PRs welcome.
 ## License
 
 TBD.
+
+## Included app development
+
+Finances is maintained at `apps/finances` in this repository. It owns its service and data and uses the shared `packages/app-kit` through public exports.
+
+```sh
+pnpm finances:test
+pnpm finances:typecheck
+pnpm finances:package
+pnpm apps:catalog
+pnpm apps:dev --home /absolute/path/to/disposable-home --port 42251
+```
+
+`apps:dev` builds and stages the current included apps, then starts an isolated Home. Installed app updates require review and explicit activation. See [Finances development](docs/finances-development.md) and [the local apps trial](docs/local-apps-runbook.md).

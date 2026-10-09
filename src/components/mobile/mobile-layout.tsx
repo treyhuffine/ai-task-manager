@@ -4,6 +4,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { ContentPanel } from '@/components/dashboard/content-panel';
 import { ExecutionView } from '@/components/executions/execution-view';
 import { AgentView } from '@/components/agents/agent-view';
+import { AppsShell } from '@/components/local-apps/apps-shell';
 import { SkillView } from '@/components/skills/skill-view';
 import { MobileAgentsView } from './mobile-agents-view';
 import { MobileMoreView } from './mobile-more-view';
@@ -23,6 +24,7 @@ export function MobileLayout() {
   // An agent's view takes the agents tab over the same way: its main chat
   // full screen, its tools behind a Chat / Tools switch. Back returns to
   // the list of agents.
+  const appRoute = activeView.kind === 'apps' ? activeView.route : null;
   const agentId = activeView.kind === 'agent' ? activeView.id : null;
   const agentTab = activeView.kind === 'agent' ? activeView.tab : undefined;
   // A skill's builder does the same: its chat full screen, the skill behind
@@ -30,6 +32,7 @@ export function MobileLayout() {
   const skillRef = activeView.kind === 'skill' ? activeView.ref : null;
 
   const renderContent = () => {
+    if (appRoute !== null) return <AppsShell route={appRoute}/>;
     if (mobileTab === 'agents' && isExecutionActive) {
       return <ExecutionView sessionId={activeSessionId} />;
     }
@@ -55,7 +58,7 @@ export function MobileLayout() {
 
   // Hide the search/inbox top bar while in an execution chat — the
   // ExecutionHeader already serves as the page header on that screen.
-  const showTopBar = !(mobileTab === 'agents' && (isExecutionActive || agentId || skillRef));
+  const showTopBar = !(mobileTab === 'agents' && (isExecutionActive || agentId || skillRef || appRoute !== null));
 
   return (
     <>

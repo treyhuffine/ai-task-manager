@@ -1,3 +1,4 @@
+import type { SourceSearchItem, SourceSearchResult } from '@/lib/chat-sources/types';
 /**
  * Items in the `@`-mention picker. One picker covers six kinds, with a
  * discriminator so the popup can section-render and the extension can
@@ -87,7 +88,7 @@ export interface PrMentionMenuItem extends PrMentionItem {
 
 export interface MoreMentionItem {
   kind: 'more';
-  of: 'task' | 'note';
+  of: 'task' | 'note' | 'app';
   /** Every match, shown or not. */
   total: number;
   shown: number;
@@ -97,7 +98,10 @@ export interface MoreMentionItem {
   narrowed: boolean;
 }
 
+export type SearchMentionSources = (query: string, filter?: 'app' | 'connector', groupId?: string, signal?: AbortSignal) => Promise<SourceSearchResult>;
+
 export type MentionItem =
+  | SourceSearchItem
   | FileMentionItem
   | TaskMentionItem
   | NoteMentionItem

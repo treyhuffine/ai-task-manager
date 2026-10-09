@@ -1,5 +1,7 @@
 'use client';
 
+import { AppCompanion } from '@/components/local-apps/app-companion';
+import { AppCompanionButton } from '@/components/local-apps/app-companion-button';
 import type { HarnessId } from '@/lib/harness/registry';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -601,6 +603,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
   const renderChatBody = (submitOnEnter: boolean, withBox: boolean) => {
     const clearBox = withBox ? '@max-[1390px]/chat:pr-[308px] @max-[1060px]/chat:pr-[60px]' : undefined;
     return (
+    <AppCompanion chatId={session.id} surfaceKind={session.surfaceKind}>
     <ChatDropZone
       className="flex flex-1 min-h-0 flex-col"
       onFiles={(files) => {
@@ -675,6 +678,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
             modelVariant={session.modelVariant}
             effort={session.effort}
             harness={session.harness}
+            leadingActions={<AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />}
             disabled={composerDisabled}
             disabledReason={composerDisabledReason}
             submitOnEnter={submitOnEnter}
@@ -713,6 +717,7 @@ export function ExecutionView({ sessionId }: ExecutionViewProps) {
         )}
       </div>
     </ChatDropZone>
+    </AppCompanion>
     );
   };
 

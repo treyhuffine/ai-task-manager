@@ -171,7 +171,7 @@ function providerDescription(id: string): string {
     case 'beamd':
       return 'Connect your Beamd account, or self-host for free. Reachable anywhere.';
     case 'manual':
-      return 'Run your own tunnel and paste the URL on each execution.';
+      return 'Run your own tunnel and paste the URL in each chat.';
     default:
       return 'Community provider.';
   }

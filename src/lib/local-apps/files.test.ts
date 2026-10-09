@@ -1,0 +1,21 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {afterEach,it,expect,vi} from 'vitest';
+import {staticFixture} from '@ri/app-kit/testing';
+import {validateArtifact,exportPackage} from '@ri/app-kit/build';
+import {LocalAppsService} from './service';
+vi.mock('@/lib/service/maintenance',()=>({beginActivity:()=>()=>{}}));
+let root:string,service:LocalAppsService;
+afterEach(async()=>{await service?.dispose();if(root)await fs.rm(root,{recursive:true,force:true});delete process.env.RI_ROOT;delete process.env.RI_LOCAL_APPS;});
+it('binds file capabilities to declared human views and denies stale, foreign and revoked sessions',async()=>{
+  root=await fs.mkdtemp(path.join(os.tmpdir(),'ri-app-file-'));process.env.RI_ROOT=root;process.env.RI_LOCAL_APPS='1';service=new LocalAppsService();await service.initialize();
+  const source=path.join(root,'source'),artifact=staticFixture(source,'local-file-fixture');artifact.manifest.extensions['com.ri'].requests.files={select:{mimeTypes:['text/csv'],maxBytes:1000}};
+  await fs.writeFile(path.join(source,'plugin.json'),JSON.stringify(artifact.manifest));const archive=path.join(root,'file.tar.gz');await exportPackage(validateArtifact(source),archive);
+  const draft=await service.import(archive),installed=await service.activate(draft.id,service.store.read().revision),view=await service.openView({id:installed.id,path:'/',query:{}},'human-viewer');
+  expect(await service.fileAccess(view.viewId,'human-viewer','select')).toEqual({mimeTypes:['text/csv'],maxBytes:1000});
+  await expect(service.fileAccess(view.viewId,'other-tab','select')).rejects.toThrow(/expired/);await expect(service.fileAccess(view.viewId,'human-viewer','download')).rejects.toThrow(/not declared/);
+  const owner=service.store.read().grants[0];await service.revokeGrant(owner.id,service.store.read().revision);
+  await expect(service.fileAccess(view.viewId,'human-viewer','select')).rejects.toThrow(/expired|authorized/);
+  delete process.env.RI_LOCAL_APPS;await expect(service.fileAccess(view.viewId,'human-viewer','select')).rejects.toThrow(/not enabled/);
+});

@@ -1,0 +1,61 @@
+import { beforeEach, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import { createIntegrationRuntime, createRegistry, defineProvider, defineToolkit, action, createRedactor, staticAuthConfigs, type IntegrationRuntime, type Connection } from '@integrations/engine';
+import { bearer } from '@integrations/engine/auth';
+import { inMemoryStore, plaintextSecretBox } from '@integrations/engine/testing';
+import { integrationSourceAdapter } from './integration-adapter';
+import { decodeSource, encodeSource } from './reference';
+import type { SourceContext } from './types';
+
+let runtime: IntegrationRuntime;
+let connections: Connection[];
+let scope: unknown[];
+let calls: string[];
+const live = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/integrations/runtime', () => ({ getIntegrationRuntime: () => live(), getIntegrationOwnerId: () => 'local' }));
+vi.mock('@/lib/integrations/source-metadata', () => ({ integrationSourceMetadata: async () => ({ connections, servers: [], toolkits: [{ id: 'fixture', providerId: 'fixture', displayName: 'Fixture Mail' }] }) }));
+vi.mock('@/lib/db/queries', () => ({ getWorkspace: () => ({ integrationScopes: scope }) }));
+vi.mock('@/lib/integrations/connection-requests', () => ({ recordPausedConnection: vi.fn() }));
+const ctx: SourceContext = { chatId: 'chat', workspaceId: 'agent', harnessReady: true, messageId: 'message' };
+beforeEach(async () => {
+  calls = []; scope = [{ toolkitId: 'fixture', accounts: [{ accountId: 'shared-account', authConfigId: 'work' }] }];
+  const registry = createRegistry();
+  registry.addBundle({ provider: defineProvider({ id: 'fixture', displayName: 'Fixture Mail', auth: bearer() }), toolkits: [defineToolkit({ id: 'fixture', providerId: 'fixture', displayName: 'Fixture Mail', actions: [action({ id: 'fixture.read', description: 'Synthetic records', input: z.object({ limit: z.number().int().min(1) }), output: z.object({ account: z.string() }), execute: async context => { calls.push(context.connection.id); return { account: context.connection.id }; } })] })] });
+  const store = inMemoryStore();
+  runtime = createIntegrationRuntime({ registry, store, authRequests: store, secretBox: plaintextSecretBox(), authConfigs: staticAuthConfigs([]), redactor: createRedactor(), approval: { check: async () => 'allow' } });
+  const stamp = new Date().toISOString();
+  connections = ['work', 'personal'].map(authConfigId => ({ id: `${authConfigId}-${randomUUID()}`, providerId: 'fixture', ownerId: 'local', accountId: 'shared-account', authConfigId, label: authConfigId, scopes: [], status: 'active', createdAt: stamp, updatedAt: stamp }));
+  for (const connection of connections) await store.save(connection, await plaintextSecretBox().seal({ type: 'bearer', token: 'synthetic' }));
+  live.mockReset().mockResolvedValue(runtime);
+});
+it('discovers exact accounts without building a live runtime, then calls the real engine with an injected connection pin', async () => {
+  const rows = await integrationSourceAdapter.list(ctx);
+  expect(rows.map(r => r.status)).toEqual(['ready', 'needs_access']); expect(live).not.toHaveBeenCalled();
+  const ref = decodeSource(rows[0].sourceRef), invocation = randomUUID();
+  const result = await integrationSourceAdapter.call(ref, ctx, 'fixture.read', { limit: 1 }, invocation);
+  expect(result).toEqual({ ok: true, result: { account: connections[0].id } });
+  await integrationSourceAdapter.call(ref, ctx, 'fixture.read', { limit: 1 }, invocation);
+  expect(calls).toEqual([connections[0].id]);
+  await expect(integrationSourceAdapter.call(decodeSource(rows[1].sourceRef), ctx, 'fixture.read', { limit: 1 }, randomUUID())).rejects.toThrow(/unavailable/);
+});
+it('rejects malformed scopes, ambiguous pins, invalid inputs and missing exact clients', async () => {
+  const ref = decodeSource(encodeSource({ v: 1, kind: 'integration', toolkitId: 'fixture', account: { accountId: 'shared-account', authConfigId: 'work' } }));
+  await expect(integrationSourceAdapter.call(ref, ctx, 'fixture.read', { limit: 'wrong' }, randomUUID())).rejects.toThrow(); expect(calls).toEqual([]);
+  scope = [{ toolkitId: 'fixture', accounts: [{ accountId: 4 }] }];
+  expect((await integrationSourceAdapter.list(ctx))[0].status).toBe('needs_access');
+  scope = [{ toolkitId: 'fixture' }];
+  connections.push({ ...connections[0], id: randomUUID() });
+  expect((await integrationSourceAdapter.list(ctx))[0].status).toBe('unavailable');
+  await expect(integrationSourceAdapter.actions(ref, ctx)).rejects.toThrow(/unavailable/);
+  connections = [connections[1]];
+  await expect(integrationSourceAdapter.actions(ref, ctx)).rejects.toThrow(/unavailable/);
+});
+it('disambiguates equal account labels without changing their stable references', async () => {
+  const original = await integrationSourceAdapter.list(ctx);
+  connections.forEach(c => { c.label = 'Work'; });
+  const renamed = await integrationSourceAdapter.list(ctx);
+  expect(renamed.map(s => s.sourceRef)).toEqual(original.map(s => s.sourceRef));
+  expect(new Set(renamed.map(s => s.accountLabel)).size).toBe(2);
+  expect(live).not.toHaveBeenCalled();
+});

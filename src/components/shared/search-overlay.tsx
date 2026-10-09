@@ -18,6 +18,7 @@ import { useCreateTask } from '@/hooks/use-tasks';
 import type { SearchResult } from '@/lib/api/search';
 import { closeTaskBoard, openTaskBoard } from '@/lib/client/task-board';
 import { closeCalendarModal, openCalendarModal } from '@/lib/client/calendar-modal';
+import { useLocalApps } from '@/components/local-apps/app-hooks';
 import type { AnyPanelTab } from '@/types/dashboard';
 import { Command } from 'cmdk';
 import {
@@ -112,7 +113,21 @@ export function SearchOverlay() {
   const { data, isFetching } = useSearch(deferredQuery);
   const results = data ?? [];
 
-  const { openTask, openNote, toggleTheme, theme, showPanelTab, triggerVoiceChat } = useDashboard();
+  const { openTask, openNote, toggleTheme, theme, showPanelTab, triggerVoiceChat, setActiveView } = useDashboard();
+  // Open apps, and one Open <app> per installed app, exist only on a Home
+  // with local apps on.
+  const { enabled: localAppsEnabled, data: localApps } = useLocalApps({ live: false });
+  const appCommands: PaletteCommand[] = localAppsEnabled
+    ? (localApps?.instances ?? [])
+        .filter((app) => app.enabled && !app.archived)
+        .map((app) => ({
+          id: `open-app:${app.slug}`,
+          label: `Open ${app.displayName}`,
+          keywords: `app ${app.slug}`,
+          icon: 'LayoutGrid',
+          group: 'navigate',
+        }))
+    : [];
   const createTask = useCreateTask();
   const createNote = useCreateNote();
   const { data: recents } = useRecents(25, open);
@@ -191,14 +206,23 @@ export function SearchOverlay() {
         setOpen(false);
         openCalendarModal();
         break;
+      case 'open-apps':
+        setOpen(false);
+        setActiveView({ kind: 'apps', route: '' });
+        break;
       default:
+        if (cmd.id.startsWith('open-app:')) {
+          setOpen(false);
+          setActiveView({ kind: 'apps', route: cmd.id.slice('open-app:'.length) });
+          break;
+        }
         // go-* navigation commands
         if (cmd.id.startsWith('go-')) {
           handleNavigate(cmd.id.replace('go-', '') as AnyPanelTab);
         }
         break;
     }
-  }, [createTask, createNote, openTask, openNote, toggleTheme, handleNavigate, triggerVoiceChat, router]);
+  }, [createTask, createNote, openTask, openNote, toggleTheme, handleNavigate, triggerVoiceChat, router, setActiveView]);
 
   // Hotkey + custom event listeners
   useEffect(() => {
@@ -302,8 +326,9 @@ export function SearchOverlay() {
           {/* ── Commands (> prefix) ─────────────────────────── */}
           {isCommand && (
             <Command.Group heading="Actions" className={GROUP_CLASS}>
-              {PALETTE_COMMANDS
+              {[...PALETTE_COMMANDS, ...appCommands]
                 .filter((cmd) => cmd.capability !== 'handoffs' || capabilities.data?.handoffsEnabled)
+                .filter((cmd) => cmd.id !== 'open-apps' || localAppsEnabled)
                 .filter((cmd) =>
                   !searchQuery ||
                   `${cmd.label} ${cmd.keywords}`.toLowerCase().includes(searchQuery.toLowerCase()),

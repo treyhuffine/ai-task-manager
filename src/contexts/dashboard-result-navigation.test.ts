@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 const navigation = vi.hoisted(() => ({ query: '' }));
-vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(navigation.query) }));
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(navigation.query), usePathname: () => '/' }));
 vi.mock('@/lib/client/quick-capture', () => ({ useQuickCaptureOpen: () => false, setQuickCaptureOpen: vi.fn(), toggleQuickCapture: vi.fn() }));
 vi.mock('@/lib/_debug/hot-path', () => ({ hot: vi.fn() }));
 import { DashboardProvider, useDashboard } from './dashboard-context';

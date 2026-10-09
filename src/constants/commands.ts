@@ -93,12 +93,14 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'search-chats', label: 'Search chats', keywords: 'search find chat chats execution transcript history conversation', icon: 'TextSearch', group: 'navigate' },
   { id: 'go-deck', label: 'Go to Deck', keywords: 'navigate deck dashboard', icon: 'LayoutDashboard', group: 'navigate' },
   { id: 'go-tasks', label: 'Go to Tasks', keywords: 'navigate tasks list', icon: 'ListTodo', group: 'navigate' },
-  { id: 'open-board', label: 'Open board', keywords: 'board kanban tasks lanes columns progress', icon: 'SquareKanban', group: 'navigate' },
+  { id: 'open-board', label: 'Open Task Board', keywords: 'board kanban tasks lanes columns progress', icon: 'SquareKanban', group: 'navigate' },
   { id: 'go-notes', label: 'Go to Notes', keywords: 'navigate notes', icon: 'FileText', group: 'navigate' },
   { id: 'go-stream', label: 'Go to Stream', keywords: 'navigate stream capture', icon: 'Radio', group: 'navigate' },
   { id: 'go-chat', label: 'Go to Chat', keywords: 'navigate chat ai', icon: 'MessagesSquare', group: 'navigate' },
   { id: 'open-calendar', label: 'Open calendar', keywords: 'calendar day week schedule meetings agenda events', icon: 'Calendar', group: 'navigate' },
   SAVED_RESULTS_COMMAND,
+  // Shown only on a Home with local apps on (the palette filters it).
+  { id: 'open-apps', label: 'Open apps', keywords: 'apps app library local tools finances tracker build', icon: 'LayoutGrid', group: 'navigate' },
 
   // Settings
   { id: 'open-settings', label: 'Settings', keywords: 'settings preferences config profile account voice notifications billing devices', icon: 'Settings', group: 'settings' },

@@ -1,6 +1,9 @@
 'use client';
+import { parseSourceMarkers } from '@/lib/chat-sources/reference';
+import { SourceText, SourceMetadataProvider } from '@/components/chat/source-chip';
 
 import { EntityAwareText } from '@/components/ai-elements/entity-reference';
+import {AppOpenControl} from '@/components/local-apps/open-control';
 import { rewriteLocalImages } from '@/lib/sessions/reply-image-urls';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { CopyMessageButton } from '@/components/chat/copy-message-button';
@@ -145,7 +148,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
     case 'user': {
       const content = event.content ?? '';
       const segments = parseEntitySegments(content);
-      const hasMarkers = segments.some((s) => s.kind === 'marker');
+      const hasMarkers = segments.some((s) => s.kind === 'marker') || content.includes('[[source:');
       const isFailed = clientStatus?.status === 'failed';
       const isSending = clientStatus?.status === 'sending';
       return (
@@ -333,6 +336,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
               </>
             )}
             <div className="ml-auto flex flex-shrink-0 items-center gap-2 pl-1.5">
+              {paired&&sessionId&&<AppOpenControl content={resultText} chatId={sessionId}/>}
               {pr && <PrLink url={pr.url} number={pr.number} />}
               {hasNested && (
                 <span className="flex items-center gap-1 text-[10.5px] text-muted-foreground/55">
@@ -395,7 +399,9 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
       // word "error" + the expandable body is enough for anyone digging in.
       const isError = event.toolIsError === true;
       const text = event.content ?? '';
+      const appOpen=sessionId?<AppOpenControl content={text} chatId={sessionId}/>:null;
       return (
+        <div>{appOpen}
         <button
           onClick={() => setExpanded((v) => !v)}
           className="w-full text-left text-[11px]"
@@ -412,7 +418,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
               {text}
             </pre>
           )}
-        </button>
+        </button></div>
       );
     }
 
@@ -1333,10 +1339,10 @@ function RenderMessageSegments({
   };
 
   return (
-    <>
+    <SourceMetadataProvider chatId={sessionId} refs={segments.flatMap(segment => segment.kind === 'text' ? parseSourceMarkers(segment.text).flatMap(part => part.type === 'source' && part.valid ? [part.encoded] : []) : [])}>
       {segments.map((seg, i) => {
         if (seg.kind === 'text') {
-          return <span key={i}>{seg.text}</span>;
+          return <SourceText key={i} text={seg.text} resolve={false} />;
         }
         const m = seg.marker;
         if (m.kind === 'file') {
@@ -1353,6 +1359,6 @@ function RenderMessageSegments({
           />
         );
       })}
-    </>
+    </SourceMetadataProvider>
   );
 }

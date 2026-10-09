@@ -214,7 +214,7 @@ export function GeneralSection() {
         <h3 className="text-[12px] font-medium text-foreground">Where work runs</h3>
         <div className="space-y-2 rounded-lg border border-border bg-background p-3">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm text-foreground">Show which device runs an execution</span>
+            <span className="text-sm text-foreground">Show which device runs a chat</span>
             <select
               value={deviceLabelMode}
               onChange={(e) => setDeviceLabelMode(e.target.value as DeviceLabelMode)}
@@ -227,7 +227,7 @@ export function GeneralSection() {
           <p className="text-[11px] text-muted-foreground/85">
             {deviceLabelMode === 'away'
               ? 'Work runs on the home unless you pick another device, so only the exception is labeled. Its device is always in its details, and moving it is in its … menu.'
-              : 'Every execution names its device once more than one runs agents, the home included.'}
+              : 'Every chat names its device once more than one runs agents, the home included.'}
           </p>
         </div>
       </section>
@@ -326,7 +326,7 @@ export function GeneralSection() {
           <p className="text-[11px] text-muted-foreground/85">
             {agentViewMode === 'view'
               ? "Clicking an agent's name in the rail opens its view: its main chat on the left, its work and tools on the right. The chevron still folds its list. Switch back here at any time."
-              : "Clicking an agent's name in the rail folds or unfolds its list of executions."}
+              : "Clicking an agent's name in the rail folds or unfolds its list of chats."}
           </p>
           <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">
             <span className="text-sm text-foreground">Agents in the rail</span>
@@ -341,13 +341,13 @@ export function GeneralSection() {
           </div>
           <p className="text-[11px] text-muted-foreground/85">
             {railStyle === 'agents'
-              ? 'Each agent shows what it last said, bold with a dot when it wants you. Its executions hang under it on one line each, all of them, with the inactive ones behind a Show toggle.'
-              : 'One line per agent, with every active execution listed under it on two lines.'}
+              ? 'Each agent shows what it last said, bold with a dot when it wants you. Its chats hang under it on one line each, all of them, with the inactive ones behind a Show toggle.'
+              : 'One line per agent, with every active chat listed under it on two lines.'}
           </p>
         </div>
       </section>
 
-      {/* Inactive executions */}
+      {/* Inactive chats */}
       <InactiveExecutionsSetting />
 
       {/* Editor */}
@@ -424,7 +424,7 @@ function InactiveExecutionsSetting() {
   };
   return (
     <section className="space-y-2">
-      <h3 className="text-[12px] font-medium text-foreground">Inactive executions</h3>
+      <h3 className="text-[12px] font-medium text-foreground">Inactive chats</h3>
       <div className="space-y-2 rounded-lg border border-border bg-background p-3">
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm text-foreground">Go inactive after</span>
@@ -444,8 +444,8 @@ function InactiveExecutionsSetting() {
         </div>
         <p className="text-[11px] text-muted-foreground/85">
           {stored === 0
-            ? 'Every execution stays in its list however long it sits.'
-            : 'Executions with no activity for this long fold into an "inactive" row at the bottom of each list, where one click shows them. Pinned ones stay put, marked inactive. Nothing is archived, and new activity brings one back.'}
+            ? 'Every chat stays in its list however long it sits.'
+            : 'Chats with no activity for this long fold into an "inactive" row at the bottom of each list, where one click shows them. Pinned ones stay put, marked inactive. Nothing is archived, and new activity brings one back.'}
         </p>
       </div>
     </section>

@@ -714,7 +714,7 @@ export function rebuildAllEntityLinks(): { sources: number; pruned: number } {
   }, true);
 }
 
-export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput?: string }): TaskRecord {
+export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput?: string }, identity?: {id: string}): TaskRecord {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -750,7 +750,7 @@ export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput
       .values({
         ...rest,
         rawInput: input.rawInput ?? input.title,
-        id: uuidv7(),
+        id: identity?.id ?? uuidv7(),
         // Generic creation defaults to Todo, the committed queue. A legacy
         // `active` from an in-flight caller normalizes to Todo too.
         status: normalizeTaskStatus(input.status ?? 'todo'),
@@ -2127,7 +2127,7 @@ export function markTaskViewed(id: string): void {
   getDb().update(tasks).set({ lastViewedAt: new Date().toISOString() }).where(eq(tasks.id, id)).run();
 }
 
-export function createNote(input: CreateNoteInput): NoteRecord {
+export function createNote(input: CreateNoteInput, identity?: {id: string}): NoteRecord {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -2143,7 +2143,7 @@ export function createNote(input: CreateNoteInput): NoteRecord {
       .insert(notes)
       .values({
         ...rest,
-        id: uuidv7(),
+        id: identity?.id ?? uuidv7(),
         status: input.status ?? 'active',
         contextTags: input.contextTags ?? [],
         attachments: dehydrateAttachments(attachments) ?? [],
@@ -10849,4 +10849,12 @@ export function listExecutionsArchivedBetween(
        ORDER BY archived_at`,
     )
     .all(from, to) as Array<{ id: string; label: string | null; workspaceId: string; archivedAt: string }>;
+}
+
+/** Deterministic app capability keys survive Home restarts without a new core table. */
+export function createAppTaskOnce(id: string, input: Parameters<typeof createTask>[0]) {
+  return getDb().transaction(() => getTask(id) ?? createTask(input,{id}));
+}
+export function createAppNoteOnce(id: string, input: CreateNoteInput) {
+  return getDb().transaction(() => getNote(id) ?? createNote(input,{id}));
 }

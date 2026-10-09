@@ -398,3 +398,14 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
     },
   };
 }
+
+/** Safe inert catalog read. No credential key creation, unsealing or network discovery. */
+export function readMcpMetadata(dir: string): { entry: McpServerEntry; capabilities: McpCapabilitySnapshot | null }[] {
+  try {
+    const rows = JSON.parse(fs.readFileSync(path.join(dir, 'mcp-servers.json'), 'utf8')) as StoredRow[];
+    return rows.map(row => ({ entry: row.entry, capabilities: row.capabilities?.current ?? null }));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+}

@@ -35,9 +35,11 @@ const SelectionContext = createContext<SelectionContextValue | null>(null);
  * `SessionRow`s (which render the checkboxes) can share one source of
  * truth without prop-drilling through `WorkspaceRow`.
  *
- * Scoped to the workspace nav only — the needs-review duplicate rows,
- * Pinned and the Recent tab never see this provider, so selection
- * stays a property of the canonical tree.
+ * The rail provides it around the list header (which owns the toggle and
+ * the toolbar) and the list. Rows that duplicate the tree's (Pinned, the
+ * Recent feed) sit inside a `WorkspaceSelectionBoundary`, so selection
+ * stays a property of the canonical tree and a session never shows two
+ * checkboxes.
  */
 export function WorkspaceSelectionProvider({ children }: { children: ReactNode }) {
   const [selecting, setSelecting] = useState(false);
@@ -86,4 +88,9 @@ export function WorkspaceSelectionProvider({ children }: { children: ReactNode }
  */
 export function useWorkspaceSelection(): SelectionContextValue | null {
   return useContext(SelectionContext);
+}
+
+/** Turns selection off for a subtree whose rows duplicate the tree's. */
+export function WorkspaceSelectionBoundary({ children }: { children: ReactNode }) {
+  return <SelectionContext.Provider value={null}>{children}</SelectionContext.Provider>;
 }

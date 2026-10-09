@@ -315,7 +315,7 @@ function ModelRow({
             <div className="flex items-center gap-1.5">
               <span className="truncate text-[12px] font-medium text-foreground">{model.label}</span>
               {isDefault && (
-                <Tip label="New chats and executions start on it">
+                <Tip label="New chats start on it">
                   <span className="text-[9.5px] font-medium text-muted-foreground/80">
                     default
                   </span>

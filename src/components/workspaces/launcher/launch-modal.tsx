@@ -644,7 +644,7 @@ function LaunchModalInner({
           }}
         >
           <VisuallyHidden.Root>
-            <DialogPrimitive.Title>New execution</DialogPrimitive.Title>
+            <DialogPrimitive.Title>New chat</DialogPrimitive.Title>
             <DialogPrimitive.Description>
               Describe what you want, optionally attaching a pull request, issue, branch, task, or
               existing chat.

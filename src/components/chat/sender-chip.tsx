@@ -34,7 +34,7 @@ export function SenderChip({ senderSessionId }: { senderSessionId: string }) {
     label = `From ${orchestratorName}`;
     open = goHome;
   } else if (sender.type === 'execution') {
-    label = `From ${sender.execution?.label ?? sender.label ?? 'another execution'}`;
+    label = `From ${sender.execution?.label ?? sender.label ?? 'another chat'}`;
     open = () => openExecution(sender.id);
   } else {
     label = 'From a document chat';

@@ -63,10 +63,10 @@ export function agentMainChatIntro(name: string): MainChatIntro {
   return {
     title: `Tell ${name} what to build`,
     description:
-      'Anything you ask it to build starts an execution you can watch, steer and review. Ask here about its work any time.',
+      'Anything you ask it to build starts a chat you can watch, steer and review. Ask here about its work any time.',
     starters: [
       { label: 'Build something', prompt: 'Build ', draft: true },
-      { label: 'What’s in flight?', prompt: 'What are this agent’s executions doing, and does any of them need me?' },
+      { label: 'What’s in flight?', prompt: 'What are this agent’s chats doing, and does any of them need me?' },
       { label: 'Suggest what to build next', prompt: 'Look around this folder and suggest what to build next.' },
     ],
   };

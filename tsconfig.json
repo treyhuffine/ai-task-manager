@@ -33,7 +33,11 @@
     "**/*.tsx",
     "**/*.mts",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    ".next-verify/types/**/*.ts",
+    ".next-verify/dev/types/**/*.ts",
+    ".next-apps-42251/types/**/*.ts",
+    ".next-apps-42251/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
@@ -43,6 +47,7 @@
     "packages",
     ".electron-demo",
     "release",
-    "next-env.d.ts"
+    "next-env.d.ts",
+    "apps"
   ]
 }

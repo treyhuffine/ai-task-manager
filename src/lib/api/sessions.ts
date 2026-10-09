@@ -510,12 +510,13 @@ export const sessionsApi = {
   sendMessage(
     id: string,
     content: string,
-    opts?: { attachments?: Attachment[]; eventId?: string },
+    opts?: { attachments?: Attachment[]; eventId?: string; appContext?: { viewId: string; revision: number } },
   ) {
     return trpcClient.sessions.messagesPost.mutate({params: {id: id}, body: {
       content,
       attachments: opts?.attachments,
       id: opts?.eventId,
+      appContext: opts?.appContext,
     }});
   },
 

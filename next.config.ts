@@ -11,6 +11,9 @@ const nextConfig: NextConfig = {
   // Each build checks its own generated routes. Sharing one tsconfig lets
   // Next append every output folder, including stale routes from other builds.
   typescript: { tsconfigPath: typeScriptConfigs[distDir] ?? "tsconfig.json" },
+  // Match the bounded multipart reader so attachments and app archives can
+  // reach their handlers without the proxy truncating them at its 10 MiB default.
+  experimental: { proxyClientMaxBodySize: 51 * 1024 * 1024 },
   // `@beamd/cli` is a binary launcher — Ri resolves its native per-platform
   // binary via `require.resolve` and execs it. It must stay external so the
   // production build doesn't bundle/rewrite that resolution (which breaks the
@@ -26,6 +29,7 @@ const nextConfig: NextConfig = {
   // `pending-input.ts`/`adapter.ts` guard against. Externalizing also removes
   // their ~160-module graph from every server-route compile.
   serverExternalPackages: [
+    "@ri/app-kit",
     "better-sqlite3",
     "sqlite-vec",
     "node-pty",
@@ -45,7 +49,7 @@ const nextConfig: NextConfig = {
   // running `pnpm dev` without fighting for `.next/dev/lock`.
   distDir,
   // Local desktop homes and distribution artifacts are never server assets.
-  outputFileTracingExcludes: { '*': ['./.electron-demo/**', './release/**'] },
+  outputFileTracingExcludes: { '*': ['./.electron-demo/**', './release/**', './apps/**'] },
   async headers() {
     return [{
       source: '/notifications-sw.js',

@@ -369,7 +369,7 @@ export type ActionOutcome<O = unknown> =
   // `beginAuth` throws `auth_config_required` instead (the host resolves the config via
   // `listForProvider` first). Never emitted while a provider has a single config.
   | { ok: false; reason: 'auth_config_required'; providerId: string; choices: AuthConfigChoice[] }
-  | { ok: false; reason: 'error'; code: IntegrationErrorCode; message: string; indeterminate?: boolean };
+  | { ok: false; reason: 'error'; code: IntegrationErrorCode; message: string; indeterminate?: boolean;status?:number };
 
 // ───────────────────────────── Auth requests ────────────────────────────────
 
@@ -626,6 +626,9 @@ export interface Logger {
 export type CallerType = 'app' | 'agent' | 'mcp' | 'schedule';
 
 export interface Caller {
+  chatSource?: { messageId: string; sourceRef: string; invocationId: string };
+  /** Host-issued local app identity, never supplied by a package. */
+  localApp?: { instanceId: string; invocationId: string; callId: string; principal: { kind: string; id: string } };
   type: CallerType;
   /** Optional human/agent identity for audit. */
   id?: string;
@@ -686,6 +689,9 @@ export interface BeginAuthResult {
 }
 
 export interface RunActionOptions {
+  signal?:AbortSignal;
+  /** Bound raw provider response bytes for hosts with a smaller transport budget. */
+  maxResponseBytes?:number;
   ownerId?: string;
   connectionId?: string;
   /** Account hint (email or label) for multi-account resolution (§6). */

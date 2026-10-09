@@ -2,7 +2,7 @@
  * Only data hooks are replaced. No real Home, worker or API is contacted.
  *
  * Adapted after ece748f: the phone's hold on + became the agent's ⋯ menu
- * ("New execution on…"), so the probe opens the sheet from a real dropdown
+ * ("New chat on…"), so the probe opens the sheet from a real dropdown
  * item, as the agents list does, instead of a long press. + is a plain tap.
  * And at the simplification pass: moves are named by device ("Move to
  * Review worker"), and the fixture hooks gain the setup ones. And when setup
@@ -59,8 +59,8 @@ it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a de
             <MoveActions session={session} workspace={workspace}/>
           </Popover.Content></Popover.Portal></Popover.Root>
           <DropdownMenu><DropdownMenuTrigger asChild><button id="more" aria-label="More for Review agent">⋯</button></DropdownMenuTrigger>
-            <DropdownMenuContent><DropdownMenuItem onSelect={()=>setOpen(true)}>New execution on…</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
-          <button id="plus" onClick={()=>start()}>New execution</button>
+            <DropdownMenuContent><DropdownMenuItem onSelect={()=>setOpen(true)}>New chat on…</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+          <button id="plus" onClick={()=>start()}>New chat</button>
           <RunOnSheet workspace={workspace} open={open} onOpenChange={setOpen} onPick={(id)=>{setOpen(false);start(id);}}/>
         </>;
       }
@@ -97,10 +97,10 @@ it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a de
     await page.keyboard.press('Escape');
     await page.locator('#plus').tap();
     await page.locator('#more').tap();
-    await page.getByRole('menuitem', { name: 'New execution on…' }).tap();
-    await page.getByRole('dialog', { name: 'New execution in Review agent, on…' }).waitFor();
+    await page.getByRole('menuitem', { name: 'New chat on…' }).tap();
+    await page.getByRole('dialog', { name: 'New chat in Review agent, on…' }).waitFor();
     await page.getByRole('button', { name: 'Make default' }).click();
-    await page.getByRole('dialog', { name: 'New execution in Review agent, on…' }).getByRole('button', { name: /Review worker/ }).click();
+    await page.getByRole('dialog', { name: 'New chat in Review agent, on…' }).getByRole('button', { name: /Review worker/ }).click();
     const actions = await page.evaluate(() => (window as unknown as { actions: unknown[] }).actions);
     expect(actions).toEqual([
       {kind:'move',value:'worker'}, {kind:'start',value:'default'},

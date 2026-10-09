@@ -6,7 +6,7 @@ const h = vi.hoisted(() => {
     rows: [] as Row[],
     sessions: new Map<string, { id: string; status: string; executionId: string | null; surfaceKind: string | null; externalSessionId: string | null; workspaceId: string | null }>(),
     workspaces: new Map<string, { id: string; name: string; integrationScopes: { toolkitId: string; accounts?: { accountId: string }[] }[] }>(),
-    connections: [] as { id: string; providerId: string; accountId: string; email?: string; label?: string }[],
+    connections: [] as { id: string; providerId: string; accountId: string; email?: string; label?: string; authConfigId?: string; status?: string }[],
     running: new Set<string>(),
     recycled: [] as string[],
     recycledWorkspaces: [] as string[],
@@ -136,6 +136,25 @@ afterEach(() => {
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
 describe('requestConnection', () => {
+  it('keeps source-picker access and reconnect cards pinned to the exact client', async () => {
+    h.connections.push(...['work', 'personal'].map(authConfigId => ({ ...google(authConfigId, 'same@example.test'), accountId: 'same-account', authConfigId, status: 'active' })));
+    await ask({ scopeWorkspaceId: 'ws-ri', accountPin: { accountId: 'same-account', authConfigId: 'work' } });
+    expect(lastView().accounts).toHaveLength(1);
+    expect(lastView().accounts![0].connectionId).toBe('work');
+    await allowCardForAgent(cards()[0].id, ['same-account']);
+    expect(scopesOf('ws-ri')).toEqual([{ toolkitId: 'gmail', accounts: [{ accountId: 'same-account', authConfigId: 'work' }] }]);
+    h.connections[1].status = 'error';
+    await ask({ scopeWorkspaceId: 'ws-ri', accountPin: { accountId: 'same-account', authConfigId: 'personal' } });
+    expect(lastView()).toMatchObject({ kind: 'reconnect', connectionId: 'personal', authConfigId: 'personal' });
+    await expect(ask({ accountPin: { accountId: 'same-account', authConfigId: 'missing' } })).rejects.toMatchObject({ code: 'invalid' });
+  });
+  it('does not substitute a new client connection for an already offered account', async () => {
+    h.connections.push({ ...google('old', 'same@example.test'), authConfigId: 'work', status: 'active' });
+    await ask({ scopeWorkspaceId: 'ws-ri', accountPin: { accountId: 'acct-old', authConfigId: 'work' } });
+    h.connections[0] = { ...h.connections[0], id: 'replacement', authConfigId: 'personal' };
+    await expect(allowCardForAgent(cards()[0].id, ['acct-old'])).rejects.toMatchObject({ code: 'invalid' });
+    expect(h.scopesSet).toEqual([]);
+  });
   it('needs a chat to put the card in', async () => {
     expect((await ask({ sessionId: null })).status).toBe('no_chat');
     expect((await ask({ sessionId: 'gone' })).status).toBe('no_chat');

@@ -303,3 +303,20 @@ describe('gmail drafts list + delete', () => {
     expect(seen?.url).toContain('/drafts/r-123');
   });
 });
+
+describe('bounded Gmail mailbox reads',()=>{
+ it('preserves list paging, full MIME parts, profile, attachments and history without sending mail',async()=>{
+  const h=makeHarness();await h.connect();const seen:string[]=[];
+  h.env.action=call=>{seen.push(call.url);const url=new URL(call.url);if(url.pathname.endsWith('/profile'))return {json:{emailAddress:'fixture@example.test',historyId:'100'}};if(url.pathname.endsWith('/attachments/a1'))return {json:{data:Buffer.from('fixture receipt').toString('base64url'),size:15}};if(url.pathname.endsWith('/history'))return {json:{historyId:'102',nextPageToken:'history-page-2',history:[{id:'101',messagesAdded:[{message:{id:'m1',threadId:'t1'}}]}]}};if(url.pathname.endsWith('/messages/m1'))return {json:{id:'m1',payload:{mimeType:'multipart/mixed',headers:[{name:'Subject',value:'Receipt'}],parts:[{mimeType:'text/plain',body:{data:Buffer.from('Total $24').toString('base64url')}},{mimeType:'application/pdf',filename:'receipt.pdf',body:{attachmentId:'a1',size:15}}]}}};return {json:{messages:[{id:'m1',threadId:'t1'}],nextPageToken:'page-2',resultSizeEstimate:2}};};
+  expect(await h.runtime.runAction('gmail.search_messages',{query:'receipt',pageToken:'page-1',maxResults:1})).toMatchObject({ok:true,result:{nextPageToken:'page-2'}});
+  expect(await h.runtime.runAction('gmail.get_profile',{})).toMatchObject({ok:true,result:{historyId:'100'}});
+  expect(await h.runtime.runAction('gmail.read_message',{messageId:'m1'})).toMatchObject({ok:true,result:{payload:{parts:[{mimeType:'text/plain'},{filename:'receipt.pdf',body:{attachmentId:'a1'}}]}}});
+  expect(await h.runtime.runAction('gmail.get_attachment',{messageId:'m1',attachmentId:'a1'})).toMatchObject({ok:true,result:{size:15}});
+  expect(await h.runtime.runAction('gmail.list_history',{startHistoryId:'100',pageToken:'history-page-1'})).toMatchObject({ok:true,result:{historyId:'102',nextPageToken:'history-page-2'}});
+  expect(seen.some(url=>url.includes('pageToken=page-1'))).toBe(true);expect(seen.some(url=>url.includes('startHistoryId=100'))).toBe(true);expect(seen.every(url=>!url.includes('/send'))).toBe(true);
+ });
+ it('reports an expired checkpoint and rejects oversized responses before returning provider data',async()=>{
+  const h=makeHarness();await h.connect();h.env.action=()=>({status:404,json:{error:{message:'History not found'}}});expect(await h.runtime.runAction('gmail.list_history',{startHistoryId:'1'})).toMatchObject({ok:false,reason:'error',status:404});
+  h.env.action=()=>({json:{messages:[{id:'m'.repeat(1000)}]}});expect(await h.runtime.runAction('gmail.search_messages',{query:'fixture'},{maxResponseBytes:100})).toMatchObject({ok:false,reason:'error',code:'provider_error'});
+ });
+});

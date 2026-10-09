@@ -70,10 +70,10 @@ export function AgentHeader({
         <button
           onClick={() => openLauncher(workspace.id)}
           className="flex flex-shrink-0 items-center gap-1.5 h-7 px-2.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:opacity-90 transition-opacity"
-          aria-label="New execution"
+          aria-label="New chat"
         >
           <Plus size={12} strokeWidth={2.5} />
-          <span className="hidden @[520px]:inline">New execution</span>
+          <span className="hidden @[520px]:inline">New chat</span>
         </button>
       )}
 

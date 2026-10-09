@@ -19,6 +19,9 @@ function upgradeRequest(req: IncomingMessage): Request {
 }
 
 export function createWebSocketServer(router: AnyRouter): WebSocketRuntime {
+  // App resources are bounded self-contained HTML, transported through tRPC.
+  // Keep queued output bounded while allowing one qualified resource response.
+  const outgoingLimit = 16 * 1024 * 1024;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, perMessageDeflate: false });
   const authorized = new Map<WebSocket, () => void>();
   // Bound queued output and idle unauthenticated connections. Authentication is
@@ -28,7 +31,7 @@ export function createWebSocketServer(router: AnyRouter): WebSocketRuntime {
     client.send = function (this: WebSocket, ...args: Parameters<WebSocket['send']>) {
       const data = args[0];
       const bytes = typeof data === 'string' ? Buffer.byteLength(data) : Buffer.isBuffer(data) ? data.length : 0;
-      if (client.bufferedAmount + bytes > 1024 * 1024) { client.terminate(); return; }
+      if (client.bufferedAmount + bytes > outgoingLimit) { client.terminate(); return; }
       Reflect.apply(send, this, args);
     } as WebSocket['send'];
     const deadline = setTimeout(() => { if (!authorized.has(client)) client.close(4401, 'Authentication required'); }, 5_000);
@@ -46,7 +49,7 @@ export function createWebSocketServer(router: AnyRouter): WebSocketRuntime {
   });
   const sweep = setInterval(() => {
     for (const client of wss.clients) {
-      if (client.bufferedAmount > 1024 * 1024) { client.terminate(); continue; }
+      if (client.bufferedAmount > outgoingLimit) { client.terminate(); continue; }
       try { authorized.get(client)?.(); } catch { client.close(4401, 'Connection authorization expired'); }
     }
   }, 1_000);

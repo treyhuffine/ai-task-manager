@@ -12,6 +12,7 @@ export const AGENT_TABS: readonly AgentTab[] = ['overview', 'files', 'terminal',
  * `?skill=<ref>`. Helpers live in `src/lib/client/active-view.ts`.
  */
 export type ActiveView =
+  | { kind: 'apps'; route: string; query?: Record<string, string> }
   | { kind: 'home' }
   | { kind: 'agent'; id: string; tab?: AgentTab }
   | { kind: 'execution'; id: string }

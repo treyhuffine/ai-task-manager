@@ -165,6 +165,7 @@ async function runAdmittedTick(now: Date): Promise<number> {
   let dispatched = 0;
   try {
     state.tickCount++;
+    if (process.env.RI_LOCAL_APPS === '1') await (await import('@/lib/local-apps/service')).localApps().tick(now);
     const due = listDueTriggers(now);
     for (const trigger of due) {
       try {

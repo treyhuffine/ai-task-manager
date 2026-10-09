@@ -1,3 +1,4 @@
+import { acquireAppBackup, appBackupFile, restoreLocalApps } from '@/lib/local-apps/backup';
 /**
  * Full backup, verification, and restore of a Ri data root.
  *
@@ -34,7 +35,7 @@ export const BACKUP_MANIFEST = 'manifest.json';
 export const BACKUP_FORMAT_VERSION = 1;
 
 /** Top-level content copied as-is when present. */
-const CONTENT_DIRS = ['attachments', '.archive', 'skills', 'skill-drafts'] as const;
+const CONTENT_DIRS = ['attachments', '.archive', 'skills', 'skill-drafts', 'apps', 'app-drafts'] as const;
 const CONTENT_FILES = [
   'CLAUDE.md',
   'AGENTS.md',
@@ -131,12 +132,15 @@ function copyPrivate(src: string, dest: string, rel: string): BackupFileEntry {
 }
 
 /** Every regular file under `dir`, relative to `base`. Symlinks are not followed. */
-function listFiles(dir: string, base: string, skipNames: Set<string> = new Set()): string[] {
+function listFiles(dir: string, base: string, skipNames: Set<string> = new Set(), include?: (relative:string)=>boolean): string[] {
   const out: string[] = [];
   const walk = (d: string) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       if (skipNames.has(e.name)) continue;
       const full = path.join(d, e.name);
+      const relative=path.relative(base,full);
+      if(include&&!include(toPosix(relative)))continue;
+      if(include&&e.isSymbolicLink())throw new Error('Local app backup found a symbolic link in durable content. Repair it before backing up');
       if (e.isDirectory()) walk(full);
       else if (e.isFile()) out.push(path.relative(base, full));
     }
@@ -207,6 +211,8 @@ export async function createHomeBackup(opts: CreateBackupOptions): Promise<Backu
   }
   mkdirPrivate(outDir);
 
+  const releaseApps = await acquireAppBackup(root);
+  try {
   const files: BackupFileEntry[] = [];
 
   // Database: a consistent copy while the source may still be writing.
@@ -225,7 +231,7 @@ export async function createHomeBackup(opts: CreateBackupOptions): Promise<Backu
   for (const dir of CONTENT_DIRS) {
     const src = path.join(root, dir);
     if (!fs.existsSync(src)) continue;
-    for (const rel of listFiles(src, root)) {
+    for (const rel of listFiles(src, root,new Set(),(dir === 'apps' || dir === 'app-drafts')?appBackupFile:undefined)) {
       files.push(copyPrivate(path.join(root, rel), path.join(outDir, rel), rel));
     }
   }
@@ -270,6 +276,7 @@ export async function createHomeBackup(opts: CreateBackupOptions): Promise<Backu
   const manifestPath = path.join(outDir, BACKUP_MANIFEST);
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600 });
   return manifest;
+  } finally { await releaseApps(); }
 }
 
 export function readBackupManifest(dir: string): BackupManifest {
@@ -358,5 +365,6 @@ export function restoreHomeBackup(opts: RestoreOptions): BackupManifest {
   if (!after.ok) {
     throw new Error(`The restored root does not match the backup:\n  ${after.problems.join('\n  ')}`);
   }
+  restoreLocalApps(root);
   return manifest;
 }

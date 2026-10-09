@@ -1,6 +1,8 @@
 'use client';
 
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
+import { AppCompanion } from '@/components/local-apps/app-companion';
+import { AppCompanionButton } from '@/components/local-apps/app-companion-button';
 import {
 	EmptyChatActionsContext,
 	MainChatIntroPanel,
@@ -216,6 +218,7 @@ export function HarnessChatSession({
   }
 
   return (
+    <AppCompanion chatId={sessionId} surfaceKind={session.surfaceKind}>
     <ChatDropZone
       className="flex flex-1 min-h-0 flex-col"
       onFiles={(files) => {
@@ -258,6 +261,7 @@ export function HarnessChatSession({
           modelVariant={session.modelVariant}
           effort={session.effort}
           harness={session.harness}
+          leadingActions={<AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />}
           submitOnEnter={!isMobile}
           isRunning={isRunning}
           onSwitchProvider={onSwitchProvider}
@@ -282,5 +286,6 @@ export function HarnessChatSession({
         />
       </div>
     </ChatDropZone>
+    </AppCompanion>
   );
 }

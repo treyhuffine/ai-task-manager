@@ -12,7 +12,8 @@
  *  - Output is always JSON on stdout for easy piping (`| jq`). Errors print
  *    to stderr and exit with code 1.
  *  - `--input @-` or `--input path.json` reads a JSON blob as the full input,
- *    merged on top of any positional/flag values. This is the agent-friendly
+ *    merged on top of any positional/flag values. An action parameter named
+ *    input uses --action-input so the whole-request flag remains available. This is the agent-friendly
  *    path — hand the action the full params in one blob.
  *  - On a device connected to a home, actions run on the home over its API
  *    (docs/homes-spec.md §5.3). Nothing is written locally.
@@ -48,7 +49,7 @@ export function registerAgentCommand(program: Command) {
       [string, z.ZodTypeAny]
     >) {
       if (positionalSet.has(paramName)) continue;
-      const flag = `--${paramName.replace(/_/g, '-')}`;
+      const flag = paramName === 'input' ? '--action-input' : `--${paramName.replace(/_/g, '-')}`;
       cmd.option(`${flag} <value>`, describeParam(paramSchema));
     }
 
@@ -68,7 +69,7 @@ export function registerAgentCommand(program: Command) {
         const flagKey = paramName.replace(/_/g, '');
         // commander lowercases + strips dashes for camelCase option keys
         const camel = paramName.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-        const raw = opts[camel] ?? opts[flagKey];
+        const raw = paramName === 'input' ? opts.actionInput : opts[camel] ?? opts[flagKey];
         if (raw === undefined) continue;
         input[paramName] = coerceFlag(raw, paramSchema);
       }
@@ -115,7 +116,7 @@ function coerceFlag(raw: string, schema: z.ZodTypeAny): unknown {
   const typeName = (def as { _def?: { typeName?: string } })._def?.typeName;
   if (typeName === 'ZodNumber') return Number(raw);
   if (typeName === 'ZodBoolean') return raw === 'true' || raw === '1';
-  if (typeName === 'ZodArray' || typeName === 'ZodObject' || typeName === 'ZodUnion') {
+  if (typeName === 'ZodArray' || typeName === 'ZodObject' || typeName === 'ZodUnion' || typeName === 'ZodUnknown' || typeName === 'ZodAny') {
     try {
       return JSON.parse(raw);
     } catch {

@@ -56,6 +56,8 @@ export interface PendingApproval {
   preview: unknown;
   /** The chat whose agent asked, or null when the call carried no session. */
   sessionId: string | null;
+  localApp?: Caller['localApp'];
+  chatSource?: Caller['chatSource'];
   createdAt: number;
 }
 
@@ -96,8 +98,8 @@ function grantKey(i: ApprovalCheckInput): string {
 }
 
 /** A grant only matches a retry from the chat whose request was approved. */
-function grantSlot(key: string, sessionId: string | null): string {
-  return `${key}|${sessionId ?? ''}`;
+function grantSlot(key: string, sessionId: string | null, app?: Caller['localApp']): string {
+  return `${key}|${app ? JSON.stringify(app) : sessionId ?? ''}`;
 }
 
 function toPublic(p: InternalPending): PendingApproval {
@@ -165,7 +167,7 @@ export function appApprovalPolicy(opts: AppApprovalOptions = {}): ApprovalPolicy
       if (isNotifierDelivery(input.caller, input.actionId)) return 'allow';
       if (opts.autoApprove) return 'allow';
       if (!input.mutating) return 'allow';
-      const key = grantKey(input);
+      const key = grantKey(input) + (input.caller?.localApp ? `|app:${JSON.stringify(input.caller.localApp)}` : '') + (input.caller?.chatSource ? `|source:${JSON.stringify(input.caller.chatSource)}` : '');
       const sessionId = sessionIdFromCaller(input.caller);
       // Standing intent: reversible, internal writes run on the connection the
       // user already authorized. Outward (send/post/…) and irreversible
@@ -196,12 +198,14 @@ export function appApprovalPolicy(opts: AppApprovalOptions = {}): ApprovalPolicy
           risk: input.risk,
           preview: input.inputPreview,
           sessionId,
+          ...(input.caller?.localApp ? { localApp: input.caller.localApp } : {}),
+          ...(input.caller?.chatSource ? { chatSource: input.caller.chatSource } : {}),
           createdAt: now,
         };
         state.pending.set(pending.id, pending);
         publishSessionApprovals(sessionId);
         // Durable transcript card + notification (best-effort).
-        void onRequested(toPublic(pending)).catch((err) =>
+        void (pending.localApp ? Promise.resolve() : onRequested(toPublic(pending))).catch((err) =>
           console.warn(`[integrations] recording approval request failed:`, err),
         );
       }

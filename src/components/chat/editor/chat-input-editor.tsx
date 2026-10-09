@@ -1,4 +1,8 @@
 'use client';
+import { SourceChipNode, SOURCE_CHIP_NAME } from './source-chip-node';
+import { EditorSourceProvider } from '../source-chip';
+import { sourceMarker } from '@/lib/chat-sources/reference';
+import { trpcClient } from '@/lib/trpc/client';
 
 /**
  * Shared chat-input editor used by both the execution composer and the
@@ -158,6 +162,7 @@ export interface ChatInputEditorHandle {
 }
 
 interface ChatInputEditorProps {
+  sourceChatId?: string;
   placeholder?: string;
   disabled?: boolean;
   /**
@@ -366,6 +371,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       slashCommands,
       mentionFiles,
       searchMentionEntities,
+      sourceChatId,
       mentionReferenceFolders,
       loadReferenceTree,
       prs,
@@ -393,6 +399,8 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     slashCommandsRef.current = slashCommands;
     const mentionFilesRef = useRef(mentionFiles);
     mentionFilesRef.current = mentionFiles;
+    const sourceChatIdRef = useRef(sourceChatId);
+    sourceChatIdRef.current = sourceChatId;
     const searchMentionEntitiesRef = useRef(searchMentionEntities);
     searchMentionEntitiesRef.current = searchMentionEntities;
     const mentionReferenceFoldersRef = useRef(mentionReferenceFolders);
@@ -737,11 +745,16 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         PrChipNode,
         MentionChipNode,
         EntityChipNode,
+        SourceChipNode,
         PasteDropExtension,
         SlashMenuExtension.configure({
           getCommands: () => slashCommandsRef.current ?? [],
         }),
         MentionMenuExtension.configure({
+          getScopeKey: () => sourceChatIdRef.current,
+          searchSources: (query, filter, groupId, signal) => sourceChatIdRef.current
+            ? trpcClient.chatSources.search.query({ chatId: sourceChatIdRef.current, query, filter, groupId }, { signal })
+            : Promise.resolve({ items: [], total: 0 }),
           getFileEntries: () => mentionFilesRef.current ?? [],
           searchEntities: (search) =>
             searchMentionEntitiesRef.current?.(search) ??
@@ -968,7 +981,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     );
 
     return (
-      <EditorContent
+      <EditorSourceProvider editor={editor} chatId={sourceChatId}><EditorContent
         editor={editor}
         className={cn(
           // Tiptap renders a `.ProseMirror` div inside; we let its
@@ -985,7 +998,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           '[&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0',
           className,
         )}
-      />
+      /></EditorSourceProvider>
     );
   },
 );
@@ -1074,6 +1087,10 @@ function buildMarkerOutput(editor: Editor | null): { text: string; attachments: 
       }
       return false;
     }
+    if (node.type.name === SOURCE_CHIP_NAME) {
+      lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + sourceMarker(node.attrs.sourceRef);
+      return false;
+    }
     if (node.type.name === ENTITY_CHIP_NAME) {
       // Task / note / scratchpad chips emit `[[task:id]]`, `[[note:id]]`,
       // or `[[scratchpad]]`. The server-side expandEntityMarkers
@@ -1156,6 +1173,10 @@ function buildUiMessageParts(editor: Editor | null): {
       // is the canonical reference the agent acts on.
       const attrs = node.attrs as MentionChipAttrs;
       if (attrs.path) textBuf += `@${attrs.path}`;
+      return false;
+    }
+    if (node.type.name === SOURCE_CHIP_NAME) {
+      textBuf += sourceMarker(node.attrs.sourceRef);
       return false;
     }
     if (node.type.name === ENTITY_CHIP_NAME) {

@@ -168,13 +168,26 @@ function initRoot(resolved: ResolvedPaths): string[] {
   return done;
 }
 
-function portInUse(port: number): Promise<boolean> {
+async function addressInUse(port: number, host: string): Promise<boolean> {
+  const listening = await new Promise<boolean>((resolve) => {
+    const socket = net.connect({ port, host });
+    const finish = (occupied: boolean) => { socket.destroy(); resolve(occupied); };
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+    socket.setTimeout(500, () => finish(false));
+  });
+  if (listening) return true;
   return new Promise((resolve) => {
     const server = net.createServer();
-    server.once('error', () => resolve(true));
+    server.once('error', (error: NodeJS.ErrnoException) => resolve(error.code !== 'EAFNOSUPPORT' && error.code !== 'EADDRNOTAVAIL'));
     server.once('listening', () => server.close(() => resolve(false)));
-    server.listen(port);
+    server.listen({ port, host, ipv6Only: host === '::1' });
   });
+}
+async function portInUse(port: number): Promise<boolean> {
+  // On macOS an IPv6 bind can succeed while 0.0.0.0 already owns the IPv4 port.
+  const occupied = await Promise.all(['127.0.0.1', '::1'].map(host => addressInUse(port, host)));
+  return occupied.some(Boolean);
 }
 
 async function main(): Promise<void> {

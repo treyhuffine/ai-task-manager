@@ -21,15 +21,21 @@ import { Tip } from '@/components/ui/tip';
 
 export function TopHud() {
   const { activeView, goHome, openExecution, setQuickCaptureOpen } = useDashboard();
-  // The agent view and the execution view both close back to Home.
+  // The agent, execution, skill and app views all close back to Home.
   const closeLabel =
     activeView.kind === 'execution'
-      ? 'Close execution'
+      ? 'Close chat'
       : activeView.kind === 'agent'
         ? 'Close agent'
         : activeView.kind === 'skill'
           ? 'Close skill'
-          : null;
+          : activeView.kind === 'apps'
+            ? activeView.route === '' || activeView.route === 'new'
+              ? 'Close apps'
+              : activeView.route.startsWith('drafts/')
+                ? 'Close builder'
+                : 'Close app'
+            : null;
   const latestExecutionId = useLatestExecutionId();
 
   return (
@@ -55,9 +61,9 @@ export function TopHud() {
         <button
           onClick={() => openExecution(latestExecutionId)}
           className="flex items-center gap-1.5 h-7 px-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-          aria-label="Open latest execution"
+          aria-label="Open latest chat"
         >
-          <span className="text-[11px] font-medium">Open latest execution</span>
+          <span className="text-[11px] font-medium">Open latest chat</span>
           <kbd className="px-1 py-0.5 bg-muted rounded text-[9px] font-mono leading-none">
             {HOTKEYS.closeView.label}
           </kbd>

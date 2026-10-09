@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  type ReactNode,
   forwardRef,
   useCallback,
   useEffect,
@@ -111,6 +112,8 @@ interface ExecutionComposerProps {
   effort: EffortLevel | null;
   /** The session's harness: picks the model catalog and supported controls. */
   harness: HarnessId | null;
+  /** Rendered after Attach, in the left cluster: something else to bring into the chat (an app). */
+  leadingActions?: ReactNode;
   disabled?: boolean;
   disabledReason?: string;
   /** Helper copy under the composer, sets expectations. */
@@ -185,6 +188,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       modelVariant,
       effort,
       harness,
+      leadingActions,
       disabled,
       disabledReason,
       helperText,
@@ -683,6 +687,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                 </div>
               ) : (
                 <ChatInputEditor
+                  sourceChatId={sessionId ?? undefined}
                   ref={editorRef}
                   placeholder={placeholder ?? "Ask your agent to do any work. You can @mention files, tasks, or notes. Reference PRs with @# or use a slash to run /skills"}
                   // Don't disable the editor while `sending` — the
@@ -746,6 +751,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                     disabled={disabled}
                     title="Attach file"
                   />
+                  {leadingActions}
 
                   <ModePicker
                     open={modeMenuOpen}

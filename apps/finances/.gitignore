@@ -1,0 +1,23 @@
+node_modules/
+.next/
+*.tsbuildinfo
+.env*
+!.env.example
+public/renderer-sdk.js
+coverage/
+artifacts/
+
+*.db
+*.db-*
+owner.key
+broker-seal.key
+connector-broker.json
+**/attachments/
+!src/lib/attachments/
+
+next-env.d.ts
+
+release/
+
+# Isolated portable build of this workspace app
+.ri-build/

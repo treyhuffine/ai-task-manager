@@ -201,7 +201,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
             get the full width. Stays while its menu is open. */}
         <div className="hidden group-hover:flex has-[[data-state=open]]:flex items-center gap-0.5 flex-shrink-0">
           {hasThreads && (
-            <Tip label={expanded ? 'Hide executions' : 'Show executions'}>
+            <Tip label={expanded ? 'Hide chats' : 'Show chats'}>
               <button
                 onPointerDown={stop}
                 onClick={(e) => {
@@ -209,13 +209,13 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
                   toggleThreads();
                 }}
                 className="p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/50"
-                aria-label={expanded ? 'Hide executions' : 'Show executions'}
+                aria-label={expanded ? 'Hide chats' : 'Show chats'}
               >
                 {expanded ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
               </button>
             </Tip>
           )}
-          <Tip label="New execution (shift-click to start one right away on the last settings)">
+          <Tip label="New chat (shift-click to start one right away on the last settings)">
             <button
               onPointerDown={stop}
               onClick={(e) => {
@@ -224,7 +224,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
                 else onOpenLauncher(workspace.id);
               }}
               className="p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/50"
-              aria-label="New execution"
+              aria-label="New chat"
             >
               <Plus size={13} />
             </button>
@@ -242,7 +242,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="text-[11px] min-w-[170px]" onPointerDown={stop} onClick={stop}>
               <DropdownMenuItem onSelect={() => onOpenLauncher(workspace.id)}>
-                <Plus size={12} /> New execution
+                <Plus size={12} /> New chat
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onOpenSettings(workspace.id)}>
                 <SlidersHorizontal size={12} /> Agent setup
@@ -280,12 +280,12 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       )}
 
       {hasThreads && !expanded && (
-        <Tip label="Show executions">
+        <Tip label="Show chats">
           <button
             onPointerDown={stop}
             onClick={toggleThreads}
             className="mb-1.5 flex h-8 w-full items-center gap-1.5 rounded-md pl-4 pr-1.5 text-left text-[10.5px] hover:bg-muted/40 transition-colors"
-            aria-label={`Show ${workspace.name}'s executions`}
+            aria-label={`Show ${workspace.name}'s chats`}
           >
             <ChevronRight size={11} className="flex-shrink-0 text-muted-foreground/60" />
             <span className="min-w-0 truncate">

@@ -173,8 +173,8 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
   // Every error outcome's message is redacted here (§8) — confinement is enforced at the
   // runtime boundary, not left to each projection to remember (P2-a). A thrown provider/SDK
   // error can carry a token in its message; this is the one place it can't escape.
-  function fail(code: IntegrationError['code'], message: string, indeterminate?: boolean): ActionOutcome<never> {
-    return errorOutcome(code, redactor.redact(message), indeterminate);
+  function fail(code: IntegrationError['code'], message: string, indeterminate?: boolean,status?:number): ActionOutcome<never> {
+    return {...errorOutcome(code, redactor.redact(message), indeterminate),...(status!==undefined?{status}:{})};
   }
 
   function registerSecrets(creds: Credentials): void {
@@ -1144,7 +1144,8 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
         connectionId: connection.id,
         getCredentials: (force) => getValidCredentials(connection.id, force),
         redactor,
-        fetch: fetchImpl,
+        fetch: (url,init)=>fetchImpl(url,{...init,...(options.signal?{signal:AbortSignal.any([options.signal,...(init?.signal?[init.signal]:[])])}:{})}),
+        maxResponseBytes:options.maxResponseBytes,
         ...(retry ? { retry } : {}),
       });
       const ctx = {
@@ -1167,7 +1168,7 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
         if (e instanceof IntegrationError) {
           const status: ActionRunStatus = e.indeterminate ? 'unknown' : 'error';
           finish(status, { connectionId: connection.id, status, errorCode: e.code, error: redactor.redact(e.message) });
-          return fail(e.code, e.message, e.indeterminate);
+          return fail(e.code, e.message, e.indeterminate,e.status);
         }
         const message = e instanceof Error ? e.message : String(e);
         finish('error', { connectionId: connection.id, status: 'error', errorCode: 'internal_error', error: redactor.redact(message) });
@@ -1195,7 +1196,7 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
       if (e instanceof IntegrationError) {
         const status: ActionRunStatus = e.indeterminate ? 'unknown' : 'error';
         finish(status, { status, errorCode: e.code, error: redactor.redact(e.message) });
-        return fail(e.code, e.message, e.indeterminate);
+        return fail(e.code, e.message, e.indeterminate,e.status);
       }
       // Genuinely unexpected failure.
       const message = e instanceof Error ? e.message : String(e);

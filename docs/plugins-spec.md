@@ -1,10 +1,14 @@
 # Ri plugins and embedded views
 
-Research and proposal, October 2, 2026. Implementation has not started.
+October 8 connected-app clarification: [the current source/app contract](app-connector-mentions-spec.md#9-connected-mcp-apps-and-a-common-view-host) explicitly retains externally connected MCP apps with UI. The local builder is one origin of apps, and does not replace connected-app hosting. Use the revised contract for shared catalog/mentions, common view protocol, distinct authority/lifecycle and bounded capture. Older renderer, rail and persistence proposals below remain historical.
+
+Historical research and proposal, October 2, 2026. This document is not a current implementation status report.
+
+**October 7 direction, amended October 8:** Start with [the local-apps handoff](local-apps-handoff.md). [Local apps and the built-in builder](local-apps.md) records the owner's revised product direction: local execution, app-owned storage, framework-neutral views, access to Ri capabilities, and self-documenting app packages. Its [implementation contract](local-apps-implementation.md), [Finances integration](local-apps-finance.md), [modularity decision](local-apps-modularity.md) and [app and Connector mentions](app-connector-mentions-spec.md) are the current engineering handoff. They take precedence where they differ from this earlier hosting proposal. Preserve the research and evaluation evidence below, but do not treat its assumptions or milestones as an independently authoritative backlog.
 
 Primary task: `01a0f91f-f818-78ab-9d75-77901a407b06` (Ri Plugin UI). Related naming task: `01a08844-de63-79fa-aa7b-8d3af5abc9db`.
 
-**Handoff authority:** The primary task body defines current scope, priorities and acceptance. This document supplies the engineering detail. Earlier proposals are archived as historical research and do not add requirements. Reconciled with the skill draft/install lifecycle on October 2, 2026.
+**Historical handoff:** The task above supplied scope for this October 2 proposal. Current owner instructions and the linked local-apps design determine the new direction. The October 2 reconciliation with the skill draft/install lifecycle remains historical context.
 
 ## Recommendation
 

@@ -116,6 +116,8 @@ export function sessionMayReach(chat: ChatSessionRecord, pathname: string, param
       return isExecution || isAgentMainChat;
     case ORCHESTRATOR_MCP:
       return isAgentMainChat;
+    case '/api/chat-sources/action':
+      return process.env.RI_CHAT_SOURCES === '1';
     case INTEGRATIONS_MCP:
       return agent !== null && params.get('ws') === agent;
     case BROWSER_MCP:

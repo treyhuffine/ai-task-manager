@@ -47,6 +47,17 @@ describe('applyViewToSearchParams', () => {
     const out = applyViewToSearchParams(params('agent=ws-1&tab=files'), agentView('ws-2'));
     expect(out.toString()).toBe('agent=ws-2');
   });
+  it('preserves native entity links while replacing and then clearing app query state',()=>{
+    const app={kind:'apps' as const,route:'finance',query:{filter:'dining'}};
+    const first=applyViewToSearchParams(params('task=t-1&session=old'),app);
+    expect(first.toString()).toBe('task=t-1&filter=dining');
+    expect(viewFromSearchParams(first,'/apps/finance')).toEqual(app);
+    const next={kind:'apps' as const,route:'finance/views/view-1',query:{period:'October'}};
+    const second=applyViewToSearchParams(first,next,app);
+    expect(second.toString()).toBe('task=t-1&period=October');
+    const home=applyViewToSearchParams(second,HOME_VIEW,next);
+    expect(home.toString()).toBe('task=t-1');
+  });
 });
 
 describe('comparing views', () => {

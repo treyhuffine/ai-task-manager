@@ -1,4 +1,5 @@
-'use client'
+'use client';
+import { SOURCE_STATUS_LABELS } from '@/lib/chat-sources/types'
 
 import { cn } from '@/lib/utils'
 import {
@@ -11,6 +12,7 @@ import {
   forwardRef,
 } from 'react'
 import {
+  AppWindow,
   Folder,
   FolderSymlink,
   Square,
@@ -41,11 +43,12 @@ function isCaption(item: MentionItem): item is MoreMentionItem {
   return item.kind === 'more' && item.narrowed
 }
 
-const KIND_NOUNS = { task: 'tasks', note: 'notes', file: 'files', pr: 'pull requests' } as const
+const KIND_NOUNS = { task: 'tasks', note: 'notes', file: 'files', pr: 'pull requests', app: 'apps', connector: 'apps' } as const
 
-type Section = 'entity' | 'task' | 'note' | 'reference' | 'file' | 'pr' | `ref:${string}`
+type Section = 'app' | 'entity' | 'task' | 'note' | 'reference' | 'file' | 'pr' | `ref:${string}`
 
 function sectionFor(item: MentionItem): Section {
+  if (item.kind === 'source' || item.kind === 'sourceGroup') return 'app'
   if (item.kind === 'scratchpad') return 'entity'
   if (item.kind === 'task') return 'task'
   if (item.kind === 'note') return 'note'
@@ -60,6 +63,8 @@ function sectionFor(item: MentionItem): Section {
 
 function keyFor(item: MentionItem): string {
   switch (item.kind) {
+    case 'source': return item.source.sourceRef
+    case 'sourceGroup': return `sourceGroup:${item.groupId}`
     case 'scratchpad':
       return 'scratchpad'
     case 'task':
@@ -91,15 +96,15 @@ function keyFor(item: MentionItem): string {
  */
 export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListProps>(
   function MentionMenuList({ items: allItems, command, query = '' }, ref) {
-    const [selectedIndex, setSelectedIndex] = useState(0)
+    const [selection, setSelection] = useState<{ items: MentionItem[] | null; index: number }>({ items: null, index: 0 })
+    const selectedIndex = selection.items === allItems ? selection.index : 0
+    const setSelectedIndex = useCallback((next: number | ((previous: number) => number)) => {
+      setSelection(previous => ({ items: allItems, index: typeof next === 'function' ? next(previous.items === allItems ? previous.index : 0) : next }))
+    }, [allItems])
     const listRef = useRef<HTMLDivElement>(null)
     const items = useMemo(() => allItems.filter((item) => !isCaption(item)), [allItems])
     const caption = allItems.find(isCaption)
     const parsed = parseMentionQuery(query)
-
-    useEffect(() => {
-      setSelectedIndex(0)
-    }, [items])
 
     useEffect(() => {
       const el = listRef.current?.querySelector(`[data-mention-index="${selectedIndex}"]`) as
@@ -213,6 +218,7 @@ function FilterHint() {
 function SectionHeader({ kind }: { kind: Section }) {
   let label: string
   if (kind === 'entity') label = 'This session'
+  else if (kind === 'app') label = 'Apps'
   else if (kind === 'task') label = 'Tasks'
   else if (kind === 'note') label = 'Notes'
   else if (kind === 'reference') label = 'Reference folders'
@@ -268,6 +274,7 @@ function PrRowIcon({ state, isDraft }: { state: string; isDraft: boolean }) {
 }
 
 function RowIcon({ item }: { item: MentionItem }) {
+  if (item.kind === 'source' || item.kind === 'sourceGroup') return <AppWindow size={11} />
   if (item.kind === 'more') {
     return <ListFilter size={11} className="text-muted-foreground/80" />
   }
@@ -297,8 +304,20 @@ function RowIcon({ item }: { item: MentionItem }) {
 }
 
 function RowBody({ item }: { item: MentionItem }) {
+  if (item.kind === 'sourceGroup') return <><span className="truncate text-[11px]">{item.label}</span><span className="ml-auto text-[10px] text-muted-foreground">{item.count} accounts ›</span></>
+  if (item.kind === 'source') {
+    const capabilities = [item.source.chat && 'Chat', item.source.view === 'available' && 'View'].filter(Boolean).join(' + ')
+    return <>
+      <span className="min-w-0 truncate text-[11px]">{item.source.label}</span>
+      <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        {capabilities && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">{capabilities}</span>}
+        {item.source.status !== 'ready' && <span className="text-[9px] text-muted-foreground">{SOURCE_STATUS_LABELS[item.source.status]}</span>}
+      </span>
+    </>
+  }
+
   if (item.kind === 'more') {
-    const noun = item.of === 'task' ? 'tasks' : 'notes'
+    const noun = item.of === 'task' ? 'tasks' : item.of === 'app' ? 'apps' : 'notes'
     return (
       <>
         <span className="text-[11px] text-muted-foreground truncate min-w-0">

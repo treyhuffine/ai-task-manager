@@ -32,7 +32,7 @@ export const MAX_REFERENCES = 8
 export const MAX_PRS = 30
 
 /** What a query narrows the picker to, read from how it opens. */
-export type MentionFilter = 'task' | 'note' | 'file' | 'pr'
+export type MentionFilter = 'task' | 'note' | 'file' | 'pr' | 'app' | 'connector'
 
 export interface ParsedMentionQuery {
   filter: MentionFilter | null
@@ -47,6 +47,10 @@ export interface ParsedMentionQuery {
 const FILTER_PREFIXES: ReadonlyArray<readonly [string, MentionFilter]> = [
   ['task:', 'task'],
   ['tasks:', 'task'],
+  ['app:', 'app'],
+  ['apps:', 'app'],
+  ['connector:', 'connector'],
+  ['connectors:', 'connector'],
   ['note:', 'note'],
   ['notes:', 'note'],
   ['file:', 'file'],
@@ -71,11 +75,11 @@ export function parseMentionQuery(query: string): ParsedMentionQuery {
  */
 export function queryAllowsSpaces(query: string): boolean {
   const { filter } = parseMentionQuery(query)
-  return filter === 'task' || filter === 'note'
+  return filter === 'task' || filter === 'note' || filter === 'app' || filter === 'connector'
 }
 
 /** The text that narrows the picker to one kind, keeping the search. */
-export function narrowedQueryText(of: 'task' | 'note', text: string): string {
+export function narrowedQueryText(of: 'task' | 'note' | 'app', text: string): string {
   return `@${of}:${text}`
 }
 
@@ -316,7 +320,7 @@ export function toReferenceFileItems(
 /** One kind's server results, ending with how many more matched when some didn't fit. */
 function entityRows(
   results: MentionEntityResults | null,
-  of: 'task' | 'note',
+  of: 'task' | 'note' | 'app',
   text: string,
   narrowed: boolean,
 ): MentionItem[] {
@@ -360,6 +364,7 @@ export function buildItems(args: {
 
   // Checked before everything else so a filter wins even if the remainder
   // looks like a file query.
+  if (parsed.filter === 'app' || parsed.filter === 'connector') return []
   if (parsed.filter === 'pr') return rankPrs(prs, parsed.text)
   if (parsed.filter === 'file') return rankFiles(files, parsed.text, NARROWED_LIMIT)
   if (parsed.filter === 'task' || parsed.filter === 'note') {

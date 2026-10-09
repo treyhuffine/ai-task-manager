@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {getAppRoot} from '../src/lib/config/paths';
+import {seedSyntheticFinance} from '../src/lib/finance/synthetic';
+import {financeOwner} from '../src/lib/db/finance-queries';
+if(process.env.FINANCE_SYNTHETIC!=='1')throw new Error('Explicitly set FINANCE_SYNTHETIC=1 to create fictional data');
+const root=getAppRoot();
+if(![fs.realpathSync(os.tmpdir()),fs.realpathSync('/tmp'),path.join(os.homedir(),'.personal-finance-dev')].some(p=>root===p||root.startsWith(p+path.sep)))throw new Error('Synthetic seeding requires a disposable data folder');
+const fixture=seedSyntheticFinance(financeOwner);console.log(JSON.stringify({synthetic:true,accounts:fixture.accounts.length,views:fixture.views.map(v=>({id:v.id,title:v.definition.title})),budgetId:fixture.budget.id}));

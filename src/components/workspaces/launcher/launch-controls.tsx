@@ -177,7 +177,7 @@ export function RunOnControl({
 
   if (runOn.choices.length === 1) {
     return (
-      <Tip label="Where this execution runs">
+      <Tip label="Where this chat runs">
         <span className={cn(TRIGGER_CLASS, 'pointer-events-none')}>
           <Laptop size={11} />
           <span className="max-w-[9rem] truncate">{selected.name}</span>
@@ -191,7 +191,7 @@ export function RunOnControl({
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Tip label="Where this execution runs">
+          <Tip label="Where this chat runs">
             <button
               type="button"
               disabled={disabled}

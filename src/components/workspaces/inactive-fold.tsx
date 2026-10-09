@@ -82,12 +82,12 @@ export function InactiveAfterPopover({ className, size = 11 }: { className?: str
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Tip label="When executions go inactive">
+        <Tip label="When chats go inactive">
           <button
             type="button"
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
-            aria-label="When executions go inactive"
+            aria-label="When chats go inactive"
             className={cn(
               'flex-shrink-0 rounded p-1 text-muted-foreground/60 transition-opacity hover:bg-muted/40 hover:text-foreground',
               className,

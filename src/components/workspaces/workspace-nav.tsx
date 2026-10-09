@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Archive, Bot, Plus, X } from 'lucide-react';
+import { Bot, Plus } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -18,53 +18,34 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { useWorkspaces, useReorderWorkspaces } from '@/hooks/use-workspaces';
-import { useConfirm } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import type { WorkspaceWithCounts } from '@/db/types';
 import { NeedsReviewSection } from './needs-review-section';
 import { WorkspaceRow } from './workspace-row';
 import { AgentRailRow } from './agent-rail-row';
 import { useRailStyle } from '@/lib/client/rail-style';
-import { WorkspaceCreateModal } from './workspace-create-modal';
-import { useBulkArchiveSessions } from '@/hooks/use-workspaces';
-import { useReviewChanges } from '@/hooks/use-archive-execution';
-import { archiveAnywayDialog } from '@/components/executions/uncommitted-files';
+import { openWorkspaceCreate } from './workspace-create-store';
 import { startExecution } from '@/lib/executions/start-execution';
 import { useDashboard } from '@/contexts/dashboard-context';
-import {
-  WorkspaceSelectionProvider,
-  useWorkspaceSelection,
-} from './workspace-selection-context';
+import { useWorkspaceSelection } from './workspace-selection-context';
 import { openLauncher } from './launcher/launcher-store';
 import { executionView } from '@/lib/client/active-view';
-import { Tip } from '@/components/ui/tip';
 
 /**
- * Top-level container for the workspace tree in the left rail. Owns the
- * Needs Review surface, the workspace list (with DnD reorder), and the
- * settings/create modals so the rail itself stays stateless.
- *
- * Wraps the tree in {@link WorkspaceSelectionProvider} so the header's
- * archive toolbar and the per-row checkboxes share one selection state.
+ * The workspace tree in the left rail: the Needs Review surface, then the
+ * agents with their executions (DnD reorder). Its header (the Agents |
+ * Recent switch, select-to-archive, New agent) is the rail list's header
+ * (`rail-list.tsx`), and the archive selection it drives arrives through
+ * `WorkspaceSelectionProvider`, which the rail provides above both.
  */
 export function WorkspaceNav() {
-  return (
-    <WorkspaceSelectionProvider>
-      <WorkspaceNavInner />
-    </WorkspaceSelectionProvider>
-  );
-}
-
-function WorkspaceNavInner() {
   const { data: workspaces, isLoading } = useWorkspaces({ status: 'active' });
   // Agents first, or the classic rows (docs/rail-agents-first.md).
   const { style: railStyle } = useRailStyle();
   const reorder = useReorderWorkspaces();
   const qc = useQueryClient();
 
-  const [createOpen, setCreateOpen] = useState(false);
   const { setActiveView, openAgent } = useDashboard();
   // Session row menus open the agent's setup: its view, on the Setup tab.
   const openSetup = (id: string) => openAgent(id, 'setup');
@@ -72,41 +53,9 @@ function WorkspaceNavInner() {
   // without this a fast second click would quietly make a second execution.
   const [creating, setCreating] = useState(false);
 
-  // Bulk-archive selection state (shared with the session rows via the
-  // surrounding provider). The header toggles in and out of selection
-  // mode; the rows render the checkboxes.
-  const selection = useWorkspaceSelection()!;
-  const { selecting, count, selectedIds, enter, exit } = selection;
-  const bulkArchive = useBulkArchiveSessions();
-  const confirm = useConfirm();
-  const reviewChanges = useReviewChanges();
-
-  const handleConfirmArchive = async () => {
-    const ids = Array.from(selectedIds);
-    if (ids.length === 0 || bulkArchive.isPending) return;
-
-    // First pass: archive everything that's clean. Worktrees with files
-    // that aren't committed come back unforced, naming those files, so the
-    // person sees what archiving them anyway would delete.
-    const result = await bulkArchive.mutateAsync({ ids, force: false });
-
-    if (result.dirty.length > 0) {
-      const ok = await confirm(archiveAnywayDialog(result.dirty, reviewChanges));
-      if (ok) {
-        const forced = await bulkArchive.mutateAsync({ ids: result.dirty.map((d) => d.id), force: true });
-        result.failed.push(...forced.failed);
-      }
-    }
-
-    if (result.failed.length > 0) {
-      const n = result.failed.length;
-      toast.error(`Couldn't archive ${n} execution${n === 1 ? '' : 's'}`, {
-        description: result.failed.map((f) => f.message).join('\n'),
-      });
-    }
-
-    exit();
-  };
+  // Bulk-archive selection state, shared with the session rows (which
+  // render the checkboxes) and the rail's list header (which toggles it).
+  const selecting = useWorkspaceSelection()?.selecting ?? false;
 
   // Shift-click on the ➕ — "just make one, skip the modal". Navigates on
   // the spot and lets the create finish behind the view; the point of this
@@ -147,73 +96,6 @@ function WorkspaceNavInner() {
           checkbox up top and a plain row below). */}
       {!selecting && <NeedsReviewSection />}
 
-      <div
-        className={cn(
-          'px-1 pt-1 pb-1.5',
-          // While selecting, pin the Archive/Cancel toolbar to the top of
-          // the list so it stays reachable no matter how far the user
-          // scrolls the tree. In the wide rail the list scrolls under a
-          // sticky block (Create, Search and the tabs), whose height the
-          // rail publishes as --rail-sticky-top; the flyout's tabs sit
-          // outside its scroll area, so there it's 0. Solid bg + border so
-          // rows scroll cleanly underneath it.
-          selecting && 'sticky top-[var(--rail-sticky-top,0px)] z-20 bg-background border-b border-border/60',
-        )}
-      >
-        <div className="flex items-center justify-between gap-2 px-1.5 min-h-[22px]">
-          {selecting ? (
-            <>
-              <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
-                {count} selected
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={handleConfirmArchive}
-                  disabled={count === 0 || bulkArchive.isPending}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-primary text-primary-foreground text-[10px] font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
-                >
-                  <Archive size={11} />
-                  Archive
-                </button>
-                <button
-                  onClick={() => exit()}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                >
-                  <X size={11} />
-                  Cancel
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <span className="text-[8.5px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
-                Agents
-              </span>
-              <div className="flex items-center gap-1">
-                <Tip label="Select executions to archive">
-                  <button
-                    onClick={enter}
-                    className="p-1 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors"
-                    aria-label="Select executions to archive"
-                  >
-                    <Archive size={12} />
-                  </button>
-                </Tip>
-                <Tip label="New agent">
-                  <button
-                    onClick={() => setCreateOpen(true)}
-                    className="p-1 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors"
-                    aria-label="New agent"
-                  >
-                    <Plus size={12} />
-                  </button>
-                </Tip>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
       <div className={cn('px-1', railStyle === 'agents' ? 'space-y-1' : 'space-y-0.5')}>
         {isLoading && (
           <div className="flex flex-col gap-1 pt-1">
@@ -222,9 +104,7 @@ function WorkspaceNavInner() {
             <WorkspaceHeaderSkeleton />
           </div>
         )}
-        {!isLoading && (workspaces?.length ?? 0) === 0 && (
-          <EmptyState onCreate={() => setCreateOpen(true)} />
-        )}
+        {!isLoading && (workspaces?.length ?? 0) === 0 && <EmptyState onCreate={openWorkspaceCreate} />}
         {workspaces && workspaces.length > 0 && (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={workspaces.map((w) => w.id)} strategy={verticalListSortingStrategy}>
@@ -251,8 +131,6 @@ function WorkspaceNavInner() {
           </DndContext>
         )}
       </div>
-
-      <WorkspaceCreateModal open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { AGENT_TABS, type ActiveView, type AgentTab } from '@/types/dashboard';
  */
 
 export const HOME_VIEW: ActiveView = { kind: 'home' };
+const NATIVE_QUERY_KEYS = new Set(['session','agent','tab','skill','task','note','area']);
 
 export const executionView = (id: string): ActiveView => ({ kind: 'execution', id });
 
@@ -22,7 +23,12 @@ export function isAgentTab(value: unknown): value is AgentTab {
 }
 
 /** The view a URL's search params describe. */
-export function viewFromSearchParams(params: Pick<URLSearchParams, 'get'>): ActiveView {
+export function viewFromSearchParams(params: Pick<URLSearchParams, 'get' | 'toString'>, pathname = '/'): ActiveView {
+  if (pathname === '/apps' || pathname.startsWith('/apps/')) {
+    const query = new URLSearchParams(params.toString());
+    for (const key of NATIVE_QUERY_KEYS) query.delete(key);
+    return { kind: 'apps', route: pathname.slice(6), ...(query.size ? {query:Object.fromEntries(query)} : {}) };
+  }
   const session = params.get('session');
   if (session) return executionView(session);
   const agent = params.get('agent');
@@ -36,11 +42,16 @@ export function viewFromSearchParams(params: Pick<URLSearchParams, 'get'>): Acti
 }
 
 /** Write the view into search params, leaving unrelated params alone. */
-export function applyViewToSearchParams(params: URLSearchParams, view: ActiveView): URLSearchParams {
+export function applyViewToSearchParams(params: URLSearchParams, view: ActiveView, previous?:ActiveView): URLSearchParams {
+  if(previous?.kind==='apps')for(const key of Object.keys(previous.query??{}))params.delete(key);
   params.delete('session');
   params.delete('agent');
   params.delete('tab');
   params.delete('skill');
+  if (view.kind === 'apps') {
+    for(const [key,value] of Object.entries(view.query??{}))if(!NATIVE_QUERY_KEYS.has(key))params.set(key,value);
+    return params;
+  }
   if (view.kind === 'execution') params.set('session', view.id);
   if (view.kind === 'skill') params.set('skill', view.ref);
   if (view.kind === 'agent') {
@@ -53,6 +64,8 @@ export function applyViewToSearchParams(params: URLSearchParams, view: ActiveVie
 /** A stable string for a view, for effect deps and equality. */
 export function viewKey(view: ActiveView): string {
   switch (view.kind) {
+    case 'apps':
+      return `apps:${view.route}:${JSON.stringify(view.query ?? {})}`;
     case 'home':
       return 'home';
     case 'execution':

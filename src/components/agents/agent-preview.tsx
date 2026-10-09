@@ -76,7 +76,7 @@ export function AgentPreview({
     <div className="flex flex-col flex-1 min-h-0">
       <div className="shrink-0 flex items-center gap-2 border-b border-border px-3 py-1.5">
         <label className="relative min-w-0 flex-1">
-          <span className="sr-only">Execution to preview</span>
+          <span className="sr-only">Chat to preview</span>
           <select
             value={selected ?? ''}
             onChange={(e) => setPicked(e.target.value || null)}

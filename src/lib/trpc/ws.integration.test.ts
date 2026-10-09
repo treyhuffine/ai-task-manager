@@ -111,6 +111,16 @@ function client(getMode: () => TransportMode = () => 'websocket', token: string 
   return c;
 }
 
+it('delivers bounded app-sized resources without dropping the socket or retrying a mutation',async()=>{
+  writes.push('x'.repeat(2*1024*1024));
+  const c=client();
+  expect((await c.tasks.list.query())[0].title.length).toBe(2*1024*1024);
+  await c.tasks.create.mutate({title:'After the resource',rawInput:'After the resource'});
+  expect(writes).toHaveLength(2);
+  expect(sockets).toHaveLength(1);
+  expect(httpPaths.every(path=>path==='/api/trpc/transport.capabilities')).toBe(true);
+});
+
 it('keeps the terminal socket independent of HTTP preference and API diagnostics', async () => {
   const previous = getTransportStatus();
   const c = client(() => 'http', home.token, true);

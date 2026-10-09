@@ -7,13 +7,15 @@ import { cn } from '@/lib/utils';
 import { Tip } from '@/components/ui/tip';
 
 // The bottom of the rail: what you set up rather than visit. Settings, and
-// connecting apps (where agents can act). Both are occasional, so they sit
-// below the work instead of above it. Bottom left is where people look for
-// settings.
+// connecting accounts (where agents can act). Both are occasional, so they
+// sit below the work instead of above it. Bottom left is where people look
+// for settings.
 //
-// Connect apps opens Settings → Plugins on its Integrations tab (Gmail, Notion,
-// Linear, ... and remote MCP servers). The collapsed rail keeps only the
-// gear. Connect apps needs its words.
+// Connect accounts opens Settings → Plugins on its Integrations tab (Gmail,
+// Notion, Linear, ... and remote MCP servers). It says "accounts", not
+// "apps": a connection is one signed-in account, and Apps in the places
+// above are the local apps you open. The collapsed rail keeps only the gear.
+// Connect accounts needs its words.
 //
 // Replaces the old ⌘K/⌘J hint labels + theme toggle that used to live here:
 // the shortcuts stay global, and theme still toggles from the command palette
@@ -78,12 +80,12 @@ export function RailFooter({ collapsed }: { collapsed: boolean }) {
       <button
         type="button"
         onClick={() => openSettings('plugins', { anchor: 'integrations' })}
-        aria-label="Connect apps"
-        className="group min-w-0 flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/60 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 transition-colors"
+        aria-label="Connect accounts"
+        className="group min-w-0 flex-1 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border/60 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 transition-colors"
       >
         <Plug size={13} className="flex-shrink-0 text-primary" />
-        <span className="truncate">Connect apps</span>
-        <span aria-hidden className="ml-auto flex items-center -space-x-1.5 pr-1">
+        <span className="truncate">Connect accounts</span>
+        <span aria-hidden className="ml-auto flex items-center -space-x-2 pr-0.5">
           {APPS.map((id, i) => (
             <AppTile key={id} id={id} className={FAN[i]} />
           ))}

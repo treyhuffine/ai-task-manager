@@ -677,7 +677,7 @@ function LinkedFolderDefiner({
       title: `Remove @${editing.alias}?`,
       description: everyAgent
         ? 'Every agent has it, so removing it takes it from all of them, on every device. Nothing on disk is touched.'
-        : `${workspace.name} and its executions stop being told about it, on every device. Nothing on disk is touched.`,
+        : `${workspace.name} and its chats stop being told about it, on every device. Nothing on disk is touched.`,
       confirmLabel: 'Remove',
       tone: 'destructive',
     });

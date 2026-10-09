@@ -83,3 +83,6 @@ next-env.d.ts
 
 # Packaged desktop artifacts
 /release/
+
+# Local source-mentions delivery and qualification artifacts
+/.work/chat-sources/

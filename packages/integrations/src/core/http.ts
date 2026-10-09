@@ -28,6 +28,7 @@ export interface CreateAuthedHttpOptions {
   retry?: RetryPolicy;
   /** Injectable delay (tests pass a no-op to skip real backoff). Defaults to an abortable `setTimeout`. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  maxResponseBytes?:number;
 }
 
 function joinUrl(baseUrl: string | undefined, path: string): string {
@@ -55,10 +56,11 @@ function appendQuery(url: string, extra: Record<string, string>): string {
   return u.toString();
 }
 
-async function parseBody<T>(res: Response): Promise<T> {
+async function parseBody<T>(res: Response,maxBytes?:number): Promise<T> {
   if (res.status === 204 || res.status === 205) return undefined as T;
   const ct = res.headers.get('content-type') ?? '';
-  const text = await res.text();
+  let text:string;
+  if(maxBytes!==undefined){const reader=res.body?.getReader(),chunks:Uint8Array[]=[];let length=0;try{if(reader)while(true){const part=await reader.read();if(part.done)break;length+=part.value.byteLength;if(length>maxBytes)throw new IntegrationError('provider_error','Provider response exceeded the host byte limit');chunks.push(part.value);}}catch(error){await reader?.cancel();throw error;}text=Buffer.concat(chunks).toString('utf8');}else text=await res.text();
   if (!text) return undefined as T;
   if (ct.includes('application/json') || ct.includes('+json')) return JSON.parse(text) as T;
   return text as unknown as T;
@@ -206,7 +208,7 @@ export function createAuthedHttp(opts: CreateAuthedHttpOptions): AuthedHttp {
         continue;
       }
 
-      if (res.ok) return await parseBody<T>(res);
+      if (res.ok) return await parseBody<T>(res,opts.maxResponseBytes);
 
       // ── error mapping (§13) ──
       if (res.status === 401) {

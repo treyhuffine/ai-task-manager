@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, useMemo, useRef, type ReactNode, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, usePathname } from 'next/navigation';
 import { useQuickCaptureOpen, setQuickCaptureOpen, toggleQuickCapture } from '@/lib/client/quick-capture';
 import type { Theme, WorkMode, ActiveView, AnyPanelTab, PanelId, MobileTab, Task, StreamEvent } from '@/types/dashboard';
 import { hot } from '@/lib/_debug/hot-path';
@@ -221,14 +221,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // URL (effect below) — Back/Forward, deep links, and external <Link>s flow
   // URL→mirror; in-app nav writes both together. They can't durably diverge.
   const searchParams = useSearchParams();
-  const urlView: ActiveView = viewFromSearchParams(searchParams);
+  const pathname = usePathname();
+  const urlView: ActiveView = viewFromSearchParams(searchParams, pathname);
   const urlViewKey = viewKey(urlView);
   const [activeView, setActiveViewLocal] = useState<ActiveView>(urlView);
   useEffect(() => {
     // Reconcile when the URL changes from outside (Back/Forward, deep link,
     // a <Link> elsewhere). No-op right after our own setActiveView, since the
     // mirror already holds this value.
-    const next = viewFromSearchParams(new URLSearchParams(window.location.search));
+    const next = viewFromSearchParams(new URLSearchParams(window.location.search), window.location.pathname);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile URL or device-local storage after hydration without changing the server render.
     setActiveViewLocal((prev) => (sameView(prev, next) ? prev : next));
   }, [urlViewKey]);
   const activeSessionId = activeSessionIdOf(activeView);
@@ -332,6 +334,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const stored = window.localStorage.getItem('ri.rail.collapsed');
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile URL or device-local storage after hydration without changing the server render.
     if (stored === '1') setRailCollapsedState(true);
   }, []);
   const setRailCollapsed = useCallback((next: boolean) => {
@@ -358,6 +361,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const stored = window.localStorage.getItem('ri.execution.lastId');
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile URL or device-local storage after hydration without changing the server render.
     if (stored) setLastExecutionIdState(stored);
   }, []);
   // Record the last-viewed execution whenever the URL points at one.
@@ -367,6 +371,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // above, so on a `/?session=x` deep link this freshest value wins.
   useEffect(() => {
     if (!activeSessionId || typeof window === 'undefined') return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile URL or device-local storage after hydration without changing the server render.
     setLastExecutionIdState(activeSessionId);
     window.localStorage.setItem('ri.execution.lastId', activeSessionId);
   }, [activeSessionId]);
@@ -380,6 +385,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const stored = window.localStorage.getItem('ri.rail.execution.open');
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile URL or device-local storage after hydration without changing the server render.
     if (stored === '1') setExecutionRailOpenState(true);
   }, []);
   const setExecutionRailOpen = useCallback((next: boolean) => {
@@ -527,10 +533,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setActiveViewLocal(view);
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    const current = viewFromSearchParams(params);
+    const current = viewFromSearchParams(params, window.location.pathname);
     const tabOnly = current.kind === 'agent' && view.kind === 'agent' && current.id === view.id;
-    const qs = applyViewToSearchParams(params, view).toString();
-    const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    const qs = applyViewToSearchParams(params, view, current).toString();
+    const targetPath = view.kind === 'apps' ? `/apps${view.route ? '/' + view.route : ''}` : '/';
+    const url = qs ? `${targetPath}?${qs}` : targetPath;
     if (tabOnly || opts.replace) window.history.replaceState(null, '', url);
     else window.history.pushState(null, '', url);
   }, []);

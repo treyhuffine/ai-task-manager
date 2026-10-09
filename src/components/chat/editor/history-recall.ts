@@ -1,3 +1,4 @@
+import { parseSourceMarkers } from '@/lib/chat-sources/reference';
 /**
  * Shell-style "scroll up through sent messages" for the chat composer,
  * factored out of `chat-input-editor.tsx` so the state machine — which
@@ -132,7 +133,7 @@ export function recallStep(
   return { nextIndex: currentIndex + 1, captureStash: false };
 }
 
-type DocInlineNode = { type: 'text'; text: string } | { type: 'hardBreak' };
+type DocInlineNode = { type: 'text'; text: string } | { type: 'hardBreak' } | { type: 'sourceChip'; attrs: { sourceRef: string } };
 
 export interface RecalledDocJSON {
   type: 'doc';
@@ -150,7 +151,10 @@ export function textToDocJSON(text: string): RecalledDocJSON {
   const lines = text.split('\n');
   lines.forEach((line, i) => {
     if (i > 0) inline.push({ type: 'hardBreak' });
-    if (line.length > 0) inline.push({ type: 'text', text: line });
+    for (const part of parseSourceMarkers(line)) {
+      if (part.type === 'text') inline.push({ type: 'text', text: part.text });
+      else inline.push({ type: 'sourceChip', attrs: { sourceRef: part.encoded } });
+    }
   });
   return {
     type: 'doc',

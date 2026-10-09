@@ -1,3 +1,4 @@
+import { flushAppContext } from '@/lib/client/app-context';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import type { Attachment, EffortLevel, PermissionMode } from '@/db/types';
 import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
@@ -776,8 +777,9 @@ export function useSendMessage(id: string) {
     // The composer clears on send and restores only on failure, so until the
     // home acknowledges it this request holds the only copy of the message.
     meta: { carriesInput: true },
-    mutationFn: (input) =>
+    mutationFn: async (input) =>
       sessionsApi.sendMessage(id, input.content, {
+        appContext: await flushAppContext(id),
         attachments: input.attachments,
         eventId: input.eventId,
       }),

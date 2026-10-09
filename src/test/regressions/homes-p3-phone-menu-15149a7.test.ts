@@ -71,11 +71,11 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
       expect(pageErrors, 'Phone fixture browser errors').toEqual([]);
       throw error;
     });
-    const plus=page.getByRole('button',{name:'New execution',exact:true});
+    const plus=page.getByRole('button',{name:'New chat',exact:true});
     for(const pick of [false,true,false]){
       await menu.tap();
-      await page.getByRole('menuitem',{name:'New execution on…'}).tap();
-      const sheet=page.getByRole('dialog',{name:'New execution in Review agent, on…'});
+      await page.getByRole('menuitem',{name:'New chat on…'}).tap();
+      const sheet=page.getByRole('dialog',{name:'New chat in Review agent, on…'});
       await sheet.waitFor();
       await page.waitForFunction(()=>document.querySelector('[data-slot="sheet-content"]')?.contains(document.activeElement));
       if(pick) await sheet.getByRole('button',{name:/Review worker/}).tap();

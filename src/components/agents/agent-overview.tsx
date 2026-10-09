@@ -53,7 +53,7 @@ export function AgentOverview({
           <p className="text-[11px] text-muted-foreground/80 mt-1 max-w-xs">
             {archived
               ? 'This agent is archived.'
-              : `Start an execution in ${workspace.name}, or ask its main chat to start one for you.`}
+              : `Start a chat in ${workspace.name}, or ask its main chat to start one for you.`}
           </p>
           {!archived && (
             <button

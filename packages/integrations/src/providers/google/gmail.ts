@@ -9,6 +9,12 @@ import { defineToolkit, httpAction } from '../../core/authoring';
 import { GOOGLE_SCOPES } from './provider';
 
 const GMAIL = '/gmail/v1/users/me';
+const boundedId=z.string().min(1).max(256);
+const messageRef=z.object({id:boundedId,threadId:boundedId.optional()});
+type MailPart={mimeType?:string;filename?:string;headers?:{name:string;value:string}[];body?:{data?:string;attachmentId?:string;size?:number};parts?:MailPart[]};
+const mailPart:z.ZodType<MailPart>=z.lazy(()=>z.object({mimeType:z.string().max(200).optional(),filename:z.string().max(1000).optional(),headers:z.array(z.object({name:z.string().max(200),value:z.string().max(20000)})).max(200).optional(),body:z.object({data:z.string().max(8*1024*1024).optional(),attachmentId:boundedId.optional(),size:z.number().int().nonnegative().optional()}).optional(),parts:z.array(mailPart).max(100).optional()}));
+const fullMessage=z.object({id:boundedId,threadId:boundedId.optional(),historyId:z.string().max(128).optional(),internalDate:z.string().max(32).optional(),snippet:z.string().max(5000).optional(),labelIds:z.array(z.string().max(128)).max(100).optional(),payload:mailPart.optional(),sizeEstimate:z.number().int().nonnegative().optional()});
+function boundedMail(raw:unknown){let nodes=0;const walk=(part:unknown,depth=0)=>{if(depth>30||++nodes>20000)throw new Error('Gmail response exceeds its structural limit');if(part&&typeof part==='object')for(const value of Object.values(part))walk(value,depth+1);};if(Buffer.byteLength(JSON.stringify(raw))>10*1024*1024)throw new Error('Gmail response exceeds its byte limit');walk(raw);return raw;}
 
 const hasNonAscii = (s: string): boolean => /[^\x00-\x7F]/.test(s);
 const hasLineBreak = (s: string): boolean => /[\r\n]/.test(s);
@@ -152,16 +158,23 @@ export const gmail = defineToolkit({
       input: z.object({
         query: z.string().describe('Gmail search query'),
         maxResults: z.number().int().positive().max(100).default(20),
+        pageToken: z.string().max(2000).optional(),
       }),
-      request: (i) => ({ method: 'GET', path: `${GMAIL}/messages`, query: { q: i.query, maxResults: i.maxResults } }),
+      request: (i) => ({ method: 'GET', path: `${GMAIL}/messages`, query: { q: i.query, maxResults: i.maxResults, pageToken:i.pageToken } }),
       output: (raw) => {
-        const r = raw as { messages?: Array<{ id?: string; threadId?: string }>; resultSizeEstimate?: number };
+        const r = z.object({messages:z.array(messageRef).max(100).optional(),resultSizeEstimate:z.number().int().nonnegative().optional(),nextPageToken:z.string().max(2000).optional()}).parse(boundedMail(raw));
         return {
           messages: (r.messages ?? []).map((m) => ({ id: m.id, threadId: m.threadId })),
           estimate: r.resultSizeEstimate ?? 0,
+          ...(r.nextPageToken?{nextPageToken:r.nextPageToken}:{}),
         };
       },
     }),
+
+    httpAction({id:'gmail.get_profile',description:'Read the mailbox history checkpoint.',scopes:[GOOGLE_SCOPES.gmailReadonly],input:z.object({}).strict(),request:()=>({method:'GET',path:`${GMAIL}/profile`}),output:raw=>z.object({emailAddress:z.string().max(320),historyId:z.string().max(128),messagesTotal:z.number().int().nonnegative().optional(),threadsTotal:z.number().int().nonnegative().optional()}).parse(boundedMail(raw))}),
+    httpAction({id:'gmail.read_message',description:'Read a full message with bounded MIME parts and attachment references.',scopes:[GOOGLE_SCOPES.gmailReadonly],input:z.object({messageId:boundedId}).strict(),request:i=>({method:'GET',path:`${GMAIL}/messages/${encodeURIComponent(i.messageId)}`,query:{format:'full'}}),output:raw=>fullMessage.parse(boundedMail(raw))}),
+    httpAction({id:'gmail.get_attachment',description:'Read one message attachment as bounded base64url data.',scopes:[GOOGLE_SCOPES.gmailReadonly],input:z.object({messageId:boundedId,attachmentId:boundedId}).strict(),request:i=>({method:'GET',path:`${GMAIL}/messages/${encodeURIComponent(i.messageId)}/attachments/${encodeURIComponent(i.attachmentId)}`}),output:raw=>z.object({data:z.string().max(8*1024*1024),size:z.number().int().nonnegative().max(6*1024*1024)}).parse(boundedMail(raw))}),
+    httpAction({id:'gmail.list_history',description:'Read one bounded page of mailbox changes after a checkpoint.',scopes:[GOOGLE_SCOPES.gmailReadonly],input:z.object({startHistoryId:z.string().regex(/^\d+$/).max(128),pageToken:z.string().max(2000).optional(),maxResults:z.number().int().min(1).max(100).default(100)}).strict(),request:i=>({method:'GET',path:`${GMAIL}/history`,query:{startHistoryId:i.startHistoryId,pageToken:i.pageToken,maxResults:i.maxResults,historyTypes:'messageAdded'}}),output:raw=>z.object({historyId:z.string().max(128),nextPageToken:z.string().max(2000).optional(),history:z.array(z.object({id:z.string().max(128),messages:z.array(messageRef).max(1000).optional(),messagesAdded:z.array(z.object({message:messageRef})).max(1000).optional(),messagesDeleted:z.array(z.object({message:messageRef})).max(1000).optional()})).max(100).optional()}).parse(boundedMail(raw))}),
 
     httpAction({
       id: 'gmail.get_message',

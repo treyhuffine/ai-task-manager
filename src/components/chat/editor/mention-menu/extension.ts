@@ -26,6 +26,7 @@ import type {
   MentionEntityResults,
   ReferenceFolderMentionItem,
   SearchMentionEntities,
+  SearchMentionSources,
 } from './types'
 import type { PrMentionItem } from '../pr-menu/types'
 
@@ -36,6 +37,8 @@ import type { PrMentionItem } from '../pr-menu/types'
 const MENTION_MENU_PLUGIN_KEY = new PluginKey('mentionMenuSuggestion')
 
 interface MentionMenuOptions {
+  searchSources?: SearchMentionSources
+  getScopeKey?: () => string | undefined
   /**
    * Worktree files + folders. Wrapped in a closure so the extension
    * always sees the latest TanStack Query data without re-creating the
@@ -110,6 +113,8 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
   },
 
   addProseMirrorPlugins() {
+    let accountGroup: { id: string; prefix: string } | null = null
+    let pending: AbortController | null = null
     const getFiles = () => this.options.getFileEntries?.() ?? []
     const searchEntities = this.options.searchEntities
     const getReferences = () => this.options.getReferenceFolders?.() ?? []
@@ -134,11 +139,16 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
       // only re-runs it when the query actually changes. The renderer keeps
       // the last list up until this one lands (`asyncItems`).
       items: async ({ query }: { query: string }) => {
+        pending?.abort()
+        const request = new AbortController()
+        pending = request
+        const scope = this.options.getScopeKey?.()
         const parsed = parseMentionQuery(query)
+        if (accountGroup && !parsed.text.startsWith(accountGroup.prefix)) accountGroup = null
         const references = getReferences()
         const drillDown = parsed.filter ? null : parseReferenceDrillDown(query, references)
         const search = entitySearchFor(parsed, drillDown !== null)
-        const [referenceFiles, entities] = await Promise.all([
+        const [referenceFiles, entities, sources] = await Promise.all([
           drillDown && canBrowseReference(drillDown.reference) && loadReferenceTree
             ? loadReferenceTree(drillDown.reference.id)
                 .then((entries) => toReferenceFileItems(drillDown.reference, entries))
@@ -150,8 +160,14 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
           search && searchEntities
             ? searchEntities(search).catch((): MentionEntityResults | null => null)
             : null,
+          !drillDown && (!parsed.filter || parsed.filter === 'app' || parsed.filter === 'connector') && this.options.searchSources
+            ? this.options.searchSources(accountGroup ? parsed.text.slice(accountGroup.prefix.length).trim() : parsed.text, parsed.filter ?? undefined, accountGroup?.id, request.signal).catch(() => null)
+            : null,
         ])
-        return settledItems(buildItems({
+        if (request.signal.aborted || scope !== this.options.getScopeKey?.()) return settledItems([])
+        const sourceItems: MentionItem[] = sources ? [...sources.items] : []
+        if (sources && sources.total > sources.items.length) sourceItems.push({ kind: 'more', of: 'app', total: sources.total, shown: sources.items.length, query: parsed.text, narrowed: !!parsed.filter })
+        return settledItems([...sourceItems, ...buildItems({
           files: getFiles(),
           entities,
           references,
@@ -159,7 +175,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
           prs: getPrs(),
           drillDown,
           query,
-        }))
+        })])
       },
       command: ({
         editor,
@@ -171,7 +187,12 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
         props: MentionItem
       }) => {
         const chain = editor.chain().focus().deleteRange(range)
-        if (item.kind === 'reference') {
+        if (item.kind === 'source') {
+          chain.insertSourceChip({ sourceRef: item.source.sourceRef }).insertContent(' ').run()
+        } else if (item.kind === 'sourceGroup') {
+          accountGroup = { id: item.groupId, prefix: `${item.label} /` }
+          chain.insertContent(`@app:${accountGroup.prefix}`).run()
+        } else if (item.kind === 'reference') {
           // Usually not a chip: retarget the picker into the folder. Rewriting
           // the text to `@alias/` leaves the suggestion active, so `items`
           // reruns with a query that `parseReferenceDrillDown` recognizes.

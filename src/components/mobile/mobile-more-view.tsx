@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import {
-  CheckSquare, FileText, Activity, Layers, Calendar, Sun, Moon, Settings, ChevronLeft, FileCheck2,
+  CheckSquare, FileText, Activity, Layers, LayoutGrid, Calendar, Sun, Moon, Settings, ChevronLeft, FileCheck2,
 } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { useLocalApps } from '@/components/local-apps/app-hooks';
 import { TaskList } from '@/components/tasks/task-list';
 import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
@@ -20,7 +21,8 @@ type MoreSubView = 'menu' | 'tasks' | 'notes' | 'stream' | 'calendar';
 export function MobileMoreView() {
   const router = useRouter();
   const capabilities = useResultCapabilities();
-  const { theme, toggleTheme, openAreasList } = useDashboard();
+  const { theme, toggleTheme, openAreasList, setActiveView } = useDashboard();
+  const { enabled: appsEnabled } = useLocalApps({ live: false });
   const isDark = theme === 'dark';
   const [subView, setSubView] = useState<MoreSubView>('menu');
 
@@ -52,6 +54,10 @@ export function MobileMoreView() {
     { id: 'calendar' as const, label: 'Calendar', icon: Calendar, action: () => setSubView('calendar') },
     { id: 'areas' as const, label: 'Areas', icon: Layers, action: () => openAreasList() },
     ...(capabilities.data?.handoffsEnabled ? [{ id: 'results' as const, label: SAVED_RESULTS_COMMAND.label, icon: FileCheck2, action: () => router.push(SAVED_RESULTS_COMMAND.href) }] : []),
+    // The apps you've added, on a Home with local apps on (docs/local-apps.md).
+    ...(appsEnabled
+      ? [{ id: 'apps' as const, label: 'Apps', icon: LayoutGrid, action: () => setActiveView({ kind: 'apps', route: '' }) }]
+      : []),
   ];
 
   return (

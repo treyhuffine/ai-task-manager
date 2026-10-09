@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Fictional refund experiment</title>
+    <style>
+      :root {
+        font: 16px system-ui;
+        color-scheme: dark;
+        color: #e5eee4;
+        background: #121713;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+      }
+      main {
+        max-width: 720px;
+        margin: auto;
+      }
+      h1 {
+        font-size: 24px;
+      }
+      p {
+        line-height: 1.6;
+        color: #b5c0b3;
+      }
+      .lanes {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .lane {
+        border: 1px solid #3c5034;
+        border-radius: 12px;
+        padding: 20px;
+        background: #1b241b;
+      }
+      .amount {
+        font-size: 32px;
+        color: #c6e1ba;
+      }
+      input {
+        width: 100%;
+        accent-color: #abd28e;
+      }
+      label,
+      output {
+        display: block;
+        margin: 16px 0;
+      }
+      .timeline {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 0;
+        list-style: none;
+      }
+      .timeline li {
+        padding: 12px;
+        border: 1px solid #3c5034;
+        border-radius: 8px;
+      }
+      input:focus-visible {
+        outline: 2px solid #abd28e;
+        outline-offset: 4px;
+      }
+      @media (max-width: 480px) {
+        body {
+          padding: 14px;
+        }
+        .lanes {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Fictional refund timeline</h1>
+      <p>
+        Synthetic rendering experiment. This artifact has no financial write
+        authority.
+      </p>
+      <ol class="timeline">
+        <li>Returned item $120</li>
+        <li>Merchant promised $96</li>
+        <li>Posted credit $80</li>
+      </ol>
+      <div class="lanes">
+        <section class="lane">
+          <h2>Purchase to promise</h2>
+          <p class="amount">$24.00</p>
+          <p>
+            Deduction to explain. A completed settlement does not explain this
+            gap.
+          </p>
+        </section>
+        <section class="lane">
+          <h2>Promise to settlement</h2>
+          <p class="amount" id="gap">$16.00</p>
+          <p>Money still expected at the card destination.</p>
+        </section>
+      </div>
+      <label for="settlement">Simulate the settled credit, in cents</label
+      ><input
+        id="settlement"
+        type="range"
+        min="0"
+        max="9600"
+        step="100"
+        value="8000"
+      /><output for="settlement" id="amount">$80.00</output>
+      <p>
+        Moving the slider changes this fictional experiment only. There is no
+        apply or cancellation action.
+      </p>
+    </main>
+    <script>
+      const slider = document.getElementById('settlement');
+      slider.addEventListener('input', () => {
+        const amount = Number(slider.value);
+        document.getElementById('amount').textContent =
+          '$' + (amount / 100).toFixed(2);
+        document.getElementById('gap').textContent =
+          '$' + ((9600 - amount) / 100).toFixed(2);
+      });
+    </script>
+  </body>
+</html>

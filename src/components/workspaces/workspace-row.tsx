@@ -200,7 +200,7 @@ export function WorkspaceRow({
               <ArrowUpRight size={13} />
             </button>
           </Tip>
-          <Tip label="New execution (shift-click to start one right away on the last settings)">
+          <Tip label="New chat (shift-click to start one right away on the last settings)">
             <button
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -212,7 +212,7 @@ export function WorkspaceRow({
                 else onOpenLauncher(workspace.id);
               }}
               className="p-1 text-muted-foreground/40 hover:text-foreground opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
-              aria-label="New execution"
+              aria-label="New chat"
             >
               <Plus size={13} />
             </button>

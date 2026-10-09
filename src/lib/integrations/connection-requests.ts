@@ -57,7 +57,7 @@ import {
 	getMcpServerStore,
 	resolveWorkspaceIntegrationFilter,
 } from './runtime';
-import { pinKey, pinOfConnection, scopePins } from './scope-pins';
+import { pinKey, pinOfConnection, pinMatchesConnection, scopePins } from './scope-pins';
 import { validateIntegrationScopes } from './scopes';
 
 /** An integration call's non-ok outcome, as the MCP pause hook hands it over. */
@@ -149,10 +149,12 @@ function openCardFor(
   providerId: string,
   agent: ConnectionRequestView['agent'],
   toolkitIds: readonly string[],
+  accountPin?: WorkspaceIntegrationScopeAccount,
 ): { row: ChatEventRecord; view: ConnectionRequestView } | undefined {
   const wanted = new Set(serviceKeys(providerId, agent, toolkitIds));
   return cards.open.find(
-    (c) => c.view.kind === kind && serviceKeys(c.view.providerId, c.view.agent, c.view.toolkitIds).some((k) => wanted.has(k)),
+    (c) => c.view.kind === kind && serviceKeys(c.view.providerId, c.view.agent, c.view.toolkitIds).some((k) => wanted.has(k))
+      && (!accountPin || c.view.accounts?.length === 1 && pinKey(pinOfConnection(c.view.accounts[0])) === pinKey(accountPin)),
   );
 }
 
@@ -262,6 +264,8 @@ export interface RequestConnectionInput {
   userAsked?: boolean;
   /** The account the user named, in their words ("trey@marketstandard.app", "Market Standard"). */
   account?: string | null;
+  /** Trusted source-picker identity, never an agent-supplied account hint. */
+  accountPin?: WorkspaceIntegrationScopeAccount;
 }
 
 export async function requestConnection(input: RequestConnectionInput): Promise<RequestConnectionResult> {
@@ -308,7 +312,16 @@ export async function requestConnection(input: RequestConnectionInput): Promise<
     target = getWorkspace(found.id) ?? null;
   }
 
-  const connections = await providerConnections(runtime, match.providerId);
+  const allConnections = await providerConnections(runtime, match.providerId);
+  const connections = input.accountPin ? allConnections.filter(c => pinMatchesConnection(input.accountPin!, c)) : allConnections;
+  if (input.accountPin && connections.length !== 1) throw new ConnectionRequestError('invalid', 'This exact account is no longer available. Choose it again from Apps.');
+  if (input.accountPin && connections[0].status !== 'active') {
+    const connection = connections[0];
+    const params = new URLSearchParams({ connection: connection.id });
+    if (connection.authConfigId) params.set('client', connection.authConfigId);
+    await recordPausedConnection({ sessionId: input.sessionId, scopeWorkspaceId: input.scopeWorkspaceId, outcome: { ok: false, reason: 'auth_required', providerId: match.providerId, authorizationUrl: `/connect?${params}` } });
+    return { status: 'card_shown', service: match.label, message: `Review the reconnect card for ${connection.email ?? connection.label ?? connection.accountId} in this chat.` };
+  }
   const isMcp = match.providerId.startsWith(MCP_PROVIDER_PREFIX);
   if (connections.length === 0 && isMcp) {
     return {
@@ -319,7 +332,7 @@ export async function requestConnection(input: RequestConnectionInput): Promise<
   const choices = connections.map(cardAccount);
   // An MCP server's connection is vestigial, it has no accounts to name.
   const hint = isMcp ? null : input.account?.trim() || null;
-  const named = matchAccounts(hint, choices);
+  const named = input.accountPin ? choices : matchAccounts(hint, choices);
   const requestedAccount = hint && (named.length > 0 || namesAccount(hint)) ? hint : null;
   // An address that isn't connected is an account to connect. Words that fit no single connected
   // account ("work") leave the choice to the user, on the card.
@@ -365,7 +378,7 @@ export async function requestConnection(input: RequestConnectionInput): Promise<
   }
 
   const cards = readChatCards(input.sessionId);
-  const open = openCardFor(cards, kind, match.providerId, agent, toolkitIds);
+  const open = openCardFor(cards, kind, match.providerId, agent, toolkitIds, input.accountPin);
   if (open) {
     return {
       status: 'already_asked',
@@ -398,7 +411,7 @@ export async function requestConnection(input: RequestConnectionInput): Promise<
     account: null,
     scopes: null,
     authConfigId: null,
-    accounts: kind === 'allow_agent' && !isMcp ? choices : [],
+    accounts: kind === 'allow_agent' && (!isMcp || input.accountPin) ? choices : [],
     preselected,
     requestedAccount,
   });
@@ -608,8 +621,9 @@ export async function allowCardForAgent(eventId: string, accountIds: readonly st
   // An MCP server's single vestigial connection, or a card from before accounts were offered with
   // only one account to give: nothing to choose.
   const offered = view.accounts && view.accounts.length > 0 ? view.accounts : live;
-  let chosen = live.filter((a) => accountIds.includes(a.accountId) && offered.some((o) => o.accountId === a.accountId));
-  if (chosen.length === 0 && offered.length === 1 && accountIds.length === 0) chosen = live.filter((a) => a.accountId === offered[0]!.accountId);
+  const isOffered = (a: CardAccount) => offered.some(o => o.connectionId === a.connectionId && pinKey(pinOfConnection(o)) === pinKey(pinOfConnection(a)));
+  let chosen = live.filter((a) => accountIds.includes(a.accountId) && isOffered(a));
+  if (chosen.length === 0 && offered.length === 1 && accountIds.length === 0) chosen = live.filter(isOffered);
   if (chosen.length === 0) throw new ConnectionRequestError('invalid', 'Choose at least one account.');
   await resolveCard(row, view, 'allowed', chosen);
 }

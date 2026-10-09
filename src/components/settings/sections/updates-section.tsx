@@ -142,7 +142,7 @@ export function UpdatesSection() {
           {update.policy.metered && <p className="text-xs text-muted-foreground">Automatic downloads are paused.</p>}
         </div>}
       </> : <p className="text-muted-foreground">Manage software installation from the owner’s desktop or the local CLI.</p>}
-      <p className="text-muted-foreground">Updates wait for executions and owned processes to finish. Phone and browser connections briefly reconnect. Your data is checked and backed up before migrations run.</p>
+      <p className="text-muted-foreground">Updates wait for running chats and owned processes to finish. Phone and browser connections briefly reconnect. Your data is checked and backed up before migrations run.</p>
     </>}
     {data.canManage && <RuntimeSetup />}
   </div>;

@@ -41,7 +41,7 @@ export function MakeDefaultRow({
     setDefault.mutate(
       { harness: current.harness, model: current.model, variant: current.variant ?? null, effort: current.effort ?? null },
       {
-        onSuccess: () => toast.success(`${currentLabel} is now your default`, { description: 'New chats and executions start on it.' }),
+        onSuccess: () => toast.success(`${currentLabel} is now your default`, { description: 'New chats start on it.' }),
         onError: (err) => toast.error('Couldn’t change the default', { description: apiErrorText(err) }),
       },
     );
@@ -51,7 +51,7 @@ export function MakeDefaultRow({
       <span className="min-w-0 flex-1 truncate text-muted-foreground">
         {defaultLabel ? `Your default is ${defaultLabel}` : 'No default yet'}
       </span>
-      <Tip label="New chats and executions start on your default">
+      <Tip label="New chats start on your default">
         <button
           type="button"
           onClick={make}

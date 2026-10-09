@@ -53,6 +53,11 @@ export async function register() {
     return;
   }
 
+  if (process.env.RI_LOCAL_APPS === '1') {
+    try { await (await import('@/lib/local-apps/service')).localApps().initialize(); }
+    catch (error) { console.error('[local-apps] startup failed', error instanceof Error ? error.message : 'App registry could not start'); }
+  }
+
   // Stop the harnesses a previous server left running, before anything here
   // can send. It died without closing them, so each worked on through its
   // turn unseen, and the chat's next message would start a second one on the

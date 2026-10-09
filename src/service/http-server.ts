@@ -1,3 +1,4 @@
+import { localApps } from '@/lib/local-apps/service';
 /** The service's ordinary-Node HTTP boundary. Next remains the application. */
 import http from 'node:http';
 import next from 'next';
@@ -43,7 +44,7 @@ async function start() {
     const gate = readMaintenance();
     // Readiness is private to the local controller. During validation the
     // public gateway is still closed, including to ordinary read requests.
-    if (pathname === '/__ri_ready' || pathname === '/__ri_activity' || pathname === '/__ri_prepare' || pathname === '/__ri_compatibility') {
+    if (pathname === '/__ri_ready' || pathname === '/__ri_activity' || pathname === '/__ri_prepare' || pathname === '/__ri_resume' || pathname === '/__ri_compatibility') {
       if (!process.env.RI_SERVICE_CONTROL_TOKEN || request.headers['x-ri-service-control'] !== process.env.RI_SERVICE_CONTROL_TOKEN) { response.writeHead(404).end(); return; }
       if (pathname === '/__ri_compatibility') {
         if (request.method !== 'POST') { response.writeHead(405).end(); return; }
@@ -64,9 +65,14 @@ async function start() {
         void prepare().then(() => response.end('{}')).catch(() => response.writeHead(409).end());
         return;
       }
+      if (pathname === '/__ri_resume') {
+        const resumed=process.env.RI_LOCAL_APPS === '1' ? localApps().resume() : Promise.resolve();
+        void resumed.then(()=>response.end('{}')).catch(()=>response.writeHead(409).end());
+        return;
+      }
       if (pathname === '/__ri_activity') {
         response.setHeader('content-type', 'application/json');
-        response.end(JSON.stringify({ executions: listRunningSessions().length, background: listBackgroundTaskSessions().length, permissions: listSessionsWithPending().length }));
+        response.end(JSON.stringify({ executions: listRunningSessions().length + (process.env.RI_LOCAL_APPS === '1' ? localApps().activeCount() : 0), background: listBackgroundTaskSessions().length, permissions: listSessionsWithPending().length }));
         return;
       }
       response.setHeader('content-type', 'application/json');
@@ -133,7 +139,7 @@ async function start() {
     stopping = true;
     stopPerfRecorder();
     server.close();
-    void (async () => { await globalThis.__riTRPCWebSocket?.close(); await application.close(); })().finally(() => process.exit(0));
+    void (async () => { if (process.env.RI_LOCAL_APPS === '1') await localApps().dispose(); await globalThis.__riTRPCWebSocket?.close(); await application.close(); })().finally(() => process.exit(0));
   };
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);

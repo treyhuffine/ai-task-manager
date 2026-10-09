@@ -138,7 +138,7 @@ export function SessionRowMenu({
             <DropdownMenuSeparator />
             {onOpenLauncher && workspaceId && (
               <DropdownMenuItem onSelect={() => onOpenLauncher(workspaceId)}>
-                <Plus size={12} /> New execution here…
+                <Plus size={12} /> New chat here…
               </DropdownMenuItem>
             )}
             {onOpenWorkspaceSettings && workspaceId && (

@@ -1,0 +1,68 @@
+{
+  "name": "@ri/app-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "files": [
+    "dist",
+    "schemas",
+    "templates",
+    "README.md"
+  ],
+  "exports": {
+    "./app-client": {
+      "types": "./dist/app-client.d.ts",
+      "default": "./dist/app-client.js"
+    },
+    "./contract": {
+      "types": "./dist/contract.d.ts",
+      "default": "./dist/contract.cjs"
+    },
+    "./sdk": {
+      "types": "./dist/sdk.d.ts",
+      "default": "./dist/sdk.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "default": "./dist/runtime.cjs"
+    },
+    "./view-host": {
+      "types": "./dist/view-host.d.ts",
+      "default": "./dist/view-host.js"
+    },
+    "./build": {
+      "types": "./dist/build.d.ts",
+      "default": "./dist/build.cjs"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.cjs"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "1.2.2",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "ajv": "8.17.1",
+    "esbuild": "0.27.7",
+    "linkedom": "0.18.13",
+    "pnpm": "10.33.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "tar": "7.5.22",
+    "typescript": "5.9.3",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^26",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "vitest": "4.1.4",
+    "playwright-core": "1.62.1"
+  }
+}

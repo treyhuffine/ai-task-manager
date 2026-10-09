@@ -272,7 +272,7 @@ async function start() {
     restore: directory => runtimeJob(controllerRepo, servesHome(role) ? 'restore' : 'worker-checkpoint-verify', directory),
     verifyDatabase: target => servesHome(role) ? runtimeJob(target.repo, 'validate-database', paths.identity.database, undefined, target.node) : Promise.resolve(assertWorkerStorage()),
     prepareIdle: async () => { if (servesHome(role)) await backendRequest('/__ri_prepare', 30_000); else await worker?.prepareIdle(); },
-    resumeAdmission: async () => { if (!stopping) await worker?.resumeAdmission(); },
+    resumeAdmission: async () => { if (!stopping) { if (servesHome(role)) await backendRequest('/__ri_resume', 30_000); else await worker?.resumeAdmission(); } },
     stop: async () => { status.phase = 'updating'; await stopBackend(); },
     validate: async (target, secret) => {
       if (servesHome(role)) return startBackend(target, secret);

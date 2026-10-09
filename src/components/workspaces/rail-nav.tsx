@@ -1,7 +1,8 @@
 'use client';
 
 import type { ComponentProps, ReactNode } from 'react';
-import { Calendar, Clock, Plus, Search, SquareKanban, type LucideIcon } from 'lucide-react';
+import { Calendar, ChevronRight, Clock, Plus, Search, SquareKanban, type LucideIcon } from 'lucide-react';
+import { useAppPlaces } from '@/components/local-apps/use-app-places';
 import { usePrefetchDayShape } from '@/hooks/use-day-shape';
 import { useRunsStats } from '@/hooks/use-runs-stats';
 import { openCalendarModal, useCalendarModal } from '@/lib/client/calendar-modal';
@@ -11,30 +12,40 @@ import { openTaskBoard, useTaskBoardOpen } from '@/lib/client/task-board';
 import { cn } from '@/lib/utils';
 import { openLauncher } from './launcher/launcher-store';
 import { openChatSearch } from './chat-search-store';
-import { Tip } from '@/components/ui/tip';
+import { RailIconButton } from './rail-icon-button';
+import { RailFlyout, StripFlyout } from './rail-flyout';
+
+export { RailIconButton } from './rail-icon-button';
 
 /**
- * The rail's places and its two verbs, as one list each, so the wide rail and
- * the collapsed strip show the same buttons in the same order.
+ * The rail's rows above the list, as one grammar, so the wide rail and the
+ * collapsed strip show the same things in the same order:
  *
- *   - **Places**: Board, Calendar, Schedules and Triggers. Rows under the
- *     home row in the wide rail, which scroll away with the list. Each opens
- *     full screen or in a dialog over whatever is on screen.
- *   - **Verbs**: Create (a new execution in any agent, the launcher with no
- *     agent picked) and Search (every chat's transcript, in a modal). Two
- *     buttons side by side, sticky with the tabs.
+ *   - **Verbs**: New chat (the launcher with no agent picked) and Search
+ *     chats (every transcript, in a modal). First under the home row and
+ *     fixed there, the way New chat and Search sit at the top of a chat
+ *     app's sidebar.
+ *   - **Places**: Apps (`use-app-places.tsx`), Task Board, Calendar, then
+ *     Schedules and Triggers. They scroll away with the list. Each opens
+ *     full screen or in a dialog over whatever is on screen. A place with a
+ *     `flyout` (Apps) opens its list beside the rail instead, on hover or
+ *     click, with a chevron that says so.
  *
- * The header keeps its own Create (tasks, notes, quick capture) and ⌘K search
+ * The header keeps its own CREATE (tasks, notes, quick capture) and ⌘K search
  * for now. Merging each pair into one is an open question.
  */
 
 export interface RailPlace {
-  id: 'board' | 'calendar' | 'schedules';
+  id: string;
   label: string;
   /** Tooltip in the collapsed strip, where only the icon shows. The wide
    *  rail's row shows `label` and needs none. */
   title: string;
-  icon: LucideIcon;
+  /** Its glyph: a Lucide icon, or `mark` for something drawn (an app's tile). */
+  icon?: LucideIcon;
+  mark?: ReactNode;
+  /** Under the row above it (an app under Apps). Inset in the wide rail. */
+  depth?: 0 | 1;
   onClick: () => void;
   /** The pointer or focus reached it: warm what it opens. */
   onIntent?: () => void;
@@ -42,6 +53,10 @@ export interface RailPlace {
   active: boolean;
   /** Live count beside the label in the wide rail, a dot on the icon in the strip. */
   count?: number;
+  /** What the count means: work in flight (blue) or something waiting on you (amber). */
+  tone?: 'live' | 'attention';
+  /** Resting on the row peeks this beside the rail (Apps), in both rails. A click still goes where `onClick` goes. */
+  flyout?: { label: string; content: ReactNode; anchor?: 'rail' | 'trigger' };
 }
 
 export function useRailPlaces({
@@ -57,12 +72,14 @@ export function useRailPlaces({
   const { data: runs } = useRunsStats();
   const activeRuns = runs?.activeRuns ?? 0;
   const running = activeRuns > 0 ? `${activeRuns} run${activeRuns === 1 ? '' : 's'} active` : null;
+  const apps = useAppPlaces();
 
   return [
+    ...apps,
     {
       id: 'board',
-      label: 'Board',
-      title: 'Open board',
+      label: 'Task Board',
+      title: 'Task Board',
       icon: SquareKanban,
       onClick: openTaskBoard,
       active: boardOpen,
@@ -89,172 +106,161 @@ export function useRailPlaces({
   ];
 }
 
-interface RailVerb {
-  id: 'create' | 'search';
-  label: string;
-  title: string;
-  icon: LucideIcon;
-  onClick: () => void;
-}
+const COUNT_PILL = {
+  live: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  attention: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+} as const;
 
-export const RAIL_VERBS: readonly RailVerb[] = [
+const COUNT_DOT = {
+  live: 'bg-blue-500',
+  attention: 'bg-amber-500',
+} as const;
+
+/** The two verbs, as rows like the places. `active` never: they open something new. */
+export const RAIL_VERBS: readonly RailPlace[] = [
   {
     id: 'create',
-    label: 'Create',
-    title: 'New execution',
+    label: 'New chat',
+    title: 'New chat',
     icon: Plus,
     onClick: () => openLauncher({ workspaceId: null }),
+    active: false,
   },
   {
     id: 'search',
-    label: 'Search',
+    label: 'Search chats',
     title: 'Search chats',
     icon: Search,
-    onClick: openChatSearch,
+    onClick: () => openChatSearch(),
+    active: false,
   },
 ];
 
-/** The places as full-width rows, for the wide rail. */
-export function RailPlaceRows({ places }: { places: readonly RailPlace[] }) {
+/** One row in the wide rail: a glyph, a label, and what's at its right. Spreads its props so a flyout can drive it. */
+function RailRow({
+  place: { label, icon: Icon, mark, depth, onClick, onIntent, active, count, tone = 'live', flyout },
+  pressed = false,
+  className,
+  ...props
+}: Omit<ComponentProps<'button'>, 'children'> & { place: RailPlace; pressed?: boolean }) {
   return (
-    <nav aria-label="Places" className="flex flex-col gap-0.5 px-2 pt-1 pb-1.5">
-      {places.map(({ id, label, icon: Icon, onClick, onIntent, active, count }) => (
-        <button
-          key={id}
-          type="button"
-          onClick={onClick}
-          onPointerEnter={onIntent}
-          onFocus={onIntent}
-          aria-current={active ? 'page' : undefined}
+    <button
+      type="button"
+      onClick={onClick}
+      onPointerEnter={onIntent}
+      onFocus={onIntent}
+      aria-current={active ? 'page' : undefined}
+      {...props}
+      className={cn(
+        'w-full flex items-center gap-2 py-1.5 pr-2 rounded-md text-[12px] font-medium transition-colors',
+        depth === 1 ? 'pl-[22px]' : 'pl-2',
+        'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+        active || pressed ? 'bg-muted/60 text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40',
+        className,
+      )}
+    >
+      {mark ?? (Icon && <Icon size={14} className="flex-shrink-0" />)}
+      <span className="truncate">{label}</span>
+      {count !== undefined && (
+        <span
           className={cn(
-            'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[12px] font-medium transition-colors',
-            'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-            active
-              ? 'bg-muted/60 text-foreground'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted/40',
+            'ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] tabular-nums',
+            COUNT_PILL[tone],
           )}
+          aria-label={tone === 'attention' ? `${count} waiting on you` : `${count} active`}
         >
-          <Icon size={14} className="flex-shrink-0" />
-          <span className="truncate">{label}</span>
-          {count !== undefined && (
-            <span
-              className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] tabular-nums"
-              aria-label={`${count} active`}
-            >
-              <span className="size-1.5 rounded-full bg-blue-500" aria-hidden />
-              {count}
-            </span>
-          )}
-        </button>
-      ))}
+          <span className={cn('size-1.5 rounded-full', COUNT_DOT[tone])} aria-hidden />
+          {count}
+        </span>
+      )}
+      {flyout && (
+        <ChevronRight
+          size={13}
+          aria-hidden
+          className={cn('flex-shrink-0 text-muted-foreground/50', count === undefined && 'ml-auto')}
+        />
+      )}
+    </button>
+  );
+}
+
+/** Rows for the wide rail: the places, or the verbs. */
+export function RailRows({ places, label }: { places: readonly RailPlace[]; label: string }) {
+  return (
+    <nav aria-label={label} className="flex flex-col gap-0.5 px-2 pt-1 pb-1.5">
+      {places.map((place) =>
+        place.flyout ? (
+          <RailFlyout
+            key={place.id}
+            contentLabel={place.flyout.label}
+            anchor={place.flyout.anchor}
+            onClick={place.onClick}
+            trigger={({ ref, open }) => <RailRow ref={ref} place={place} pressed={open} onClick={undefined} />}
+          >
+            {place.flyout.content}
+          </RailFlyout>
+        ) : (
+          <RailRow key={place.id} place={place} />
+        ),
+      )}
     </nav>
   );
 }
 
-/**
- * Create and Search, side by side. Create carries a quiet fill and Search a
- * border: they're the rail's two verbs, but the page's own input (the chat
- * composer) stays the loudest thing on screen, so neither takes the brand
- * color.
- */
-export function RailVerbButtons() {
-  return (
-    <div className="grid grid-cols-2 gap-1.5 px-2 pt-1 pb-2">
-      {RAIL_VERBS.map(({ id, label, title, icon: Icon, onClick }) => (
-        <Tip key={id} label={title}>
-          <button
-            type="button"
-            onClick={onClick}
-            className={cn(
-              'flex h-7 items-center justify-center gap-1.5 rounded-lg border text-[12px] font-medium transition-colors',
-              'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-              id === 'create'
-                ? 'border-border bg-secondary text-foreground hover:bg-accent'
-                : 'border-border/70 text-muted-foreground hover:text-foreground hover:bg-muted/40',
-            )}
-          >
-            <Icon size={13} className="flex-shrink-0" />
-            {label}
-          </button>
-        </Tip>
-      ))}
-    </div>
-  );
+/** The places as rows. */
+export function RailPlaceRows({ places }: { places: readonly RailPlace[] }) {
+  return <RailRows places={places} label="Places" />;
 }
 
-/**
- * An icon button in the collapsed strip (and the wide rail's collapse
- * toggle). The tooltip names it. Extra button props pass through, so it can
- * be a popover trigger.
- */
-export function RailIconButton({
-  icon: Icon,
-  label,
-  shortcut,
-  hideTip = false,
-  active = false,
-  badge,
-  className,
-  'aria-label': ariaLabel,
-  ...props
-}: Omit<ComponentProps<'button'>, 'children' | 'title'> & {
-  icon: LucideIcon;
-  /** Tooltip. Doubles as the accessible name unless `aria-label` is set. */
-  label: string;
-  /** Shown in the tooltip, e.g. `HOTKEYS.toggleRail.label`. */
-  shortcut?: string;
-  /** No tooltip, e.g. while the button's own card is open. */
-  hideTip?: boolean;
-  active?: boolean;
-  /** Drawn on the icon's top-right corner. */
-  badge?: ReactNode;
-}) {
-  return (
-    <Tip label={hideTip ? undefined : label} shortcut={shortcut}>
-      <button
-        type="button"
-        aria-label={ariaLabel ?? label}
-        aria-current={active ? 'page' : undefined}
-        {...props}
-        className={cn(
-          'relative flex-shrink-0 p-1.5 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-          active
-            ? 'bg-muted/60 text-foreground'
-            : 'text-muted-foreground/80 hover:text-foreground hover:bg-muted/50',
-          className,
-        )}
-      >
-        <Icon size={14} />
-        {badge}
-      </button>
-    </Tip>
-  );
+/** New chat and Search chats as rows. */
+export function RailVerbRows() {
+  return <RailRows places={RAIL_VERBS} label="Start" />;
 }
 
-/** The places and verbs as icons, for the collapsed strip. */
+/** The verbs and places as icons, for the collapsed strip, in the wide rail's order. */
 export function RailStripActions({ places }: { places: readonly RailPlace[] }) {
   return (
     <>
-      {places.map(({ id, title, icon, onClick, onIntent, active, count }) => (
-        <RailIconButton
-          key={id}
-          icon={icon}
-          label={title}
-          onClick={onClick}
-          onPointerEnter={onIntent}
-          onFocus={onIntent}
-          active={active}
-          badge={
-            count !== undefined ? (
-              <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-blue-500" aria-hidden />
-            ) : undefined
-          }
-        />
-      ))}
-      <StripDivider />
       {RAIL_VERBS.map(({ id, title, icon, onClick }) => (
         <RailIconButton key={id} icon={icon} label={title} onClick={onClick} />
       ))}
+      <StripDivider />
+      {places.map(({ id, title, icon, mark, onClick, onIntent, active, count, tone = 'live', flyout }) => {
+        const badge =
+          count !== undefined ? (
+            <span
+              className={cn('absolute -top-0.5 -right-0.5 size-2 rounded-full ring-2 ring-background', COUNT_DOT[tone])}
+              aria-hidden
+            />
+          ) : undefined;
+        return flyout ? (
+          <StripFlyout
+            key={id}
+            icon={icon}
+            mark={mark}
+            label={title}
+            contentLabel={flyout.label}
+            anchor={flyout.anchor}
+            onClick={onClick}
+            active={active}
+            badge={badge}
+          >
+            {flyout.content}
+          </StripFlyout>
+        ) : (
+          <RailIconButton
+            key={id}
+            icon={icon}
+            mark={mark}
+            label={title}
+            onClick={onClick}
+            onPointerEnter={onIntent}
+            onFocus={onIntent}
+            active={active}
+            badge={badge}
+          />
+        );
+      })}
     </>
   );
 }

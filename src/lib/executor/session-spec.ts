@@ -316,6 +316,12 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
         if (plan.text) spec.instructions = [spec.instructions, plan.text].filter(Boolean).join('\n\n');
         if (plan.undelivered.length > 0) spec.messagePreamble = [spec.messagePreamble, brief].filter(Boolean).join('\n\n');
       }
+      if (args.surfaceKind?.startsWith('app') && args.surfaceRef) {
+        const brief = await (await import('@/lib/local-apps/brief')).appChatBrief(args.surfaceKind, args.surfaceRef, args.chatSessionId);
+        const instructions = planSessionInstructions(providerType, [{ name: 'local app context', text: brief }]);
+        if (instructions.text) spec.instructions = [spec.instructions, instructions.text].filter(Boolean).join('\n\n');
+        if (instructions.undelivered.length && !args.existingExternalSessionId) spec.firstTurnPreamble = [spec.firstTurnPreamble, brief].filter(Boolean).join('\n\n');
+      }
       if (providerType !== 'claude') {
         console.warn(
           `[executor] ${args.sessionType} session on provider "${providerType}": surface installed, ` +

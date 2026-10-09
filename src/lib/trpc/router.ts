@@ -1,3 +1,5 @@
+import { chatSourcesRouter } from '@/lib/chat-sources/router';
+import { localAppsRouter } from '@/lib/local-apps/router';
 import { toNoteListDTOs, toTaskListDTOs } from '@/lib/api/dto/entity-list';
 import * as q from '@/lib/db/queries';
 import { listRunningSessions } from '@/lib/executor/status-snapshot';
@@ -33,6 +35,8 @@ function required<T>(value: T | null | undefined, entity: string): T {
 }
 
 export const appRouter = router({
+  localApps: localAppsRouter,
+  chatSources: chatSourcesRouter,
   ...internalRouters,
   results: resultsRouter,
   transport: router({

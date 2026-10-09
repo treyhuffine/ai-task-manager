@@ -48,7 +48,7 @@ const GROUP_CLASS =
  * lists recent chats, so it doubles as a quick switcher. The agent filter
  * beside the query narrows both, the recent list and the results, to one
  * agent's chats. Arrows and Enter open a chat. Opened from the rail's Search
- * button or "Search chats" in ⌘K.
+ * chats row or "Search chats" in ⌘K.
  */
 export function ChatSearchModal() {
   const open = useChatSearchOpen();

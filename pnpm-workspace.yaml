@@ -4,6 +4,8 @@
 # deps then break `pnpm install` for everyone. List packages one-by-one here.
 packages:
   - "packages/integrations"
+  - "packages/app-kit"
+  - "apps/finances"
 allowBuilds:
   better-sqlite3: true
   electron: true

@@ -233,7 +233,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
   const handleArchive = async () => {
     const ok = await confirm({
       title: 'Archive this agent?',
-      description: `"${workspace.name}" leaves your active list. Its executions and chats are kept, and you can restore it later.`,
+      description: `"${workspace.name}" leaves your active list. Its chats are kept, and you can restore it later.`,
       confirmLabel: 'Archive',
     });
     if (!ok) return;
@@ -348,7 +348,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
 
           <Section
             title="Instructions"
-            description="Standing instructions every execution in this agent receives when it starts. The agent's main chat follows them too."
+            description="Standing instructions every chat in this agent receives when it starts. The agent's main chat follows them too."
           >
             <Field counter={{ value: form.instructions.trim().length, max: INSTRUCTIONS_MAX }}>
               <textarea

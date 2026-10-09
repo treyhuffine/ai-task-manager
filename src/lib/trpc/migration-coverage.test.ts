@@ -19,6 +19,10 @@ const protocolRoutes = new Set([
   '/health', '/live', '/orchestrator/[transport]', '/orchestrator/actions/[name]', '/orchestrator/browser/[transport]', '/orchestrator/results/[transport]', '/playground/chat',
   // Signed harness reports and reviewer completion keep their language-neutral wire contract.
   '/results/reports', '/results/review-reports',
+  // Signed CLI forwarding and the versioned app-process capability broker.
+  '/chat-sources/action', '/local-apps/action', '/local-apps/broker/v1/[operation]',
+  // Package bytes and the backup CLI's cross-process pause/resume lease.
+  '/local-apps/import', '/local-apps/export/[name]', '/local-apps/backup',
   '/preview/settings/connect-device', '/session', '/sessions/[id]/reply-image', '/sessions/[id]/stream', '/sessions/[id]/terminals/[terminalId]/stream', '/sessions/stream',
   '/stt-bench', '/trpc/[trpc]', '/version', '/webhooks/pebble', '/webhooks/pocket', '/webhooks/triggers/[public_id]',
   '/workers/enroll', '/workers/grants', '/workers/me/associations', '/workers/me/attachments/[fileName]', '/workers/me/commands/[id]/ack',

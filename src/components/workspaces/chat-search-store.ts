@@ -4,8 +4,8 @@ import { useSyncExternalStore } from 'react';
 
 /**
  * Open/close store for the chat search modal. Module-level like the launcher
- * (`launcher/launcher-store.ts`): it opens from the rail's Search button and
- * from the ⌘K palette, which share no parent short of the dashboard.
+ * (`launcher/launcher-store.ts`): it opens from the rail's Search chats row
+ * and from the ⌘K palette, which share no parent short of the dashboard.
  */
 
 let open = false;

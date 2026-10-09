@@ -107,6 +107,9 @@ export function proxy(request: NextRequest) {
     );
   }
 
+  // Local app broker credentials are verified by this narrow protocol adapter.
+  if (process.env.RI_LOCAL_APPS === '1' && /^\/api\/local-apps\/broker\/v1\/(capabilities|call)$/.test(request.nextUrl.pathname)) return nextWithoutKeyHeaders(request);
+
   if (request.nextUrl.pathname.startsWith('/api/webhooks/')) {
     return nextWithoutKeyHeaders(request);
   }

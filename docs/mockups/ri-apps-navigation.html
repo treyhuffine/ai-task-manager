@@ -1,0 +1,155 @@
+<style>
+#ri-apps-navigation { --ri-bg: light-dark(#ffffff,#191a1b); --ri-rail: light-dark(#f6f6f5,#202122); --ri-fg: light-dark(#272827,#ecece8); --ri-muted: light-dark(#6a6c68,#a6a8a3); --ri-line: light-dark(#e5e6e1,#343633); --ri-soft: light-dark(#edeee9,#2c2e2a); --ri-strong: light-dark(#30362d,#d6dece); --ri-on-strong: light-dark(#ffffff,#20261d); font: 14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ri-fg); background:var(--ri-bg); border:1px solid var(--ri-line); border-radius:12px; overflow:clip; }
+#ri-apps-navigation * { box-sizing:border-box; }
+#ri-apps-navigation button,#ri-apps-navigation textarea { font:inherit; }
+#ri-apps-navigation button { color:inherit; }
+#ri-apps-navigation button:focus-visible,#ri-apps-navigation textarea:focus-visible { outline:2px solid var(--ri-strong); outline-offset:3px; }
+#ri-apps-navigation .ri-layout { display:grid; grid-template-columns:210px minmax(0,1fr); min-height:550px; }
+#ri-apps-navigation .ri-sidebar { background:var(--ri-rail); border-right:1px solid var(--ri-line); display:flex; flex-direction:column; padding:14px 10px; gap:20px; }
+#ri-apps-navigation .ri-brand { padding:2px 9px; display:flex; align-items:center; gap:9px; font-weight:500; }
+#ri-apps-navigation .ri-brand span { margin-left:auto; font-weight:400; font-size:11px; color:var(--ri-muted); }
+#ri-apps-navigation .ri-modes { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:3px; background:var(--ri-soft); border-radius:8px; }
+#ri-apps-navigation .ri-modes button { border:0; border-radius:6px; padding:7px 8px; background:transparent; display:flex; align-items:center; justify-content:center; gap:6px; font-size:12px; }
+#ri-apps-navigation .ri-modes button[aria-pressed="true"] { background:var(--ri-bg); box-shadow:0 1px 3px light-dark(#00000014,#00000030); }
+#ri-apps-navigation .ri-list { display:flex; flex-direction:column; gap:4px; }
+#ri-apps-navigation .ri-row { display:flex; align-items:center; gap:9px; border:0; background:transparent; padding:8px 9px; text-align:left; border-radius:7px; width:100%; }
+#ri-apps-navigation .ri-row:hover,#ri-apps-navigation .ri-row[aria-current="page"] { background:var(--ri-soft); }
+#ri-apps-navigation .ri-row span { min-width:0; overflow-wrap:anywhere; }
+#ri-apps-navigation .ri-group { margin:17px 9px 4px; font-size:11px; color:var(--ri-muted); font-weight:500; }
+#ri-apps-navigation .ri-footer { margin-top:auto; padding-top:14px; border-top:1px solid var(--ri-line); color:var(--ri-muted); }
+#ri-apps-navigation .ri-stage { min-width:0; }
+#ri-apps-navigation .ri-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:16px 24px; border-bottom:1px solid var(--ri-line); min-height:62px; }
+#ri-apps-navigation .ri-breadcrumb { color:var(--ri-muted); flex:1; min-width:80px; }
+#ri-apps-navigation .ri-toolbar .ri-control { font-size:12px; padding:6px 10px; }
+#ri-apps-navigation .ri-content { padding:32px; }
+#ri-apps-navigation h2 { font-size:23px; line-height:1.25; font-weight:500; margin:0 0 9px; }
+#ri-apps-navigation h3 { font-size:15px; font-weight:500; margin:0 0 5px; }
+#ri-apps-navigation p { margin:0 0 17px; }
+#ri-apps-navigation .ri-secondary { color:var(--ri-muted); font-size:13px; }
+#ri-apps-navigation .ri-control { border:1px solid var(--ri-line); border-radius:7px; padding:9px 12px; background:var(--ri-bg); display:inline-flex; align-items:center; justify-content:center; gap:7px; }
+#ri-apps-navigation .ri-control:hover { background:var(--ri-soft); }
+#ri-apps-navigation .ri-primary { background:var(--ri-strong); border-color:var(--ri-strong); color:var(--ri-on-strong); }
+#ri-apps-navigation .ri-primary:hover { background:var(--ri-strong); opacity:.9; }
+#ri-apps-navigation .ri-actions { display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+#ri-apps-navigation .ri-apps { margin-top:27px; display:grid; gap:12px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+#ri-apps-navigation .ri-app { border:1px solid var(--ri-line); border-radius:10px; padding:20px; background:var(--ri-bg); display:flex; flex-direction:column; align-items:flex-start; gap:10px; text-align:left; }
+#ri-apps-navigation .ri-app:hover { background:var(--ri-rail); }
+#ri-apps-navigation .ri-app p { margin:0; }
+#ri-apps-navigation .ri-appmark { width:33px; height:33px; background:var(--ri-soft); border-radius:8px; display:grid; place-items:center; }
+#ri-apps-navigation .ri-rule { height:1px; background:var(--ri-line); margin:27px 0; }
+#ri-apps-navigation .ri-table { width:100%; border-collapse:collapse; margin:18px 0; }
+#ri-apps-navigation .ri-table th,#ri-apps-navigation .ri-table td { text-align:left; border-bottom:1px solid var(--ri-line); padding:13px 8px; }
+#ri-apps-navigation .ri-table th { color:var(--ri-muted); font-size:12px; font-weight:400; }
+#ri-apps-navigation .ri-table td { font-size:13px; }
+#ri-apps-navigation .ri-link { border:0; background:none; padding:0; text-align:left; text-decoration:underline; text-underline-offset:3px; }
+#ri-apps-navigation .ri-split { display:grid; grid-template-columns:minmax(0,1fr) minmax(190px,.72fr); }
+#ri-apps-navigation .ri-chat { border-left:1px solid var(--ri-line); background:var(--ri-rail); padding:23px 20px; display:flex; flex-direction:column; gap:13px; }
+#ri-apps-navigation .ri-chat p { margin:0; }
+#ri-apps-navigation .ri-chat .ri-composer { margin-top:auto; }
+#ri-apps-navigation .ri-composer { width:100%; min-height:105px; resize:vertical; padding:13px; border:1px solid var(--ri-line); border-radius:9px; background:var(--ri-bg); color:var(--ri-fg); }
+#ri-apps-navigation .ri-builder { display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr); min-height:400px; }
+#ri-apps-navigation .ri-builder .ri-content { padding:24px; }
+#ri-apps-navigation .ri-preview { border-left:1px solid var(--ri-line); padding:24px; background:var(--ri-rail); }
+#ri-apps-navigation .ri-placeholder { min-height:190px; display:grid; place-items:center; text-align:center; color:var(--ri-muted); border:1px dashed var(--ri-line); border-radius:9px; margin-top:19px; padding:22px; }
+#ri-apps-navigation .ri-small { font-size:11px; color:var(--ri-muted); }
+#ri-apps-navigation .ri-examples { margin-top:12px; display:flex; flex-wrap:wrap; gap:7px; }
+#ri-apps-navigation .ri-examples button { background:var(--ri-soft); border:0; border-radius:5px; padding:6px 9px; font-size:12px; }
+#ri-apps-navigation [hidden] { display:none !important; }
+@media(max-width:780px) { #ri-apps-navigation .ri-layout { grid-template-columns:177px minmax(0,1fr); } #ri-apps-navigation .ri-content { padding:24px 20px; } #ri-apps-navigation .ri-split,#ri-apps-navigation .ri-builder { grid-template-columns:1fr; } #ri-apps-navigation .ri-chat,#ri-apps-navigation .ri-preview { border-left:0; border-top:1px solid var(--ri-line); } }
+@media(max-width:530px) { #ri-apps-navigation .ri-layout { grid-template-columns:1fr; } #ri-apps-navigation .ri-sidebar { border-right:0; border-bottom:1px solid var(--ri-line); gap:12px; } #ri-apps-navigation .ri-list { display:grid; grid-template-columns:1fr 1fr; } #ri-apps-navigation .ri-group { grid-column:1/-1; margin-top:8px; } #ri-apps-navigation .ri-footer { display:flex; margin:0; padding-top:8px; } #ri-apps-navigation .ri-apps { grid-template-columns:1fr; } #ri-apps-navigation .ri-toolbar { padding:14px 20px; } #ri-apps-navigation .ri-content { padding:24px 20px; } }
+@media(pointer:coarse) { #ri-apps-navigation button { min-height:44px; } #ri-apps-navigation textarea { font-size:16px; } }
+</style>
+<div id="ri-apps-navigation" aria-label="Ri Apps navigation concept">
+  <div class="ri-layout">
+    <aside class="ri-sidebar" aria-label="Power rail">
+      <div class="ri-brand">Ri <span>Navigation concept</span></div>
+      <nav class="ri-modes" aria-label="Rail section">
+        <button type="button" class="cursor-interaction" data-action="agents" aria-pressed="false"><i data-lucide="bot" aria-hidden="true"></i>Agents</button>
+        <button type="button" class="cursor-interaction" data-action="library" aria-pressed="true"><i data-lucide="layout-grid" aria-hidden="true"></i><span data-apps-label>Apps</span></button>
+      </nav>
+      <div class="ri-list" data-rail></div>
+      <div class="ri-footer">
+        <button type="button" class="ri-row cursor-interaction" data-action="connectors"><i data-lucide="plug" aria-hidden="true"></i>Connectors</button>
+        <button type="button" class="ri-row cursor-interaction" data-action="skills"><i data-lucide="book-open" aria-hidden="true"></i>Skills</button>
+      </div>
+    </aside>
+    <main class="ri-stage" aria-label="Selected app or library" data-stage></main>
+  </div>
+  <span data-announcement class="ri-small" role="status" aria-live="polite" style="display:block;padding:8px 18px;border-top:1px solid var(--ri-line)">Example apps and content</span>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('ri-apps-navigation');
+  const rail = root.querySelector('[data-rail]');
+  const stage = root.querySelector('[data-stage]');
+  const allowed = new Set(['library','agents','finance','refunds','project','reading','new','edit','catalog','connectors','skills']);
+  const state = { page:'library', label:'Apps', chat:false, draft:false, draftKind:'new', preview:false, added:false, prompt:'', agentMessage:'', financeMessage:'' };
+  const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const icon = name => `<i data-lucide="${name}" aria-hidden="true"></i>`;
+  const button = (action,label,primary=false) => `<button type="button" class="ri-control cursor-interaction${primary?' ri-primary':''}" data-action="${action}">${label}</button>`;
+  const row = (action,label,name) => `<button type="button" class="ri-row cursor-interaction" data-action="${action}"${state.page===action||(action==='finance'&&state.page==='refunds')?' aria-current="page"':''}>${icon(name)}<span>${label}</span></button>`;
+  function restore(saved) {
+    if (!saved || typeof saved !== 'object') return;
+    if (allowed.has(saved.page)) state.page=saved.page;
+    if (saved.label==='Apps'||saved.label==='Plugins') state.label=saved.label;
+    for (const k of ['chat','draft','preview','added']) if (typeof saved[k]==='boolean') state[k]=saved[k];
+    if (saved.draftKind==='new'||saved.draftKind==='edit') state.draftKind=saved.draftKind;
+    for (const key of ['prompt','agentMessage','financeMessage']) if (typeof saved[key]==='string') state[key]=saved[key].slice(0,1500);
+  }
+  restore(window.openai?.widgetState?.privateContent);
+  function persist() {
+    window.openai?.setWidgetState?.({modelContent:{navigationLabel:state.label,selectedScreen:state.page},privateContent:{...state}}).catch(()=>{});
+  }
+  function header(title,actions='') { return `<header class="ri-toolbar"><span class="ri-breadcrumb">${title}</span>${actions}</header>`; }
+  function render() {
+    root.querySelector('[data-apps-label]').textContent=state.label;
+    root.querySelector('.ri-modes [data-action="agents"]').setAttribute('aria-pressed',String(state.page==='agents'));
+    root.querySelector('.ri-modes [data-action="library"]').setAttribute('aria-pressed',String(state.page!=='agents'));
+    rail.innerHTML=state.page==='agents'
+      ? row('agents','Create','plus')+'<div class="ri-group">Agents</div>'+row('agents','Personal','bot')+row('agents','Work','folder')+'<div class="ri-group">Recent</div>'+row('agents','Plan this week','message-square')+row('agents','Review a proposal','message-square')
+      : row('new','Create app','plus')+row('library','All '+state.label.toLowerCase(),'layout-grid')+'<div class="ri-group">Installed</div>'+row('finance','Finance','wallet')+row('project','Home projects','house')+(state.added?row('reading','Reading list','book-open'):'')+(state.draft?'<div class="ri-group">Drafts</div>'+row(state.draftKind,state.draftKind==='edit'?'Finance changes':'My new app','pencil'):'');
+    if (state.page==='library'||state.page==='catalog') {
+      const catalog=state.page==='catalog';
+      stage.innerHTML=header(state.label,button(catalog?'library':'catalog',catalog?'Your apps':'Browse apps')+button('new',icon('plus')+'Create app',true))+
+        `<section class="ri-content"><h2>${catalog?'Start with something useful':'Your '+state.label.toLowerCase()}</h2><p class="ri-secondary">${catalog?'Add an app, then make it your own.':'Made for the way you live and work.'}</p><div class="ri-apps"><button type="button" class="ri-app cursor-interaction" data-action="finance"><span class="ri-appmark">${icon('wallet')}</span><h3>Finance</h3><p class="ri-secondary">Budgets, receipts and refunds in one place.</p><span class="ri-small">Open app →</span></button><button type="button" class="ri-app cursor-interaction" data-action="${catalog?'add-reading':'project'}"><span class="ri-appmark">${icon(catalog?'book-open':'house')}</span><h3>${catalog?'Reading list':'Home projects'}</h3><p class="ri-secondary">${catalog?'Keep what you want to read and what stayed with you.':'Keep decisions, quotes and next steps together.'}</p><span class="ri-small">${catalog?(state.added?'Added':'Add to Ri +'):'Open app →'}</span></button></div><div class="ri-rule"></div><h3>Have something else in mind?</h3><p class="ri-secondary">Describe what you need and build it with Ri.</p>${button('new','Create an app')}</section>`;
+    } else if (state.page==='finance'||state.page==='refunds') {
+      const refunds=state.page==='refunds';
+      stage.innerHTML=header('Apps / Finance',button('chat',icon('message-circle')+(state.chat?'Hide chat':'Ask Ri'))+button('edit',icon('pencil')+'Change app'))+
+        `<div class="${state.chat?'ri-split':''}"><section class="ri-content"><h2>${refunds?'Refund follow-ups':'Finance'}</h2><p class="ri-secondary">${refunds?'Keep the next step close to the original receipt.':'Your saved views, ready when you are.'}</p>${refunds?'<table class="ri-table"><thead><tr><th>Purchase</th><th>Next step</th></tr></thead><tbody><tr><td>Returned shoes</td><td>Check refund status</td></tr><tr><td>Desk lamp</td><td>Review return receipt</td></tr></tbody></table>'+button('finance','All saved views'):'<table class="ri-table"><thead><tr><th>Saved view</th><th>Focus</th></tr></thead><tbody><tr><td><button type="button" class="ri-link cursor-interaction" data-action="refunds">Refund follow-ups</button></td><td>Returns and credits</td></tr><tr><td>October budget</td><td>Monthly plan</td></tr><tr><td>Dining scenario</td><td>Compare a change</td></tr></tbody></table>'+button('chat','Ask about your finances')}</section>${state.chat?'<aside class="ri-chat" aria-label="Chat about Finance"><h3>Ask Ri</h3><p class="ri-small">Context: Finance'+(refunds?' / Refund follow-ups':'')+'</p><p>What would you like to understand or change?</p><textarea class="ri-composer" data-message="financeMessage" aria-label="Example Finance question" placeholder="Ask about this view…">'+esc(state.financeMessage)+'</textarea><span class="ri-small">Example chat</span></aside>':''}</div>`;
+    } else if (state.page==='new'||state.page==='edit') {
+      const editing=state.page==='edit';
+      stage.innerHTML=header(editing?'Apps / Finance / Change app':'Apps / Create app',button('library','Back to apps')+(state.preview?button('activate','Use this',true):''))+
+        `<div class="ri-builder"><section class="ri-content"><h2>${editing?'Make it yours':'What do you need?'}</h2><p class="ri-secondary">${editing?'Describe how you want Finance to work.':'Tell Ri what this app should help you do.'}</p><textarea class="ri-composer" data-prompt aria-label="Describe your app" placeholder="I want an app that…">${esc(state.prompt)}</textarea><div class="ri-examples"><button type="button" class="cursor-interaction" data-action="example">${editing?'Add a monthly review':'Track my home projects'}</button></div><div class="ri-rule"></div>${button('preview','Preview example',true)}<p class="ri-small" style="margin-top:12px">Draft saved while you explore</p></section><section class="ri-preview"><h3>Preview</h3>${state.preview?'<div class="ri-placeholder"><div><h3>'+ (editing?'Monthly review':'Home projects')+'</h3><p class="ri-secondary">'+(editing?'Budget · Receipts · Follow-ups':'Decisions · Quotes · Next steps')+'</p><span class="ri-small">Example draft</span></div></div>':'<div class="ri-placeholder">Your app takes shape here.</div>'}</section></div>`;
+    } else if (state.page==='agents') {
+      stage.innerHTML=header('Agents')+'<section class="ri-content"><h2>Back to your work</h2><p class="ri-secondary">Your agents and conversations stay where you left them.</p><div class="ri-rule"></div><h3>Plan this week</h3><p>Continue the conversation with your personal agent.</p><textarea class="ri-composer" data-message="agentMessage" aria-label="Example agent message" placeholder="Message your agent…">'+esc(state.agentMessage)+'</textarea></section>';
+    } else if (state.page==='project') {
+      stage.innerHTML=header('Apps / Home projects',button('new','Change app'))+'<section class="ri-content"><h2>Home projects</h2><p class="ri-secondary">A place for the decisions behind each project.</p><table class="ri-table"><thead><tr><th>Project</th><th>Next step</th></tr></thead><tbody><tr><td>Kitchen</td><td>Compare contractor quotes</td></tr><tr><td>Garden</td><td>Choose the plants</td></tr></tbody></table></section>';
+    } else if (state.page==='reading') {
+      stage.innerHTML=header('Apps / Reading list')+'<section class="ri-content"><h2>Reading list</h2><p class="ri-secondary">Keep what you want to read and what stayed with you.</p><div class="ri-rule"></div><h3>Your list is ready</h3><p class="ri-secondary">Save an article, book or idea to return to.</p></section>';
+    } else {
+      const connectors=state.page==='connectors';
+      stage.innerHTML=header(connectors?'Connectors':'Skills',button('library','Back to apps'))+`<section class="ri-content"><h2>${connectors?'Your connected accounts':'Reusable instructions'}</h2><p class="ri-secondary">${connectors?'Manage which accounts Ri and your apps can use.':'Manage the workflows your agents can follow.'}</p><div class="ri-rule"></div><h3>${connectors?'Gmail':'Weekly review'}</h3><p class="ri-secondary">${connectors?'Account access is granted separately for each app.':'An instruction set used in conversation.'}</p><span class="ri-small">Existing management surface</span></section>`;
+    }
+    if (globalThis.lucide) lucide.createIcons({attrs:{width:16,height:16}});
+  }
+  root.addEventListener('input',event=>{
+    if(event.target.matches('[data-prompt]')) state.prompt=event.target.value.slice(0,1500);
+    if(event.target.matches('[data-message]')) state[event.target.dataset.message]=event.target.value.slice(0,1500);
+  });
+  root.addEventListener('change',event=>{if(event.target.matches('[data-prompt],[data-message]'))persist();});
+  root.addEventListener('click',event=>{
+    const target=event.target.closest('button[data-action]'); if(!target)return;
+    const action=target.dataset.action;
+    if(action==='chat')state.chat=!state.chat;
+    else if(action==='preview'){state.preview=true;state.draft=true;}
+    else if(action==='example'){state.prompt=state.page==='edit'?'Add a monthly review of my budget and open refunds.':'Help me track home projects, contractor quotes and next steps.';}
+    else if(action==='activate'){state.page=state.page==='edit'?'finance':'project';state.draft=false;state.preview=false;}
+    else if(action==='add-reading'){state.added=true;}
+    else if(allowed.has(action)){state.page=action;if(action==='new'||action==='edit'){if(state.draftKind!==action){state.prompt='';state.preview=false;}state.draft=true;state.draftKind=action;}}
+    render();persist();root.querySelector('[data-announcement]').textContent=action==='add-reading'?'Reading list added in this example':'Example screen: '+(state.page==='library'?state.label:state.page.replace('-',' '));
+  });
+  window.addEventListener('openai:set_globals',event=>{const saved=event.detail?.globals?.widgetState?.privateContent;if(saved){restore(saved);render();}});
+  render();
+  if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:()=>{render();persist();}});tweak.addSelect(state,'label',{label:'Navigation label',options:['Apps','Plugins']});}
+})();
+</script>

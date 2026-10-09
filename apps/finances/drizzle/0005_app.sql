@@ -1,0 +1,7 @@
+CREATE TABLE finance_app_settings (id TEXT PRIMARY KEY NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), harness TEXT NOT NULL);
+CREATE TABLE finance_clients (id TEXT PRIMARY KEY NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), label TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, revoked INTEGER NOT NULL);
+CREATE TABLE finance_handoffs (id TEXT PRIMARY KEY NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), finding_id TEXT NOT NULL UNIQUE REFERENCES finance_findings(id) ON DELETE CASCADE, title TEXT NOT NULL, reference TEXT NOT NULL, due_on TEXT, state TEXT NOT NULL, task_id TEXT);
+CREATE TABLE finance_chats (id TEXT PRIMARY KEY NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), view_id TEXT NOT NULL UNIQUE REFERENCES finance_views(id) ON DELETE CASCADE, include_evidence INTEGER NOT NULL);
+CREATE TABLE finance_chat_messages (id TEXT PRIMARY KEY NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), chat_id TEXT NOT NULL REFERENCES finance_chats(id) ON DELETE CASCADE, role TEXT NOT NULL, content TEXT NOT NULL, request_id TEXT NOT NULL);
+CREATE UNIQUE INDEX finance_chat_message_request ON finance_chat_messages(chat_id,role,request_id);
+CREATE INDEX finance_chat_message_order ON finance_chat_messages(chat_id,created_at,id);

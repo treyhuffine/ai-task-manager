@@ -1,0 +1,1 @@
+export async function register(){if(process.env.NEXT_RUNTIME==='nodejs'&&process.env.FINANCE_BUILD!=='1'&&process.env.RI_APP_BUILD!=='1'){const {initializeDatabase}=await import('./src/lib/db');initializeDatabase();const {ownerToken}=await import('./src/lib/auth');ownerToken();const {startFinanceWorker}=await import('./src/lib/finance/worker');startFinanceWorker();}}

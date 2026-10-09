@@ -90,6 +90,14 @@ describe('session caller identity', () => {
 });
 
 describe('appApprovalPolicy', () => {
+  it('isolates two apps, invocations and broker calls from anonymous and chat approval slots',async()=>{
+    const gate=policy(),base={instanceId:'app-a',invocationId:'inv-a',callId:'call-a',principal:{kind:'chat' as const,id:CHAT}},caller=(localApp:typeof base)=>({type:'app' as const,id:'local-app',localApp});
+    const a=check({caller:caller(base)}),b=check({caller:caller({...base,instanceId:'app-b'})}),next=check({caller:caller({...base,invocationId:'inv-b'})}),otherCall=check({caller:caller({...base,callId:'call-b'})});
+    for(const request of [a,b,next,otherCall,check({caller:{type:'app'}})])expect(await gate.check(request)).toBe('ask');
+    const pending=listPendingApprovals();expect(pending).toHaveLength(5);expect(events.recordApprovalRequested).toHaveBeenCalledTimes(1);
+    resolvePendingApprovals([pending.find(item=>item.localApp?.instanceId==='app-a'&&item.localApp.invocationId==='inv-a'&&item.localApp.callId==='call-a')!.id],'approve');
+    for(const request of [b,next,otherCall,check({caller:{type:'app'}}),check()])expect(await gate.check(request)).toBe('ask');expect(await gate.check(a)).toBe('allow');expect(await gate.check(a)).toBe('ask');
+  });
   it('lets reads, dev auto-approve, and the notifier delivery through without a pending', async () => {
     const gate = policy();
     expect(await gate.check(check({ mutating: false }))).toBe('allow');
@@ -235,4 +243,15 @@ describe('listPendingApprovals', () => {
     const all = listPendingApprovals({ ownerId: 'local' });
     expect(all.map((p) => p.sessionId)).toEqual([CHAT, OTHER_CHAT, null]);
   });
+});
+
+it('binds an approval to one mentioned source, message and invocation within the same chat', async () => {
+  const gate = policy();
+  const source = { messageId: 'm1', sourceRef: 'exact-work-account', invocationId: 'i1' };
+  const requests = [source, { ...source, invocationId: 'i2' }, { ...source, messageId: 'm2' }, { ...source, sourceRef: 'personal-account' }].map(chatSource => check({ caller: { ...sessionCaller(CHAT), chatSource } }));
+  for (const request of requests) expect(await gate.check(request)).toBe('ask');
+  const pending = listPendingApprovals(); expect(pending).toHaveLength(4);
+  resolvePendingApprovals([pending.find(p => p.chatSource?.messageId === 'm1' && p.chatSource.invocationId === 'i1' && p.chatSource.sourceRef === source.sourceRef)!.id], 'approve');
+  for (const request of requests.slice(1)) expect(await gate.check(request)).toBe('ask');
+  expect(await gate.check(requests[0])).toBe('allow');
 });

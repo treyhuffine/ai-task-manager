@@ -130,6 +130,13 @@ export function getAttachmentsDir(): string {
   return path.join(getAppRoot(), 'attachments');
 }
 
+export function getLocalAppsDir(): string { return path.join(getAppRoot(), 'apps'); }
+export function getAppDraftsDir(): string { return path.join(getAppRoot(), 'app-drafts'); }
+export function getLocalAppsStatePath(): string { return path.join(getConfigDir(), 'local-apps', 'state.json'); }
+export function getLocalAppsWorkDir(): string { return path.join(getWorkDir(), 'local-apps'); }
+/** Read-only distribution assets, separate from Home records and backups. */
+export function getBundledLocalAppsCatalogDir(): string { return path.join(process.env.RI_RUNTIME_REPO ?? process.cwd(), 'release', 'local-apps', 'catalog'); }
+
 // ─── .config — precious-local (don't sync, don't lose) ────────────
 
 /** Machine-local settings dir: token + preview provider. Never synced. */

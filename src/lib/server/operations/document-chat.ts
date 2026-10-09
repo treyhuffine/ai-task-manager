@@ -1,3 +1,5 @@
+import { localApps } from '@/lib/local-apps/service';
+import { publicError } from '@ri/app-kit/contract';
 import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '@/db/types';
 import {
   archiveChatSession,
@@ -68,7 +70,7 @@ function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: u
  * ordinary chat that gets the skill, wherever it lives). For both, the id
  * is the skill's ref (src/lib/skills/locations.ts).
  */
-const SURFACE_KINDS = ['task', 'note', 'skill', 'skill-try'] as const;
+const SURFACE_KINDS = ['task', 'note', 'skill', 'skill-try', 'app', 'app-builder', 'app-try'] as const;
 type SurfaceKind = (typeof SURFACE_KINDS)[number];
 
 interface EntityRef {
@@ -90,6 +92,10 @@ function parseEntity(source: { entityType?: unknown; entityId?: unknown }): Enti
 
 /** A skill chat needs its skill. Tasks and notes are checked by the chat's own reads. */
 function missingSkill(ref: EntityRef) {
+  if (ref.entityType.startsWith('app')) {
+    try { if (ref.entityType === 'app') localApps().instance(ref.entityId); else localApps().draft(ref.entityId); return null; }
+    catch (error) { return reply({ error: publicError(error).message }, { status: 409 }); }
+  }
   if (ref.entityType !== 'skill' && ref.entityType !== 'skill-try') return null;
   if (findSkill(ref.entityId)) return null;
   return reply({ error: "There's no such skill." }, { status: 404 });
@@ -108,6 +114,14 @@ function findCurrent(ref: EntityRef): ChatSessionWithExecution | null {
         s.createdByRunId === null,
     ) ?? null
   );
+}
+
+async function recordAppChat(ref: EntityRef, session: Pick<ChatSessionWithExecution, 'id'>) {
+  if (ref.entityType !== 'app-builder' && ref.entityType !== 'app-try') return;
+  const apps = localApps();
+  const field = ref.entityType === 'app-builder' ? 'builderChatId' : 'tryChatId';
+  if (apps.draft(ref.entityId)[field] === session.id) return;
+  await apps.store.activity(state => {const draft=state.drafts.find(draft => draft.id === ref.entityId)!;draft[field] = session.id;draft.updatedAt=new Date().toISOString();});
 }
 
 async function createFocusedSession(
@@ -167,6 +181,7 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, req: OperationC
   if (missing) return missing;
   try {
     const session = findCurrent(ref) ?? await createFocusedSession(ref);
+    await recordAppChat(ref, session);
     return reply({ session });
   } catch (err) {
     console.error('[GET /api/document-chat]', err);
@@ -212,6 +227,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
       void deriveRetrospectiveLabel(current.id);
     }
     const session = await createFocusedSession(ref, override, permissions);
+    await recordAppChat(ref, session);
     return reply({ session });
   } catch (err) {
     console.error('[POST /api/document-chat]', err);

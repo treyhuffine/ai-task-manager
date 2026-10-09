@@ -259,7 +259,7 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuItem onSelect={() => setPickingDevice(true)} className="gap-2 py-2.5 text-[14px]">
-              <Laptop size={15} /> New execution on…
+              <Laptop size={15} /> New chat on…
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => openAgentTab('files')} className="gap-2 py-2.5 text-[14px]">
@@ -278,7 +278,7 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
           onClick={() => handleCreateExecution()}
           disabled={creating}
           className="w-8 h-8 flex items-center justify-center rounded-lg text-primary active:bg-primary/10 transition-colors flex-shrink-0 disabled:opacity-40"
-          aria-label="New execution"
+          aria-label="New chat"
         >
           <Plus size={18} />
         </button>
@@ -316,7 +316,7 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
               disabled={creating}
               className="ml-9 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium text-primary active:bg-primary/10 transition-colors disabled:opacity-40"
             >
-              <Plus size={13} /> New execution
+              <Plus size={13} /> New chat
             </button>
           ) : (
             <>

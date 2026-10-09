@@ -5,6 +5,7 @@ import { ContentPanel } from '@/components/dashboard/content-panel';
 import { PowerRail } from '@/components/dashboard/power-rail';
 import { ExecutionView } from '@/components/executions/execution-view';
 import { AgentView } from '@/components/agents/agent-view';
+import { AppsShell } from '@/components/local-apps/apps-shell';
 import { SkillView } from '@/components/skills/skill-view';
 
 /**
@@ -23,7 +24,7 @@ export function TabletLayout() {
       <PowerRail fixed />
 
       <div className="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col">
-        {activeView.kind === 'execution' ? (
+        {activeView.kind === 'apps' ? (<AppsShell route={activeView.route}/>) : activeView.kind === 'execution' ? (
           <ExecutionView sessionId={activeView.id} />
         ) : activeView.kind === 'agent' ? (
           <AgentView workspaceId={activeView.id} tab={activeView.tab} />

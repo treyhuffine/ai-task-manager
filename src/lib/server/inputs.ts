@@ -8,7 +8,7 @@ export const chatOverrideSchema = z.object({
   variant: z.string().optional(), effort: z.enum(EFFORT_LEVELS).optional(),
 }).strict();
 export const contentChatSchema = chatOverrideSchema.extend({
-  entityType: z.enum(['task', 'note', 'skill', 'skill-try']), entityId: z.string().min(1),
+  entityType: z.enum(['task', 'note', 'skill', 'skill-try', 'app', 'app-builder', 'app-try']), entityId: z.string().min(1),
 });
 export const pathBody = z.object({ path: z.string().min(1) }).strict();
 export const fileBody = z.object({ content: z.string() }).strict();

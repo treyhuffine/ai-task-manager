@@ -9,6 +9,7 @@ import { PowerRail } from './power-rail';
 import { PanelLayout } from './panel-layout';
 import { ExecutionView } from '@/components/executions/execution-view';
 import { AgentView } from '@/components/agents/agent-view';
+import { AppsShell } from '@/components/local-apps/apps-shell';
 import { SkillView } from '@/components/skills/skill-view';
 import { FocusView } from './focus-view';
 import { SearchOverlay } from '@/components/shared/search-overlay';
@@ -61,14 +62,14 @@ function DashboardShell() {
   // Keep a ref so the keyboard handler can read `isExecutionView`
   // without re-binding on every navigation.
   const isExecutionViewRef = useRef(isExecutionView);
-  isExecutionViewRef.current = isExecutionView;
+  useEffect(() => { isExecutionViewRef.current = isExecutionView; }, [isExecutionView]);
 
   // Latest validated execution id — drives ⌘E "reopen" from the
   // dashboard. Kept in a ref so the global keydown handler can read
   // the current value without re-subscribing as the rail data changes.
   const latestExecutionId = useLatestExecutionId();
   const latestExecutionIdRef = useRef(latestExecutionId);
-  latestExecutionIdRef.current = latestExecutionId;
+  useEffect(() => { latestExecutionIdRef.current = latestExecutionId; }, [latestExecutionId]);
 
   // Global hotkeys: voice chat (⌘J), quick capture (⌘⇧K), rail toggle (⌘\)
   // ⌘\ targets `executionRailOpen` when on an execution surface and
@@ -146,7 +147,7 @@ function DashboardShell() {
         {(tier === null || tier === 'desktop') && (
           <div className="hidden lg:flex flex-1 min-h-0 overflow-hidden">
             <PowerRail compact={isExecutionView} />
-            {activeView.kind === 'execution' ? (
+            {activeView.kind === 'apps' ? (<AppsShell route={activeView.route}/>) : activeView.kind === 'execution' ? (
               <ExecutionView sessionId={activeView.id} />
             ) : activeView.kind === 'agent' ? (
               <AgentView workspaceId={activeView.id} tab={activeView.tab} />

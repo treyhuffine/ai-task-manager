@@ -326,7 +326,7 @@ describe('POST /api/sessions/[id]/messages — pre-flight behavior', () => {
   });
 
   it('retry + budget block → 201 (budget pre-flight bypassed on retry)', async () => {
-    getChatEventById.mockReturnValue({ id: CLIENT_ID, sessionId: SESSION_ID });
+    getChatEventById.mockReturnValue({ id: CLIENT_ID, sessionId: SESSION_ID, role: 'user', source: 'user', content: 'hello' });
     budgetGate.mockReturnValue('block');
     insertChatEvent.mockReturnValue(null);
 
@@ -473,4 +473,18 @@ describe('POST /api/sessions/[id]/messages — the first-run question on screen'
     expect(res.status).toBe(201);
     await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(SESSION_ID, 'hello'));
   });
+});
+
+it('rejects a reused accepted ID with changed content or a different receiving chat', async () => {
+  getChatEventById.mockReturnValue({ id: CLIENT_ID, sessionId: SESSION_ID, role: 'user', source: 'user', content: 'original' });
+  const changed = await POST(makeRequest({ content: 'changed', id: CLIENT_ID }), makeParams());
+  expect(changed.status).toBe(409); expect(insertChatEvent).not.toHaveBeenCalled();
+  getChatEventById.mockReturnValue({ id: CLIENT_ID, sessionId: 'another-chat', role: 'user', source: 'user', content: 'hello' });
+  const other = await POST(makeRequest({ content: 'hello', id: CLIENT_ID }), makeParams());
+  expect(other.status).toBe(409); expect(dispatch).not.toHaveBeenCalled();
+});
+it('refuses a malformed source before accepting the event or dispatching a harness', async () => {
+  getChatEventById.mockReturnValue(null);
+  const response = await POST(makeRequest({ content: '[[source:broken]]', id: CLIENT_ID }), makeParams());
+  expect(response.status).toBe(409); expect(insertChatEvent).not.toHaveBeenCalled(); expect(dispatch).not.toHaveBeenCalled();
 });

@@ -3,7 +3,7 @@
 /**
  * Where a new execution starts, when it isn't the usual place (spec §3.3,
  * P3.1 on the phone). A plain + starts on the agent's default, the home
- * unless it was changed, with nothing to decide. "New execution on…" in the
+ * unless it was changed, with nothing to decide. "New chat on…" in the
  * agent's ⋯ menu opens this: each device that can take the agent's work,
  * the default marked, and Make this the default as its own action. Picking
  * one starts that one execution there and changes nothing else. A device
@@ -38,7 +38,7 @@ export function RunOnSheet({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="bottom" showCloseButton={false} className="rounded-t-2xl px-5 pb-8 pt-4">
           <div className="mx-auto mb-4 h-1 w-8 rounded-full bg-muted-foreground/30" />
-          <SheetTitle className="mb-2 text-[15px] font-semibold">New execution in {workspace.name}, on…</SheetTitle>
+          <SheetTitle className="mb-2 text-[15px] font-semibold">New chat in {workspace.name}, on…</SheetTitle>
           {isLoading || !runOn ? (
             <p className="flex items-center gap-2 py-4 text-[13px] text-muted-foreground">
               <Loader2 size={14} className="animate-spin" /> Checking where it can run…

@@ -129,7 +129,7 @@ export function HistoryView() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="px-3 py-4 text-center text-[10px] text-muted-foreground/70 leading-relaxed">
-          {sessions.length === 0 ? 'No executions yet.' : 'Nothing matches your filter.'}
+          {sessions.length === 0 ? 'No chats yet.' : 'Nothing matches your filter.'}
         </div>
       ) : (
         <div className="flex flex-col pt-1">
