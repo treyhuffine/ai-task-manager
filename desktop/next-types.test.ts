@@ -145,7 +145,7 @@ describe('Next build profile selection', () => {
   it.each([
     ...profiles,
     { dist: '', config: 'tsconfig.json' },
-    { dist: '.next-custom', config: 'tsconfig.json' },
+    { dist: '.next-custom', config: 'tsconfig.next-f74ec513e376870b.json' },
   ])('uses $config for NEXT_DIST_DIR=$dist without disabling type checks', async ({ config, dist }) => {
     vi.stubEnv('NEXT_DIST_DIR', dist);
     vi.resetModules();

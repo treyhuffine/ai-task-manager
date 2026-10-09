@@ -145,6 +145,7 @@ Repeatable checks, all with disposable test roots:
 pnpm exec vitest run --maxWorkers=4
 pnpm desktop:test
 pnpm desktop:build
+pnpm smoke:boot
 RI_SERVICE_TEST_COMPILED=1 pnpm exec vitest run src/service/worker-lifecycle.test.ts --maxWorkers=1
 # After building a package, set RI_DESKTOP_PACKAGE to that .app or linux-unpacked folder.
 pnpm desktop:companion-smoke
@@ -157,6 +158,8 @@ pnpm desktop:capture-smoke
 pnpm exec tsx desktop/service-lifecycle-smoke.ts "$RI_RUNTIME_PACKAGE"
 pnpm exec tsx desktop/update-smoke.ts "$RI_RUNTIME_PACKAGE"
 ```
+
+`pnpm cli:build` (also run by `pnpm desktop:build`) checks the emitted CLI with plain Node and a disposable Home before packaging. `pnpm smoke:boot` rebuilds and runs that same check. This catches unresolved native ESM imports which source tests using tsx or Next's loader can hide. Shared CLI/service modules use standard Web APIs such as `Response` for redirects rather than importing `next/server`.
 
 The companion driver uses a packaged Home plus an explicitly development-mode source viewer over a loopback HTTP proxy that validates only the fixture Home's certificate. It separately verifies normal remote TLS rejection. It never disables certificate validation in a packaged app or changes OS certificate trust. Real remote trusted-HTTPS deployment remains a qualification gate. CI runs the companion and draft-upgrade drivers in the existing native macOS/Linux matrix and retains their reports/screenshots.
 

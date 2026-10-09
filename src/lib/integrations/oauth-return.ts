@@ -1,5 +1,3 @@
-import { NextResponse } from 'next/server';
-
 /**
  * Where an OAuth callback lands the browser once the exchange is done.
  *
@@ -118,6 +116,7 @@ export function oauthReturnRedirect(
   const url = resolveInApp(target?.path ?? DEFAULT_OAUTH_RETURN_PATH) ?? new URL(DEFAULT_OAUTH_RETURN_PATH, IN_APP);
   for (const [key, value] of Object.entries(result)) url.searchParams.set(key, value);
   const location = `${url.pathname}${url.search}${url.hash}`;
-  if (target?.origin) return NextResponse.redirect(new URL(location, target.origin));
+  // Shared with the CLI and service, which run under Node without Next's loader.
+  if (target?.origin) return Response.redirect(new URL(location, target.origin), 307);
   return new Response(null, { status: 307, headers: { Location: location } });
 }

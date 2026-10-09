@@ -1,4 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { build } from 'esbuild';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   DEFAULT_OAUTH_RETURN_PATH,
   oauthReturnRedirect,
@@ -81,6 +86,34 @@ describe('remember / take', () => {
 });
 
 describe('oauthReturnRedirect', () => {
+  it('runs as bundled ESM under plain Node, as required by the packaged CLI', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-oauth-return-esm-'));
+    try {
+      const outfile = path.join(dir, 'oauth-return.mjs');
+      await build({
+        entryPoints: [path.resolve(__dirname, 'oauth-return.ts')],
+        outfile, bundle: true, platform: 'node', format: 'esm', packages: 'external',
+      });
+      // Resolve external imports from the checkout as the production deploy
+      // does. Without this link, any package import would fail indiscriminately.
+      fs.symlinkSync(path.resolve(__dirname, '../../../node_modules'), path.join(dir, 'node_modules'), 'dir');
+      const probe = `
+        import assert from 'node:assert/strict';
+        import { oauthReturnRedirect } from ${JSON.stringify(outfile)};
+        const response = oauthReturnRedirect({ origin: 'https://ri.example', path: '/welcome?step=connect#done' }, { connected: 'a@b.co' });
+        assert.equal(response.status, 307);
+        assert.equal(response.headers.get('location'), 'https://ri.example/welcome?step=connect&connected=a%40b.co#done');
+        assert.equal(await response.text(), '');
+      `;
+      const env = { ...process.env };
+      delete env.NODE_OPTIONS;
+      delete env.ELECTRON_RUN_AS_NODE;
+      execFileSync(process.execPath, ['--input-type=module', '-e', probe], { env, timeout: 10_000 });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('lands on the recorded origin, not the loopback address Next reports', () => {
     const res = oauthReturnRedirect({ origin: 'https://ri-trey.beamd.run', path: DEFAULT_OAUTH_RETURN_PATH }, { connected: 'a@b.co' });
     expect(res.status).toBe(307);
