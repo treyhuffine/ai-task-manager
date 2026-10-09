@@ -28,7 +28,6 @@ export function AgentChatsFlyout({
   return (
     <RailFlyout
       contentLabel={`${name} chats`}
-      anchor="trigger"
       hoverTarget={hoverTarget}
       onClick={onClick}
       trigger={trigger}
@@ -51,7 +50,7 @@ export function AgentChatsFlyout({
         </Tip>
       </div>
       <SessionHoverProvider disabled>
-        <nav aria-label={`${name} chats`} className="min-h-0 overflow-y-auto px-1 py-1.5">
+        <nav aria-label={`${name} chats`} className="min-h-0 flex-1 overflow-y-auto px-1 py-1.5">
           {children}
         </nav>
       </SessionHoverProvider>

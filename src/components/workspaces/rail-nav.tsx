@@ -56,7 +56,7 @@ export interface RailPlace {
   /** What the count means: work in flight (blue) or something waiting on you (amber). */
   tone?: 'live' | 'attention';
   /** Resting on the row peeks this beside the rail (Apps), in both rails. A click still goes where `onClick` goes. */
-  flyout?: { label: string; content: ReactNode; anchor?: 'rail' | 'trigger' };
+  flyout?: { label: string; content: ReactNode };
 }
 
 export function useRailPlaces({
@@ -193,7 +193,6 @@ export function RailRows({ places, label }: { places: readonly RailPlace[]; labe
           <RailFlyout
             key={place.id}
             contentLabel={place.flyout.label}
-            anchor={place.flyout.anchor}
             onClick={place.onClick}
             trigger={({ ref, open }) => <RailRow ref={ref} place={place} pressed={open} onClick={undefined} />}
           >
@@ -240,7 +239,6 @@ export function RailStripActions({ places }: { places: readonly RailPlace[] }) {
             mark={mark}
             label={title}
             contentLabel={flyout.label}
-            anchor={flyout.anchor}
             onClick={onClick}
             active={active}
             badge={badge}

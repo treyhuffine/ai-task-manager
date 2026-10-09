@@ -6,7 +6,6 @@ import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { viewKey } from '@/lib/client/active-view';
 import { nextFlyoutState, type FlyoutEvent, type FlyoutState } from '@/lib/client/rail-flyout';
-import { cn } from '@/lib/utils';
 import { RailIconButton } from './rail-icon-button';
 
 /** How long the pointer rests on the trigger before the flyout peeks. */
@@ -40,18 +39,12 @@ export function useDismissRailFlyout() {
  * With `onClick`, a click goes there instead of holding the flyout (the Apps
  * row opens the library), and the flyout is a hover peek only: it shows while
  * the pointer is on the trigger or inside it, and hides when it leaves.
- *
- * `anchor` is where it hangs: `rail` runs the rail's full height beside it
- * (the Agents list, which can be long), `trigger` starts level with the
- * button and is as tall as its content (the Apps menu), so it reads as the
- * row's own menu rather than a second column.
  */
 export function RailFlyout({
   contentLabel,
   trigger,
   onClick,
   hoverTarget,
-  anchor = 'rail',
   children,
 }: {
   /** The flyout's accessible name. */
@@ -61,7 +54,6 @@ export function RailFlyout({
   onClick?: () => void;
   /** Hover the whole row while keeping its name button as the accessible trigger. */
   hoverTarget?: RefObject<HTMLElement | null>;
-  anchor?: 'rail' | 'trigger';
   children: ReactNode;
 }) {
   const { activeView } = useDashboard();
@@ -141,15 +133,11 @@ export function RailFlyout({
   const button = useRef<HTMLButtonElement>(null);
   const content = useRef<HTMLDivElement>(null);
   // The anchor is measured when Radix asks, so one stable object for the
-  // whole life of the flyout: the rail's edge, at the rail's height or the
-  // trigger's. `anchor` doesn't change for a given trigger.
+  // whole life of the flyout: the rail's edge, at its full height. A nested
+  // chat chooser uses the containing Agents flyout's edge and height.
   const [railEdge] = useState(() => ({
     getBoundingClientRect: () => {
-      const rail = (button.current?.closest('[data-rail-flyout], aside') ?? button.current)?.getBoundingClientRect();
-      if (!rail) return new DOMRect();
-      if (anchor === 'rail') return rail;
-      const row = button.current?.getBoundingClientRect() ?? rail;
-      return new DOMRect(rail.left, row.top, rail.width, row.height);
+      return (button.current?.closest('[data-rail-flyout], aside') ?? button.current)?.getBoundingClientRect() ?? new DOMRect();
     },
   }));
 
@@ -210,8 +198,7 @@ export function RailFlyout({
           side="right"
           align="start"
           sideOffset={0}
-          avoidCollisions={anchor === 'trigger'}
-          collisionPadding={8}
+          avoidCollisions={false}
           aria-label={contentLabel}
           data-rail-flyout=""
           onOpenAutoFocus={(e) => {
@@ -238,12 +225,7 @@ export function RailFlyout({
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
-          className={cn(
-            'z-50 flex w-[256px] flex-col bg-background shadow-xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-left-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0',
-            anchor === 'rail'
-              ? 'h-[var(--radix-popper-anchor-height)] border-r border-border'
-              : 'max-h-[min(70vh,520px)] rounded-r-xl border border-l-0 border-border',
-          )}
+          className="z-50 flex h-[var(--radix-popper-anchor-height)] w-[256px] flex-col border-r border-border bg-background shadow-xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-left-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0"
         >
           <RailFlyoutDismissContext.Provider value={dismiss}>
             {children}
@@ -263,7 +245,6 @@ export function StripFlyout({
   active = false,
   badge,
   onClick,
-  anchor,
   children,
 }: {
   icon?: LucideIcon;
@@ -274,14 +255,12 @@ export function StripFlyout({
   active?: boolean;
   badge?: ReactNode;
   onClick?: () => void;
-  anchor?: 'rail' | 'trigger';
   children: ReactNode;
 }) {
   return (
     <RailFlyout
       contentLabel={contentLabel}
       onClick={onClick}
-      anchor={anchor}
       trigger={({ ref, open }) => (
         <RailIconButton ref={ref} icon={icon} mark={mark} label={label} hideTip={open} active={active || open} badge={badge} />
       )}

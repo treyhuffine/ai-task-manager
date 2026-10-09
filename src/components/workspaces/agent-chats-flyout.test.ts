@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
-import { chromium, type Browser, type Page } from 'playwright-core';
+import { chromium, type Browser, type Locator, type Page } from 'playwright-core';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 
 interface FixtureWindow extends Window {
@@ -39,12 +39,14 @@ beforeAll(async () => {
     const record=(kind,value)=>window.actions.push({kind,value});
     const isInactive=s=>s.id==='inactive';
     export function FixtureProvider({children}) {
-      const [state,setState]=useState({collapsed:true,selecting:false,empty:false});
+      const [state,setState]=useState({collapsed:true,selecting:false,empty:false,many:false});
       const [activeView,navigate]=useState({kind:'home'});
       window.fixture={patch:patch=>setState(prev=>({...prev,...patch})),navigate};
       const value={state,activeView,setActiveView:view=>{record('navigate',view);navigate(view)},
         workspace:{id:'agent',name:'Review agent',purpose:null,isGit:true,attachments:[],emoji:null,areaId:null,collapsed:state.collapsed},
-        sessions:state.empty?[]:rows,
+        sessions:state.empty?[]:state.many?[...rows,...Array.from({length:80},(_,i)=>({
+          ...rows[0],id:'extra-'+i,label:'Chat '+i,executionId:'extra-'+i,execution:{label:'Chat '+i,pinnedAt:null},
+        }))]:rows,
         openAgent:id=>{record('agent',id);navigate({kind:'agent',id})},
         update:input=>{record('update',input);setState(prev=>({...prev,collapsed:input.collapsed}))},
       };
@@ -94,7 +96,11 @@ beforeAll(async () => {
         <aside style={{width:params.has('nested')?44:256}}>
           {params.has('nested')?<RailFlyout contentLabel="Agents" trigger={({ref})=><button ref={ref}>Agents</button>}>
             <Rows/>
-          </RailFlyout>:<Rows/>}
+          </RailFlyout>:<>
+            <RailFlyout contentLabel="Apps" onClick={()=>{}} trigger={({ref})=><button ref={ref}>Apps</button>}>
+              <div className="min-h-8 border-b">Apps</div><nav>Example app</nav>
+            </RailFlyout><Rows/>
+          </>}
         </aside><button id="outside">Outside</button>
       </SessionHoverProvider></FixtureProvider>;}
       createRoot(document.getElementById('root')).render(<App/>);
@@ -114,7 +120,7 @@ beforeAll(async () => {
     if (req.url === '/app.js') { res.setHeader('Content-Type', 'text/javascript'); res.end(bundle.outputFiles[0]!.text); return; }
     if (req.url === '/app.css') { res.setHeader('Content-Type', 'text/css'); res.end(css.css); return; }
     res.setHeader('Content-Type', 'text/html');
-    res.end('<!doctype html><link rel="stylesheet" href="/app.css"><style>aside{position:fixed;inset:0 auto 0 0;padding:48px 4px;background:var(--background)}#outside{position:fixed;left:800px;top:40px}</style><div id="root"></div><script src="/app.js"></script>');
+    res.end('<!doctype html><link rel="stylesheet" href="/app.css"><style>aside{position:fixed;inset:24px auto 16px 0;padding:16px 4px;background:var(--background)}#agent-row{margin-top:200px}#outside{position:fixed;left:800px;top:40px}</style><div id="root"></div><script src="/app.js"></script>');
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -134,6 +140,18 @@ const nameButton = (page: Page) => page.locator('#agent-row button').filter({ ha
 const flyout = (page: Page) => page.getByRole('dialog', { name: 'Review agent chats', exact: true });
 const actions = (page: Page) => page.evaluate(() => (window as unknown as FixtureWindow).actions);
 
+async function expectFullHeight(panel: Locator, rail: Locator) {
+  const bounds = await rail.boundingBox();
+  expect(bounds).not.toBeNull();
+  await expect.poll(async () => (await panel.boundingBox())?.height).toBeCloseTo(bounds!.height, 1);
+  await expect.poll(async () => (await panel.boundingBox())?.x).toBeCloseTo(bounds!.x + bounds!.width, 1);
+  expect((await panel.boundingBox())?.y).toBeCloseTo(bounds!.y, 1);
+  expect(await panel.evaluate(el => ({
+    radius: getComputedStyle(el).borderTopRightRadius,
+    maxHeight: getComputedStyle(el).maxHeight,
+  }))).toEqual({ radius: '0px', maxHeight: 'none' });
+}
+
 it.each(['agents', 'classic'])('%s: chooses a collapsed chat without unfolding, and preserves navigation and dismissal', async (style) => {
   const page = await browser.newPage();
   page.setDefaultTimeout(3_000);
@@ -141,6 +159,14 @@ it.each(['agents', 'classic'])('%s: chooses a collapsed chat without unfolding, 
   try {
     await page.goto(`${base}/?style=${style}`);
     await nameButton(page).waitFor();
+    // Apps uses the default shared layout. Both choosers must match the
+    // rail even when their trigger is much farther down the list.
+    await page.getByRole('button', { name: 'Apps', exact: true }).hover();
+    const apps = page.getByRole('dialog', { name: 'Apps', exact: true });
+    await apps.waitFor();
+    await expectFullHeight(apps, page.locator('aside'));
+    await page.locator('#outside').hover();
+    await apps.waitFor({ state: 'hidden' });
     const header = page.locator('#agent-row .group').first();
     // Crossing a row briefly never opens a menu.
     await header.hover();
@@ -150,6 +176,7 @@ it.each(['agents', 'classic'])('%s: chooses a collapsed chat without unfolding, 
     // Hover the icon rather than the name to exercise the whole header.
     await header.locator('button').first().hover();
     await flyout(page).waitFor();
+    await expectFullHeight(flyout(page), page.locator('aside'));
     const nav = flyout(page).getByRole('navigation');
     expect(await nav.locator('[role="button"]').allTextContents()).toEqual(expect.arrayContaining([
       expect.stringContaining('Latest chat'), expect.stringContaining('Older recent chat'),
@@ -210,6 +237,7 @@ it('keeps inactive chats and nested menus usable, including inside the collapsed
     await page.getByRole('dialog', { name: 'Agents', exact: true }).waitFor();
     await nameButton(page).hover();
     await flyout(page).waitFor();
+    await expectFullHeight(flyout(page), page.getByRole('dialog', { name: 'Agents', exact: true }));
     await flyout(page).getByRole('button', { name: /Latest chat/ }).hover();
     await page.waitForTimeout(300);
     expect(await flyout(page).isVisible()).toBe(true);
@@ -230,5 +258,33 @@ it('keeps inactive chats and nested menus usable, including inside the collapsed
     await page.screenshot({ path: path.join(os.tmpdir(), 'agent-chats-flyout-failure.png') });
     console.error({ actions: await actions(page), body: await page.locator('body').innerText() });
     throw error;
+  } finally { await page.close(); }
+}, 20_000);
+
+it('scrolls long chat lists below a fixed header and follows the rail height on resize', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  page.setDefaultTimeout(3_000);
+  try {
+    await page.goto(base);
+    await nameButton(page).waitFor();
+    await page.evaluate(() => (window as unknown as FixtureWindow).fixture.patch({ many: true }));
+    await nameButton(page).hover();
+    const panel = flyout(page);
+    await panel.waitFor();
+    await expectFullHeight(panel, page.locator('aside'));
+    const header = panel.locator(':scope > div').first();
+    const headerTop = (await header.boundingBox())!.y;
+    const nav = panel.getByRole('navigation');
+    expect(await nav.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+    await nav.hover();
+    await nav.evaluate(el => { el.scrollTop = el.scrollHeight; });
+    expect((await header.boundingBox())!.y).toBe(headerTop);
+    expect(await nav.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+    await expectFullHeight(panel, page.locator('aside'));
+    await page.setViewportSize({ width: 1280, height: 480 });
+    await expectFullHeight(panel, page.locator('aside'));
+    expect(await nav.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+    if (process.env.RI_FLYOUT_SCREENSHOT) await page.screenshot({ path: process.env.RI_FLYOUT_SCREENSHOT });
+    expect(await actions(page)).toEqual([]);
   } finally { await page.close(); }
 }, 20_000);

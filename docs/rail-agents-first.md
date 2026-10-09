@@ -29,7 +29,7 @@ So there's one state vocabulary for every conversation, the same colors and shap
 
 **Hiding executions** is one click on the agent row's hover (the chevrons next to +). Hidden executions fold into one line, like "› 6 executions · 1 needs you · 2 working", so hiding never hides what wants you, and clicking that line shows them again.
 
-When chats are hidden, hovering the agent's header opens its chat chooser beside the rail, using the same flyout as Apps. Selecting a chat opens it without expanding the list. Inactive chats, their Show toggle and each chat's menu work the same as in the expanded list. Right arrow on the agent's name enters the chooser from the keyboard. See [rail.md](rail.md) for timing and dismissal rules.
+When chats are hidden, hovering the agent's header opens its chat chooser beside the rail, using the same full-height flyout as Apps. The header stays at the top while long chat lists scroll beneath it. Selecting a chat opens it without expanding the list. Inactive chats, their Show toggle and each chat's menu work the same as in the expanded list. Right arrow on the agent's name enters the chooser from the keyboard. See [rail.md](rail.md) for timing and dismissal rules.
 
 **Needs you** (the group at the top, formerly Unread) lists everything that wants you across agents: agents first, then executions, the same order as the tree. The header's Unread and Needs approval pills and the collapsed rail's Agents badge count agents the same way, through `useAgentAttention`, so they always agree with each other and with the agent's own row.
 
